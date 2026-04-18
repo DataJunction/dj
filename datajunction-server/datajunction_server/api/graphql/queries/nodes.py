@@ -20,6 +20,16 @@ logger = logging.getLogger(__name__)
 
 
 async def find_nodes(
+    search: Annotated[
+        str | None,
+        strawberry.argument(
+            description=(
+                "Full-text search across node name, display name, and description. "
+                "Results are ranked by pg_trgm similarity and boosted toward the "
+                "main branch when a node exists in a git-backed namespace."
+            ),
+        ),
+    ] = None,
     fragment: Annotated[
         str | None,
         strawberry.argument(
@@ -156,10 +166,22 @@ async def find_nodes(
         limit=limit,
         order_by=order_by,
         ascending=ascending,
+        search=search,
     )
 
 
 async def find_nodes_paginated(
+    search: Annotated[
+        str | None,
+        strawberry.argument(
+            description=(
+                "Full-text search across node name, display name, and description. "
+                "When set, results are filtered by trigram match. Ranking by "
+                "similarity is applied only on the unpaginated `findNodes` query; "
+                "paginated results keep the normal sort order."
+            ),
+        ),
+    ] = None,
     fragment: Annotated[
         str | None,
         strawberry.argument(
@@ -290,6 +312,7 @@ async def find_nodes_paginated(
         statuses=statuses,
         has_materialization=has_materialization,
         orphaned_dimension=orphaned_dimension,
+        search=search,
     )
     return Connection.from_list(
         items=nodes_list,

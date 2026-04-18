@@ -137,6 +137,7 @@ async def find_nodes_by(
     statuses: Optional[List[NodeStatus]] = None,
     has_materialization: bool = False,
     orphaned_dimension: bool = False,
+    search: Optional[str] = None,
 ) -> List[DBNode]:
     """
     Finds nodes based on the search parameters. This function also tries to optimize
@@ -193,6 +194,7 @@ async def find_nodes_by(
         has_materialization=has_materialization,
         orphaned_dimension=orphaned_dimension,
         dimensions=dimensions,
+        search=search,
     )
 
     # For the name-only cube path, fetch column data as raw tuples instead

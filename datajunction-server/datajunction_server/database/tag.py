@@ -2,7 +2,18 @@
 
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from sqlalchemy import JSON, BigInteger, Column, ForeignKey, Integer, String, select
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Column,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    func,
+    or_,
+    select,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, joinedload, mapped_column, relationship
 from sqlalchemy.sql.base import ExecutableOption
@@ -22,6 +33,20 @@ class Tag(Base):
     """
 
     __tablename__ = "tag"
+    __table_args__ = (
+        Index(
+            "ix_tag_name_trgm",
+            "name",
+            postgresql_using="gin",
+            postgresql_ops={"name": "gin_trgm_ops"},
+        ),
+        Index(
+            "ix_tag_description_trgm",
+            "description",
+            postgresql_using="gin",
+            postgresql_ops={"description": "gin_trgm_ops"},
+        ),
+    )
 
     id: Mapped[int] = mapped_column(
         BigInteger().with_variant(Integer, "sqlite"),
@@ -68,6 +93,52 @@ class Tag(Base):
             statement = statement.where(Tag.tag_type.in_(tag_types))
         if options:
             statement = statement.options(*options)
+        return (await session.execute(statement)).scalars().all()
+
+    @classmethod
+    async def search_tags(
+        cls,
+        session: AsyncSession,
+        search: str,
+        limit: int = 10,
+    ) -> list["Tag"]:
+        """
+        Trigram-ranked search across tag name, display name, and description.
+        Single-char queries fall back to prefix matching on name/display_name
+        since trigram similarity isn't meaningful at that length.
+        """
+        if len(search) < 2:
+            prefix = f"{search}%"
+            statement = (
+                select(Tag)
+                .where(
+                    or_(
+                        Tag.name.ilike(prefix),
+                        Tag.display_name.ilike(prefix),
+                    ),
+                )
+                .order_by(Tag.name.asc())
+                .limit(limit)
+            )
+        else:
+            pattern = f"%{search}%"
+            score = func.greatest(
+                func.similarity(Tag.name, search),
+                func.similarity(Tag.display_name, search) * 0.9,
+                func.similarity(Tag.description, search) * 0.4,
+            )
+            statement = (
+                select(Tag)
+                .where(
+                    or_(
+                        Tag.name.ilike(pattern),
+                        Tag.display_name.ilike(pattern),
+                        Tag.description.ilike(pattern),
+                    ),
+                )
+                .order_by(score.desc(), Tag.name.asc())
+                .limit(limit)
+            )
         return (await session.execute(statement)).scalars().all()
 
     @classmethod

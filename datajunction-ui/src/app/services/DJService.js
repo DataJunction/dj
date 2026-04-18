@@ -1774,6 +1774,57 @@ export const DataJunctionAPI = {
     });
     return await response.json();
   },
+
+  globalSearch: async function (
+    query,
+    { signal, nodeLimit = 10, tagLimit = 5 } = {},
+  ) {
+    const gqlQuery = `
+      query GlobalSearch($q: String!, $nodeLimit: Int!, $tagLimit: Int!) {
+        findNodes(search: $q, limit: $nodeLimit) {
+          name
+          type
+          current {
+            displayName
+            description
+          }
+        }
+        searchTags(search: $q, limit: $tagLimit) {
+          name
+          displayName
+          description
+          tagType
+        }
+      }
+    `;
+    const response = await fetch(DJ_GQL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      signal,
+      body: JSON.stringify({
+        query: gqlQuery,
+        variables: { q: query, nodeLimit, tagLimit },
+      }),
+    });
+    const result = await response.json();
+    const nodes = (result?.data?.findNodes || []).map(node => ({
+      name: node.name,
+      display_name: node.current?.displayName || node.name,
+      description: node.current?.description || '',
+      type: node.type?.toLowerCase() || '',
+      kind: 'node',
+    }));
+    const tags = (result?.data?.searchTags || []).map(tag => ({
+      name: tag.name,
+      display_name: tag.displayName || tag.name,
+      description: tag.description || '',
+      type: 'tag',
+      tag_type: tag.tagType,
+      kind: 'tag',
+    }));
+    return { nodes, tags };
+  },
   users: async function () {
     return await (
       await fetch(`${DJ_URL}/users?with_activity=true`, {
