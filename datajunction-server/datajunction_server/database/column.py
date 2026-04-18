@@ -145,9 +145,9 @@ class Column(Base):  # type: ignore
 
     def attribute_names(self) -> list[str]:
         """
-        A list of column attribute names
+        A list of column attribute names, sorted alphabetically.
         """
-        return [attr.attribute_type.name for attr in self.attributes]
+        return sorted(attr.attribute_type.name for attr in self.attributes)
 
     def has_attributes_besides(self, attribute_name: str) -> bool:
         """

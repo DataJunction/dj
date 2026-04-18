@@ -523,13 +523,13 @@ def _get_dir_and_filename(
 
 def _non_primary_key_attributes(column: Column):
     """
-    Returns all non-PK column attributes for a column
+    Returns all non-PK column attributes for a column, sorted alphabetically.
     """
-    return [
+    return sorted(
         attr.attribute_type.name
         for attr in column.attributes
         if attr.attribute_type.name not in ("primary_key",)
-    ]
+    )
 
 
 def _attributes_config(column: Column):

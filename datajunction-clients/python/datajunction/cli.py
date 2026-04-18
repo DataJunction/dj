@@ -1477,6 +1477,9 @@ class DJCLI:
                     verbose=args.verbose,
                     force=args.force,
                 )
+            except DJDeploymentFailure:
+                # Errors already displayed in the deployment panel
+                raise SystemExit(1)
             except DJClientException as exc:
                 Console().print(f"[red bold]ERROR:[/red bold] {exc}")
                 raise SystemExit(1)

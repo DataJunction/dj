@@ -1830,7 +1830,9 @@ class TestDeployments:
         assert data["status"] == "success"
         assert data["results"][-1] == {
             "deploy_type": "node",
-            "message": "Updated cube (v2.0)\n[invalid] One or more dimensions not found for cube "
+            "message": "Updated cube (v2.0)\n"
+            "└─ Updated dimensions\n"
+            "[invalid] One or more dimensions not found for cube "
             "cube_update.default.repairs_cube: cube_update.default.us_state.non_existent_column",
             "name": "cube_update.default.repairs_cube",
             "operation": "update",
@@ -1838,7 +1840,9 @@ class TestDeployments:
             "status": "invalid",
         }
 
-        # Update cube to add an existing dimension - should deploy successfully
+        # Remove the bad dimension — but the invalid cube was already deployed
+        # without it (missing dimensions are skipped), so the spec is unchanged
+        # and the cube stays INVALID.
         cube.dimensions = [
             "${prefix}default.hard_hat.state",
             "${prefix}default.us_state.state_region",
@@ -1850,11 +1854,11 @@ class TestDeployments:
         assert data["status"] == "success"
         assert data["results"][-1] == {
             "deploy_type": "node",
-            "message": "Updated cube (v3.0)\n└─ Updated metrics, dimensions",
+            "message": "Unchanged, still INVALID",
             "name": "cube_update.default.repairs_cube",
-            "operation": "update",
-            "changed_fields": ["metrics", "dimensions"],
-            "status": "success",
+            "operation": "noop",
+            "changed_fields": [],
+            "status": "invalid",
         }
 
     @pytest.mark.asyncio
