@@ -127,6 +127,9 @@ client_secret*
 Untitled*
 .notebook_executed
 
+# dev slot config
+.dev-port
+
 # postgres
 postgres_metadata
 postgres_superset
