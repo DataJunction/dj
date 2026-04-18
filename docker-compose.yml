@@ -8,7 +8,7 @@ networks:
 
 services:
   dj:
-    container_name: dj
+    container_name: ${DJ_CONTAINER_PREFIX:-dj}
     stdin_open: true
     tty: true
     networks:
@@ -25,7 +25,7 @@ services:
       - /code/.venv  # Isolate container venv from local
     command: /bin/sh -c "uv sync --extra uvicorn --extra transpilation --no-dev && uv run opentelemetry-instrument uvicorn datajunction_server.api.main:app --host 0.0.0.0 --port 8000 --reload"
     ports:
-      - "8000:8000"
+      - "${DJ_PORT:-8000}:8000"
     depends_on:
       - db-migration
       - postgres_metadata
@@ -40,7 +40,7 @@ services:
 
   dj-seed:
     image: python:3.11-slim
-    container_name: dj-seed
+    container_name: ${DJ_CONTAINER_PREFIX:-dj}-seed
     profiles: ["demo"]
     depends_on:
       - dj
@@ -55,7 +55,7 @@ services:
       "
 
   postgres_metadata:
-    container_name: postgres_metadata
+    container_name: ${DJ_CONTAINER_PREFIX:-dj}-postgres
     image: postgres:latest
     shm_size: 1g
     networks:
@@ -79,7 +79,7 @@ services:
       - POSTGRES_DB=dj
       - PGUSER=dj
     ports:
-      - "5432:5432"
+      - "${DJ_PG_PORT:-5432}:5432"
     healthcheck:
       test: [ "CMD", "pg_isready" ]
       interval: 10s
@@ -87,11 +87,11 @@ services:
       retries: 5
 
   djui:
-    container_name: djui
+    container_name: ${DJ_CONTAINER_PREFIX:-dj}-ui
     image: node:20
     working_dir: /usr/src/app
     ports:
-      - "3000:3000"
+      - "${DJ_UI_PORT:-3000}:3000"
     stdin_open: true
     volumes:
       - ./datajunction-ui:/usr/src/app/
@@ -104,7 +104,7 @@ services:
     command: sh -c "yarn && yarn webpack-start --host 0.0.0.0 --port 3000"
 
   djqs:
-    container_name: djqs
+    container_name: ${DJ_CONTAINER_PREFIX:-dj}-qs
     profiles: ["demo"]
     stdin_open: true
     tty: true
@@ -118,13 +118,13 @@ services:
       - /code/.venv  # Isolate container venv from local
     command: /bin/bash -c "uv sync --extra uvicorn --no-dev && uv run uvicorn djqs.api.main:app --host 0.0.0.0 --port 8001 --reload"
     ports:
-      - "8001:8001"
+      - "${DJ_QS_PORT:-8001}:8001"
     depends_on:
       - djqs-db-migration
       - postgres_metadata
 
   db-migration:
-    container_name: db-migration
+    container_name: ${DJ_CONTAINER_PREFIX:-dj}-db-migration
     networks:
       - core
     build:
@@ -142,7 +142,7 @@ services:
       - "host.docker.internal:host-gateway"
 
   db-seed:
-    container_name: db-seed
+    container_name: ${DJ_CONTAINER_PREFIX:-dj}-db-seed
     networks:
       - core
     image: postgres:latest
@@ -159,7 +159,7 @@ services:
       "
 
   djqs-db-migration:
-    container_name: djqs-db-migration
+    container_name: ${DJ_CONTAINER_PREFIX:-dj}-qs-db-migration
     profiles: ["demo"]
     networks:
       - core
@@ -176,16 +176,16 @@ services:
         condition: service_healthy
 
   djrs-redis:
-    container_name: djrs-redis
+    container_name: ${DJ_CONTAINER_PREFIX:-dj}-rs-redis
     profiles: ["demo"]
     image: redis:6-alpine
     ports:
-      - "6379:6379"
+      - "${DJ_REDIS_PORT:-6379}:6379"
     networks:
       - djrs-network
 
   djrs-worker:
-    container_name: djrs-worker
+    container_name: ${DJ_CONTAINER_PREFIX:-dj}-rs-worker
     profiles: ["demo"]
     build:
       context: ./datajunction-reflection
@@ -201,7 +201,7 @@ services:
       - dj
 
   djrs-beat:
-    container_name: djrs-beat
+    container_name: ${DJ_CONTAINER_PREFIX:-dj}-rs-beat
     profiles: ["demo"]
     build:
       context: ./datajunction-reflection
@@ -218,12 +218,12 @@ services:
 
   jupyter-notebook:
     image: jupyter/scipy-notebook
-    container_name: jupyter
+    container_name: ${DJ_CONTAINER_PREFIX:-dj}-jupyter
     profiles: ["demo"]
     networks:
       - core
     ports:
-      - "8181:8888"
+      - "${DJ_JUPYTER_PORT:-8181}:8888"
     volumes:
       - ./notebooks:/home/jovyan/notebooks
       - ./datajunction-clients/python:/home/jovyan/notebooks/djclient
@@ -243,12 +243,12 @@ services:
       "
 
   dj-trino:
-    container_name: dj-trino
+    container_name: ${DJ_CONTAINER_PREFIX:-dj}-trino
     profiles: ["demo"]
     image: 'trinodb/trino:latest'
     hostname: trino-coordinator
     ports:
-      - '8080:8080'
+      - '${DJ_TRINO_PORT:-8080}:8080'
     networks:
       - djqs-network
 
@@ -303,6 +303,6 @@ services:
 
   superset-redis:
     image: redis:7
-    container_name: superset-redis
+    container_name: ${DJ_CONTAINER_PREFIX:-dj}-superset-redis
     restart: always
     profiles: ["superset"]
