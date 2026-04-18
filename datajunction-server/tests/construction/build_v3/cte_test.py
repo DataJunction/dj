@@ -395,6 +395,16 @@ class TestBuildCteProjectionMap:
             "bare_col": "t.bare_col",
         }
 
+    def test_unaliased_non_column_projection_is_omitted(self):
+        """A non-column projection without an alias has no addressable output
+        name, so it's simply skipped — not added to the map."""
+        query = parse(
+            "SELECT SUM(x), t.bare_col FROM t",
+        )
+        assert _build_cte_projection_map(query) == {
+            "bare_col": "t.bare_col",
+        }
+
 
 class TestRewriteFilterForCte:
     """Tests for _rewrite_filter_for_cte."""
