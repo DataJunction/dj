@@ -2267,6 +2267,22 @@ class TestDeploymentFailureExitsWithCode1:
                     cli.run()
                 assert exc_info.value.code == 1
 
+    def test_push_exits_1_on_generic_client_error(self, tmp_path):
+        """Non-deployment errors (e.g. network) also exit with code 1."""
+        from datajunction.cli import DJCLI
+        from datajunction.exceptions import DJClientException
+
+        cli = DJCLI(builder_client=mock.MagicMock())
+        with patch.object(
+            cli,
+            "push",
+            side_effect=DJClientException("Connection refused"),
+        ):
+            with patch.object(sys, "argv", ["dj", "push", str(tmp_path)]):
+                with pytest.raises(SystemExit) as exc_info:
+                    cli.run()
+                assert exc_info.value.code == 1
+
 
 class TestGenerateCodeowners:
     """Tests for `dj generate-codeowners` and DeploymentService.build_codeowners."""
