@@ -1,6 +1,8 @@
 """Tests for cte.py - CTE building and AST transformation utilities."""
 
 from datajunction_server.construction.build_v3.cte import (
+    _build_cte_projection_map,
+    _rewrite_filter_for_cte,
     get_column_full_name,
     inject_partition_by_into_windows,
     process_metric_combiner_expression,
@@ -349,3 +351,91 @@ class TestProcessMetricCombinerExpression:
         # Function should return without error; no PARTITION BY injected
         result_sql = str(result)
         assert "PARTITION BY" not in result_sql
+
+
+class TestBuildCteProjectionMap:
+    """Tests for _build_cte_projection_map — output-name → underlying ref."""
+
+    def test_unaliased_qualified_column(self):
+        """A table-qualified column maps its bare name to the qualified form."""
+        query = parse("SELECT t.test_id FROM some.table t")
+        assert _build_cte_projection_map(query) == {"test_id": "t.test_id"}
+
+    def test_unaliased_bare_column(self):
+        """A bare column maps its name to itself."""
+        query = parse("SELECT test_id FROM some.table")
+        assert _build_cte_projection_map(query) == {"test_id": "test_id"}
+
+    def test_aliased_column_uses_alias_as_key(self):
+        """An aliased column keys by the alias; the value is the underlying ref.
+
+        This is the load-bearing case for pushing filters into CTEs whose
+        output columns rename an upstream source column — the filter must
+        reference ``o.placed_on`` (valid in WHERE) rather than the alias
+        ``order_date`` (which Spark SQL rejects).
+        """
+        query = parse(
+            "SELECT o.placed_on AS order_date FROM src o",
+        )
+        assert _build_cte_projection_map(query) == {
+            "order_date": "o.placed_on",
+        }
+
+    def test_non_column_projections_omitted(self):
+        """Function calls and other non-column projections are skipped.
+
+        Callers should treat a missing entry as "don't push this filter into
+        this CTE" so we don't inline an arbitrary expression into WHERE.
+        """
+        query = parse(
+            "SELECT SUM(x) AS total, t.bare_col FROM t",
+        )
+        assert _build_cte_projection_map(query) == {"bare_col": "t.bare_col"}
+
+
+class TestRewriteFilterForCte:
+    """Tests for _rewrite_filter_for_cte."""
+
+    def test_rewrites_alias_to_underlying_reference(self):
+        """Filter on an aliased output column is rewritten to the qualified source.
+
+        Regression: previously produced ``WHERE order_date BETWEEN ...``,
+        which Spark SQL and other engines reject because SELECT-list aliases
+        aren't visible in the same query's WHERE.
+        """
+        cte_query = parse(
+            "SELECT o.placed_on AS order_date FROM src o",
+        )
+        rewritten = _rewrite_filter_for_cte(
+            "fact.orders.order_date BETWEEN 20260216 AND 20260402",
+            filter_column_aliases={
+                "fact.orders.order_date": "order_date",
+            },
+            cte_output_cols={"order_date"},
+            cte_query=cte_query,
+        )
+        assert rewritten == "o.placed_on BETWEEN 20260216 AND 20260402"
+
+    def test_skips_non_column_projection(self):
+        """Pushdown is skipped when the target column is projected via a function."""
+        cte_query = parse(
+            "SELECT SUM(x) AS total FROM t",
+        )
+        rewritten = _rewrite_filter_for_cte(
+            "v3.metric.total > 0",
+            filter_column_aliases={"v3.metric.total": "total"},
+            cte_output_cols={"total"},
+            cte_query=cte_query,
+        )
+        assert rewritten is None
+
+    def test_returns_none_when_column_absent(self):
+        """Filter targeting a column the CTE doesn't output returns None."""
+        cte_query = parse("SELECT foo FROM t")
+        rewritten = _rewrite_filter_for_cte(
+            "v3.dim.bar = 'x'",
+            filter_column_aliases={"v3.dim.bar": "bar"},
+            cte_output_cols={"foo"},
+            cte_query=cte_query,
+        )
+        assert rewritten is None

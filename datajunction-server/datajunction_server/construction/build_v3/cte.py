@@ -962,29 +962,36 @@ def _rewrite_filter_for_cte(
 ) -> str | None:
     """Rewrite a dimension filter for injection into a specific CTE.
 
-    Replaces each dimension reference (e.g., ``v3.product.category``)
-    with the table-qualified column name from the CTE's SELECT projection
-    (e.g., ``p.category``).
+    Replaces each dimension reference (e.g., ``v3.product.category``) with the
+    underlying table-qualified column name from the CTE's SELECT projection
+    (e.g., ``p.category``).  The underlying form is required because Spark SQL
+    (and standard SQL) cannot reference SELECT-list aliases in the same query's
+    WHERE clause — emitting the alias name produces a SQL error at execution
+    time.
 
     Returns the rewritten filter string, or None if the filter doesn't apply
-    to this CTE (its columns aren't in the CTE's output).
+    to this CTE (column missing, or projected via a non-column expression that
+    can't be safely inlined into WHERE).
     """
-    # Build CTE projection map: bare_col → qualified_col
     projection_map = _build_cte_projection_map(cte_query)
 
-    # Find the longest matching dim ref and resolve to bare col
     rewritten = filter_str
     matched = False
-    for dim_ref, bare_col in sorted(
+    for dim_ref, output_col in sorted(
         filter_column_aliases.items(),
         key=lambda x: -len(x[0]),
     ):
         if dim_ref not in rewritten:
             continue
-        if bare_col not in cte_output_cols:
+        if output_col not in cte_output_cols:
             continue
-        # Use the CTE's qualified version if available
-        qualified = projection_map.get(bare_col, bare_col)
+        # Resolve the output column to its underlying qualified form.  When
+        # the CTE projects a non-column expression under this name (e.g.
+        # ``some_fn(x) AS y``), pushdown isn't safe — skip this CTE and let
+        # the filter stay on the outer query.
+        qualified = projection_map.get(output_col)
+        if qualified is None:
+            continue
         rewritten = rewritten.replace(dim_ref, qualified)
         matched = True
         break  # One dim ref per filter (filters are single predicates)
@@ -993,22 +1000,39 @@ def _rewrite_filter_for_cte(
 
 
 def _build_cte_projection_map(cte_query: ast.Query) -> dict[str, str]:
-    """Build a map from bare column name to table-qualified name from a CTE's SELECT.
+    """Map a CTE's output column name to its underlying qualified reference.
 
-    For ``SELECT T.test_id, ...`` returns ``{"test_id": "T.test_id"}``.
-    For ``SELECT test_id, ...`` (no qualifier) returns ``{"test_id": "test_id"}``.
+    Output name is the SELECT-list alias when present, else the bare column
+    name.  Value is the form that's safe to reference in a WHERE clause
+    pushed into the same CTE — a table-qualified column when qualified in
+    the projection, else the bare column name.
+
+    Examples::
+
+        SELECT o.placed_on AS order_date
+          becomes {"order_date": "o.placed_on"}
+        SELECT T.test_id
+          becomes {"test_id": "T.test_id"}
+        SELECT test_id
+          becomes {"test_id": "test_id"}
+
+    Non-column projections (e.g. ``some_fn(x) AS y``) are intentionally
+    omitted — it isn't safe to inline a function call into WHERE without
+    knowing its side effects, so callers should treat a missing key as
+    "don't push this filter into this CTE".
     """
     result: dict[str, str] = {}
     if not cte_query.select:  # pragma: no cover
         return result
     for expr in cte_query.select.projection:
         inner = getattr(expr, "child", expr)
-        if isinstance(inner, ast.Column) and inner.name:
-            bare = inner.name.name
-            if inner.namespace:
-                result[bare] = f"{inner.namespace[0].name}.{bare}"
-            else:
-                result[bare] = bare
+        if not isinstance(inner, ast.Column) or not inner.name:
+            continue
+        bare = inner.name.name
+        underlying = f"{inner.namespace[0].name}.{bare}" if inner.namespace else bare
+        alias = getattr(expr, "alias", None)
+        output_name = alias.name if alias else bare
+        result[output_name] = underlying
     return result
 
 
