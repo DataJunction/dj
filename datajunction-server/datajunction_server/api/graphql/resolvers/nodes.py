@@ -22,6 +22,9 @@ from datajunction_server.database.node import Node as DBNode
 from datajunction_server.database.node import NodeRevision as DBNodeRevision
 from datajunction_server.api.graphql.resolvers.tags import tag_load_options
 from datajunction_server.api.graphql.resolvers.users import user_load_options
+from datajunction_server.internal.access.group_membership import (
+    get_group_membership_service,
+)
 from datajunction_server.models.node import NodeMode, NodeStatus, NodeType
 
 _CUBE_NAME_ONLY_FIELDS: frozenset[str] = frozenset({"name"})
@@ -127,6 +130,7 @@ async def find_nodes_by(
     ascending: bool = False,
     mode: Optional[NodeMode] = None,
     owned_by: Optional[str] = None,
+    include_team: bool = False,
     missing_description: bool = False,
     missing_owner: bool = False,
     dimensions: Optional[List[str]] = None,
@@ -154,6 +158,19 @@ async def find_nodes_by(
     is_cube_name_only = _is_cube_name_only_request(current_fields)
     info.context["cube_name_only"] = is_cube_name_only  # type: ignore
 
+    # When include_team is set with an ownedBy filter, expand to the user's
+    # groups so nodes owned directly by the user OR by any of their groups
+    # are returned. No-op when ownedBy is not set.
+    owned_by_list: Optional[List[str]] = None
+    if owned_by:
+        owned_by_list = [owned_by]
+        if include_team:
+            groups = await get_group_membership_service().get_user_groups(
+                session,
+                owned_by,
+            )
+            owned_by_list = list({owned_by, *groups})
+
     result = await DBNode.find_by(
         session,
         names,
@@ -169,7 +186,7 @@ async def find_nodes_by(
         ascending=ascending,
         options=options,
         mode=mode,
-        owned_by=owned_by,
+        owned_by=owned_by_list,
         missing_description=missing_description,
         missing_owner=missing_owner,
         statuses=statuses,

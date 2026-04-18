@@ -1871,6 +1871,158 @@ async def test_find_nodes_filter_by_owner(
     assert len(data["data"]["findNodes"]) > 0
 
 
+async def _setup_team_ownership(client: AsyncClient) -> None:
+    """
+    Shared setup for include_team tests. Registers a group, adds 'dj' as a
+    member, and re-assigns a single node to be owned exclusively by the group
+    so we can distinguish dj-only vs dj+team results.
+
+    Post-state (on top of the roads fixture):
+      - group 'team-analytics' exists with member 'dj'
+      - default.repair_order_details.owners == ['team-analytics']  (group only)
+      - default.repair_orders_fact still has 'dj' as an owner
+    """
+    # Register the group and add 'dj' as a member.
+    resp = await client.post("/groups/", params={"username": "team-analytics"})
+    assert resp.status_code == 201, resp.text
+
+    resp = await client.post(
+        "/groups/team-analytics/members/",
+        params={"member_username": "dj"},
+    )
+    assert resp.status_code == 201, resp.text
+
+    # Re-assign a node so the group is the sole owner (dj no longer owns it).
+    resp = await client.patch(
+        "/nodes/default.repair_order_details/",
+        json={"owners": ["team-analytics"]},
+    )
+    assert resp.status_code == 200, resp.text
+    assert {o["username"] for o in resp.json()["owners"]} == {"team-analytics"}
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_filter_by_owner_include_team(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test that ``includeTeam: true`` expands ``ownedBy`` to include nodes owned
+    by groups the user is a member of.
+    """
+    await _setup_team_ownership(client_with_roads)
+
+    query_template = """
+    {{
+        findNodes(ownedBy: "dj", includeTeam: {include_team}) {{
+            name
+            owners {{ username }}
+        }}
+    }}
+    """
+
+    # includeTeam: false — only nodes directly owned by 'dj'
+    resp = await client_with_roads.post(
+        "/graphql",
+        json={"query": query_template.format(include_team="false")},
+    )
+    assert resp.status_code == 200
+    names_without_team = {n["name"] for n in resp.json()["data"]["findNodes"]}
+    assert "default.repair_orders_fact" in names_without_team
+    assert "default.repair_order_details" not in names_without_team
+
+    # includeTeam: true — also includes nodes owned by the group
+    resp = await client_with_roads.post(
+        "/graphql",
+        json={"query": query_template.format(include_team="true")},
+    )
+    assert resp.status_code == 200
+    nodes_with_team = resp.json()["data"]["findNodes"]
+    names_with_team = {n["name"] for n in nodes_with_team}
+    assert "default.repair_orders_fact" in names_with_team
+    assert "default.repair_order_details" in names_with_team
+
+    # The team-owned node's owners reflect the group; dedupe: the result set
+    # is a superset of the dj-only set by exactly the team-owned nodes.
+    assert names_without_team.issubset(names_with_team)
+    extras = names_with_team - names_without_team
+    assert extras == {"default.repair_order_details"}
+
+    team_node = next(
+        n for n in nodes_with_team if n["name"] == "default.repair_order_details"
+    )
+    assert [o["username"] for o in team_node["owners"]] == ["team-analytics"]
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_filter_by_owner_include_team_noop_without_owner(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    ``includeTeam: true`` with no ``ownedBy`` is a no-op — the owner filter is
+    not applied. Sanity check that the default unfiltered result set matches.
+    """
+    await _setup_team_ownership(client_with_roads)
+
+    baseline = await client_with_roads.post(
+        "/graphql",
+        json={"query": "{ findNodes { name } }"},
+    )
+    with_flag = await client_with_roads.post(
+        "/graphql",
+        json={"query": "{ findNodes(includeTeam: true) { name } }"},
+    )
+    assert {n["name"] for n in baseline.json()["data"]["findNodes"]} == {
+        n["name"] for n in with_flag.json()["data"]["findNodes"]
+    }
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_paginated_filter_by_owner_include_team(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    Paginated variant: ``includeTeam: true`` returns both user- and group-owned
+    nodes; ``includeTeam: false`` only returns directly-owned nodes.
+    """
+    await _setup_team_ownership(client_with_roads)
+
+    # Narrow with a name fragment so the assertion doesn't depend on ordering
+    # across the full result set.
+    query_template = """
+    {{
+        findNodesPaginated(
+            ownedBy: "dj",
+            includeTeam: {include_team},
+            fragment: "repair_order",
+            limit: 100,
+        ) {{
+            edges {{ node {{ name }} }}
+        }}
+    }}
+    """
+
+    resp = await client_with_roads.post(
+        "/graphql",
+        json={"query": query_template.format(include_team="false")},
+    )
+    names_without_team = {
+        e["node"]["name"] for e in resp.json()["data"]["findNodesPaginated"]["edges"]
+    }
+    assert "default.repair_order_details" not in names_without_team
+    # Sanity: dj still owns other repair_order* nodes.
+    assert names_without_team, "expected dj to still own some repair_order nodes"
+
+    resp = await client_with_roads.post(
+        "/graphql",
+        json={"query": query_template.format(include_team="true")},
+    )
+    names_with_team = {
+        e["node"]["name"] for e in resp.json()["data"]["findNodesPaginated"]["edges"]
+    }
+    assert "default.repair_order_details" in names_with_team
+    assert names_without_team.issubset(names_with_team)
+
+
 @pytest.mark.asyncio
 async def test_find_nodes_paginated_filter_by_owner(
     client_with_roads: AsyncClient,

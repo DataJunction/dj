@@ -482,6 +482,11 @@ type Query {
     """Filter to nodes owned by this user"""
     ownedBy: String = null
 
+    """
+    When combined with ownedBy, also include nodes owned by any group the user is a member of.
+    """
+    includeTeam: Boolean! = false
+
     """Filter to nodes missing descriptions (for data quality checks)"""
     missingDescription: Boolean! = false
 
@@ -533,6 +538,11 @@ type Query {
 
     """Filter to nodes owned by this user"""
     ownedBy: String = null
+
+    """
+    When combined with ownedBy, also include nodes owned by any group the user is a member of.
+    """
+    includeTeam: Boolean! = false
 
     """Filter to nodes missing descriptions (for data quality checks)"""
     missingDescription: Boolean! = false

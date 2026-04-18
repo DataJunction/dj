@@ -75,6 +75,13 @@ async def find_nodes(
             description="Filter to nodes owned by this user",
         ),
     ] = None,
+    include_team: Annotated[
+        bool,
+        strawberry.argument(
+            description="When combined with ownedBy, also include nodes owned "
+            "by any group the user is a member of.",
+        ),
+    ] = False,
     missing_description: Annotated[
         bool,
         strawberry.argument(
@@ -140,6 +147,7 @@ async def find_nodes(
         namespace=namespace,
         mode=mode,
         owned_by=owned_by,
+        include_team=include_team,
         missing_description=missing_description,
         missing_owner=missing_owner,
         statuses=statuses,
@@ -207,6 +215,13 @@ async def find_nodes_paginated(
             description="Filter to nodes owned by this user",
         ),
     ] = None,
+    include_team: Annotated[
+        bool,
+        strawberry.argument(
+            description="When combined with ownedBy, also include nodes owned "
+            "by any group the user is a member of.",
+        ),
+    ] = False,
     missing_description: Annotated[
         bool,
         strawberry.argument(
@@ -269,6 +284,7 @@ async def find_nodes_paginated(
         ascending=ascending,
         mode=mode,
         owned_by=owned_by,
+        include_team=include_team,
         missing_description=missing_description,
         missing_owner=missing_owner,
         statuses=statuses,
