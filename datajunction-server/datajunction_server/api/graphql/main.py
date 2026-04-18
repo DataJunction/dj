@@ -35,7 +35,11 @@ from datajunction_server.api.graphql.queries.sql import (
     measures_sql,
     materialization_plan,
 )
-from datajunction_server.api.graphql.queries.tags import list_tag_types, list_tags
+from datajunction_server.api.graphql.queries.tags import (
+    list_tag_types,
+    list_tags,
+    search_tags,
+)
 from datajunction_server.api.graphql.scalars import Connection
 from datajunction_server.api.graphql.scalars.catalog_engine import (
     Catalog,
@@ -186,6 +190,13 @@ class Query:
     list_tags: list[Tag] = strawberry.field(
         resolver=log_resolver(list_tags),
         description="Find DJ node tags based on the search parameters.",
+    )
+    search_tags: list[Tag] = strawberry.field(
+        resolver=log_resolver(search_tags),
+        description=(
+            "Trigram-ranked search across tag name, display name, and description. "
+            "Used by the global search bar for tag autocomplete."
+        ),
     )
     list_tag_types: list[str] = strawberry.field(
         resolver=log_resolver(list_tag_types),

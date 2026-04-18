@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import sqlalchemy as sa
 from pydantic import ConfigDict
-from sqlalchemy import JSON, and_, desc
+from sqlalchemy import JSON, and_, case, desc, func
 from sqlalchemy.orm import aliased
 
 from sqlalchemy import Column as SqlalchemyColumn
@@ -84,6 +84,43 @@ if TYPE_CHECKING:
 
 
 _logger = logging.getLogger(__name__)
+
+# Weights for the three searchable fields on NodeRevision. `name` is the
+# authoritative identifier and gets full weight; `display_name` is almost
+# as strong; `description` is a weaker signal and is discounted.
+_SEARCH_WEIGHT_NAME = 1.0
+_SEARCH_WEIGHT_DISPLAY_NAME = 0.9
+_SEARCH_WEIGHT_DESCRIPTION = 0.4
+
+# Main-branch nodes are the authoritative version of a node and get full score;
+# feature-branch nodes are halved so they sort below equivalent main matches.
+_SEARCH_BOOST_MAIN = 1.0
+_SEARCH_BOOST_BRANCH = 0.5
+
+
+def _build_search_score(nr_alias, ns_alias, parent_ns_alias, query: str):
+    """
+    Build the relevance score SQL expression used to rank search results.
+
+    Score is the max pg_trgm similarity across name/display_name/description
+    with per-field weights, then multiplied by a main-branch boost: nodes on
+    a feature branch rank below equivalent matches on main.
+    """
+    base_score = func.greatest(
+        func.similarity(nr_alias.name, query) * _SEARCH_WEIGHT_NAME,
+        func.similarity(nr_alias.display_name, query) * _SEARCH_WEIGHT_DISPLAY_NAME,
+        func.similarity(nr_alias.description, query) * _SEARCH_WEIGHT_DESCRIPTION,
+    )
+    branch_boost = case(
+        (parent_ns_alias.namespace.is_(None), _SEARCH_BOOST_MAIN),
+        (parent_ns_alias.default_branch.is_(None), _SEARCH_BOOST_MAIN),
+        (
+            ns_alias.git_branch == parent_ns_alias.default_branch,
+            _SEARCH_BOOST_MAIN,
+        ),
+        else_=_SEARCH_BOOST_BRANCH,
+    )
+    return base_score * branch_boost
 
 
 class NodeRelationship(Base):
@@ -641,6 +678,7 @@ class Node(Base):
         statuses: list[NodeStatus] | None = None,
         has_materialization: bool = False,
         orphaned_dimension: bool = False,
+        search: str | None = None,
     ) -> List["Node"]:
         """
         Finds a list of nodes by prefix
@@ -687,7 +725,9 @@ class Node(Base):
         order_by_node_revision = (
             order_by and getattr(order_by, "class_", None) is NodeRevision
         )
-        join_revision = True if fragment or order_by_node_revision or mode else False
+        join_revision = bool(
+            fragment or order_by_node_revision or mode or search,
+        )
         if join_revision:
             statement = statement.join(NodeRevisionAlias, Node.current)
             if order_by_node_revision:
@@ -715,6 +755,34 @@ class Node(Base):
                     Node.name.like(f"%{fragment}%"),
                     NodeRevisionAlias.display_name.ilike(f"%{fragment}%"),
                 ),
+            )
+
+        search_score_expr = None
+        if search:
+            from datajunction_server.database.namespace import NodeNamespace
+
+            ns_alias = aliased(NodeNamespace)
+            parent_ns_alias = aliased(NodeNamespace)
+            statement = statement.outerjoin(
+                ns_alias,
+                Node.namespace == ns_alias.namespace,
+            ).outerjoin(
+                parent_ns_alias,
+                ns_alias.parent_namespace == parent_ns_alias.namespace,
+            )
+            pattern = f"%{search}%"
+            statement = statement.where(
+                or_(
+                    NodeRevisionAlias.name.ilike(pattern),
+                    NodeRevisionAlias.display_name.ilike(pattern),
+                    NodeRevisionAlias.description.ilike(pattern),
+                ),
+            )
+            search_score_expr = _build_search_score(
+                NodeRevisionAlias,
+                ns_alias,
+                parent_ns_alias,
+                search,
             )
 
         if node_types:
@@ -824,6 +892,12 @@ class Node(Base):
                 order_by.asc() if ascending else order_by.desc(),
                 Node.created_at.asc(),
                 Node.id.asc(),
+            )
+        elif search_score_expr is not None:
+            statement = statement.order_by(
+                search_score_expr.desc(),
+                Node.created_at.desc(),
+                Node.id.desc(),
             )
         else:
             statement = statement.order_by(
@@ -956,6 +1030,18 @@ class NodeRevision(
             "display_name",
             postgresql_using="gin",
             postgresql_ops={"display_name": "gin_trgm_ops"},
+        ),
+        Index(
+            "ix_noderevision_name_trgm",
+            "name",
+            postgresql_using="gin",
+            postgresql_ops={"name": "gin_trgm_ops"},
+        ),
+        Index(
+            "ix_noderevision_description_trgm",
+            "description",
+            postgresql_using="gin",
+            postgresql_ops={"description": "gin_trgm_ops"},
         ),
     )
 
