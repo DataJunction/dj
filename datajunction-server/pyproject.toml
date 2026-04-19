@@ -85,12 +85,13 @@ dependencies = [
     # JWT for GitHub App authentication
     "pyjwt[crypto]>=2.8.0",
 ]
-requires-python = ">=3.10,<3.12"
+requires-python = ">=3.10,<3.13"
 readme = "README.md"
 license = {text = "MIT"}
 classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent"
 ]
@@ -160,7 +161,7 @@ test = [
     "requests-mock>=1.10.0",
     "typing-extensions>=4.5.0",
     "pytest-xdist>=3.3.0",
-    "duckdb==0.8.1",
+    "duckdb>=1.0.0",
     "testcontainers>=3.7.1",
     "httpx>=0.27.0",
     "greenlet>=3.0.3",

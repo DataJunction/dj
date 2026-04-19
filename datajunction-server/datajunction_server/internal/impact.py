@@ -390,7 +390,7 @@ async def _revalidate_and_apply(
 
     async def _parse_all_queries() -> dict[str, ast.Query | Exception]:
         """Parse all queries in a threadpool."""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         parsed: dict[str, ast.Query | Exception] = {}
         with ThreadPoolExecutor(max_workers=min(8, len(queries_to_parse) or 1)) as pool:
             futures = {
