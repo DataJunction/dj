@@ -119,7 +119,7 @@ async def get_context(
     # session_context()) can reuse it in tests. resolver_session() does NOT
     # use this — it checks dependency_overrides instead, so it always
     # creates independent sessions in production.
-    if not hasattr(request.state, "test_session"):
+    if not hasattr(request.state, "test_session"):  # pragma: no branch
         request.state.test_session = db_session
 
     return {
