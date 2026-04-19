@@ -39,7 +39,13 @@ def parse_dimension_ref(dim_ref: str) -> DimensionRef:
     - "v3.customer.name" -> node=v3.customer, col=name, role=None
     - "v3.customer.name[order]" -> node=v3.customer, col=name, role=order
     - "v3.date.month[customer->registration]" -> node=v3.date, col=month, role=customer->registration
+
+    A reference without an extractable node (e.g. a bare ``status``) is
+    rejected — DJ can't route the reference to a CTE without knowing the
+    owning node.
     """
+    from datajunction_server.errors import DJInvalidInputException
+
     # Extract role if present
     role = None
     if "[" in dim_ref:
@@ -50,12 +56,13 @@ def parse_dimension_ref(dim_ref: str) -> DimensionRef:
 
     # Split into node and column
     parts = dim_part.rsplit(SEPARATOR, 1)
-    if len(parts) == 2:
-        node_name, column_name = parts
-    else:  # pragma: no cover
-        # Assume single part is column name on current node
-        node_name = ""
-        column_name = parts[0]
+    if len(parts) != 2:
+        raise DJInvalidInputException(
+            f"Reference `{dim_ref}` is not fully qualified. Use the "
+            f"`node.column` form (e.g., `v3.order_details.status`) so DJ "
+            f"can route the reference to the correct node.",
+        )
+    node_name, column_name = parts
 
     return DimensionRef(node_name=node_name, column_name=column_name, role=role)
 

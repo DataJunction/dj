@@ -2356,7 +2356,7 @@ class TestMeasuresSQLFilters:
             params={
                 "metrics": ["v3.total_revenue"],
                 "dimensions": ["v3.order_details.status"],
-                "filters": ["status = 'completed'"],
+                "filters": ["v3.order_details.status = 'completed'"],
             },
         )
 
@@ -2498,7 +2498,7 @@ class TestMeasuresSQLFilters:
             params={
                 "metrics": ["v3.total_revenue"],
                 "dimensions": ["v3.order_details.status"],
-                "filters": ["status IN ('completed', 'pending')"],
+                "filters": ["v3.order_details.status IN ('completed', 'pending')"],
             },
         )
 
