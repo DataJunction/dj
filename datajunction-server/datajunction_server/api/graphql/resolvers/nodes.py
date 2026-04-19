@@ -14,7 +14,11 @@ from strawberry.types import Info
 from datajunction_server.errors import DJNodeNotFound
 from datajunction_server.api.graphql.scalars.node import NodeName, NodeSortField
 from datajunction_server.api.graphql.scalars.sql import CubeDefinition
-from datajunction_server.api.graphql.utils import dedupe_append, extract_fields
+from datajunction_server.api.graphql.utils import (
+    dedupe_append,
+    extract_fields,
+    resolver_session,
+)
 from datajunction_server.database.dimensionlink import DimensionLink
 
 from datajunction_server.database.node import Column, ColumnAttribute, CubeRelationship
@@ -143,66 +147,66 @@ async def find_nodes_by(
     Finds nodes based on the search parameters. This function also tries to optimize
     the database query by only retrieving joined-in fields if they were requested.
     """
-    session = info.context["session"]  # type: ignore
-    fields = extract_fields(info)
-    node_fields = (
-        fields["nodes"]
-        if "nodes" in fields
-        else fields["edges"]["node"]
-        if "edges" in fields
-        else fields
-    )
-    options = load_node_options(node_fields)
+    async with resolver_session(info) as session:
+        fields = extract_fields(info)
+        node_fields = (
+            fields["nodes"]
+            if "nodes" in fields
+            else fields["edges"]["node"]
+            if "edges" in fields
+            else fields
+        )
+        options = load_node_options(node_fields)
 
-    # Signal to cube resolvers whether the name-only fast path is active
-    current_fields = node_fields.get("current") or {}
-    is_cube_name_only = _is_cube_name_only_request(current_fields)
-    info.context["cube_name_only"] = is_cube_name_only  # type: ignore
+        # Signal to cube resolvers whether the name-only fast path is active
+        current_fields = node_fields.get("current") or {}
+        is_cube_name_only = _is_cube_name_only_request(current_fields)
+        info.context["cube_name_only"] = is_cube_name_only  # type: ignore
 
-    # When include_team is set with an ownedBy filter, expand to the user's
-    # groups so nodes owned directly by the user OR by any of their groups
-    # are returned. No-op when ownedBy is not set.
-    owned_by_list: Optional[List[str]] = None
-    if owned_by:
-        owned_by_list = [owned_by]
-        if include_team:
-            groups = await get_group_membership_service().get_user_groups(
-                session,
-                owned_by,
-            )
-            owned_by_list = list({owned_by, *groups})
+        # When include_team is set with an ownedBy filter, expand to the user's
+        # groups so nodes owned directly by the user OR by any of their groups
+        # are returned. No-op when ownedBy is not set.
+        owned_by_list: Optional[List[str]] = None
+        if owned_by:
+            owned_by_list = [owned_by]
+            if include_team:
+                groups = await get_group_membership_service().get_user_groups(
+                    session,
+                    owned_by,
+                )
+                owned_by_list = list({owned_by, *groups})
 
-    result = await DBNode.find_by(
-        session,
-        names,
-        fragment,
-        node_types,
-        tags,
-        edited_by,
-        namespace,
-        limit,
-        before,
-        after,
-        order_by=order_by.column,
-        ascending=ascending,
-        options=options,
-        mode=mode,
-        owned_by=owned_by_list,
-        missing_description=missing_description,
-        missing_owner=missing_owner,
-        statuses=statuses,
-        has_materialization=has_materialization,
-        orphaned_dimension=orphaned_dimension,
-        dimensions=dimensions,
-        search=search,
-    )
+        result = await DBNode.find_by(
+            session,
+            names,
+            fragment,
+            node_types,
+            tags,
+            edited_by,
+            namespace,
+            limit,
+            before,
+            after,
+            order_by=order_by.column,
+            ascending=ascending,
+            options=options,
+            mode=mode,
+            owned_by=owned_by_list,
+            missing_description=missing_description,
+            missing_owner=missing_owner,
+            statuses=statuses,
+            has_materialization=has_materialization,
+            orphaned_dimension=orphaned_dimension,
+            dimensions=dimensions,
+            search=search,
+        )
 
-    # For the name-only cube path, fetch column data as raw tuples instead
-    # of ORM objects.  This avoids hydrating ~20k Column instances.
-    if is_cube_name_only and result:
-        await _attach_raw_columns(session, result)
+        # For the name-only cube path, fetch column data as raw tuples instead
+        # of ORM objects.  This avoids hydrating ~20k Column instances.
+        if is_cube_name_only and result:
+            await _attach_raw_columns(session, result)
 
-    return result
+        return result
 
 
 async def get_node_by_name(

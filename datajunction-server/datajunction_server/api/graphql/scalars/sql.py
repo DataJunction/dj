@@ -84,28 +84,30 @@ class GeneratedSQL:
         Loads a strawberry GeneratedSQL from the original pydantic model.
         """
         from datajunction_server.api.graphql.resolvers.nodes import get_node_by_name
+        from datajunction_server.api.graphql.utils import resolver_session
 
-        fields = extract_fields(info)
-        return GeneratedSQL(  # type: ignore
-            node=await get_node_by_name(
-                session=info.context["session"],
-                fields=fields.get("node"),
-                name=obj.node.name,
-            ),
-            sql=obj.sql,
-            columns=[
-                ColumnMetadata(  # type: ignore
-                    name=col.name,
-                    type=col.type,
-                    semantic_entity=SemanticEntity(name=col.semantic_entity),  # type: ignore
-                    semantic_type=SemanticType(col.semantic_type),
-                )
-                for col in obj.columns  # type: ignore
-            ],
-            dialect=obj.dialect,
-            upstream_tables=obj.upstream_tables,
-            errors=obj.errors,
-        )
+        async with resolver_session(info) as session:
+            fields = extract_fields(info)
+            return GeneratedSQL(  # type: ignore
+                node=await get_node_by_name(
+                    session=session,
+                    fields=fields.get("node"),
+                    name=obj.node.name,
+                ),
+                sql=obj.sql,
+                columns=[
+                    ColumnMetadata(  # type: ignore
+                        name=col.name,
+                        type=col.type,
+                        semantic_entity=SemanticEntity(name=col.semantic_entity),  # type: ignore
+                        semantic_type=SemanticType(col.semantic_type),
+                    )
+                    for col in obj.columns  # type: ignore
+                ],
+                dialect=obj.dialect,
+                upstream_tables=obj.upstream_tables,
+                errors=obj.errors,
+            )
 
 
 @strawberry.input

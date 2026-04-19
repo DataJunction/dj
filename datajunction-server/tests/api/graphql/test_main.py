@@ -36,8 +36,9 @@ async def test_get_context_without_test_session(mock_get_settings, mock_create_l
     assert hasattr(mock_request.state, "test_session")
     assert mock_request.state.test_session == mock_db_session
 
-    # Verify context contains expected keys
-    assert context["session"] == mock_db_session
+    # Verify context contains expected keys (no shared "session" — resolvers
+    # create their own via resolver_session())
+    assert "session" not in context
     assert context["node_loader"] == mock_loader
     assert context["settings"] == mock_settings
     assert context["request"] == mock_request
@@ -78,8 +79,8 @@ async def test_get_context_with_existing_test_session(
     # Verify test_session was NOT overwritten - should still be the existing one
     assert mock_request.state.test_session == existing_test_session
 
-    # Verify context still uses the db_session passed in (not test_session)
-    assert context["session"] == mock_db_session
+    # Verify context keys (no shared "session")
+    assert "session" not in context
     assert context["node_loader"] == mock_loader
     assert context["settings"] == mock_settings
     assert context["request"] == mock_request

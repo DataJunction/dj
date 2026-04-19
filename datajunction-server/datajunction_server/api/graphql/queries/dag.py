@@ -10,14 +10,14 @@ from strawberry.types import Info
 from datajunction_server.database.node import Node
 from datajunction_server.api.graphql.resolvers.nodes import load_node_options
 from datajunction_server.api.graphql.scalars.node import DimensionAttribute
-from datajunction_server.api.graphql.utils import extract_fields
+from datajunction_server.api.graphql.utils import extract_fields, resolver_session
 from datajunction_server.sql.dag import (
     get_common_dimensions,
     get_downstream_nodes,
     get_upstream_nodes,
 )
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.utils import SEPARATOR, session_context
+from datajunction_server.utils import SEPARATOR
 from sqlalchemy.orm import joinedload
 
 
@@ -34,12 +34,7 @@ async def common_dimensions(
     """
     Return a list of common dimensions for a set of nodes.
     """
-    request = info.context["request"]
-
-    # Use a fresh independent session for all operations to avoid concurrent
-    # session conflicts when this resolver runs alongside other resolvers
-    # (e.g., findNode + commonDimensions in the same GraphQL query)
-    async with session_context(request) as dims_session:
+    async with resolver_session(info) as dims_session:
         # Load nodes in the independent session
         dims_nodes = await Node.find_by(
             dims_session,
@@ -116,25 +111,24 @@ async def downstream_nodes(
     Note: Unlike upstreams, downstreams uses per-node queries because the
     fanout threshold check and BFS fallback work better with single nodes.
     """
-    session = info.context["session"]
+    async with resolver_session(info) as session:
+        # Build load options based on requested GraphQL fields
+        fields = extract_fields(info)
+        options = load_node_options(fields)
 
-    # Build load options based on requested GraphQL fields
-    fields = extract_fields(info)
-    options = load_node_options(fields)
-
-    all_downstreams: dict[int, Node] = {}
-    for node_name in node_names:
-        downstreams = await get_downstream_nodes(
-            session,
-            node_name=node_name,
-            node_type=node_type,
-            include_deactivated=include_deactivated,
-            options=options,
-        )
-        for node in downstreams:
-            if node.id not in all_downstreams:  # pragma: no cover
-                all_downstreams[node.id] = node
-    return list(all_downstreams.values())
+        all_downstreams: dict[int, Node] = {}
+        for node_name in node_names:
+            downstreams = await get_downstream_nodes(
+                session,
+                node_name=node_name,
+                node_type=node_type,
+                include_deactivated=include_deactivated,
+                options=options,
+            )
+            for node in downstreams:
+                if node.id not in all_downstreams:  # pragma: no cover
+                    all_downstreams[node.id] = node
+        return list(all_downstreams.values())
 
 
 async def upstream_nodes(
@@ -163,16 +157,15 @@ async def upstream_nodes(
     Return a list of upstream nodes for one or more nodes.
     Results are deduplicated by node ID.
     """
-    session = info.context["session"]
+    async with resolver_session(info) as session:
+        # Build load options based on requested GraphQL fields
+        fields = extract_fields(info)
+        options = load_node_options(fields)
 
-    # Build load options based on requested GraphQL fields
-    fields = extract_fields(info)
-    options = load_node_options(fields)
-
-    return await get_upstream_nodes(  # type: ignore
-        session,
-        node_name=node_names,
-        node_type=node_type,
-        include_deactivated=include_deactivated,
-        options=options,
-    )
+        return await get_upstream_nodes(  # type: ignore
+            session,
+            node_name=node_names,
+            node_type=node_type,
+            include_deactivated=include_deactivated,
+            options=options,
+        )
