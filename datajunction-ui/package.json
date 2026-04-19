@@ -1,6 +1,6 @@
 {
   "name": "datajunction-ui",
-  "version": "0.0.127",
+  "version": "0.0.128",
   "description": "DataJunction UI",
   "module": "src/index.tsx",
   "repository": {
