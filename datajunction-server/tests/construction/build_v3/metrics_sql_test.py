@@ -2674,8 +2674,8 @@ class TestMetricsSQLNestedDerived:
               JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             ),
             order_details_0 AS (
-              SELECT SUM(t1.quantity) quantity_sum_06b64d2e,
-                SUM(t1.unit_price) unit_price_sum_55cff00f
+              SELECT SUM(t1.unit_price) unit_price_sum_55cff00f,
+                SUM(t1.quantity) quantity_sum_06b64d2e
               FROM v3_order_details t1
             )
             SELECT SUM(order_details_0.quantity_sum_06b64d2e)
