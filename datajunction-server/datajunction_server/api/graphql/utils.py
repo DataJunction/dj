@@ -7,7 +7,7 @@ from typing import Any, AsyncIterator, Dict, TypeVar
 from sqlalchemy.ext.asyncio import AsyncSession
 from strawberry.types import Info
 
-from datajunction_server.utils import session_context
+from datajunction_server.utils import get_session
 
 CURSOR_SEPARATOR = "-"
 
@@ -23,13 +23,36 @@ async def resolver_session(info: Info) -> AsyncIterator[AsyncSession]:
     concurrent resolvers causes ``InvalidCachedStatementError`` /
     ``isce`` errors.
 
+    In tests, ``request.state.test_session`` holds a shared session that
+    all resolvers must use (so they see the same transaction's data).
+    Tests run resolvers sequentially so the shared session is safe.
+
+    In production, ``test_session`` is not set, so we create a fresh
+    session per resolver via ``get_session()``.
+
     Usage::
 
         async with resolver_session(info) as session:
             ...
     """
-    async with session_context(info.context["request"]) as session:
+    request = info.context["request"]
+
+    # In tests, get_session is overridden via dependency_overrides to return a
+    # shared test session. We call the override directly so resolvers see the
+    # same transaction. The override is a sync function returning the session.
+    app = request.app
+    override = app.dependency_overrides.get(get_session)
+    if override is not None:
+        yield override()
+        return
+
+    # Production: create a genuinely independent session per resolver.
+    gen = get_session(request, session_label="graphql_resolver")
+    session = await gen.__anext__()
+    try:
         yield session
+    finally:
+        await gen.aclose()  # type: ignore
 
 
 def convert_camel_case(name):

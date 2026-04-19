@@ -115,8 +115,10 @@ async def get_context(
     """
     Provides the context for graphql requests
     """
-    # Attach test session to request.state so DataLoaders can use it
-    # This ensures DataLoaders use the same test session in tests
+    # Attach test session to request.state so DataLoaders (which use
+    # session_context()) can reuse it in tests. resolver_session() does NOT
+    # use this — it checks dependency_overrides instead, so it always
+    # creates independent sessions in production.
     if not hasattr(request.state, "test_session"):
         request.state.test_session = db_session
 
