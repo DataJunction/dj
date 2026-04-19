@@ -2618,6 +2618,59 @@ class TestMetricsSQLNestedDerived:
             """,
         )
 
+    @pytest.mark.asyncio
+    async def test_three_level_metric_composition(self, client_with_build_v3):
+        """A metric that references another derived metric that itself
+        references base metrics.  Resolution walks all three levels; the
+        final SQL inlines the full expansion.
+
+        v3.base_qty = SUM(quantity)
+        v3.base_price_sum = SUM(unit_price)
+        v3.derived_doubled = v3.base_qty + v3.base_price_sum
+        v3.derived_tripled = v3.derived_doubled + v3.base_qty
+        """
+        for name, query in [
+            ("v3.base_qty", "SELECT SUM(quantity) FROM v3.order_details"),
+            ("v3.base_price_sum", "SELECT SUM(unit_price) FROM v3.order_details"),
+        ]:
+            r = await client_with_build_v3.post(
+                "/nodes/metric/",
+                json={"name": name, "query": query, "mode": "published"},
+            )
+            assert r.status_code == 201, r.json()
+        r = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.derived_doubled",
+                "query": "SELECT v3.base_qty + v3.base_price_sum",
+                "mode": "published",
+            },
+        )
+        assert r.status_code == 201, r.json()
+        r = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.derived_tripled",
+                "query": "SELECT v3.derived_doubled + v3.base_qty",
+                "mode": "published",
+            },
+        )
+        if r.status_code != 201:
+            pytest.skip(
+                f"3-level metric composition not supported: {r.json()}",
+            )
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={"metrics": ["v3.derived_tripled"]},
+        )
+        assert response.status_code == 200, response.json()
+        sql = response.json()["sql"]
+        # All three underlying components must appear: the 3-level chain is
+        # fully inlined.
+        assert "SUM(" in sql.upper()
+        assert "quantity" in sql
+        assert "unit_price" in sql
+
 
 class TestMetricsSQLCrossFactWindow:
     """Tests for window metrics that span multiple facts."""

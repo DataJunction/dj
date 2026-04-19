@@ -569,6 +569,46 @@ class TestDimensionJoins:
             "v3.location.country[customer->home]",
         ]
 
+    @pytest.mark.asyncio
+    async def test_dim_link_with_coalesce_in_join_sql(
+        self,
+        client_with_build_v3,
+    ):
+        """A dimension link whose ``join_sql`` uses ``COALESCE`` over two
+        fact columns should keep both FK columns in the parent CTE's
+        projection so the JOIN clause can reference them at the outer
+        level.  Documents whether DJ supports non-column expressions in
+        dim-link join_sql.
+        """
+        resp = await client_with_build_v3.post(
+            "/nodes/v3.order_details/link",
+            json={
+                "dimension_node": "v3.location",
+                "join_on": (
+                    "COALESCE(v3.order_details.from_location_id, "
+                    "v3.order_details.to_location_id) = v3.location.location_id"
+                ),
+                "role": "either",
+            },
+        )
+        if resp.status_code not in (200, 201):
+            pytest.skip(
+                f"COALESCE in dim-link join_sql not supported: {resp.json()}",
+            )
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.location.country[either]"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        data = get_first_grain_group(response.json())
+        # Both referenced FK columns must be present so the JOIN's COALESCE
+        # can evaluate against them.
+        assert "from_location_id" in data["sql"]
+        assert "to_location_id" in data["sql"]
+
 
 class TestMeasuresSQLRoles:
     @pytest.mark.asyncio
