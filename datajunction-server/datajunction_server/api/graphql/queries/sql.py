@@ -167,7 +167,9 @@ async def materialization_plan(
                     for dim in m.rule.level  # type: ignore
                 ]
                 grain_from_dims = [
-                    nodes_lookup[dim.rsplit(SEPARATOR, 1)[0]] for dim in dimensions
+                    nodes_lookup[dim.rsplit(SEPARATOR, 1)[0]]
+                    for dim in dimensions
+                    if dim.rsplit(SEPARATOR, 1)[0] in nodes_lookup
                 ]
                 grain_dimensions = grain_from_rules + grain_from_dims
 
@@ -190,6 +192,7 @@ async def materialization_plan(
                         ].current_version,
                     )
                     for ref in filter_refs
+                    if ref.rsplit(SEPARATOR, 1)[0] in nodes_lookup
                 ],
                 filters=cube.filters,
             )

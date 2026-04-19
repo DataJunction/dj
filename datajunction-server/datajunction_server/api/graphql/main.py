@@ -84,7 +84,7 @@ def log_resolver(func):
             result = await func(*args, **kwargs)
             logger.info("[GQL] %s", log_args)
             return result
-        except Exception as exc:  # pragma: no cover
+        except Exception:  # pragma: no cover
             get_metrics_provider().counter(  # pragma: no cover
                 "dj.graphql.errors",
                 tags={"operation": resolver_name},
@@ -94,7 +94,7 @@ def log_resolver(func):
                 log_args,
                 exc_info=True,
             )
-            raise exc  # pragma: no cover
+            raise  # pragma: no cover
         finally:
             get_metrics_provider().timer(
                 "dj.graphql.query_ms",
