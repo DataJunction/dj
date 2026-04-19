@@ -603,11 +603,28 @@ class TestDimensionJoins:
             },
         )
         assert response.status_code == 200, response.json()
-        data = get_first_grain_group(response.json())
-        # Both referenced FK columns must be present so the JOIN's COALESCE
-        # can evaluate against them.
-        assert "from_location_id" in data["sql"]
-        assert "to_location_id" in data["sql"]
+        assert_sql_equal(
+            get_first_grain_group(response.json())["sql"],
+            """
+            WITH
+            v3_location AS (
+              SELECT location_id, country FROM default.v3.locations
+            ),
+            v3_order_details AS (
+              SELECT o.from_location_id,
+                o.to_location_id,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t2.country country_either,
+              SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_location t2
+              ON COALESCE(t1.from_location_id, t1.to_location_id) = t2.location_id
+            GROUP BY t2.country
+            """,
+        )
 
 
 class TestMeasuresSQLRoles:

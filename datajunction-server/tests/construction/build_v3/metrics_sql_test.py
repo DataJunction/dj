@@ -2664,12 +2664,26 @@ class TestMetricsSQLNestedDerived:
             params={"metrics": ["v3.derived_tripled"]},
         )
         assert response.status_code == 200, response.json()
-        sql = response.json()["sql"]
-        # All three underlying components must appear: the 3-level chain is
-        # fully inlined.
-        assert "SUM(" in sql.upper()
-        assert "quantity" in sql
-        assert "unit_price" in sql
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH
+            v3_order_details AS (
+              SELECT oi.quantity, oi.unit_price
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+              SELECT SUM(t1.quantity) quantity_sum_06b64d2e,
+                SUM(t1.unit_price) unit_price_sum_55cff00f
+              FROM v3_order_details t1
+            )
+            SELECT SUM(order_details_0.quantity_sum_06b64d2e)
+                 + SUM(order_details_0.unit_price_sum_55cff00f)
+                 + SUM(order_details_0.quantity_sum_06b64d2e) AS derived_tripled
+            FROM order_details_0
+            """,
+        )
 
 
 class TestMetricsSQLCrossFactWindow:
