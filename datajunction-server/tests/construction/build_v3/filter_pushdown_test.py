@@ -151,6 +151,53 @@ class TestFilterPushdownMultiple:
             """,
         )
 
+    @pytest.mark.asyncio
+    async def test_two_filters_on_same_parent_cte_compose_as_and(
+        self,
+        client_with_build_v3,
+    ):
+        """Two user filters on distinct columns of the same parent compose
+        as AND in both the CTE's WHERE and the outer WHERE — no duplicates,
+        no dropped predicate.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.product.category"],
+                "filters": [
+                    "v3.date.date_id[order] >= 20240101",
+                    "v3.order_details.status = 'completed'",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            get_first_grain_group(response.json())["sql"],
+            """
+            WITH
+            v3_order_details AS (
+              SELECT o.order_date,
+                o.status,
+                oi.product_id,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+              WHERE o.order_date >= 20240101 AND o.status = 'completed'
+            ),
+            v3_product AS (
+              SELECT product_id, category
+              FROM default.v3.products
+            )
+            SELECT t2.category,
+              SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+            WHERE t1.order_date >= 20240101 AND t1.status = 'completed'
+            GROUP BY t2.category
+            """,
+        )
+
 
 class TestFilterPushdownMultiRef:
     """A single filter predicate can reference multiple dim refs (OR-combined)."""

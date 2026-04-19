@@ -4150,6 +4150,39 @@ class TestValidateNodes:
             }
         ]
 
+    @pytest.mark.xfail(
+        strict=True,
+        reason="DJ's synchronous node-create path (validate_node_data in "
+        "internal/validation.py) silently accepts transforms with duplicate "
+        "output aliases; the deployment validator would reject the same ",
+    )
+    @pytest.mark.asyncio
+    async def test_transform_with_duplicate_output_aliases(
+        self,
+        client_with_roads: AsyncClient,
+    ) -> None:
+        """A transform query that projects two columns under the same output
+        alias is a SQL anti-pattern; node creation should reject it so the
+        bad spec never reaches downstream deploys.
+        """
+        resp = await client_with_roads.post(
+            "/nodes/transform/",
+            json={
+                "name": "default.ambiguous_alias",
+                "description": "Two output columns sharing alias 'dup'.",
+                "query": """
+                    SELECT
+                        ro.repair_order_id,
+                        ro.dispatcher_id AS dup,
+                        ro.hard_hat_id AS dup
+                    FROM default.repair_orders ro
+                """,
+                "mode": "published",
+                "primary_key": ["repair_order_id"],
+            },
+        )
+        assert resp.status_code in (400, 422), resp.json()
+
     @pytest.mark.asyncio
     async def test_validating_invalid_sql(self, client: AsyncClient) -> None:
         """

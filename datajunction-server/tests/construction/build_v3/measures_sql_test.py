@@ -569,6 +569,63 @@ class TestDimensionJoins:
             "v3.location.country[customer->home]",
         ]
 
+    @pytest.mark.asyncio
+    async def test_dim_link_with_coalesce_in_join_sql(
+        self,
+        client_with_build_v3,
+    ):
+        """A dimension link whose ``join_sql`` uses ``COALESCE`` over two
+        fact columns should keep both FK columns in the parent CTE's
+        projection so the JOIN clause can reference them at the outer
+        level.  Documents whether DJ supports non-column expressions in
+        dim-link join_sql.
+        """
+        resp = await client_with_build_v3.post(
+            "/nodes/v3.order_details/link",
+            json={
+                "dimension_node": "v3.location",
+                "join_on": (
+                    "COALESCE(v3.order_details.from_location_id, "
+                    "v3.order_details.to_location_id) = v3.location.location_id"
+                ),
+                "role": "either",
+            },
+        )
+        if resp.status_code not in (200, 201):
+            pytest.skip(
+                f"COALESCE in dim-link join_sql not supported: {resp.json()}",
+            )
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.location.country[either]"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            get_first_grain_group(response.json())["sql"],
+            """
+            WITH
+            v3_location AS (
+              SELECT location_id, country FROM default.v3.locations
+            ),
+            v3_order_details AS (
+              SELECT o.from_location_id,
+                o.to_location_id,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t2.country country_either,
+              SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_location t2
+              ON COALESCE(t1.from_location_id, t1.to_location_id) = t2.location_id
+            GROUP BY t2.country
+            """,
+        )
+
 
 class TestMeasuresSQLRoles:
     @pytest.mark.asyncio
