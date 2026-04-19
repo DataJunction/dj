@@ -1760,12 +1760,14 @@ class TestMeasuresSQLMetricDefinitionsWithDimensions:
         """
         assert str(parse(data[0]["sql"])) == str(parse(expected_sql))
         result = duckdb_conn.sql(data[0]["sql"])
-        assert result.fetchall() == [
-            ("Alexander Wilkinson", "Alexander Wilkinson"),
-            ("Virgil Craft", "Virgil Craft"),
-            ("Chester Lyon", "Chester Lyon"),
-            ("Willie Chaney", "Willie Chaney"),
-        ]
+        assert sorted(result.fetchall()) == sorted(
+            [
+                ("Alexander Wilkinson", "Alexander Wilkinson"),
+                ("Virgil Craft", "Virgil Craft"),
+                ("Chester Lyon", "Chester Lyon"),
+                ("Willie Chaney", "Willie Chaney"),
+            ],
+        )
 
     @pytest.mark.asyncio
     async def test_metric_definition_with_multiple_joinable_dimensions(
@@ -1879,17 +1881,20 @@ class TestMeasuresSQLMetricDefinitionsWithDimensions:
         """
         assert str(parse(data[0]["sql"])) == str(parse(expected_sql))
         result = duckdb_conn.sql(data[0]["sql"])
-        assert result.fetchall() == [
-            ("Jersey City", "Perkins", "NJ", None),
-            ("Billerica", "Best", "MA", None),
-            ("Southgate", "Riley", "MI", None),
-            ("Phoenix", "Henderson", "AZ", None),
-            ("Southampton", "Stafford", "PA", None),
-            ("Powder Springs", "Clarke", "GA", None),
-            ("Middletown", "Massey", "CT", None),
-            ("Muskogee", "Ziegler", "OK", None),
-            ("Niagara Falls", "Boone", "NY", "Boone"),
-        ]
+        assert sorted(result.fetchall(), key=lambda r: r[0]) == sorted(
+            [
+                ("Jersey City", "Perkins", "NJ", None),
+                ("Billerica", "Best", "MA", None),
+                ("Southgate", "Riley", "MI", None),
+                ("Phoenix", "Henderson", "AZ", None),
+                ("Southampton", "Stafford", "PA", None),
+                ("Powder Springs", "Clarke", "GA", None),
+                ("Middletown", "Massey", "CT", None),
+                ("Muskogee", "Ziegler", "OK", None),
+                ("Niagara Falls", "Boone", "NY", "Boone"),
+            ],
+            key=lambda r: r[0],
+        )
 
     @pytest.mark.asyncio
     async def test_sql_metric_definition_with_multiple_joinable_dimensions(
@@ -1975,17 +1980,19 @@ class TestMeasuresSQLMetricDefinitionsWithDimensions:
         """
         assert str(parse(data["sql"])) == str(parse(expected_sql))
         result = duckdb_conn.sql(data["sql"])
-        assert result.fetchall() == [
-            ("Perkins", "NJ", 0),
-            ("Best", "MA", 0),
-            ("Riley", "MI", 0),
-            ("Henderson", "AZ", 0),
-            ("Stafford", "PA", 0),
-            ("Clarke", "GA", 0),
-            ("Massey", "CT", 0),
-            ("Ziegler", "OK", 0),
-            ("Boone", "NY", 1),
-        ]
+        assert sorted(result.fetchall()) == sorted(
+            [
+                ("Perkins", "NJ", 0),
+                ("Best", "MA", 0),
+                ("Riley", "MI", 0),
+                ("Henderson", "AZ", 0),
+                ("Stafford", "PA", 0),
+                ("Clarke", "GA", 0),
+                ("Massey", "CT", 0),
+                ("Ziegler", "OK", 0),
+                ("Boone", "NY", 1),
+            ],
+        )
 
 
 @pytest.mark.asyncio

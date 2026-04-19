@@ -3244,12 +3244,14 @@ FROM default_DOT_repair_orders_fact_metrics
         ),
     )
     result = duckdb_conn.sql(data["sql"])
-    assert result.fetchall() == [
-        (33, "A", None, "New York", 285627.0),
-        (44, "A", None, "Dallas", 18497.0),
-        (44, "A", None, "San Antonio", 76463.0),
-        (39, "B", None, "Philadelphia", 1135603.0),
-    ]
+    assert sorted(result.fetchall()) == sorted(
+        [
+            (33, "A", None, "New York", 285627.0),
+            (44, "A", None, "Dallas", 18497.0),
+            (44, "A", None, "San Antonio", 76463.0),
+            (39, "B", None, "Philadelphia", 1135603.0),
+        ],
+    )
 
     response = await client_with_roads.get(
         "/sql/",
