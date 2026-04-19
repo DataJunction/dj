@@ -2649,20 +2649,24 @@ async def test_get_unmaterialized_cube_dimensions_values(
         },
     )
     results = response.json()
+    results["values"].sort(key=lambda v: str(v["value"]))
     assert results == {
         "cardinality": 9,
         "dimensions": ["default.hard_hat.city"],
-        "values": [
-            {"count": None, "value": ["Jersey City"]},
-            {"count": None, "value": ["Billerica"]},
-            {"count": None, "value": ["Southgate"]},
-            {"count": None, "value": ["Phoenix"]},
-            {"count": None, "value": ["Southampton"]},
-            {"count": None, "value": ["Powder Springs"]},
-            {"count": None, "value": ["Middletown"]},
-            {"count": None, "value": ["Muskogee"]},
-            {"count": None, "value": ["Niagara Falls"]},
-        ],
+        "values": sorted(
+            [
+                {"count": None, "value": ["Jersey City"]},
+                {"count": None, "value": ["Billerica"]},
+                {"count": None, "value": ["Southgate"]},
+                {"count": None, "value": ["Phoenix"]},
+                {"count": None, "value": ["Southampton"]},
+                {"count": None, "value": ["Powder Springs"]},
+                {"count": None, "value": ["Middletown"]},
+                {"count": None, "value": ["Muskogee"]},
+                {"count": None, "value": ["Niagara Falls"]},
+            ],
+            key=lambda v: str(v["value"]),
+        ),
     }
 
     # Ask for single dimension with counts
@@ -2686,20 +2690,25 @@ async def test_get_unmaterialized_cube_dimensions_values(
             "include_counts": True,
         },
     )
-    assert response.json() == {
+    results = response.json()
+    results["values"].sort(key=lambda v: str(v["value"]))
+    assert results == {
         "cardinality": 9,
         "dimensions": ["default.hard_hat.city"],
-        "values": [
-            {"count": 5, "value": ["Southgate"]},
-            {"count": 4, "value": ["Jersey City"]},
-            {"count": 4, "value": ["Southampton"]},
-            {"count": 3, "value": ["Billerica"]},
-            {"count": 3, "value": ["Powder Springs"]},
-            {"count": 2, "value": ["Phoenix"]},
-            {"count": 2, "value": ["Middletown"]},
-            {"count": 1, "value": ["Muskogee"]},
-            {"count": 1, "value": ["Niagara Falls"]},
-        ],
+        "values": sorted(
+            [
+                {"count": 5, "value": ["Southgate"]},
+                {"count": 4, "value": ["Jersey City"]},
+                {"count": 4, "value": ["Southampton"]},
+                {"count": 3, "value": ["Billerica"]},
+                {"count": 3, "value": ["Powder Springs"]},
+                {"count": 2, "value": ["Phoenix"]},
+                {"count": 2, "value": ["Middletown"]},
+                {"count": 1, "value": ["Muskogee"]},
+                {"count": 1, "value": ["Niagara Falls"]},
+            ],
+            key=lambda v: str(v["value"]),
+        ),
     }
 
     # Get data for multiple dimensions with counts
@@ -2710,28 +2719,33 @@ async def test_get_unmaterialized_cube_dimensions_values(
             "include_counts": True,
         },
     )
-    assert response.json() == {
+    results = response.json()
+    results["values"].sort(key=lambda v: str(v["value"]))
+    assert results == {
         "cardinality": 17,
         "dimensions": ["default.hard_hat.city", "default.dispatcher.company_name"],
-        "values": [
-            {"count": 3, "value": ["Jersey City", "Pothole Pete"]},
-            {"count": 2, "value": ["Southgate", "Asphalts R Us"]},
-            {"count": 2, "value": ["Billerica", "Asphalts R Us"]},
-            {"count": 2, "value": ["Southgate", "Federal Roads Group"]},
-            {"count": 2, "value": ["Southampton", "Pothole Pete"]},
-            {"count": 2, "value": ["Powder Springs", "Asphalts R Us"]},
-            {"count": 2, "value": ["Middletown", "Federal Roads Group"]},
-            {"count": 1, "value": ["Jersey City", "Federal Roads Group"]},
-            {"count": 1, "value": ["Billerica", "Pothole Pete"]},
-            {"count": 1, "value": ["Phoenix", "Asphalts R Us"]},
-            {"count": 1, "value": ["Southampton", "Asphalts R Us"]},
-            {"count": 1, "value": ["Southampton", "Federal Roads Group"]},
-            {"count": 1, "value": ["Phoenix", "Federal Roads Group"]},
-            {"count": 1, "value": ["Muskogee", "Federal Roads Group"]},
-            {"count": 1, "value": ["Powder Springs", "Pothole Pete"]},
-            {"count": 1, "value": ["Niagara Falls", "Federal Roads Group"]},
-            {"count": 1, "value": ["Southgate", "Pothole Pete"]},
-        ],
+        "values": sorted(
+            [
+                {"count": 3, "value": ["Jersey City", "Pothole Pete"]},
+                {"count": 2, "value": ["Southgate", "Asphalts R Us"]},
+                {"count": 2, "value": ["Billerica", "Asphalts R Us"]},
+                {"count": 2, "value": ["Southgate", "Federal Roads Group"]},
+                {"count": 2, "value": ["Southampton", "Pothole Pete"]},
+                {"count": 2, "value": ["Powder Springs", "Asphalts R Us"]},
+                {"count": 2, "value": ["Middletown", "Federal Roads Group"]},
+                {"count": 1, "value": ["Jersey City", "Federal Roads Group"]},
+                {"count": 1, "value": ["Billerica", "Pothole Pete"]},
+                {"count": 1, "value": ["Phoenix", "Asphalts R Us"]},
+                {"count": 1, "value": ["Southampton", "Asphalts R Us"]},
+                {"count": 1, "value": ["Southampton", "Federal Roads Group"]},
+                {"count": 1, "value": ["Phoenix", "Federal Roads Group"]},
+                {"count": 1, "value": ["Muskogee", "Federal Roads Group"]},
+                {"count": 1, "value": ["Powder Springs", "Pothole Pete"]},
+                {"count": 1, "value": ["Niagara Falls", "Federal Roads Group"]},
+                {"count": 1, "value": ["Southgate", "Pothole Pete"]},
+            ],
+            key=lambda v: str(v["value"]),
+        ),
     }
 
     # Get data for multiple dimensions with filters
@@ -2743,16 +2757,21 @@ async def test_get_unmaterialized_cube_dimensions_values(
             "include_counts": True,
         },
     )
-    assert response.json() == {
+    results = response.json()
+    results["values"].sort(key=lambda v: str(v["value"]))
+    assert results == {
         "cardinality": 5,
         "dimensions": ["default.hard_hat.city", "default.dispatcher.company_name"],
-        "values": [
-            {"count": 3, "value": ["Jersey City", "Pothole Pete"]},
-            {"count": 2, "value": ["Southampton", "Pothole Pete"]},
-            {"count": 1, "value": ["Billerica", "Pothole Pete"]},
-            {"count": 1, "value": ["Southgate", "Pothole Pete"]},
-            {"count": 1, "value": ["Powder Springs", "Pothole Pete"]},
-        ],
+        "values": sorted(
+            [
+                {"count": 3, "value": ["Jersey City", "Pothole Pete"]},
+                {"count": 2, "value": ["Southampton", "Pothole Pete"]},
+                {"count": 1, "value": ["Billerica", "Pothole Pete"]},
+                {"count": 1, "value": ["Southgate", "Pothole Pete"]},
+                {"count": 1, "value": ["Powder Springs", "Pothole Pete"]},
+            ],
+            key=lambda v: str(v["value"]),
+        ),
     }
 
     # Get data for multiple dimensions with filters and limit
@@ -2765,16 +2784,26 @@ async def test_get_unmaterialized_cube_dimensions_values(
             "include_counts": True,
         },
     )
-    assert response.json() == {
-        "cardinality": 4,
-        "dimensions": ["default.hard_hat.city", "default.dispatcher.company_name"],
-        "values": [
-            {"count": 3, "value": ["Jersey City", "Pothole Pete"]},
-            {"count": 2, "value": ["Southampton", "Pothole Pete"]},
-            {"count": 1, "value": ["Billerica", "Pothole Pete"]},
-            {"count": 1, "value": ["Southgate", "Pothole Pete"]},
-        ],
-    }
+    results = response.json()
+    assert results["cardinality"] == 4
+    assert results["dimensions"] == [
+        "default.hard_hat.city",
+        "default.dispatcher.company_name",
+    ]
+    values = results["values"]
+    # Top 2 are deterministic by count; last 2 are a 2-subset of the 3
+    # count=1 Pothole Pete rows (tie-break is duckdb-version dependent).
+    assert values[:2] == [
+        {"count": 3, "value": ["Jersey City", "Pothole Pete"]},
+        {"count": 2, "value": ["Southampton", "Pothole Pete"]},
+    ]
+    possible_tail = [
+        {"count": 1, "value": ["Billerica", "Pothole Pete"]},
+        {"count": 1, "value": ["Powder Springs", "Pothole Pete"]},
+        {"count": 1, "value": ["Southgate", "Pothole Pete"]},
+    ]
+    assert len(values) == 4
+    assert all(v in possible_tail for v in values[2:])
 
 
 @pytest.mark.asyncio

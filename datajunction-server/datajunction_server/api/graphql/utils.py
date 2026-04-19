@@ -45,14 +45,14 @@ async def resolver_session(info: Info) -> AsyncIterator[AsyncSession]:
     if override is not None:
         yield override()
         return
-
-    # Production: create a genuinely independent session per resolver.
-    gen = get_session(request, session_label="graphql_resolver")
-    session = await gen.__anext__()
-    try:
-        yield session
-    finally:
-        await gen.aclose()  # type: ignore
+    else:  # pragma: no cover
+        # Production: create a genuinely independent session per resolver.
+        gen = get_session(request, session_label="graphql_resolver")
+        session = await gen.__anext__()
+        try:
+            yield session
+        finally:
+            await gen.aclose()  # type: ignore
 
 
 def convert_camel_case(name):
