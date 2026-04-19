@@ -9,6 +9,7 @@ from strawberry.types import Info
 
 from datajunction_server.models.dialect import DialectRegistry
 from datajunction_server.api.graphql.scalars.catalog_engine import Engine, DialectInfo
+from datajunction_server.api.graphql.utils import resolver_session
 from datajunction_server.database.engine import Engine as DBEngine
 
 
@@ -19,11 +20,11 @@ async def list_engines(
     """
     List all available engines
     """
-    session = info.context["session"]  # type: ignore
-    return [
-        Engine.from_pydantic(engine)  # type: ignore #pylint: disable=E1101
-        for engine in (await session.execute(select(DBEngine))).scalars().all()
-    ]
+    async with resolver_session(info) as session:
+        return [
+            Engine.from_pydantic(engine)  # type: ignore #pylint: disable=E1101
+            for engine in (await session.execute(select(DBEngine))).scalars().all()
+        ]
 
 
 async def list_dialects(

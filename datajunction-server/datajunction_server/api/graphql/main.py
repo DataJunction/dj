@@ -121,7 +121,6 @@ async def get_context(
         request.state.test_session = db_session
 
     return {
-        "session": db_session,  # Keep for backward compatibility with existing code
         "node_loader": create_node_by_name_loader(request),
         "collection_nodes_loader": create_collection_nodes_loader(request),
         "git_info_loader": create_git_info_loader(request),

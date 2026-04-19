@@ -8,6 +8,7 @@ import strawberry
 from strawberry.types import Info
 
 from datajunction_server.api.graphql.scalars.tag import Tag
+from datajunction_server.api.graphql.utils import resolver_session
 from datajunction_server.database.tag import Tag as DBTag
 
 
@@ -30,9 +31,9 @@ async def list_tags(
     """
     Find available tags by the search parameters
     """
-    session = info.context["session"]  # type: ignore
-    db_tags = await DBTag.find_tags(session, tag_names, tag_types)
-    return [_to_graphql_tag(db_tag) for db_tag in db_tags]
+    async with resolver_session(info) as session:
+        db_tags = await DBTag.find_tags(session, tag_names, tag_types)
+        return [_to_graphql_tag(db_tag) for db_tag in db_tags]
 
 
 async def search_tags(
@@ -54,9 +55,9 @@ async def search_tags(
     """
     if not search or not search.strip():
         return []
-    session = info.context["session"]  # type: ignore
-    db_tags = await DBTag.search_tags(session, search.strip(), limit=limit)
-    return [_to_graphql_tag(db_tag) for db_tag in db_tags]
+    async with resolver_session(info) as session:
+        db_tags = await DBTag.search_tags(session, search.strip(), limit=limit)
+        return [_to_graphql_tag(db_tag) for db_tag in db_tags]
 
 
 async def list_tag_types(
@@ -66,5 +67,5 @@ async def list_tag_types(
     """
     List all tag types
     """
-    session = info.context["session"]  # type: ignore
-    return await DBTag.get_tag_types(session)
+    async with resolver_session(info) as session:
+        return await DBTag.get_tag_types(session)

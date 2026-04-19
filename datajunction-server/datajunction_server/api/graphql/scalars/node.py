@@ -367,16 +367,18 @@ class NodeRevision:
         """
         if root.type != NodeType.METRIC:
             return None
-        session = info.context["session"]  # type: ignore
-        extractor = MetricComponentExtractor(root.id)
-        components, derived_ast = await extractor.extract(session)
-        # The derived_expression is the combiner (how to combine merged components)
-        combiner_expr = str(derived_ast.select.projection[0])
-        return DecomposedMetric(  # type: ignore
-            components=components,
-            combiner=combiner_expr,
-            derived_query=str(derived_ast),
-        )
+        from datajunction_server.api.graphql.utils import resolver_session
+
+        async with resolver_session(info) as session:
+            extractor = MetricComponentExtractor(root.id)
+            components, derived_ast = await extractor.extract(session)
+            # The derived_expression is the combiner (how to combine merged components)
+            combiner_expr = str(derived_ast.select.projection[0])
+            return DecomposedMetric(  # type: ignore
+                components=components,
+                combiner=combiner_expr,
+                derived_query=str(derived_ast),
+            )
 
     # Only cubes will have these fields
     @strawberry.field
