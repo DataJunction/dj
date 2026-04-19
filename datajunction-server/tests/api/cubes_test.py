@@ -2649,20 +2649,24 @@ async def test_get_unmaterialized_cube_dimensions_values(
         },
     )
     results = response.json()
+    results["values"].sort(key=lambda v: v["value"] or [])
     assert results == {
         "cardinality": 9,
         "dimensions": ["default.hard_hat.city"],
-        "values": [
-            {"count": None, "value": ["Jersey City"]},
-            {"count": None, "value": ["Billerica"]},
-            {"count": None, "value": ["Southgate"]},
-            {"count": None, "value": ["Phoenix"]},
-            {"count": None, "value": ["Southampton"]},
-            {"count": None, "value": ["Powder Springs"]},
-            {"count": None, "value": ["Middletown"]},
-            {"count": None, "value": ["Muskogee"]},
-            {"count": None, "value": ["Niagara Falls"]},
-        ],
+        "values": sorted(
+            [
+                {"count": None, "value": ["Jersey City"]},
+                {"count": None, "value": ["Billerica"]},
+                {"count": None, "value": ["Southgate"]},
+                {"count": None, "value": ["Phoenix"]},
+                {"count": None, "value": ["Southampton"]},
+                {"count": None, "value": ["Powder Springs"]},
+                {"count": None, "value": ["Middletown"]},
+                {"count": None, "value": ["Muskogee"]},
+                {"count": None, "value": ["Niagara Falls"]},
+            ],
+            key=lambda v: v["value"] or [],
+        ),
     }
 
     # Ask for single dimension with counts
