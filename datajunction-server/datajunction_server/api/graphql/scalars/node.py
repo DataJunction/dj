@@ -223,29 +223,19 @@ class NodeRevision:
         Returns the dimension links for this node revision.
 
         By the time this resolver runs, the parent's session has closed and
-        each DimensionLink is detached from it. The `foreign_keys`
-        hybrid_property walks `link.node_revision.name` — a lazy relationship
-        that would fail on a detached instance. We already have the owning
-        NodeRevision (`self`), so pre-seed `link.node_revision` via
-        `set_committed_value` to short-circuit the lazy load, then compute
-        `foreign_keys` while we still control the call site.
+        each DimensionLink is detached. The `foreign_keys` hybrid_property
+        walks `link.node_revision.name` — a lazy relationship that would fail
+        on a detached instance. We already have the owning NodeRevision
+        (`self`), so pre-seed `link.node_revision` via `set_committed_value`
+        to short-circuit the lazy load. Strawberry duck-types the raw ORM
+        link the rest of the way.
         """
         links = []
         for link in self.dimension_links:
             if link.dimension is None or link.dimension.deactivated_at is not None:
                 continue  # hard-deleted or deactivated dimension node
             set_committed_value(link, "node_revision", self)
-            links.append(
-                DimensionLink(  # type: ignore[call-arg]
-                    dimension=NodeName(name=link.dimension.name),  # type: ignore[call-arg]
-                    join_type=link.join_type or JoinType_.LEFT,
-                    join_sql=link.join_sql,
-                    join_cardinality=link.join_cardinality,
-                    role=link.role,
-                    foreign_keys=link.foreign_keys,
-                    default_value=link.default_value,
-                ),
-            )
+            links.append(link)
         return links
 
     parents: List[NodeNameVersion]
