@@ -748,3 +748,114 @@ class TestReparseParentColumnTypes:
     def test_empty_map_is_noop(self):
         """An empty dependencies_map doesn't raise."""
         _reparse_parent_column_types({})
+
+
+# ---------------------------------------------------------------------------
+# validate_node_data_v2 smoke tests
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def v2_parent_source(session: AsyncSession, user: User) -> Node:
+    """Source node with typed columns for use as a parent in v2 tests."""
+    node = Node(
+        name="test.v2_parent",
+        type=NodeType.SOURCE,
+        created_by_id=user.id,
+        current_version="v1.0",
+    )
+    revision = NodeRevision(
+        name="test.v2_parent",
+        display_name="v2 parent",
+        type=NodeType.SOURCE,
+        query=None,
+        status=NodeStatus.VALID,
+        version="v1.0",
+        node=node,
+        columns=[
+            Column(name="id", type=ct.BigIntType(), order=0),
+            Column(name="is_winning_bid", type=ct.BooleanType(), order=1),
+        ],
+        created_by_id=user.id,
+    )
+    session.add(node)
+    session.add(revision)
+    await session.commit()
+    return node
+
+
+@pytest.mark.asyncio
+async def test_validate_node_data_v2_returns_valid_for_simple_transform(
+    session: AsyncSession,
+    user: User,
+    v2_parent_source: Node,
+):
+    """Happy path: simple transform selecting a typed column resolves cleanly."""
+    from datajunction_server.internal.validation import validate_node_data_v2
+
+    data = NodeRevisionBase(
+        name="test.v2_child_valid",
+        display_name="v2 child",
+        type=NodeType.TRANSFORM,
+        query="SELECT id FROM test.v2_parent",
+        mode="published",
+    )
+    validator = await validate_node_data_v2(data, session)
+
+    assert validator.status == NodeStatus.VALID, validator.errors
+    assert [c.name for c in validator.columns] == ["id"]
+    assert not validator.missing_parents_map
+
+
+@pytest.mark.asyncio
+async def test_validate_node_data_v2_flags_missing_parent(
+    session: AsyncSession,
+    user: User,
+):
+    """A query referencing a non-existent parent surfaces the missing parent
+    via both `missing_parents_map` and an error on the validator."""
+    from datajunction_server.errors import ErrorCode
+    from datajunction_server.internal.validation import validate_node_data_v2
+
+    data = NodeRevisionBase(
+        name="test.v2_missing_parent_child",
+        display_name="v2 missing parent child",
+        type=NodeType.TRANSFORM,
+        query="SELECT id FROM test.does_not_exist",
+        mode="published",
+    )
+    validator = await validate_node_data_v2(data, session)
+
+    assert validator.status == NodeStatus.INVALID
+    assert "test.does_not_exist" in validator.missing_parents_map
+    assert any(err.code == ErrorCode.MISSING_PARENT for err in validator.errors), [
+        (e.code, e.message) for e in validator.errors
+    ]
+
+
+@pytest.mark.asyncio
+async def test_validate_node_data_v2_flags_sum_boolean(
+    session: AsyncSession,
+    user: User,
+    v2_parent_source: Node,
+):
+    """SUM(boolean) is not a valid Spark aggregation — v2 should surface a
+    TYPE_INFERENCE error. Locks in the un-suppression of
+    'Unable to infer type' error strings at the single-node boundary."""
+    from datajunction_server.errors import ErrorCode
+    from datajunction_server.internal.validation import validate_node_data_v2
+
+    data = NodeRevisionBase(
+        name="test.v2_sum_boolean",
+        display_name="sum boolean metric",
+        type=NodeType.METRIC,
+        query="SELECT SUM(is_winning_bid) FROM test.v2_parent",
+        mode="published",
+    )
+    validator = await validate_node_data_v2(data, session)
+
+    assert validator.status == NodeStatus.INVALID
+    assert any(
+        err.code == ErrorCode.TYPE_INFERENCE and "Unable to infer type" in err.message
+        for err in validator.errors
+    ), [(e.code, e.message) for e in validator.errors]

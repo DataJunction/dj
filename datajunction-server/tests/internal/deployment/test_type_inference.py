@@ -1588,14 +1588,16 @@ class TestInlineTable:
         assert isinstance(result.output_columns[0][1], IntegerType)
 
     def test_values_with_null(self):
+        """NULL in the first row for a column doesn't poison its type —
+        _resolve_inline_table scans later rows for a typed literal."""
         result = validate_node_query(
             "SELECT id, val FROM (VALUES (1, NULL), (2, 'b')) AS t(id, val)",
             {},
         )
         assert result.output_columns[0][0] == "id"
         assert isinstance(result.output_columns[0][1], IntegerType)
-        assert result.output_columns[1] == ("val", UnknownType())
-        assert any("Unable to infer type for column `val`" in e for e in result.errors)
+        assert result.output_columns[1] == ("val", StringType())
+        assert not result.errors, result.errors
 
     def test_values_with_boolean(self):
         result = validate_node_query(
@@ -1792,9 +1794,14 @@ class TestErrors:
         )
         assert isinstance(result.output_columns[0][1], UnknownType)
 
-    def test_derived_metric_dim_not_in_map(self):
+    def test_derived_metric_dim_not_in_map_is_permissive(self):
+        """Derived metrics can reference dim attributes that aren't parents —
+        they resolve at query build time via dim links. The in-memory
+        inferrer can't know that, so it types them as UnknownType rather than
+        raising. Matches the regular-query branch's dim-link permissiveness.
+        """
         result = validate_node_query(
-            "SELECT default.nonexistent_dim.col",
+            "SELECT default.some_dim.col",
             _col_map(
                 (
                     "default.total_revenue",
@@ -1802,7 +1809,10 @@ class TestErrors:
                 ),
             ),
         )
-        assert any("not found" in e for e in result.errors)
+        # No "not found" error — the ref is allowed to stay untyped.
+        assert not any(
+            "not found in derived metric scope" in e for e in result.errors
+        ), result.errors
 
     def test_multiple_errors_collected(self):
         """Multiple bad columns → all errors collected, not just the first."""
@@ -2004,4 +2014,406 @@ class TestColumnSignatureComparison:
                 [("x", UnknownType())],
             )
             is True
+        )
+
+
+# ---------------------------------------------------------------------------
+# EXPLODE struct unpacking, FROMless lateral views, unresolved-namespace hints
+# ---------------------------------------------------------------------------
+
+
+class TestExplodeStructUnpacking:
+    """EXPLODE(array<struct<a, b>>) AS (c1, c2) should alias the struct fields
+    positionally, matching Spark behavior."""
+
+    @staticmethod
+    def _cells_type():
+        from datajunction_server.sql.parsing.types import (
+            ListType,
+            NestedField,
+            StructType,
+        )
+
+        return ListType(
+            element_type=StructType(
+                NestedField(name="cell_id", field_type=StringType()),
+                NestedField(name="cell_name", field_type=StringType()),
+            ),
+        )
+
+    def test_projection_explode_struct_array_unpacks_fields(self):
+        """SELECT test_id, EXPLODE(cells) AS (cell_id, cell_name) FROM t
+        where cells is array<struct<cell_id:string, cell_name:string>>
+        → (test_id: bigint, cell_id: string, cell_name: string)."""
+        result = validate_node_query(
+            "SELECT test_id, EXPLODE(cells) AS (cell_id, cell_name) FROM t.src",
+            _col_map(
+                (
+                    "t.src",
+                    [
+                        ("test_id", BigIntType()),
+                        ("cells", self._cells_type()),
+                    ],
+                ),
+            ),
+        )
+        assert not result.errors, result.errors
+        assert result.output_columns == [
+            ("test_id", BigIntType()),
+            ("cell_id", StringType()),
+            ("cell_name", StringType()),
+        ]
+
+    def test_projection_explode_scalar_array_single_column(self):
+        """Regression: EXPLODE(array<int>) AS x produces one int column.
+        The struct-unpacking branch must NOT kick in for a scalar element type."""
+        from datajunction_server.sql.parsing.types import ListType
+
+        result = validate_node_query(
+            "SELECT id, EXPLODE(nums) AS n FROM t.src",
+            _col_map(
+                (
+                    "t.src",
+                    [
+                        ("id", IntegerType()),
+                        ("nums", ListType(element_type=IntegerType())),
+                    ],
+                ),
+            ),
+        )
+        assert not result.errors, result.errors
+        assert result.output_columns == [
+            ("id", IntegerType()),
+            ("n", IntegerType()),
+        ]
+
+    def test_lateral_view_posexplode_struct_keeps_struct_intact(self):
+        """POSEXPLODE does NOT struct-unpack — first alias is pos (int), second
+        is the struct element as-is. (LATERAL VIEW form; the projection form
+        for POSEXPLODE with a parenthesized alias list isn't parseable.)"""
+        result = validate_node_query(
+            "SELECT pos, tag FROM t.src LATERAL VIEW POSEXPLODE(cells) v AS pos, tag",
+            _col_map(("t.src", [("cells", self._cells_type())])),
+        )
+        assert not result.errors, result.errors
+        assert result.output_columns[0] == ("pos", IntegerType())
+        # Second col is the struct element, not one of its fields
+        assert result.output_columns[1][0] == "tag"
+        from datajunction_server.sql.parsing.types import StructType
+
+        assert isinstance(result.output_columns[1][1], StructType)
+
+    def test_lateral_view_explode_struct_array_unpacks_fields(self):
+        """Same struct-unpacking for LATERAL VIEW form."""
+        result = validate_node_query(
+            "SELECT cell_id, cell_name FROM t.src "
+            "LATERAL VIEW EXPLODE(cells) v AS cell_id, cell_name",
+            _col_map(("t.src", [("cells", self._cells_type())])),
+        )
+        assert not result.errors, result.errors
+        assert result.output_columns == [
+            ("cell_id", StringType()),
+            ("cell_name", StringType()),
+        ]
+
+    def test_projection_explode_struct_in_anonymous_subquery(self):
+        """Composition: anonymous subquery with projection-EXPLODE whose
+        struct-unpacked columns are referenced from the outer projection."""
+        result = validate_node_query(
+            "SELECT CAST(test_id AS BIGINT) AS test_id, cell_id, cell_name "
+            "FROM ( SELECT test_id, EXPLODE(cells) AS (cell_id, cell_name) "
+            "       FROM t.src )",
+            _col_map(
+                (
+                    "t.src",
+                    [
+                        ("test_id", IntegerType()),
+                        ("cells", self._cells_type()),
+                    ],
+                ),
+            ),
+        )
+        assert not result.errors, result.errors
+        assert [n for n, _ in result.output_columns] == [
+            "test_id",
+            "cell_id",
+            "cell_name",
+        ]
+        # CAST gives bigint; struct-unpacked fields keep their string type
+        assert result.output_columns[0] == ("test_id", BigIntType())
+        assert result.output_columns[1] == ("cell_id", StringType())
+        assert result.output_columns[2] == ("cell_name", StringType())
+
+
+class TestMultipleAnonymousLateralViews:
+    def test_two_anonymous_lateral_views_do_not_collide(self):
+        """Two LATERAL VIEW EXPLODE(sequence(...)) in the same SELECT each
+        default to __lateral__; the new __lateral_{idx}__ fallback keeps both
+        sets of exploded columns reachable from the outer projection."""
+        result = validate_node_query(
+            "SELECT window_start, window_end FROM (SELECT 1 AS d) t "
+            "LATERAL VIEW EXPLODE(SEQUENCE(1, 97)) AS window_start "
+            "LATERAL VIEW EXPLODE(SEQUENCE(2, 98)) AS window_end",
+            {},
+        )
+        assert not result.errors, result.errors
+        assert result.output_columns == [
+            ("window_start", IntegerType()),
+            ("window_end", IntegerType()),
+        ]
+
+
+class TestFromlessLateralView:
+    def test_fromless_query_with_lateral_view_resolves_exploded_columns(self):
+        """Query with LATERAL VIEW but no FROM clause — used as a series
+        generator in Spark — should still be processed, not routed to the
+        __derived__ scope."""
+        result = validate_node_query(
+            "SELECT CAST(CONCAT(window_start, '-', window_end) AS string) AS obs_window, "
+            "window_start AS obs_window_start, "
+            "window_end AS obs_window_end "
+            "LATERAL VIEW EXPLODE(SEQUENCE(1, 97)) AS window_start "
+            "LATERAL VIEW EXPLODE(SEQUENCE(2, 98)) AS window_end "
+            "WHERE window_start < window_end AND window_start = 1",
+            {},
+        )
+        assert not result.errors, result.errors
+        assert result.output_columns == [
+            ("obs_window", StringType()),
+            ("obs_window_start", IntegerType()),
+            ("obs_window_end", IntegerType()),
+        ]
+
+    def test_fromless_query_without_lateral_view_stays_derived_metric(self):
+        """Regression: a true derived metric (no FROM, no lateral views) must
+        still go through the __derived__ scope so bare metric-name refs
+        resolve against parent_map."""
+        result = validate_node_query(
+            "SELECT default.metric_a / default.metric_b AS ratio",
+            _col_map(
+                ("default.metric_a", [("metric_a", DoubleType())]),
+                ("default.metric_b", [("metric_b", DoubleType())]),
+            ),
+        )
+        assert not result.errors, result.errors
+        assert [n for n, _ in result.output_columns] == ["ratio"]
+
+    def test_inline_table_with_column_aliases_uses_explicit_alias(self):
+        """CROSS JOIN VALUES (...) tab(c1, c2) — the `tab` alias lands on
+        InlineTable.name rather than InlineTable.alias. v2 must honor it so
+        outer refs like `tab.c2` resolve instead of hitting the `__inline__`
+        fallback."""
+        result = validate_node_query(
+            "SELECT tab.window_end AS tenure FROM source.s a "
+            "CROSS JOIN VALUES ('1-7', 1, 7), ('1-14', 1, 14) "
+            "tab(label, window_start, window_end)",
+            _col_map(("source.s", [("id", IntegerType())])),
+        )
+        assert not result.errors, result.errors
+        assert result.output_columns == [("tenure", IntegerType())]
+
+    def test_inline_table_scans_past_null_for_column_type(self):
+        """VALUES(NULL, 'a'), ('x', 'b') — first-row NULL for col0 must not
+        poison the column type. Scan rows until a typed literal is found."""
+        result = validate_node_query(
+            "SELECT app_start_type, label FROM VALUES "
+            "(NULL, 'From Nflx'), ('COLD', 'COLD'), ('WARM', 'WARM') "
+            "AS t (app_start_type, label)",
+            {},
+        )
+        assert not result.errors, result.errors
+        assert result.output_columns == [
+            ("app_start_type", StringType()),
+            ("label", StringType()),
+        ]
+
+    def test_inline_table_all_null_column_is_null_type(self):
+        """When every row has NULL for a given column, the type is NullType
+        (not UnknownType — genuinely nullable-only)."""
+        result = validate_node_query(
+            "SELECT x, y FROM VALUES (NULL, 1), (NULL, 2) AS t(x, y)",
+            {},
+        )
+        assert not result.errors, result.errors
+        assert result.output_columns == [
+            ("x", NullType()),
+            ("y", IntegerType()),
+        ]
+
+    def test_lateral_view_explode_from_json_map_resolves_key_value(self):
+        """LATERAL VIEW EXPLODE(from_json(string_col, 'MAP<STRING, STRING>')) — the
+        function dispatch for from_json returns a MapType, EXPLODE of a map gives
+        (key, value) pairs, and the AS list aliases them. All columns resolve
+        cleanly."""
+        result = validate_node_query(
+            "SELECT ntl.test_id, ntl.evidence_map FROM source.t F "
+            "LATERAL VIEW EXPLODE(from_json(xpEvidenceMap, 'MAP<STRING, STRING>')) "
+            "ntl AS test_id, evidence_map",
+            _col_map(("source.t", [("xpEvidenceMap", StringType())])),
+        )
+        assert not result.errors, result.errors
+        assert result.output_columns == [
+            ("test_id", StringType()),
+            ("evidence_map", StringType()),
+        ]
+
+    def test_cross_join_unnest_resolves_element_type_from_sibling_table(self):
+        """`FROM t CROSS JOIN UNNEST(t.arr) AS u(x)` — UNNEST is the right side
+        of a JOIN and references a column on the left-side table. The
+        resolution must see the left table in scope (outer-scope propagation),
+        and the element type of the array must flow into u.x."""
+        from datajunction_server.sql.parsing.types import ListType
+
+        result = validate_node_query(
+            "SELECT id, x FROM t.src CROSS JOIN UNNEST(vals) AS u(x)",
+            _col_map(
+                (
+                    "t.src",
+                    [
+                        ("id", IntegerType()),
+                        ("vals", ListType(element_type=IntegerType())),
+                    ],
+                ),
+            ),
+        )
+        assert not result.errors, result.errors
+        assert result.output_columns == [
+            ("id", IntegerType()),
+            ("x", IntegerType()),
+        ]
+
+    def test_cross_join_unnest_map_subscript_resolves_to_element_type(self):
+        """UNNEST(map_col['key']) where map_col: map<string, array<int>>.
+        The subscript returns array<int>, UNNEST returns rows of int."""
+        result = validate_node_query(
+            "SELECT AVG(x) AS avg_x FROM t.src "
+            "CROSS JOIN UNNEST(m['home']) AS u(x) "
+            "GROUP BY id",
+            _col_map(
+                (
+                    "t.src",
+                    [
+                        ("id", IntegerType()),
+                        # map<string, array<int>>
+                        (
+                            "m",
+                            __import__(
+                                "datajunction_server.sql.parsing.backends.antlr4",
+                                fromlist=["parse_rule"],
+                            ).parse_rule("map<string, array<int>>", "dataType"),
+                        ),
+                    ],
+                ),
+            ),
+        )
+        assert not result.errors, result.errors
+        assert result.output_columns[0][0] == "avg_x"
+        # AVG of int is double
+        from datajunction_server.sql.parsing.types import DoubleType
+
+        assert isinstance(result.output_columns[0][1], DoubleType)
+
+    def test_lateral_view_explode_missing_source_column_surfaces_real_error(self):
+        """When EXPLODE's argument references a nonexistent column, the
+        'Column X not found' error should be surfaced alongside (and before
+        the user sees) the downstream 'Unable to infer type' noise."""
+        result = validate_node_query(
+            "SELECT ntl.test_id FROM source.t F "
+            "LATERAL VIEW EXPLODE(from_json(xpEvidenceMap, 'MAP<STRING, STRING>')) "
+            "ntl AS test_id, evidence_map",
+            _col_map(("source.t", [("xpEvidence", StringType())])),  # renamed col
+        )
+        assert any(
+            "Column `xpEvidenceMap` not found in any table" in e for e in result.errors
+        ), result.errors
+
+    def test_get_json_object_on_exploded_value_resolves_to_string(self):
+        """get_json_object(map_value_col, '$.path.x') should resolve cleanly to
+        string when applied to a string (the exploded map value)."""
+        result = validate_node_query(
+            "SELECT get_json_object(ntl.evidence_map, '$.67291.alloc_cell') AS cell "
+            "FROM source.t F "
+            "LATERAL VIEW EXPLODE(from_json(xpEvidenceMap, 'MAP<STRING, STRING>')) "
+            "ntl AS test_id, evidence_map",
+            _col_map(("source.t", [("xpEvidenceMap", StringType())])),
+        )
+        assert not result.errors, result.errors
+        assert result.output_columns == [("cell", StringType())]
+
+    def test_subscript_on_list_type_returns_element_type(self):
+        """arr[1] where arr: array<string> should resolve to string. Previously
+        the Subscript handler only covered map and struct, falling through to
+        UnknownType for arrays."""
+        from datajunction_server.sql.parsing.types import ListType
+
+        result = validate_node_query(
+            "SELECT arr[1] AS first FROM t.src",
+            _col_map(("t.src", [("arr", ListType(element_type=StringType()))])),
+        )
+        assert not result.errors, result.errors
+        assert result.output_columns == [("first", StringType())]
+
+    def test_derived_metric_dim_attribute_window_ref_is_permissive(self):
+        """Derived metrics often reference dim attributes inside window
+        functions (`OVER (ORDER BY common.dimensions.time.date.dateint)`).
+        These aren't parents — they resolve via dim links at query build time.
+        v2 should type them as UnknownType and not reject."""
+        result = validate_node_query(
+            "SELECT AVG(demo.metrics.main.avg_dl) OVER ("
+            "  ORDER BY common.dimensions.time.date.dateint "
+            "  ROWS BETWEEN 6 PRECEDING AND CURRENT ROW"
+            ") AS trailing_avg",
+            _col_map(
+                ("demo.metrics.main.avg_dl", [("avg_dl", DoubleType())]),
+            ),
+        )
+        assert not result.errors, result.errors
+        assert [n for n, _ in result.output_columns] == ["trailing_avg"]
+
+
+class TestUnresolvedNamespaceDiagnostic:
+    def test_bogus_namespace_emits_specific_error(self):
+        """A namespace that matches no table alias, struct column, or known
+        parent should surface a descriptive error rather than only the generic
+        'Unable to infer type'."""
+        result = validate_node_query(
+            "SELECT a.id, tenure.tenure FROM (SELECT 1 AS id) AS a",
+            {},
+        )
+        # Must produce the namespace-specific message (not only the generic
+        # Unable-to-infer-type that used to be the only signal).
+        assert any(
+            "namespace `tenure`" in msg and "not a table alias" in msg
+            for msg in result.errors
+        ), result.errors
+
+    def test_known_parent_prefix_does_not_trigger_namespace_error(self):
+        """When some prefix of the column path matches a known parent in
+        parent_map, the namespace-error heuristic should stay quiet — the
+        reference may be a legit dim-link that resolves at query build time."""
+        result = validate_node_query(
+            "SELECT src.orders.country.name FROM src.orders o",
+            _col_map(("src.orders", [("id", IntegerType())])),
+        )
+        # No namespace-specific error — src.orders IS a known parent.
+        assert not any(
+            "not a table alias in this scope" in msg for msg in result.errors
+        ), result.errors
+
+    def test_multi_segment_dim_attribute_ref_does_not_trigger_namespace_error(self):
+        """Long dim-attribute paths like
+        `common.dimensions.xp.allocation_day.days_since_allocation` inside a
+        metric's CASE expression aren't parents, and their prefixes don't
+        match parent_map either. But they're real DJ dim-node paths, not
+        typos. Only single-segment namespaces (`tenure.tenure`-style typos)
+        should be flagged."""
+        result = validate_node_query(
+            "SELECT COUNT(DISTINCT CASE WHEN view_secs >= 360 "
+            "THEN common.dimensions.xp.allocation_day.days_since_allocation "
+            "ELSE NULL END) AS m "
+            "FROM users.foo.playback",
+            _col_map(("users.foo.playback", [("view_secs", IntegerType())])),
+        )
+        assert not any("references namespace" in msg for msg in result.errors), (
+            result.errors
         )

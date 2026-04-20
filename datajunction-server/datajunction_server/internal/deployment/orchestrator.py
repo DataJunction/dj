@@ -24,7 +24,7 @@ from datajunction_server.database.dimensionlink import DimensionLink, JoinType
 from datajunction_server.database.history import History
 from datajunction_server.database.metricmetadata import MetricMetadata
 from datajunction_server.database.namespace import NodeNamespace
-from datajunction_server.database.node import NodeRelationship
+from datajunction_server.database.node import MissingParent, NodeRelationship
 from datajunction_server.database.partition import Partition
 from datajunction_server.database.tag import Tag
 from datajunction_server.database.user import User, OAuthProvider
@@ -37,6 +37,7 @@ from datajunction_server.errors import (
     ErrorCode,
 )
 from datajunction_server.internal.deployment.utils import (
+    classify_parents,
     extract_node_graph,
     topological_levels,
     DeploymentContext,
@@ -3122,6 +3123,24 @@ class DeploymentOrchestrator:
             new_node.tags = tags  # type: ignore
         return new_node
 
+    @staticmethod
+    def _classify_parents(
+        spec: NodeSpec,
+        dep_names: list[str],
+        dependency_nodes: dict[str, Node],
+    ) -> tuple[list[Node], list[str]]:
+        """Split a spec's dependency names into resolved parents and missing names.
+
+        Thin wrapper around the shared utils.classify_parents helper — derives
+        the is_derived_metric flag from the spec so callers don't have to.
+        """
+        is_derived_metric = (
+            spec.node_type == NodeType.METRIC
+            and spec.query_ast is not None
+            and spec.query_ast.select.from_ is None
+        )
+        return classify_parents(is_derived_metric, dep_names, dependency_nodes)
+
     async def _create_node_revision(
         self,
         new_node: Node,
@@ -3132,11 +3151,11 @@ class DeploymentOrchestrator:
         """Create node revision with inferred columns and dependencies"""
         existing = self.registry.nodes.get(result.spec.rendered_name)
         old_node_revision = existing.current if existing else None
-        parents = [
-            dependency_nodes.get(parent)
-            for parent in node_graph.get(result.spec.rendered_name, [])
-            if parent in dependency_nodes
-        ]
+        parents, missing_parent_names = self._classify_parents(
+            result.spec,
+            node_graph.get(result.spec.rendered_name, []),
+            dependency_nodes,
+        )
         if result.spec.node_type != NodeType.SOURCE:
             # Pick the first parent with a non-virtual catalog to assign as the
             # catalog inherited from source parents.
@@ -3175,11 +3194,8 @@ class DeploymentOrchestrator:
             node=new_node,
             catalog=catalog,
             status=result.status,
-            parents=[
-                dependency_nodes.get(parent)
-                for parent in node_graph.get(result.spec.rendered_name, [])
-                if parent in dependency_nodes
-            ],
+            parents=parents,
+            missing_parents=[MissingParent(name=n) for n in missing_parent_names],
             created_by_id=self.context.current_user.id,
             custom_metadata=result.spec.custom_metadata,
             # Initialize to empty so _deploy_links can append without triggering a

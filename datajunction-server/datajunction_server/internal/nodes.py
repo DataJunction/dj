@@ -56,7 +56,11 @@ from datajunction_server.internal.materializations import (
     schedule_materialization_jobs_bg,
 )
 from datajunction_server.internal.history import ActivityType, EntityType
-from datajunction_server.internal.validation import NodeValidator, validate_node_data
+from datajunction_server.internal.validation import (
+    NodeValidator,
+    validate_node_data,
+    validate_node_data_v2,
+)
 from datajunction_server.models.attribute import (
     AttributeTypeIdentifier,
     ColumnAttributes,
@@ -3111,8 +3115,11 @@ async def revalidate_node(
             errors=errors,
         )
 
-    # Revalidate all other node types
-    node_validator = await validate_node_data(current_node_revision, session)
+    # Revalidate all other node types.
+    # NOTE: uses validate_node_data_v2 so POST /nodes/{name}/validate/ exercises
+    # the new validator. Every other call site (create flows, propagation,
+    # downstream reference resolution) stays on legacy until cutover.
+    node_validator = await validate_node_data_v2(current_node_revision, session)
 
     # Compile and save query AST
     if update_query_ast and background_tasks:
