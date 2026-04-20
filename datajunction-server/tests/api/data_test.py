@@ -54,6 +54,7 @@ class TestDataForNode:
         )
         data = response.json()
         assert response.status_code == 200
+        data["results"][0]["rows"].sort()
         assert data == {
             "engine_name": None,
             "engine_version": None,
@@ -95,7 +96,7 @@ class TestDataForNode:
                         },
                     ],
                     "row_count": 0,
-                    "rows": [[1, "VISA", "CARD"], [2, "MASTERCARD", "CARD"]],
+                    "rows": sorted([[1, "VISA", "CARD"], [2, "MASTERCARD", "CARD"]]),
                     "sql": mock.ANY,
                 },
             ],
@@ -118,6 +119,7 @@ class TestDataForNode:
         )
         data = response.json()
         assert response.status_code == 200
+        data["results"][0]["rows"].sort()
         assert data == {
             "engine_name": None,
             "engine_version": None,
@@ -175,15 +177,17 @@ class TestDataForNode:
                         },
                     ],
                     "row_count": 0,
-                    "rows": [
-                        [1, 25.5, 1, 2, "ACTIVE"],
-                        [2, 12.5, 2, 2, "INACTIVE"],
-                        [3, 89.0, 1, 3, "ACTIVE"],
-                        [4, 1293.199951171875, 2, 2, "ACTIVE"],
-                        [5, 23.0, 1, 4, "INACTIVE"],
-                        [6, 398.1300048828125, 2, 3, "ACTIVE"],
-                        [7, 239.6999969482422, 2, 4, "ACTIVE"],
-                    ],
+                    "rows": sorted(
+                        [
+                            [1, 25.5, 1, 2, "ACTIVE"],
+                            [2, 12.5, 2, 2, "INACTIVE"],
+                            [3, 89.0, 1, 3, "ACTIVE"],
+                            [4, 1293.199951171875, 2, 2, "ACTIVE"],
+                            [5, 23.0, 1, 4, "INACTIVE"],
+                            [6, 398.1300048828125, 2, 3, "ACTIVE"],
+                            [7, 239.6999969482422, 2, 4, "ACTIVE"],
+                        ],
+                    ),
                     "sql": "SELECT  payment_id default_DOT_revenue_DOT_payment_id,\n"
                     "\tpayment_amount "
                     "default_DOT_revenue_DOT_payment_amount,\n"
@@ -217,6 +221,7 @@ class TestDataForNode:
         )
         data = response.json()
         assert response.status_code == 200
+        data["results"][0]["rows"].sort()
         assert data == {
             "engine_name": None,
             "engine_version": None,
@@ -346,40 +351,42 @@ class TestDataForNode:
                         },
                     ],
                     "row_count": 0,
-                    "rows": [
+                    "rows": sorted(
                         [
-                            10001,
-                            "New York",
-                            1,
-                            3,
-                            "2007-07-04",
-                            "2007-12-01",
-                            "2009-07-18",
-                            0.05000000074505806,
-                            63708.0,
-                            1,
-                            1,
-                            63708.0,
-                            150,
-                            -595,
+                            [
+                                10001,
+                                "New York",
+                                1,
+                                3,
+                                "2007-07-04",
+                                "2007-12-01",
+                                "2009-07-18",
+                                0.05000000074505806,
+                                63708.0,
+                                1,
+                                1,
+                                63708.0,
+                                150,
+                                -595,
+                            ],
+                            [
+                                10002,
+                                "New York",
+                                3,
+                                1,
+                                "2007-07-05",
+                                "2007-12-01",
+                                "2009-08-28",
+                                0.05000000074505806,
+                                67253.0,
+                                1,
+                                4,
+                                67253.0,
+                                149,
+                                -636,
+                            ],
                         ],
-                        [
-                            10002,
-                            "New York",
-                            3,
-                            1,
-                            "2007-07-05",
-                            "2007-12-01",
-                            "2009-08-28",
-                            0.05000000074505806,
-                            67253.0,
-                            1,
-                            4,
-                            67253.0,
-                            149,
-                            -636,
-                        ],
-                    ],
+                    ),
                     "sql": mock.ANY,
                 },
             ],
@@ -453,6 +460,7 @@ class TestDataForNode:
         )
         data = response.json()
         assert response.status_code == 200
+        data["results"][0]["rows"].sort()
         assert data == {
             "engine_name": None,
             "engine_version": None,
@@ -488,11 +496,13 @@ class TestDataForNode:
                         },
                     ],
                     "row_count": 0,
-                    "rows": [
-                        ["Federal Roads Group", 9, 51913.88888888889],
-                        ["Pothole Pete", 8, 62205.875],
-                        ["Asphalts R Us", 8, 68914.75],
-                    ],
+                    "rows": sorted(
+                        [
+                            ["Federal Roads Group", 9, 51913.88888888889],
+                            ["Pothole Pete", 8, 62205.875],
+                            ["Asphalts R Us", 8, 68914.75],
+                        ],
+                    ),
                     "sql": mock.ANY,
                 },
             ],
