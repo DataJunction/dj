@@ -230,13 +230,14 @@ class NodeRevision:
         to short-circuit the lazy load. Strawberry duck-types the raw ORM
         link the rest of the way.
         """
-        links = []
         for link in self.dimension_links:
-            if link.dimension is None or link.dimension.deactivated_at is not None:
-                continue  # hard-deleted or deactivated dimension node
             set_committed_value(link, "node_revision", self)
-            links.append(link)
-        return links
+        return [
+            link
+            for link in self.dimension_links
+            if link.dimension is not None  # hard-deleted dimension nodes
+            and link.dimension.deactivated_at is None  # deactivated dimension nodes
+        ]
 
     parents: List[NodeNameVersion]
 
