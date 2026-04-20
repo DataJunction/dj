@@ -7,7 +7,7 @@ from typing import List, Optional
 import strawberry
 from strawberry.scalars import JSON
 from strawberry.types import Info
-from sqlalchemy.orm.attributes import InstrumentedAttribute
+from sqlalchemy.orm.attributes import InstrumentedAttribute, set_committed_value
 
 from datajunction_server.api.graphql.scalars import BigInt
 from datajunction_server.api.graphql.scalars.availabilitystate import (
@@ -222,6 +222,9 @@ class NodeRevision:
         """
         Returns the dimension links for this node revision.
         """
+        # Pre-seed each link's node rev to short-circuit the lazy load.
+        for link in self.dimension_links:
+            set_committed_value(link, "node_revision", self)
         return [
             link
             for link in self.dimension_links
