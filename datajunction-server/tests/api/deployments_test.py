@@ -1840,9 +1840,8 @@ class TestDeployments:
             "status": "invalid",
         }
 
-        # Remove the bad dimension — but the invalid cube was already deployed
-        # without it (missing dimensions are skipped), so the spec is unchanged
-        # and the cube stays INVALID.
+        # Remove the bad dimension — the cube is still INVALID from the previous
+        # deploy, so it gets re-deployed and should now succeed.
         cube.dimensions = [
             "${prefix}default.hard_hat.state",
             "${prefix}default.us_state.state_region",
@@ -1852,14 +1851,11 @@ class TestDeployments:
             DeploymentSpec(namespace=namespace, nodes=nodes_list),
         )
         assert data["status"] == "success"
-        assert data["results"][-1] == {
-            "deploy_type": "node",
-            "message": "Unchanged, still INVALID",
-            "name": "cube_update.default.repairs_cube",
-            "operation": "noop",
-            "changed_fields": [],
-            "status": "invalid",
-        }
+        cube_result = data["results"][-1]
+        assert cube_result["name"] == "cube_update.default.repairs_cube"
+        assert cube_result["deploy_type"] == "node"
+        assert cube_result["operation"] == "update"
+        assert cube_result["status"] == "success"
 
     @pytest.mark.asyncio
     async def test_deploy_cube_fails_with_unreachable_dimension(

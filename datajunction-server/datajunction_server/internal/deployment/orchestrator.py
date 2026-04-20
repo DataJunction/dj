@@ -2516,7 +2516,17 @@ class DeploymentOrchestrator:
             elif force or node_spec != existing_spec:
                 to_update.append(node_spec)
             else:
-                to_skip.append(node_spec)
+                # Re-deploy unchanged nodes that are stuck in INVALID state so
+                # they get revalidated (e.g. after an upstream fix).
+                existing_node = self.registry.nodes.get(node_spec.rendered_name)
+                if (
+                    existing_node
+                    and existing_node.current
+                    and existing_node.current.status == NodeStatus.INVALID
+                ):
+                    to_update.append(node_spec)
+                else:
+                    to_skip.append(node_spec)
 
         desired_node_names = {n.rendered_name for n in self.deployment_spec.nodes}
         to_delete = [
@@ -2803,11 +2813,30 @@ class DeploymentOrchestrator:
             await self.session.flush()
             p.append(f"{len(nodes)} nodes + {len(revisions)} revisions")
 
+        # Refresh dimension_links so the collection stays in sync after flush.
+        for revision in revisions:
+            await self.session.refresh(revision, ["dimension_links"])
+
         # Wire node.current directly from the just-flushed revisions — avoids a
         # SELECT + N refresh round-trips.  All attributes we need (columns, catalog,
         # status, parents) are already set on the in-session objects.
         for node_obj, revision in zip(nodes, revisions):
             node_obj.current = revision
+
+        # Parse string column types into proper ColumnType objects so that
+        # downstream impact propagation / type inference works correctly.
+        # Without this, in-memory columns carry raw strings like 'bigint'
+        # that haven't round-tripped through ColumnTypeDecorator.
+        from datajunction_server.sql.parsing.backends.antlr4 import parse_rule
+
+        for revision in revisions:
+            for col in revision.columns:
+                if isinstance(col.type, str):  # pragma: no cover
+                    try:
+                        col.type = parse_rule(col.type, "dataType")
+                    except Exception:
+                        pass
+
         all_nodes = {node_obj.name: node_obj for node_obj in nodes}
 
         logger.info(
@@ -3165,6 +3194,7 @@ class DeploymentOrchestrator:
                     DimensionLink(
                         node_revision=new_revision,
                         dimension_id=link.dimension_id,
+                        dimension=link.dimension,
                         join_sql=link.join_sql,
                         join_type=link.join_type,
                         join_cardinality=link.join_cardinality,
@@ -3317,8 +3347,11 @@ class DeploymentOrchestrator:
         """
         Create or update a dimension link on a node revision.
         """
-        # Find an existing dimension link if there is already one defined for this node
-        existing_link = [
+        # Find an existing dimension link. Use (dimension, role, join_sql) for an
+        # exact match first — this correctly handles multiple links to the same
+        # dimension with different join clauses (e.g., two date links with no role).
+        # Fall back to (dimension, role) only when no exact match exists.
+        candidates = [
             link  # type: ignore
             for link in node_revision.dimension_links  # type: ignore
             if link.dimension.name == dimension_node.name
@@ -3326,28 +3359,31 @@ class DeploymentOrchestrator:
         ]
         activity_type = ActivityType.CREATE
 
-        if existing_link:
-            if len(existing_link) >= 1:  # pragma: no cover
-                for dup_link in existing_link[1:]:
-                    await self.session.delete(dup_link)
-            # Update the existing dimension link
+        # Try exact match first (all fields identical → REFRESH/noop)
+        exact_match = [
+            link
+            for link in candidates
+            if link.join_sql == link_input.join_on
+            and link.join_type == join_type
+            and link.join_cardinality == link_input.join_cardinality
+            and link.default_value == link_input.default_value
+            and link.spark_hints == link_input.spark_hints
+        ]
+        if exact_match:
+            return exact_match[0], ActivityType.REFRESH
+
+        # No exact match — if there's exactly one candidate with the same
+        # (dimension, role), treat it as an update to that link.
+        if len(candidates) == 1:
             activity_type = ActivityType.UPDATE
-            dimension_link = existing_link[0]
-            if (
-                dimension_link.join_sql == link_input.join_on
-                and dimension_link.join_type == join_type
-                and dimension_link.join_cardinality == link_input.join_cardinality
-                and dimension_link.default_value == link_input.default_value
-                and dimension_link.spark_hints == link_input.spark_hints
-            ):
-                return dimension_link, ActivityType.REFRESH
+            dimension_link = candidates[0]
             dimension_link.join_sql = link_input.join_on
             dimension_link.join_type = join_type
             dimension_link.join_cardinality = link_input.join_cardinality
             dimension_link.default_value = link_input.default_value
             dimension_link.spark_hints = link_input.spark_hints
         else:
-            # If there is no existing link, create new dimension link object
+            # No single candidate to update — create a new dimension link object
             dimension_link = DimensionLink(
                 node_revision_id=node_revision.id,  # type: ignore
                 dimension_id=dimension_node.id,  # type: ignore

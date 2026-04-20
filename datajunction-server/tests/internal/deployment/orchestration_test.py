@@ -48,6 +48,12 @@ from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.database.tag import Tag
 from datajunction_server.database.catalog import Catalog
+from datajunction_server.database.dimensionlink import (
+    JoinCardinality,
+    JoinType,
+)
+from datajunction_server.models.dimensionlink import JoinLinkInput
+from datajunction_server.models.history import ActivityType
 from datajunction_server.errors import DJError, DJInvalidDeploymentConfig, ErrorCode
 
 
@@ -2129,3 +2135,179 @@ async def test_execute_deployment_plan_dry_run_savepoint_rollback(
 
     # Dry-run should roll back the SAVEPOINT and return empty downstream
     assert downstream == []
+
+
+class TestCreateOrUpdateDimensionJoinLink:
+    """Tests for create_or_update_dimension_join_link idempotency."""
+
+    @pytest.mark.asyncio
+    async def test_exact_match_returns_refresh(
+        self,
+        session,
+        mock_deployment_context,
+    ):
+        """When a dimension link already exists with identical fields,
+        create_or_update_dimension_join_link should return REFRESH (noop)
+        without modifying the link."""
+        orchestrator = DeploymentOrchestrator(
+            deployment_spec=DeploymentSpec(namespace="default", nodes=[]),
+            deployment_id="idempotency-test",
+            session=session,
+            context=mock_deployment_context,
+        )
+
+        # Create mock dimension node
+        dim_node = MagicMock()
+        dim_node.name = "default.date_dim"
+        dim_node.id = 42
+
+        # Create a mock node revision with an existing dimension link
+        existing_link = MagicMock()
+        existing_link.dimension = dim_node
+        existing_link.role = None
+        existing_link.join_sql = "t.date_id = default.date_dim.dateint"
+        existing_link.join_type = JoinType.LEFT
+        existing_link.join_cardinality = JoinCardinality.MANY_TO_ONE
+        existing_link.default_value = None
+        existing_link.spark_hints = None
+
+        node_revision = MagicMock()
+        node_revision.dimension_links = [existing_link]
+        node_revision.name = "default.my_transform"
+
+        link_input = JoinLinkInput(
+            dimension_node="default.date_dim",
+            join_on="t.date_id = default.date_dim.dateint",
+            join_type=JoinType.LEFT,
+        )
+
+        result_link, activity = await orchestrator.create_or_update_dimension_join_link(
+            node_revision=node_revision,
+            dimension_node=dim_node,
+            link_input=link_input,
+            join_type=JoinType.LEFT,
+        )
+
+        assert activity == ActivityType.REFRESH
+        assert result_link is existing_link
+
+    @pytest.mark.asyncio
+    async def test_multiple_links_same_dimension_no_role_idempotent(
+        self,
+        session,
+        mock_deployment_context,
+    ):
+        """Two links to the same dimension with role=None but different join_sql
+        should both return REFRESH on re-deploy (no reshuffling)."""
+        orchestrator = DeploymentOrchestrator(
+            deployment_spec=DeploymentSpec(namespace="default", nodes=[]),
+            deployment_id="multi-link-test",
+            session=session,
+            context=mock_deployment_context,
+        )
+
+        dim_node = MagicMock()
+        dim_node.name = "default.date_dim"
+        dim_node.id = 42
+
+        # Two links to the same dimension, different join_sql, both role=None
+        link_epoch = MagicMock()
+        link_epoch.dimension = dim_node
+        link_epoch.role = None
+        link_epoch.join_sql = "t.epoch_date = default.date_dim.dateint"
+        link_epoch.join_type = JoinType.INNER
+        link_epoch.join_cardinality = JoinCardinality.MANY_TO_ONE
+        link_epoch.default_value = None
+        link_epoch.spark_hints = None
+
+        link_region = MagicMock()
+        link_region.dimension = dim_node
+        link_region.role = None
+        link_region.join_sql = "t.region_date = default.date_dim.dateint"
+        link_region.join_type = JoinType.INNER
+        link_region.join_cardinality = JoinCardinality.MANY_TO_ONE
+        link_region.default_value = None
+        link_region.spark_hints = None
+
+        node_revision = MagicMock()
+        node_revision.dimension_links = [link_epoch, link_region]
+        node_revision.name = "default.my_transform"
+
+        # Re-deploy first link (region_date)
+        link_input_region = JoinLinkInput(
+            dimension_node="default.date_dim",
+            join_on="t.region_date = default.date_dim.dateint",
+            join_type=JoinType.INNER,
+        )
+        result1, activity1 = await orchestrator.create_or_update_dimension_join_link(
+            node_revision=node_revision,
+            dimension_node=dim_node,
+            link_input=link_input_region,
+            join_type=JoinType.INNER,
+        )
+        assert activity1 == ActivityType.REFRESH
+        assert result1 is link_region
+
+        # Re-deploy second link (epoch_date)
+        link_input_epoch = JoinLinkInput(
+            dimension_node="default.date_dim",
+            join_on="t.epoch_date = default.date_dim.dateint",
+            join_type=JoinType.INNER,
+        )
+        result2, activity2 = await orchestrator.create_or_update_dimension_join_link(
+            node_revision=node_revision,
+            dimension_node=dim_node,
+            link_input=link_input_epoch,
+            join_type=JoinType.INNER,
+        )
+        assert activity2 == ActivityType.REFRESH
+        assert result2 is link_epoch
+
+    @pytest.mark.asyncio
+    async def test_single_candidate_gets_updated(
+        self,
+        session,
+        mock_deployment_context,
+    ):
+        """When there's exactly one link matching (dimension, role) but with
+        different join_sql, it should be updated (not duplicated)."""
+        orchestrator = DeploymentOrchestrator(
+            deployment_spec=DeploymentSpec(namespace="default", nodes=[]),
+            deployment_id="update-test",
+            session=session,
+            context=mock_deployment_context,
+        )
+
+        dim_node = MagicMock()
+        dim_node.name = "default.date_dim"
+        dim_node.id = 42
+
+        existing_link = MagicMock()
+        existing_link.dimension = dim_node
+        existing_link.role = None
+        existing_link.join_sql = "t.old_date = default.date_dim.dateint"
+        existing_link.join_type = JoinType.LEFT
+        existing_link.join_cardinality = JoinCardinality.MANY_TO_ONE
+        existing_link.default_value = None
+        existing_link.spark_hints = None
+
+        node_revision = MagicMock()
+        node_revision.dimension_links = [existing_link]
+        node_revision.name = "default.my_transform"
+
+        link_input = JoinLinkInput(
+            dimension_node="default.date_dim",
+            join_on="t.new_date = default.date_dim.dateint",
+            join_type=JoinType.LEFT,
+        )
+
+        result_link, activity = await orchestrator.create_or_update_dimension_join_link(
+            node_revision=node_revision,
+            dimension_node=dim_node,
+            link_input=link_input,
+            join_type=JoinType.LEFT,
+        )
+
+        assert activity == ActivityType.UPDATE
+        assert result_link is existing_link
+        assert existing_link.join_sql == "t.new_date = default.date_dim.dateint"
