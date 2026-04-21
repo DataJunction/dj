@@ -372,7 +372,7 @@ EXAMPLES = (  # type: ignore
                         FROM default.hard_hats hh
                         LEFT JOIN default.hard_hat_state hhs
                         ON hh.hard_hat_id = hhs.hard_hat_id
-                        WHERE hh.state_id = 'NY'
+                        WHERE hhs.state_id = 'NY'
                     """,
             "mode": "published",
             "name": "default.local_hard_hats",
