@@ -3290,3 +3290,35 @@ async def test_cube_columns_and_cube_metrics_together(
         "default.avg_repair_price",
         "default.num_repair_orders",
     ]
+
+
+@pytest.mark.asyncio
+async def test_cube_name_only_fast_path_on_non_cube_node(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    Requesting ``cubeMetrics``/``cubeDimensions`` on a non-cube node engages
+    the name-only fast path but finds no cube nodes in the result — the raw
+    column attachment should short-circuit cleanly rather than doing anything.
+    """
+    query = """
+    {
+        findNodes(names: ["default.num_repair_orders"]) {
+            name
+            type
+            current {
+                cubeMetrics { name }
+            }
+        }
+    }
+    """
+    response = await client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+    assert "errors" not in data, data
+
+    node = data["data"]["findNodes"][0]
+    assert node["name"] == "default.num_repair_orders"
+    assert node["type"] == "METRIC"
+    # Non-cube node: cubeMetrics resolver returns [] regardless of fast path.
+    assert node["current"]["cubeMetrics"] == []
