@@ -309,10 +309,6 @@ class DeploymentService:
                 base_namespace,
                 branch,
             )
-        console.print(
-            f"[bold]Dry run namespace:[/bold] {deployment_spec.get('namespace')!r} "
-            f"(base={base_namespace!r}, branch={branch!r})",
-        )
         if display:
             print_deployment_header(
                 mode="dry run",
