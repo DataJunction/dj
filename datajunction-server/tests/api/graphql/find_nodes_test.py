@@ -3117,3 +3117,56 @@ async def test_find_nodes_search_prefers_popular_nodes(
     popular_idx = names.index("default.rare_term_popular")
     lonely_idx = names.index("default.rare_term_lonely")
     assert popular_idx < lonely_idx, names
+
+
+@pytest.mark.asyncio
+async def test_fragment_spread_equivalent_to_inline(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    A fragment spread must resolve to the same eager-loaded data as inlining
+    the fragment's fields. Regression for the case where `extract_fields` only
+    walked Field selections, so fragment spreads were skipped and relationships
+    like `current` got `noload`'d.
+    """
+    fragment_query = """
+    fragment NodeInfo on Node {
+        name
+        type
+        current { mode }
+    }
+    query {
+        findNodes(names: ["default.repair_orders_fact"]) { ...NodeInfo }
+    }
+    """
+    inline_query = """
+    {
+        findNodes(names: ["default.repair_orders_fact"]) {
+            name
+            type
+            current { mode }
+        }
+    }
+    """
+
+    fragment_resp = await client_with_roads.post(
+        "/graphql",
+        json={"query": fragment_query},
+    )
+    inline_resp = await client_with_roads.post(
+        "/graphql",
+        json={"query": inline_query},
+    )
+    assert fragment_resp.status_code == 200
+    assert inline_resp.status_code == 200
+
+    fragment_data = fragment_resp.json()
+    inline_data = inline_resp.json()
+    assert "errors" not in fragment_data, fragment_data
+    assert "errors" not in inline_data, inline_data
+
+    assert fragment_data["data"] == inline_data["data"]
+    # Sanity: `current` was actually loaded (not None from a `noload` fallback).
+    node = fragment_data["data"]["findNodes"][0]
+    assert node["current"] is not None
+    assert node["current"]["mode"] is not None
