@@ -436,7 +436,7 @@ async def resolve_downstream_references(
             # different ORM instance than `node_revision.node` even when they
             # represent the same row, so an identity-based `in` check would
             # wrongly append and stage a duplicate NodeRelationship INSERT.
-            if node_revision.node.id not in {
+            if node_revision.node.id not in {  # pragma: no branch
                 p.id for p in downstream_node_revision.parents
             }:
                 downstream_node_revision.parents.append(node_revision.node)

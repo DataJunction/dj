@@ -65,6 +65,28 @@ def convert_camel_case(name):
     return name
 
 
+def _merge_fields(dst: Dict[str, Any], src: Dict[str, Any]) -> None:
+    """
+    Merge ``src`` into ``dst`` in place, matching GraphQL's field-merging
+    semantics: repeated selections of the same field at the same level combine
+    their sub-selections rather than overwriting each other. Without this,
+    ``{ current { mode } current { status } }`` — or two fragments whose
+    selections overlap — would cause the second occurrence to clobber the
+    first, and the eager-loader would miss fields.
+
+    Known limitation: ``@skip`` / ``@include`` directives are ignored, so a
+    conditionally-skipped field is still treated as requested. This only
+    causes over-eager-loading, not wrong results. Inline-fragment
+    ``type_condition`` is also not checked; if the schema grows polymorphic
+    types, revisit to avoid loading for types the object isn't.
+    """
+    for name, sub in src.items():
+        if name not in dst:
+            dst[name] = sub
+        elif isinstance(dst[name], dict) and isinstance(sub, dict):
+            _merge_fields(dst[name], sub)
+
+
 def _walk_selections(selections) -> Dict[str, Any]:
     """
     Flatten a list of GraphQL selections into a {field_name: subfields_or_None}
@@ -75,10 +97,11 @@ def _walk_selections(selections) -> Dict[str, Any]:
     out: Dict[str, Any] = {}
     for sel in selections:
         if isinstance(sel, (FragmentSpread, InlineFragment)):
-            out.update(_walk_selections(sel.selections))
+            _merge_fields(out, _walk_selections(sel.selections))
             continue
         field_name = convert_camel_case(sel.name)
-        out[field_name] = _walk_selections(sel.selections) if sel.selections else None
+        sub = _walk_selections(sel.selections) if sel.selections else None
+        _merge_fields(out, {field_name: sub})
     return out
 
 
@@ -88,11 +111,12 @@ def extract_fields(query_fields) -> Dict[str, Any]:
 
     Fragment spreads and inline fragments are flattened transparently, so a
     query that uses ``...NodeInfo`` produces the same dict as one that lists
-    those fields inline.
+    those fields inline. Repeated field selections are merged per GraphQL
+    semantics.
     """
     fields: Dict[str, Any] = {}
     for query_field in query_fields.selected_fields:
-        fields.update(_walk_selections(query_field.selections))
+        _merge_fields(fields, _walk_selections(query_field.selections))
     return fields
 
 

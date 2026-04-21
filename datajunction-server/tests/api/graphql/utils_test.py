@@ -146,3 +146,55 @@ class TestExtractFields:
             "display_name": None,
             "created_by": None,
         }
+
+    def test_duplicate_scalar_field_deduplicates(self):
+        """``{ name name }`` resolves to a single ``name`` entry, not a crash."""
+        assert extract_fields(_info(_field("name"), _field("name"))) == {"name": None}
+
+    def test_duplicate_object_field_merges_subselections(self):
+        """
+        ``{ current { mode } current { status } }`` must merge subselections.
+        Without the merge, the second occurrence overwrites the first and the
+        eager-loader misses ``mode``.
+        """
+        assert extract_fields(
+            _info(
+                _field("current", _field("mode")),
+                _field("current", _field("status")),
+            ),
+        ) == {
+            "current": {"mode": None, "status": None},
+        }
+
+    def test_overlapping_fragments_merge(self):
+        """
+        Two fragments whose selections on the same field overlap must merge —
+        same failure mode as the duplicate-object-field case above, reached
+        through fragment spreads instead of direct repetition.
+        """
+        frag_a = FragmentSpread(
+            name="A",
+            type_condition="Node",
+            directives={},
+            selections=[_field("current", _field("mode"))],
+        )
+        frag_b = FragmentSpread(
+            name="B",
+            type_condition="Node",
+            directives={},
+            selections=[_field("current", _field("status"))],
+        )
+        assert extract_fields(_info(frag_a, frag_b)) == {
+            "current": {"mode": None, "status": None},
+        }
+
+    def test_merge_preserves_nested_siblings(self):
+        """Deep merge should combine grandchildren, not just top-level keys."""
+        assert extract_fields(
+            _info(
+                _field("current", _field("columns", _field("name"))),
+                _field("current", _field("columns", _field("type"))),
+            ),
+        ) == {
+            "current": {"columns": {"name": None, "type": None}},
+        }

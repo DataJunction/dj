@@ -3170,3 +3170,63 @@ async def test_fragment_spread_equivalent_to_inline(
     node = fragment_data["data"]["findNodes"][0]
     assert node["current"] is not None
     assert node["current"]["mode"] is not None
+
+
+@pytest.mark.asyncio
+async def test_duplicate_field_selection_equivalent_to_merged(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    GraphQL merges repeated field selections at the same level. Our eager-load
+    walker must do the same, or the second occurrence clobbers the first and
+    one of the relationships gets ``noload``'d — then the clobbered branch
+    comes back empty/null in the response instead of the real data.
+
+    Uses ``catalog`` and ``columns`` because both have explicit conditional
+    eager-loading in ``find_nodes_by`` and both are populated on
+    ``default.repair_orders_fact``, so a broken walker would produce visibly
+    different output from the merged form.
+    """
+    duplicated_query = """
+    {
+        findNodes(names: ["default.repair_orders_fact"]) {
+            current { catalog { name } }
+            current { columns { name } }
+        }
+    }
+    """
+    merged_query = """
+    {
+        findNodes(names: ["default.repair_orders_fact"]) {
+            current {
+                catalog { name }
+                columns { name }
+            }
+        }
+    }
+    """
+
+    duplicated_resp = await client_with_roads.post(
+        "/graphql",
+        json={"query": duplicated_query},
+    )
+    merged_resp = await client_with_roads.post(
+        "/graphql",
+        json={"query": merged_query},
+    )
+    assert duplicated_resp.status_code == 200
+    assert merged_resp.status_code == 200
+
+    duplicated_data = duplicated_resp.json()
+    merged_data = merged_resp.json()
+    assert "errors" not in duplicated_data, duplicated_data
+    assert "errors" not in merged_data, merged_data
+
+    assert duplicated_data["data"] == merged_data["data"]
+    # Sanity: both relationships actually populated (not the all-null that a
+    # ``noload`` fallback would produce).
+    node = duplicated_data["data"]["findNodes"][0]
+    assert node["current"]["catalog"] is not None
+    assert node["current"]["catalog"]["name"]
+    assert node["current"]["columns"]
+    assert all(col["name"] for col in node["current"]["columns"])
