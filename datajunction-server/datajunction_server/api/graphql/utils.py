@@ -82,11 +82,6 @@ def _walk_selections(selections) -> Dict[str, Any]:
     return out
 
 
-def extract_subfields(selection):
-    """Extract subfields from a single selection."""
-    return _walk_selections(selection.selections)
-
-
 def extract_fields(query_fields) -> Dict[str, Any]:
     """
     Extract fields from GraphQL query input into a dictionary.
