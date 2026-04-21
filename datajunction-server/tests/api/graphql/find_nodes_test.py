@@ -3117,3 +3117,116 @@ async def test_find_nodes_search_prefers_popular_nodes(
     popular_idx = names.index("default.rare_term_popular")
     lonely_idx = names.index("default.rare_term_lonely")
     assert popular_idx < lonely_idx, names
+
+
+@pytest.mark.asyncio
+async def test_fragment_spread_equivalent_to_inline(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    A fragment spread must resolve to the same eager-loaded data as inlining
+    the fragment's fields. Regression for the case where `extract_fields` only
+    walked Field selections, so fragment spreads were skipped and relationships
+    like `current` got `noload`'d.
+    """
+    fragment_query = """
+    fragment NodeInfo on Node {
+        name
+        type
+        current { mode }
+    }
+    query {
+        findNodes(names: ["default.repair_orders_fact"]) { ...NodeInfo }
+    }
+    """
+    inline_query = """
+    {
+        findNodes(names: ["default.repair_orders_fact"]) {
+            name
+            type
+            current { mode }
+        }
+    }
+    """
+
+    fragment_resp = await client_with_roads.post(
+        "/graphql",
+        json={"query": fragment_query},
+    )
+    inline_resp = await client_with_roads.post(
+        "/graphql",
+        json={"query": inline_query},
+    )
+    assert fragment_resp.status_code == 200
+    assert inline_resp.status_code == 200
+
+    fragment_data = fragment_resp.json()
+    inline_data = inline_resp.json()
+    assert "errors" not in fragment_data, fragment_data
+    assert "errors" not in inline_data, inline_data
+
+    assert fragment_data["data"] == inline_data["data"]
+    # Sanity: `current` was actually loaded (not None from a `noload` fallback).
+    node = fragment_data["data"]["findNodes"][0]
+    assert node["current"] is not None
+    assert node["current"]["mode"] is not None
+
+
+@pytest.mark.asyncio
+async def test_duplicate_field_selection_equivalent_to_merged(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    GraphQL merges repeated field selections at the same level. Our eager-load
+    walker must do the same, or the second occurrence clobbers the first and
+    one of the relationships gets ``noload``'d — then the clobbered branch
+    comes back empty/null in the response instead of the real data.
+
+    Uses ``catalog`` and ``columns`` because both have explicit conditional
+    eager-loading in ``find_nodes_by`` and both are populated on
+    ``default.repair_orders_fact``, so a broken walker would produce visibly
+    different output from the merged form.
+    """
+    duplicated_query = """
+    {
+        findNodes(names: ["default.repair_orders_fact"]) {
+            current { catalog { name } }
+            current { columns { name } }
+        }
+    }
+    """
+    merged_query = """
+    {
+        findNodes(names: ["default.repair_orders_fact"]) {
+            current {
+                catalog { name }
+                columns { name }
+            }
+        }
+    }
+    """
+
+    duplicated_resp = await client_with_roads.post(
+        "/graphql",
+        json={"query": duplicated_query},
+    )
+    merged_resp = await client_with_roads.post(
+        "/graphql",
+        json={"query": merged_query},
+    )
+    assert duplicated_resp.status_code == 200
+    assert merged_resp.status_code == 200
+
+    duplicated_data = duplicated_resp.json()
+    merged_data = merged_resp.json()
+    assert "errors" not in duplicated_data, duplicated_data
+    assert "errors" not in merged_data, merged_data
+
+    assert duplicated_data["data"] == merged_data["data"]
+    # Sanity: both relationships actually populated (not the all-null that a
+    # ``noload`` fallback would produce).
+    node = duplicated_data["data"]["findNodes"][0]
+    assert node["current"]["catalog"] is not None
+    assert node["current"]["catalog"]["name"]
+    assert node["current"]["columns"]
+    assert all(col["name"] for col in node["current"]["columns"])

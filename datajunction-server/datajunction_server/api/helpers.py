@@ -432,7 +432,14 @@ async def resolve_downstream_references(
                 downstream_node_revision,
                 ["parents", "missing_parents"],
             )
-            downstream_node_revision.parents.append(node_revision.node)
+            # Compare by id, not Python identity: session.refresh returns a
+            # different ORM instance than `node_revision.node` even when they
+            # represent the same row, so an identity-based `in` check would
+            # wrongly append and stage a duplicate NodeRelationship INSERT.
+            if node_revision.node.id not in {  # pragma: no branch
+                p.id for p in downstream_node_revision.parents
+            }:
+                downstream_node_revision.parents.append(node_revision.node)
             downstream_node_revision.missing_parents.remove(missing_parent)
             node_validator = await validate_node_data(
                 data=downstream_node_revision,
