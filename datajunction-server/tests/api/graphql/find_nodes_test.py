@@ -3230,3 +3230,63 @@ async def test_duplicate_field_selection_equivalent_to_merged(
     assert node["current"]["catalog"]["name"]
     assert node["current"]["columns"]
     assert all(col["name"] for col in node["current"]["columns"])
+
+
+@pytest.mark.asyncio
+async def test_cube_columns_and_cube_metrics_together(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    Requesting ``columns { displayName }`` alongside ``cubeMetrics { name }``
+    on a cube must not crash. Regression for the case where the name-only
+    fast path overwrote ``current.columns`` with lightweight ``_RawColumn``
+    stand-ins — which don't carry ``display_name`` — even though the client
+    also asked for the full columns data.
+    """
+    response = await client_with_roads.post(
+        "/nodes/cube/",
+        json={
+            "metrics": [
+                "default.num_repair_orders",
+                "default.avg_repair_price",
+            ],
+            "dimensions": [
+                "default.hard_hat.city",
+                "default.hard_hat.state",
+            ],
+            "description": "Columns-and-metrics test cube",
+            "mode": "published",
+            "name": "default.columns_and_metrics_cube",
+        },
+    )
+    assert response.status_code < 400, response.json()
+
+    query = """
+    {
+        findNodes(names: ["default.columns_and_metrics_cube"]) {
+            current {
+                columns {
+                    name
+                    displayName
+                }
+                cubeMetrics {
+                    name
+                }
+            }
+        }
+    }
+    """
+    response = await client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+    assert "errors" not in data, data
+
+    node = data["data"]["findNodes"][0]
+    # Both sides of the request resolved cleanly.
+    assert node["current"]["columns"]
+    assert all(col["name"] and col["displayName"] for col in node["current"]["columns"])
+    metric_names = sorted(m["name"] for m in node["current"]["cubeMetrics"])
+    assert metric_names == [
+        "default.avg_repair_price",
+        "default.num_repair_orders",
+    ]
