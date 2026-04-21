@@ -188,6 +188,23 @@ class NodeRevision:
         """
         The columns of the node
         """
+        from sqlalchemy.orm.attributes import set_committed_value
+
+        def _build_partition(col):
+            if col.partition is None:
+                return None
+            # Force-populate the Partition.column back-ref so
+            # temporal_expression()'s `self.column.type` access doesn't hit a
+            # DetachedInstanceError — the joined-eager load on Column.partition
+            # doesn't reliably fill the reverse side post-resolver.
+            set_committed_value(col.partition, "column", col)
+            return Partition(
+                type_=col.partition.type_,
+                format=col.partition.format,
+                granularity=col.partition.granularity,
+                expression=col.partition.temporal_expression(),
+            )
+
         return [
             Column(  # type: ignore
                 name=col.name,
@@ -199,14 +216,7 @@ class NodeRevision:
                     if col.dimension
                     else None
                 ),
-                partition=Partition(
-                    type_=col.partition.type_,  # type: ignore
-                    format=col.partition.format,
-                    granularity=col.partition.granularity,
-                    expression=col.partition.temporal_expression(),
-                )
-                if col.partition
-                else None,
+                partition=_build_partition(col),
             )
             for col in root.columns
             if (
