@@ -108,11 +108,19 @@ async def _attach_raw_columns(session, nodes):
 
 
 def _is_cube_name_only_request(current_fields: dict) -> bool:
-    """Check if the current revision fields only need cube metric/dimension names."""
+    """Check if the current revision fields only need cube metric/dimension names.
+
+    The fast path replaces ``current.columns`` with lightweight ``_RawColumn``
+    stand-ins, so it's only safe when the client hasn't also asked for
+    ``columns`` or ``primary_key`` — both of which read attributes
+    (``display_name`` etc.) that ``_RawColumn`` doesn't carry.
+    """
     cube_metric_fields = current_fields.get("cube_metrics")
     cube_dimension_fields = current_fields.get("cube_dimensions")
     is_cube = cube_metric_fields is not None or cube_dimension_fields is not None
     if not is_cube:
+        return False
+    if "columns" in current_fields or "primary_key" in current_fields:
         return False
     return (cube_metric_fields is None or _is_name_only(cube_metric_fields)) and (
         cube_dimension_fields is None or _is_name_only(cube_dimension_fields)
@@ -401,10 +409,14 @@ def load_node_revision_options(node_revision_fields):
 
     # When cubeMetrics/cubeDimensions only need "name", we can skip loading
     # both cube_elements AND columns as ORM objects — the resolver will use
-    # raw column data fetched post-query instead.
+    # raw column data fetched post-query instead. Must match the fast-path
+    # predicate (_is_cube_name_only_request) so we don't noload
+    # cube_elements while also letting `_attach_raw_columns` be skipped.
     all_name_only = is_cube_request and (
         (cube_metric_fields is None or _is_name_only(cube_metric_fields))
         and (cube_dimension_fields is None or _is_name_only(cube_dimension_fields))
+        and "columns" not in node_revision_fields
+        and "primary_key" not in node_revision_fields
     )
 
     # Handle columns
