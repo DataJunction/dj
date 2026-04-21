@@ -297,10 +297,21 @@ class DeploymentService:
         """
         console = console or self.console
         deployment_spec, file_errors = self._reconstruct_deployment_spec(source_path)
-        deployment_spec["namespace"] = namespace or deployment_spec.get("namespace")
+        base_namespace = deployment_spec.get("namespace") or ""
         source = deployment_spec.get("source", {})
         branch = os.getenv("DJ_DEPLOY_BRANCH") or DeploymentService._detect_git_branch(
             cwd=source_path,
+        )
+        if namespace:
+            deployment_spec["namespace"] = namespace
+        elif branch and base_namespace:
+            deployment_spec["namespace"] = DeploymentService._derive_namespace(
+                base_namespace,
+                branch,
+            )
+        console.print(
+            f"[bold]Dry run namespace:[/bold] {deployment_spec.get('namespace')!r} "
+            f"(base={base_namespace!r}, branch={branch!r})",
         )
         if display:
             print_deployment_header(
