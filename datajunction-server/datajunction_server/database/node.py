@@ -1320,7 +1320,12 @@ class NodeRevision(
                 ),
                 joinedload(DimensionLink.node_revision),
             ),
-            selectinload(NodeRevision.required_dimensions),
+            selectinload(NodeRevision.required_dimensions).options(
+                # Column.node_revision back-ref is read by Column.full_name()
+                # during required-dimensions resolution; preload it so
+                # accessing it in async context doesn't trip MissingGreenlet.
+                joinedload(Column.node_revision).load_only(NodeRevision.name),
+            ),
             selectinload(NodeRevision.availability),
             # Load created_by for API responses (but noload in /sql/ endpoint's custom options)
             selectinload(NodeRevision.created_by),

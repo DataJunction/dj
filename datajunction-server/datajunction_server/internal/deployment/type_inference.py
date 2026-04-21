@@ -279,7 +279,7 @@ def _build_table_scope(
             errors.extend(errs)
     for idx, view in enumerate(select.lateral_views):
         scope.update(
-            _collect_lateral_view_columns(view, scope, idx=idx, errors=errors),
+            _collect_lateral_view_columns(view, scope, errors, idx=idx),
         )
     return scope, errors
 
@@ -413,20 +413,20 @@ def _collect_tables_from_relation(
 def _collect_lateral_view_columns(
     view: ast.LateralView,
     from_scope: TableScope,
+    errors: list[str],
     idx: int = 0,
-    errors: list[str] | None = None,
 ) -> TableScope:
     """Collect columns from a LATERAL VIEW (e.g., EXPLODE) expression.
 
     Resolves element types from the source column's ListType/MapType
     when possible, falls back to UnknownType otherwise.
 
+    ``errors`` receives any element-type-resolution errors (e.g., the EXPLODE
+    argument references a nonexistent column) so callers can surface them.
+
     ``idx`` distinguishes multiple anonymous lateral views in the same SELECT
     (each default-aliased to ``__lateral__`` would otherwise collide and
     overwrite prior columns).
-
-    ``errors`` receives any element-type-resolution errors (e.g., the EXPLODE
-    argument references a nonexistent column) so callers can surface them.
     """
     func = view.func
     alias = func.alias.name if func.alias else f"__lateral_{idx}__"
@@ -434,7 +434,7 @@ def _collect_lateral_view_columns(
     if not col_list:
         return {}
 
-    element_types = _resolve_lateral_element_types(func, from_scope, errors=errors)
+    element_types = _resolve_lateral_element_types(func, from_scope, errors)
     func_name = func.name.name.upper() if hasattr(func, "name") and func.name else ""
     is_posexplode = "POS" in func_name
 
@@ -465,14 +465,14 @@ def _collect_lateral_view_columns(
 def _resolve_lateral_element_types(
     func: ast.FunctionTableExpression,
     from_scope: TableScope,
-    errors: list[str] | None = None,
+    errors: list[str],
 ) -> list[ColumnType]:
     """Resolve element types for an EXPLODE/UNNEST function argument.
 
-    When ``errors`` is provided and type resolution of the argument fails
-    (e.g., the referenced column doesn't exist), the specific error message is
-    appended so callers can surface the real cause rather than a downstream
-    "Unable to infer type" coming from the resulting UnknownType columns.
+    The ``errors`` list receives any resolution failures — both the specific
+    TypeResolutionError on the argument itself and any errors accumulated
+    inside the throwaway scope (e.g., unresolved sub-refs). All current
+    callers thread their own error list through, so it's required.
     """
     if not func.args:
         return []  # pragma: no cover
@@ -488,16 +488,12 @@ def _resolve_lateral_element_types(
     try:
         col_type = _resolve_expr_type(arg, scope)
     except TypeResolutionError as exc:
-        if errors is not None:
-            errors.append(str(exc))
+        errors.append(str(exc))
         return []
     except Exception:  # pragma: no cover
         return []
 
-    if errors is not None:
-        # Also surface any errors that accumulated inside the throwaway scope
-        # (e.g., unresolved sub-refs) rather than silently dropping them.
-        errors.extend(scope.errors)
+    errors.extend(scope.errors)
 
     if isinstance(col_type, ListType):
         return [col_type.element.type]

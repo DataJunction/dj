@@ -1017,3 +1017,116 @@ async def test_validate_node_data_v2_flags_invalid_required_dimensions(
         err.code == ErrorCode.INVALID_COLUMN and "required dimensions" in err.message
         for err in validator.errors
     ), [(e.code, e.message) for e in validator.errors]
+
+
+@pytest.mark.asyncio
+async def test_validate_node_data_v2_cross_fact_metrics_no_shared_dims(
+    session: AsyncSession,
+    user: User,
+):
+    """A derived metric summing two base metrics whose underlying sources
+    share no dimensions surfaces an INVALID_PARENT error. Covers the
+    cross-fact safety check in validate_node_data_v2."""
+    from datajunction_server.errors import ErrorCode
+    from datajunction_server.internal.validation import validate_node_data_v2
+
+    # Two independent source nodes — no shared dim.
+    src_a = Node(
+        name="test.v2_src_a",
+        type=NodeType.SOURCE,
+        created_by_id=user.id,
+        current_version="v1.0",
+    )
+    src_a_rev = NodeRevision(
+        name="test.v2_src_a",
+        display_name="src a",
+        type=NodeType.SOURCE,
+        query=None,
+        status=NodeStatus.VALID,
+        version="v1.0",
+        node=src_a,
+        columns=[Column(name="amount", type=ct.DoubleType(), order=0)],
+        created_by_id=user.id,
+    )
+    src_b = Node(
+        name="test.v2_src_b",
+        type=NodeType.SOURCE,
+        created_by_id=user.id,
+        current_version="v1.0",
+    )
+    src_b_rev = NodeRevision(
+        name="test.v2_src_b",
+        display_name="src b",
+        type=NodeType.SOURCE,
+        query=None,
+        status=NodeStatus.VALID,
+        version="v1.0",
+        node=src_b,
+        columns=[Column(name="cost", type=ct.DoubleType(), order=0)],
+        created_by_id=user.id,
+    )
+    # Two metrics, one per source.
+    metric_a = Node(
+        name="test.v2_metric_a",
+        type=NodeType.METRIC,
+        created_by_id=user.id,
+        current_version="v1.0",
+    )
+    metric_a_rev = NodeRevision(
+        name="test.v2_metric_a",
+        display_name="metric a",
+        type=NodeType.METRIC,
+        query="SELECT SUM(amount) FROM test.v2_src_a",
+        status=NodeStatus.VALID,
+        version="v1.0",
+        node=metric_a,
+        columns=[Column(name="test_DOT_v2_metric_a", type=ct.DoubleType(), order=0)],
+        parents=[src_a],
+        created_by_id=user.id,
+    )
+    metric_b = Node(
+        name="test.v2_metric_b",
+        type=NodeType.METRIC,
+        created_by_id=user.id,
+        current_version="v1.0",
+    )
+    metric_b_rev = NodeRevision(
+        name="test.v2_metric_b",
+        display_name="metric b",
+        type=NodeType.METRIC,
+        query="SELECT SUM(cost) FROM test.v2_src_b",
+        status=NodeStatus.VALID,
+        version="v1.0",
+        node=metric_b,
+        columns=[Column(name="test_DOT_v2_metric_b", type=ct.DoubleType(), order=0)],
+        parents=[src_b],
+        created_by_id=user.id,
+    )
+    session.add_all(
+        [
+            src_a,
+            src_a_rev,
+            src_b,
+            src_b_rev,
+            metric_a,
+            metric_a_rev,
+            metric_b,
+            metric_b_rev,
+        ],
+    )
+    await session.commit()
+
+    # Derived metric referencing both base metrics — no shared dim.
+    data = NodeRevisionBase(
+        name="test.v2_derived_cross_fact",
+        display_name="derived cross fact",
+        type=NodeType.METRIC,
+        query="SELECT test.v2_metric_a + test.v2_metric_b",
+        mode="published",
+    )
+    validator = await validate_node_data_v2(data, session)
+    assert validator.status == NodeStatus.INVALID
+    assert any(
+        err.code == ErrorCode.INVALID_PARENT and "no shared" in err.message.lower()
+        for err in validator.errors
+    ), [(e.code, e.message) for e in validator.errors]
