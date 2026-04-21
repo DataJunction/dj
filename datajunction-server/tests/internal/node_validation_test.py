@@ -912,7 +912,7 @@ async def test_validate_node_data_v2_skips_parents_without_columns(
     user: User,
 ):
     """Parent nodes whose current revision has no columns are skipped when
-    building parent_columns_map (line 573→572)."""
+    building the parent_columns_map rather than creating empty entries."""
     from datajunction_server.internal.validation import validate_node_data_v2
 
     parent = Node(

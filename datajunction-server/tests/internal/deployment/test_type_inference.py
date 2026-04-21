@@ -5,6 +5,8 @@ validate_node_query takes a SQL query string and a map of parent node columns,
 and returns the output column names + types without any DB calls.
 """
 
+import pytest
+
 from datajunction_server.internal.deployment.type_inference import (
     columns_signature_changed,
     validate_node_query,
@@ -2422,10 +2424,12 @@ class TestUnresolvedNamespaceDiagnostic:
 class TestCoverageGaps:
     """Tests targeting specific uncovered branches in type_inference.py."""
 
-    def test_inline_table_explicit_alias_on_node_alias(self):
-        """VALUES (…) AS t(...) form can park the alias on node.alias
-        rather than node.name. Exercises the `node.alias is not None`
-        branch of the InlineTable handler (line 363)."""
+    def test_inline_table_parens_with_alias_list_resolves_columns(self):
+        """(VALUES (1), (2)) AS t(x) — parenthesized-VALUES + alias list
+        currently parses with both node.alias and node.name None, so the
+        handler falls into the __inline__ default-alias branch. The test
+        still covers the end-to-end "outer query sees the aliased column"
+        behavior for this common shape."""
         result = validate_node_query(
             "SELECT t.x FROM (VALUES (1), (2)) AS t(x)",
             {},
@@ -2433,10 +2437,82 @@ class TestCoverageGaps:
         assert not result.errors, result.errors
         assert result.output_columns == [("x", IntegerType())]
 
+    @pytest.mark.xfail(
+        reason=(
+            "Spark accepts `SELECT POSEXPLODE(arr) AS (pos, val) FROM t` as "
+            "an inline generator function, but DJ's grammar rejects the "
+            "identifier-list alias on a non-Table expression. When the "
+            "grammar is relaxed for known table-valued functions, the "
+            "projection-form POSEXPLODE branches in "
+            "_resolve_projection_function_table become reachable and this "
+            "test flips to pass."
+        ),
+        strict=True,
+    )
+    def test_projection_posexplode_alias_list_parses(self):
+        """Spark inline-generator POSEXPLODE with explicit (pos, val) alias
+        list in the SELECT projection."""
+        from datajunction_server.sql.parsing.types import ListType
+
+        result = validate_node_query(
+            "SELECT POSEXPLODE(arr) AS (pos, val) FROM src.s",
+            _col_map(
+                ("src.s", [("arr", ListType(element_type=IntegerType()))]),
+            ),
+        )
+        assert not result.errors, result.errors
+        assert result.output_columns == [
+            ("pos", IntegerType()),
+            ("val", IntegerType()),
+        ]
+
+    def test_lateral_element_types_surfaces_nested_scope_errors(self):
+        """When EXPLODE's argument is a Function wrapping an unresolved
+        sub-reference (e.g., IF(missing_col > 0, arr, arr)), the outer
+        function still types successfully but the inner TypeResolutionError
+        lands in scope.errors. Those are surfaced to the caller's errors
+        list so the real cause doesn't get swallowed."""
+        from datajunction_server.sql.parsing.types import ListType
+
+        result = validate_node_query(
+            "SELECT v.x FROM src.s "
+            "LATERAL VIEW EXPLODE(IF(missing_col > 0, arr, arr)) v AS x",
+            _col_map(
+                ("src.s", [("arr", ListType(element_type=IntegerType()))]),
+            ),
+        )
+        assert any("missing_col" in msg for msg in result.errors), result.errors
+
+    def test_cross_join_posexplode_yields_pos_and_element(self):
+        """`CROSS JOIN POSEXPLODE(arr) AS u(p, v)` — the FROM-clause
+        POSEXPLODE form. First alias is the integer position; second is
+        the element type."""
+        from datajunction_server.sql.parsing.types import ListType
+
+        result = validate_node_query(
+            "SELECT t.id, u.p, u.v FROM src.s t "
+            "CROSS JOIN POSEXPLODE(t.arr) AS u(p, v)",
+            _col_map(
+                (
+                    "src.s",
+                    [
+                        ("id", IntegerType()),
+                        ("arr", ListType(element_type=IntegerType())),
+                    ],
+                ),
+            ),
+        )
+        assert not result.errors, result.errors
+        assert result.output_columns == [
+            ("id", IntegerType()),
+            ("p", IntegerType()),
+            ("v", IntegerType()),
+        ]
+
     def test_cross_join_unnest_struct_array_unpacks_fields_in_from(self):
-        """Struct-unpacking in the FROM-clause FunctionTableExpression branch
-        (line 397): `CROSS JOIN UNNEST(array<struct<a, b>>) AS t(c1, c2)`
-        expands positionally to c1: a_type, c2: b_type."""
+        """Struct-unpacking in the FROM-clause FunctionTableExpression handler:
+        `CROSS JOIN UNNEST(array<struct<a, b>>) AS t(c1, c2)` expands
+        positionally to c1: a_type, c2: b_type."""
         from datajunction_server.sql.parsing.backends.antlr4 import parse_rule
 
         cells = parse_rule(
@@ -2456,8 +2532,7 @@ class TestCoverageGaps:
 
     def test_lateral_view_explode_with_too_many_aliases_fills_unknown(self):
         """LATERAL VIEW EXPLODE(scalar_array) AS a, b, c — 3 aliases but
-        element is a single scalar. The extras (line 623) fall back to
-        UnknownType."""
+        element is a single scalar. The extras fall back to UnknownType."""
         from datajunction_server.sql.parsing.types import ListType
 
         result = validate_node_query(
@@ -2472,7 +2547,7 @@ class TestCoverageGaps:
 
     def test_projection_explode_scalar_array_with_extra_aliases_unknown(self):
         """Projection `EXPLODE(arr) AS (a, b, c)` on a scalar-array column —
-        only one element type, extras (line 623) fall back to UnknownType."""
+        only one element type, extras fall back to UnknownType."""
         from datajunction_server.sql.parsing.types import ListType
 
         result = validate_node_query(
@@ -2487,8 +2562,8 @@ class TestCoverageGaps:
 
     def test_lateral_element_types_propagates_typeresolution_error(self):
         """When EXPLODE's argument references a nonexistent column, the
-        TypeResolutionError message flows into `errors` (lines 492→494)
-        so the real root cause surfaces, not just 'Unable to infer type'."""
+        TypeResolutionError message flows into the caller's errors list so
+        the real root cause surfaces, not just 'Unable to infer type'."""
         result = validate_node_query(
             "SELECT v.x FROM src.s LATERAL VIEW EXPLODE(missing_col) v AS x",
             _col_map(("src.s", [("id", IntegerType())])),
@@ -2501,8 +2576,8 @@ class TestCoverageGaps:
     def test_single_segment_namespace_matching_parent_is_silent(self):
         """Single-segment namespace whose name matches a parent_map key (not
         a FROM table) should NOT trigger the 'references namespace' error —
-        the `if not any_prefix_is_parent` guard (line 900) short-circuits and
-        the fallback just returns UnknownType (line 906)."""
+        the prefix-is-parent guard short-circuits and we fall through to
+        UnknownType."""
         result = validate_node_query(
             "SELECT src.foo_missing FROM other.t",
             _col_map(

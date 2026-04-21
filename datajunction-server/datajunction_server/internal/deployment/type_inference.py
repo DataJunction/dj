@@ -357,14 +357,13 @@ def _collect_tables_from_relation(
         errors.extend(sub_errors)
 
     elif isinstance(node, ast.InlineTable):
-        # `VALUES (…) tab(c1, c2)` stores the `tab` alias on node.name, not
-        # node.alias. Accept both so the outer query can reference `tab.c1`.
-        if node.alias is not None:
-            alias = node.alias.name
-        elif node.name is not None and node.name.name:
-            alias = node.name.name
-        else:
-            alias = "__inline__"  # pragma: no cover
+        # DJ's parser reaches this branch only for the non-parenthesized
+        # `VALUES (…) tab(c1, c2)` form, where the `tab` alias is parked on
+        # node.name. Parenthesized `(VALUES (…)) AS tab(c1, c2)` comes in as
+        # an ast.Query wrapping an InlineTable and is handled above. If that
+        # invariant ever changes, the name-access below raises rather than
+        # silently mis-aliasing — easier to diagnose than a defensive default.
+        alias = node.name.name
         inline_columns = _resolve_inline_table(ast.Query(select=node))  # type: ignore[arg-type]
         result[alias] = {name: typ for name, typ in inline_columns}
 
@@ -613,10 +612,15 @@ def _resolve_projection_function_table(
 
     output: OutputColumns = []
     for i, out_name in enumerate(col_names):
-        if is_posexplode and i == 0:
-            output.append((out_name, IntegerType()))
-        elif is_posexplode and i == 1 and element_types:
-            output.append((out_name, element_types[0]))
+        # Projection-form POSEXPLODE with a parenthesized alias list
+        # (`POSEXPLODE(arr) AS (pos, val)`) isn't accepted by DJ's grammar —
+        # the parser rejects the identifier-list alias on a non-Table
+        # expression. These two branches are kept for symmetry with the
+        # LATERAL VIEW form but aren't reachable in practice.
+        if is_posexplode and i == 0:  # pragma: no cover
+            output.append((out_name, IntegerType()))  # pragma: no cover
+        elif is_posexplode and i == 1 and element_types:  # pragma: no cover
+            output.append((out_name, element_types[0]))  # pragma: no cover
         elif not is_posexplode and i < len(element_types):
             output.append((out_name, element_types[i]))
         else:
