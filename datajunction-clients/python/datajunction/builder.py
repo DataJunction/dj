@@ -644,6 +644,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         display_name: Optional[str] = None,
         mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
         tags: Optional[List[str]] = None,
+        custom_metadata: Optional[Dict] = None,
         update_if_exists: bool = False,
     ) -> "Cube":
         """
@@ -661,6 +662,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
                 "display_name": display_name,
                 "mode": mode,
                 "tags": tags,
+                "custom_metadata": custom_metadata,
             },
             update_if_exists=update_if_exists,
         )  # type: ignore

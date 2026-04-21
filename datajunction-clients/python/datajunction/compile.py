@@ -542,6 +542,7 @@ class CubeYAML(NodeYAML):  # pylint: disable=too-many-instance-attributes
     description: Optional[str] = None
     mode: NodeMode = NodeMode.PUBLISHED
     tags: Optional[List[str]] = None
+    custom_metadata: Optional[Dict] = None
     deploy_order: int = 5
 
     def deploy(self, name: str, prefix: str, client: DJBuilder):
@@ -564,6 +565,7 @@ class CubeYAML(NodeYAML):  # pylint: disable=too-many-instance-attributes
             description=self.description,
             mode=self.mode,
             tags=self.tags,
+            custom_metadata=self.custom_metadata,
             update_if_exists=True,
         )
         return node

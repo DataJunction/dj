@@ -644,5 +644,6 @@ class Cube(Node):  # pylint: disable=abstract-method
             metrics=self.metrics,
             dimensions=self.dimensions,
             filters=self.filters,
+            custom_metadata=self.custom_metadata,
         )
         return self.dj_client._update_node(self.name, update_node)

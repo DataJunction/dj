@@ -250,6 +250,44 @@ async def test_update_cube_node_new_owner(
 
 
 @pytest.mark.asyncio
+async def test_update_cube_node_custom_metadata(
+    module__client_with_roads: AsyncClient,
+):
+    """
+    Test setting custom_metadata on a cube via PATCH and that it persists
+    across unrelated updates.
+    """
+    # initial value is None
+    initial = (
+        await module__client_with_roads.get("/nodes/default.repair_orders_cube/")
+    ).json()
+    assert initial.get("custom_metadata") is None
+
+    # set custom_metadata only — should create a new (minor) revision
+    response = await module__client_with_roads.patch(
+        "/nodes/default.repair_orders_cube/",
+        json={"custom_metadata": {"owner_team": "finance", "tier": "1"}},
+    )
+    assert response.status_code == 200
+
+    after_set = (
+        await module__client_with_roads.get("/nodes/default.repair_orders_cube/")
+    ).json()
+    assert after_set["custom_metadata"] == {"owner_team": "finance", "tier": "1"}
+
+    # an unrelated update must not clobber custom_metadata
+    await module__client_with_roads.patch(
+        "/nodes/default.repair_orders_cube/",
+        json={"description": "Updated cube description"},
+    )
+    after_unrelated = (
+        await module__client_with_roads.get("/nodes/default.repair_orders_cube/")
+    ).json()
+    assert after_unrelated["custom_metadata"] == {"owner_team": "finance", "tier": "1"}
+    assert after_unrelated["description"] == "Updated cube description"
+
+
+@pytest.mark.asyncio
 async def test_update_node_non_existent_owners(
     module__client_with_roads: AsyncClient,
 ) -> None:

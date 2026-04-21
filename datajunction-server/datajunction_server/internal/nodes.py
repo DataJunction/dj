@@ -1256,6 +1256,11 @@ def has_minor_changes(
             and data.filters is not None
             and data.filters != (old_revision.cube_filters or [])
         )
+        or (
+            data
+            and data.custom_metadata is not None
+            and old_revision.custom_metadata != data.custom_metadata
+        )
     )
 
 
@@ -1311,6 +1316,9 @@ async def update_cube_node(
         else (node_revision.cube_filters or []),
         orderby=data.orderby or None,
         limit=data.limit or None,
+        custom_metadata=data.custom_metadata
+        if data.custom_metadata is not None
+        else node_revision.custom_metadata,
     )
     if not major_changes and not minor_changes:
         # If refresh_materialization requested but no other changes, refresh and return
