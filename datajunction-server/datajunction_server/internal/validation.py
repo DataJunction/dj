@@ -447,7 +447,7 @@ def _build_columns_from_output(
     output_columns: list,
     query_ast: ast.Query,
     validated_node: NodeRevision,
-) -> tuple[list[Column], dict[str, str]]:
+) -> list[Column]:
     """Build Column objects for every AST projection item.
 
     validate_node_query drops columns whose type resolution raised (e.g., unresolved
@@ -459,15 +459,10 @@ def _build_columns_from_output(
     """
     from datajunction_server.sql.parsing.types import UnknownType
 
-    try:
-        column_mapping = {col.name: col for col in validated_node.columns}
-    except MissingGreenlet:  # pragma: no cover
-        column_mapping = {}  # pragma: no cover
-
+    column_mapping = {col.name: col for col in validated_node.columns}
     types_by_name = {name: col_type for name, col_type in output_columns}
 
     columns: list[Column] = []
-    type_inference_failures: dict[str, str] = {}
     for idx, expr in enumerate(query_ast.select.projection):  # type: ignore[attr-defined]
         col_name = expr.alias_or_name.name  # type: ignore[union-attr]
         col_type = types_by_name.get(col_name, UnknownType())
@@ -494,7 +489,7 @@ def _build_columns_from_output(
                 order=idx,
             ),
         )
-    return columns, type_inference_failures
+    return columns
 
 
 @timed(
@@ -596,14 +591,11 @@ async def validate_node_data_v2(
         node_validator.status = NodeStatus.INVALID
 
     # --- Step 8: build columns from output_columns ---
-    columns, type_inference_failures = _build_columns_from_output(
+    node_validator.columns = _build_columns_from_output(
         validation.output_columns,
         query_ast,
         validated_node,
     )
-    node_validator.columns = columns
-    if type_inference_failures:
-        node_validator.status = NodeStatus.INVALID
 
     # --- Step 9: metric-specific checks (cross-fact shared-dim + MISSING_COLUMNS) ---
     if is_metric and node_validator.dependencies_map:
@@ -691,37 +683,33 @@ async def validate_node_data_v2(
         )
         node_validator.status = NodeStatus.INVALID
 
-    # --- Step 11: required dimensions ---
-    try:
-        parent_columns = [
-            col
-            for parent in node_validator.dependencies_map.keys()
-            for col in parent.columns
-        ]
-        required_dim_strings = [
-            col.full_name() if isinstance(col, Column) else col
-            for col in validated_node.required_dimensions
-        ]
-        (
-            invalid_required_dimensions,
-            matched_bound_columns,
-        ) = await find_required_dimensions(
-            session,
-            required_dim_strings,
-            parent_columns,
-        )
-        node_validator.required_dimensions = matched_bound_columns
-    except MissingGreenlet:  # pragma: no cover
-        invalid_required_dimensions = set()
-        node_validator.required_dimensions = []
+    # --- Step 11: required dimensions. Parents come from Node.get_by_names's
+    # default_load_options which eagerly loads NodeRevision.columns, so the
+    # `parent.columns` access here doesn't trigger a lazy load. Let any real
+    # MissingGreenlet propagate rather than silently swallowing it — that
+    # would hide a genuine eager-load regression.
+    parent_columns = [
+        col
+        for parent in node_validator.dependencies_map.keys()
+        for col in parent.columns
+    ]
+    required_dim_strings = [
+        col.full_name() if isinstance(col, Column) else col
+        for col in validated_node.required_dimensions
+    ]
+    (
+        invalid_required_dimensions,
+        matched_bound_columns,
+    ) = await find_required_dimensions(
+        session,
+        required_dim_strings,
+        parent_columns,
+    )
+    node_validator.required_dimensions = matched_bound_columns
 
-    # --- Step 12: final error assembly for missing parents, type-inference, and
-    #              invalid required dims (matches legacy code shapes) ---
-    if (
-        node_validator.missing_parents_map
-        or type_inference_failures
-        or invalid_required_dimensions
-    ):
+    # --- Step 12: final error assembly for missing parents + invalid required
+    #              dims (matches legacy code shapes).
+    if node_validator.missing_parents_map or invalid_required_dimensions:
         node_validator.status = NodeStatus.INVALID
         if node_validator.missing_parents_map:
             node_validator.errors.append(
@@ -736,14 +724,6 @@ async def validate_node_data_v2(
                             node_validator.missing_parents_map.keys(),
                         ),
                     },
-                ),
-            )
-        for column, message in type_inference_failures.items():
-            node_validator.errors.append(
-                DJError(
-                    code=ErrorCode.TYPE_INFERENCE,
-                    message=message,
-                    debug={"columns": [column]},
                 ),
             )
         if invalid_required_dimensions:

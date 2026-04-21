@@ -2417,3 +2417,99 @@ class TestUnresolvedNamespaceDiagnostic:
         assert not any("references namespace" in msg for msg in result.errors), (
             result.errors
         )
+
+
+class TestCoverageGaps:
+    """Tests targeting specific uncovered branches in type_inference.py."""
+
+    def test_inline_table_explicit_alias_on_node_alias(self):
+        """VALUES (…) AS t(...) form can park the alias on node.alias
+        rather than node.name. Exercises the `node.alias is not None`
+        branch of the InlineTable handler (line 363)."""
+        result = validate_node_query(
+            "SELECT t.x FROM (VALUES (1), (2)) AS t(x)",
+            {},
+        )
+        assert not result.errors, result.errors
+        assert result.output_columns == [("x", IntegerType())]
+
+    def test_cross_join_unnest_struct_array_unpacks_fields_in_from(self):
+        """Struct-unpacking in the FROM-clause FunctionTableExpression branch
+        (line 397): `CROSS JOIN UNNEST(array<struct<a, b>>) AS t(c1, c2)`
+        expands positionally to c1: a_type, c2: b_type."""
+        from datajunction_server.sql.parsing.backends.antlr4 import parse_rule
+
+        cells = parse_rule(
+            "array<struct<cell_id:string, cell_name:string>>",
+            "dataType",
+        )
+        result = validate_node_query(
+            "SELECT t.cell_id, t.cell_name FROM src.s "
+            "CROSS JOIN UNNEST(cells) AS t(cell_id, cell_name)",
+            _col_map(("src.s", [("cells", cells)])),
+        )
+        assert not result.errors, result.errors
+        assert result.output_columns == [
+            ("cell_id", StringType()),
+            ("cell_name", StringType()),
+        ]
+
+    def test_lateral_view_explode_with_too_many_aliases_fills_unknown(self):
+        """LATERAL VIEW EXPLODE(scalar_array) AS a, b, c — 3 aliases but
+        element is a single scalar. The extras (line 623) fall back to
+        UnknownType."""
+        from datajunction_server.sql.parsing.types import ListType
+
+        result = validate_node_query(
+            "SELECT v.a, v.b, v.c FROM src.s LATERAL VIEW EXPLODE(nums) v AS a, b, c",
+            _col_map(
+                ("src.s", [("nums", ListType(element_type=IntegerType()))]),
+            ),
+        )
+        assert result.output_columns[0] == ("a", IntegerType())
+        assert isinstance(result.output_columns[1][1], UnknownType)
+        assert isinstance(result.output_columns[2][1], UnknownType)
+
+    def test_projection_explode_scalar_array_with_extra_aliases_unknown(self):
+        """Projection `EXPLODE(arr) AS (a, b, c)` on a scalar-array column —
+        only one element type, extras (line 623) fall back to UnknownType."""
+        from datajunction_server.sql.parsing.types import ListType
+
+        result = validate_node_query(
+            "SELECT EXPLODE(nums) AS (a, b, c) FROM src.s",
+            _col_map(
+                ("src.s", [("nums", ListType(element_type=IntegerType()))]),
+            ),
+        )
+        assert result.output_columns[0] == ("a", IntegerType())
+        assert isinstance(result.output_columns[1][1], UnknownType)
+        assert isinstance(result.output_columns[2][1], UnknownType)
+
+    def test_lateral_element_types_propagates_typeresolution_error(self):
+        """When EXPLODE's argument references a nonexistent column, the
+        TypeResolutionError message flows into `errors` (lines 492→494)
+        so the real root cause surfaces, not just 'Unable to infer type'."""
+        result = validate_node_query(
+            "SELECT v.x FROM src.s LATERAL VIEW EXPLODE(missing_col) v AS x",
+            _col_map(("src.s", [("id", IntegerType())])),
+        )
+        assert any(
+            "Column `missing_col` not found in any table" in msg
+            for msg in result.errors
+        ), result.errors
+
+    def test_single_segment_namespace_matching_parent_is_silent(self):
+        """Single-segment namespace whose name matches a parent_map key (not
+        a FROM table) should NOT trigger the 'references namespace' error —
+        the `if not any_prefix_is_parent` guard (line 900) short-circuits and
+        the fallback just returns UnknownType (line 906)."""
+        result = validate_node_query(
+            "SELECT src.foo_missing FROM other.t",
+            _col_map(
+                ("other.t", [("id", IntegerType())]),
+                ("src", [("real_col", IntegerType())]),
+            ),
+        )
+        assert not any("references namespace" in msg for msg in result.errors), (
+            result.errors
+        )
