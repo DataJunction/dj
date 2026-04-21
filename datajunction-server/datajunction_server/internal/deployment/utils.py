@@ -2,10 +2,11 @@ from fastapi import Request, BackgroundTasks
 
 from collections import defaultdict
 from dataclasses import dataclass
+from typing import Iterable
 from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.database.user import User
-from datajunction_server.database.node import NodeRevision
+from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.models.deployment import (
     NodeSpec,
     CubeSpec,
@@ -13,6 +14,7 @@ from datajunction_server.models.deployment import (
     MetricSpec,
     TransformSpec,
 )
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import SEPARATOR
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import fast_parse_mode
@@ -21,6 +23,66 @@ from datajunction_server.errors import DJGraphCycleException
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def extract_upstream_candidates(
+    query_ast: ast.Query,
+    is_metric: bool,
+) -> set[str]:
+    """Scan a parsed query for upstream node name candidates.
+
+    Returns ast.Table references (excluding CTE names). For derived metrics
+    (MetricSpec/MetricRevision with no FROM clause), also returns namespaced
+    column identifiers plus their parent paths — these are speculative prefix
+    candidates that callers must resolve against the DB to distinguish real
+    parents from dim-attribute refs that aren't SQL parents.
+
+    Shared between the deployment path (extract_node_graph) and the
+    single-node path (validate_node_data) so both see identical candidates.
+    """
+    cte_names = {cte.alias_or_name.identifier() for cte in query_ast.ctes}
+    tables = {
+        t.name.identifier()
+        for t in query_ast.find_all(ast.Table)
+        if t.name.identifier() not in cte_names
+    }
+
+    if is_metric and not tables and query_ast.select.from_ is None:
+        for col in query_ast.find_all(ast.Column):
+            col_identifier = col.identifier()
+            if SEPARATOR in col_identifier:
+                tables.add(col_identifier)
+                parent_path = col_identifier.rsplit(SEPARATOR, 1)[0]
+                if SEPARATOR in parent_path:
+                    tables.add(parent_path)
+
+    return tables
+
+
+def classify_parents(
+    is_derived_metric: bool,
+    dep_names: Iterable[str],
+    dependency_nodes: dict[str, Node],
+) -> tuple[list[Node], list[str]]:
+    """Split a node's dependency names into resolved parents and missing names.
+
+    For derived metrics the dep name set includes speculative namespace-prefix
+    candidates for dim-attribute refs like `ns.dim.col`, which aren't real
+    parents. Keep only METRIC-typed resolutions, and skip MissingParent
+    emission since unresolved prefixes aren't genuine missing references.
+    """
+    resolved: list[Node] = []
+    missing: list[str] = []
+    for name in dep_names:
+        node = dependency_nodes.get(name)
+        if node is None:
+            if not is_derived_metric:
+                missing.append(name)
+            continue
+        if is_derived_metric and node.type != NodeType.METRIC:
+            continue
+        resolved.append(node)
+    return resolved, missing
 
 
 def extract_node_graph(nodes: list[NodeSpec]) -> dict[str, list[str]]:
@@ -63,31 +125,11 @@ def _find_upstreams_for_node(node: NodeSpec) -> tuple[str, list[str], ast.Query 
                 node.rendered_name,
             )
         query_ast = parse(query_str)
-        cte_names = [cte.alias_or_name.identifier() for cte in query_ast.ctes]
-        tables = {
-            t.name.identifier()
-            for t in query_ast.find_all(ast.Table)
-            if t.name.identifier() not in cte_names
-        }
-
-        # For derived metrics (no FROM clause), look for metric references
-        # in Column nodes. E.g., SELECT default.metric_a / default.metric_b
-        if (
-            isinstance(node, MetricSpec)
-            and not tables
-            and query_ast.select.from_ is None
-        ):
-            for col in query_ast.find_all(ast.Column):
-                col_identifier = col.identifier()
-                if SEPARATOR in col_identifier:  # pragma: no branch
-                    # Add full identifier (might be a metric node)
-                    tables.add(col_identifier)
-                    # Also add parent path (might be dimension.column)
-                    parent_path = col_identifier.rsplit(SEPARATOR, 1)[0]
-                    if SEPARATOR in parent_path:  # Only if there's still a namespace
-                        tables.add(parent_path)
-
-        return node.rendered_name, sorted(list(tables)), query_ast
+        candidates = extract_upstream_candidates(
+            query_ast,
+            is_metric=isinstance(node, MetricSpec),
+        )
+        return node.rendered_name, sorted(candidates), query_ast
     if isinstance(node, CubeSpec):
         dimension_nodes = [dim.rsplit(".", 1)[0] for dim in node.rendered_dimensions]
         return node.rendered_name, node.rendered_metrics + dimension_nodes, None

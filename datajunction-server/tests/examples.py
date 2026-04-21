@@ -446,7 +446,7 @@ ROADS = (  # type: ignore
                         FROM default.hard_hats hh
                         LEFT JOIN default.hard_hat_state hhs
                         ON hh.hard_hat_id = hhs.hard_hat_id
-                        WHERE hh.state_id = 'NY'
+                        WHERE hhs.state_id = 'NY'
                     """,
             "mode": "published",
             "name": "default.local_hard_hats",
@@ -1224,7 +1224,7 @@ NAMESPACED_ROADS = (  # type: ignore
                         FROM foo.bar.hard_hats hh
                         LEFT JOIN foo.bar.hard_hat_state hhs
                         ON hh.hard_hat_id = hhs.hard_hat_id
-                        WHERE hh.state_id = 'NY'
+                        WHERE hhs.state_id = 'NY'
                     """,
             "mode": "published",
             "name": "foo.bar.local_hard_hats",
@@ -1544,7 +1544,7 @@ ACCOUNT_REVENUE = (  # type: ignore
             "query": (
                 "SELECT payment_id, payment_amount, customer_id, account_type "
                 "FROM default.revenue WHERE "
-                "large_revenue_payments_and_business_only > 1000000 "
+                "payment_amount > 1000000 "
                 "AND account_type='BUSINESS'"
             ),
             "description": "Only large revenue payments from business accounts",
@@ -1558,7 +1558,7 @@ ACCOUNT_REVENUE = (  # type: ignore
             "query": (
                 "SELECT payment_id, payment_amount, customer_id, account_type "
                 "FROM default.revenue WHERE "
-                "large_revenue_payments_and_business_only > 1000000 "
+                "payment_amount > 1000000 "
                 "AND account_type='BUSINESS'"
             ),
             "description": "Only large revenue payments from business accounts 1",

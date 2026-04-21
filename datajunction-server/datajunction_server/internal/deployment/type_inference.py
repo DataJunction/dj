@@ -202,7 +202,10 @@ def _resolve_query(
 def _resolve_inline_table(query: ast.Query) -> OutputColumns:
     """Resolve columns for a VALUES expression with explicit column aliases.
 
-    Infers types from the first row of values when available.
+    For each column, scans all rows for the first non-null literal and uses
+    its type. If every row has NULL at that position, falls back to NullType
+    rather than UnknownType (the column is genuinely nullable-only, not just
+    unresolvable).
     """
     select = query.select
     if not isinstance(select, ast.InlineTable):  # pragma: no cover
@@ -212,21 +215,33 @@ def _resolve_inline_table(query: ast.Query) -> OutputColumns:
         [col.alias_or_name.name for col in select._columns] if select._columns else []
     )
 
-    first_row = select.values[0] if select.values else []
+    def _literal_type(val: ast.Node) -> ColumnType | None:
+        if isinstance(val, ast.Null):
+            return None  # skip — check later rows for a typed value
+        if isinstance(val, ast.Number):
+            return val.type
+        if isinstance(val, ast.String):
+            return StringType()
+        if isinstance(val, ast.Boolean):
+            return BooleanType()
+        return UnknownType()
+
     result: OutputColumns = []
     for i, name in enumerate(col_names):
-        if i < len(first_row):
-            val = first_row[i]
-            if isinstance(val, ast.Number):
-                result.append((name, val.type))
-            elif isinstance(val, ast.String):
-                result.append((name, StringType()))
-            elif isinstance(val, ast.Boolean):
-                result.append((name, BooleanType()))
-            else:
-                result.append((name, UnknownType()))
-        else:
-            result.append((name, UnknownType()))
+        col_type: ColumnType = UnknownType()
+        saw_only_null = True
+        for row in select.values:
+            if i >= len(row):
+                continue
+            inferred = _literal_type(row[i])
+            if inferred is None:
+                continue  # NULL — try next row
+            saw_only_null = False
+            col_type = inferred
+            break
+        if saw_only_null and select.values:
+            col_type = NullType()
+        result.append((name, col_type))
     return result
 
 
@@ -243,22 +258,29 @@ def _build_table_scope(
     """
     Build a mapping of table alias/name → {column_name: column_type} for all
     tables available in this query's scope. Returns (scope, errors).
+
+    Derived-metric detection triggers only when there is neither a FROM clause
+    nor any lateral views — otherwise we'd miss table-generating LATERAL VIEW
+    EXPLODE(sequence(...)) constructs used as FROMless series generators.
     """
-    if select.from_ is None:
+    if select.from_ is None and not select.lateral_views:
         return {"__derived__": _build_derived_scope(parent_columns_map)}, []
 
     scope: TableScope = {}
     errors: list[str] = []
-    for relation in select.from_.relations:
-        tables, errs = _collect_tables_from_relation(
-            relation,
-            parent_columns_map,
-            cte_registry,
+    if select.from_ is not None:
+        for relation in select.from_.relations:
+            tables, errs = _collect_tables_from_relation(
+                relation,
+                parent_columns_map,
+                cte_registry,
+            )
+            scope.update(tables)
+            errors.extend(errs)
+    for idx, view in enumerate(select.lateral_views):
+        scope.update(
+            _collect_lateral_view_columns(view, scope, errors, idx=idx),
         )
-        scope.update(tables)
-        errors.extend(errs)
-    for view in select.lateral_views:
-        scope.update(_collect_lateral_view_columns(view, scope))
     return scope, errors
 
 
@@ -281,8 +303,14 @@ def _collect_tables_from_relation(
     node: ast.Node,
     parent_columns_map: ParentColumnsMap,
     cte_registry: dict[str, OutputColumns],
+    outer_scope: TableScope | None = None,
 ) -> tuple[TableScope, list[str]]:
-    """Collect table scopes from a FROM relation. Returns (tables, errors)."""
+    """Collect table scopes from a FROM relation. Returns (tables, errors).
+
+    ``outer_scope`` carries columns already in scope from earlier parts of the
+    FROM clause. Needed so JOIN right sides like ``CROSS JOIN UNNEST(t.arr)``
+    can see the left table's columns when resolving their argument.
+    """
     result: TableScope = {}
     errors: list[str] = []
 
@@ -291,15 +319,19 @@ def _collect_tables_from_relation(
             node.primary,
             parent_columns_map,
             cte_registry,
+            outer_scope=outer_scope,
         )
         result.update(tables)
         errors.extend(errs)
         for ext in node.extensions:
             if isinstance(ext, ast.Join):  # pragma: no branch
+                # Combine accumulated scope + any outer scope for visibility.
+                combined_outer = {**(outer_scope or {}), **result}
                 tables, errs = _collect_tables_from_relation(
                     ext.right,
                     parent_columns_map,
                     cte_registry,
+                    outer_scope=combined_outer,
                 )
                 result.update(tables)
                 errors.extend(errs)
@@ -325,13 +357,53 @@ def _collect_tables_from_relation(
         errors.extend(sub_errors)
 
     elif isinstance(node, ast.InlineTable):
-        alias = node.alias.name if node.alias else "__inline__"
+        # DJ's parser reaches this branch only for the non-parenthesized
+        # `VALUES (…) tab(c1, c2)` form, where the `tab` alias is parked on
+        # node.name. Parenthesized `(VALUES (…)) AS tab(c1, c2)` comes in as
+        # an ast.Query wrapping an InlineTable and is handled above. If that
+        # invariant ever changes, the name-access below raises rather than
+        # silently mis-aliasing — easier to diagnose than a defensive default.
+        alias = node.name.name
         inline_columns = _resolve_inline_table(ast.Query(select=node))  # type: ignore[arg-type]
         result[alias] = {name: typ for name, typ in inline_columns}
 
     elif isinstance(node, ast.FunctionTableExpression):  # pragma: no branch
+        # CROSS JOIN UNNEST(arr) AS t(x) / LATERAL table-function forms.
+        # Resolve element types from the function's argument so downstream
+        # refs to t.x get a concrete type instead of UnknownType. Merge the
+        # outer scope (i.e., sibling tables already in the FROM chain) so
+        # `UNNEST(sibling.arr)` can reach back into the previous table.
         alias = node.alias.name if node.alias else "__func_table__"
-        func_cols = {col.name.name: UnknownType() for col in (node.column_list or [])}
+        col_list = node.column_list or []
+        resolution_scope = {**(outer_scope or {}), **result}
+        element_types = _resolve_lateral_element_types(
+            node,
+            resolution_scope,
+            errors=errors,
+        )
+        func_name = (
+            node.name.name.upper() if hasattr(node, "name") and node.name else ""
+        )
+        is_posexplode = "POS" in func_name
+        # Struct-unpacking: UNNEST(array<struct<a, b>>) AS t(c1, c2) positions
+        # each alias against a struct field.
+        if (
+            not is_posexplode
+            and len(col_list) > 1
+            and len(element_types) == 1
+            and isinstance(element_types[0], StructType)
+        ):
+            element_types = [f.type for f in element_types[0].fields]
+        func_cols: dict[str, ColumnType] = {}
+        for i, col in enumerate(col_list):
+            if is_posexplode and i == 0:
+                func_cols[col.name.name] = IntegerType()
+            elif is_posexplode and i == 1 and element_types:
+                func_cols[col.name.name] = element_types[0]
+            elif not is_posexplode and i < len(element_types):
+                func_cols[col.name.name] = element_types[i]
+            else:
+                func_cols[col.name.name] = UnknownType()
         if func_cols:  # pragma: no branch
             result[alias] = func_cols
 
@@ -341,21 +413,40 @@ def _collect_tables_from_relation(
 def _collect_lateral_view_columns(
     view: ast.LateralView,
     from_scope: TableScope,
+    errors: list[str],
+    idx: int = 0,
 ) -> TableScope:
     """Collect columns from a LATERAL VIEW (e.g., EXPLODE) expression.
 
     Resolves element types from the source column's ListType/MapType
     when possible, falls back to UnknownType otherwise.
+
+    ``errors`` receives any element-type-resolution errors (e.g., the EXPLODE
+    argument references a nonexistent column) so callers can surface them.
+
+    ``idx`` distinguishes multiple anonymous lateral views in the same SELECT
+    (each default-aliased to ``__lateral__`` would otherwise collide and
+    overwrite prior columns).
     """
     func = view.func
-    alias = func.alias.name if func.alias else "__lateral__"
+    alias = func.alias.name if func.alias else f"__lateral_{idx}__"
     col_list = func.column_list or []
     if not col_list:
         return {}
 
-    element_types = _resolve_lateral_element_types(func, from_scope)
+    element_types = _resolve_lateral_element_types(func, from_scope, errors)
     func_name = func.name.name.upper() if hasattr(func, "name") and func.name else ""
     is_posexplode = "POS" in func_name
+
+    # Struct-unpacking: EXPLODE(array<struct<a, b>>) AS (c1, c2) aliases the
+    # struct fields positionally.
+    if (
+        not is_posexplode
+        and len(col_list) > 1
+        and len(element_types) == 1
+        and isinstance(element_types[0], StructType)
+    ):
+        element_types = [f.type for f in element_types[0].fields]
 
     lateral_cols: dict[str, ColumnType] = {}
     for i, col in enumerate(col_list):
@@ -374,8 +465,15 @@ def _collect_lateral_view_columns(
 def _resolve_lateral_element_types(
     func: ast.FunctionTableExpression,
     from_scope: TableScope,
+    errors: list[str],
 ) -> list[ColumnType]:
-    """Resolve element types for an EXPLODE/UNNEST function argument."""
+    """Resolve element types for an EXPLODE/UNNEST function argument.
+
+    The ``errors`` list receives any resolution failures — both the specific
+    TypeResolutionError on the argument itself and any errors accumulated
+    inside the throwaway scope (e.g., unresolved sub-refs). All current
+    callers thread their own error list through, so it's required.
+    """
     if not func.args:
         return []  # pragma: no cover
 
@@ -389,8 +487,13 @@ def _resolve_lateral_element_types(
     scope = TypeScope(tables=from_scope, parent_map={})
     try:
         col_type = _resolve_expr_type(arg, scope)
-    except (TypeResolutionError, Exception):
+    except TypeResolutionError as exc:
+        errors.append(str(exc))
         return []
+    except Exception:  # pragma: no cover
+        return []
+
+    errors.extend(scope.errors)
 
     if isinstance(col_type, ListType):
         return [col_type.element.type]
@@ -421,6 +524,14 @@ def _resolve_projection_expr(
         )
         return _resolve_wildcard(table_alias, scope.tables)
 
+    # Projection-based table-generating function: `explode(x) AS (c1, c2)` in the
+    # SELECT list. Expands into one output column per name in column_list, typed
+    # from the exploded element's ListType/MapType. Without this, the alias list
+    # would silently disappear and downstream refs to c1/c2 would resolve against
+    # nothing.
+    if isinstance(expr, ast.FunctionTableExpression):
+        return _resolve_projection_function_table(expr, scope)
+
     # Unwrap Alias(child=..., alias="name") → resolve the child, use the alias as name
     if isinstance(expr, ast.Alias):
         output_name = expr.alias.name if expr.alias else _get_output_name(expr.child)
@@ -448,6 +559,69 @@ def _resolve_projection_expr(
     # For expressions (Function, BinaryOp, Cast, literals, etc.)
     col_type = _resolve_expr_type(expr, scope)
     return [(output_name, col_type)]
+
+
+def _resolve_projection_function_table(
+    func: ast.FunctionTableExpression,
+    scope: TypeScope,
+) -> OutputColumns:
+    """Expand a table-generating function used in a SELECT projection.
+
+    Supports Spark's ``explode(x) AS (c1, c2)`` / ``posexplode(x) AS (i, c)``
+    forms. Element types come from the input's ListType/MapType; names come
+    from ``func.column_list``. Mirrors the LATERAL VIEW handler so projection
+    and lateral-view EXPLODE behave the same.
+
+    Struct-unpacking: ``EXPLODE(array<struct<a, b>>) AS (c1, c2)`` aliases the
+    struct fields positionally — c1 gets field a's type, c2 gets field b's.
+    """
+    # `EXPLODE(x) AS (c1, c2)` (parenthesized alias list) populates column_list.
+    # `EXPLODE(x) AS c` (single-name form) leaves column_list empty and puts
+    # the name on func.alias. Handle both.
+    col_names: list[str]
+    if func.column_list:
+        col_names = [c.name.name for c in func.column_list]
+    elif func.alias is not None:
+        col_names = [func.alias.name]
+    else:
+        return []  # pragma: no cover
+
+    element_types = _resolve_lateral_element_types(
+        func,
+        scope.tables,
+        errors=scope.errors,
+    )
+    func_name = func.name.name.upper() if hasattr(func, "name") and func.name else ""
+    is_posexplode = "POS" in func_name
+
+    # If the element is a single struct and the user aliased N columns, unpack
+    # the struct fields positionally. Matches legacy compile behavior for
+    # EXPLODE(array<struct<...>>) AS (c1, c2, ...) in a projection.
+    if (
+        not is_posexplode
+        and len(col_names) > 1
+        and len(element_types) == 1
+        and isinstance(element_types[0], StructType)
+    ):
+        struct_type = element_types[0]
+        element_types = [f.type for f in struct_type.fields]
+
+    output: OutputColumns = []
+    for i, out_name in enumerate(col_names):
+        # Projection-form POSEXPLODE with a parenthesized alias list
+        # (`POSEXPLODE(arr) AS (pos, val)`) isn't accepted by DJ's grammar —
+        # the parser rejects the identifier-list alias on a non-Table
+        # expression. These two branches are kept for symmetry with the
+        # LATERAL VIEW form but aren't reachable in practice.
+        if is_posexplode and i == 0:  # pragma: no cover
+            output.append((out_name, IntegerType()))  # pragma: no cover
+        elif is_posexplode and i == 1 and element_types:  # pragma: no cover
+            output.append((out_name, element_types[0]))  # pragma: no cover
+        elif not is_posexplode and i < len(element_types):
+            output.append((out_name, element_types[i]))
+        else:
+            output.append((out_name, UnknownType()))
+    return output
 
 
 def _resolve_wildcard(
@@ -644,10 +818,18 @@ def _resolve_column_type(
         full_id = col.identifier()
         if full_id in derived:
             return derived[full_id]
-        if col.namespace:  # pragma: no branch
+        if col.namespace:
             result = _resolve_dj_node_column(col, scope.parent_map)
             if result is not None:
                 return result  # pragma: no cover
+            # Multi-part namespaced refs in a derived metric that don't match
+            # a parent metric or attribute are likely dim-attribute references
+            # resolved via dim links at query build time (e.g.,
+            # `common.dimensions.time.date.dateint` used inside a window
+            # function OVER (ORDER BY ...)). Fall back to UnknownType rather
+            # than raising so legitimate dim-link refs don't get falsely
+            # rejected — deployment enforces strictly via its own call.
+            return UnknownType()
         raise TypeResolutionError(
             f"Column `{col}` not found in derived metric scope.",
         )
@@ -700,8 +882,27 @@ def _resolve_column_type(
         if result is not None:
             return result
 
-        # Not resolvable - return UnknownType since it may be a dimension
-        # ref that gets resolved via dimension links at query time.
+        # Nothing matched. Fall through to UnknownType — the ref may be a
+        # legit dim-attribute reference resolved at query build time.
+        #
+        # Only surface a specific namespace-not-found error for SINGLE-segment
+        # namespaces. Those are the classic typo/wrong-alias shapes
+        # (e.g., `tenure.tenure` in an outer query where `tenure` was a
+        # subquery alias). Multi-segment namespaces like
+        # `common.dimensions.xp.allocation_day.days_since_allocation` are
+        # almost always real DJ dim-node paths.
+        if len(col.namespace) == 1:
+            all_parts = [n.name for n in col.namespace] + [col.name.name]
+            any_prefix_is_parent = any(
+                ".".join(all_parts[:i]) in scope.parent_map
+                for i in range(1, len(all_parts))
+            )
+            if not any_prefix_is_parent:
+                scope.errors.append(
+                    f"Column `{col}` references namespace `{table_alias}` "
+                    f"which is not a table alias in this scope, a struct "
+                    f"column, or a known DJ node.",
+                )
         return UnknownType()
 
     # Unqualified column - search all tables
@@ -851,8 +1052,10 @@ def _resolve_expr_type(
             )
 
     if isinstance(expr, ast.Subscript):
-        # Subscript: col['key'] (map or struct access) or col[0] (array access).
+        # Subscript: col['key'] (map/struct access) or col[0] (array access).
         base_type = _resolve_expr_type(expr.expr, scope)
+        if isinstance(base_type, ListType):
+            return base_type.element.type
         if isinstance(base_type, MapType):
             return base_type.value.type
         if isinstance(base_type, StructType) and isinstance(expr.index, ast.String):

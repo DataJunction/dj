@@ -2137,6 +2137,123 @@ async def test_execute_deployment_plan_dry_run_savepoint_rollback(
     assert downstream == []
 
 
+class TestClassifyParents:
+    """Unit tests for DeploymentOrchestrator._classify_parents.
+
+    Covers parity gaps with the single-node validation path:
+      - derived metrics drop non-metric resolutions and never emit MissingParent
+      - regular queries emit MissingParent for unresolved ast.Table names
+      - regular queries keep all resolved Node objects as parents regardless of type
+    """
+
+    @staticmethod
+    def _make_node(name: str, node_type):
+        from datajunction_server.models.node_type import NodeType as _NT
+
+        node = MagicMock()
+        node.name = name
+        node.type = node_type if isinstance(node_type, _NT) else _NT(node_type)
+        return node
+
+    def test_regular_query_unresolved_names_become_missing_parents(self):
+        """Transform whose ast.Table ref is absent from dependency_nodes emits a
+        MissingParent entry, preserving the single-node path's behavior."""
+        spec = TransformSpec(
+            name="t",
+            namespace="default",
+            query="SELECT a FROM default.missing_src",
+        )
+        resolved, missing = DeploymentOrchestrator._classify_parents(
+            spec,
+            dep_names=["default.missing_src"],
+            dependency_nodes={},
+        )
+        assert resolved == []
+        assert missing == ["default.missing_src"]
+
+    def test_regular_query_resolved_parents_kept_regardless_of_type(self):
+        """A transform that references a source returns the source Node as a parent."""
+        from datajunction_server.models.node_type import NodeType as _NT
+
+        src = self._make_node("default.src", _NT.SOURCE)
+        spec = TransformSpec(
+            name="t",
+            namespace="default",
+            query="SELECT a FROM default.src",
+        )
+        resolved, missing = DeploymentOrchestrator._classify_parents(
+            spec,
+            dep_names=["default.src"],
+            dependency_nodes={"default.src": src},
+        )
+        assert resolved == [src]
+        assert missing == []
+
+    def test_derived_metric_drops_non_metric_resolutions(self):
+        """Derived metric that references a dim-attribute like `ns.dim.col` must
+        not store the dim as a parent — dim-attribute refs aren't SQL parents."""
+        from datajunction_server.models.node_type import NodeType as _NT
+
+        metric_a = self._make_node("default.metric_a", _NT.METRIC)
+        dim_x = self._make_node("default.dim_x", _NT.DIMENSION)
+        spec = MetricSpec(
+            name="derived",
+            namespace="default",
+            query="SELECT default.metric_a * 2 + default.dim_x.year",
+        )
+        # extract_node_graph emits both full id and parent-path candidates
+        dep_names = [
+            "default.metric_a",
+            "default.dim_x.year",
+            "default.dim_x",
+        ]
+        dependency_nodes = {
+            "default.metric_a": metric_a,
+            "default.dim_x": dim_x,
+        }
+        resolved, missing = DeploymentOrchestrator._classify_parents(
+            spec,
+            dep_names,
+            dependency_nodes,
+        )
+        assert resolved == [metric_a]
+        # Derived metrics never emit MissingParent rows — speculative prefix
+        # candidates aren't genuine references.
+        assert missing == []
+
+    def test_derived_metric_never_emits_missing_parents(self):
+        """Even when a derived metric's candidate resolves to nothing, no
+        MissingParent is recorded (candidates are speculative prefix expansions)."""
+        spec = MetricSpec(
+            name="derived",
+            namespace="default",
+            query="SELECT default.metric_a / default.metric_b",
+        )
+        resolved, missing = DeploymentOrchestrator._classify_parents(
+            spec,
+            dep_names=["default.metric_a", "default.metric_b"],
+            dependency_nodes={},
+        )
+        assert resolved == []
+        assert missing == []
+
+    def test_metric_with_from_clause_treated_as_regular(self):
+        """A metric whose query has a FROM clause is NOT a derived metric and
+        follows the regular-query path (emit MissingParent for unresolved refs)."""
+        spec = MetricSpec(
+            name="std_metric",
+            namespace="default",
+            query="SELECT SUM(amount) FROM default.missing_fact",
+        )
+        resolved, missing = DeploymentOrchestrator._classify_parents(
+            spec,
+            dep_names=["default.missing_fact"],
+            dependency_nodes={},
+        )
+        assert resolved == []
+        assert missing == ["default.missing_fact"]
+
+
 class TestCreateOrUpdateDimensionJoinLink:
     """Tests for create_or_update_dimension_join_link idempotency."""
 

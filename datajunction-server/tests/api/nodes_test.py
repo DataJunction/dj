@@ -4899,11 +4899,15 @@ class TestValidateNodes:
         )
         for node in (await client_with_roads.get("/nodes/")).json():
             if node.startswith("default."):
-                status = (
+                response = (
                     await client_with_roads.post(
                         f"/nodes/{node}/validate/",
                     )
-                ).json()["status"]
+                ).json()
+                status = response["status"]
+                print("node", node, "status", response)
+                assert status == "valid"
+                print("node", node, "status", status)
                 assert status == "valid"
         # Confirm that they still show as valid server-side
         for node in (await client_with_roads.get("/nodes/")).json():
