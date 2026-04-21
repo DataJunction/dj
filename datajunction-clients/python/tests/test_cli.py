@@ -1008,6 +1008,8 @@ class TestPushDeploymentSourceFlags:
             "dj",
             "push",
             "./deploy0",
+            "--namespace",
+            "repo_flag_test",
             "--repo",
             "github.com/test/repo",
         ]

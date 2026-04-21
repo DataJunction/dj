@@ -1197,6 +1197,35 @@ class TestGetImpact:
         call_args = mock_client.get_deployment_impact.call_args[0][0]
         assert call_args["namespace"] == "override.ns"
 
+    def test_get_impact_derives_namespace_from_git_branch(self, tmp_path, monkeypatch):
+        """get_impact should derive namespace from git branch, same as push."""
+        (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "project"}))
+        (tmp_path / "my_node.yaml").write_text(
+            yaml.safe_dump({"name": "project.my_node"}),
+        )
+
+        monkeypatch.delenv("DJ_DEPLOY_REPO", raising=False)
+        monkeypatch.delenv("DJ_DEPLOY_BRANCH", raising=False)
+        monkeypatch.setattr(
+            "datajunction.deployment.subprocess.run",
+            lambda *a, **kw: mock.MagicMock(stdout="feature/new-metric\n"),
+        )
+
+        mock_client = MagicMock()
+        mock_client.get_deployment_impact.return_value = {
+            "uuid": "dry_run",
+            "namespace": "project.feature_new_metric",
+            "status": "success",
+            "results": [],
+            "downstream_impacts": [],
+        }
+
+        svc = DeploymentService(mock_client, console=Console(file=io.StringIO()))
+        svc.get_impact(tmp_path)
+
+        call_args = mock_client.get_deployment_impact.call_args[0][0]
+        assert call_args["namespace"] == "project.feature_new_metric"
+
 
 class TestDetectGitBranch:
     """Tests for _detect_git_branch."""
