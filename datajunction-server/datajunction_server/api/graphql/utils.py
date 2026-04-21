@@ -6,6 +6,7 @@ from typing import Any, AsyncIterator, Dict, TypeVar
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from strawberry.types import Info
+from strawberry.types.nodes import FragmentSpread, InlineFragment
 
 from datajunction_server.utils import get_session
 
@@ -64,34 +65,39 @@ def convert_camel_case(name):
     return name
 
 
-def extract_subfields(selection):
-    """Extract subfields"""
-    subfield = {}
-    for sub_selection in selection.selections:
-        field_name = convert_camel_case(sub_selection.name)
-        if sub_selection.selections:
-            subfield[field_name] = extract_subfields(sub_selection)
-        else:
-            subfield[field_name] = None
+def _walk_selections(selections) -> Dict[str, Any]:
+    """
+    Flatten a list of GraphQL selections into a {field_name: subfields_or_None}
+    dict. Fragment spreads (``...Frag``) and inline fragments (``... on Type``)
+    are transparent: their selections are merged into the parent level, which
+    matches how the GraphQL runtime executes them.
+    """
+    out: Dict[str, Any] = {}
+    for sel in selections:
+        if isinstance(sel, (FragmentSpread, InlineFragment)):
+            out.update(_walk_selections(sel.selections))
+            continue
+        field_name = convert_camel_case(sel.name)
+        out[field_name] = _walk_selections(sel.selections) if sel.selections else None
+    return out
 
-    return subfield
+
+def extract_subfields(selection):
+    """Extract subfields from a single selection."""
+    return _walk_selections(selection.selections)
 
 
 def extract_fields(query_fields) -> Dict[str, Any]:
     """
-    Extract fields from GraphQL query input into a dictionary
+    Extract fields from GraphQL query input into a dictionary.
+
+    Fragment spreads and inline fragments are flattened transparently, so a
+    query that uses ``...NodeInfo`` produces the same dict as one that lists
+    those fields inline.
     """
-    fields = {}
-
+    fields: Dict[str, Any] = {}
     for query_field in query_fields.selected_fields:
-        for selection in query_field.selections:
-            field_name = convert_camel_case(selection.name)
-            if selection.selections:
-                subfield = extract_subfields(selection)
-                fields[field_name] = subfield
-            else:
-                fields[field_name] = None
-
+        fields.update(_walk_selections(query_field.selections))
     return fields
 
 
