@@ -2972,7 +2972,11 @@ async def activate_node(
             missing_parent and missing_parent in downstream.current.missing_parents
         ):
             downstream.current.missing_parents.remove(missing_parent)
-        if node not in downstream.current.parents:
+        # Compare by id, not Python identity: the cached parent collection may
+        # contain a different ORM object instance for the same node, and an
+        # identity-based `not in` check would wrongly append, producing a
+        # duplicate NodeRelationship insert.
+        if node.id not in {p.id for p in downstream.current.parents}:
             downstream.current.parents.append(node)
 
         _logger.info(
