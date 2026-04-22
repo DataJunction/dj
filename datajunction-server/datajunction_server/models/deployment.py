@@ -9,7 +9,10 @@ from pydantic import (
 
 from typing import Annotated, Any, Literal, Optional, Union
 from datajunction_server.models.partition import Granularity, PartitionType
-from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.errors import (
+    DJInvalidDeploymentConfig,
+    DJInvalidInputException,
+)
 from datajunction_server.models.base import labelize
 from datajunction_server.models.dimensionlink import (
     JoinType,
@@ -705,21 +708,29 @@ class DeploymentSpec(BaseModel):
     @model_validator(mode="after")
     def set_namespaces(self):
         """
-        Set namespace on all node specs and their dimension links
-        """
-        if (  # pragma: no cover
-            hasattr(self, "nodes") and hasattr(self, "namespace") and self.namespace
-        ):
-            for node in self.nodes:
-                # Set namespace on the node itself
-                if hasattr(node, "namespace") and not node.namespace:
-                    node.namespace = self.namespace
+        Require a non-empty namespace and propagate it to every node spec and
+        dimension link.
 
-                # Set namespace on dimension links (for LinkableNodeSpec subclasses)
-                if hasattr(node, "dimension_links") and node.dimension_links:
-                    for link in node.dimension_links:
-                        if not link.namespace:
-                            link.namespace = self.namespace
+        An empty namespace used to silently no-op here, producing specs whose
+        ``${prefix}`` placeholders stayed unrendered all the way down to
+        ``DimensionLink.parse_join_sql`` — which then failed with a cryptic
+        ANTLR ``mismatched input '$'`` error. Failing here turns that into a
+        clear "namespace is required" error at the edge.
+        """
+        if not self.namespace:
+            raise DJInvalidDeploymentConfig(
+                message=(
+                    "DeploymentSpec.namespace is required and must be non-empty. "
+                    "Pass --namespace on the CLI or set `namespace:` in dj.yaml."
+                ),
+            )
+        for node in self.nodes:
+            if not node.namespace:
+                node.namespace = self.namespace
+            if hasattr(node, "dimension_links") and node.dimension_links:
+                for link in node.dimension_links:
+                    if not link.namespace:
+                        link.namespace = self.namespace
         return self
 
 
