@@ -3201,6 +3201,24 @@ async def revalidate_node(
         )
 
         new_revision.status = node_validator.status
+        # Snapshot pending m2m state before compile — autoflush during
+        # compile has raced a phantom (parent_id, child_id) insert in CI.
+        # If it fires again, this log tells us exactly which objects SA
+        # thinks have dirty parent collections.
+        dirty_m2m = [
+            (type(obj).__name__, getattr(obj, "id", None), getattr(obj, "name", None))
+            for obj in session.dirty
+            if hasattr(obj, "parents")
+        ]
+        new_objs = [
+            (type(obj).__name__, getattr(obj, "name", None)) for obj in session.new
+        ]
+        _logger.info(
+            f"revalidate_node({node.name}) pre-compile session state: "
+            f"dirty_with_parents={dirty_m2m}, new={new_objs}, "
+            f"node.current.parents={[(p.id, p.name) for p in node.current.parents]}, "  # type: ignore
+            f"new_revision.parents={[(p.id, p.name) for p in new_revision.parents]}",
+        )
         new_revision.lineage = [
             lineage.model_dump()
             for lineage in await get_column_level_lineage(session, new_revision)
