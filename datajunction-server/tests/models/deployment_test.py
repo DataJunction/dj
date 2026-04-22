@@ -1,7 +1,11 @@
+import pytest
+
+from datajunction_server.errors import DJInvalidDeploymentConfig
 from datajunction_server.models.node import NodeMode, NodeType
 from datajunction_server.models.deployment import (
     DeploymentSpec,
     DimensionJoinLinkSpec,
+    DimensionSpec,
     NamespaceGitConfig,
     SourceSpec,
     MetricSpec,
@@ -372,6 +376,59 @@ def test_deployment_spec_force_can_be_set_true():
     spec = DeploymentSpec(namespace="test", nodes=[], force=True)
     assert spec.force is True
     assert spec.model_dump()["force"] is True
+
+
+def test_deployment_spec_rejects_empty_namespace():
+    """An empty namespace must be rejected at the model boundary.
+
+    Regression: previously set_namespaces silently no-op'd on an empty
+    namespace, leaving ``${prefix}`` unrendered on each spec. That survived
+    all the way to DimensionLink.parse_join_sql, which then failed with a
+    cryptic ANTLR "mismatched input '$'" error. Failing here makes the
+    real problem visible at the edge.
+    """
+    with pytest.raises(DJInvalidDeploymentConfig, match="namespace is required"):
+        DeploymentSpec(namespace="", nodes=[])
+
+    with pytest.raises(DJInvalidDeploymentConfig, match="namespace is required"):
+        DeploymentSpec.model_validate({"namespace": "", "nodes": []})
+
+
+def test_deployment_spec_propagates_namespace_to_links():
+    """set_namespaces must reach dimension_links, not just the node itself.
+
+    Specifically covers the ``${prefix}shared.date_dim``-style link where the
+    dim node is in the same deployment namespace — the render only happens
+    when link.namespace is set.
+    """
+    spec = DeploymentSpec(
+        namespace="myproject.dev",
+        nodes=[
+            DimensionSpec(
+                name="${prefix}ops.x",
+                node_type=NodeType.DIMENSION,
+                query="select 1 as a",
+                columns=[ColumnSpec(name="a", type="int", attributes=["primary_key"])],
+                primary_key=["a"],
+                dimension_links=[
+                    DimensionJoinLinkSpec(
+                        dimension_node="${prefix}shared.date_dim",
+                        join_on=("${prefix}ops.x.a = ${prefix}shared.date_dim.day_id"),
+                        role="utc_date",
+                    ),
+                ],
+            ),
+        ],
+    )
+    node = spec.nodes[0]
+    link = node.dimension_links[0]
+    assert node.namespace == "myproject.dev"
+    assert link.namespace == "myproject.dev"
+    assert node.rendered_name == "myproject.dev.ops.x"
+    assert link.rendered_dimension_node == "myproject.dev.shared.date_dim"
+    assert link.rendered_join_on == (
+        "myproject.dev.ops.x.a = myproject.dev.shared.date_dim.day_id"
+    )
 
 
 def test_cube_spec_eq_non_cube_spec():
