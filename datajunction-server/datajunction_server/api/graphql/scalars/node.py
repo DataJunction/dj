@@ -188,6 +188,13 @@ class NodeRevision:
         """
         The columns of the node
         """
+        # Pre-seed Partition.column back-ref so temporal_expression()'s
+        # self.column.type access doesn't trip DetachedInstanceError during
+        # post-resolver serialization. The joined-eager load on
+        # Column.partition doesn't reliably fill the reverse side.
+        for col in root.columns:
+            if col.partition is not None:
+                set_committed_value(col.partition, "column", col)
         return [
             Column(  # type: ignore
                 name=col.name,

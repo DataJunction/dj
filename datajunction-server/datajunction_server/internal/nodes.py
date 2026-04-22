@@ -3150,7 +3150,15 @@ async def revalidate_node(
             .scalars()
             .all()
         )
-        node.current.parents = list(parent_refs)  # type: ignore
+        # Only reassign when the PK set actually changed. Blind reassignment
+        # makes SA diff by Python identity, and a fresh select may return
+        # different ORM instances for the same rows, leading it to stage a
+        # DELETE+INSERT for an unchanged (parent_id, child_id) pair — the
+        # INSERT then races autoflush and hits the PK constraint.
+        current_parent_ids = {p.id for p in node.current.parents}  # type: ignore
+        target_parent_ids = {p.id for p in parent_refs}
+        if current_parent_ids != target_parent_ids:
+            node.current.parents = list(parent_refs)  # type: ignore
         _logger.info(f"Updated parents to: {[p.name for p in parent_refs]}")
     else:
         _logger.info(f"No parents found in dependencies for {node.name}")
@@ -3193,6 +3201,24 @@ async def revalidate_node(
         )
 
         new_revision.status = node_validator.status
+        # Snapshot pending m2m state before compile — autoflush during
+        # compile has raced a phantom (parent_id, child_id) insert in CI.
+        # If it fires again, this log tells us exactly which objects SA
+        # thinks have dirty parent collections.
+        dirty_m2m = [
+            (type(obj).__name__, getattr(obj, "id", None), getattr(obj, "name", None))
+            for obj in session.dirty
+            if hasattr(obj, "parents")
+        ]
+        new_objs = [
+            (type(obj).__name__, getattr(obj, "name", None)) for obj in session.new
+        ]
+        _logger.info(
+            f"revalidate_node({node.name}) pre-compile session state: "
+            f"dirty_with_parents={dirty_m2m}, new={new_objs}, "
+            f"node.current.parents={[(p.id, p.name) for p in node.current.parents]}, "  # type: ignore
+            f"new_revision.parents={[(p.id, p.name) for p in new_revision.parents]}",
+        )
         new_revision.lineage = [
             lineage.model_dump()
             for lineage in await get_column_level_lineage(session, new_revision)
