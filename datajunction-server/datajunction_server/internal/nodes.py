@@ -3150,7 +3150,15 @@ async def revalidate_node(
             .scalars()
             .all()
         )
-        node.current.parents = list(parent_refs)  # type: ignore
+        # Only reassign when the PK set actually changed. Blind reassignment
+        # makes SA diff by Python identity, and a fresh select may return
+        # different ORM instances for the same rows, leading it to stage a
+        # DELETE+INSERT for an unchanged (parent_id, child_id) pair — the
+        # INSERT then races autoflush and hits the PK constraint.
+        current_parent_ids = {p.id for p in node.current.parents}  # type: ignore
+        target_parent_ids = {p.id for p in parent_refs}
+        if current_parent_ids != target_parent_ids:
+            node.current.parents = list(parent_refs)  # type: ignore
         _logger.info(f"Updated parents to: {[p.name for p in parent_refs]}")
     else:
         _logger.info(f"No parents found in dependencies for {node.name}")
