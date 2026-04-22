@@ -3322,3 +3322,57 @@ async def test_cube_name_only_fast_path_on_non_cube_node(
     assert node["type"] == "METRIC"
     # Non-cube node: cubeMetrics resolver returns [] regardless of fast path.
     assert node["current"]["cubeMetrics"] == []
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_columns_with_partition(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    Querying the ``partition`` subfield on a column with a configured partition
+    exercises the ``set_committed_value`` pre-seed of ``Partition.column`` —
+    without it, ``temporal_expression()`` trips ``DetachedInstanceError`` during
+    post-resolver serialization.
+    """
+    await client_with_roads.post(
+        "/nodes/default.repair_orders_fact/columns/order_date/partition",
+        json={"type_": "temporal", "granularity": "day", "format": "yyyyMMdd"},
+    )
+
+    query = """
+    {
+        findNodes(names: ["default.repair_orders_fact"]) {
+            name
+            current {
+                columns {
+                    name
+                    partition {
+                        type_
+                        format
+                        granularity
+                        expression
+                    }
+                }
+            }
+        }
+    }
+    """
+    response = await client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+    assert "errors" not in data, data
+
+    columns = data["data"]["findNodes"][0]["current"]["columns"]
+    order_date = next(c for c in columns if c["name"] == "order_date")
+    assert order_date["partition"] == {
+        "type_": "TEMPORAL",
+        "format": "yyyyMMdd",
+        "granularity": "day",
+        "expression": (
+            "CAST(DATE_FORMAT(CAST(${dj_logical_timestamp} AS TIMESTAMP), "
+            "'yyyyMMdd') AS TIMESTAMP)"
+        ),
+    }
+    # Columns without a partition should return None.
+    no_partition = next(c for c in columns if c["name"] == "repair_order_id")
+    assert no_partition["partition"] is None
