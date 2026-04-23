@@ -834,3 +834,39 @@ class TestNonProjectionClauses:
         assert not ctx.exception.errors
         assert len(query.columns) == 2
         assert isinstance(query.columns[0].type, IntegerType)
+
+    async def test_cache_with_node_revision_instead_of_node(self):
+        """
+        When dependencies_cache contains a NodeRevision (as stored by
+        get_dj_node which returns .current by default), Table.compile
+        should handle it without raising AttributeError on .current.
+
+        Regression test for: 'NodeRevision' object has no attribute 'current'
+        """
+        # Create a revision-like object WITHOUT .current to simulate a real
+        # NodeRevision landing in the cache (as get_dj_node returns)
+        revision = FakeNodeRevision(
+            "default.orders",
+            NodeType.TRANSFORM,
+            [
+                FakeColumn("order_id", IntegerType()),
+                FakeColumn("user_id", IntegerType()),
+                FakeColumn("amount", DoubleType()),
+            ],
+        )
+        del revision.current  # Remove .current so it behaves like a real NodeRevision
+
+        # Patch NodeRevision in the ast module so our fake passes isinstance
+        ctx = _make_ctx(dependencies={"default.orders": revision})
+
+        with patch(
+            "datajunction_server.sql.parsing.ast.NodeRevision",
+            new=FakeNodeRevision,
+        ):
+            query = parse("SELECT order_id, amount FROM default.orders")
+            await query.compile(ctx)
+
+        assert not ctx.exception.errors
+        assert len(query.columns) == 2
+        assert isinstance(query.columns[0].type, IntegerType)
+        assert isinstance(query.columns[1].type, DoubleType)
