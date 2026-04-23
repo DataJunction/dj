@@ -37,7 +37,12 @@ from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.history import History
 from datajunction_server.database.metricmetadata import MetricMetadata
-from datajunction_server.database.node import MissingParent, Node, NodeRevision
+from datajunction_server.database.node import (
+    MissingParent,
+    Node,
+    NodeRelationship,
+    NodeRevision,
+)
 from datajunction_server.database.partition import Partition
 from datajunction_server.database.user import User
 from datajunction_server.database.measure import FrozenMeasure
@@ -2984,11 +2989,20 @@ async def activate_node(
             missing_parent and missing_parent in downstream.current.missing_parents
         ):
             downstream.current.missing_parents.remove(missing_parent)
-        # Compare by id, not Python identity: the cached parent collection may
-        # contain a different ORM object instance for the same node, and an
-        # identity-based `not in` check would wrongly append, producing a
-        # duplicate NodeRelationship insert.
-        if node.id not in {p.id for p in downstream.current.parents}:
+        # Query NodeRelationship directly rather than trusting the in-memory
+        # `downstream.current.parents` collection. On Python 3.11 we've seen
+        # the selectinload'd collection miss the row that already exists in
+        # the DB (autoflush ordering across the prior deactivate + this
+        # activate), which caused duplicate-key violations at flush time.
+        existing = await session.execute(
+            select(NodeRelationship.parent_id)
+            .where(
+                NodeRelationship.parent_id == node.id,
+                NodeRelationship.child_id == downstream.current.id,
+            )
+            .limit(1),
+        )
+        if existing.first() is None:
             downstream.current.parents.append(node)
 
         _logger.info(
