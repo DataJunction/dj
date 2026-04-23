@@ -648,33 +648,24 @@ class Node(Base):
         """
         options: list[ExecutableOption]
         if for_measures_sql:
+            # Lean chain for the build_v3 measures-SQL path. We only need:
+            #   - cube_filters (scalar on NodeRevision)
+            #   - self.columns (for cube_metric_names_fast / _dimensions_fast and
+            #     extract_temporal_partition_columns; partitions ride along via
+            #     Column.partition lazy="joined")
+            # Deliberately NOT loaded: cube_elements, their node_revision.node
+            # (the fast-path accessors derive metric names from column-name
+            # encoding without traversing to the underlying source nodes).
+            #
+            # Deliberately NOT suppressed via noload (all would poison the
+            # session identity map, breaking unrelated callers on shared
+            # instances): Catalog.engines, Column.attributes, NodeRevision.node.
             options = [
-                # Top-level Node: suppress auto-selectin on created_by/tags
                 noload(Node.created_by),
                 noload(Node.tags),
                 joinedload(Node.current).options(
                     noload(NodeRevision.created_by),
-                    noload(NodeRevision.node),
-                    # NodeRevision.catalog is lazy="joined" — suppress its engines cascade
-                    joinedload(NodeRevision.catalog).options(
-                        noload(Catalog.engines),
-                    ),
-                    # Cube filters/metrics/dimensions: need cube_elements + their
-                    # node_revision (for metric.name), but skip attribute cascades
-                    selectinload(NodeRevision.cube_elements).options(
-                        noload(Column.attributes),
-                        selectinload(Column.node_revision).options(
-                            noload(NodeRevision.created_by),
-                            joinedload(NodeRevision.catalog).options(
-                                noload(Catalog.engines),
-                            ),
-                        ),
-                    ),
-                    # Columns for extract_temporal_partition_columns.
-                    # Column.partition is lazy="joined" so partitions ride along.
-                    selectinload(NodeRevision.columns).options(
-                        noload(Column.attributes),
-                    ),
+                    selectinload(NodeRevision.columns),
                 ),
             ]
         else:
@@ -1628,6 +1619,40 @@ class NodeRevision(
         Cube node's dimension attributes
         """
         return self.cube_dimensions()
+
+    def cube_metric_names_fast(self) -> List[str]:
+        """
+        Fast path: derive metric node names from the cube's own column names
+        without traversing cube_elements → Column.node_revision → Node.
+
+        Metric columns encode the source node's dotted name with "_DOT_" as a
+        separator (e.g. "demo_metrics_DOT_total_thumbs" → "demo.metrics.total_thumbs");
+        dimension columns don't contain "_DOT_". Only valid when self.columns is
+        already loaded — callers that have the cube NodeRevision in hand with
+        columns eager-loaded can use this to avoid loading NodeRevision.node.
+        """
+        if self.type != NodeType.CUBE:
+            return []  # pragma: no cover
+        ordering = {
+            col.name.replace("_DOT_", SEPARATOR): (col.order or idx)
+            for idx, col in enumerate(self.columns)
+            if "_DOT_" in col.name
+        }
+        return sorted(ordering.keys(), key=lambda name: ordering[name])
+
+    def cube_dimension_names_fast(self) -> List[str]:
+        """
+        Fast path counterpart to cube_metric_names_fast. Dimension columns
+        lack the "_DOT_" metric encoding; build the dimension attribute string
+        from the column's name + dimension_column without touching nodes.
+        """
+        if self.type != NodeType.CUBE:
+            return []  # pragma: no cover
+        return [
+            col.name + (col.dimension_column or "")
+            for col in self.columns
+            if "_DOT_" not in col.name
+        ]
 
     def temporal_partition_columns(self) -> List[Column]:
         """

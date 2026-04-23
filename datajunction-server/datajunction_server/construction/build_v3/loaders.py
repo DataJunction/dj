@@ -11,7 +11,6 @@ from sqlalchemy import select, text, bindparam
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload, joinedload, load_only, noload
 
-from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.node import Node, NodeRevision, Column
 from datajunction_server.database.preaggregation import PreAggregation
@@ -280,14 +279,18 @@ async def load_dimension_links_batch(
                 noload(Node.tags),  # Prevent Tag selectin chain
                 joinedload(Node.current).options(
                     noload(NodeRevision.created_by),  # Prevent User N+1 queries
-                    # Load what's needed for table references, parsing, and type lookups
-                    joinedload(NodeRevision.catalog).options(
-                        noload(Catalog.engines),  # Prevent Engine selectin chain
-                    ),
+                    # Load what's needed for table references, parsing, and type lookups.
+                    # NOTE: don't noload Catalog.engines — this function is shared
+                    # across build_measures_sql and build_metrics_sql; the latter is
+                    # used by /data which reads catalog.engines downstream. noload
+                    # would poison the Catalog instance in the session identity map.
+                    joinedload(NodeRevision.catalog),
                     joinedload(NodeRevision.availability),
+                    # NOTE: don't noload Column.attributes — Columns are
+                    # identity-mapped and downstream paths read
+                    # col.has_primary_key_attribute().
                     selectinload(NodeRevision.columns).options(
                         load_only(Column.name, Column.type),
-                        noload(Column.attributes),
                     ),
                 ),
             ),
@@ -391,18 +394,18 @@ async def load_nodes(ctx: BuildContext) -> None:
                     NodeRevision.schema_,
                     NodeRevision.table,
                 ),
+                # NOTE: don't noload Column.attributes — Columns are identity-
+                # mapped and downstream code (get_native_grain) reads
+                # col.has_primary_key_attribute().
                 selectinload(NodeRevision.columns).options(
                     load_only(
                         Column.name,
                         Column.type,
                     ),
-                    noload(Column.attributes),
                 ),
-                joinedload(NodeRevision.catalog).options(
-                    noload(Catalog.engines),  # Prevent Engine selectin chain
-                ),
+                # NOTE: don't noload Catalog.engines — see load_dimension_links_batch.
+                joinedload(NodeRevision.catalog),
                 selectinload(NodeRevision.required_dimensions).options(
-                    noload(Column.attributes),
                     # Load the node_revision and node to reconstruct full dimension path
                     joinedload(Column.node_revision).options(
                         noload(NodeRevision.created_by),  # Prevent User N+1 queries
@@ -523,13 +526,13 @@ async def load_nodes(ctx: BuildContext) -> None:
                             NodeRevision.schema_,
                             NodeRevision.table,
                         ),
+                        # NOTE: don't noload Column.attributes — Columns are
+                        # identity-mapped and downstream reads primary-key attrs.
                         selectinload(NodeRevision.columns).options(
                             load_only(Column.name, Column.type),
-                            noload(Column.attributes),
                         ),
-                        joinedload(NodeRevision.catalog).options(
-                            noload(Catalog.engines),
-                        ),
+                        # NOTE: don't noload Catalog.engines — see load_dimension_links_batch.
+                        joinedload(NodeRevision.catalog),
                         joinedload(NodeRevision.availability),
                     ),
                 )

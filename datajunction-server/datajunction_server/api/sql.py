@@ -261,9 +261,13 @@ async def get_measures_sql_v3(
             if cube_node.current.cube_filters:
                 merged_filters = cube_node.current.cube_filters + merged_filters
             if not metrics:
-                metrics = cube_node.current.cube_node_metrics
+                # Fast path: derive metric/dimension names from the cube's own
+                # columns (using the _DOT_ encoding) rather than traversing
+                # cube_elements → node_revision → node. This avoids firing the
+                # NodeRevision.node selectin cascade under load.
+                metrics = cube_node.current.cube_metric_names_fast()
                 if not dimensions:
-                    dimensions = cube_node.current.cube_node_dimensions
+                    dimensions = cube_node.current.cube_dimension_names_fast()
 
     _t0 = time.monotonic()
     result = await build_measures_sql(

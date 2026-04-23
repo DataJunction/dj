@@ -93,29 +93,23 @@ async def find_matching_cube(
             noload(Node.tags),  # Prevent Tag selectin chain
             joinedload(Node.current).options(
                 noload(NodeRevision.created_by),  # Prevent User N+1 queries
-                joinedload(NodeRevision.catalog).options(
-                    noload(Catalog.engines),  # Prevent Engine selectin chain
-                ),
+                # NOTE: don't noload Catalog.engines — find_matching_cube is
+                # also called from resolve_dialect_and_engine_for_metrics which
+                # later reads catalog.engines on the same Catalog instance.
+                # noload would poison the session identity map and break
+                # downstream engine resolution.
+                # NOTE: don't noload Column.attributes — Columns are identity-
+                # mapped by id and downstream code reads col.has_primary_key_
+                # attribute(); noload here would poison those reads.
                 selectinload(NodeRevision.cube_elements).options(
-                    noload(Column.attributes),
                     selectinload(Column.node_revision).options(
                         noload(NodeRevision.created_by),  # Prevent User N+1 queries
-                        joinedload(NodeRevision.catalog).options(
-                            noload(Catalog.engines),
-                        ),
                     ),
                 ),
                 joinedload(NodeRevision.availability),
                 selectinload(NodeRevision.materializations),
                 selectinload(NodeRevision.columns).options(
-                    noload(Column.attributes),
-                    selectinload(Column.partition)
-                    .selectinload(
-                        Partition.column,
-                    )
-                    .options(
-                        noload(Column.attributes),
-                    ),
+                    selectinload(Column.partition).selectinload(Partition.column),
                 ),
             ),
         )
