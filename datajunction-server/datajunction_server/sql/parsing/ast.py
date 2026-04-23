@@ -1749,9 +1749,18 @@ class Table(TableExpression, Named):
             if not self.dj_node:
                 db_node = ctx.dependencies_cache.get(table_name)
                 if db_node:
-                    await refresh_if_needed(ctx.session, db_node, ["current"])
-                    await refresh_if_needed(ctx.session, db_node.current, ["columns"])
-                    dj_node = db_node.current
+                    # Cache may contain either Node objects (with .current →
+                    # NodeRevision) or bare NodeRevision objects (stored by
+                    # get_dj_node which returns .current by default).
+                    if not isinstance(db_node, NodeRevision) and hasattr(
+                        db_node,
+                        "current",
+                    ):
+                        await refresh_if_needed(ctx.session, db_node, ["current"])
+                        dj_node = db_node.current
+                    else:
+                        dj_node = db_node
+                    await refresh_if_needed(ctx.session, dj_node, ["columns"])
                 else:
                     # Include METRIC nodes to support derived metrics (metrics that reference
                     # other metrics). This allows metric references in FROM clauses.
