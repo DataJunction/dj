@@ -40,6 +40,7 @@ from datajunction_server.database.metricmetadata import MetricMetadata
 from datajunction_server.database.node import (
     MissingParent,
     Node,
+    NodeMissingParents,
     NodeRelationship,
     NodeRevision,
 )
@@ -663,42 +664,188 @@ async def derive_frozen_measures(node_revision_id: int) -> list[FrozenMeasure]:
 
     For base metrics: extracts aggregation components from the metric query.
     For derived metrics: collects components from referenced base metrics.
+
+    Used by the background-task call sites (``create_a_node_revision``,
+    ``revalidate_node``) where the HTTP response has already returned and
+    the derivation runs asynchronously. Opens its own session and commits
+    on completion. The deployment path uses ``derive_frozen_measures_bulk``
+    instead to batch DB work across all metrics in a single transaction.
     """
     async with session_context() as session:
-        node_revision = cast(
-            NodeRevision,
-            await NodeRevision.get_by_id(
-                session=session,
-                node_revision_id=node_revision_id,
-                options=[
-                    joinedload(NodeRevision.parents).joinedload(Node.current),
-                ],
-            ),
+        result = await _derive_frozen_measures_impl(node_revision_id, session)
+        await session.commit()
+        return result
+
+
+async def _derive_frozen_measures_impl(
+    node_revision_id: int,
+    session: AsyncSession,
+) -> list[FrozenMeasure]:
+    """Core derivation logic. Does not commit — caller is responsible."""
+    node_revision = cast(
+        NodeRevision,
+        await NodeRevision.get_by_id(
+            session=session,
+            node_revision_id=node_revision_id,
+            options=[
+                joinedload(NodeRevision.parents).joinedload(Node.current),
+            ],
+        ),
+    )
+    if not node_revision:
+        return []  # pragma: no cover
+
+    frozen_measures: list[FrozenMeasure] = []
+    if not node_revision.parents:
+        return frozen_measures  # pragma: no cover
+
+    # Extract components using the node revision ID.
+    # The extractor auto-detects base vs derived metrics.
+    extractor = MetricComponentExtractor(node_revision.id)
+    measures, derived_sql = await extractor.extract(session)
+
+    node_revision.derived_expression = str(derived_sql)
+
+    # Use the first direct parent for the frozen measure upstream_revision_id
+    await session.refresh(node_revision.parents[0], ["current"])
+    upstream_revision_id = node_revision.parents[0].current.id
+
+    for measure in measures:
+        frozen_measure = await FrozenMeasure.get_by_name(
+            session=session,
+            name=measure.name,
         )
-        if not node_revision:
-            return []  # pragma: no cover
-
-        frozen_measures: list[FrozenMeasure] = []
-        if not node_revision.parents:
-            return frozen_measures  # pragma: no cover
-
-        # Extract components using the node revision ID
-        # The extractor will automatically detect base vs derived metrics
-        extractor = MetricComponentExtractor(node_revision.id)
-        measures, derived_sql = await extractor.extract(session)
-
-        node_revision.derived_expression = str(derived_sql)
-
-        # Use the first direct parent for the frozen measure upstream_revision_id
-        await session.refresh(node_revision.parents[0], ["current"])
-        upstream_revision_id = node_revision.parents[0].current.id
-
-        for measure in measures:
-            frozen_measure = await FrozenMeasure.get_by_name(
-                session=session,
+        if not frozen_measure and measure.aggregation:
+            frozen_measure = FrozenMeasure(
                 name=measure.name,
+                upstream_revision_id=upstream_revision_id,
+                expression=measure.expression,
+                aggregation=measure.aggregation,
+                rule=measure.rule,
+                used_by_node_revisions=[],
             )
-            if not frozen_measure and measure.aggregation:
+            session.add(frozen_measure)
+        if frozen_measure:
+            frozen_measure.used_by_node_revisions.append(node_revision)
+            frozen_measures.append(frozen_measure)
+    return frozen_measures
+
+
+async def derive_frozen_measures_bulk(
+    session: AsyncSession,
+    node_revision_ids: list[int],
+) -> None:
+    """Batched equivalent of `derive_frozen_measures` for many metric revisions.
+
+    The per-revision entry point issues N × (2 + avg_measures) DB queries for a
+    deployment of N metrics: one `NodeRevision.get_by_id`, one
+    `_load_metric_data`, and one `FrozenMeasure.get_by_name` per measure. This
+    bulk path replaces all of that with:
+
+      * one query to load all target revisions + their parent chain eagerly,
+      * zero-DB `MetricComponentExtractor.extract` calls (via the extractor's
+        `nodes_cache` / `parent_map` / `parsed_query_cache` params), and
+      * one batch `SELECT` against FrozenMeasure.name IN (...).
+
+    Caller owns the transaction and commit; used by the deployment
+    orchestrator inside its SAVEPOINT so derivation is atomic with the rest
+    of the deployment (and rolled back naturally on dry-run).
+    """
+    if not node_revision_ids:
+        return
+
+    # 1. Load target revisions with parents + parent.current + grandparent chain.
+    #    Two selectinload levels cover the common metric-parent chain depths
+    #    (base metrics: depth 0; single-level derived: depth 1). Deeper chains
+    #    are expanded iteratively below.
+    revisions = (
+        (
+            await session.execute(
+                select(NodeRevision)
+                .where(NodeRevision.id.in_(node_revision_ids))
+                .options(
+                    joinedload(NodeRevision.node),
+                    selectinload(NodeRevision.parents)
+                    .joinedload(Node.current)
+                    .options(
+                        selectinload(NodeRevision.parents).joinedload(Node.current),
+                    ),
+                ),
+            )
+        )
+        .unique()
+        .scalars()
+        .all()
+    )
+    if not revisions:  # pragma: no cover
+        return
+
+    # 2. Build the caches MetricComponentExtractor.extract expects. The
+    #    two-level selectinload above is enough for the common depth-2
+    #    metric chain (deployed derived metric → base metric → source);
+    #    deeper chains rely on SQLAlchemy's session identity map to
+    #    populate any already-known intermediates.
+    nodes_cache: dict[str, Node] = {}
+    parent_map: dict[str, list[str]] = {}
+    for rev in revisions:
+        nodes_cache[rev.node.name] = rev.node
+        parent_map[rev.node.name] = [p.name for p in rev.parents]
+        for parent in rev.parents:
+            nodes_cache.setdefault(parent.name, parent)
+            if (
+                parent.current
+                and parent.type == NodeType.METRIC
+                and parent.name not in parent_map
+            ):
+                parent_map[parent.name] = [gp.name for gp in parent.current.parents]
+                for grandparent in parent.current.parents:
+                    nodes_cache.setdefault(grandparent.name, grandparent)
+
+    parsed_query_cache: dict[str, ast.Query] = {}
+
+    # 3. Per-metric extract with caches — zero DB calls in this loop.
+    extraction_results: list[tuple[NodeRevision, list]] = []
+    for rev in revisions:
+        extractor = MetricComponentExtractor(rev.id)
+        measures, derived_sql = await extractor.extract(
+            session,
+            nodes_cache=nodes_cache,
+            parent_map=parent_map,
+            metric_node=rev.node,
+            parsed_query_cache=parsed_query_cache,
+        )
+        rev.derived_expression = str(derived_sql)
+        extraction_results.append((rev, measures))
+
+    # 4. Batch-fetch all existing FrozenMeasures matching any extracted name.
+    all_measure_names = {m.name for _, measures in extraction_results for m in measures}
+    fm_by_name: dict[str, FrozenMeasure] = {}
+    if all_measure_names:
+        existing_fms = (
+            (
+                await session.execute(
+                    select(FrozenMeasure).where(
+                        FrozenMeasure.name.in_(list(all_measure_names)),
+                    ),
+                )
+            )
+            .scalars()
+            .all()
+        )
+        fm_by_name = {fm.name: fm for fm in existing_fms}
+
+    # 5. Link / create in-memory. New FrozenMeasures added to fm_by_name so a
+    #    later metric in the same deployment referencing the same measure
+    #    reuses the freshly-added row instead of creating a duplicate.
+    for rev, measures in extraction_results:
+        if not rev.parents:
+            continue  # pragma: no cover
+        upstream_revision_id = rev.parents[0].current.id
+        for measure in measures:
+            frozen_measure = fm_by_name.get(measure.name)
+            if frozen_measure is None:
+                if not measure.aggregation:
+                    continue
                 frozen_measure = FrozenMeasure(
                     name=measure.name,
                     upstream_revision_id=upstream_revision_id,
@@ -708,11 +855,8 @@ async def derive_frozen_measures(node_revision_id: int) -> list[FrozenMeasure]:
                     used_by_node_revisions=[],
                 )
                 session.add(frozen_measure)
-            if frozen_measure:
-                frozen_measure.used_by_node_revisions.append(node_revision)
-                frozen_measures.append(frozen_measure)
-        await session.commit()
-        return frozen_measures
+                fm_by_name[measure.name] = frozen_measure
+            frozen_measure.used_by_node_revisions.append(rev)
 
 
 async def save_node(
@@ -2759,8 +2903,6 @@ async def delete_orphaned_missing_parents(session: AsyncSession) -> None:
     This should be called after operations that remove node references
     (like hard delete or deactivate) to clean up orphaned MissingParents.
     """
-    from datajunction_server.database.node import NodeMissingParents
-
     orphaned_missing_parents = (
         (
             await session.execute(
