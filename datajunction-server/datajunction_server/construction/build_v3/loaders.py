@@ -276,11 +276,19 @@ async def load_dimension_links_batch(
         .options(
             joinedload(DimensionLink.dimension).options(
                 noload(Node.created_by),  # Prevent User N+1 queries
+                noload(Node.tags),  # Prevent Tag selectin chain
                 joinedload(Node.current).options(
                     noload(NodeRevision.created_by),  # Prevent User N+1 queries
-                    # Load what's needed for table references, parsing, and type lookups
+                    # Load what's needed for table references, parsing, and type lookups.
+                    # NOTE: don't noload Catalog.engines — this function is shared
+                    # across build_measures_sql and build_metrics_sql; the latter is
+                    # used by /data which reads catalog.engines downstream. noload
+                    # would poison the Catalog instance in the session identity map.
                     joinedload(NodeRevision.catalog),
                     joinedload(NodeRevision.availability),
+                    # NOTE: don't noload Column.attributes — Columns are
+                    # identity-mapped and downstream paths read
+                    # col.has_primary_key_attribute().
                     selectinload(NodeRevision.columns).options(
                         load_only(Column.name, Column.type),
                     ),
@@ -376,6 +384,8 @@ async def load_nodes(ctx: BuildContext) -> None:
                 Node.type,
                 Node.current_version,
             ),
+            noload(Node.created_by),  # Prevent User selectin chain on root Node
+            noload(Node.tags),  # Prevent Tag selectin chain on root Node
             joinedload(Node.current).options(
                 noload(NodeRevision.created_by),  # Prevent User N+1 queries
                 load_only(
@@ -384,12 +394,16 @@ async def load_nodes(ctx: BuildContext) -> None:
                     NodeRevision.schema_,
                     NodeRevision.table,
                 ),
+                # NOTE: don't noload Column.attributes — Columns are identity-
+                # mapped and downstream code (get_native_grain) reads
+                # col.has_primary_key_attribute().
                 selectinload(NodeRevision.columns).options(
                     load_only(
                         Column.name,
                         Column.type,
                     ),
                 ),
+                # NOTE: don't noload Catalog.engines — see load_dimension_links_batch.
                 joinedload(NodeRevision.catalog),
                 selectinload(NodeRevision.required_dimensions).options(
                     # Load the node_revision and node to reconstruct full dimension path
@@ -397,6 +411,7 @@ async def load_nodes(ctx: BuildContext) -> None:
                         noload(NodeRevision.created_by),  # Prevent User N+1 queries
                         joinedload(NodeRevision.node).options(
                             noload(Node.created_by),  # Prevent User N+1 queries
+                            noload(Node.tags),  # Prevent Tag selectin chain
                         ),
                     ),
                 ),
@@ -405,6 +420,7 @@ async def load_nodes(ctx: BuildContext) -> None:
                     # Load dimension node for link matching in temporal filters
                     joinedload(DimensionLink.dimension).options(
                         noload(Node.created_by),  # Prevent User N+1 queries
+                        noload(Node.tags),  # Prevent Tag selectin chain
                     ),
                 ),
             ),
@@ -500,6 +516,8 @@ async def load_nodes(ctx: BuildContext) -> None:
                 .where(Node.deactivated_at.is_(None))
                 .options(
                     load_only(Node.name, Node.type, Node.current_version),
+                    noload(Node.created_by),
+                    noload(Node.tags),
                     joinedload(Node.current).options(
                         noload(NodeRevision.created_by),
                         load_only(
@@ -508,9 +526,12 @@ async def load_nodes(ctx: BuildContext) -> None:
                             NodeRevision.schema_,
                             NodeRevision.table,
                         ),
+                        # NOTE: don't noload Column.attributes — Columns are
+                        # identity-mapped and downstream reads primary-key attrs.
                         selectinload(NodeRevision.columns).options(
                             load_only(Column.name, Column.type),
                         ),
+                        # NOTE: don't noload Catalog.engines — see load_dimension_links_batch.
                         joinedload(NodeRevision.catalog),
                         joinedload(NodeRevision.availability),
                     ),

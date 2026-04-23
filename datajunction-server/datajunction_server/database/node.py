@@ -630,14 +630,51 @@ class Node(Base):
         cls,
         session: AsyncSession,
         name: str,
+        for_measures_sql: bool = False,
     ) -> Optional["Node"]:
         """
-        Get a cube by name
+        Get a cube by name.
+
+        Args:
+            session: DB session
+            name: cube node name
+            for_measures_sql: If True, load only what the build_v3 measures/metrics
+                SQL pipeline needs (cube_filters, cube_elements for metric/dimension
+                names, columns with their joined partitions) and suppress selectin
+                cascades for availability, materializations, engines, tags, users,
+                and column attributes. Use this when the cube is fed directly into
+                `build_measures_sql(..., matched_cube=...)`. Default False preserves
+                existing callers' behavior.
         """
-        statement = (
-            select(Node)
-            .where(Node.name == name)
-            .options(
+        options: list[ExecutableOption]
+        if for_measures_sql:
+            # Lean chain for the build_v3 measures-SQL path. Needed:
+            #   - cube_filters (scalar on NodeRevision)
+            #   - cube_elements + their node_revision (for cube_node_metrics /
+            #     cube_node_dimensions which read node_revision.type and .name)
+            #   - self.columns (for extract_temporal_partition_columns;
+            #     partitions ride along via Column.partition lazy="joined")
+            # Skipped vs the default chain: availability, materializations,
+            # backfills, engines selectin — build_measures_sql doesn't use them.
+            #
+            # Deliberately NOT suppressed via noload (all would poison the
+            # session identity map, breaking unrelated callers on shared
+            # instances): Catalog.engines, Column.attributes, NodeRevision.node.
+            options = [
+                noload(Node.created_by),
+                noload(Node.tags),
+                joinedload(Node.current).options(
+                    noload(NodeRevision.created_by),
+                    selectinload(NodeRevision.cube_elements).options(
+                        selectinload(Column.node_revision).options(
+                            noload(NodeRevision.created_by),
+                        ),
+                    ),
+                    selectinload(NodeRevision.columns),
+                ),
+            ]
+        else:
+            options = [
                 joinedload(Node.current).options(
                     selectinload(NodeRevision.availability),
                     selectinload(NodeRevision.columns),
@@ -652,8 +689,9 @@ class Node(Base):
                     ),
                 ),
                 joinedload(Node.tags),
-            )
-        )
+            ]
+
+        statement = select(Node).where(Node.name == name).options(*options)
         result = await session.execute(statement)
         node = result.unique().scalar_one_or_none()
         return node

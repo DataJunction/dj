@@ -250,8 +250,13 @@ async def get_measures_sql_v3(
     See also: `/sql/metrics/v3/` for the final combined query with metric expressions.
     """
     merged_filters = list(filters)
+    cube_node = None
     if cube:
-        cube_node = await Node.get_cube_by_name(session, cube)
+        cube_node = await Node.get_cube_by_name(
+            session,
+            cube,
+            for_measures_sql=True,
+        )
         if cube_node:
             if cube_node.current.cube_filters:
                 merged_filters = cube_node.current.cube_filters + merged_filters
@@ -271,6 +276,7 @@ async def get_measures_sql_v3(
         include_temporal_filters=include_temporal_filters,
         lookback_window=lookback_window,
         query_parameters=json.loads(query_params) or None,
+        matched_cube=cube_node.current if cube_node else None,
     )
 
     # Build a unified component_aliases map from all grain groups
