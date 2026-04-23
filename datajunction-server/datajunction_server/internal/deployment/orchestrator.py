@@ -2350,6 +2350,7 @@ class DeploymentOrchestrator:
             version=new_node.current_version,
             mode=cube_spec.mode,
             cube_filters=cube_spec.rendered_filters or [],
+            custom_metadata=cube_spec.custom_metadata,
             # Initialize to empty so dimension_links can be appended without
             # triggering a lazy load on the in-session revision (MissingGreenlet).
             dimension_links=[],

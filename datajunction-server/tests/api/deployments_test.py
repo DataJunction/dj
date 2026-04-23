@@ -1858,6 +1858,58 @@ class TestDeployments:
         assert cube_result["status"] == "success"
 
     @pytest.mark.asyncio
+    async def test_deploy_cube_with_custom_metadata(
+        self,
+        client,
+        default_hard_hats,
+        default_hard_hat,
+        default_us_states,
+        default_us_state,
+        default_avg_length_of_employment,
+    ):
+        """
+        Cubes deployed with custom_metadata should persist that metadata,
+        and updates should replace it without clobbering on unrelated changes.
+        """
+        namespace = "cube_custom_metadata"
+        cube = CubeSpec(
+            name="default.repairs_cube",
+            display_name="Repairs Cube",
+            description="""Cube for analyzing repair orders""",
+            dimensions=["${prefix}default.hard_hat.state"],
+            metrics=["${prefix}default.avg_length_of_employment"],
+            custom_metadata={"owner_team": "finance", "tier": "1"},
+            owners=["dj"],
+        )
+        nodes_list = [
+            default_hard_hats,
+            default_hard_hat,
+            default_us_states,
+            default_us_state,
+            default_avg_length_of_employment,
+            cube,
+        ]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+
+        fetched = (await client.get(f"/nodes/{namespace}.default.repairs_cube/")).json()
+        assert fetched["custom_metadata"] == {"owner_team": "finance", "tier": "1"}
+
+        # Update custom_metadata and re-deploy — should persist the new value
+        cube.custom_metadata = {"owner_team": "growth", "tier": "2"}
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+
+        fetched = (await client.get(f"/nodes/{namespace}.default.repairs_cube/")).json()
+        assert fetched["custom_metadata"] == {"owner_team": "growth", "tier": "2"}
+
+    @pytest.mark.asyncio
     async def test_deploy_cube_fails_with_unreachable_dimension(
         self,
         client,
