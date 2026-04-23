@@ -646,8 +646,9 @@ class Node(Base):
                 `build_measures_sql(..., matched_cube=...)`. Default False preserves
                 existing callers' behavior.
         """
+        options: list[ExecutableOption]
         if for_measures_sql:
-            options = (
+            options = [
                 # Top-level Node: suppress auto-selectin on created_by/tags
                 noload(Node.created_by),
                 noload(Node.tags),
@@ -675,9 +676,9 @@ class Node(Base):
                         noload(Column.attributes),
                     ),
                 ),
-            )
+            ]
         else:
-            options = (
+            options = [
                 joinedload(Node.current).options(
                     selectinload(NodeRevision.availability),
                     selectinload(NodeRevision.columns),
@@ -692,7 +693,7 @@ class Node(Base):
                     ),
                 ),
                 joinedload(Node.tags),
-            )
+            ]
 
         statement = select(Node).where(Node.name == name).options(*options)
         result = await session.execute(statement)
