@@ -630,14 +630,54 @@ class Node(Base):
         cls,
         session: AsyncSession,
         name: str,
+        for_measures_sql: bool = False,
     ) -> Optional["Node"]:
         """
-        Get a cube by name
+        Get a cube by name.
+
+        Args:
+            session: DB session
+            name: cube node name
+            for_measures_sql: If True, load only what the build_v3 measures/metrics
+                SQL pipeline needs (cube_filters, cube_elements for metric/dimension
+                names, columns with their joined partitions) and suppress selectin
+                cascades for availability, materializations, engines, tags, users,
+                and column attributes. Use this when the cube is fed directly into
+                `build_measures_sql(..., matched_cube=...)`. Default False preserves
+                existing callers' behavior.
         """
-        statement = (
-            select(Node)
-            .where(Node.name == name)
-            .options(
+        if for_measures_sql:
+            options = (
+                # Top-level Node: suppress auto-selectin on created_by/tags
+                noload(Node.created_by),
+                noload(Node.tags),
+                joinedload(Node.current).options(
+                    noload(NodeRevision.created_by),
+                    noload(NodeRevision.node),
+                    # NodeRevision.catalog is lazy="joined" — suppress its engines cascade
+                    joinedload(NodeRevision.catalog).options(
+                        noload(Catalog.engines),
+                    ),
+                    # Cube filters/metrics/dimensions: need cube_elements + their
+                    # node_revision (for metric.name), but skip attribute cascades
+                    selectinload(NodeRevision.cube_elements).options(
+                        noload(Column.attributes),
+                        selectinload(Column.node_revision).options(
+                            noload(NodeRevision.created_by),
+                            joinedload(NodeRevision.catalog).options(
+                                noload(Catalog.engines),
+                            ),
+                        ),
+                    ),
+                    # Columns for extract_temporal_partition_columns.
+                    # Column.partition is lazy="joined" so partitions ride along.
+                    selectinload(NodeRevision.columns).options(
+                        noload(Column.attributes),
+                    ),
+                ),
+            )
+        else:
+            options = (
                 joinedload(Node.current).options(
                     selectinload(NodeRevision.availability),
                     selectinload(NodeRevision.columns),
@@ -653,7 +693,8 @@ class Node(Base):
                 ),
                 joinedload(Node.tags),
             )
-        )
+
+        statement = select(Node).where(Node.name == name).options(*options)
         result = await session.execute(statement)
         node = result.unique().scalar_one_or_none()
         return node

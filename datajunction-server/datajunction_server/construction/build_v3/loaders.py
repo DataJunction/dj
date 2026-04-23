@@ -11,6 +11,7 @@ from sqlalchemy import select, text, bindparam
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload, joinedload, load_only, noload
 
+from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.node import Node, NodeRevision, Column
 from datajunction_server.database.preaggregation import PreAggregation
@@ -276,13 +277,17 @@ async def load_dimension_links_batch(
         .options(
             joinedload(DimensionLink.dimension).options(
                 noload(Node.created_by),  # Prevent User N+1 queries
+                noload(Node.tags),  # Prevent Tag selectin chain
                 joinedload(Node.current).options(
                     noload(NodeRevision.created_by),  # Prevent User N+1 queries
                     # Load what's needed for table references, parsing, and type lookups
-                    joinedload(NodeRevision.catalog),
+                    joinedload(NodeRevision.catalog).options(
+                        noload(Catalog.engines),  # Prevent Engine selectin chain
+                    ),
                     joinedload(NodeRevision.availability),
                     selectinload(NodeRevision.columns).options(
                         load_only(Column.name, Column.type),
+                        noload(Column.attributes),
                     ),
                 ),
             ),
@@ -376,6 +381,8 @@ async def load_nodes(ctx: BuildContext) -> None:
                 Node.type,
                 Node.current_version,
             ),
+            noload(Node.created_by),  # Prevent User selectin chain on root Node
+            noload(Node.tags),  # Prevent Tag selectin chain on root Node
             joinedload(Node.current).options(
                 noload(NodeRevision.created_by),  # Prevent User N+1 queries
                 load_only(
@@ -389,14 +396,19 @@ async def load_nodes(ctx: BuildContext) -> None:
                         Column.name,
                         Column.type,
                     ),
+                    noload(Column.attributes),
                 ),
-                joinedload(NodeRevision.catalog),
+                joinedload(NodeRevision.catalog).options(
+                    noload(Catalog.engines),  # Prevent Engine selectin chain
+                ),
                 selectinload(NodeRevision.required_dimensions).options(
+                    noload(Column.attributes),
                     # Load the node_revision and node to reconstruct full dimension path
                     joinedload(Column.node_revision).options(
                         noload(NodeRevision.created_by),  # Prevent User N+1 queries
                         joinedload(NodeRevision.node).options(
                             noload(Node.created_by),  # Prevent User N+1 queries
+                            noload(Node.tags),  # Prevent Tag selectin chain
                         ),
                     ),
                 ),
@@ -405,6 +417,7 @@ async def load_nodes(ctx: BuildContext) -> None:
                     # Load dimension node for link matching in temporal filters
                     joinedload(DimensionLink.dimension).options(
                         noload(Node.created_by),  # Prevent User N+1 queries
+                        noload(Node.tags),  # Prevent Tag selectin chain
                     ),
                 ),
             ),
@@ -500,6 +513,8 @@ async def load_nodes(ctx: BuildContext) -> None:
                 .where(Node.deactivated_at.is_(None))
                 .options(
                     load_only(Node.name, Node.type, Node.current_version),
+                    noload(Node.created_by),
+                    noload(Node.tags),
                     joinedload(Node.current).options(
                         noload(NodeRevision.created_by),
                         load_only(
@@ -510,8 +525,11 @@ async def load_nodes(ctx: BuildContext) -> None:
                         ),
                         selectinload(NodeRevision.columns).options(
                             load_only(Column.name, Column.type),
+                            noload(Column.attributes),
                         ),
-                        joinedload(NodeRevision.catalog),
+                        joinedload(NodeRevision.catalog).options(
+                            noload(Catalog.engines),
+                        ),
                         joinedload(NodeRevision.availability),
                     ),
                 )

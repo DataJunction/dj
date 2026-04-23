@@ -90,19 +90,32 @@ async def find_matching_cube(
         )
         .options(
             noload(Node.created_by),  # Prevent User N+1 queries
+            noload(Node.tags),  # Prevent Tag selectin chain
             joinedload(Node.current).options(
                 noload(NodeRevision.created_by),  # Prevent User N+1 queries
+                joinedload(NodeRevision.catalog).options(
+                    noload(Catalog.engines),  # Prevent Engine selectin chain
+                ),
                 selectinload(NodeRevision.cube_elements).options(
+                    noload(Column.attributes),
                     selectinload(Column.node_revision).options(
                         noload(NodeRevision.created_by),  # Prevent User N+1 queries
+                        joinedload(NodeRevision.catalog).options(
+                            noload(Catalog.engines),
+                        ),
                     ),
                 ),
                 joinedload(NodeRevision.availability),
                 selectinload(NodeRevision.materializations),
-                selectinload(NodeRevision.columns)
-                .selectinload(Column.partition)
-                .selectinload(
-                    Partition.column,
+                selectinload(NodeRevision.columns).options(
+                    noload(Column.attributes),
+                    selectinload(Column.partition)
+                    .selectinload(
+                        Partition.column,
+                    )
+                    .options(
+                        noload(Column.attributes),
+                    ),
                 ),
             ),
         )

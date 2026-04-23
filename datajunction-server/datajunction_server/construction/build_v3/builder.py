@@ -102,27 +102,34 @@ async def extract_temporal_partition_columns(
     session: AsyncSession,
     metrics: list[str],
     dimensions: list[str],
+    matched_cube: Optional["NodeRevision"] = None,
 ) -> dict[str, Partition] | None:
     """
     Extract temporal partition columns from a matching cube.
 
-    Finds a cube that matches the given metrics and dimensions, and extracts
-    any columns marked as temporal partitions along with their partition metadata.
+    Finds a cube that matches the given metrics and dimensions (or uses a
+    pre-resolved `matched_cube` if provided, avoiding a second DB round-trip),
+    and extracts any columns marked as temporal partitions along with their
+    partition metadata.
 
     Args:
         session: Database session
         metrics: List of metric node names
         dimensions: List of dimension names
+        matched_cube: Optional pre-resolved cube revision. When supplied (e.g.
+            from an explicit `cube=` URL parameter), skips find_matching_cube.
 
     Returns:
         Dict mapping column names to partition objects, or None if no cube found or no temporal partitions
     """
-    matching_cube = await find_matching_cube(
-        session,
-        metrics,
-        dimensions,
-        require_availability=False,
-    )
+    matching_cube = matched_cube
+    if matching_cube is None:
+        matching_cube = await find_matching_cube(
+            session,
+            metrics,
+            dimensions,
+            require_availability=False,
+        )
 
     if not matching_cube:
         return None
@@ -213,6 +220,7 @@ async def setup_build_context(
     use_materialized: bool = True,
     include_temporal_filters: bool = False,
     lookback_window: str | None = None,
+    matched_cube: Optional["NodeRevision"] = None,
 ) -> BuildContext:
     """
     Create and initialize a BuildContext with all setup done.
@@ -244,6 +252,7 @@ async def setup_build_context(
             session,
             metrics,
             dimensions,
+            matched_cube=matched_cube,
         )
 
     ctx = BuildContext(
@@ -316,6 +325,7 @@ async def build_measures_sql(
     include_temporal_filters: bool = False,
     lookback_window: str | None = None,
     query_parameters: dict[str, Any] | None = None,
+    matched_cube: Optional["NodeRevision"] = None,
 ) -> GeneratedMeasuresSQL:
     """
     Build measures SQL for a set of metrics, dimensions, and filters.
@@ -355,6 +365,7 @@ async def build_measures_sql(
         use_materialized=use_materialized,
         include_temporal_filters=include_temporal_filters,
         lookback_window=lookback_window,
+        matched_cube=matched_cube,
     )
 
     # Build grain groups from context
