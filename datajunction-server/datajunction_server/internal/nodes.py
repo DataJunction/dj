@@ -2063,9 +2063,13 @@ async def create_new_revision_from_existing(
             new_revision.catalog_id = catalogs[0]
         else:
             default_catalog = await Catalog.get_default_catalog(session)
-            if default_catalog:
-                new_revision.catalog_id = default_catalog.id
-                new_revision.catalog = default_catalog
+            fallback_catalog = (
+                default_catalog
+                if default_catalog
+                else await Catalog.get_virtual_catalog(session)
+            )
+            new_revision.catalog_id = fallback_catalog.id
+            new_revision.catalog = fallback_catalog
         new_revision.columns = node_validator.columns or []
         if new_revision.type == NodeType.METRIC and new_revision.columns:
             new_revision.columns[0].display_name = new_revision.display_name

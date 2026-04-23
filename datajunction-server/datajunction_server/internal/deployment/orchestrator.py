@@ -884,6 +884,14 @@ class DeploymentOrchestrator:
             for node_spec in self.deployment_spec.nodes
             if node_spec.node_type == NodeType.SOURCE and node_spec.catalog
         }
+
+        # Also validate that configured default catalogs exist
+        if self.deployment_spec.default_catalog:
+            spec_catalog_names.add(self.deployment_spec.default_catalog)
+        settings = get_settings()
+        if settings.seed_setup.default_catalog_name:
+            spec_catalog_names.add(settings.seed_setup.default_catalog_name)
+
         missing_catalogs = spec_catalog_names - all_catalogs_map.keys()
         if missing_catalogs:
             self.errors.append(
