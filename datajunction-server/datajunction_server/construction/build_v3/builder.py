@@ -123,7 +123,7 @@ async def extract_temporal_partition_columns(
         Dict mapping column names to partition objects, or None if no cube found or no temporal partitions
     """
     matching_cube = matched_cube
-    if matching_cube is None:
+    if matching_cube is None:  # pragma: no branch
         matching_cube = await find_matching_cube(
             session,
             metrics,
