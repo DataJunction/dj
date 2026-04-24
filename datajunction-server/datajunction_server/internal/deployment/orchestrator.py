@@ -54,6 +54,7 @@ from datajunction_server.internal.deployment.validation import (
 from datajunction_server.internal.history import EntityType
 from datajunction_server.sql.dag import get_metric_parents_map
 from datajunction_server.internal.nodes import (
+    derive_frozen_measures_bulk,
     hard_delete_node,
 )
 from datajunction_server.models.base import labelize
@@ -1189,6 +1190,14 @@ class DeploymentOrchestrator:
                     self.deployed_results.extend(deployed_cubes)
                     await self._update_deployment_status()
 
+                    # Derive frozen measures for deployed metrics inline (not
+                    # background) so derived_expression and FrozenMeasure rows
+                    # are atomic with the rest of the deployment: committed or
+                    # rolled back together, and dry-run exercises derivation.
+                    with timer.phase("derive measures") as p:
+                        derived = await self._derive_measures_for_deployed_metrics()
+                        p.append(f"{derived} metrics")
+
                 # Run impact propagation before deletions so deleted nodes'
                 # children are still reachable via NodeRelationship.
                 changed_names = {
@@ -1231,6 +1240,58 @@ class DeploymentOrchestrator:
         else:
             await self.session.commit()
         return downstream
+
+    async def _derive_measures_for_deployed_metrics(self) -> int:
+        """Run ``derive_frozen_measures`` inline for every metric that was
+        created or updated in this deployment.
+
+        Single-node create/update schedules this as a FastAPI background task;
+        bulk deployment has no such background-task machinery available for
+        a durable post-commit gap (timeouts, restarts, disconnected clients
+        drop the task). Running inline inside the orchestrator's SAVEPOINT
+        makes derivation atomic with the rest of the deployment:
+
+          * wet-run: committed with the deployment
+          * dry-run: rolled back along with the SAVEPOINT
+
+        Order matters: a derived metric's extractor reads its base metrics'
+        already-derived measures. ``self.deployed_results`` is appended in the
+        order ``_deploy_nodes`` processes topological levels, so iterating
+        it in append order produces correct base-before-derived ordering
+        within a single deployment.
+        """
+        metric_spec_names = {
+            spec.rendered_name
+            for spec in self.deployment_spec.nodes
+            if spec.node_type == NodeType.METRIC
+        }
+        touched_metric_names = [
+            r.name
+            for r in self.deployed_results
+            if r.deploy_type == DeploymentResult.Type.NODE
+            and r.name in metric_spec_names
+            and r.status != DeploymentResult.Status.SKIPPED
+            and r.operation
+            in (
+                DeploymentResult.Operation.CREATE,
+                DeploymentResult.Operation.UPDATE,
+            )
+        ]
+        if not touched_metric_names:
+            return 0
+
+        nodes = await Node.get_by_names(
+            self.session,
+            touched_metric_names,
+            options=[joinedload(Node.current)],
+        )
+        # Iterate in the deployed order (base metrics before derived metrics)
+        # so a derived metric's extractor sees its upstream base metrics'
+        # already-derived measures in-session.
+        name_to_node = {n.name: n for n in nodes}
+        revision_ids = [name_to_node[name].current.id for name in touched_metric_names]
+        await derive_frozen_measures_bulk(self.session, revision_ids)
+        return len(touched_metric_names)
 
     async def _deploy_nodes(
         self,

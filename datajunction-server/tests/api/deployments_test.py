@@ -1778,6 +1778,65 @@ class TestDeployments:
         }
 
     @pytest.mark.asyncio
+    async def test_deploy_populates_derived_expression_and_measures(
+        self,
+        session,
+        client,
+        default_hard_hats,
+        default_hard_hat,
+        default_us_states,
+        default_us_state,
+        default_avg_length_of_employment,
+    ):
+        """
+        Deploying a metric must populate NodeRevision.derived_expression and
+        the associated FrozenMeasure rows inline (not via background task) so
+        the deployment result is atomically consistent: when the deployment
+        reports success, measure derivation has already happened.
+
+        Regression test for the pre-cutover gap where single-node create used
+        a FastAPI BackgroundTask but bulk deployment had no equivalent path,
+        leaving metrics with derived_expression = NULL after deployment.
+        """
+        from sqlalchemy.orm import joinedload, selectinload
+        from datajunction_server.database.node import Node, NodeRevision
+
+        namespace = "derive_measures"
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[
+                    default_hard_hats,
+                    default_hard_hat,
+                    default_us_states,
+                    default_us_state,
+                    default_avg_length_of_employment,
+                ],
+            ),
+        )
+        assert data["status"] == "success"
+
+        metric = await Node.get_by_name(
+            session,
+            f"{namespace}.default.avg_length_of_employment",
+            options=[
+                joinedload(Node.current).options(
+                    selectinload(NodeRevision.frozen_measures),
+                ),
+            ],
+        )
+        assert metric is not None
+        assert metric.current is not None
+        assert metric.current.derived_expression is not None, (
+            "derived_expression should be populated inline by the orchestrator — "
+            "a NULL value means the bulk-deployment path is skipping derivation."
+        )
+        assert len(metric.current.frozen_measures) > 0, (
+            "at least one FrozenMeasure row should be linked after deployment"
+        )
+
+    @pytest.mark.asyncio
     async def test_deploy_cube_with_update(
         self,
         client,
