@@ -4812,18 +4812,34 @@ def infer_type(
 
 class Range(TableFunction):
     """
-    range(start[, end[, step[, numSlices]]]) / range(end)
-    Returns a table with a single BIGINT column `id` containing values
-    within the specified range.
+    Spark SQL's `range` table-generating function.
+
+    Forms:
+        range(end)
+        range(start, end)
+        range(start, end, step)
+        range(start, end, step, numSlices)
+
+    Returns a single-column table with BIGINT column `id` containing
+    values in the specified range.
     """
 
     dialects = [Dialect.SPARK]
 
 
+def _range_schema() -> List[ct.NestedField]:
+    """Build the single-column schema every Range arity returns. Inline
+    import of ast.Name avoids the module-level circular dep between
+    sql.functions and sql.parsing.ast."""
+    from datajunction_server.sql.parsing import ast
+
+    return [ct.NestedField(name=ast.Name("id"), field_type=ct.BigIntType())]
+
+
 @Range.register
 def infer_type(end: ct.IntegerBase) -> List[ct.NestedField]:
-    """range(end) - generates 0 to end-1"""
-    return [ct.NestedField(name="id", field_type=ct.BigIntType())]
+    """range(end) — generates 0 to end-1."""
+    return _range_schema()
 
 
 @Range.register
@@ -4831,8 +4847,8 @@ def infer_type(  # type: ignore
     start: ct.IntegerBase,
     end: ct.IntegerBase,
 ) -> List[ct.NestedField]:
-    """range(start, end)"""
-    return [ct.NestedField(name="id", field_type=ct.BigIntType())]
+    """range(start, end)."""
+    return _range_schema()
 
 
 @Range.register
@@ -4841,11 +4857,8 @@ def infer_type(  # type: ignore
     end: ct.IntegerBase,
     step: ct.IntegerBase,
 ) -> List[ct.NestedField]:
-    """range(start, end, step)"""
-    print(f"DEBUG: Range.infer_type called with start={start}, end={end}, step={step}")
-    result = [ct.NestedField(name="id", field_type=ct.BigIntType())]
-    print(f"DEBUG: Returning {result}")
-    return result
+    """range(start, end, step)."""
+    return _range_schema()
 
 
 @Range.register
@@ -4855,8 +4868,8 @@ def infer_type(  # type: ignore
     step: ct.IntegerBase,
     num_slices: ct.IntegerBase,
 ) -> List[ct.NestedField]:
-    """range(start, end, step, numSlices)"""
-    return [ct.NestedField(name="id", field_type=ct.BigIntType())]
+    """range(start, end, step, numSlices)."""
+    return _range_schema()
 
 
 class FunctionRegistryDict(dict):
