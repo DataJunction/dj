@@ -393,8 +393,8 @@ class NodeRevision:
 
         Uses the request-scoped extracted_measures_loader so that a GraphQL
         query returning N metrics batches all extractions into a single
-        session + shared parsed_query_cache (instead of opening N independent
-        sessions via resolver_session).
+        session + shared nodes_cache/parent_map (instead of opening N
+        independent sessions via resolver_session).
         """
         if root.type != NodeType.METRIC:
             return None

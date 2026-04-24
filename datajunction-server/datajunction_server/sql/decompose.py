@@ -2,7 +2,6 @@
 
 import hashlib
 from abc import ABC, abstractmethod
-from copy import deepcopy
 from dataclasses import dataclass
 from typing import cast
 
@@ -696,7 +695,6 @@ class MetricComponentExtractor:
         nodes_cache: dict[str, "Node"] | None = None,
         parent_map: dict[str, list[str]] | None = None,
         metric_node: "Node | None" = None,
-        parsed_query_cache: dict[str, ast.Query] | None = None,
         _visited: set[str] | None = None,
     ) -> tuple[list[MetricComponent], ast.Query]:
         """
@@ -714,8 +712,6 @@ class MetricComponentExtractor:
                 Required if nodes_cache is provided.
             metric_node: Optional metric Node object.
                 Required if nodes_cache is provided.
-            parsed_query_cache: Optional dict of query_string -> parsed AST.
-                Used to avoid re-parsing the same query multiple times.
         """
         # Use cache if available, otherwise query DB
         if (
@@ -731,18 +727,7 @@ class MetricComponentExtractor:
         else:
             metric_data = await self._load_metric_data(session)
 
-        # Helper to parse with cache
-        def cached_parse(query: str) -> ast.Query:
-            if parsed_query_cache is not None:
-                if query not in parsed_query_cache:  # pragma: no cover
-                    parsed_query_cache[query] = parse(query)
-
-                # Return a deep copy to avoid AST mutation issues
-                return deepcopy(parsed_query_cache[query])  # pragma: no cover
-            return parse(query)
-
-        # Parse queries (pure computation, no DB)
-        query_ast = cached_parse(metric_data.query)
+        query_ast = parse(metric_data.query)
 
         # Initialize visited set for cycle detection
         if _visited is None:
@@ -820,12 +805,11 @@ class MetricComponentExtractor:
                     nodes_cache=nodes_cache,
                     parent_map=parent_map,
                     metric_node=parent_node,
-                    parsed_query_cache=parsed_query_cache,
                     _visited=_visited,
                 )
             else:
                 # True base metric - decompose aggregations
-                base_ast = cached_parse(base_metric.query)
+                base_ast = parse(base_metric.query)
                 base_components, derived_ast = self._extract_base(base_ast)
 
             for comp in base_components:

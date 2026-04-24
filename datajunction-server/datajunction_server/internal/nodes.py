@@ -750,7 +750,7 @@ async def derive_frozen_measures_bulk(
 
       * one query to load all target revisions + their parent chain eagerly,
       * zero-DB `MetricComponentExtractor.extract` calls (via the extractor's
-        `nodes_cache` / `parent_map` / `parsed_query_cache` params), and
+        `nodes_cache` / `parent_map` params), and
       * one batch `SELECT` against FrozenMeasure.name IN (...).
 
     Caller owns the transaction and commit; used by the deployment
@@ -807,8 +807,6 @@ async def derive_frozen_measures_bulk(
                 for grandparent in parent.current.parents:
                     nodes_cache.setdefault(grandparent.name, grandparent)
 
-    parsed_query_cache: dict[str, ast.Query] = {}
-
     # 3. Per-metric extract with caches — zero DB calls in this loop.
     extraction_results: list[tuple[NodeRevision, list]] = []
     for rev in revisions:
@@ -818,7 +816,6 @@ async def derive_frozen_measures_bulk(
             nodes_cache=nodes_cache,
             parent_map=parent_map,
             metric_node=rev.node,
-            parsed_query_cache=parsed_query_cache,
         )
         rev.derived_expression = str(derived_sql)
         extraction_results.append((rev, measures))
