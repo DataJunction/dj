@@ -209,6 +209,51 @@ async def test_deep_derived_chain_resolves(
 
 
 @pytest.mark.asyncio
+async def test_distinct_aggregation_component_is_skipped(
+    session: AsyncSession,
+    user: User,
+):
+    """``MetricComponentExtractor`` emits ``aggregation=None`` for DISTINCT
+    aggregations because they can't be pre-aggregated (see
+    ``sql/decompose.py``). The link/create loop must not create a
+    FrozenMeasure row in that case — it should ``continue`` past the
+    component. This test deploys a ``COUNT(DISTINCT ...)`` metric and
+    confirms derivation completes without crashing and without creating
+    rogue rows for the distinct component."""
+    src = await _make_source(
+        session,
+        user,
+        "src_distinct",
+        [Column(name="user_id", type=ct.IntegerType(), order=0)],
+    )
+    metric = await _make_metric(
+        session,
+        user,
+        "m.unique_users",
+        "SELECT COUNT(DISTINCT user_id) FROM src_distinct",
+        [src],
+    )
+    await session.refresh(metric, ["current"])
+    before_ids = {
+        fm.id for fm in (await session.execute(select(FrozenMeasure))).scalars().all()
+    }
+
+    await derive_frozen_measures_bulk(session, [metric.current.id])
+    await session.commit()
+
+    after = (await session.execute(select(FrozenMeasure))).scalars().all()
+    new_fms = [fm for fm in after if fm.id not in before_ids]
+    # Every new FrozenMeasure row must have an aggregation set — the
+    # DISTINCT component should have hit the `continue` path.
+    assert all(fm.aggregation for fm in new_fms), (
+        f"non-aggregation FrozenMeasure leaked through: "
+        f"{[(fm.name, fm.aggregation) for fm in new_fms if not fm.aggregation]}"
+    )
+    # Derivation still completed for the metric itself.
+    assert metric.current.derived_expression is not None
+
+
+@pytest.mark.asyncio
 async def test_two_metrics_in_one_batch_both_get_measures(
     session: AsyncSession,
     user: User,
