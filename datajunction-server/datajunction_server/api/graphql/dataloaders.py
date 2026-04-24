@@ -370,7 +370,7 @@ def create_extracted_measures_loader(
     returning N metrics, Strawberry batches all per-node loader.load(nr_id)
     calls within a single event-loop tick into one
     batch_load_extracted_measures(ids) — collapsing N sessions + N extractions
-    into 1 session + N extractions sharing parsed_query_cache.
+    into 1 session + N extractions sharing nodes_cache and parent_map.
     """
     return DataLoader(
         load_fn=lambda keys: batch_load_extracted_measures(keys, request),
