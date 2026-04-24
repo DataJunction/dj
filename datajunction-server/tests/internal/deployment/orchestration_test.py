@@ -3,6 +3,7 @@ Unit tests for DeploymentOrchestrator
 """
 
 import pytest
+from sqlalchemy import select
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
 from datajunction_server.internal.deployment.orchestrator import (
@@ -2039,14 +2040,14 @@ class TestGenerateChangelog:
 
 
 @pytest.mark.asyncio
-async def test_execute_deployment_plan_wet_run_commits(
+async def test_execute_deployment_plan_runs_inside_caller_savepoint(
     session,
     current_user: User,
 ):
-    """When dry_run=False and the plan is empty (nothing to deploy/delete),
-    _execute_deployment_plan exits the SAVEPOINT cleanly and commits the
-    outer transaction (line 1201 — the wet-run commit path).
-    """
+    """``_execute_deployment_plan`` no longer owns the SAVEPOINT — it runs
+    inside the caller's (``execute``'s) SAVEPOINT. This test ensures the
+    method does not raise or commit on its own when invoked directly with
+    an empty plan, i.e. it's still safe to call without wrapping."""
     context = MagicMock(autospec=DeploymentContext)
     context.current_user = current_user
     context.save_history = AsyncMock()
@@ -2056,7 +2057,7 @@ async def test_execute_deployment_plan_wet_run_commits(
         deployment_id="wet-run-test",
         session=session,
         context=context,
-        dry_run=False,  # Wet-run mode — line 1193 branch is False
+        dry_run=False,
     )
 
     plan = DeploymentPlan(
@@ -2068,9 +2069,9 @@ async def test_execute_deployment_plan_wet_run_commits(
         external_deps=set(),
     )
 
-    # Should succeed without raising — the SAVEPOINT is committed and then
-    # session.commit() at line 1201 runs (wet-run path).
-    await orchestrator._execute_deployment_plan(plan)
+    # Should return a downstream list without raising.
+    downstream = await orchestrator._execute_deployment_plan(plan)
+    assert downstream == []
 
 
 @pytest.mark.asyncio
@@ -2095,46 +2096,40 @@ async def test_update_deployment_status_dry_run_noop(
 
 
 @pytest.mark.asyncio
-async def test_execute_deployment_plan_dry_run_savepoint_rollback(
+async def test_dry_run_rolls_back_setup_phase_writes(
     session,
     current_user: User,
     mock_deployment_context,
 ):
-    """When dry_run=True, _execute_deployment_plan raises _DryRunRollback inside
-    the SAVEPOINT, which rolls it back.
-
-    Covers orchestrator.py lines 967-970: except _DryRunRollback: pass
+    """Regression: ``execute`` must wrap ``_setup_deployment_resources`` in the
+    dry-run SAVEPOINT so setup-phase INSERTs (namespaces, tags, owners,
+    catalogs, attributes) roll back. Without this, a dry-run on a never-seen
+    namespace would persist a ``NodeNamespace`` row even though the rest of
+    the deployment rolled back — which is how ``.dryrun``-style orphaned
+    namespaces were leaking into the DB.
     """
+    from datajunction_server.database.namespace import NodeNamespace
+
+    namespace_name = "dryrun_savepoint_leak_test"
     orchestrator = DeploymentOrchestrator(
-        deployment_spec=DeploymentSpec(namespace="test", nodes=[]),
+        deployment_spec=DeploymentSpec(namespace=namespace_name, nodes=[]),
         deployment_id="dry-run-rollback-test",
         session=session,
         context=mock_deployment_context,
         dry_run=True,
     )
-    plan = DeploymentPlan(
-        to_deploy=[],
-        to_skip=[],
-        to_delete=[],
-        existing_specs={},
-        node_graph={},
-        external_deps=set(),
-    )
-    # Patch _deploy_nodes / _deploy_links / _deploy_cubes to avoid real DB work
-    with (
-        patch.object(
-            orchestrator,
-            "_deploy_nodes",
-            new=AsyncMock(return_value=([], [])),
-        ),
-        patch.object(orchestrator, "_deploy_links", new=AsyncMock(return_value=[])),
-        patch.object(orchestrator, "_deploy_cubes", new=AsyncMock(return_value=[])),
-        patch.object(orchestrator, "_delete_nodes", new=AsyncMock(return_value=[])),
-    ):
-        downstream = await orchestrator._execute_deployment_plan(plan)
+    await orchestrator.execute()
 
-    # Dry-run should roll back the SAVEPOINT and return empty downstream
-    assert downstream == []
+    # Namespace must NOT be persisted — the dry-run SAVEPOINT rolled it back.
+    existing = (
+        await session.execute(
+            select(NodeNamespace).where(NodeNamespace.namespace == namespace_name),
+        )
+    ).scalar_one_or_none()
+    assert existing is None, (
+        f"dry-run left NodeNamespace({namespace_name!r}) persisted — "
+        "setup-phase writes escaped the SAVEPOINT"
+    )
 
 
 class TestClassifyParents:
