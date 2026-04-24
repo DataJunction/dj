@@ -421,16 +421,19 @@ def load_node_revision_options(node_revision_fields):
 
     # Handle columns
     if "columns" in node_revision_fields or "primary_key" in node_revision_fields:
-        # Full columns with all relationships needed for columns/primary_key queries
-        options.append(
-            selectinload(DBNodeRevision.columns).options(
-                joinedload(Column.attributes).joinedload(
+        columns_sub = node_revision_fields.get("columns")
+        requested_col_sub: dict = columns_sub if isinstance(columns_sub, dict) else {}
+        needs_attributes = (
+            "attributes" in requested_col_sub or "primary_key" in node_revision_fields
+        )
+        col_opts: list = []
+        if needs_attributes:
+            col_opts.append(
+                selectinload(Column.attributes).selectinload(
                     ColumnAttribute.attribute_type,
                 ),
-                joinedload(Column.dimension),
-                joinedload(Column.partition),
-            ),
-        )
+            )
+        options.append(selectinload(DBNodeRevision.columns).options(*col_opts))
     elif is_cube_request and not all_name_only:
         # Minimal ORM columns for cube element resolution
         options.append(

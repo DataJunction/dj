@@ -3,22 +3,34 @@ DataLoaders for batching and caching GraphQL queries.
 """
 
 import json
-from typing import Any, Optional
+import logging
+from typing import Any, Optional, Tuple
 
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload, load_only, noload, selectinload
 from strawberry.dataloader import DataLoader
 from starlette.requests import Request
 
 from datajunction_server.api.graphql.resolvers.nodes import load_node_options
+from datajunction_server.construction.build_v3.loaders import find_upstream_node_names
 from datajunction_server.database.collection import Collection as DBCollection
 from datajunction_server.database.namespace import NodeNamespace
-from datajunction_server.database.node import Node as DBNode
+from datajunction_server.database.node import (
+    Node as DBNode,
+    NodeRevision as DBNodeRevision,
+)
 from datajunction_server.internal.namespaces import (
     get_parent_namespaces,
     resolve_git_info_from_map,
 )
+from datajunction_server.sql.decompose import (
+    MetricComponent,
+    MetricComponentExtractor,
+)
+from datajunction_server.sql.parsing import ast
 from datajunction_server.utils import session_context
+
+logger = logging.getLogger(__name__)
 
 
 async def batch_load_nodes(
@@ -235,4 +247,131 @@ def create_git_info_loader(
     """
     return DataLoader(
         load_fn=lambda keys: batch_load_git_info(keys, request),
+    )
+
+
+async def batch_load_extracted_measures(
+    node_revision_ids: list[int],
+    request: Request,
+) -> list[Optional[Tuple[list[MetricComponent], "ast.Query"]]]:
+    """
+    Batch-extract metric components for multiple metric node revisions.
+
+    Opens ONE reader session and pre-populates the caches that
+    MetricComponentExtractor.extract() accepts:
+
+    - ``nodes_cache``: name -> Node (with current.query loaded), covering
+      every metric in the batch plus their full upstream metric chain.
+      This replaces the per-metric ``_load_metric_data`` that runs 2 DB
+      queries per call.
+    - ``parent_map``: child_name -> [parent_names], built from one recursive
+      CTE. Replaces the per-base-metric "is this parent derived?" check
+      inside the extractor's recursion.
+
+    With both caches populated, ``extract()`` takes the cached path at
+    ``_build_metric_data_from_cache`` and fires zero DB queries (even for
+    derived metrics that recurse into parents). Nets hundreds to thousands
+    of queries down to three per request:
+
+      1. map nr_id -> node name
+      2. upstream CTE (all ancestor metric names)
+      3. bulk-load Node objects for the upstream set
+    """
+    async with session_context(
+        request,
+        session_label="graphql extracted_measures batch",
+    ) as session:
+        # 1) nr_id -> name, so we can kick off the upstream walk and later
+        # look up each batch entry's metric_node.
+        nr_stmt = (
+            select(DBNodeRevision.id, DBNode.name)
+            .join(DBNode, DBNodeRevision.node_id == DBNode.id)
+            .where(DBNodeRevision.id.in_(node_revision_ids))
+        )
+        nr_rows = (await session.execute(nr_stmt)).all()
+        nr_to_name: dict[int, str] = {row.id: row.name for row in nr_rows}
+
+        # 2) Walk the upstream graph once; pulls every ancestor that's a
+        # parent of any batch metric, and produces parent_map as a side effect.
+        all_names, parent_map = await find_upstream_node_names(
+            session,
+            list(nr_to_name.values()),
+        )
+
+        # 3) Bulk-load Node objects for the full ancestor set. We only need
+        # name, type, and current.query — everything else is noloaded so this
+        # is a narrow query. noload(Node.created_by/Node.tags) are safe because
+        # MetricComponentExtractor never reads them.
+        nodes_cache: dict[str, DBNode] = {}
+        if all_names:
+            node_stmt = (
+                select(DBNode)
+                .where(DBNode.name.in_(all_names))
+                .options(
+                    load_only(
+                        DBNode.name,
+                        DBNode.type,
+                        DBNode.current_version,
+                    ),
+                    noload(DBNode.created_by),
+                    noload(DBNode.tags),
+                    joinedload(DBNode.current).options(
+                        noload(DBNodeRevision.created_by),
+                        load_only(
+                            DBNodeRevision.id,
+                            DBNodeRevision.name,
+                            DBNodeRevision.query,
+                        ),
+                    ),
+                )
+            )
+            nodes_cache = {
+                n.name: n
+                for n in (await session.execute(node_stmt)).unique().scalars().all()
+            }
+
+        # 4) Per nr_id: invoke extract() with the cache trio so the extractor
+        # takes the zero-DB-query path through _build_metric_data_from_cache,
+        # including its recursion.
+        results: list[Optional[Tuple[list[MetricComponent], "ast.Query"]]] = []
+        for nr_id in node_revision_ids:
+            name = nr_to_name.get(nr_id)
+            metric_node = nodes_cache.get(name) if name else None
+            if metric_node is None or metric_node.current is None:
+                results.append(None)
+                continue
+            try:
+                extractor = MetricComponentExtractor(nr_id)
+                components, derived_ast = await extractor.extract(
+                    session,
+                    nodes_cache=nodes_cache,
+                    parent_map=parent_map,
+                    metric_node=metric_node,
+                )
+                results.append((components, derived_ast))
+            except Exception as exc:  # pragma: no cover
+                logger.warning(
+                    "extracted_measures extraction failed for nr_id=%s: %s",
+                    nr_id,
+                    exc,
+                )
+                results.append(None)
+        return results
+
+
+def create_extracted_measures_loader(
+    request: Request,
+) -> DataLoader[int, Optional[Tuple[list[MetricComponent], "ast.Query"]]]:
+    """
+    Create a DataLoader that batches MetricComponentExtractor.extract() calls
+    across a GraphQL request. Keys are NodeRevision ids.
+
+    For a query like `findNodes(nodeTypes: [METRIC]) { current { extractedMeasures {...} } }`
+    returning N metrics, Strawberry batches all per-node loader.load(nr_id)
+    calls within a single event-loop tick into one
+    batch_load_extracted_measures(ids) — collapsing N sessions + N extractions
+    into 1 session + N extractions sharing parsed_query_cache.
+    """
+    return DataLoader(
+        load_fn=lambda keys: batch_load_extracted_measures(keys, request),
     )

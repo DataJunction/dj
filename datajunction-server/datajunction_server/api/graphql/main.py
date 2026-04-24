@@ -15,6 +15,7 @@ from datajunction_server.internal.caching.cachelib_cache import get_cache
 from datajunction_server.internal.access.authentication.http import DJHTTPBearer
 from datajunction_server.api.graphql.dataloaders import (
     create_collection_nodes_loader,
+    create_extracted_measures_loader,
     create_git_info_loader,
     create_node_by_name_loader,
 )
@@ -126,6 +127,7 @@ async def get_context(
         "node_loader": create_node_by_name_loader(request),
         "collection_nodes_loader": create_collection_nodes_loader(request),
         "git_info_loader": create_git_info_loader(request),
+        "extracted_measures_loader": create_extracted_measures_loader(request),
         "settings": get_settings(),
         "request": request,
         "background_tasks": background_tasks,

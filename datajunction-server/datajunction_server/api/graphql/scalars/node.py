@@ -10,6 +10,7 @@ from strawberry.types import Info
 from sqlalchemy.orm.attributes import InstrumentedAttribute, set_committed_value
 
 from datajunction_server.api.graphql.scalars import BigInt
+from datajunction_server.api.graphql.utils import extract_fields
 from datajunction_server.api.graphql.scalars.availabilitystate import (
     AvailabilityState,
     PartitionAvailability,
@@ -45,7 +46,6 @@ from datajunction_server.models.node import NodeType as NodeType_
 from datajunction_server.models.node import (
     GitRepositoryInfo as PydanticGitRepositoryInfo,
 )
-from datajunction_server.sql.decompose import MetricComponentExtractor
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 
 NodeType = strawberry.enum(NodeType_)
@@ -325,15 +325,35 @@ class NodeRevision:
         return [col.name for col in root.primary_key()]
 
     @strawberry.field
-    def metric_metadata(self, root: "DBNodeRevision") -> MetricMetadata | None:
+    def metric_metadata(
+        self,
+        root: "DBNodeRevision",
+        info: Info,
+    ) -> MetricMetadata | None:
         """
         Metric metadata
         """
         if root.type != NodeType.METRIC:
             return None
 
-        query_ast = parse(root.query)
-        functions = [func.function() for func in query_ast.find_all(ast.Function)]
+        # Parsing the metric SQL + walking its AST for `expression` and
+        # `incompatible_druid_functions` is ANTLR-heavy. Skip it entirely
+        # when the client didn't request either sub-field.
+        requested = extract_fields(info)
+        needs_ast = (
+            "expression" in requested or "incompatible_druid_functions" in requested
+        )
+        expression: str | None = None
+        incompatible: set[str] = set()
+        if needs_ast:
+            query_ast = parse(root.query)
+            functions = [func.function() for func in query_ast.find_all(ast.Function)]
+            expression = str(query_ast.select.projection[0])
+            incompatible = {
+                func.__name__.upper()
+                for func in functions
+                if Dialect.DRUID not in func.dialects
+            }
         return MetricMetadata(  # type: ignore
             direction=root.metric_metadata.direction if root.metric_metadata else None,
             unit=root.metric_metadata.unit.value
@@ -348,12 +368,8 @@ class NodeRevision:
             max_decimal_exponent=root.metric_metadata.max_decimal_exponent
             if root.metric_metadata
             else None,
-            expression=str(query_ast.select.projection[0]),
-            incompatible_druid_functions={
-                func.__name__.upper()
-                for func in functions
-                if Dialect.DRUID not in func.dialects
-            },
+            expression=expression or "",
+            incompatible_druid_functions=incompatible,
         )
 
     @strawberry.field
@@ -373,22 +389,50 @@ class NodeRevision:
         info: Info,
     ) -> DecomposedMetric | None:
         """
-        A list of metric components for a metric node
+        A list of metric components for a metric node.
+
+        Uses the request-scoped extracted_measures_loader so that a GraphQL
+        query returning N metrics batches all extractions into a single
+        session + shared parsed_query_cache (instead of opening N independent
+        sessions via resolver_session).
         """
         if root.type != NodeType.METRIC:
             return None
-        from datajunction_server.api.graphql.utils import resolver_session
 
-        async with resolver_session(info) as session:
-            extractor = MetricComponentExtractor(root.id)
-            components, derived_ast = await extractor.extract(session)
-            # The derived_expression is the combiner (how to combine merged components)
-            combiner_expr = str(derived_ast.select.projection[0])
+        # Fast path: derive_frozen_measures (internal/nodes.py:291, background
+        # task on node create/update) persists `str(derived_sql)` to the
+        # NodeRevision.derived_expression column. When the fragment only reads
+        # `derivedQuery`, we return the cached scalar and skip extract(). The
+        # GQL `derivedExpression` field is an alias for `combiner`, not for
+        # the column of the same name — so we have to fall through to the
+        # full path whenever it's requested.
+        requested = extract_fields(info)
+        needs_full_extract = (
+            "components" in requested
+            or "combiner" in requested
+            or "derived_expression" in requested
+        )
+
+        if not needs_full_extract and root.derived_expression:
             return DecomposedMetric(  # type: ignore
-                components=components,
-                combiner=combiner_expr,
-                derived_query=str(derived_ast),
+                components=[],
+                combiner="",
+                derived_query=root.derived_expression,
             )
+
+        # Full path: DataLoader batch + extract().
+        loader = info.context["extracted_measures_loader"]
+        result = await loader.load(root.id)
+        if result is None:
+            return None
+        components, derived_ast = result
+        # The derived_expression is the combiner (how to combine merged components)
+        combiner_expr = str(derived_ast.select.projection[0])
+        return DecomposedMetric(  # type: ignore
+            components=components,
+            combiner=combiner_expr,
+            derived_query=str(derived_ast),
+        )
 
     # Only cubes will have these fields
     @strawberry.field

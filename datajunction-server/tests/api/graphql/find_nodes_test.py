@@ -733,6 +733,93 @@ async def test_find_metric(
         },
     ]
 
+    # Fast path: when the fragment only requests `derivedQuery`, the resolver
+    # should read `derived_expression` directly off the row and skip the
+    # DataLoader + extract() entirely. Patching the batch loader to raise
+    # guarantees the fast path was taken. `derivedExpression` is an alias for
+    # `combiner` and would force the full path, so it is not requested here.
+    fast_path_query = """
+    {
+        findNodes(names: ["default.regional_repair_efficiency"]) {
+            current {
+                extractedMeasures {
+                    derivedQuery
+                }
+            }
+        }
+    }
+    """
+    with mock.patch(
+        "datajunction_server.api.graphql.dataloaders.batch_load_extracted_measures",
+        side_effect=AssertionError("fast path should skip the DataLoader"),
+    ):
+        fast_response = await client_with_roads.post(
+            "/graphql",
+            json={"query": fast_path_query},
+        )
+    assert fast_response.status_code == 200
+    fast_extracted = fast_response.json()["data"]["findNodes"][0]["current"][
+        "extractedMeasures"
+    ]
+    full_extracted = data["data"]["findNodes"][0]["current"]["extractedMeasures"]
+    assert fast_extracted["derivedQuery"] == full_extracted["derivedQuery"]
+
+    # AST skip for metricMetadata: when neither `expression` nor
+    # `incompatibleDruidFunctions` is requested, parse(root.query) must not run.
+    metadata_only_query = """
+    {
+        findNodes(names: ["default.regional_repair_efficiency"]) {
+            current {
+                metricMetadata {
+                    direction
+                    unit { name }
+                }
+            }
+        }
+    }
+    """
+    with mock.patch(
+        "datajunction_server.api.graphql.scalars.node.parse",
+        side_effect=AssertionError("AST parse should be skipped"),
+    ):
+        metadata_response = await client_with_roads.post(
+            "/graphql",
+            json={"query": metadata_only_query},
+        )
+    assert metadata_response.status_code == 200
+    metadata = metadata_response.json()["data"]["findNodes"][0]["current"][
+        "metricMetadata"
+    ]
+    assert metadata == {"direction": None, "unit": None}
+
+    # None path: when the DataLoader can't produce a result for an nr_id
+    # (e.g. extract() raised inside the batch loader), the resolver returns
+    # null for `extractedMeasures`.
+    full_query_with_components = """
+    {
+        findNodes(names: ["default.regional_repair_efficiency"]) {
+            current {
+                extractedMeasures {
+                    components { name }
+                }
+            }
+        }
+    }
+    """
+    with mock.patch(
+        "datajunction_server.api.graphql.dataloaders.batch_load_extracted_measures",
+        return_value=[None],
+    ):
+        none_response = await client_with_roads.post(
+            "/graphql",
+            json={"query": full_query_with_components},
+        )
+    assert none_response.status_code == 200
+    assert (
+        none_response.json()["data"]["findNodes"][0]["current"]["extractedMeasures"]
+        is None
+    )
+
 
 @pytest.mark.asyncio
 async def test_find_cubes(

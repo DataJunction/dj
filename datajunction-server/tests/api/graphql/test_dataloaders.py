@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from datajunction_server.api.graphql.dataloaders import (
+    batch_load_extracted_measures,
     batch_load_git_info,
     batch_load_nodes,
     batch_load_nodes_by_name_only,
@@ -410,3 +411,35 @@ def test_create_git_info_loader(mock_dataloader):
     assert "load_fn" in call_kwargs
     assert callable(call_kwargs["load_fn"])
     assert result == mock_loader_instance
+
+
+@pytest.mark.asyncio
+@patch("datajunction_server.api.graphql.dataloaders.find_upstream_node_names")
+@patch("datajunction_server.api.graphql.dataloaders.session_context")
+async def test_batch_load_extracted_measures_missing_ids(
+    mock_session_context,
+    mock_find_upstream,
+):
+    """Batch loader returns None for nr_ids that don't resolve to a metric node.
+
+    Exercises the `if all_names:` False branch (no ancestor set, so the bulk
+    Node load is skipped) and the `metric_node is None` early-continue that
+    appends None to the results — both defensive paths for nr_ids that
+    vanished between GraphQL resolution and the batch query.
+    """
+    mock_session = AsyncMock()
+    mock_session_context.return_value.__aenter__.return_value = mock_session
+
+    # nr_stmt returns no rows -> nr_to_name is empty
+    nr_result = MagicMock()
+    nr_result.all.return_value = []
+    mock_session.execute.return_value = nr_result
+
+    # find_upstream_node_names returns empty when called with []
+    mock_find_upstream.return_value = (set(), {})
+
+    result = await batch_load_extracted_measures([999999], MagicMock())
+
+    assert result == [None]
+    # Only the nr_stmt query ran; the bulk Node load was skipped.
+    assert mock_session.execute.call_count == 1

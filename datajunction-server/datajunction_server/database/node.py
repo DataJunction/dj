@@ -691,7 +691,20 @@ class Node(Base):
                 joinedload(Node.tags),
             ]
 
-        statement = select(Node).where(Node.name == name).options(*options)
+        # Force loader options to re-apply to NodeRevisions already in the
+        # identity map. Without this, a prior query that hydrated a metric's
+        # NodeRevision without eager-loading `.node` leaves the cached
+        # instance sticky, and the nested selectinload(Column.node_revision)
+        # .selectinload(NodeRevision.node) silently skips it — producing a
+        # sync lazy-load when `cube_node_metrics` touches `.node` from a
+        # hybrid_property (MissingGreenlet on 3.11, where fixture ordering
+        # happens to trigger this).
+        statement = (
+            select(Node)
+            .where(Node.name == name)
+            .options(*options)
+            .execution_options(populate_existing=True)
+        )
         result = await session.execute(statement)
         node = result.unique().scalar_one_or_none()
         return node
