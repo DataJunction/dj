@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 import random
 from typing import AsyncGenerator
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
 import pytest_asyncio
 from datajunction_server.api.attributes import default_attribute_types
@@ -2404,7 +2404,11 @@ class TestFallbackCatalogAndInferCubeCatalog:
         """_fallback_catalog returns None when no default_catalog is configured."""
         spec = DeploymentSpec(namespace="test")
         orch = self._make_orchestrator(spec)
-        result = orch._fallback_catalog()
+        with patch(
+            "datajunction_server.internal.deployment.orchestrator.get_settings",
+        ) as mock_settings:
+            mock_settings.return_value.seed_setup.default_catalog_name = None
+            result = orch._fallback_catalog()
         assert result is None
 
     def test_infer_cube_catalog_uses_fallback(self):
@@ -2436,7 +2440,11 @@ class TestFallbackCatalogAndInferCubeCatalog:
             metrics=["test.m"],
             dimensions=[],
         )
-        result = orch._infer_cube_catalog(cube_spec, None)
+        with patch(
+            "datajunction_server.internal.deployment.orchestrator.get_settings",
+        ) as mock_settings:
+            mock_settings.return_value.seed_setup.default_catalog_name = None
+            result = orch._infer_cube_catalog(cube_spec, None)
         assert result == mock_catalog
 
     def test_infer_cube_catalog_uses_existing_node_catalog(self):
@@ -2456,7 +2464,11 @@ class TestFallbackCatalogAndInferCubeCatalog:
             metrics=["test.m"],
             dimensions=[],
         )
-        result = orch._infer_cube_catalog(cube_spec, existing)
+        with patch(
+            "datajunction_server.internal.deployment.orchestrator.get_settings",
+        ) as mock_settings:
+            mock_settings.return_value.seed_setup.default_catalog_name = None
+            result = orch._infer_cube_catalog(cube_spec, existing)
         assert result == mock_catalog
 
     def test_infer_cube_catalog_returns_none_when_all_fail(self):
@@ -2470,5 +2482,52 @@ class TestFallbackCatalogAndInferCubeCatalog:
             metrics=["test.m"],
             dimensions=[],
         )
-        result = orch._infer_cube_catalog(cube_spec, None)
+        with patch(
+            "datajunction_server.internal.deployment.orchestrator.get_settings",
+        ) as mock_settings:
+            mock_settings.return_value.seed_setup.default_catalog_name = None
+            result = orch._infer_cube_catalog(cube_spec, None)
+        assert result is None
+
+    def test_fallback_catalog_uses_server_default_when_spec_unset(self):
+        """_fallback_catalog uses server default_catalog_name when deployment spec has no default."""
+        mock_catalog = MagicMock()
+        spec = DeploymentSpec(namespace="test")
+        orch = self._make_orchestrator(spec)
+        orch.registry.catalogs["server_catalog"] = mock_catalog
+        with patch(
+            "datajunction_server.internal.deployment.orchestrator.get_settings",
+        ) as mock_settings:
+            mock_settings.return_value.seed_setup.default_catalog_name = (
+                "server_catalog"
+            )
+            result = orch._fallback_catalog()
+        assert result == mock_catalog
+
+    def test_fallback_catalog_spec_overrides_server_default(self):
+        """Deployment spec default_catalog takes priority over server default_catalog_name."""
+        spec_catalog = MagicMock()
+        server_catalog = MagicMock()
+        spec = DeploymentSpec(namespace="test", default_catalog="spec_catalog")
+        orch = self._make_orchestrator(spec)
+        orch.registry.catalogs["spec_catalog"] = spec_catalog
+        orch.registry.catalogs["server_catalog"] = server_catalog
+        with patch(
+            "datajunction_server.internal.deployment.orchestrator.get_settings",
+        ) as mock_settings:
+            mock_settings.return_value.seed_setup.default_catalog_name = (
+                "server_catalog"
+            )
+            result = orch._fallback_catalog()
+        assert result == spec_catalog
+
+    def test_fallback_catalog_none_when_no_defaults(self):
+        """_fallback_catalog returns None when neither spec nor server default is set."""
+        spec = DeploymentSpec(namespace="test")
+        orch = self._make_orchestrator(spec)
+        with patch(
+            "datajunction_server.internal.deployment.orchestrator.get_settings",
+        ) as mock_settings:
+            mock_settings.return_value.seed_setup.default_catalog_name = None
+            result = orch._fallback_catalog()
         assert result is None

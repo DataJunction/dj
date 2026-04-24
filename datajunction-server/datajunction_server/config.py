@@ -90,6 +90,11 @@ class SeedSetup(BaseModel):
     # particular catalog. This typically applies to on-the-fly user-defined dimensions.
     virtual_catalog_name: str = "default"
 
+    # Server-level default catalog for non-source nodes when catalog can't be
+    # inferred from upstream parents. Takes precedence over virtual catalog.
+    # Configurable via env var SEED_SETUP__DEFAULT_CATALOG_NAME.
+    default_catalog_name: str | None = None
+
     # A "DJ System" catalog that contains all system tables modeled in DJ
     system_catalog_name: str = "dj_metadata"
 

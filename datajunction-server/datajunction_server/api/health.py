@@ -62,3 +62,23 @@ async def health_check(
             status=await database_health(session),
         ),
     ]
+
+
+class ServerSettings(BaseModel):
+    """
+    Non-sensitive server configuration.
+    """
+
+    default_catalog: str | None
+    virtual_catalog: str
+
+
+@router.get("/settings/", response_model=ServerSettings)
+async def server_settings() -> ServerSettings:
+    """
+    Returns non-sensitive server configuration.
+    """
+    return ServerSettings(
+        default_catalog=settings.seed_setup.default_catalog_name,
+        virtual_catalog=settings.seed_setup.virtual_catalog_name,
+    )

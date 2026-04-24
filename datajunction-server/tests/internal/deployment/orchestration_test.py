@@ -514,6 +514,77 @@ class TestDeploymentPlanning:
         assert "catalog" not in result_catalogs
         assert len(orchestrator.errors) == 1
 
+    @pytest.mark.asyncio
+    async def test_setup_catalogs_validates_missing_server_default_catalog(
+        self,
+        session,
+        current_user,
+    ):
+        """
+        _setup_catalogs should report an error when the server-configured
+        default_catalog_name refers to a catalog that doesn't exist in the DB.
+        """
+        from unittest.mock import patch
+
+        deployment_spec = DeploymentSpec(
+            namespace="some.namespace",
+            nodes=[],
+        )
+        context = MagicMock(autospec=DeploymentContext)
+        context.current_user = current_user
+        context.save_history = AsyncMock()
+        orchestrator = DeploymentOrchestrator(
+            deployment_spec=deployment_spec,
+            deployment_id="test-deployment",
+            session=session,
+            context=context,
+        )
+        with patch(
+            "datajunction_server.internal.deployment.orchestrator.get_settings",
+        ) as mock_settings:
+            mock_settings.return_value.seed_setup.default_catalog_name = (
+                "nonexistent_catalog"
+            )
+            result_catalogs = await orchestrator._setup_catalogs()
+        assert "nonexistent_catalog" not in result_catalogs
+        assert len(orchestrator.errors) == 1
+        assert "nonexistent_catalog" in orchestrator.errors[0].message
+
+    @pytest.mark.asyncio
+    async def test_setup_catalogs_validates_missing_spec_default_catalog(
+        self,
+        session,
+        current_user,
+    ):
+        """
+        _setup_catalogs should report an error when the deployment spec's
+        default_catalog refers to a catalog that doesn't exist in the DB.
+        """
+        from unittest.mock import patch
+
+        deployment_spec = DeploymentSpec(
+            namespace="some.namespace",
+            nodes=[],
+            default_catalog="nonexistent_spec_catalog",
+        )
+        context = MagicMock(autospec=DeploymentContext)
+        context.current_user = current_user
+        context.save_history = AsyncMock()
+        orchestrator = DeploymentOrchestrator(
+            deployment_spec=deployment_spec,
+            deployment_id="test-deployment",
+            session=session,
+            context=context,
+        )
+        with patch(
+            "datajunction_server.internal.deployment.orchestrator.get_settings",
+        ) as mock_settings:
+            mock_settings.return_value.seed_setup.default_catalog_name = None
+            result_catalogs = await orchestrator._setup_catalogs()
+        assert "nonexistent_spec_catalog" not in result_catalogs
+        assert len(orchestrator.errors) == 1
+        assert "nonexistent_spec_catalog" in orchestrator.errors[0].message
+
     def test_filter_nodes_to_deploy_without_force(
         self,
         orchestrator,

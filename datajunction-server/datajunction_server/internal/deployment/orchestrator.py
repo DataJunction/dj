@@ -884,6 +884,14 @@ class DeploymentOrchestrator:
             for node_spec in self.deployment_spec.nodes
             if node_spec.node_type == NodeType.SOURCE and node_spec.catalog
         }
+
+        # Also validate that configured default catalogs exist
+        if self.deployment_spec.default_catalog:
+            spec_catalog_names.add(self.deployment_spec.default_catalog)
+        settings = get_settings()
+        if settings.seed_setup.default_catalog_name:
+            spec_catalog_names.add(settings.seed_setup.default_catalog_name)
+
         missing_catalogs = spec_catalog_names - all_catalogs_map.keys()
         if missing_catalogs:
             self.errors.append(
@@ -2979,12 +2987,16 @@ class DeploymentOrchestrator:
     def _fallback_catalog(self) -> Catalog | None:
         """Return the deployment's configured default catalog, if any.
 
+        Priority: deployment spec default_catalog > server default_catalog_name.
         Used when catalog can't be derived from parent nodes (e.g., invalid nodes
         whose parents are unresolvable). Callers should further fall back to the
         virtual catalog when this returns None.
         """
         if self.deployment_spec.default_catalog:
             return self.registry.catalogs.get(self.deployment_spec.default_catalog)
+        settings = get_settings()
+        if settings.seed_setup.default_catalog_name:
+            return self.registry.catalogs.get(settings.seed_setup.default_catalog_name)
         return None
 
     def _infer_cube_catalog(
