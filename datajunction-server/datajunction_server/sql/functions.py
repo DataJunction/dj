@@ -3234,10 +3234,12 @@ class MapEntries(Function):
 
 @MapEntries.register  # type: ignore
 def infer_type(map_: ct.MapType) -> ct.ColumnType:
+    from datajunction_server.sql.parsing import ast
+
     return ct.ListType(
         element_type=ct.StructType(
-            ct.NestedField("key", field_type=map_.type.key.type),
-            ct.NestedField("value", field_type=map_.type.value.type),
+            ct.NestedField(ast.Name("key"), field_type=map_.type.key.type),
+            ct.NestedField(ast.Name("value"), field_type=map_.type.value.type),
         ),
     )
 
