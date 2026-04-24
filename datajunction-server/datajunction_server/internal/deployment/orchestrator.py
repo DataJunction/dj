@@ -340,9 +340,14 @@ class DeploymentOrchestrator:
         """
         Validate and deploy all resources and nodes into the specified namespace.
 
-        For dry_run=True the DB writes are rolled back; the returned result still
-        contains ``results`` (what would have changed) and ``downstream_impacts``
-        (what downstream nodes would be affected).
+        A single SAVEPOINT wraps setup, plan, and execution so that for
+        ``dry_run=True`` every DB write is rolled back — including setup-phase
+        writes (namespaces, tags, owners, catalogs, attributes) that would
+        otherwise leak. The outer transaction is committed only for wet-runs.
+
+        Returned ``results`` and ``downstream_impacts`` are populated inside
+        the SAVEPOINT; Python references stay live after rollback, so dry-run
+        callers still get the full impact analysis.
         """
         start_total = time.perf_counter()
         self._timer = DeploymentTimer()
@@ -352,30 +357,18 @@ class DeploymentOrchestrator:
             self.deployment_spec.namespace,
         )
 
-        with self._timer.phase("setup resources"):
-            await self._setup_deployment_resources()
-
-        with self._timer.phase("validate resources"):
-            await self._validate_deployment_resources()
-
-        if await self._is_copy_fast_path():
-            with self._timer.phase("build plan (copy fast-path)"):
-                deployment_plan = await self._build_copy_plan()
+        result = DeploymentExecuteResult(results=[], downstream_impacts=[])
+        try:
+            async with self.session.begin_nested():
+                result = await self._plan_and_execute()
+                if self.dry_run:  # pragma: no branch
+                    raise _DryRunRollback()
+        except _DryRunRollback:
+            pass
         else:
-            with self._timer.phase("build plan") as p:
-                deployment_plan, pre_results = await self._create_deployment_plan()
-                p.append(
-                    f"{len(deployment_plan.to_deploy)} to deploy, "
-                    f"{len(deployment_plan.to_delete)} to delete",
-                )
-            self.deployed_results.extend(pre_results)
-        if deployment_plan.is_empty():
-            return DeploymentExecuteResult(
-                results=await self._handle_no_changes(),
-                downstream_impacts=[],
-            )
-
-        downstream = await self._execute_deployment_plan(deployment_plan)
+            # `else` only fires when no _DryRunRollback was raised, which
+            # implies wet-run — commit the outer transaction.
+            await self.session.commit()
 
         elapsed_ms = (time.perf_counter() - start_total) * 1000
         _metrics_tags = {
@@ -399,6 +392,41 @@ class DeploymentOrchestrator:
             self.deployment_id,
             elapsed_ms / 1000,
         )
+        return result
+
+    async def _plan_and_execute(self) -> DeploymentExecuteResult:
+        """Inner body of ``execute`` — runs inside the orchestrator's SAVEPOINT.
+
+        Split out so that the caller (``execute``) owns transaction control:
+        wrapping setup + plan + execute in one ``begin_nested()`` ensures
+        dry-runs roll back all DB writes, including setup-phase writes
+        (namespaces, tags, owners, catalogs, attributes).
+        """
+        with self._timer.phase("setup resources"):
+            await self._setup_deployment_resources()
+
+        with self._timer.phase("validate resources"):
+            await self._validate_deployment_resources()
+
+        if await self._is_copy_fast_path():
+            with self._timer.phase("build plan (copy fast-path)"):
+                deployment_plan = await self._build_copy_plan()
+        else:
+            with self._timer.phase("build plan") as p:
+                deployment_plan, pre_results = await self._create_deployment_plan()
+                p.append(
+                    f"{len(deployment_plan.to_deploy)} to deploy, "
+                    f"{len(deployment_plan.to_delete)} to delete",
+                )
+            self.deployed_results.extend(pre_results)
+
+        if deployment_plan.is_empty():
+            return DeploymentExecuteResult(
+                results=await self._handle_no_changes(),
+                downstream_impacts=[],
+            )
+
+        downstream = await self._execute_deployment_plan(deployment_plan)
         return DeploymentExecuteResult(
             results=self.deployed_results,
             downstream_impacts=downstream,
@@ -1160,93 +1188,80 @@ class DeploymentOrchestrator:
     async def _execute_deployment_plan(self, plan: DeploymentPlan) -> list:
         """Execute the actual deployment based on the plan.
 
-        Uses a SAVEPOINT so that dry_run=True can roll back all DB writes,
-        including the INVALID markers written by ``propagate_impact``.  The
-        outer transaction is committed only for wet-runs.
+        Runs inside the caller's SAVEPOINT (see ``execute``). The caller
+        rolls back on dry-run and commits on wet-run.
 
-        ``propagate_impact`` is called inside the SAVEPOINT, after nodes are
-        deployed but before deletions, so it sees post-deploy DB state and
-        deleted nodes' children are still reachable via NodeRelationship.
+        ``propagate_impact`` is called after nodes are deployed but before
+        deletions, so it sees post-deploy DB state and deleted nodes'
+        children are still reachable via NodeRelationship.
 
         Returns:
-            Downstream impact list (computed before any rollback/commit so it
-            always reflects the post-deploy state).
+            Downstream impact list reflecting the post-deploy state.
         """
         downstream: list = []
         timer = self._timer
-        try:
-            async with self.session.begin_nested():
-                if plan.to_deploy:
-                    with timer.phase("deploy nodes") as p:
-                        deployed_results, deployed_nodes = await self._deploy_nodes(
-                            plan,
-                        )
-                        p.append(f"{len(deployed_nodes)} nodes")
-                    self.deployed_results.extend(deployed_results)
-                    self.registry.add_nodes(deployed_nodes)
-                    await self._update_deployment_status()
+        if plan.to_deploy:
+            with timer.phase("deploy nodes") as p:
+                deployed_results, deployed_nodes = await self._deploy_nodes(plan)
+                p.append(f"{len(deployed_nodes)} nodes")
+            self.deployed_results.extend(deployed_results)
+            self.registry.add_nodes(deployed_nodes)
+            await self._update_deployment_status()
 
-                    with timer.phase("deploy links") as p:
-                        deployed_links = await self._deploy_links(plan)
-                        p.append(f"{len(deployed_links)} links")
-                    self.deployed_results.extend(deployed_links)
-                    await self._update_deployment_status()
+            with timer.phase("deploy links") as p:
+                deployed_links = await self._deploy_links(plan)
+                p.append(f"{len(deployed_links)} links")
+            self.deployed_results.extend(deployed_links)
+            await self._update_deployment_status()
 
-                    with timer.phase("deploy cubes") as p:
-                        deployed_cubes = await self._deploy_cubes(plan)
-                        p.append(f"{len(deployed_cubes)} cubes")
-                    self.deployed_results.extend(deployed_cubes)
-                    await self._update_deployment_status()
+            with timer.phase("deploy cubes") as p:
+                deployed_cubes = await self._deploy_cubes(plan)
+                p.append(f"{len(deployed_cubes)} cubes")
+            self.deployed_results.extend(deployed_cubes)
+            await self._update_deployment_status()
 
-                    # Derive frozen measures for deployed metrics inline (not
-                    # background) so derived_expression and FrozenMeasure rows
-                    # are atomic with the rest of the deployment: committed or
-                    # rolled back together, and dry-run exercises derivation.
-                    with timer.phase("derive measures") as p:
-                        derived = await self._derive_measures_for_deployed_metrics()
-                        p.append(f"{derived} metrics")
+            # Derive frozen measures for deployed metrics inline so
+            # derived_expression and FrozenMeasure rows are atomic with
+            # the rest of the deployment.
+            with timer.phase("derive measures") as p:
+                derived = await self._derive_measures_for_deployed_metrics()
+                p.append(f"{derived} metrics")
 
-                # Run impact propagation before deletions so deleted nodes'
-                # children are still reachable via NodeRelationship.
-                changed_names = {
-                    r.name
-                    for r in self.deployed_results
-                    if r.deploy_type == DeploymentResult.Type.NODE
-                    and r.status != DeploymentResult.Status.SKIPPED
-                }
-                changed_link_names = {
-                    r.name.split(" -> ")[0]
-                    for r in self.deployed_results
-                    if r.deploy_type == DeploymentResult.Type.LINK
-                    and r.status != DeploymentResult.Status.SKIPPED
-                }
-                with timer.phase("propagate impact") as p:
-                    downstream = await propagate_impact(
-                        session=self.session,
-                        namespace=self.deployment_spec.namespace,
-                        changed_node_names=changed_names,
-                        deleted_node_names=frozenset(
-                            spec.rendered_name for spec in plan.to_delete
-                        ),
-                        changed_link_node_names=changed_link_names,
-                    )
-                    p.append(f"{len(downstream)} downstream")
+        # Run impact propagation before deletions so deleted nodes'
+        # children are still reachable via NodeRelationship.
+        changed_names = {
+            r.name
+            for r in self.deployed_results
+            if r.deploy_type == DeploymentResult.Type.NODE
+            and r.status != DeploymentResult.Status.SKIPPED
+        }
+        changed_link_names = {
+            r.name.split(" -> ")[0]
+            for r in self.deployed_results
+            if r.deploy_type == DeploymentResult.Type.LINK
+            and r.status != DeploymentResult.Status.SKIPPED
+        }
+        with timer.phase("propagate impact") as p:
+            downstream = await propagate_impact(
+                session=self.session,
+                namespace=self.deployment_spec.namespace,
+                changed_node_names=changed_names,
+                deleted_node_names=frozenset(
+                    spec.rendered_name for spec in plan.to_delete
+                ),
+                changed_link_node_names=changed_link_names,
+            )
+            p.append(f"{len(downstream)} downstream")
 
-                # Hard-delete after impact propagation (cascade-deletes
-                # NodeRelationship rows that were needed for the BFS above).
-                if plan.to_delete:
-                    with timer.phase("delete nodes") as p:
-                        delete_results = await self._delete_nodes(plan.to_delete)
-                        p.append(f"{len(delete_results)} deleted")
-                    self.deployed_results.extend(delete_results)
-                    await self._update_deployment_status()
+        # Hard-delete after impact propagation (cascade-deletes
+        # NodeRelationship rows that were needed for the BFS above).
+        if plan.to_delete:
+            with timer.phase("delete nodes") as p:
+                delete_results = await self._delete_nodes(plan.to_delete)
+                p.append(f"{len(delete_results)} deleted")
+            self.deployed_results.extend(delete_results)
+            await self._update_deployment_status()
 
-                if self.dry_run:  # pragma: no branch
-                    raise _DryRunRollback()
-        except _DryRunRollback:
-            pass
-        else:
-            await self.session.commit()
         return downstream
 
     async def _derive_measures_for_deployed_metrics(self) -> int:
