@@ -366,8 +366,9 @@ class DeploymentOrchestrator:
         except _DryRunRollback:
             pass
         else:
-            if not self.dry_run:
-                await self.session.commit()
+            # `else` only fires when no _DryRunRollback was raised, which
+            # implies wet-run — commit the outer transaction.
+            await self.session.commit()
 
         elapsed_ms = (time.perf_counter() - start_total) * 1000
         _metrics_tags = {
