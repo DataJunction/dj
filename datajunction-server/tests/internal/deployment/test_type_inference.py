@@ -1967,6 +1967,18 @@ class TestUnresolvableReferences:
             )
             assert result.errors == [], f"{query} should not emit errors"
 
+    def test_predicate_type_property_raises_falls_back_to_boolean(self):
+        """Covers the except/return path in `_resolve_expr_type`'s Predicate
+        branch: `Like.type` raises `DJParseException` when its operand is
+        not a string, and we fall through to `return BooleanType()` since a
+        predicate's shape is still boolean-valued regardless of the type
+        error on its operand."""
+        result = validate_node_query(
+            "SELECT v LIKE 'pattern' AS r FROM default.t",
+            {"default.t": {"v": IntegerType()}},
+        )
+        assert result.output_columns == [("r", BooleanType())]
+
     def test_unresolved_refs_from_multi_part_namespace(self):
         """Multi-part namespaced refs that don't match any FROM table fall
         through to UnknownType (deferred dim-attribute resolution). When
