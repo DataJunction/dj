@@ -79,6 +79,29 @@ def parse_query(query_str: str) -> ast.Query:
     return parse(query_str)
 
 
+def _unresolved_refs_in(expr: ast.Node) -> list[str]:
+    """Return a deduplicated, stable-ordered list of column references inside
+    ``expr`` whose resolved type is ``UnknownType``.
+
+    ``_resolve_projection_expr`` stamps ``_type`` on each AST node during type
+    resolution. After resolution, any leaf ``ast.Column`` whose ``_type`` is
+    ``UnknownType`` is a root cause for the expression's overall unresolved
+    type — pointing the user at those specific refs is more actionable than a
+    generic "unable to infer type" message.
+    """
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for col in expr.find_all(ast.Column):
+        col_type = getattr(col, "_type", None)
+        if col_type is None or not isinstance(col_type, UnknownType):
+            continue
+        rendered = str(col)
+        if rendered not in seen:
+            seen.add(rendered)
+            ordered.append(rendered)
+    return ordered
+
+
 def validate_node_query(
     query_str: str,
     parent_columns_map: ParentColumnsMap,
@@ -165,19 +188,30 @@ def _resolve_query(
     scope = TypeScope(tables=tables, parent_map=parent_columns_map, errors=table_errors)
 
     output: OutputColumns = []
+    expr_to_output: list[tuple[ast.Node, OutputColumns]] = []
     for expr in select.projection:
         try:
-            output.extend(_resolve_projection_expr(expr, scope))
+            resolved = _resolve_projection_expr(expr, scope)
+            expr_to_output.append((expr, resolved))
+            output.extend(resolved)
         except Exception as exc:
             scope.errors.append(str(exc))
 
-    # Flag any output columns with unresolved types
-    for col_name, col_type in output:
-        if isinstance(col_type, UnknownType):
-            scope.errors.append(
-                f"Unable to infer type for column `{col_name}`. "
-                f"This may indicate an unsupported function or expression.",
-            )
+    # Flag any output columns with unresolved types. When possible, point at
+    # the specific column references inside the expression whose types could
+    # not be resolved — that's the root cause the user has to fix.
+    for projection_expr, resolved in expr_to_output:
+        for col_name, col_type in resolved:
+            if isinstance(col_type, UnknownType):
+                unresolved = _unresolved_refs_in(projection_expr)
+                detail = (
+                    f" Unresolved column reference(s): {', '.join(unresolved)}."
+                    if unresolved
+                    else " This may indicate an unsupported function or expression."
+                )
+                scope.errors.append(
+                    f"Unable to infer type for column `{col_name}`.{detail}",
+                )
 
     # Validate column references in non-projection clauses
     _validate_non_projection_clauses(select, scope)
@@ -1042,14 +1076,36 @@ def _resolve_expr_type(
         return NullType()
 
     if isinstance(expr, ast.BinaryOp):
-        left_type = _resolve_expr_type(expr.left, scope)
-        _resolve_expr_type(expr.right, scope)
+        # Stamp types on the full subtree so the AST's BinaryOp.type property
+        # can read child `_type` and any error-reporting walker (see
+        # `_unresolved_refs_in`) can find leaf columns with UnknownType.
+        _stamp_types_recursive(expr, scope)
+        left_type = getattr(expr.left, "_type", None) or _resolve_expr_type(
+            expr.left,
+            scope,
+        )
         try:
             return expr.type
         except (DJParseException, TypeError, AttributeError):
             return (
                 left_type if not isinstance(left_type, UnknownType) else UnknownType()
             )
+
+    if isinstance(expr, ast.Predicate):
+        # LIKE, ILIKE, IN, BETWEEN, IS NULL, RLIKE, etc. Some Predicate
+        # subclasses (Like, Between) override `.type` to read `self.expr.type`
+        # from the AST, which requires `_type` to be stamped on child nodes.
+        # Without stamping, the property raises AttributeError and the
+        # expression silently becomes UnknownType. Stamp the subtree first
+        # so the AST's type property works, mirroring the Function path.
+        _stamp_types_recursive(expr, scope)
+        try:
+            result = expr.type
+            if isinstance(result, ColumnType):  # pragma: no branch
+                return result
+        except (DJParseException, TypeError, AttributeError):
+            pass
+        return BooleanType()
 
     if isinstance(expr, ast.Subscript):
         # Subscript: col['key'] (map/struct access) or col[0] (array access).

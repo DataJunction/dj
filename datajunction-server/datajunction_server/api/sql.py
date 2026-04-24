@@ -279,6 +279,19 @@ async def get_measures_sql_v3(
         matched_cube=cube_node.current if cube_node else None,
     )
 
+    response = _build_measures_response(result)
+
+    _tags = {"query_type": "measures", "query_version": "v3"}
+    get_metrics_provider().timer(
+        "dj.sql.build_latency_ms",
+        (time.monotonic() - _t0) * 1000,
+        _tags,
+    )
+    get_metrics_provider().counter("dj.sql.requests", tags=_tags)
+    return response
+
+
+def _build_measures_response(result) -> MeasuresSQLResponse:
     # Build a unified component_aliases map from all grain groups
     # This maps component hash names -> actual SQL column aliases
     all_component_aliases: dict[str, str] = {}
@@ -373,13 +386,6 @@ async def get_measures_sql_v3(
             ),
         )
 
-    _tags = {"query_type": "measures", "query_version": "v3"}
-    get_metrics_provider().timer(
-        "dj.sql.build_latency_ms",
-        (time.monotonic() - _t0) * 1000,
-        _tags,
-    )
-    get_metrics_provider().counter("dj.sql.requests", tags=_tags)
     return MeasuresSQLResponse(
         grain_groups=grain_group_responses,
         metric_formulas=metric_formulas,

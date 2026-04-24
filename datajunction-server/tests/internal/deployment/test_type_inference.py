@@ -1926,6 +1926,76 @@ class TestUnresolvableReferences:
         assert result.output_columns[0] == ("z", UnknownType())
         assert any("Unable to infer type for column `z`" in e for e in result.errors)
 
+    def test_unresolved_refs_are_named_in_error_message(self):
+        """A generic 'unable to infer type' message forces the user to re-scan
+        the projection to find the root cause. When the expression contains
+        leaf column refs that resolved to UnknownType (e.g. dim-attribute
+        paths that defer resolution to query-build time), they should be
+        listed in the error so the user can go straight to the broken ref."""
+        result = validate_node_query(
+            "SELECT SUM(default.missing_dim.x) AS total FROM default.orders",
+            _col_map(ORDERS_COLS),
+        )
+        assert result.output_columns[0] == ("total", UnknownType())
+        error = next(
+            e for e in result.errors if "Unable to infer type for column `total`" in e
+        )
+        assert "default.missing_dim.x" in error
+
+    def test_like_predicate_returns_boolean(self):
+        """Regression: `Like.type` needs `_type` stamped on its operand
+        because it reads `self.expr.type`. Before stamping was added for
+        Predicate nodes, a bare `col LIKE 'pattern'` (and AND-chains of
+        NOT LIKE) silently resolved to UnknownType and tripped the
+        'Unable to infer type' error. Exercises the path that broke the
+        `is_member_area = ... NOT LIKE ... AND ... NOT LIKE ...` pattern
+        in real user queries."""
+        col_map = {"default.t": {"v": StringType()}}
+        cases = [
+            "SELECT v LIKE '%x%' AS r FROM default.t",
+            "SELECT v NOT LIKE '%x%' AS r FROM default.t",
+            "SELECT v NOT LIKE '%x%' AND v NOT LIKE '%y%' AS r FROM default.t",
+            "SELECT v IS NULL AS r FROM default.t",
+            "SELECT v IN ('x','y') AS r FROM default.t",
+            "SELECT v RLIKE '.*' AS r FROM default.t",
+        ]
+        for query in cases:
+            result = validate_node_query(query, col_map)
+            assert result.output_columns == [("r", BooleanType())], (
+                f"{query} → expected ('r', BooleanType) but got "
+                f"{result.output_columns} (errors: {result.errors})"
+            )
+            assert result.errors == [], f"{query} should not emit errors"
+
+    def test_predicate_type_property_raises_falls_back_to_boolean(self):
+        """Covers the except/return path in `_resolve_expr_type`'s Predicate
+        branch: `Like.type` raises `DJParseException` when its operand is
+        not a string, and we fall through to `return BooleanType()` since a
+        predicate's shape is still boolean-valued regardless of the type
+        error on its operand."""
+        result = validate_node_query(
+            "SELECT v LIKE 'pattern' AS r FROM default.t",
+            {"default.t": {"v": IntegerType()}},
+        )
+        assert result.output_columns == [("r", BooleanType())]
+
+    def test_unresolved_refs_from_multi_part_namespace(self):
+        """Multi-part namespaced refs that don't match any FROM table fall
+        through to UnknownType (deferred dim-attribute resolution). When
+        surfaced in the error, the full namespaced form should appear so the
+        user sees exactly what was unresolved, not just the leaf name."""
+        result = validate_node_query(
+            "SELECT default.missing_dim_a.x + default.missing_dim_b.y AS z "
+            "FROM default.orders",
+            _col_map(ORDERS_COLS),
+        )
+        assert result.output_columns[0] == ("z", UnknownType())
+        error = next(
+            e for e in result.errors if "Unable to infer type for column `z`" in e
+        )
+        assert "default.missing_dim_a.x" in error
+        assert "default.missing_dim_b.y" in error
+
     def test_nested_case_with_bad_column(self):
         """SUM(CASE WHEN TRUE THEN nonexistent ELSE 0 END) — bare column doesn't exist."""
         from datajunction_server.internal.deployment.type_inference import (
