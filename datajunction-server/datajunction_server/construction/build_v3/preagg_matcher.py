@@ -171,15 +171,17 @@ def get_temporal_partitions(preagg: PreAggregation) -> list[TemporalPartitionCol
 
     temporal_partitions: list[TemporalPartitionColumn] = []
     if preagg.node_revision:  # pragma: no branch
-        # Build reverse mapping: source column name -> dimension attribute
-        # dimensions_to_columns_map returns {dim_attr (AST Column): source_col (AST Column)}
-        col_to_dim: dict[str, str] = {}
+        # Build reverse mapping: source column name -> list of dimension attributes.
+        # dimensions_to_columns_map returns {dim_attr (AST Column): source_col (AST Column)}.
+        # A single source column may appear in multiple dimension links (e.g., one
+        # simple link plus one multi-column link), so this must be multi-valued —
+        # otherwise only one mapping survives and we may miss the dim_attr that
+        # the user actually selected in the cube grain.
+        col_to_dims: dict[str, list[str]] = {}
         dim_to_col = preagg.node_revision.dimensions_to_columns_map()
         for dim_attr, source_col in dim_to_col.items():
-            # dim_attr is like "dimensions.date.dateint"
-            # source_col is an AST Column, get its name (e.g., "utc_date")
             source_col_name = source_col.identifier().split(SEPARATOR)[-1]
-            col_to_dim[source_col_name] = dim_attr
+            col_to_dims.setdefault(source_col_name, []).append(dim_attr)
 
         for temporal_col in preagg.node_revision.temporal_partition_columns():
             source_name = temporal_col.name
@@ -191,27 +193,31 @@ def get_temporal_partitions(preagg: PreAggregation) -> list[TemporalPartitionCol
             if full_source_col in preagg.grain_columns:
                 output_name = source_name  # pragma: no cover
 
-            # Strategy 2: Check dimension links via dimensions_to_columns_map
-            # If temporal column maps to a dimension attribute, find that in grain
-            elif source_name in col_to_dim:
-                dim_attr = col_to_dim[source_name]
-                dim_node = dim_attr.rsplit(SEPARATOR, 1)[0]
-                # Check if this dimension attribute or its parent node is in grain_columns
-                for gc in preagg.grain_columns:
-                    if gc == dim_attr or gc.startswith(dim_node + SEPARATOR):
-                        # Parse the dimension ref to handle role syntax properly
-                        # e.g., "v3.date.week[order]" -> column_name="week", role="order"
-                        # -> output_name="week_order"
-                        parsed = parse_dimension_ref(gc)
-                        output_name = parsed.column_name
-                        if parsed.role:  # pragma: no branch
-                            output_name = f"{output_name}_{parsed.role}"
-                        logger.info(
-                            "Temporal column %s links to dimension %s -> output %s",
-                            source_name,
-                            dim_attr,
-                            output_name,
-                        )
+            # Strategy 2: Check dimension links via dimensions_to_columns_map.
+            # Try every dim_attr that maps back to this source column — the first
+            # one whose attribute (or parent node) appears in grain_columns wins.
+            elif source_name in col_to_dims:
+                for dim_attr in col_to_dims[source_name]:
+                    dim_node = dim_attr.rsplit(SEPARATOR, 1)[0]
+                    matched = False
+                    for gc in preagg.grain_columns:
+                        if gc == dim_attr or gc.startswith(dim_node + SEPARATOR):
+                            # Parse the dimension ref to handle role syntax properly
+                            # e.g., "v3.date.week[order]" -> column_name="week", role="order"
+                            # -> output_name="week_order"
+                            parsed = parse_dimension_ref(gc)
+                            output_name = parsed.column_name
+                            if parsed.role:  # pragma: no branch
+                                output_name = f"{output_name}_{parsed.role}"
+                            logger.info(
+                                "Temporal column %s links to dimension %s -> output %s",
+                                source_name,
+                                dim_attr,
+                                output_name,
+                            )
+                            matched = True
+                            break
+                    if matched:
                         break
 
             # Strategy 3: Check column.dimension reference link
