@@ -808,10 +808,6 @@ async def derive_frozen_measures_bulk(
                     nodes_cache.setdefault(grandparent.name, grandparent)
 
     # 3. Per-metric extract with caches — zero DB calls in this loop.
-    # No parsed_query_cache: deepcopy of cached AST nodes drops parent
-    # back-pointers, which makes _extract_base crash on
-    # ``func.parent.replace(...)``.  Re-parsing per metric is cheap relative
-    # to the DB work already saved.
     extraction_results: list[tuple[NodeRevision, list]] = []
     for rev in revisions:
         extractor = MetricComponentExtractor(rev.id)

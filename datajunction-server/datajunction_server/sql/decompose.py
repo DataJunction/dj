@@ -727,11 +727,6 @@ class MetricComponentExtractor:
         else:
             metric_data = await self._load_metric_data(session)
 
-        # Parse queries (pure computation, no DB).  Each parse builds a fresh
-        # AST with intact ``parent`` back-pointers; do NOT swap this for a
-        # parsed-AST cache that returns ``deepcopy`` views — deepcopy drops
-        # parent links and breaks ``_extract_base``'s in-place rewrite at
-        # ``func.parent.replace(...)``.
         query_ast = parse(metric_data.query)
 
         # Initialize visited set for cycle detection
