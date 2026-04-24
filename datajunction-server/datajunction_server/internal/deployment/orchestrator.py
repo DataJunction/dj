@@ -361,7 +361,7 @@ class DeploymentOrchestrator:
         try:
             async with self.session.begin_nested():
                 result = await self._plan_and_execute()
-                if self.dry_run:
+                if self.dry_run:  # pragma: no branch
                     raise _DryRunRollback()
         except _DryRunRollback:
             pass
