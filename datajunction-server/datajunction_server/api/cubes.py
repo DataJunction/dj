@@ -514,17 +514,19 @@ async def materialize_cube(
         if col.semantic_type in ("metric", "metric_component", "measure")
     ]
 
-    # Build timestamp spec from auto-detected temporal partition
+    # Build timestamp spec from auto-detected temporal partition.
+    # For FULL strategy without a temporal partition, these stay None and Druid
+    # ingests everything as a single ALL-granularity segment.
     timestamp_column = (
         temporal_partition_info.column_name if temporal_partition_info else None
     )
     timestamp_format = (
-        temporal_partition_info.format if temporal_partition_info else "auto"
+        temporal_partition_info.format if temporal_partition_info else None
     )
     segment_granularity = (
         temporal_partition_info.granularity.upper()
         if temporal_partition_info and temporal_partition_info.granularity
-        else "DAY"
+        else "ALL"
     )
 
     # Validate that the timestamp column is in the output columns
@@ -540,21 +542,22 @@ async def materialize_cube(
             http_status_code=HTTPStatus.BAD_REQUEST,
         )
 
+    parse_spec: dict = {
+        "format": "parquet",
+        "dimensionsSpec": {
+            "dimensions": sorted(dimension_columns),
+        },
+    }
+    if timestamp_column:
+        parse_spec["timestampSpec"] = {
+            "column": timestamp_column,
+            "format": timestamp_format or "auto",
+        }
+
     druid_spec = {
         "dataSchema": {
             "dataSource": druid_datasource,
-            "parser": {
-                "parseSpec": {
-                    "format": "parquet",
-                    "dimensionsSpec": {
-                        "dimensions": sorted(dimension_columns),
-                    },
-                    "timestampSpec": {
-                        "column": timestamp_column,
-                        "format": timestamp_format or "auto",
-                    },
-                },
-            },
+            "parser": {"parseSpec": parse_spec},
             "metricsSpec": _build_metrics_spec(
                 measure_columns,
                 combined_result.measure_components,
@@ -587,6 +590,13 @@ async def materialize_cube(
         for col in combined_result.columns
     ]
 
+    # lookback_window only applies to incremental strategies; drop it for FULL.
+    effective_lookback = (
+        data.lookback_window
+        if data.strategy == MaterializationStrategy.INCREMENTAL_TIME
+        else None
+    )
+
     # Build the v2 input for the query service
     v2_input = CubeMaterializationV2Input(
         cube_name=node.name,
@@ -598,10 +608,10 @@ async def materialize_cube(
         druid_datasource=druid_datasource,
         druid_spec=druid_spec,
         timestamp_column=timestamp_column,
-        timestamp_format=timestamp_format or "yyyyMMdd",
+        timestamp_format=timestamp_format,
         strategy=data.strategy,
         schedule=data.schedule,
-        lookback_window=data.lookback_window,
+        lookback_window=effective_lookback,
     )
 
     # Call the query service to create the workflow
@@ -668,7 +678,7 @@ async def materialize_cube(
         cube_metrics=cube_revision.cube_node_metrics,
         metrics=metrics_list,
         timestamp_column=timestamp_column,
-        timestamp_format=timestamp_format or "yyyyMMdd",
+        timestamp_format=timestamp_format,
         workflow_urls=workflow_urls,
         workflow_names=workflow_names,
     )
@@ -708,7 +718,7 @@ async def materialize_cube(
         druid_spec=druid_spec,
         strategy=data.strategy,
         schedule=data.schedule,
-        lookback_window=data.lookback_window,
+        lookback_window=effective_lookback,
         metric_combiners=combined_result.metric_combiners,
         workflow_urls=workflow_urls,
         message=message,

@@ -501,7 +501,7 @@ class CubeMaterializeResponse(BaseModel):
     # Materialization config
     strategy: MaterializationStrategy
     schedule: str
-    lookback_window: str
+    lookback_window: Optional[str] = None
 
     # Metric combiner expressions (metric_name -> combiner SQL)
     metric_combiners: Dict[str, str] = Field(
@@ -557,13 +557,14 @@ class CubeMaterializationV2Input(BaseModel):
         description="Druid ingestion spec",
     )
 
-    # Temporal partition info (for incremental)
-    timestamp_column: str = Field(
-        description="Name of the timestamp/partition column",
+    # Temporal partition info (only set for INCREMENTAL_TIME)
+    timestamp_column: Optional[str] = Field(
+        default=None,
+        description="Name of the timestamp/partition column. None for FULL strategy without a temporal partition.",
     )
-    timestamp_format: str = Field(
-        default="yyyyMMdd",
-        description="Format of the timestamp column",
+    timestamp_format: Optional[str] = Field(
+        default=None,
+        description="Format of the timestamp column. None when timestamp_column is None.",
     )
 
     # Materialization config
@@ -573,9 +574,9 @@ class CubeMaterializationV2Input(BaseModel):
     schedule: str = Field(
         description="Cron schedule (e.g., '0 0 * * *' for daily)",
     )
-    lookback_window: str = Field(
-        default="1 DAY",
-        description="Lookback window for incremental",
+    lookback_window: Optional[str] = Field(
+        default=None,
+        description="Lookback window for incremental. None for FULL strategy.",
     )
 
 
@@ -646,13 +647,14 @@ class DruidCubeV3Config(BaseModel):
         description="List of metrics with metric_expression for querying the materialized cube",
     )
 
-    # Temporal partition info
-    timestamp_column: str = Field(
-        description="Name of the timestamp/partition column",
+    # Temporal partition info (only set for INCREMENTAL_TIME)
+    timestamp_column: Optional[str] = Field(
+        default=None,
+        description="Name of the timestamp/partition column. None for FULL strategy without a temporal partition.",
     )
-    timestamp_format: str = Field(
-        default="yyyyMMdd",
-        description="Format of the timestamp column",
+    timestamp_format: Optional[str] = Field(
+        default=None,
+        description="Format of the timestamp column. None when timestamp_column is None.",
     )
 
     # Workflow tracking
