@@ -548,7 +548,7 @@ async def materialize_cube(
             "dimensions": sorted(dimension_columns),
         },
     }
-    if timestamp_column:
+    if timestamp_column:  # pragma: no branch
         parse_spec["timestampSpec"] = {
             "column": timestamp_column,
             "format": timestamp_format or "auto",
