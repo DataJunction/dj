@@ -122,7 +122,7 @@ async def get_context(
     # raise "concurrent operations are not permitted" — so each DataLoader
     # opens its own session via session_context().
     override = request.app.dependency_overrides.get(get_session)
-    if override is not None and not hasattr(request.state, "test_session"):
+    if override is not None:
         request.state.test_session = override()
 
     return {
