@@ -109,19 +109,21 @@ def log_resolver(func):
 async def get_context(
     request: Request,
     background_tasks: BackgroundTasks,
-    db_session=Depends(get_session),
     cache=Depends(get_cache),
     _auth=Depends(DJHTTPBearer(auto_error=False)),
 ):
     """
     Provides the context for graphql requests
     """
-    # Attach test session to request.state so DataLoaders (which use
-    # session_context()) can reuse it in tests. resolver_session() does NOT
-    # use this — it checks dependency_overrides instead, so it always
-    # creates independent sessions in production.
-    if not hasattr(request.state, "test_session"):  # pragma: no branch
-        request.state.test_session = db_session
+    # In tests, get_session is overridden via dependency_overrides to return a
+    # shared session. Attach it to request.state so DataLoaders (which use
+    # session_context()) reuse the same transaction. In production we must
+    # NOT attach a shared session — concurrent DataLoaders on one AsyncSession
+    # raise "concurrent operations are not permitted" — so each DataLoader
+    # opens its own session via session_context().
+    override = request.app.dependency_overrides.get(get_session)
+    if override is not None and not hasattr(request.state, "test_session"):
+        request.state.test_session = override()
 
     return {
         "node_loader": create_node_by_name_loader(request),
