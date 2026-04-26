@@ -225,6 +225,11 @@ class Settings(BaseSettings):  # pragma: no cover
     preagg_catalog: str = "default"
     preagg_schema: str = "dj_preaggs"
 
+    # Cube view output location
+    # Used when generating CREATE OR REPLACE VIEW DDL for cube views
+    view_catalog: str = "default"
+    view_schema: str = "dj_views"
+
     # GitHub API configuration for git-backed branch management
     # API URL (defaults to github.com, override for GitHub Enterprise)
     github_api_url: str = "https://api.github.com"

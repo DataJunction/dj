@@ -151,6 +151,19 @@ class CubeRevisionMetadata(BaseModel):
         return cube_metadata
 
 
+class ViewDDLResponse(BaseModel):
+    """
+    Response for the view DDL endpoint.
+    Contains CREATE OR REPLACE VIEW statements for both versioned and unversioned views.
+    """
+
+    versioned_view_name: str
+    unversioned_view_name: str
+    versioned_ddl: str
+    unversioned_ddl: str
+    is_materialized: bool
+
+
 class DimensionValue(BaseModel):
     """
     Dimension value and count

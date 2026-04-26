@@ -186,18 +186,49 @@ class QueryServiceClient:
         request_headers: Optional[Dict[str, str]] = None,
     ) -> str:
         """
-        Re-create a view using the query service.
+        Re-create a view using the query service's DDL endpoint.
+        Waits for completion and checks the result.
         """
+        _logger.info(
+            "[create_view] Submitting DDL for view '%s' to query service",
+            view_name,
+        )
+        payload = {
+            "submitted_query": query_create.submitted_query,
+            "catalog_name": query_create.catalog_name,
+            "engine_name": query_create.engine_name,
+            "engine_version": query_create.engine_version or "",
+        }
         response = self.requests_session.post(
-            "/queries/",
+            "/ddl/execute",
             headers=self.requests_session.headers,
-            json=query_create.model_dump(),
+            json=payload,
         )
         if response.status_code not in (200, 201):
             raise DJQueryServiceClientException(
                 message=f"Error response from query service: {response.text}",
                 http_status_code=response.status_code,
             )
+
+        result = response.json()
+        status = result.get("status", "UNKNOWN")
+        message = result.get("message", "")
+        errors = result.get("errors", [])
+
+        _logger.info(
+            "[create_view] DDL result for view '%s': status=%s message=%s",
+            view_name,
+            status,
+            message,
+        )
+
+        if status != "SUCCESS":
+            error_msg = "; ".join(str(e) for e in errors) if errors else message
+            raise DJQueryServiceClientException(
+                message=f"View '{view_name}' creation failed: {error_msg}",
+                http_status_code=response.status_code,
+            )
+
         return f"View '{view_name}' created successfully."
 
     def submit_query(
