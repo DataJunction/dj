@@ -85,11 +85,10 @@ dependencies = [
     # JWT for GitHub App authentication
     "pyjwt[crypto]>=2.8.0",
 ]
-requires-python = ">=3.10,<3.14"
+requires-python = ">=3.11,<3.14"
 readme = "README.md"
 license = {text = "MIT"}
 classifiers = [
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
