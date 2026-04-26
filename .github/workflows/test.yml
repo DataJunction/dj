@@ -58,9 +58,12 @@ jobs:
         python-version: ['3.10', '3.11', '3.12', '3.13']
         library: ['client', 'server', 'djqs', 'djrs']
         exclude:
-          # datajunction-server requires Python >= 3.11
+          # datajunction-server requires Python >= 3.11; the client depends on
+          # datajunction-server (workspace dep), so it inherits the same floor.
           - python-version: '3.10'
             library: server
+          - python-version: '3.10'
+            library: client
 
     steps:
       - uses: actions/checkout@v4
