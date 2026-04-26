@@ -1,5 +1,6 @@
 """DJ graphql"""
 
+import inspect
 import logging
 import time
 from functools import wraps
@@ -60,6 +61,10 @@ from datajunction_server.utils import get_session, get_settings
 
 logger = logging.getLogger(__name__)
 
+# Resolvers that take longer than this are logged at WARNING with their path
+# so slow fields are visible without enabling per-resolver timing for everyone.
+SLOW_RESOLVER_THRESHOLD_MS = 500.0
+
 
 def log_resolver(func):
     """
@@ -107,15 +112,22 @@ class GraphQLErrorReporter(SchemaExtension):
     data (the spec way) that don't bubble as Python exceptions.
 
     For each error it:
-      - emits ``dj.graphql.errors`` with ``operation`` and ``error_type`` tags
+      - emits ``dj.graphql.errors`` with ``operation``, ``operation_name``,
+        and ``error_type`` tags
       - logs at ERROR level with the message, path, and the original
         exception's traceback (when one is attached)
 
-    ``operation`` is the top-level field path the error is attached to, or
-    ``unknown`` if the error has no path (e.g. parse / validation).
-    ``error_type`` is the underlying exception class name when the error
-    was caused by a raised exception, or ``GraphQLError`` when it's a
-    programmatic GraphQL error returned as data.
+    Also wraps every resolver with ``resolve`` so any single field that runs
+    longer than ``SLOW_RESOLVER_THRESHOLD_MS`` is logged at WARNING.
+
+    Tag semantics:
+      - ``operation`` — top-level field path the error is attached to,
+        or ``unknown`` if the error has no path (e.g. parse / validation).
+      - ``operation_name`` — the client-supplied name on the GraphQL operation
+        (``query Foo { ... }`` → ``Foo``); ``anonymous`` when omitted.
+      - ``error_type`` — the underlying exception class name when the error
+        was caused by a raised exception, or ``GraphQLError`` when it's a
+        programmatic GraphQL error returned as data.
     """
 
     def on_operation(self):
@@ -123,14 +135,18 @@ class GraphQLErrorReporter(SchemaExtension):
         result = getattr(self.execution_context, "result", None)
         if not result or not getattr(result, "errors", None):
             return
+        operation_name = (
+            getattr(self.execution_context, "operation_name", None) or "anonymous"
+        )
         for error in result.errors:
             path = getattr(error, "path", None)
             operation = str(path[0]) if path else "unknown"
             original = getattr(error, "original_error", None)
             error_type = type(original).__name__ if original else "GraphQLError"
             logger.error(
-                "[GQL] status=error operation=%s error_type=%s path=%s message=%s",
+                "[GQL] status=error operation=%s operation_name=%s error_type=%s path=%s message=%s",
                 operation,
+                operation_name,
                 error_type,
                 path,
                 error.message,
@@ -138,8 +154,28 @@ class GraphQLErrorReporter(SchemaExtension):
             )
             get_metrics_provider().counter(
                 "dj.graphql.errors",
-                tags={"operation": operation, "error_type": error_type},
+                tags={
+                    "operation": operation,
+                    "operation_name": operation_name,
+                    "error_type": error_type,
+                },
             )
+
+    async def resolve(self, _next, root, info, *args, **kwargs):
+        start = time.monotonic()
+        try:
+            result = _next(root, info, *args, **kwargs)
+            if inspect.isawaitable(result):
+                result = await result
+            return result
+        finally:
+            elapsed_ms = (time.monotonic() - start) * 1000
+            if elapsed_ms >= SLOW_RESOLVER_THRESHOLD_MS:
+                logger.warning(
+                    "[GQL] slow_resolver path=%s elapsed_ms=%.1f",
+                    info.path.as_list(),
+                    elapsed_ms,
+                )
 
 
 async def get_context(

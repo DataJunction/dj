@@ -4,12 +4,18 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from datajunction_server.api.graphql.dataloaders import (
+    InstrumentedDataLoader,
     batch_load_extracted_measures,
     batch_load_git_info,
     batch_load_nodes,
     batch_load_nodes_by_name_only,
     create_git_info_loader,
     create_node_by_name_loader,
+)
+from datajunction_server.instrumentation.provider import (
+    MetricsProvider,
+    get_metrics_provider,
+    set_metrics_provider,
 )
 
 
@@ -265,25 +271,15 @@ async def test_batch_load_nodes_by_name_only_with_missing(
     assert result[2] is None
 
 
-@patch("datajunction_server.api.graphql.dataloaders.DataLoader")
-def test_create_node_by_name_loader(mock_dataloader):
-    """Test create_node_by_name_loader creates DataLoader with correct load_fn"""
-    mock_request = MagicMock()
-    mock_loader_instance = MagicMock()
-    mock_dataloader.return_value = mock_loader_instance
+def test_create_node_by_name_loader():
+    """create_node_by_name_loader returns an InstrumentedDataLoader named 'node_by_name'."""
+    from datajunction_server.api.graphql.dataloaders import InstrumentedDataLoader
 
+    mock_request = MagicMock()
     result = create_node_by_name_loader(mock_request)
 
-    # Verify DataLoader was called
-    assert mock_dataloader.called
-    call_kwargs = mock_dataloader.call_args[1]
-
-    # Verify load_fn is set correctly
-    assert "load_fn" in call_kwargs
-    assert callable(call_kwargs["load_fn"])
-
-    # Verify result is the DataLoader instance
-    assert result == mock_loader_instance
+    assert isinstance(result, InstrumentedDataLoader)
+    assert result._loader_name == "node_by_name"
 
 
 @pytest.mark.asyncio
@@ -397,20 +393,15 @@ async def test_batch_load_git_info_no_git_branch(mock_session_context):
     assert result[0] is None
 
 
-@patch("datajunction_server.api.graphql.dataloaders.DataLoader")
-def test_create_git_info_loader(mock_dataloader):
-    """Test create_git_info_loader creates DataLoader with correct load_fn."""
-    mock_request = MagicMock()
-    mock_loader_instance = MagicMock()
-    mock_dataloader.return_value = mock_loader_instance
+def test_create_git_info_loader():
+    """create_git_info_loader returns an InstrumentedDataLoader named 'git_info'."""
+    from datajunction_server.api.graphql.dataloaders import InstrumentedDataLoader
 
+    mock_request = MagicMock()
     result = create_git_info_loader(mock_request)
 
-    assert mock_dataloader.called
-    call_kwargs = mock_dataloader.call_args[1]
-    assert "load_fn" in call_kwargs
-    assert callable(call_kwargs["load_fn"])
-    assert result == mock_loader_instance
+    assert isinstance(result, InstrumentedDataLoader)
+    assert result._loader_name == "git_info"
 
 
 @pytest.mark.asyncio
@@ -443,3 +434,102 @@ async def test_batch_load_extracted_measures_missing_ids(
     assert result == [None]
     # Only the nr_stmt query ran; the bulk Node load was skipped.
     assert mock_session.execute.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# InstrumentedDataLoader: hit/miss + batch metrics
+# ---------------------------------------------------------------------------
+
+
+class _SpyProvider(MetricsProvider):
+    def __init__(self) -> None:
+        self.counters: list[tuple] = []
+
+    def counter(self, name, value=1, tags=None):
+        self.counters.append((name, value, tags))
+
+    def gauge(self, name, value, tags=None):  # pragma: no cover
+        pass
+
+    def timer(self, name, value_ms, tags=None):  # pragma: no cover
+        pass
+
+
+@pytest.fixture
+def spy_metrics():
+    original = get_metrics_provider()
+    spy = _SpyProvider()
+    set_metrics_provider(spy)
+    yield spy
+    set_metrics_provider(original)
+
+
+@pytest.mark.asyncio
+async def test_instrumented_dataloader_misses_then_hit(spy_metrics):
+    """First load is a miss + batch fetch; second load of the same key is a cache hit."""
+
+    async def load_fn(keys):
+        return [f"v:{k}" for k in keys]
+
+    loader = InstrumentedDataLoader("test_loader", load_fn=load_fn)
+
+    assert await loader.load("a") == "v:a"
+    # Strawberry caches resolved futures, so a second load is a hit.
+    assert await loader.load("a") == "v:a"
+
+    miss_counts = [
+        c for c in spy_metrics.counters if c[0] == "dj.graphql.dataloader.misses"
+    ]
+    hit_counts = [
+        c for c in spy_metrics.counters if c[0] == "dj.graphql.dataloader.hits"
+    ]
+    batch_counts = [
+        c for c in spy_metrics.counters if c[0] == "dj.graphql.dataloader.batches"
+    ]
+    item_counts = [
+        c for c in spy_metrics.counters if c[0] == "dj.graphql.dataloader.items"
+    ]
+
+    assert miss_counts == [
+        ("dj.graphql.dataloader.misses", 1, {"loader": "test_loader"}),
+    ]
+    assert hit_counts == [
+        ("dj.graphql.dataloader.hits", 1, {"loader": "test_loader"}),
+    ]
+    assert batch_counts == [
+        ("dj.graphql.dataloader.batches", 1, {"loader": "test_loader"}),
+    ]
+    assert item_counts == [
+        ("dj.graphql.dataloader.items", 1, {"loader": "test_loader"}),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_instrumented_dataloader_batches_distinct_keys(spy_metrics):
+    """Concurrent loads of distinct keys are batched into a single fetch sized by len(keys)."""
+    import asyncio
+
+    async def load_fn(keys):
+        return [f"v:{k}" for k in keys]
+
+    loader = InstrumentedDataLoader("batched", load_fn=load_fn)
+
+    results = await asyncio.gather(
+        loader.load("a"),
+        loader.load("b"),
+        loader.load("c"),
+    )
+    assert results == ["v:a", "v:b", "v:c"]
+
+    item_counts = [
+        c for c in spy_metrics.counters if c[0] == "dj.graphql.dataloader.items"
+    ]
+    batch_counts = [
+        c for c in spy_metrics.counters if c[0] == "dj.graphql.dataloader.batches"
+    ]
+    assert batch_counts == [
+        ("dj.graphql.dataloader.batches", 1, {"loader": "batched"}),
+    ]
+    assert item_counts == [
+        ("dj.graphql.dataloader.items", 3, {"loader": "batched"}),
+    ]

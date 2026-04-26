@@ -12,6 +12,7 @@ from strawberry.dataloader import DataLoader
 from starlette.requests import Request
 
 from datajunction_server.api.graphql.resolvers.nodes import load_node_options
+from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.construction.build_v3.loaders import find_upstream_node_names
 from datajunction_server.database.collection import Collection as DBCollection
 from datajunction_server.database.namespace import NodeNamespace
@@ -31,6 +32,55 @@ from datajunction_server.sql.parsing import ast
 from datajunction_server.utils import session_context
 
 logger = logging.getLogger(__name__)
+
+
+class InstrumentedDataLoader(DataLoader):
+    """
+    DataLoader subclass that emits per-loader hit/miss counters and
+    batch-size counts via the metrics provider.
+
+    Metrics (all tagged with ``loader=<name>``):
+      - ``dj.graphql.dataloader.hits``     — load() returned a cached future
+      - ``dj.graphql.dataloader.misses``   — load() queued a fresh fetch
+      - ``dj.graphql.dataloader.batches``  — number of batched fetches
+      - ``dj.graphql.dataloader.items``    — total keys across batched fetches
+
+    Average batch size is ``items.rate / batches.rate`` in Atlas; cache hit
+    rate is ``hits.rate / (hits.rate + misses.rate)``.
+    """
+
+    def __init__(self, name: str, *, load_fn, **kwargs):
+        self._loader_name = name
+
+        async def instrumented_load_fn(keys):
+            provider = get_metrics_provider()
+            provider.counter(
+                "dj.graphql.dataloader.batches",
+                tags={"loader": name},
+            )
+            provider.counter(
+                "dj.graphql.dataloader.items",
+                value=len(keys),
+                tags={"loader": name},
+            )
+            return await load_fn(keys)
+
+        super().__init__(load_fn=instrumented_load_fn, **kwargs)
+
+    def load(self, key):
+        provider = get_metrics_provider()
+        cached = self.cache_map.get(key) if self.cache else None
+        if cached is not None and not cached.cancelled():
+            provider.counter(
+                "dj.graphql.dataloader.hits",
+                tags={"loader": self._loader_name},
+            )
+        else:
+            provider.counter(
+                "dj.graphql.dataloader.misses",
+                tags={"loader": self._loader_name},
+            )
+        return super().load(key)
 
 
 async def batch_load_nodes(
@@ -121,7 +171,8 @@ def create_node_by_name_loader(request: Request) -> DataLoader[str, DBNode | Non
     Returns:
         A DataLoader instance for batching node lookups
     """
-    return DataLoader(
+    return InstrumentedDataLoader(
+        "node_by_name",
         load_fn=lambda keys: batch_load_nodes_by_name_only(keys, request),
     )
 
@@ -180,7 +231,8 @@ def create_collection_nodes_loader(
     Returns:
         A DataLoader instance for batching collection node lookups
     """
-    return DataLoader(
+    return InstrumentedDataLoader(
+        "collection_nodes",
         load_fn=lambda keys: batch_load_collection_nodes(keys, request),
     )
 
@@ -245,7 +297,8 @@ def create_git_info_loader(
     will be resolved with at most 2 DB queries (ancestors + FK hops)
     instead of one query per node.
     """
-    return DataLoader(
+    return InstrumentedDataLoader(
+        "git_info",
         load_fn=lambda keys: batch_load_git_info(keys, request),
     )
 
@@ -372,6 +425,7 @@ def create_extracted_measures_loader(
     batch_load_extracted_measures(ids) — collapsing N sessions + N extractions
     into 1 session + N extractions sharing nodes_cache and parent_map.
     """
-    return DataLoader(
+    return InstrumentedDataLoader(
+        "extracted_measures",
         load_fn=lambda keys: batch_load_extracted_measures(keys, request),
     )
