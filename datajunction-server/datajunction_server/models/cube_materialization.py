@@ -445,9 +445,9 @@ class CubeMaterializeRequest(BaseModel):
         default=MaterializationStrategy.INCREMENTAL_TIME,
         description="Materialization strategy (FULL or INCREMENTAL_TIME)",
     )
-    lookback_window: str = Field(
+    lookback_window: Optional[str] = Field(
         default="1 DAY",
-        description="Lookback window for incremental materialization",
+        description="Lookback window for incremental materialization. Accepts null for FULL strategy.",
     )
     druid_datasource: Optional[str] = Field(
         default=None,
@@ -470,6 +470,14 @@ class PreAggTableInfo(BaseModel):
     )
     grain: List[str] = Field(
         description="Grain columns for this pre-agg",
+    )
+    strategy: Optional[MaterializationStrategy] = Field(
+        default=None,
+        description=(
+            "Materialization strategy of the pre-agg. Used by the cube "
+            "workflow generator to pick the right wait dependency: "
+            "partition-keyed signal for INCREMENTAL_TIME, VTTS-based for FULL."
+        ),
     )
 
 

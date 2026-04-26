@@ -42,6 +42,7 @@ from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import render_for_dialect, to_sql
 from datajunction_server.construction.build_v3.builder import build_measures_sql
 from datajunction_server.models.dialect import Dialect
+from datajunction_server.models.materialization import MaterializationStrategy
 from datajunction_server.utils import get_settings
 
 if TYPE_CHECKING:
@@ -499,13 +500,33 @@ class TemporalPartitionInfo:
     granularity: str | None  # Granularity (e.g., "day")
 
 
+@dataclass
+class PreAggSourceInfo:
+    """A pre-agg source feeding into the combined cube SQL.
+
+    Carries everything the cube workflow generator needs to wire a dependency
+    on this pre-agg — including its strategy, since FULL vs INCREMENTAL_TIME
+    determines whether to wait via VTTS or via partition-keyed signal.
+    """
+
+    table_ref: str  # Fully qualified table name (catalog.schema.table)
+    parent_name: str  # The node this pre-agg derives from
+    strategy: "MaterializationStrategy | None" = (
+        None  # None when no PreAggregation record matched
+    )
+
+
 async def build_combiner_sql_from_preaggs(
     session,
     metrics: list[str],
     dimensions: list[str],
     filters: list[str] | None = None,
     dialect=None,
-) -> tuple[CombinedGrainGroupResult, list[str], TemporalPartitionInfo | None]:
+) -> tuple[
+    CombinedGrainGroupResult,
+    list[PreAggSourceInfo],
+    TemporalPartitionInfo | None,
+]:
     """
     Build combined SQL that reads from pre-aggregation tables.
 
@@ -545,7 +566,7 @@ async def build_combiner_sql_from_preaggs(
         raise ValueError("No grain groups generated")
 
     ctx = result.ctx
-    preagg_table_refs = []
+    preagg_sources: list[PreAggSourceInfo] = []
     preagg_grain_groups = []
     temporal_partitions_found: list[TemporalPartitionInfo] = []
 
@@ -618,7 +639,13 @@ async def build_combiner_sql_from_preaggs(
             full_table_ref = (
                 f"{settings.preagg_catalog}.{settings.preagg_schema}.{table_name}"
             )
-        preagg_table_refs.append(full_table_ref)
+        preagg_sources.append(
+            PreAggSourceInfo(
+                table_ref=full_table_ref,
+                parent_name=gg.parent_name,
+                strategy=matching_preagg.strategy if matching_preagg else None,
+            ),
+        )
 
         # Create a modified grain group that reads from the pre-agg table
         # We need to build a simple SELECT from the pre-agg table with re-aggregation
@@ -679,7 +706,7 @@ async def build_combiner_sql_from_preaggs(
             temporal_partition_info.column_name,
         )
 
-    return combined_result, preagg_table_refs, temporal_partition_info
+    return combined_result, preagg_sources, temporal_partition_info
 
 
 def _reorder_partition_column_last(

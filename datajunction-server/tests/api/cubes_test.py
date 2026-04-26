@@ -10,6 +10,7 @@ import pytest_asyncio
 from httpx import AsyncClient
 
 from datajunction_server.construction.build_v3.combiners import (
+    PreAggSourceInfo,
     TemporalPartitionInfo,
 )
 from datajunction_server.models.cube import CubeElementMetadata
@@ -4114,7 +4115,13 @@ class TestCubeMaterializeV2SuccessPaths:
             "datajunction_server.api.cubes.build_combiner_sql_from_preaggs",
             return_value=(
                 mock_combined_result,
-                ["catalog.schema.preagg_table1"],
+                [
+                    PreAggSourceInfo(
+                        table_ref="catalog.schema.preagg_table1",
+                        parent_name="default.repair_orders",
+                        strategy=None,
+                    ),
+                ],
                 mock_temporal_info,
             ),
         )
@@ -4189,7 +4196,13 @@ class TestCubeMaterializeV2SuccessPaths:
             "datajunction_server.api.cubes.build_combiner_sql_from_preaggs",
             return_value=(
                 mock_combined_result,
-                ["catalog.schema.preagg_table1"],
+                [
+                    PreAggSourceInfo(
+                        table_ref="catalog.schema.preagg_table1",
+                        parent_name="default.repair_orders",
+                        strategy=None,
+                    ),
+                ],
                 mock_temporal_info,
             ),
         )
@@ -4252,7 +4265,13 @@ class TestCubeMaterializeV2SuccessPaths:
             "datajunction_server.api.cubes.build_combiner_sql_from_preaggs",
             return_value=(
                 mock_combined_result,
-                ["catalog.schema.preagg_table1"],
+                [
+                    PreAggSourceInfo(
+                        table_ref="catalog.schema.preagg_table1",
+                        parent_name="default.repair_orders",
+                        strategy=None,
+                    ),
+                ],
                 None,  # No temporal partition!
             ),
         )
@@ -4305,7 +4324,13 @@ class TestCubeMaterializeV2SuccessPaths:
             "datajunction_server.api.cubes.build_combiner_sql_from_preaggs",
             return_value=(
                 mock_combined_result,
-                ["catalog.schema.preagg_table1"],
+                [
+                    PreAggSourceInfo(
+                        table_ref="catalog.schema.preagg_table1",
+                        parent_name="default.repair_orders",
+                        strategy=None,
+                    ),
+                ],
                 mock_temporal_info,
             ),
         )
@@ -4371,7 +4396,13 @@ class TestCubeMaterializeV2SuccessPaths:
             "datajunction_server.api.cubes.build_combiner_sql_from_preaggs",
             return_value=(
                 mock_combined_result,
-                ["catalog.schema.preagg_table1"],
+                [
+                    PreAggSourceInfo(
+                        table_ref="catalog.schema.preagg_table1",
+                        parent_name="default.repair_orders",
+                        strategy=None,
+                    ),
+                ],
                 mock_temporal_info,
             ),
         )
@@ -4662,7 +4693,13 @@ class TestCubeDeactivateSuccessPaths:
             "datajunction_server.api.cubes.build_combiner_sql_from_preaggs",
             return_value=(
                 mock_combined_result,
-                ["catalog.schema.preagg_table1"],
+                [
+                    PreAggSourceInfo(
+                        table_ref="catalog.schema.preagg_table1",
+                        parent_name="default.repair_orders",
+                        strategy=None,
+                    ),
+                ],
                 mock_temporal_info,
             ),
         )
@@ -4737,7 +4774,13 @@ class TestCubeDeactivateSuccessPaths:
             "datajunction_server.api.cubes.build_combiner_sql_from_preaggs",
             return_value=(
                 mock_combined_result,
-                ["catalog.schema.preagg_table1"],
+                [
+                    PreAggSourceInfo(
+                        table_ref="catalog.schema.preagg_table1",
+                        parent_name="default.repair_orders",
+                        strategy=None,
+                    ),
+                ],
                 mock_temporal_info,
             ),
         )
@@ -4822,7 +4865,13 @@ class TestCubeDeactivateWithStoredWorkflowNames:
             "datajunction_server.api.cubes.build_combiner_sql_from_preaggs",
             return_value=(
                 mock_combined_result,
-                ["catalog.schema.preagg_table1"],
+                [
+                    PreAggSourceInfo(
+                        table_ref="catalog.schema.preagg_table1",
+                        parent_name="default.repair_orders",
+                        strategy=None,
+                    ),
+                ],
                 mock_temporal_info,
             ),
         )
@@ -4908,7 +4957,13 @@ class TestCubeBackfillSuccessPaths:
             "datajunction_server.api.cubes.build_combiner_sql_from_preaggs",
             return_value=(
                 mock_combined_result,
-                ["catalog.schema.preagg_table1"],
+                [
+                    PreAggSourceInfo(
+                        table_ref="catalog.schema.preagg_table1",
+                        parent_name="default.repair_orders",
+                        strategy=None,
+                    ),
+                ],
                 mock_temporal_info,
             ),
         )
@@ -4992,7 +5047,13 @@ class TestCubeBackfillSuccessPaths:
             "datajunction_server.api.cubes.build_combiner_sql_from_preaggs",
             return_value=(
                 mock_combined_result,
-                ["catalog.schema.preagg_table1"],
+                [
+                    PreAggSourceInfo(
+                        table_ref="catalog.schema.preagg_table1",
+                        parent_name="default.repair_orders",
+                        strategy=None,
+                    ),
+                ],
                 mock_temporal_info,
             ),
         )
@@ -5063,7 +5124,13 @@ class TestCubeBackfillSuccessPaths:
             "datajunction_server.api.cubes.build_combiner_sql_from_preaggs",
             return_value=(
                 mock_combined_result,
-                ["catalog.schema.preagg_table1"],
+                [
+                    PreAggSourceInfo(
+                        table_ref="catalog.schema.preagg_table1",
+                        parent_name="default.repair_orders",
+                        strategy=None,
+                    ),
+                ],
                 mock_temporal_info,
             ),
         )

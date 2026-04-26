@@ -286,6 +286,14 @@ export function QueryPlannerPage() {
         setDimensionsLoading(true);
         try {
           const dims = await djClient.commonDimensions(selectedMetrics);
+          // Server returns an error body (e.g. {message: "..."}) on 404/422 with
+          // a non-OK status, but commonDimensions() doesn't surface that — guard
+          // against passing a non-array into setCommonDimensions.
+          if (!Array.isArray(dims)) {
+            console.error('commonDimensions returned non-array:', dims);
+            setCommonDimensions([]);
+            return;
+          }
           setCommonDimensions(dims);
 
           // Apply pending dimensions from URL if we have them

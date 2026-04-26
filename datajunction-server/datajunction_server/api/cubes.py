@@ -454,7 +454,7 @@ async def materialize_cube(
     try:
         (
             combined_result,
-            preagg_table_refs,
+            preagg_sources,
             temporal_partition_info,
         ) = await build_combiner_sql_from_preaggs(
             session=session,
@@ -483,21 +483,19 @@ async def materialize_cube(
             http_status_code=HTTPStatus.BAD_REQUEST,
         )
 
-    # Build pre-agg table info
-    preagg_tables = []
-    for i, table_ref in enumerate(preagg_table_refs):
-        # Extract parent node from the grain groups used in combiner
-        parent_name = combined_result.columns[0].semantic_name or "unknown"
-        # Get grain from the combiner result
-        grain = combined_result.shared_dimensions
-
-        preagg_tables.append(
-            PreAggTableInfo(
-                table_ref=table_ref,
-                parent_node=parent_name,
-                grain=grain,
-            ),
+    # Build pre-agg table info. Strategy is threaded through so the QS workflow
+    # generator can pick the right wait dependency per pre-agg (VTTS for FULL,
+    # partition-keyed signal for INCREMENTAL_TIME).
+    grain = combined_result.shared_dimensions
+    preagg_tables = [
+        PreAggTableInfo(
+            table_ref=src.table_ref,
+            parent_node=src.parent_name,
+            grain=grain,
+            strategy=src.strategy,
         )
+        for src in preagg_sources
+    ]
 
     # Generate Druid datasource name (versioned to prevent overwrites)
     safe_name = name.replace(".", "_")
@@ -614,32 +612,23 @@ async def materialize_cube(
         lookback_window=effective_lookback,
     )
 
-    # Call the query service to create the workflow
+    # Call the query service to create the workflow.
+    # Let DJQueryServiceClientException (raised by the service client) propagate
+    # so the user sees the actual QS error response in the API response body —
+    # silently swallowing it leaves the materialization in a half-configured
+    # state with no visibility into what failed.
     request_headers = dict(request.headers)
-    try:
-        mat_result = query_service_client.materialize_cube_v2(
-            v2_input,
-            request_headers=request_headers,
-        )
-        workflow_urls = mat_result.urls
-        workflow_names = mat_result.workflow_names
-        message = (
-            f"Cube materialization workflow created. "
-            f"Workflow waits on {len(preagg_tables)} pre-agg table(s) before Druid ingestion. "
-            f"Workflow URLs: {workflow_urls}"
-        )
-    except Exception as e:
-        _logger.warning(
-            "Failed to create workflow for cube=%s: %s. Returning response without workflow.",
-            name,
-            str(e),
-        )
-        workflow_urls = []
-        workflow_names = []
-        message = (
-            f"Cube materialization prepared (workflow creation failed: {e}). "
-            f"Druid workflow should wait on {len(preagg_tables)} pre-agg table(s) before ingestion."
-        )
+    mat_result = query_service_client.materialize_cube_v2(
+        v2_input,
+        request_headers=request_headers,
+    )
+    workflow_urls = mat_result.urls
+    workflow_names = mat_result.workflow_names
+    message = (
+        f"Cube materialization workflow created. "
+        f"Workflow waits on {len(preagg_tables)} pre-agg table(s) before Druid ingestion. "
+        f"Workflow URLs: {workflow_urls}"
+    )
 
     # Persist materialization record on the cube's node revision
     materialization_name = "druid_cube_v3"
