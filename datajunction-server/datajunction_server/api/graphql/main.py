@@ -8,6 +8,7 @@ from datajunction_server.instrumentation.provider import get_metrics_provider
 
 import strawberry
 from fastapi import Depends, Request, BackgroundTasks
+from strawberry.extensions import SchemaExtension
 from strawberry.fastapi import GraphQLRouter
 from strawberry.types import Info
 
@@ -62,7 +63,11 @@ logger = logging.getLogger(__name__)
 
 def log_resolver(func):
     """
-    Adds generic logging to the GQL resolver.
+    Adds success-path logging and per-resolver latency timing to the GQL
+    resolver. Error logging and ``dj.graphql.errors`` emission live in
+    GraphQLErrorReporter — that single source of truth sees ALL errors
+    that end up in the response, including programmatic GraphQL errors
+    that don't bubble as Python exceptions.
     """
 
     @wraps(func)
@@ -85,17 +90,6 @@ def log_resolver(func):
             result = await func(*args, **kwargs)
             logger.info("[GQL] %s", log_args)
             return result
-        except Exception:  # pragma: no cover
-            get_metrics_provider().counter(  # pragma: no cover
-                "dj.graphql.errors",
-                tags={"operation": resolver_name},
-            )
-            logger.error(  # pragma: no cover
-                "[GQL] status=error %s",
-                log_args,
-                exc_info=True,
-            )
-            raise  # pragma: no cover
         finally:
             get_metrics_provider().timer(
                 "dj.graphql.query_ms",
@@ -104,6 +98,48 @@ def log_resolver(func):
             )
 
     return wrapper
+
+
+class GraphQLErrorReporter(SchemaExtension):
+    """
+    Strawberry extension that handles every error that ends up in the
+    GraphQL response — including programmatic GraphQL errors returned as
+    data (the spec way) that don't bubble as Python exceptions.
+
+    For each error it:
+      - emits ``dj.graphql.errors`` with ``operation`` and ``error_type`` tags
+      - logs at ERROR level with the message, path, and the original
+        exception's traceback (when one is attached)
+
+    ``operation`` is the top-level field path the error is attached to, or
+    ``unknown`` if the error has no path (e.g. parse / validation).
+    ``error_type`` is the underlying exception class name when the error
+    was caused by a raised exception, or ``GraphQLError`` when it's a
+    programmatic GraphQL error returned as data.
+    """
+
+    def on_operation(self):
+        yield
+        result = getattr(self.execution_context, "result", None)
+        if not result or not getattr(result, "errors", None):
+            return
+        for error in result.errors:
+            path = getattr(error, "path", None)
+            operation = str(path[0]) if path else "unknown"
+            original = getattr(error, "original_error", None)
+            error_type = type(original).__name__ if original else "GraphQLError"
+            logger.error(
+                "[GQL] status=error operation=%s error_type=%s path=%s message=%s",
+                operation,
+                error_type,
+                path,
+                error.message,
+                exc_info=original,
+            )
+            get_metrics_provider().counter(
+                "dj.graphql.errors",
+                tags={"operation": operation, "error_type": error_type},
+            )
 
 
 async def get_context(
@@ -221,6 +257,6 @@ class Query:
     )
 
 
-schema = strawberry.Schema(query=Query)
+schema = strawberry.Schema(query=Query, extensions=[GraphQLErrorReporter])
 
 graphql_app = GraphQLRouter(schema, context_getter=get_context)
