@@ -9,6 +9,7 @@ import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 
+from datajunction_server.errors import DJQueryServiceClientException
 from datajunction_server.construction.build_v3.combiners import (
     PreAggSourceInfo,
     TemporalPartitionInfo,
@@ -4285,12 +4286,17 @@ class TestCubeMaterializeV2SuccessPaths:
         assert "temporal partition" in response.json()["message"].lower()
 
     @pytest.mark.asyncio
-    async def test_materialize_cube_query_service_failure_continues(
+    async def test_materialize_cube_query_service_failure_propagates(
         self,
         client_with_repairs_cube: AsyncClient,
         mocker,
     ):
-        """Test that query service failure returns response with empty workflow_urls."""
+        """Query service failures surface to the caller instead of being swallowed.
+
+        The endpoint deliberately stopped catching QS exceptions so the user sees
+        the actual upstream error rather than a half-configured materialization
+        with no workflow.
+        """
         cube_name = "default.test_materialize_qs_fail_cube"
         await make_a_test_cube(
             client_with_repairs_cube,
@@ -4335,14 +4341,16 @@ class TestCubeMaterializeV2SuccessPaths:
             ),
         )
 
-        # Mock query service to fail
         qs_client = client_with_repairs_cube.app.dependency_overrides[
             get_query_service_client
         ]()
         mocker.patch.object(
             qs_client,
             "materialize_cube_v2",
-            side_effect=Exception("Query service unavailable"),
+            side_effect=DJQueryServiceClientException(
+                message="Query service unavailable",
+                http_status_code=502,
+            ),
         )
 
         response = await client_with_repairs_cube.post(
@@ -4350,11 +4358,8 @@ class TestCubeMaterializeV2SuccessPaths:
             json={"strategy": "full", "schedule": "0 0 * * *"},
         )
 
-        # Should succeed but with empty workflow_urls
-        assert response.status_code == 200, response.json()
-        data = response.json()
-        assert data["workflow_urls"] == []
-        assert "workflow creation failed" in data["message"].lower()
+        assert response.status_code == 502, response.json()
+        assert "Query service unavailable" in response.json()["message"]
 
     @pytest.mark.asyncio
     async def test_materialize_cube_updates_existing_materialization(
