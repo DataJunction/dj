@@ -204,11 +204,12 @@ class TestViewCreationOnLifecycle:
             )
             assert response.status_code == 200, response.json()
 
+            # PATCH bumps the cube revision (v1.0 → v1.1).
             assert sorted(c for c in create_view_calls if "view_test_cube" in c) == [
                 SPARK_UNVERSIONED,
                 TRINO_UNVERSIONED,
-                SPARK_VERSIONED,
-                TRINO_VERSIONED,
+                "default.dj_views.default_view_test_cube_v1_1",
+                "default.dj_views.default_view_test_cube_v1_1__trino",
             ]
         finally:
             qs_client.create_view = original_create_view
