@@ -2788,14 +2788,18 @@ class FunctionTable(FunctionTableExpression):
             else ""
         )
 
-        column_parens = False
-        if self.name.name.upper() == "UNNEST" or (
-            self.name.name.upper() == "EXPLODE"
-            and not isinstance(self.parent, LateralView)
-        ):
-            column_parens = True
-
-        column_list_str = f"({cols})" if column_parens else f"{cols}"
+        # UNNEST / EXPLODE outside a lateral view need their column list wrapped
+        # in parens (e.g. `UNNEST(arr) AS t(x)`). With no column list — common
+        # when EXPLODE is used as a scalar inside CAST(...) — we must NOT emit
+        # an empty `()`, which would render as `explode(arr)()` and fail to parse.
+        wraps_column_list = bool(cols) and (
+            self.name.name.upper() == "UNNEST"
+            or (
+                self.name.name.upper() == "EXPLODE"
+                and not isinstance(self.parent, LateralView)
+            )
+        )
+        column_list_str = f"({cols})" if wraps_column_list else f"{cols}"
         args_str = f"({', '.join(str(col) for col in self.args)})" if self.args else ""
         return f"{self.name}{args_str}{alias}{as_}{column_list_str}"
 
