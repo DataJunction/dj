@@ -168,6 +168,7 @@ async def validate_node(
 @router.post("/nodes/{name}/validate/", response_model=NodeStatusDetails)
 async def revalidate(
     name: str,
+    sync_views: bool = False,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
@@ -178,7 +179,10 @@ async def revalidate(
     access_checker: AccessChecker = Depends(get_access_checker),
 ) -> NodeStatusDetails:
     """
-    Revalidate a single existing node and update its status appropriately
+    Revalidate a single existing node and update its status appropriately.
+
+    If sync_views=true and the node is a cube, also creates/updates
+    warehouse views (Spark + Trino) as a background task.
     """
     access_checker.add_request_by_node_name(name, ResourceAction.WRITE)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
@@ -191,15 +195,16 @@ async def revalidate(
         save_history=save_history,
     )
 
-    # Create/update views if this is a cube (non-blocking)
-    node = await Node.get_by_name(session, name)
-    if node and node.type == NodeType.CUBE:  # type: ignore
-        background_tasks.add_task(
-            create_cube_views,
-            cube_name=name,
-            query_service_client=query_service_client,
-            request_headers=dict(request.headers),
-        )
+    # Create/update views if requested and this is a cube (non-blocking)
+    if sync_views:
+        node = await Node.get_by_name(session, name)
+        if node and node.type == NodeType.CUBE:  # type: ignore
+            background_tasks.add_task(
+                create_cube_views,
+                cube_name=name,
+                query_service_client=query_service_client,
+                request_headers=dict(request.headers),
+            )
 
     return NodeStatusDetails(
         status=node_validator.status,
