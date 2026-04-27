@@ -8,7 +8,38 @@ import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 
+from datajunction_server.instrumentation.provider import (
+    MetricsProvider,
+    get_metrics_provider,
+    set_metrics_provider,
+)
 from datajunction_server.utils import get_query_service_client
+
+
+class _SpyProvider(MetricsProvider):
+    """Records counter/timer calls so tests can assert against them."""
+
+    def __init__(self) -> None:
+        self.counters: list[tuple] = []
+        self.timers: list[tuple] = []
+
+    def counter(self, name, value=1, tags=None):
+        self.counters.append((name, value, tags))
+
+    def gauge(self, name, value, tags=None):  # pragma: no cover
+        pass
+
+    def timer(self, name, value_ms, tags=None):
+        self.timers.append((name, value_ms, tags))
+
+
+@pytest.fixture
+def spy_metrics():
+    original = get_metrics_provider()
+    spy = _SpyProvider()
+    set_metrics_provider(spy)
+    yield spy
+    set_metrics_provider(original)
 
 
 @pytest_asyncio.fixture(scope="module")
@@ -96,6 +127,68 @@ class TestViewDDLEndpoint:
             "/cubes/default.nonexistent_cube/view-ddl",
         )
         assert response.status_code >= 400
+
+    @pytest.mark.asyncio
+    async def test_view_ddl_materialized_cube(
+        self,
+        module__client_with_roads: AsyncClient,
+    ):
+        """When a cube has an availability state, versioned DDL is SELECT * FROM the materialized table."""
+        cube_name = "default.materialized_view_cube"
+        response = await module__client_with_roads.post(
+            "/nodes/cube/",
+            json={
+                "metrics": ["default.num_repair_orders"],
+                "dimensions": ["default.hard_hat.country"],
+                "description": "Materialized cube for view DDL test",
+                "mode": "published",
+                "name": cube_name,
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        availability = await module__client_with_roads.post(
+            f"/data/{cube_name}/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "roads",
+                "table": "materialized_view_cube_table",
+                "valid_through_ts": 20260101,
+            },
+        )
+        assert availability.status_code == 200, availability.json()
+
+        response = await module__client_with_roads.get(
+            f"/cubes/{cube_name}/view-ddl",
+        )
+        assert response.status_code == 200
+
+        versioned = "default.dj_views.default_materialized_view_cube_v1_0"
+        unversioned = "default.dj_views.default_materialized_view_cube"
+        materialized_table = "default.roads.materialized_view_cube_table"
+        assert response.json() == {
+            "spark": {
+                "versioned_view_name": versioned,
+                "unversioned_view_name": unversioned,
+                "versioned_ddl": (
+                    f"CREATE OR REPLACE VIEW {versioned} "
+                    f"AS SELECT * FROM {materialized_table}"
+                ),
+                "unversioned_ddl": (
+                    f"CREATE OR REPLACE VIEW {unversioned} AS SELECT * FROM {versioned}"
+                ),
+            },
+            "trino": {
+                "versioned_view_name": f"{versioned}__trino",
+                "unversioned_view_name": f"{unversioned}__trino",
+                "versioned_ddl": mock.ANY,
+                "unversioned_ddl": (
+                    f"CREATE OR REPLACE VIEW {unversioned}__trino "
+                    f"AS SELECT * FROM {versioned}__trino"
+                ),
+            },
+            "is_materialized": True,
+        }
 
 
 class TestViewCreationOnLifecycle:
@@ -241,5 +334,52 @@ class TestViewCreationOnLifecycle:
             assert response.status_code == 200, response.json()
 
             assert create_view_calls == []
+        finally:
+            qs_client.create_view = original_create_view
+
+    @pytest.mark.asyncio
+    async def test_view_creation_failure_is_swallowed(
+        self,
+        module__client_with_roads: AsyncClient,
+        spy_metrics,
+    ):
+        """If create_view raises, the cube create still succeeds and the failure metric is emitted."""
+        qs_client = module__client_with_roads.app.dependency_overrides[
+            get_query_service_client
+        ]()
+
+        original_create_view = qs_client.create_view
+
+        def failing_create_view(view_name, query_create, request_headers=None):
+            raise RuntimeError("query service exploded")
+
+        qs_client.create_view = failing_create_view
+
+        try:
+            response = await module__client_with_roads.post(
+                "/nodes/cube/",
+                json={
+                    "metrics": ["default.num_repair_orders"],
+                    "dimensions": ["default.hard_hat.country"],
+                    "description": "Cube whose view creation will fail",
+                    "mode": "published",
+                    "name": "default.failing_view_cube",
+                },
+            )
+            # Cube create succeeds — view creation is fire-and-forget.
+            assert response.status_code == 201, response.json()
+
+            failure_counters = [
+                c
+                for c in spy_metrics.counters
+                if c[0] == "dj.views.create" and c[2].get("status") == "failed"
+            ]
+            assert failure_counters == [
+                (
+                    "dj.views.create",
+                    1,
+                    {"cube_name": "default.failing_view_cube", "status": "failed"},
+                ),
+            ]
         finally:
             qs_client.create_view = original_create_view
