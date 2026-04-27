@@ -264,10 +264,39 @@ class TestViewCreationOnLifecycle:
 
             assert sorted(c for c in create_view_calls if "view_test_cube" in c) == [
                 SPARK_UNVERSIONED,
-                SPARK_VERSIONED,
                 TRINO_UNVERSIONED,
+                SPARK_VERSIONED,
                 TRINO_VERSIONED,
             ]
+        finally:
+            qs_client.create_view = original_create_view
+
+    @pytest.mark.asyncio
+    async def test_validate_non_cube_with_sync_views_does_not_create_views(
+        self,
+        module__client_with_roads: AsyncClient,
+    ):
+        """sync_views=true on a non-cube node still skips view creation."""
+        qs_client = module__client_with_roads.app.dependency_overrides[
+            get_query_service_client
+        ]()
+
+        original_create_view = qs_client.create_view
+        create_view_calls: list[str] = []
+
+        def tracking_create_view(view_name, query_create, request_headers=None):
+            create_view_calls.append(view_name)
+            return original_create_view(view_name, query_create, request_headers)
+
+        qs_client.create_view = tracking_create_view
+
+        try:
+            response = await module__client_with_roads.post(
+                "/nodes/default.num_repair_orders/validate/?sync_views=true",
+            )
+            assert response.status_code == 200, response.json()
+
+            assert create_view_calls == []
         finally:
             qs_client.create_view = original_create_view
 
