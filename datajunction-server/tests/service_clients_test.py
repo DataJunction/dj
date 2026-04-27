@@ -871,9 +871,10 @@ class TestQueryServiceClient:
         mock_input.model_dump.return_value = {"preagg_id": 123}
 
         query_service_client = QueryServiceClient(uri=self.endpoint)
-        with pytest.raises(Exception) as exc_info:
+        with pytest.raises(DJQueryServiceClientException) as exc_info:
             query_service_client.materialize_preagg(mock_input)
-        assert "Query service error" in str(exc_info.value)
+        assert "Query service rejected pre-agg materialization" in str(exc_info.value)
+        assert "Internal server error" in str(exc_info.value)
 
     def test_deactivate_preagg_workflow(self, mocker: MockerFixture) -> None:
         """
@@ -1122,9 +1123,10 @@ class TestQueryServiceClient:
         )
 
         query_service_client = QueryServiceClient(uri=self.endpoint)
-        with pytest.raises(Exception) as exc_info:
+        with pytest.raises(DJQueryServiceClientException) as exc_info:
             query_service_client.materialize_cube_v2(input_data)
-        assert "Query service error" in str(exc_info.value)
+        assert "Query service rejected cube materialization" in str(exc_info.value)
+        assert "Internal Server Error" in str(exc_info.value)
 
     def test_deactivate_cube_workflow_success(self, mocker: MockerFixture) -> None:
         """

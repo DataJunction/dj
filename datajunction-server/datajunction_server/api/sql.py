@@ -456,7 +456,7 @@ async def get_combined_measures_sql_v3(
         # Generate SQL that reads from pre-agg tables (deterministic names)
         (
             combined_result,
-            source_tables,
+            preagg_sources,
             _,
         ) = await build_combiner_sql_from_preaggs(  # pragma: no cover
             session=session,
@@ -465,6 +465,7 @@ async def get_combined_measures_sql_v3(
             filters=filters,
             dialect=dialect,
         )
+        source_tables = [src.table_ref for src in preagg_sources]  # pragma: no cover
     else:
         # Build the measures SQL to get grain groups (compute from scratch)
         result = await build_measures_sql(

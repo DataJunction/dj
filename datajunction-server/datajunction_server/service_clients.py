@@ -392,14 +392,21 @@ class QueryServiceClient:
             timeout=30,
         )
         if response.status_code not in (200, 201):
-            _logger.exception(
+            _logger.error(
                 "[DJQS] Failed to schedule v2 cube materialization for"
-                " cube=%s with `POST /cubes/materialize/v2`: %s",
+                " cube=%s: status=%s body=%s",
                 materialization_input.cube_name,
+                response.status_code,
                 response.text,
-                exc_info=True,
             )
-            raise Exception(f"Query service error: {response.text}")
+            raise DJQueryServiceClientException(
+                message=(
+                    f"Query service rejected cube materialization for "
+                    f"'{materialization_input.cube_name}' "
+                    f"(status={response.status_code}): {response.text}"
+                ),
+                http_status_code=HTTPStatus.BAD_GATEWAY,
+            )
         result = response.json()
         _logger.info(
             "[DJQS] Scheduled v2 cube materialization for cube=%s with "
@@ -433,13 +440,20 @@ class QueryServiceClient:
             timeout=30,
         )
         if response.status_code not in (200, 201):
-            _logger.exception(
-                "[DJQS] Failed to create workflow for preagg_id=%s: %s",
+            _logger.error(
+                "[DJQS] Failed to create workflow for preagg_id=%s: status=%s body=%s",
                 materialization_input.preagg_id,
+                response.status_code,
                 response.text,
-                exc_info=True,
             )
-            raise Exception(f"Query service error: {response.text}")
+            raise DJQueryServiceClientException(
+                message=(
+                    f"Query service rejected pre-agg materialization for "
+                    f"preagg_id={materialization_input.preagg_id} "
+                    f"(status={response.status_code}): {response.text}"
+                ),
+                http_status_code=HTTPStatus.BAD_GATEWAY,
+            )
         result = response.json()
         _logger.info(
             "[DJQS] Created workflow for preagg_id=%s, output_table=%s, "

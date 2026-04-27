@@ -1075,7 +1075,7 @@ class TestBuildCombinerSqlFromPreaggs:
         Test basic pre-agg SQL generation flow.
         """
         # This should work with existing v3 metrics
-        result, table_refs, temporal_info = await build_combiner_sql_from_preaggs(
+        result, preagg_sources, temporal_info = await build_combiner_sql_from_preaggs(
             session=session,
             metrics=["v3.total_revenue"],
             dimensions=["v3.order_details.status"],
@@ -1085,10 +1085,10 @@ class TestBuildCombinerSqlFromPreaggs:
         assert result is not None
         assert result.grain_groups_combined >= 1
 
-        # Should have pre-agg table references
-        assert len(table_refs) >= 1
-        for ref in table_refs:
-            assert "_preagg_" in ref
+        # Should have pre-agg sources
+        assert len(preagg_sources) >= 1
+        for src in preagg_sources:
+            assert "_preagg_" in src.table_ref
 
         # SQL should reference the pre-agg tables
         assert result.sql is not None
@@ -1176,7 +1176,7 @@ class TestBuildCombinerSqlFromPreaggs:
         await session.flush()
 
         # Now call build_combiner_sql_from_preaggs
-        result, table_refs, temporal_info = await build_combiner_sql_from_preaggs(
+        result, preagg_sources, temporal_info = await build_combiner_sql_from_preaggs(
             session=session,
             metrics=["v3.total_revenue"],
             dimensions=["v3.order_details.status"],
@@ -1186,8 +1186,8 @@ class TestBuildCombinerSqlFromPreaggs:
         assert result is not None
         assert result.grain_groups_combined >= 1
 
-        # Should have pre-agg table references
-        assert len(table_refs) >= 1
+        # Should have pre-agg sources
+        assert len(preagg_sources) >= 1
 
         # If temporal partition was set up, temporal_info should be populated
         # (depends on whether order_date is in grain_columns or linked dimension)
@@ -1300,7 +1300,7 @@ class TestBuildCombinerSqlFromPreaggs:
         # Now call build_combiner_sql_from_preaggs
         # The metric v3.total_revenue uses line_total, so the first pre-agg
         # (with quantity) should be skipped, and the second one should be used
-        result, table_refs, temporal_info = await build_combiner_sql_from_preaggs(
+        result, preagg_sources, temporal_info = await build_combiner_sql_from_preaggs(
             session=session,
             metrics=["v3.total_revenue"],
             dimensions=["v3.order_details.status"],
@@ -1310,13 +1310,14 @@ class TestBuildCombinerSqlFromPreaggs:
         assert result is not None
         assert result.grain_groups_combined >= 1
 
-        # Should have pre-agg table references
-        assert len(table_refs) >= 1
+        # Should have pre-agg sources
+        assert len(preagg_sources) >= 1
 
         # The table reference should use the CORRECT pre-agg's availability table,
         # not the wrong one. This verifies the loop skipped the first pre-agg and
         # found the second. Since matching preaggs with availability use the
         # materialized_table_ref (catalog.schema.table), we check for those.
+        table_refs = [src.table_ref for src in preagg_sources]
         table_refs_str = " ".join(table_refs)
         assert "order_details_preagg_correct" in table_refs_str, (
             f"Expected correct preagg table in table refs, but got {table_refs}"
