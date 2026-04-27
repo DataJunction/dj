@@ -1,6 +1,7 @@
 """Clients for various configurable services."""
 
 import logging
+from enum import Enum
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Dict, List, Optional, Union, Any
 from urllib.parse import urljoin
@@ -38,6 +39,18 @@ if TYPE_CHECKING:
     from datajunction_server.database.engine import Engine
 
 _logger = logging.getLogger(__name__)
+
+
+class DDLStatus(str, Enum):
+    """
+    Status values returned by dj-query's POST /ddl/execute endpoint.
+    Must stay in sync with dj_query.api.ddl.DDLStatus.
+    """
+
+    SUCCESS = "SUCCESS"
+    FAILED = "FAILED"
+    TIMEOUT = "TIMEOUT"
+    ERROR = "ERROR"
 
 
 class RequestsSessionWithEndpoint(requests.Session):
@@ -222,7 +235,7 @@ class QueryServiceClient:
             message,
         )
 
-        if status != "SUCCESS":
+        if status != DDLStatus.SUCCESS:
             error_msg = "; ".join(str(e) for e in errors) if errors else message
             raise DJQueryServiceClientException(
                 message=f"View '{view_name}' creation failed: {error_msg}",
