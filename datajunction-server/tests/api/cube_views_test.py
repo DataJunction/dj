@@ -2,6 +2,8 @@
 Tests for cube view DDL generation and lifecycle hooks.
 """
 
+from unittest import mock
+
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
@@ -34,127 +36,66 @@ async def client_with_cube(module__client_with_roads: AsyncClient):
     return module__client_with_roads
 
 
+SPARK_VERSIONED = "default.dj_views.default_view_test_cube_v1_0"
+SPARK_UNVERSIONED = "default.dj_views.default_view_test_cube"
+TRINO_VERSIONED = "default.dj_views.default_view_test_cube_v1_0__trino"
+TRINO_UNVERSIONED = "default.dj_views.default_view_test_cube__trino"
+
+
 class TestViewDDLEndpoint:
     """Tests for GET /cubes/{name}/view-ddl"""
 
     @pytest.mark.asyncio
-    async def test_view_ddl_returns_correct_names(
+    async def test_view_ddl_response_shape(
         self,
         client_with_cube: AsyncClient,
     ):
-        """View DDL endpoint returns correctly formatted view names."""
+        """The endpoint returns versioned + unversioned views for both dialects."""
         response = await client_with_cube.get(
             "/cubes/default.view_test_cube/view-ddl",
         )
         assert response.status_code == 200
+
+        assert response.json() == {
+            "spark": {
+                "versioned_view_name": SPARK_VERSIONED,
+                "unversioned_view_name": SPARK_UNVERSIONED,
+                "versioned_ddl": mock.ANY,
+                "unversioned_ddl": (
+                    f"CREATE OR REPLACE VIEW {SPARK_UNVERSIONED} "
+                    f"AS SELECT * FROM {SPARK_VERSIONED}"
+                ),
+            },
+            "trino": {
+                "versioned_view_name": TRINO_VERSIONED,
+                "unversioned_view_name": TRINO_UNVERSIONED,
+                "versioned_ddl": mock.ANY,
+                "unversioned_ddl": (
+                    f"CREATE OR REPLACE VIEW {TRINO_UNVERSIONED} "
+                    f"AS SELECT * FROM {TRINO_VERSIONED}"
+                ),
+            },
+            "is_materialized": False,
+        }
+        # versioned_ddl bodies are non-deterministic SQL; pin only the prefix.
         data = response.json()
-
-        # Check view names follow the convention
-        assert "default_view_test_cube" in data["versioned_view_name"]
-        assert "default_view_test_cube" in data["unversioned_view_name"]
-
-        # Versioned should have version suffix, unversioned should not
-        assert "_v1_0" in data["versioned_view_name"]
-        assert "_v1_0" not in data["unversioned_view_name"]
-
-    @pytest.mark.asyncio
-    async def test_view_ddl_contains_create_or_replace(
-        self,
-        client_with_cube: AsyncClient,
-    ):
-        """View DDL should contain CREATE OR REPLACE VIEW statements."""
-        response = await client_with_cube.get(
-            "/cubes/default.view_test_cube/view-ddl",
+        assert data["spark"]["versioned_ddl"].startswith(
+            f"CREATE OR REPLACE VIEW {SPARK_VERSIONED} AS ",
         )
-        assert response.status_code == 200
-        data = response.json()
-
-        assert data["versioned_ddl"].startswith("CREATE OR REPLACE VIEW")
-        assert data["unversioned_ddl"].startswith("CREATE OR REPLACE VIEW")
-
-    @pytest.mark.asyncio
-    async def test_view_ddl_unversioned_points_at_versioned(
-        self,
-        client_with_cube: AsyncClient,
-    ):
-        """Unversioned view DDL should SELECT * FROM the versioned view."""
-        response = await client_with_cube.get(
-            "/cubes/default.view_test_cube/view-ddl",
+        assert data["trino"]["versioned_ddl"].startswith(
+            f"CREATE OR REPLACE VIEW {TRINO_VERSIONED} AS ",
         )
-        assert response.status_code == 200
-        data = response.json()
-
-        assert f"SELECT * FROM {data['versioned_view_name']}" in data["unversioned_ddl"]
-
-    @pytest.mark.asyncio
-    async def test_view_ddl_not_materialized(
-        self,
-        client_with_cube: AsyncClient,
-    ):
-        """Cube without materialization should have is_materialized=False."""
-        response = await client_with_cube.get(
-            "/cubes/default.view_test_cube/view-ddl",
-        )
-        assert response.status_code == 200
-        data = response.json()
-        assert data["is_materialized"] is False
-
-    @pytest.mark.asyncio
-    async def test_view_ddl_versioned_contains_measures_sql(
-        self,
-        client_with_cube: AsyncClient,
-    ):
-        """Versioned DDL should contain measures SQL (SELECT with aggregations)."""
-        response = await client_with_cube.get(
-            "/cubes/default.view_test_cube/view-ddl",
-        )
-        assert response.status_code == 200
-        data = response.json()
-
-        # The measures SQL should contain aggregation-related SQL
-        versioned_ddl = data["versioned_ddl"].upper()
-        assert "SELECT" in versioned_ddl
-        assert "FROM" in versioned_ddl
-
-    @pytest.mark.asyncio
-    async def test_view_ddl_no_double_v_in_name(
-        self,
-        client_with_cube: AsyncClient,
-    ):
-        """View names should not contain double 'v' (e.g. _vv1_0)."""
-        response = await client_with_cube.get(
-            "/cubes/default.view_test_cube/view-ddl",
-        )
-        assert response.status_code == 200
-        data = response.json()
-        assert "_vv" not in data["versioned_view_name"]
 
     @pytest.mark.asyncio
     async def test_view_ddl_nonexistent_cube(
         self,
         client_with_cube: AsyncClient,
     ):
-        """Should return error for a non-existent cube."""
+        """Non-existent cubes return a client error."""
         response = await client_with_cube.get(
             "/cubes/default.nonexistent_cube/view-ddl",
         )
         assert response.status_code >= 400
-
-    @pytest.mark.asyncio
-    async def test_view_ddl_with_dialect(
-        self,
-        client_with_cube: AsyncClient,
-    ):
-        """View DDL should accept a dialect parameter."""
-        response = await client_with_cube.get(
-            "/cubes/default.view_test_cube/view-ddl?dialect=trino",
-        )
-        assert response.status_code == 200
-
-        response = await client_with_cube.get(
-            "/cubes/default.view_test_cube/view-ddl?dialect=spark",
-        )
-        assert response.status_code == 200
 
 
 class TestViewCreationOnLifecycle:
@@ -165,14 +106,13 @@ class TestViewCreationOnLifecycle:
         self,
         module__client_with_roads: AsyncClient,
     ):
-        """Creating a cube should trigger background view creation."""
+        """Creating a cube submits all 4 views (spark+trino, versioned+unversioned)."""
         qs_client = module__client_with_roads.app.dependency_overrides[
             get_query_service_client
         ]()
 
-        # Track create_view calls
         original_create_view = qs_client.create_view
-        create_view_calls = []
+        create_view_calls: list[str] = []
 
         def tracking_create_view(view_name, query_create, request_headers=None):
             create_view_calls.append(view_name)
@@ -193,22 +133,14 @@ class TestViewCreationOnLifecycle:
             )
             assert response.status_code == 201, response.json()
 
-            # Background task should have called create_view for both views
-            versioned_calls = [
-                c for c in create_view_calls if "lifecycle_test_cube_v" in c
+            assert sorted(
+                c for c in create_view_calls if "lifecycle_test_cube" in c
+            ) == [
+                "default.dj_views.default_lifecycle_test_cube",
+                "default.dj_views.default_lifecycle_test_cube__trino",
+                "default.dj_views.default_lifecycle_test_cube_v1_0",
+                "default.dj_views.default_lifecycle_test_cube_v1_0__trino",
             ]
-            unversioned_calls = [
-                c
-                for c in create_view_calls
-                if "lifecycle_test_cube" in c
-                and "_v" not in c.split("lifecycle_test_cube")[1]
-            ]
-            assert len(versioned_calls) >= 1, (
-                f"Expected versioned view creation, got calls: {create_view_calls}"
-            )
-            assert len(unversioned_calls) >= 1, (
-                f"Expected unversioned view creation, got calls: {create_view_calls}"
-            )
         finally:
             qs_client.create_view = original_create_view
 
@@ -217,13 +149,13 @@ class TestViewCreationOnLifecycle:
         self,
         client_with_cube: AsyncClient,
     ):
-        """Revalidating a cube should trigger background view creation."""
+        """Revalidating a cube re-submits all 4 views."""
         qs_client = client_with_cube.app.dependency_overrides[
             get_query_service_client
         ]()
 
         original_create_view = qs_client.create_view
-        create_view_calls = []
+        create_view_calls: list[str] = []
 
         def tracking_create_view(view_name, query_create, request_headers=None):
             create_view_calls.append(view_name)
@@ -237,12 +169,12 @@ class TestViewCreationOnLifecycle:
             )
             assert response.status_code == 200, response.json()
 
-            # Should have triggered view creation
-            cube_calls = [c for c in create_view_calls if "view_test_cube" in c]
-            assert len(cube_calls) >= 2, (
-                f"Expected at least 2 create_view calls (versioned + unversioned), "
-                f"got: {create_view_calls}"
-            )
+            assert sorted(c for c in create_view_calls if "view_test_cube" in c) == [
+                SPARK_UNVERSIONED,
+                TRINO_UNVERSIONED,
+                SPARK_VERSIONED,
+                TRINO_VERSIONED,
+            ]
         finally:
             qs_client.create_view = original_create_view
 
@@ -251,13 +183,13 @@ class TestViewCreationOnLifecycle:
         self,
         client_with_cube: AsyncClient,
     ):
-        """Updating a cube should trigger background view creation."""
+        """Updating a cube re-submits all 4 views."""
         qs_client = client_with_cube.app.dependency_overrides[
             get_query_service_client
         ]()
 
         original_create_view = qs_client.create_view
-        create_view_calls = []
+        create_view_calls: list[str] = []
 
         def tracking_create_view(view_name, query_create, request_headers=None):
             create_view_calls.append(view_name)
@@ -266,21 +198,18 @@ class TestViewCreationOnLifecycle:
         qs_client.create_view = tracking_create_view
 
         try:
-            # Minor update (description change)
             response = await client_with_cube.patch(
                 "/nodes/default.view_test_cube",
-                json={
-                    "description": "Updated description for view test",
-                },
+                json={"description": "Updated description for view test"},
             )
             assert response.status_code == 200, response.json()
 
-            # Should have triggered view creation
-            cube_calls = [c for c in create_view_calls if "view_test_cube" in c]
-            assert len(cube_calls) >= 2, (
-                f"Expected at least 2 create_view calls (versioned + unversioned), "
-                f"got: {create_view_calls}"
-            )
+            assert sorted(c for c in create_view_calls if "view_test_cube" in c) == [
+                SPARK_UNVERSIONED,
+                TRINO_UNVERSIONED,
+                SPARK_VERSIONED,
+                TRINO_VERSIONED,
+            ]
         finally:
             qs_client.create_view = original_create_view
 
@@ -289,13 +218,13 @@ class TestViewCreationOnLifecycle:
         self,
         module__client_with_roads: AsyncClient,
     ):
-        """Updating a non-cube node should NOT trigger view creation."""
+        """Updating a non-cube node does not trigger view creation."""
         qs_client = module__client_with_roads.app.dependency_overrides[
             get_query_service_client
         ]()
 
         original_create_view = qs_client.create_view
-        create_view_calls = []
+        create_view_calls: list[str] = []
 
         def tracking_create_view(view_name, query_create, request_headers=None):
             create_view_calls.append(view_name)
@@ -304,39 +233,12 @@ class TestViewCreationOnLifecycle:
         qs_client.create_view = tracking_create_view
 
         try:
-            # Update a metric node (not a cube)
             response = await module__client_with_roads.patch(
                 "/nodes/default.num_repair_orders",
-                json={
-                    "description": "Updated metric description",
-                },
+                json={"description": "Updated metric description"},
             )
             assert response.status_code == 200, response.json()
 
-            # Should NOT have triggered any view creation
-            assert len(create_view_calls) == 0, (
-                f"Expected no create_view calls for non-cube update, "
-                f"got: {create_view_calls}"
-            )
+            assert create_view_calls == []
         finally:
             qs_client.create_view = original_create_view
-
-
-class TestViewSettings:
-    """Tests for view catalog/schema settings."""
-
-    @pytest.mark.asyncio
-    async def test_view_settings_used_in_ddl(
-        self,
-        client_with_cube: AsyncClient,
-    ):
-        """View DDL should use the configured view_catalog and view_schema."""
-        response = await client_with_cube.get(
-            "/cubes/default.view_test_cube/view-ddl",
-        )
-        assert response.status_code == 200
-        data = response.json()
-
-        # Default settings: view_catalog="default", view_schema="dj_views"
-        assert data["versioned_view_name"].startswith("default.dj_views.")
-        assert data["unversioned_view_name"].startswith("default.dj_views.")

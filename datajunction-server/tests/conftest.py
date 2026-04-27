@@ -327,6 +327,8 @@ def duckdb_conn() -> duckdb.DuckDBPyConnection:
             conn.execute("""ATTACH ':memory:' AS "default" """)
             conn.execute("""USE "default" """)
             conn.execute(mock_data.read())
+            # Schema target for cube view DDL submitted via mock_create_view.
+            conn.execute('CREATE SCHEMA IF NOT EXISTS "default".dj_views')
             yield conn
 
 

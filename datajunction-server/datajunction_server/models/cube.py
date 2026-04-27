@@ -151,16 +151,23 @@ class CubeRevisionMetadata(BaseModel):
         return cube_metadata
 
 
-class ViewDDLResponse(BaseModel):
-    """
-    Response for the view DDL endpoint.
-    Contains CREATE OR REPLACE VIEW statements for both versioned and unversioned views.
-    """
+class ViewDDLDialect(BaseModel):
+    """DDL for a single dialect (Spark or Trino)."""
 
     versioned_view_name: str
     unversioned_view_name: str
     versioned_ddl: str
     unversioned_ddl: str
+
+
+class ViewDDLResponse(BaseModel):
+    """
+    Response for the view DDL endpoint.
+    Contains CREATE OR REPLACE VIEW statements for both Spark and Trino dialects.
+    """
+
+    spark: ViewDDLDialect
+    trino: ViewDDLDialect
     is_materialized: bool
 
 

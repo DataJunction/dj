@@ -20,26 +20,25 @@ from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.query import QueryCreate
 from datajunction_server.service_clients import QueryServiceClient
+from datajunction_server.transpilation import transpile_sql
 from datajunction_server.utils import get_settings, session_context
 
 _logger = logging.getLogger(__name__)
 
 
-def _cube_view_names(
-    cube_name: str,
-    version: str,
-) -> tuple[str, str]:
-    """
-    Derive the versioned and unversioned view names for a cube.
-    """
-    settings = get_settings()
-    cube_stem = cube_name.replace(".", "_")
-    version_suffix = version.replace(".", "_")
-    versioned = (
-        f"{settings.view_catalog}.{settings.view_schema}.{cube_stem}_{version_suffix}"
-    )
-    unversioned = f"{settings.view_catalog}.{settings.view_schema}.{cube_stem}"
-    return versioned, unversioned
+class CubeViewNames:
+    """View names for a cube across both Spark and Trino dialects."""
+
+    def __init__(self, cube_name: str, version: str):
+        settings = get_settings()
+        cube_stem = cube_name.replace(".", "_")
+        version_suffix = version.replace(".", "_")
+        prefix = f"{settings.view_catalog}.{settings.view_schema}"
+
+        self.spark_versioned = f"{prefix}.{cube_stem}_{version_suffix}"
+        self.spark_unversioned = f"{prefix}.{cube_stem}"
+        self.trino_versioned = f"{prefix}.{cube_stem}_{version_suffix}__trino"
+        self.trino_unversioned = f"{prefix}.{cube_stem}__trino"
 
 
 async def _build_view_body(
@@ -117,23 +116,20 @@ async def create_cube_views(
         async with session_context() as session:
             node = await Node.get_cube_by_name(session, cube_name)
             revision = node.current  # type: ignore
-            versioned_view, unversioned_view = _cube_view_names(
-                cube_name,
-                revision.version,
-            )
+            names = CubeViewNames(cube_name, revision.version)
             _logger.info(
-                "[views] Resolved views for cube %s: versioned=%s, unversioned=%s",
+                "[views] Resolved views for cube %s: spark=%s, trino=%s",
                 cube_name,
-                versioned_view,
-                unversioned_view,
+                names.spark_versioned,
+                names.trino_versioned,
             )
 
-            view_body, is_materialized = await _build_view_body(cube_name, session)
+            spark_body, is_materialized = await _build_view_body(cube_name, session)
             _logger.info(
                 "[views] Built view body for cube %s (materialized=%s, body_length=%d)",
                 cube_name,
                 is_materialized,
-                len(view_body),
+                len(spark_body),
             )
 
             # Resolve catalog/engine for query submission
@@ -145,6 +141,9 @@ async def create_cube_views(
                 engine_name = revision.catalog.engines[0].name
                 engine_version = revision.catalog.engines[0].version
 
+        # Transpile to Trino
+        trino_body = transpile_sql(spark_body, dialect=Dialect.TRINO)
+
         _logger.info(
             "[views] Using catalog=%s engine=%s for cube %s",
             catalog_name,
@@ -152,55 +151,53 @@ async def create_cube_views(
             cube_name,
         )
 
-        # Submit versioned view DDL
-        versioned_ddl = f"CREATE OR REPLACE VIEW {versioned_view} AS {view_body}"
-        _logger.info(
-            "[views] Submitting versioned view DDL to query service for cube %s: %s",
-            cube_name,
-            versioned_ddl[:200],
+        # Helper to submit a single view DDL
+        def _submit_view(view_name: str, ddl: str, engine: str):
+            _logger.info(
+                "[views] Submitting %s view DDL for cube %s: %s",
+                engine,
+                cube_name,
+                ddl[:200],
+            )
+            query_service_client.create_view(
+                view_name=view_name,
+                query_create=QueryCreate(
+                    engine_name=engine,
+                    catalog_name=catalog_name or "default",
+                    engine_version=engine_version or "",
+                    submitted_query=ddl,
+                    async_=False,
+                ),
+                request_headers=request_headers,
+            )
+            _logger.info(
+                "[views] Successfully submitted %s for cube %s",
+                view_name,
+                cube_name,
+            )
+
+        # Spark views
+        _submit_view(
+            names.spark_versioned,
+            f"CREATE OR REPLACE VIEW {names.spark_versioned} AS {spark_body}",
+            engine_name or "SPARKSQL",
         )
-        query_service_client.create_view(
-            view_name=versioned_view,
-            query_create=QueryCreate(
-                engine_name=engine_name or "trino",
-                catalog_name=catalog_name or "default",
-                engine_version=engine_version or "",
-                submitted_query=versioned_ddl,
-                async_=False,
-            ),
-            request_headers=request_headers,
-        )
-        _logger.info(
-            "[views] Successfully submitted versioned view %s for cube %s",
-            versioned_view,
-            cube_name,
+        _submit_view(
+            names.spark_unversioned,
+            f"CREATE OR REPLACE VIEW {names.spark_unversioned} AS SELECT * FROM {names.spark_versioned}",
+            engine_name or "SPARKSQL",
         )
 
-        # Submit unversioned view DDL
-        unversioned_ddl = (
-            f"CREATE OR REPLACE VIEW {unversioned_view} "
-            f"AS SELECT * FROM {versioned_view}"
+        # Trino views
+        _submit_view(
+            names.trino_versioned,
+            f"CREATE OR REPLACE VIEW {names.trino_versioned} AS {trino_body}",
+            "TRINO_DIRECT",
         )
-        _logger.info(
-            "[views] Submitting unversioned view DDL to query service for cube %s: %s",
-            cube_name,
-            unversioned_ddl,
-        )
-        query_service_client.create_view(
-            view_name=unversioned_view,
-            query_create=QueryCreate(
-                engine_name=engine_name or "trino",
-                catalog_name=catalog_name or "default",
-                engine_version=engine_version or "",
-                submitted_query=unversioned_ddl,
-                async_=False,
-            ),
-            request_headers=request_headers,
-        )
-        _logger.info(
-            "[views] Successfully submitted unversioned view %s for cube %s",
-            unversioned_view,
-            cube_name,
+        _submit_view(
+            names.trino_unversioned,
+            f"CREATE OR REPLACE VIEW {names.trino_unversioned} AS SELECT * FROM {names.trino_versioned}",
+            "TRINO_DIRECT",
         )
 
         get_metrics_provider().timer(
