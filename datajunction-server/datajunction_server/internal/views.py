@@ -68,20 +68,26 @@ async def _build_view_body(
     metrics = revision.cube_node_metrics
     dimensions = revision.cube_node_dimensions
 
-    if metrics:
-        result = await build_measures_sql(
-            session=session,
-            metrics=metrics,
-            dimensions=dimensions,
-            filters=[],
-            dialect=Dialect.SPARK,
-            use_materialized=False,
+    if not metrics:
+        raise ValueError(
+            f"Cube '{cube_name}' has no metrics — cannot build view SQL",
         )
-        if result.grain_groups:
-            combined = build_combiner_sql(result.grain_groups)
-            return combined.sql, False
 
-    return revision.query or "SELECT 1", False
+    result = await build_measures_sql(
+        session=session,
+        metrics=metrics,
+        dimensions=dimensions,
+        filters=[],
+        dialect=Dialect.SPARK,
+        use_materialized=False,
+    )
+    if not result.grain_groups:
+        raise ValueError(
+            f"Cube '{cube_name}' produced no grain groups — cannot build view SQL",
+        )
+
+    combined = build_combiner_sql(result.grain_groups)
+    return combined.sql, False
 
 
 async def create_cube_views(
