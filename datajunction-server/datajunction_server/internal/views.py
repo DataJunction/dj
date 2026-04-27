@@ -6,6 +6,7 @@ via the query service client (dj-query).
 """
 
 import logging
+import time
 from typing import Dict, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,11 +16,12 @@ from datajunction_server.construction.build_v3 import (
     build_measures_sql,
 )
 from datajunction_server.database.node import Node
+from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import QueryCreate
 from datajunction_server.service_clients import QueryServiceClient
-from datajunction_server.utils import get_settings
+from datajunction_server.utils import get_settings, session_context
 
 _logger = logging.getLogger(__name__)
 
@@ -92,7 +94,6 @@ async def _build_view_body(
 
 async def create_cube_views(
     cube_name: str,
-    session: AsyncSession,
     query_service_client: QueryServiceClient,
     request_headers: Optional[Dict[str, str]] = None,
 ) -> None:
@@ -103,42 +104,49 @@ async def create_cube_views(
     - Versioned view: contains measures SQL or points at materialized table
     - Unversioned view: SELECT * FROM versioned view (stable name for Preset)
 
+    Opens its own DB session (the request session may be closed by the time
+    this background task runs).
+
     Fire-and-forget — logs errors but does not raise.
     """
     _logger.info(
         "[views] Starting view creation for cube %s",
         cube_name,
     )
+    _t0 = time.monotonic()
+    _tags = {"cube_name": cube_name}
     try:
-        node = await Node.get_cube_by_name(session, cube_name)
-        revision = node.current  # type: ignore
-        versioned_view, unversioned_view = _cube_view_names(
-            cube_name,
-            revision.version,
-        )
-        _logger.info(
-            "[views] Resolved views for cube %s: versioned=%s, unversioned=%s",
-            cube_name,
-            versioned_view,
-            unversioned_view,
-        )
+        async with session_context() as session:
+            node = await Node.get_cube_by_name(session, cube_name)
+            revision = node.current  # type: ignore
+            versioned_view, unversioned_view = _cube_view_names(
+                cube_name,
+                revision.version,
+            )
+            _logger.info(
+                "[views] Resolved views for cube %s: versioned=%s, unversioned=%s",
+                cube_name,
+                versioned_view,
+                unversioned_view,
+            )
 
-        view_body, is_materialized = await _build_view_body(cube_name, session)
-        _logger.info(
-            "[views] Built view body for cube %s (materialized=%s, body_length=%d)",
-            cube_name,
-            is_materialized,
-            len(view_body),
-        )
+            view_body, is_materialized = await _build_view_body(cube_name, session)
+            _logger.info(
+                "[views] Built view body for cube %s (materialized=%s, body_length=%d)",
+                cube_name,
+                is_materialized,
+                len(view_body),
+            )
 
-        # Resolve catalog/engine for query submission
-        catalog_name = None
-        engine_name = None
-        engine_version = None
-        if revision.catalog and revision.catalog.engines:
-            catalog_name = revision.catalog.name
-            engine_name = revision.catalog.engines[0].name
-            engine_version = revision.catalog.engines[0].version
+            # Resolve catalog/engine for query submission
+            catalog_name = None
+            engine_name = None
+            engine_version = None
+            if revision.catalog and revision.catalog.engines:
+                catalog_name = revision.catalog.name
+                engine_name = revision.catalog.engines[0].name
+                engine_version = revision.catalog.engines[0].version
+
         _logger.info(
             "[views] Using catalog=%s engine=%s for cube %s",
             catalog_name,
@@ -197,8 +205,22 @@ async def create_cube_views(
             cube_name,
         )
 
+        get_metrics_provider().timer(
+            "dj.views.create_latency_ms",
+            (time.monotonic() - _t0) * 1000,
+            _tags,
+        )
+        get_metrics_provider().counter(
+            "dj.views.create",
+            tags={**_tags, "status": "success"},
+        )
+
     except Exception:
         _logger.exception(
             "[views] Failed to create views for cube %s (non-blocking)",
             cube_name,
+        )
+        get_metrics_provider().counter(
+            "dj.views.create",
+            tags={**_tags, "status": "failed"},
         )

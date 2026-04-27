@@ -197,7 +197,6 @@ async def revalidate(
         background_tasks.add_task(
             create_cube_views,
             cube_name=name,
-            session=session,
             query_service_client=query_service_client,
             request_headers=dict(request.headers),
         )
@@ -620,7 +619,6 @@ async def create_cube(
     background_tasks.add_task(
         create_cube_views,
         cube_name=node.name,
-        session=session,
         query_service_client=query_service_client,
         request_headers=dict(request.headers),
     )
@@ -1190,7 +1188,6 @@ async def update_node(
         background_tasks.add_task(
             create_cube_views,
             cube_name=name,
-            session=session,
             query_service_client=query_service_client,
             request_headers=request_headers,
         )
