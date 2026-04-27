@@ -71,6 +71,7 @@ from datajunction_server.internal.nodes import (
     upsert_complex_dimension_link,
 )
 from datajunction_server.internal.validation import validate_node_data
+from datajunction_server.internal.views import create_cube_views
 from datajunction_server.models import access
 from datajunction_server.models.attribute import (
     AttributeTypeIdentifier,
@@ -167,15 +168,21 @@ async def validate_node(
 @router.post("/nodes/{name}/validate/", response_model=NodeStatusDetails)
 async def revalidate(
     name: str,
+    sync_views: bool = False,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
     *,
+    request: Request,
     background_tasks: BackgroundTasks,
+    query_service_client: QueryServiceClient = Depends(get_query_service_client),
     access_checker: AccessChecker = Depends(get_access_checker),
 ) -> NodeStatusDetails:
     """
-    Revalidate a single existing node and update its status appropriately
+    Revalidate a single existing node and update its status appropriately.
+
+    If sync_views=true and the node is a cube, also creates/updates
+    warehouse views (Spark + Trino) as a background task.
     """
     access_checker.add_request_by_node_name(name, ResourceAction.WRITE)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
@@ -187,6 +194,17 @@ async def revalidate(
         background_tasks=background_tasks,
         save_history=save_history,
     )
+
+    # Create/update views if requested and this is a cube (non-blocking)
+    if sync_views:
+        node = await Node.get_by_name(session, name)
+        if node and node.type == NodeType.CUBE:  # type: ignore
+            background_tasks.add_task(
+                create_cube_views,
+                cube_name=name,
+                query_service_client=query_service_client,
+                request_headers=dict(request.headers),
+            )
 
     return NodeStatusDetails(
         status=node_validator.status,
@@ -600,6 +618,14 @@ async def create_cube(
         background_tasks=background_tasks,
         access_checker=access_checker,
         save_history=save_history,
+    )
+
+    # Create views for the new cube (non-blocking)
+    background_tasks.add_task(
+        create_cube_views,
+        cube_name=node.name,
+        query_service_client=query_service_client,
+        request_headers=dict(request.headers),
     )
 
     return await Node.get_by_name(  # type: ignore
@@ -1161,6 +1187,16 @@ async def update_node(
         name,
         options=NodeOutput.load_options(),
     )
+
+    # Update views if this is a cube (non-blocking)
+    if node and node.type == NodeType.CUBE:  # type: ignore
+        background_tasks.add_task(
+            create_cube_views,
+            cube_name=name,
+            query_service_client=query_service_client,
+            request_headers=request_headers,
+        )
+
     return node  # type: ignore
 
 

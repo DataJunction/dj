@@ -14,6 +14,8 @@ from datajunction_server.api.helpers import get_catalog_by_name
 from datajunction_server.construction.build_v3.combiners import (
     build_combiner_sql_from_preaggs,
 )
+from datajunction_server.internal.views import _build_view_body, CubeViewNames
+from datajunction_server.transpilation import transpile_sql
 from datajunction_server.models.materialization import (
     DRUID_AGG_MAPPING,
     DRUID_SKETCH_TYPES,
@@ -24,6 +26,7 @@ from datajunction_server.database.node import Node
 from datajunction_server.database.user import User
 from datajunction_server.errors import (
     DJInvalidInputException,
+    DJNodeNotFound,
     DJQueryServiceClientException,
 )
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
@@ -40,6 +43,8 @@ from datajunction_server.models.cube import (
     CubeRevisionMetadata,
     DimensionValue,
     DimensionValues,
+    ViewDDLDialect,
+    ViewDDLResponse,
 )
 from datajunction_server.models.cube_materialization import (
     CubeMaterializeRequest,
@@ -924,4 +929,52 @@ async def run_cube_backfill(
         start_date=data.start_date,
         end_date=end_date,
         status="running",
+    )
+
+
+@router.get(
+    "/cubes/{name}/view-ddl",
+    response_model=ViewDDLResponse,
+    name="Get Cube View DDL",
+)
+async def get_cube_view_ddl(
+    name: str,
+    *,
+    session: AsyncSession = Depends(get_session),
+) -> ViewDDLResponse:
+    """
+    Generate CREATE OR REPLACE VIEW DDL for a cube.
+
+    Returns DDL statements for both Spark and Trino dialects:
+    - Spark views: native DJ dialect, for notebooks and Spark jobs
+    - Trino views: transpiled via sqlglot, for Preset and ad-hoc Trino queries
+
+    Each dialect has versioned and unversioned views.
+    """
+    node = await Node.get_cube_by_name(session, name)
+    if node is None:
+        raise DJNodeNotFound(
+            message=f"A cube node with name `{name}` does not exist.",
+            http_status_code=404,
+        )
+    revision = node.current  # type: ignore
+
+    names = CubeViewNames(name, revision.version)
+    spark_body, is_materialized = await _build_view_body(name, session)
+    trino_body = transpile_sql(spark_body, dialect=Dialect.TRINO)
+
+    return ViewDDLResponse(
+        spark=ViewDDLDialect(
+            versioned_view_name=names.spark_versioned,
+            unversioned_view_name=names.spark_unversioned,
+            versioned_ddl=f"CREATE OR REPLACE VIEW {names.spark_versioned} AS {spark_body}",
+            unversioned_ddl=f"CREATE OR REPLACE VIEW {names.spark_unversioned} AS SELECT * FROM {names.spark_versioned}",
+        ),
+        trino=ViewDDLDialect(
+            versioned_view_name=names.trino_versioned,
+            unversioned_view_name=names.trino_unversioned,
+            versioned_ddl=f"CREATE OR REPLACE VIEW {names.trino_versioned} AS {trino_body}",
+            unversioned_ddl=f"CREATE OR REPLACE VIEW {names.trino_unversioned} AS SELECT * FROM {names.trino_versioned}",
+        ),
+        is_materialized=is_materialized,
     )

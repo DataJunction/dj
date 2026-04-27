@@ -160,26 +160,14 @@ class TestQueryServiceClient:
 
     def test_query_service_client_create_view(self, mocker: MockerFixture) -> None:
         """
-        Test creating a view using the query service client.
+        Successful DDL submission goes to /ddl/execute and returns when status=SUCCESS.
         """
 
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
-            "catalog_name": "public",
-            "engine_name": "postgres",
-            "engine_version": "15.2",
-            "id": "ef209eef-c31a-4089-aae6-833259a08e22",
-            "submitted_query": "CREATE OR REPLACE VIEW foo SELECT 1 as num",
-            "executed_query": "CREATE OR REPLACE VIEW foo SELECT 1 as num",
-            "scheduled": "2023-01-01T00:00:00.000000",
-            "started": "2023-01-01T00:00:00.000000",
-            "finished": "2023-01-01T00:00:00.000001",
-            "state": "FINISHED",
-            "progress": 1,
-            "results": [],
-            "next": None,
-            "previous": None,
+            "status": "SUCCESS",
+            "message": "View foo created",
             "errors": [],
         }
 
@@ -188,7 +176,6 @@ class TestQueryServiceClient:
             return_value=mock_response,
         )
 
-        # successful request
         query_service_client = QueryServiceClient(uri=self.endpoint)
         query_create = QueryCreate(
             catalog_name="default",
@@ -203,24 +190,21 @@ class TestQueryServiceClient:
         )
 
         mock_request.assert_called_with(
-            "/queries/",
+            "/ddl/execute",
             headers=ANY,
             json={
+                "submitted_query": "CREATE OR REPLACE VIEW foo SELECT 1 as num",
                 "catalog_name": "default",
                 "engine_name": "postgres",
                 "engine_version": "15.2",
-                "submitted_query": "CREATE OR REPLACE VIEW foo SELECT 1 as num",
-                "async_": False,
             },
         )
 
-    def test_query_service_client_create_view_with_failure(
+    def test_query_service_client_create_view_http_error(
         self,
         mocker: MockerFixture,
     ) -> None:
-        """
-        Test creating a view using the query service client with a filed response.
-        """
+        """A non-200 HTTP response raises DJQueryServiceClientException."""
 
         mock_response = MagicMock()
         mock_response.status_code = 500
@@ -230,7 +214,6 @@ class TestQueryServiceClient:
             return_value=mock_response,
         )
 
-        # successful request
         query_service_client = QueryServiceClient(uri=self.endpoint)
         query_create = QueryCreate(
             catalog_name="default",
@@ -250,15 +233,51 @@ class TestQueryServiceClient:
         )
 
         mock_request.assert_called_with(
-            "/queries/",
+            "/ddl/execute",
             headers=ANY,
             json={
+                "submitted_query": "CREATE OR REPLACE VIEW foo SELECT 1 as num",
                 "catalog_name": "default",
                 "engine_name": "postgres",
                 "engine_version": "15.2",
-                "submitted_query": "CREATE OR REPLACE VIEW foo SELECT 1 as num",
-                "async_": False,
             },
+        )
+
+    def test_query_service_client_create_view_ddl_failure_status(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """A 200 response with status!=SUCCESS raises with the upstream error list."""
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "status": "FAILED",
+            "message": "Schema does not exist",
+            "errors": ["dj_views.foo not found", "permission denied"],
+        }
+        mocker.patch(
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
+            return_value=mock_response,
+        )
+
+        query_service_client = QueryServiceClient(uri=self.endpoint)
+        query_create = QueryCreate(
+            catalog_name="default",
+            engine_name="postgres",
+            engine_version="15.2",
+            submitted_query="CREATE OR REPLACE VIEW foo SELECT 1 as num",
+            async_=False,
+        )
+
+        with pytest.raises(DJQueryServiceClientException) as exc_info:
+            query_service_client.create_view(
+                view_name="foo",
+                query_create=query_create,
+            )
+        assert (
+            "View 'foo' creation failed: dj_views.foo not found; permission denied"
+            in str(exc_info.value)
         )
 
     def test_query_service_client_submit_query(self, mocker: MockerFixture) -> None:
