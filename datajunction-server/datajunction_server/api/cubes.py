@@ -11,13 +11,10 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import get_catalog_by_name
-from datajunction_server.construction.build_v3 import (
-    build_combiner_sql,
-    build_measures_sql,
-)
 from datajunction_server.construction.build_v3.combiners import (
     build_combiner_sql_from_preaggs,
 )
+from datajunction_server.internal.views import _build_view_body, _cube_view_names
 from datajunction_server.models.materialization import (
     DRUID_AGG_MAPPING,
     DRUID_SKETCH_TYPES,
@@ -67,7 +64,7 @@ from datajunction_server.models.materialization import (
     MaterializationStrategy,
 )
 from datajunction_server.models.metric import TranslatedSQL
-from datajunction_server.models.node_type import NodeNameVersion, NodeType
+from datajunction_server.models.node_type import NodeNameVersion
 from datajunction_server.models.query import ColumnMetadata, QueryCreate
 from datajunction_server.naming import from_amenable_name
 from datajunction_server.service_clients import QueryServiceClient
@@ -941,10 +938,6 @@ async def get_cube_view_ddl(
     name: str,
     *,
     session: AsyncSession = Depends(get_session),
-    dialect: Dialect = Query(
-        Dialect.TRINO,
-        description="SQL dialect for the generated view SQL.",
-    ),
 ) -> ViewDDLResponse:
     """
     Generate CREATE OR REPLACE VIEW DDL for a cube.
@@ -957,52 +950,9 @@ async def get_cube_view_ddl(
     """
     node = await Node.get_cube_by_name(session, name)
     revision = node.current  # type: ignore
-    version_suffix = revision.version.replace(".", "_")
-    cube_stem = name.replace(".", "_")
 
-    view_catalog = settings.view_catalog
-    view_schema = settings.view_schema
-
-    versioned_view = f"{view_catalog}.{view_schema}.{cube_stem}_{version_suffix}"
-    unversioned_view = f"{view_catalog}.{view_schema}.{cube_stem}"
-
-    # Check if the cube has an active materialization with availability
-    is_materialized = False
-    materialized_table_ref = None
-    if revision.availability:
-        avail = revision.availability
-        if avail.catalog and avail.table:
-            schema_part = f"{avail.schema_}." if avail.schema_ else ""
-            materialized_table_ref = f"{avail.catalog}.{schema_part}{avail.table}"
-            is_materialized = True
-
-    if is_materialized and materialized_table_ref:
-        view_body = f"SELECT * FROM {materialized_table_ref}"
-    else:
-        # Generate the combined measures SQL
-        metrics = [
-            elem.node_revision.name
-            for elem in revision.cube_elements
-            if elem.node_revision and elem.node_revision.type == NodeType.METRIC  # type: ignore
-        ]
-        dimensions = [
-            elem.node_revision.name + "." + elem.name
-            for elem in revision.cube_elements
-            if elem.node_revision and elem.node_revision.type != NodeType.METRIC  # type: ignore
-        ]
-        result = await build_measures_sql(
-            session=session,
-            metrics=metrics,
-            dimensions=dimensions,
-            filters=[],
-            dialect=dialect,
-            use_materialized=False,
-        )
-        if result.grain_groups:
-            combined = build_combiner_sql(result.grain_groups)
-            view_body = combined.sql
-        else:
-            view_body = revision.query or "SELECT 1"
+    versioned_view, unversioned_view = _cube_view_names(name, revision.version)
+    view_body, is_materialized = await _build_view_body(name, session)
 
     versioned_ddl = f"CREATE OR REPLACE VIEW {versioned_view} AS {view_body}"
     unversioned_ddl = (

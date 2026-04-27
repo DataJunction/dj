@@ -18,7 +18,6 @@ from datajunction_server.construction.build_v3 import (
 from datajunction_server.database.node import Node
 from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.models.dialect import Dialect
-from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import QueryCreate
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.utils import get_settings, session_context
@@ -66,15 +65,8 @@ async def _build_view_body(
             return f"SELECT * FROM {table_ref}", True
 
     # Build measures SQL
-    metrics = []
-    dimensions = []
-    for elem in revision.cube_elements:
-        if elem.node_revision and elem.node_revision.type == NodeType.METRIC:
-            metrics.append(elem.node_revision.name)
-        elif elem.node_revision:
-            dimensions.append(
-                elem.node_revision.name + "." + elem.name,
-            )
+    metrics = revision.cube_node_metrics
+    dimensions = revision.cube_node_dimensions
 
     if metrics:
         result = await build_measures_sql(
@@ -82,7 +74,7 @@ async def _build_view_body(
             metrics=metrics,
             dimensions=dimensions,
             filters=[],
-            dialect=Dialect.TRINO,
+            dialect=Dialect.SPARK,
             use_materialized=False,
         )
         if result.grain_groups:
