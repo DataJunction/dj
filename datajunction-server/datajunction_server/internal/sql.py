@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Tuple, OrderedDict, cast
+from typing import Any, Tuple, cast
 import re
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -83,81 +83,31 @@ async def build_node_sql(
     if not engine:  # pragma: no cover
         engine = node.current.catalog.engines[0]
 
-    # If it's a cube, we'll build SQL for the metrics in the cube, along with any additional
-    # dimensions or filters provided in the arguments
-    if node.type == NodeType.CUBE:
-        node = cast(
-            Node,
-            await Node.get_cube_by_name(session, node_name),
-        )
-        dimensions = list(
-            OrderedDict.fromkeys(node.current.cube_node_dimensions + dimensions),
-        )
-        # Prepend cube-level stored filters before any request-provided filters
-        cube_stored_filters = node.current.cube_filters or []
-        combined_filters = cube_stored_filters + (filters or [])
-        translated_sql, engine, _ = await build_sql_for_multiple_metrics(
-            session=session,
-            metrics=node.current.cube_node_metrics,
-            dimensions=dimensions,
-            filters=combined_filters,
-            orderby=orderby,
-            limit=limit,
-            engine_name=engine.name if engine else None,
-            engine_version=engine.version if engine else None,
-            access_checker=access_checker,
-            use_materialized=use_materialized,
-            query_parameters=query_parameters,
-        )
-        return translated_sql
+    # All ``/sql/{node}`` and ``/data/{node}`` requests now route through the
+    # single v3 single-node entry point. ``build_node_sql_v3`` dispatches
+    # internally on node type: metrics → ``build_metrics_sql([node])``;
+    # cubes → ``build_metrics_sql(cube.metrics, ..., matched_cube=cube)``;
+    # source / dimension / transform → its own assembly path.
+    from datajunction_server.construction.build_v3.node_query import (  # noqa: PLC0415
+        build_node_sql_v3,
+    )
 
-    # For all other nodes, build the node query
-    node = await Node.get_by_name(session, node_name, raise_if_not_exists=True)  # type: ignore
-    if node.type == NodeType.METRIC:
-        translated_sql, engine, _ = await build_sql_for_multiple_metrics(
-            session,
-            [node_name],
-            dimensions or [],
-            filters or [],
-            orderby or [],
-            limit,
-            engine.name if engine else None,
-            engine.version if engine else None,
-            access_checker=access_checker,
-            ignore_errors=ignore_errors,
-            use_materialized=use_materialized,
-            query_parameters=query_parameters,
-        )
-        query = translated_sql.sql
-        columns = translated_sql.columns
-    else:
-        # All non-metric / non-cube /sql/{node} and /data/{node} requests now
-        # go through the v3 single-node builder: Phase 1 covered the no-dims
-        # case, Phase 2.1 added dim-link joins, Phase 2.2 added filters with
-        # pushdown, and Phase 2.3 adds ORDER BY via ``apply_orderby_limit``.
-        from datajunction_server.construction.build_v3.node_query import (  # noqa: PLC0415
-            build_node_sql_v3,
-        )
-
-        v3_result = await build_node_sql_v3(
-            session=session,
-            node_name=node_name,
-            dimensions=dimensions or [],
-            filters=filters or [],
-            orderby=orderby or [],
-            limit=limit,
-            dialect=engine.dialect if engine else Dialect.SPARK,
-            use_materialized=use_materialized,
-            query_parameters=query_parameters,
-        )
-        query = v3_result.sql
-        columns = [
-            ColumnMetadata(name=col.name, type=col.type) for col in v3_result.columns
-        ]
-
+    v3_result = await build_node_sql_v3(
+        session=session,
+        node_name=node_name,
+        dimensions=dimensions or [],
+        filters=filters or [],
+        orderby=orderby or [],
+        limit=limit,
+        dialect=engine.dialect if engine else Dialect.SPARK,
+        use_materialized=use_materialized,
+        query_parameters=query_parameters,
+    )
     return TranslatedSQL.create(
-        sql=query,
-        columns=columns,
+        sql=v3_result.sql,
+        columns=[
+            ColumnMetadata(name=col.name, type=col.type) for col in v3_result.columns
+        ],
         dialect=engine.dialect if engine else None,
     )
 

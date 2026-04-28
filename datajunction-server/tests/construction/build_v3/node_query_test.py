@@ -1210,3 +1210,82 @@ async def test_sql_orderby_unknown_column_is_skipped(
         LIMIT 2
         """,
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 2.4: metric / cube node dispatch (unification through build_node_sql_v3)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_sql_for_metric_node_dispatches_to_metrics_sql(
+    client_with_roads: AsyncClient,
+):
+    """
+    A metric node routed through ``/sql/{node}`` is dispatched internally
+    to ``build_metrics_sql([node])``. The output should match what
+    ``/sql/metrics/v3/`` would produce for the same single metric — i.e.
+    metric decomposition, grain group CTEs, combiner expressions.
+    """
+    via_node = await client_with_roads.get(
+        "/sql/default.num_repair_orders/",
+        params={
+            "dimensions": ["default.hard_hat.state"],
+            "limit": 5,
+        },
+    )
+    assert via_node.status_code == 200, via_node.json()
+
+    via_metrics_v3 = await client_with_roads.get(
+        "/sql/metrics/v3/",
+        params={
+            "metrics": ["default.num_repair_orders"],
+            "dimensions": ["default.hard_hat.state"],
+            "limit": 5,
+        },
+    )
+    assert via_metrics_v3.status_code == 200, via_metrics_v3.json()
+
+    # Same SQL through both endpoints — that's the unification contract.
+    assert_sql_equal(via_node.json()["sql"], via_metrics_v3.json()["sql"])
+
+
+@pytest.mark.asyncio
+async def test_sql_for_cube_node_dispatches_to_metrics_sql(
+    client_with_roads: AsyncClient,
+):
+    """
+    A cube node routed through ``/sql/{node}`` is dispatched internally
+    to ``build_metrics_sql(cube.metrics, ..., matched_cube=cube)`` with
+    the cube's stored dims and filters merged in. Output should match
+    ``/sql/metrics/v3/?cube=<cube_name>`` for the same cube — the same
+    cube-resolution path the existing v3 metrics endpoint takes.
+    """
+    create = await client_with_roads.post(
+        "/nodes/cube/",
+        json={
+            "metrics": ["default.num_repair_orders"],
+            "dimensions": ["default.hard_hat.state"],
+            "description": "Cube for unification test",
+            "mode": "published",
+            "name": "default.test_unification_cube",
+        },
+    )
+    assert create.status_code == 201, create.json()
+
+    via_node = await client_with_roads.get(
+        "/sql/default.test_unification_cube/",
+        params={"limit": 7},
+    )
+    assert via_node.status_code == 200, via_node.json()
+
+    via_metrics_v3 = await client_with_roads.get(
+        "/sql/metrics/v3/",
+        params={
+            "cube": "default.test_unification_cube",
+            "limit": 7,
+        },
+    )
+    assert via_metrics_v3.status_code == 200, via_metrics_v3.json()
+
+    assert_sql_equal(via_node.json()["sql"], via_metrics_v3.json()["sql"])

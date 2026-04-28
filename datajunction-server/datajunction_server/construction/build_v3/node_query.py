@@ -39,6 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.construction.build_v3.builder import (
     apply_orderby_limit,
+    build_metrics_sql,
     substitute_query_params,
 )
 from datajunction_server.construction.build_v3.cte import collect_node_ctes
@@ -93,27 +94,89 @@ async def build_node_sql_v3(
     query_parameters: dict[str, Any] | None = None,
 ) -> GeneratedSQL:
     """
-    Build executable SQL for a single non-metric / non-cube node.
+    Build executable SQL for any DJ node — uniform entry point for
+    ``/sql/{node}`` and ``/data/{node}`` regardless of node type.
 
-    With no requested dimensions or filters, output is the starting node's
-    compiled query body, with non-source upstream parents attached as CTEs.
+    Dispatches on node type:
 
-    With dimensions or filters, the starting body becomes a CTE and a new
-    outer SELECT projects the starting node's columns plus the requested
-    dim columns (alias-mapped via ``ctx.alias_registry``), with JOINs from
-    ``build_dimension_joins`` for non-local dim links and a WHERE clause
-    from ``build_outer_where`` for filters. Filters whose columns belong to
-    upstream CTEs get pushed down via ``PushdownFilters`` for efficiency.
+    *Metric* → ``build_metrics_sql([node_name], ...)`` — the v3 metrics
+    pipeline with metric decomposition, grain groups, combiners.
+
+    *Cube* → load the cube revision, merge its stored ``cube_filters`` and
+    ``cube_node_dimensions`` with the user-provided ones, then call
+    ``build_metrics_sql(cube.cube_node_metrics, ..., matched_cube=cube)``
+    so the cube's materialized table is used when available.
+
+    *Source / dimension / transform* → the single-node path described
+    below.  With no requested dimensions or filters, output is the
+    starting node's compiled query body, with non-source upstream parents
+    attached as CTEs. With dimensions or filters, the starting body
+    becomes a CTE and a new outer SELECT projects the starting node's
+    columns plus the requested dim columns (alias-mapped via
+    ``ctx.alias_registry``), with JOINs from ``build_dimension_joins``
+    for non-local dim links and a WHERE clause from ``build_outer_where``
+    for filters. Filters whose columns belong to upstream CTEs get pushed
+    down via ``PushdownFilters`` for efficiency.
 
     ORDER BY and LIMIT are applied at the very end via
     ``apply_orderby_limit`` — orderby expressions use semantic names
     (``node.column``) that resolve through ``output_columns`` to the
-    correct output alias, identical to how ``build_metrics_sql`` handles it.
+    correct output alias.
     """
     dim_list = list(dimensions or [])
     filter_list = list(filters or [])
     orderby_list = list(orderby or [])
 
+    # Quick load of the starting node so we can dispatch on its type
+    # before paying for the full upstream-chain trace below. Metric and
+    # cube nodes don't need our single-node machinery — they have their
+    # own v3 entry point.
+    starting_lookup = await Node.get_by_name(
+        session,
+        node_name,
+        raise_if_not_exists=True,
+    )
+    starting_type = starting_lookup.type  # type: ignore[union-attr]
+
+    if starting_type == NodeType.METRIC:
+        return await build_metrics_sql(
+            session=session,
+            metrics=[node_name],
+            dimensions=dim_list,
+            filters=filter_list,
+            orderby=orderby_list or None,
+            limit=limit,
+            dialect=dialect,
+            use_materialized=use_materialized,
+            query_parameters=query_parameters,
+        )
+
+    if starting_type == NodeType.CUBE:
+        cube = await Node.get_cube_by_name(session, node_name)
+        cube_revision = cube.current  # type: ignore[union-attr]
+        # Cube's stored dims come first (preserves the cube's intended
+        # grain ordering); user-requested dims are appended; dedupe.
+        merged_dimensions = list(
+            dict.fromkeys(
+                list(cube_revision.cube_node_dimensions) + dim_list,
+            ),
+        )
+        # Cube's stored filters apply unconditionally; user filters AND on top.
+        merged_filters = list(cube_revision.cube_filters or []) + filter_list
+        return await build_metrics_sql(
+            session=session,
+            metrics=list(cube_revision.cube_node_metrics),
+            dimensions=merged_dimensions,
+            filters=merged_filters,
+            orderby=orderby_list or None,
+            limit=limit,
+            dialect=dialect,
+            use_materialized=use_materialized,
+            matched_cube=cube_revision,
+            query_parameters=query_parameters,
+        )
+
+    # Source / dimension / transform — the single-node path.
     # Collect everything we need to load: starting node + its upstream chain
     # + every requested dim node + every dim referenced in filters.
     starting_set = {node_name}
@@ -133,16 +196,7 @@ async def build_node_sql_v3(
     nodes = await batch_load_nodes_with_dependencies(session, upstream_names)
     nodes_dict = {node.name: node for node in nodes}
 
-    starting = nodes_dict.get(node_name)
-    if starting is None:  # pragma: no cover
-        raise DJInvalidInputException(
-            f"Node `{node_name}` does not exist or is deactivated.",
-        )
-    if starting.type in {NodeType.METRIC, NodeType.CUBE}:  # pragma: no cover
-        raise DJInvalidInputException(
-            f"build_node_sql_v3 expects a non-metric / non-cube node; "
-            f"got {starting.type.value} for {node_name}",
-        )
+    starting = nodes_dict[node_name]
 
     starting_revision: NodeRevision = starting.current  # type: ignore[assignment]
     starting_columns: list[DBColumn] = list(starting_revision.columns)
