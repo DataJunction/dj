@@ -10,7 +10,6 @@ from pydantic import (
     AliasChoices,
     AnyHttpUrl,
     Field,
-    field_validator,
     field_serializer,
     RootModel,
     ConfigDict,
@@ -151,27 +150,6 @@ class QueryWithResults(BaseModel):
     @field_serializer("links")
     def serialize_links(self, links: Optional[List[AnyHttpUrl]]) -> Optional[List[str]]:
         return [str(url) for url in links] if links else None
-
-    @field_validator("scheduled", mode="before")
-    def parse_scheduled_date_string(cls, value):
-        """
-        Convert string date values to datetime
-        """
-        return datetime.fromisoformat(value) if isinstance(value, str) else value
-
-    @field_validator("started", mode="before")
-    def parse_started_date_string(cls, value):
-        """
-        Convert string date values to datetime
-        """
-        return datetime.fromisoformat(value) if isinstance(value, str) else value
-
-    @field_validator("finished", mode="before")
-    def parse_finisheddate_string(cls, value):
-        """
-        Convert string date values to datetime
-        """
-        return datetime.fromisoformat(value) if isinstance(value, str) else value
 
 
 class QueryExtType(IntEnum):

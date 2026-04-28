@@ -216,6 +216,25 @@ async def test_ast_compile_explode(session: AsyncSession):
 
 
 @pytest.mark.asyncio
+async def test_ast_compile_explode_scalar_context(session: AsyncSession):
+    """
+    EXPLODE used as a scalar (e.g. inside CAST) must NOT render with a trailing
+    empty () — that produced ``explode(arr)()`` and crashed sqlglot. Repro of a
+    real cube view DDL bug.
+    """
+    query_str = "SELECT CAST(EXPLODE(SEQUENCE(0, 23)) AS INT) AS hour"
+    query = parse(query_str)
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors
+
+    rendered = str(query)
+    assert "explode(sequence(0, 23))()" not in rendered.lower()
+    assert compare_query_strings(rendered, query_str)
+
+
+@pytest.mark.asyncio
 async def test_ast_compile_lateral_view_explode1(session: AsyncSession):
     """
     Test lateral view explode

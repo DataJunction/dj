@@ -151,6 +151,24 @@ def test_middleware_emits_request_timer_on_success():
     assert in_flight_values[-1] == 0  # back to 0 after exit
 
 
+@pytest.mark.asyncio
+async def test_middleware_passes_non_http_scope_through():
+    """Lifespan / websocket scopes must skip instrumentation and call the app."""
+    spy = _SpyProvider()
+    set_metrics_provider(spy)
+
+    received_scopes: list[dict] = []
+
+    async def inner_app(scope, receive, send):
+        received_scopes.append(scope)
+
+    middleware = DJInstrumentationMiddleware(inner_app)
+    await middleware({"type": "lifespan"}, lambda: None, lambda _msg: None)
+
+    assert received_scopes == [{"type": "lifespan"}]
+    assert spy.timers == []  # no dj.request timer for non-http scopes
+
+
 def test_middleware_uses_url_path_when_route_missing():
     """When no route is matched (e.g. 404), fall back to request.url.path."""
     spy = _SpyProvider()
