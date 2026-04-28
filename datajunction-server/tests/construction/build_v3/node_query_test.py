@@ -1039,3 +1039,174 @@ async def test_sql_with_multiple_filters(
         LIMIT 2
         """,
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 2.3: orderby
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_sql_with_orderby_on_local_column(
+    client_with_roads: AsyncClient,
+):
+    """
+    ORDER BY on a local column of the starting node. ``apply_orderby_limit``
+    resolves the semantic ``node.column`` to the output column alias and
+    emits a simple ``ORDER BY <alias>``. With no dimensions requested the
+    starting body is the outer query (Phase 1 simple shape) and the
+    ORDER BY sits directly on it.
+    """
+    response = await client_with_roads.get(
+        "/sql/default.repair_orders_fact/",
+        params={
+            "orderby": ["default.repair_orders_fact.hard_hat_id ASC"],
+            "limit": 5,
+        },
+    )
+    assert response.status_code == 200, response.json()
+
+    assert_sql_equal(
+        response.json()["sql"],
+        """
+        SELECT
+          repair_orders.repair_order_id,
+          repair_orders.municipality_id,
+          repair_orders.hard_hat_id,
+          repair_orders.dispatcher_id,
+          repair_orders.order_date,
+          repair_orders.dispatched_date,
+          repair_orders.required_date,
+          repair_order_details.discount,
+          repair_order_details.price,
+          repair_order_details.quantity,
+          repair_order_details.repair_type_id,
+          repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
+          repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
+          repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
+        FROM default.roads.repair_orders repair_orders
+        JOIN default.roads.repair_order_details repair_order_details
+          ON repair_orders.repair_order_id = repair_order_details.repair_order_id
+        ORDER BY hard_hat_id ASC
+        LIMIT 5
+        """,
+    )
+
+
+@pytest.mark.asyncio
+async def test_sql_with_orderby_on_dim_column(
+    client_with_roads: AsyncClient,
+):
+    """
+    ORDER BY on a requested dimension column. The dim is registered as
+    ``state`` by ``AliasRegistry``, and ``apply_orderby_limit`` rewrites
+    the semantic ``default.hard_hat.state`` → ``state`` before emitting.
+    """
+    response = await client_with_roads.get(
+        "/sql/default.repair_orders_fact/",
+        params={
+            "dimensions": ["default.hard_hat.state"],
+            "orderby": ["default.hard_hat.state DESC"],
+            "limit": 4,
+        },
+    )
+    assert response.status_code == 200, response.json()
+
+    assert_sql_equal(
+        response.json()["sql"],
+        """
+        WITH default_hard_hat AS (
+          SELECT hard_hat_id, last_name, first_name, title, birth_date, hire_date,
+                 address, city, state, postal_code, country, manager, contractor_id
+          FROM default.roads.hard_hats
+        ),
+        default_repair_orders_fact AS (
+          SELECT
+            repair_orders.repair_order_id,
+            repair_orders.municipality_id,
+            repair_orders.hard_hat_id,
+            repair_orders.dispatcher_id,
+            repair_orders.order_date,
+            repair_orders.dispatched_date,
+            repair_orders.required_date,
+            repair_order_details.discount,
+            repair_order_details.price,
+            repair_order_details.quantity,
+            repair_order_details.repair_type_id,
+            repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
+            repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
+            repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
+          FROM default.roads.repair_orders repair_orders
+          JOIN default.roads.repair_order_details repair_order_details
+            ON repair_orders.repair_order_id = repair_order_details.repair_order_id
+        )
+        SELECT
+          t1.repair_order_id,
+          t1.municipality_id,
+          t1.hard_hat_id,
+          t1.dispatcher_id,
+          t1.order_date,
+          t1.dispatched_date,
+          t1.required_date,
+          t1.discount,
+          t1.price,
+          t1.quantity,
+          t1.repair_type_id,
+          t1.total_repair_cost,
+          t1.time_to_dispatch,
+          t1.dispatch_delay,
+          t2.state
+        FROM default_repair_orders_fact t1
+        INNER JOIN default_hard_hat t2
+          ON t1.hard_hat_id = t2.hard_hat_id
+        ORDER BY state DESC
+        LIMIT 4
+        """,
+    )
+
+
+@pytest.mark.asyncio
+async def test_sql_orderby_unknown_column_is_skipped(
+    client_with_roads: AsyncClient,
+):
+    """
+    ORDER BY references that don't resolve to any output column are dropped
+    with a warning rather than raising — same behavior as
+    ``apply_orderby_limit`` in the metrics path.
+    """
+    response = await client_with_roads.get(
+        "/sql/default.repair_orders_fact/",
+        params={
+            "orderby": ["default.nonexistent.column ASC"],
+            "limit": 2,
+        },
+    )
+    assert response.status_code == 200, response.json()
+
+    # No dims, no filters, no resolved orderby → simple Phase 1 shape +
+    # LIMIT only. The unknown ``default.nonexistent.column`` was silently
+    # skipped by ``apply_orderby_limit`` — same as the metrics path does.
+    assert_sql_equal(
+        response.json()["sql"],
+        """
+        SELECT
+          repair_orders.repair_order_id,
+          repair_orders.municipality_id,
+          repair_orders.hard_hat_id,
+          repair_orders.dispatcher_id,
+          repair_orders.order_date,
+          repair_orders.dispatched_date,
+          repair_orders.required_date,
+          repair_order_details.discount,
+          repair_order_details.price,
+          repair_order_details.quantity,
+          repair_order_details.repair_type_id,
+          repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
+          repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
+          repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
+        FROM default.roads.repair_orders repair_orders
+        JOIN default.roads.repair_order_details repair_order_details
+          ON repair_orders.repair_order_id = repair_order_details.repair_order_id
+        LIMIT 2
+        """,
+    )

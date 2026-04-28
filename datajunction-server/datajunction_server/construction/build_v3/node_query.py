@@ -37,7 +37,10 @@ from typing import Any, cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from datajunction_server.construction.build_v3.builder import substitute_query_params
+from datajunction_server.construction.build_v3.builder import (
+    apply_orderby_limit,
+    substitute_query_params,
+)
 from datajunction_server.construction.build_v3.cte import collect_node_ctes
 from datajunction_server.construction.build_v3.dimensions import (
     parse_dimension_ref,
@@ -83,6 +86,7 @@ async def build_node_sql_v3(
     node_name: str,
     dimensions: list[str] | None = None,
     filters: list[str] | None = None,
+    orderby: list[str] | None = None,
     limit: int | None = None,
     dialect: Dialect = Dialect.SPARK,
     use_materialized: bool = True,
@@ -92,8 +96,7 @@ async def build_node_sql_v3(
     Build executable SQL for a single non-metric / non-cube node.
 
     With no requested dimensions or filters, output is the starting node's
-    compiled query body, with non-source upstream parents attached as CTEs
-    and an optional LIMIT.
+    compiled query body, with non-source upstream parents attached as CTEs.
 
     With dimensions or filters, the starting body becomes a CTE and a new
     outer SELECT projects the starting node's columns plus the requested
@@ -102,11 +105,14 @@ async def build_node_sql_v3(
     from ``build_outer_where`` for filters. Filters whose columns belong to
     upstream CTEs get pushed down via ``PushdownFilters`` for efficiency.
 
-    Phase 2.3 (orderby) extends the outer SELECT with ORDER BY assembly.
-    Until then, the routing layer falls through to v2 for orderby cases.
+    ORDER BY and LIMIT are applied at the very end via
+    ``apply_orderby_limit`` — orderby expressions use semantic names
+    (``node.column``) that resolve through ``output_columns`` to the
+    correct output alias, identical to how ``build_metrics_sql`` handles it.
     """
     dim_list = list(dimensions or [])
     filter_list = list(filters or [])
+    orderby_list = list(orderby or [])
 
     # Collect everything we need to load: starting node + its upstream chain
     # + every requested dim node + every dim referenced in filters.
@@ -190,7 +196,6 @@ async def build_node_sql_v3(
             starting_columns,
             resolved_dims,
             filter_list,
-            limit,
         )
         output_columns = _columns_metadata_with_dims(
             starting,
@@ -203,7 +208,6 @@ async def build_node_sql_v3(
             ctx,
             starting,
             starting_columns,
-            limit,
         )
         output_columns = [
             ColumnMetadata(
@@ -218,10 +222,18 @@ async def build_node_sql_v3(
     if query_parameters:  # pragma: no cover
         substitute_query_params(final_query, query_parameters)
 
-    return GeneratedSQL(
-        query=final_query,
-        columns=output_columns,
-        dialect=dialect,
+    # ``apply_orderby_limit`` resolves orderby expressions through the
+    # output-column semantic name → output alias map, then sets ``ORDER BY``
+    # and ``LIMIT`` on the outermost SELECT. Reuses the same primitive the
+    # metrics path uses at ``builder.py:538``.
+    return apply_orderby_limit(
+        GeneratedSQL(
+            query=final_query,
+            columns=output_columns,
+            dialect=dialect,
+        ),
+        orderby_list or None,
+        limit,
     )
 
 
@@ -234,13 +246,14 @@ def _build_no_dimensions(
     ctx: BuildContext,
     starting: Node,
     starting_columns: list[DBColumn],
-    limit: int | None,
 ) -> ast.Query:
     """
     No dimensions requested. For sources, emit ``SELECT cols FROM
     <physical_table>`` directly. For non-sources, lift the starting body out
     of ``collect_node_ctes`` and use it as the outer query, attaching any
     upstream non-source parents as CTEs.
+
+    LIMIT and ORDER BY are applied by the caller via ``apply_orderby_limit``.
     """
     if starting.type == NodeType.SOURCE:
         # Sources don't get CTEs in v3 (collect_node_ctes skips them); for a
@@ -253,7 +266,6 @@ def _build_no_dimensions(
                 from_=ast.From(
                     relations=[ast.Relation(primary=ast.Table(ast.Name(table_ref)))],
                 ),
-                limit=ast.Number(limit) if limit is not None else None,
             ),
         )
 
@@ -284,9 +296,6 @@ def _build_no_dimensions(
         parent_ctes.append(parent_body)
     starting_body.ctes = parent_ctes
 
-    if limit is not None:
-        starting_body.select.limit = ast.Number(limit)
-
     return starting_body
 
 
@@ -301,7 +310,6 @@ def _build_with_dimensions(
     starting_columns: list[DBColumn],
     resolved_dims: list[ResolvedDimension],
     filter_list: list[str],
-    limit: int | None,
 ) -> ast.Query:
     """
     Build the outer SELECT projecting starting cols + dim cols, with JOINs.
@@ -319,7 +327,8 @@ def _build_with_dimensions(
         LEFT JOIN dim_a_cte dim_a ON ...
         LEFT JOIN ...
         WHERE <filters>
-        LIMIT N
+
+    LIMIT and ORDER BY are applied by the caller via ``apply_orderby_limit``.
 
     Filters whose columns belong to upstream CTEs get pushed down into
     those CTEs via ``PushdownFilters`` (handled inside ``collect_node_ctes``);
@@ -427,7 +436,6 @@ def _build_with_dimensions(
                 relations=[ast.Relation(primary=primary, extensions=joins)],
             ),
             where=where_clause,
-            limit=ast.Number(limit) if limit is not None else None,
         ),
     )
 

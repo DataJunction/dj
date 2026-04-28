@@ -13,7 +13,6 @@ from datajunction_server.api.helpers import (
     assemble_column_metadata,
     find_existing_cube,
     get_catalog_by_name,
-    get_query,
     validate_orderby,
     validate_cube,
     check_dimension_attributes_exist,
@@ -70,8 +69,12 @@ async def build_node_sql(
     """
     Build node SQL and save it to query requests
     """
-    if orderby:
-        validate_orderby(orderby, [node_name], dimensions or [])
+    # Note: v2's strict ``validate_orderby`` check (orderby cols must appear
+    # in metrics or dimensions) is gone — v3's ``apply_orderby_limit``
+    # resolves orderby through the output-column semantic-name map and
+    # skips anything it can't resolve, which is the right behavior for
+    # ``/sql/{node}`` requests where local columns of the starting node
+    # are valid orderby targets without being explicitly requested.
 
     node = cast(
         Node,
@@ -127,11 +130,11 @@ async def build_node_sql(
         )
         query = translated_sql.sql
         columns = translated_sql.columns
-    elif not orderby:
-        # Non-metric / non-cube node, no ORDER BY: route to the v3 single-
-        # node builder. Phase 1 covers the no-dims case; Phase 2.1 adds
-        # dim-link joins; Phase 2.2 adds filters with pushdown into upstream
-        # CTEs. Orderby still falls through to v2 until Phase 2.3.
+    else:
+        # All non-metric / non-cube /sql/{node} and /data/{node} requests now
+        # go through the v3 single-node builder: Phase 1 covered the no-dims
+        # case, Phase 2.1 added dim-link joins, Phase 2.2 added filters with
+        # pushdown, and Phase 2.3 adds ORDER BY via ``apply_orderby_limit``.
         from datajunction_server.construction.build_v3.node_query import (  # noqa: PLC0415
             build_node_sql_v3,
         )
@@ -141,6 +144,7 @@ async def build_node_sql(
             node_name=node_name,
             dimensions=dimensions or [],
             filters=filters or [],
+            orderby=orderby or [],
             limit=limit,
             dialect=engine.dialect if engine else Dialect.SPARK,
             use_materialized=use_materialized,
@@ -150,25 +154,6 @@ async def build_node_sql(
         columns = [
             ColumnMetadata(name=col.name, type=col.type) for col in v3_result.columns
         ]
-    else:
-        query_ast = await get_query(
-            session=session,
-            node_name=node_name,
-            dimensions=dimensions or [],
-            filters=filters or [],
-            orderby=orderby or [],
-            limit=limit,
-            engine=engine,
-            access_checker=access_checker,
-            use_materialized=use_materialized,
-            query_parameters=query_parameters,
-            ignore_errors=ignore_errors,
-        )
-        columns = [
-            assemble_column_metadata(col, use_semantic_metadata=True)  # type: ignore
-            for col in query_ast.select.projection
-        ]
-        query = str(query_ast)
 
     return TranslatedSQL.create(
         sql=query,
