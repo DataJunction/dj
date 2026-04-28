@@ -52,6 +52,41 @@ from datajunction_server.utils import SEPARATOR, refresh_if_needed
 logger = logging.getLogger(__name__)
 
 
+def _v3_to_model_column(col) -> ColumnMetadata:
+    """
+    Convert a v3 ``ColumnMetadata`` (semantic_name / semantic_type) into the
+    REST/model ``ColumnMetadata`` (name / column / node / semantic_entity /
+    semantic_type) shape that the python client and downstream consumers
+    expect. For metric columns, ``node`` is the full metric path (matching
+    v2's behavior where ``node = col.node_revision.name``); for everything
+    else, ``node`` is the prefix and ``column`` the trailing segment of the
+    semantic name.
+    """
+    semantic_name = col.semantic_name
+    semantic_type = col.semantic_type
+    if semantic_type == "metric":
+        return ColumnMetadata(
+            name=col.name,
+            type=col.type,
+            column=col.name,
+            node=semantic_name,
+            semantic_entity=semantic_name,
+            semantic_type=semantic_type,
+        )
+    return ColumnMetadata(
+        name=col.name,
+        type=col.type,
+        column=semantic_name.rsplit(SEPARATOR, 1)[-1]
+        if semantic_name and SEPARATOR in semantic_name
+        else col.name,
+        node=semantic_name.rsplit(SEPARATOR, 1)[0]
+        if semantic_name and SEPARATOR in semantic_name
+        else None,
+        semantic_entity=semantic_name,
+        semantic_type=semantic_type,
+    )
+
+
 async def build_node_sql(
     session: AsyncSession,
     node_name: str,
@@ -109,21 +144,7 @@ async def build_node_sql(
     # pandas reports them as inferred type ``mixed`` instead of ``string``.
     return TranslatedSQL.create(
         sql=v3_result.sql,
-        columns=[
-            ColumnMetadata(
-                name=col.name,
-                type=col.type,
-                column=col.semantic_name.rsplit(SEPARATOR, 1)[-1]
-                if col.semantic_name and SEPARATOR in col.semantic_name
-                else col.name,
-                node=col.semantic_name.rsplit(SEPARATOR, 1)[0]
-                if col.semantic_name and SEPARATOR in col.semantic_name
-                else None,
-                semantic_entity=col.semantic_name,
-                semantic_type=col.semantic_type,
-            )
-            for col in v3_result.columns
-        ],
+        columns=[_v3_to_model_column(col) for col in v3_result.columns],
         dialect=engine.dialect if engine else None,
     )
 
