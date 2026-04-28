@@ -358,27 +358,363 @@ async def test_sql_for_transform_with_inner_cte(
     )
 
 
+# ---------------------------------------------------------------------------
+# Phase 2.1: dimensions
+# ---------------------------------------------------------------------------
+
+
 @pytest.mark.asyncio
-async def test_with_dimensions_falls_through_to_v2(
+async def test_sql_with_single_dimension_via_link(
     client_with_roads: AsyncClient,
 ):
     """
-    Phase 1 only handles the no-dims/no-filters case in v3. A request with
-    dimensions still goes through the v2 path until Phase 2 ports dim-link
-    join resolution. This test pins that contract — the request succeeds and
-    returns SQL — without pinning the exact v2 output (which we don't want
-    to lock in given v2 is on the way out).
+    Requesting one dimension via a dim link wraps the starting body as a
+    CTE, joins the dim CTE, and projects the dim column with an
+    AliasRegistry-derived clean alias.
     """
     response = await client_with_roads.get(
         "/sql/default.repair_orders_fact/",
+        params={
+            "dimensions": ["default.hard_hat.state"],
+            "limit": 5,
+        },
+    )
+    assert response.status_code == 200, response.json()
+
+    assert_sql_equal(
+        response.json()["sql"],
+        """
+        WITH default_hard_hat AS (
+          SELECT
+            hard_hat_id,
+            last_name,
+            first_name,
+            title,
+            birth_date,
+            hire_date,
+            address,
+            city,
+            state,
+            postal_code,
+            country,
+            manager,
+            contractor_id
+          FROM default.roads.hard_hats
+        ),
+        default_repair_orders_fact AS (
+          SELECT
+            repair_orders.repair_order_id,
+            repair_orders.municipality_id,
+            repair_orders.hard_hat_id,
+            repair_orders.dispatcher_id,
+            repair_orders.order_date,
+            repair_orders.dispatched_date,
+            repair_orders.required_date,
+            repair_order_details.discount,
+            repair_order_details.price,
+            repair_order_details.quantity,
+            repair_order_details.repair_type_id,
+            repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
+            repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
+            repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
+          FROM default.roads.repair_orders repair_orders
+          JOIN default.roads.repair_order_details repair_order_details
+            ON repair_orders.repair_order_id = repair_order_details.repair_order_id
+        )
+        SELECT
+          t1.repair_order_id,
+          t1.municipality_id,
+          t1.hard_hat_id,
+          t1.dispatcher_id,
+          t1.order_date,
+          t1.dispatched_date,
+          t1.required_date,
+          t1.discount,
+          t1.price,
+          t1.quantity,
+          t1.repair_type_id,
+          t1.total_repair_cost,
+          t1.time_to_dispatch,
+          t1.dispatch_delay,
+          t2.state
+        FROM default_repair_orders_fact t1
+        INNER JOIN default_hard_hat t2
+          ON t1.hard_hat_id = t2.hard_hat_id
+        LIMIT 5
+        """,
+    )
+
+
+@pytest.mark.asyncio
+async def test_sql_with_local_dimension(
+    client_with_roads: AsyncClient,
+):
+    """
+    A "local" dimension — a column that lives on the starting node itself —
+    is flagged ``is_local=True`` by ``resolve_dimensions``; no JOIN is added.
+    The dim column is projected as a qualified ref against ``main_alias``.
+    """
+    response = await client_with_roads.get(
+        "/sql/default.repair_orders_fact/",
+        params={
+            "dimensions": ["default.repair_orders_fact.hard_hat_id"],
+            "limit": 3,
+        },
+    )
+    assert response.status_code == 200, response.json()
+
+    assert_sql_equal(
+        response.json()["sql"],
+        """
+        WITH default_repair_orders_fact AS (
+          SELECT
+            repair_orders.repair_order_id,
+            repair_orders.municipality_id,
+            repair_orders.hard_hat_id,
+            repair_orders.dispatcher_id,
+            repair_orders.order_date,
+            repair_orders.dispatched_date,
+            repair_orders.required_date,
+            repair_order_details.discount,
+            repair_order_details.price,
+            repair_order_details.quantity,
+            repair_order_details.repair_type_id,
+            repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
+            repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
+            repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
+          FROM default.roads.repair_orders repair_orders
+          JOIN default.roads.repair_order_details repair_order_details
+            ON repair_orders.repair_order_id = repair_order_details.repair_order_id
+        )
+        SELECT
+          t1.repair_order_id,
+          t1.municipality_id,
+          t1.hard_hat_id,
+          t1.dispatcher_id,
+          t1.order_date,
+          t1.dispatched_date,
+          t1.required_date,
+          t1.discount,
+          t1.price,
+          t1.quantity,
+          t1.repair_type_id,
+          t1.total_repair_cost,
+          t1.time_to_dispatch,
+          t1.dispatch_delay,
+          t1.hard_hat_id
+        FROM default_repair_orders_fact t1
+        LIMIT 3
+        """,
+    )
+
+
+@pytest.mark.asyncio
+async def test_sql_with_multiple_dimensions(
+    client_with_roads: AsyncClient,
+):
+    """
+    Multiple dim requests across different dim links: each gets its own CTE,
+    its own LEFT OUTER JOIN, and a registry-derived projection alias.
+    """
+    response = await client_with_roads.get(
+        "/sql/default.repair_orders_fact/",
+        params={
+            "dimensions": [
+                "default.hard_hat.state",
+                "default.dispatcher.company_name",
+            ],
+            "limit": 4,
+        },
+    )
+    assert response.status_code == 200, response.json()
+
+    assert_sql_equal(
+        response.json()["sql"],
+        """
+        WITH default_dispatcher AS (
+          SELECT dispatcher_id, company_name, phone
+          FROM default.roads.dispatchers
+        ),
+        default_hard_hat AS (
+          SELECT hard_hat_id, last_name, first_name, title, birth_date, hire_date,
+                 address, city, state, postal_code, country, manager, contractor_id
+          FROM default.roads.hard_hats
+        ),
+        default_repair_orders_fact AS (
+          SELECT
+            repair_orders.repair_order_id,
+            repair_orders.municipality_id,
+            repair_orders.hard_hat_id,
+            repair_orders.dispatcher_id,
+            repair_orders.order_date,
+            repair_orders.dispatched_date,
+            repair_orders.required_date,
+            repair_order_details.discount,
+            repair_order_details.price,
+            repair_order_details.quantity,
+            repair_order_details.repair_type_id,
+            repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
+            repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
+            repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
+          FROM default.roads.repair_orders repair_orders
+          JOIN default.roads.repair_order_details repair_order_details
+            ON repair_orders.repair_order_id = repair_order_details.repair_order_id
+        )
+        SELECT
+          t1.repair_order_id,
+          t1.municipality_id,
+          t1.hard_hat_id,
+          t1.dispatcher_id,
+          t1.order_date,
+          t1.dispatched_date,
+          t1.required_date,
+          t1.discount,
+          t1.price,
+          t1.quantity,
+          t1.repair_type_id,
+          t1.total_repair_cost,
+          t1.time_to_dispatch,
+          t1.dispatch_delay,
+          t2.state,
+          t3.company_name
+        FROM default_repair_orders_fact t1
+        INNER JOIN default_hard_hat t2
+          ON t1.hard_hat_id = t2.hard_hat_id
+        INNER JOIN default_dispatcher t3
+          ON t1.dispatcher_id = t3.dispatcher_id
+        LIMIT 4
+        """,
+    )
+
+
+@pytest.mark.asyncio
+async def test_sql_with_dimension_on_source_node(
+    client_with_roads: AsyncClient,
+):
+    """
+    A source node *as the starting node* with a requested dimension: the
+    source stays as a physical-table FROM (no CTE for the source itself),
+    but dim nodes still become CTEs and JOIN onto the physical table.
+    """
+    response = await client_with_roads.get(
+        "/sql/default.repair_orders/",
         params={
             "dimensions": ["default.hard_hat.state"],
             "limit": 2,
         },
     )
     assert response.status_code == 200, response.json()
-    sql = response.json()["sql"]
-    # v2 always wraps the starting node as a CTE; the new v3 path doesn't.
-    # The presence of the v2-style dot-mangled CTE alias is the cheap signal
-    # that we did *not* go through ``build_node_sql_v3`` for this request.
-    assert "default_DOT_repair_orders_fact" in sql
+
+    # The dim link from ``default.repair_orders`` (source) to
+    # ``default.hard_hat`` routes through the ``default.repair_order``
+    # transform — so we get a multi-hop INNER JOIN through that intermediate
+    # CTE, with ``t2`` as the intermediate alias and ``t3`` as the dim alias.
+    assert_sql_equal(
+        response.json()["sql"],
+        """
+        WITH default_hard_hat AS (
+          SELECT hard_hat_id, last_name, first_name, title, birth_date, hire_date,
+                 address, city, state, postal_code, country, manager, contractor_id
+          FROM default.roads.hard_hats
+        ),
+        default_repair_order AS (
+          SELECT repair_order_id, municipality_id, hard_hat_id, order_date,
+                 required_date, dispatched_date, dispatcher_id
+          FROM default.roads.repair_orders
+        )
+        SELECT
+          t1.repair_order_id,
+          t1.municipality_id,
+          t1.hard_hat_id,
+          t1.order_date,
+          t1.required_date,
+          t1.dispatched_date,
+          t1.dispatcher_id,
+          t3.state
+        FROM default.roads.repair_orders t1
+        INNER JOIN default_repair_order t2
+          ON t1.repair_order_id = t2.repair_order_id
+        INNER JOIN default_hard_hat t3
+          ON t2.hard_hat_id = t3.hard_hat_id
+        LIMIT 2
+        """,
+    )
+
+
+@pytest.mark.asyncio
+async def test_sql_with_dimension_loads_dim_node_chain(
+    client_with_roads: AsyncClient,
+):
+    """
+    Requested dim nodes get their own upstream chain traced — when a dim
+    is transform-backed (``municipality_dim`` joins three sources), its
+    own body becomes a CTE with sources inlined as physical refs.
+    """
+    response = await client_with_roads.get(
+        "/sql/default.repair_orders_fact/",
+        params={
+            "dimensions": ["default.municipality_dim.local_region"],
+            "limit": 2,
+        },
+    )
+    assert response.status_code == 200, response.json()
+
+    assert_sql_equal(
+        response.json()["sql"],
+        """
+        WITH default_municipality_dim AS (
+          SELECT m.municipality_id AS municipality_id,
+                 contact_name,
+                 contact_title,
+                 local_region,
+                 state_id,
+                 mmt.municipality_type_id AS municipality_type_id,
+                 mt.municipality_type_desc AS municipality_type_desc
+          FROM default.roads.municipality AS m
+          LEFT JOIN default.roads.municipality_municipality_type AS mmt
+            ON m.municipality_id = mmt.municipality_id
+          LEFT JOIN default.roads.municipality_type AS mt
+            ON mmt.municipality_type_id = mt.municipality_type_desc
+        ),
+        default_repair_orders_fact AS (
+          SELECT
+            repair_orders.repair_order_id,
+            repair_orders.municipality_id,
+            repair_orders.hard_hat_id,
+            repair_orders.dispatcher_id,
+            repair_orders.order_date,
+            repair_orders.dispatched_date,
+            repair_orders.required_date,
+            repair_order_details.discount,
+            repair_order_details.price,
+            repair_order_details.quantity,
+            repair_order_details.repair_type_id,
+            repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
+            repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
+            repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
+          FROM default.roads.repair_orders repair_orders
+          JOIN default.roads.repair_order_details repair_order_details
+            ON repair_orders.repair_order_id = repair_order_details.repair_order_id
+        )
+        SELECT
+          t1.repair_order_id,
+          t1.municipality_id,
+          t1.hard_hat_id,
+          t1.dispatcher_id,
+          t1.order_date,
+          t1.dispatched_date,
+          t1.required_date,
+          t1.discount,
+          t1.price,
+          t1.quantity,
+          t1.repair_type_id,
+          t1.total_repair_cost,
+          t1.time_to_dispatch,
+          t1.dispatch_delay,
+          t2.local_region
+        FROM default_repair_orders_fact t1
+        INNER JOIN default_municipality_dim t2
+          ON t1.municipality_id = t2.municipality_id
+        LIMIT 2
+        """,
+    )

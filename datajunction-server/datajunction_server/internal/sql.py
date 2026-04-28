@@ -127,12 +127,11 @@ async def build_node_sql(
         )
         query = translated_sql.sql
         columns = translated_sql.columns
-    elif not (dimensions or filters or orderby):
-        # Trivial non-metric / non-cube case (no joins, no WHERE, no ORDER BY):
-        # route to the v3 single-node builder, which produces correct SQL even
-        # for parent-less / FROM-less node queries that the v2 QueryBuilder
-        # mishandles. Dim-link joins / filter pushdown / orderby for non-metric
-        # nodes still fall through to v2 below until the v3 path grows them.
+    elif not (filters or orderby):
+        # Non-metric / non-cube node, no WHERE / ORDER BY: route to the v3
+        # single-node builder. Phase 1 covers the no-dims case; Phase 2.1
+        # adds dim-link joins. Filter pushdown and orderby for non-metric
+        # nodes still fall through to v2 below until Phase 2.2 / 2.3.
         from datajunction_server.construction.build_v3.node_query import (  # noqa: PLC0415
             build_node_sql_v3,
         )
@@ -140,6 +139,7 @@ async def build_node_sql(
         v3_result = await build_node_sql_v3(
             session=session,
             node_name=node_name,
+            dimensions=dimensions or [],
             limit=limit,
             dialect=engine.dialect if engine else Dialect.SPARK,
             use_materialized=use_materialized,

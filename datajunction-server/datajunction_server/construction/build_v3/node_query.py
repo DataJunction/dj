@@ -6,44 +6,59 @@ require at least one metric and decompose it into aggregation components. For
 ``/data/{node}`` and ``/sql/{node}`` requests against dimension / transform /
 source nodes, we just need to render the node as executable SQL with any
 non-source upstream parents inlined as CTEs and source parents inlined as
-physical-table refs.
+physical-table refs — and, when the request includes them, dim-link joins for
+requested dimensions.
 
 Implementation strategy: lean entirely on existing v3 primitives.
 
-  1. ``find_upstream_node_names`` — pure parent-tracing (recursive CTE).
-  2. ``batch_load_nodes_with_dependencies`` — shared eager-load tree.
-  3. ``collect_node_ctes`` — compiles each node's query, rewrites parent refs
-     (sources → physical, transforms → CTE name), and pushes ``PushdownFilters``
-     into the CTEs whose columns the filters reference. Same primitive the
-     measures path uses at ``measures.py:972``.
+  - ``find_upstream_node_names`` — pure parent-tracing (recursive CTE).
+  - ``batch_load_nodes_with_dependencies`` — shared eager-load tree.
+  - ``collect_node_ctes`` — compiles each node's query, rewrites parent refs
+    (sources → physical, transforms → CTE name), and pushes ``PushdownFilters``
+    into the CTEs whose columns the filters reference.
+  - ``resolve_dimensions`` — walks dim links from the starting node to find
+    join paths to requested dimensions.
+  - ``build_dimension_joins`` — multi-hop JOIN AST construction.
+  - ``build_dimension_col_expr`` — alias-mapped projection of dim columns.
 
-The starting node's body comes back in the same list as its ancestors. We
-lift it out, attach the rest as CTEs, and apply outer-level concerns (LIMIT
-in Phase 1; ORDER BY / WHERE / dim joins in Phase 2). No bespoke compilation,
-no abuse of ``ctx.metrics``.
+Two output shapes depending on whether dimensions are requested:
 
-Phase 1 scope: no requested dimensions / filters / orderby. Limit only.
-The Phase 2 surface is sketched in the docstring of ``build_node_sql_v3`` so
-when we add dim-join + filter-pushdown we know exactly which v3 primitives
-slot in: ``dimensions.resolve_dimensions``, ``dimensions.build_join_clause``,
-and ``PushdownFilters`` for the existing ``collect_node_ctes`` call.
+  *Simple shape* (no dims): the starting node's compiled query *is* the
+  outer query. Parent-less node renders as just its own SELECT; node with
+  non-source parents renders as ``WITH parent_a AS (...) <starting body>``.
+
+  *Wrapped shape* (dims requested): the starting body becomes a CTE; a new
+  outer SELECT projects the starting node's columns + aliased dim columns,
+  and JOINs the resolved dim chains.
 """
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.construction.build_v3.builder import substitute_query_params
 from datajunction_server.construction.build_v3.cte import collect_node_ctes
+from datajunction_server.construction.build_v3.dimensions import (
+    parse_dimension_ref,
+    resolve_dimensions,
+)
 from datajunction_server.construction.build_v3.loaders import (
     batch_load_nodes_with_dependencies,
     find_upstream_node_names,
+    load_post_preload_chain,
+    preload_join_paths,
+)
+from datajunction_server.construction.build_v3.measures import (
+    build_dimension_col_expr,
+    build_dimension_joins,
+    collect_cte_nodes_and_needed_columns,
 )
 from datajunction_server.construction.build_v3.types import (
     BuildContext,
     ColumnMetadata,
     GeneratedSQL,
+    ResolvedDimension,
 )
 from datajunction_server.construction.build_v3.utils import get_cte_name
 from datajunction_server.database.column import Column as DBColumn
@@ -60,6 +75,7 @@ logger = logging.getLogger(__name__)
 async def build_node_sql_v3(
     session: AsyncSession,
     node_name: str,
+    dimensions: list[str] | None = None,
     limit: int | None = None,
     dialect: Dialect = Dialect.SPARK,
     use_materialized: bool = True,
@@ -68,28 +84,34 @@ async def build_node_sql_v3(
     """
     Build executable SQL for a single non-metric / non-cube node.
 
-    Phase 1 (current): no requested dimensions / filters / orderby. Output
-    is the starting node's compiled query body, with non-source upstream
-    parents attached as CTEs and an optional LIMIT.
+    With no requested dimensions, output is the starting node's compiled
+    query body, with non-source upstream parents attached as CTEs and an
+    optional LIMIT.
 
-    Phase 2 (future): when dimensions / filters / orderby are added, this
-    function will:
-      - call ``dimensions.resolve_dimensions(ctx, starting)`` to find join
-        paths to requested dimensions and add those dim nodes to the load set,
-      - pass ``PushdownFilters`` to ``collect_node_ctes`` so user-supplied
-        filters get pushed into upstream CTEs whose columns they reference,
-      - apply ``dimensions.build_join_clause`` per resolved dimension to add
-        JOIN clauses to the starting body,
-      - apply non-pushdownable filters as outer WHERE / orderby on the
-        starting body's Select.
-    Until then, the routing layer (``internal/sql.py:build_node_sql``) falls
-    through to v2 for those request shapes.
+    With requested dimensions, the starting body becomes a CTE and a new
+    outer SELECT projects the starting node's columns plus the requested
+    dim columns (alias-mapped via ``ctx.alias_registry``), with JOINs from
+    ``build_dimension_joins`` for non-local dim links.
+
+    Phase 2.2 (filters) and 2.3 (orderby) extend the outer SELECT with
+    WHERE / ORDER BY assembly. Until those land, the routing layer falls
+    through to v2 for filter / orderby cases.
     """
+    dim_list = list(dimensions or [])
+
+    # Collect everything we need to load: starting node + its upstream chain
+    # + every requested dim node + each dim's upstream chain.
+    starting_set = {node_name}
+    for dim_ref_str in dim_list:
+        dim_ref = parse_dimension_ref(dim_ref_str)
+        if dim_ref.node_name:
+            starting_set.add(dim_ref.node_name)
+
     upstream_names, parent_map = await find_upstream_node_names(
         session,
-        [node_name],
+        list(starting_set),
     )
-    upstream_names.add(node_name)
+    upstream_names |= starting_set
     nodes = await batch_load_nodes_with_dependencies(session, upstream_names)
     nodes_dict = {node.name: node for node in nodes}
 
@@ -107,7 +129,7 @@ async def build_node_sql_v3(
     ctx = BuildContext(
         session=session,
         metrics=[],
-        dimensions=[],
+        dimensions=dim_list,
         filters=[],
         dialect=dialect,
         use_materialized=use_materialized,
@@ -118,40 +140,48 @@ async def build_node_sql_v3(
     starting_revision: NodeRevision = starting.current  # type: ignore[assignment]
     starting_columns: list[DBColumn] = list(starting_revision.columns)
 
-    if starting.type == NodeType.SOURCE:
-        # Sources don't get CTEs in v3 (collect_node_ctes skips them and
-        # inlines them as physical-table refs in dependent CTEs). For a
-        # source *as the starting node* there's nothing to delegate to, so
-        # we build a trivial ``SELECT cols FROM <catalog>.<schema>.<table>``.
-        table_ref = ".".join(
-            part
-            for part in (
-                starting_revision.catalog.name if starting_revision.catalog else None,
-                starting_revision.schema_,
-                starting_revision.table,
-            )
-            if part
+    if dim_list:
+        # ``resolve_dimensions`` reads from ``ctx.join_paths`` to discover
+        # links from the starting node to each requested dim. Without this
+        # preload it returns "Cannot find join path" even when the link
+        # exists in the database.
+        target_dim_names = {
+            parse_dimension_ref(d).node_name
+            for d in dim_list
+            if parse_dimension_ref(d).node_name
+        }
+        await preload_join_paths(
+            ctx,
+            {starting_revision.id},
+            target_dim_names,
         )
-        final_query = ast.Query(
-            select=ast.Select(
-                projection=[ast.Column(ast.Name(col.name)) for col in starting_columns],
-                from_=ast.From(
-                    relations=[
-                        ast.Relation(primary=ast.Table(ast.Name(table_ref))),
-                    ],
-                ),
-                limit=ast.Number(limit) if limit is not None else None,
-            ),
+        # Multi-hop join paths add intermediate dim nodes to ``ctx.nodes``
+        # via ``preload_join_paths`` — but only with the limited eager-load
+        # the dimension_links query gives them. Reload them with the full
+        # tree so ``rewrite_table_references`` and ``get_parsed_query`` work.
+        await load_post_preload_chain(ctx, baseline_node_names=upstream_names)
+        resolved_dims = resolve_dimensions(ctx, starting)
+        final_query = _build_with_dimensions(
+            ctx,
+            starting,
+            starting_columns,
+            resolved_dims,
+            limit,
+        )
+        output_columns = _columns_metadata_with_dims(
+            starting,
+            starting_columns,
+            resolved_dims,
+            ctx,
         )
     else:
-        final_query = _node_query_with_upstream_ctes(ctx, starting, limit)
-
-    if query_parameters:  # pragma: no cover
-        substitute_query_params(final_query, query_parameters)
-
-    return GeneratedSQL(
-        query=final_query,
-        columns=[
+        final_query = _build_no_dimensions(
+            ctx,
+            starting,
+            starting_columns,
+            limit,
+        )
+        output_columns = [
             ColumnMetadata(
                 name=col.name,
                 semantic_name=f"{starting.name}.{col.name}",
@@ -159,31 +189,53 @@ async def build_node_sql_v3(
                 semantic_type="dimension",
             )
             for col in starting_columns
-        ],
+        ]
+
+    if query_parameters:  # pragma: no cover
+        substitute_query_params(final_query, query_parameters)
+
+    return GeneratedSQL(
+        query=final_query,
+        columns=output_columns,
         dialect=dialect,
     )
 
 
-def _node_query_with_upstream_ctes(
+# ---------------------------------------------------------------------------
+# No-dimensions path: starting body IS the outer query (no wrapping).
+# ---------------------------------------------------------------------------
+
+
+def _build_no_dimensions(
     ctx: BuildContext,
     starting: Node,
+    starting_columns: list[DBColumn],
     limit: int | None,
 ) -> ast.Query:
     """
-    Use the starting node's compiled query *as* the outer query, with any
-    non-source upstream parents attached as CTEs.
-
-    A parent-less node renders as just its own SELECT plus an optional LIMIT.
-    A node with non-source upstream parents renders as ``WITH parent_a AS
-    (...), parent_b AS (...) <starting_node_query>`` — exactly the CTEs
-    needed to define the parents the body actually references, with no
-    redundant ``WITH starting AS (...) SELECT * FROM starting`` wrapper.
+    No dimensions requested. For sources, emit ``SELECT cols FROM
+    <physical_table>`` directly. For non-sources, lift the starting body out
+    of ``collect_node_ctes`` and use it as the outer query, attaching any
+    upstream non-source parents as CTEs.
     """
+    if starting.type == NodeType.SOURCE:
+        # Sources don't get CTEs in v3 (collect_node_ctes skips them); for a
+        # source *as the starting node*, we have nothing to delegate to.
+        revision: NodeRevision = starting.current  # type: ignore[assignment]
+        table_ref = _physical_table_ref(revision)
+        return ast.Query(
+            select=ast.Select(
+                projection=[ast.Column(ast.Name(col.name)) for col in starting_columns],
+                from_=ast.From(
+                    relations=[ast.Relation(primary=ast.Table(ast.Name(table_ref)))],
+                ),
+                limit=ast.Number(limit) if limit is not None else None,
+            ),
+        )
+
     # ``collect_node_ctes`` returns (cte_name, body) pairs for every non-source
     # node in the dependency chain — including the starting node itself, with
-    # its parent table refs already rewritten by ``rewrite_table_references``
-    # (sources → physical names, transforms → CTE names). Same primitive the
-    # measures path uses at ``measures.py:972``.
+    # its parent table refs already rewritten by ``rewrite_table_references``.
     cte_pairs, _ = collect_node_ctes(ctx, [starting])
     starting_cte_name = get_cte_name(starting.name)
 
@@ -212,3 +264,165 @@ def _node_query_with_upstream_ctes(
         starting_body.select.limit = ast.Number(limit)
 
     return starting_body
+
+
+# ---------------------------------------------------------------------------
+# With-dimensions path: outer SELECT joins dim chains; starting body is a CTE.
+# ---------------------------------------------------------------------------
+
+
+def _build_with_dimensions(
+    ctx: BuildContext,
+    starting: Node,
+    starting_columns: list[DBColumn],
+    resolved_dims: list[ResolvedDimension],
+    limit: int | None,
+) -> ast.Query:
+    """
+    Build the outer SELECT projecting starting cols + dim cols, with JOINs.
+
+    Shape::
+
+        WITH starting_cte AS (<starting body>),
+             dim_a_cte AS (...),
+             ...
+        SELECT
+          starting.col1, starting.col2, ...,                  -- node's own cols
+          dim_a.country AS country,                           -- dim col, registry-aliased
+          ...
+        FROM <starting_cte | physical_table> starting
+        LEFT JOIN dim_a_cte dim_a ON ...
+        LEFT JOIN ...
+        LIMIT N
+    """
+    # ``collect_cte_nodes_and_needed_columns`` walks every link in every
+    # resolved dim's ``join_path`` and adds each intermediate hop's
+    # dimension to the CTE list — exactly what we need for multi-hop
+    # chains where a dim link routes through an intermediate transform/dim.
+    # Reused from measures.py so we don't drift.  We pass empty grain /
+    # metric args because non-metric nodes don't decompose into components.
+    nodes_for_ctes, _needed_columns = collect_cte_nodes_and_needed_columns(
+        ctx,
+        starting,
+        resolved_dims,
+        grain_col_specs=[],
+        metric_expressions=[],
+    )
+    # ``collect_node_ctes`` skips sources (they get inlined as physical refs)
+    # and produces bodies in dep order. We deliberately don't pass
+    # ``needed_columns_by_node`` — the v3 metric path uses it for column
+    # trimming, but for ``/sql/{node}`` we want each node's full projection
+    # in the CTE so the user gets every column the node defines.
+    cte_pairs, _ = collect_node_ctes(ctx, nodes_for_ctes)
+
+    # Generate the alias for the starting (FROM) table — this is what
+    # ``build_dimension_joins`` and ``build_dimension_col_expr`` use to qualify
+    # column refs back to the starting node.
+    main_alias = ctx.next_table_alias(starting.name)
+
+    # Multi-hop joins (with dedup of shared sub-paths). Reused from measures.
+    dim_aliases, joins = build_dimension_joins(ctx, resolved_dims, main_alias)
+
+    # Outer projection: starting node's columns (qualified by main_alias) +
+    # alias-registered dim columns from build_dimension_col_expr.
+    projection: list[Any] = [
+        _qualified_column(col.name, main_alias) for col in starting_columns
+    ]
+    for resolved in resolved_dims:
+        clean_alias = ctx.alias_registry.register(resolved.original_ref)
+        projection.append(
+            build_dimension_col_expr(resolved, main_alias, dim_aliases, clean_alias),
+        )
+
+    # FROM clause: source uses physical-table ref; non-source uses the
+    # starting CTE's alias. In both cases we wrap with main_alias so the
+    # qualified column refs above resolve.
+    if starting.type == NodeType.SOURCE:
+        revision: NodeRevision = starting.current  # type: ignore[assignment]
+        from_table = ast.Table(ast.Name(_physical_table_ref(revision)))
+    else:
+        starting_cte_name = get_cte_name(starting.name)
+        from_table = ast.Table(ast.Name(starting_cte_name))
+    # Same pattern measures.py:935-940 uses for the FROM-side alias wrapper.
+    primary = cast(
+        ast.Expression,
+        ast.Alias(child=from_table, alias=ast.Name(main_alias), as_=False),
+    )
+
+    outer_query = ast.Query(
+        select=ast.Select(
+            projection=projection,
+            from_=ast.From(
+                relations=[ast.Relation(primary=primary, extensions=joins)],
+            ),
+            limit=ast.Number(limit) if limit is not None else None,
+        ),
+    )
+
+    # Promote each (cte_name, body) pair from collect_node_ctes to a real CTE
+    # attached to the outer query. For non-source starting nodes, this also
+    # promotes the starting body itself (sources are skipped by collect_node_ctes
+    # so they're never present here).
+    all_ctes: list[ast.Query] = []
+    for cte_name, cte_body in cte_pairs:
+        cte_body.to_cte(ast.Name(cte_name), outer_query)
+        all_ctes.append(cte_body)
+    outer_query.ctes = all_ctes
+
+    return outer_query
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _physical_table_ref(revision: NodeRevision) -> str:
+    """Build ``catalog.schema.table`` from a NodeRevision, skipping null parts."""
+    return ".".join(
+        part
+        for part in (
+            revision.catalog.name if revision.catalog else None,
+            revision.schema_,
+            revision.table,
+        )
+        if part
+    )
+
+
+def _qualified_column(col_name: str, table_alias: str) -> ast.Column:
+    """``table_alias.col_name`` as an ast.Column."""
+    return ast.Column(
+        name=ast.Name(col_name, namespace=ast.Name(table_alias)),
+    )
+
+
+def _columns_metadata_with_dims(
+    starting: Node,
+    starting_columns: list[DBColumn],
+    resolved_dims: list[ResolvedDimension],
+    ctx: BuildContext,
+) -> list[ColumnMetadata]:
+    """Output column metadata for the dims-present path: node cols + dim cols."""
+    columns = [
+        ColumnMetadata(
+            name=col.name,
+            semantic_name=f"{starting.name}.{col.name}",
+            type=str(col.type),
+            semantic_type="dimension",
+        )
+        for col in starting_columns
+    ]
+    for resolved in resolved_dims:
+        clean_alias = (
+            ctx.alias_registry.get_alias(resolved.original_ref) or resolved.column_name
+        )
+        columns.append(
+            ColumnMetadata(
+                name=clean_alias,
+                semantic_name=resolved.original_ref,
+                type="string",  # type inference for joined dim cols is Phase 3
+                semantic_type="dimension",
+            ),
+        )
+    return columns
