@@ -30,6 +30,75 @@ JoinPathState = namedtuple(
 )
 
 
+async def batch_load_nodes_with_dependencies(
+    session: AsyncSession,
+    node_names: set[str] | list[str],
+) -> list[Node]:
+    """
+    Batch-load a set of nodes with the eager-load tree the v3 SQL builders
+    rely on (current revision, columns, catalog, availability, required
+    dimensions, dimension links).
+
+    Used both by ``load_nodes`` (for metric-driven SQL building) and by
+    single-node entrypoints like ``build_node_sql_v3`` that want the same
+    eager-load shape without the metric-required scaffolding around it.
+    """
+    stmt = (
+        select(Node)
+        .where(Node.name.in_(node_names))
+        .where(Node.deactivated_at.is_(None))
+        .options(
+            load_only(
+                Node.name,
+                Node.type,
+                Node.current_version,
+            ),
+            noload(Node.created_by),  # Prevent User selectin chain on root Node
+            noload(Node.tags),  # Prevent Tag selectin chain on root Node
+            joinedload(Node.current).options(
+                noload(NodeRevision.created_by),  # Prevent User N+1 queries
+                load_only(
+                    NodeRevision.name,
+                    NodeRevision.query,
+                    NodeRevision.schema_,
+                    NodeRevision.table,
+                ),
+                # NOTE: don't noload Column.attributes — Columns are identity-
+                # mapped and downstream code (get_native_grain) reads
+                # col.has_primary_key_attribute().
+                selectinload(NodeRevision.columns).options(
+                    load_only(
+                        Column.name,
+                        Column.type,
+                    ),
+                ),
+                # NOTE: don't noload Catalog.engines — see load_dimension_links_batch.
+                joinedload(NodeRevision.catalog),
+                selectinload(NodeRevision.required_dimensions).options(
+                    # Load the node_revision and node to reconstruct full dimension path
+                    joinedload(Column.node_revision).options(
+                        noload(NodeRevision.created_by),  # Prevent User N+1 queries
+                        joinedload(NodeRevision.node).options(
+                            noload(Node.created_by),  # Prevent User N+1 queries
+                            noload(Node.tags),  # Prevent Tag selectin chain
+                        ),
+                    ),
+                ),
+                joinedload(NodeRevision.availability),  # For materialization support
+                selectinload(NodeRevision.dimension_links).options(
+                    # Load dimension node for link matching in temporal filters
+                    joinedload(DimensionLink.dimension).options(
+                        noload(Node.created_by),  # Prevent User N+1 queries
+                        noload(Node.tags),  # Prevent Tag selectin chain
+                    ),
+                ),
+            ),
+        )
+    )
+    result = await session.execute(stmt)
+    return list(result.scalars().unique().all())
+
+
 async def find_upstream_node_names(
     session: AsyncSession,
     starting_node_names: list[str],
@@ -374,61 +443,7 @@ async def load_nodes(ctx: BuildContext) -> None:
     all_node_names.update(initial_node_names)
 
     # Query 2: Batch load all nodes with appropriate eager loading
-    stmt = (
-        select(Node)
-        .where(Node.name.in_(all_node_names))
-        .where(Node.deactivated_at.is_(None))
-        .options(
-            load_only(
-                Node.name,
-                Node.type,
-                Node.current_version,
-            ),
-            noload(Node.created_by),  # Prevent User selectin chain on root Node
-            noload(Node.tags),  # Prevent Tag selectin chain on root Node
-            joinedload(Node.current).options(
-                noload(NodeRevision.created_by),  # Prevent User N+1 queries
-                load_only(
-                    NodeRevision.name,
-                    NodeRevision.query,
-                    NodeRevision.schema_,
-                    NodeRevision.table,
-                ),
-                # NOTE: don't noload Column.attributes — Columns are identity-
-                # mapped and downstream code (get_native_grain) reads
-                # col.has_primary_key_attribute().
-                selectinload(NodeRevision.columns).options(
-                    load_only(
-                        Column.name,
-                        Column.type,
-                    ),
-                ),
-                # NOTE: don't noload Catalog.engines — see load_dimension_links_batch.
-                joinedload(NodeRevision.catalog),
-                selectinload(NodeRevision.required_dimensions).options(
-                    # Load the node_revision and node to reconstruct full dimension path
-                    joinedload(Column.node_revision).options(
-                        noload(NodeRevision.created_by),  # Prevent User N+1 queries
-                        joinedload(NodeRevision.node).options(
-                            noload(Node.created_by),  # Prevent User N+1 queries
-                            noload(Node.tags),  # Prevent Tag selectin chain
-                        ),
-                    ),
-                ),
-                joinedload(NodeRevision.availability),  # For materialization support
-                selectinload(NodeRevision.dimension_links).options(
-                    # Load dimension node for link matching in temporal filters
-                    joinedload(DimensionLink.dimension).options(
-                        noload(Node.created_by),  # Prevent User N+1 queries
-                        noload(Node.tags),  # Prevent Tag selectin chain
-                    ),
-                ),
-            ),
-        )
-    )
-
-    result = await ctx.session.execute(stmt)
-    nodes = result.scalars().unique().all()
+    nodes = await batch_load_nodes_with_dependencies(ctx.session, all_node_names)
 
     # Cache all loaded nodes
     for node in nodes:
