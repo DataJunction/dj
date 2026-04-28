@@ -281,13 +281,32 @@ async def get_measures_sql_v3(
 
     response = _build_measures_response(result)
 
+    elapsed_ms = (time.monotonic() - _t0) * 1000
     _tags = {"query_type": "measures", "query_version": "v3"}
     get_metrics_provider().timer(
         "dj.sql.build_latency_ms",
-        (time.monotonic() - _t0) * 1000,
+        elapsed_ms,
         _tags,
     )
     get_metrics_provider().counter("dj.sql.requests", tags=_tags)
+
+    _logger.info(
+        "[SQL] endpoint=%s metrics=%s dimensions=%s filters=%s elapsed_ms=%.1f",
+        "/sql/measures/v3/",
+        metrics,
+        dimensions,
+        merged_filters,
+        elapsed_ms,
+        extra={
+            "endpoint": "/sql/measures/v3/",
+            "query_type": "measures",
+            "query_version": "v3",
+            "metrics": metrics,
+            "dimensions": dimensions,
+            "filters": merged_filters,
+            "elapsed_ms": elapsed_ms,
+        },
+    )
     return response
 
 
@@ -493,13 +512,32 @@ async def get_combined_measures_sql_v3(
             # Extract table references from the query
             source_tables.append(gg.parent_name)
 
+    elapsed_ms = (time.monotonic() - _t0) * 1000
     _tags = {"query_type": "measures_combined", "query_version": "v3"}
     get_metrics_provider().timer(
         "dj.sql.build_latency_ms",
-        (time.monotonic() - _t0) * 1000,
+        elapsed_ms,
         _tags,
     )
     get_metrics_provider().counter("dj.sql.requests", tags=_tags)
+
+    _logger.info(
+        "[SQL] endpoint=%s metrics=%s dimensions=%s filters=%s elapsed_ms=%.1f",
+        "/sql/measures/v3/combined",
+        metrics,
+        dimensions,
+        filters,
+        elapsed_ms,
+        extra={
+            "endpoint": "/sql/measures/v3/combined",
+            "query_type": "measures_combined",
+            "query_version": "v3",
+            "metrics": metrics,
+            "dimensions": dimensions,
+            "filters": filters,
+            "elapsed_ms": elapsed_ms,
+        },
+    )
     return CombinedMeasuresSQLResponse(
         sql=combined_result.sql,
         columns=[
@@ -639,13 +677,32 @@ async def get_metrics_sql_v3(
         matched_cube=matched_cube,
         query_parameters=json.loads(query_params) or None,
     )
+    elapsed_ms = (time.monotonic() - _t0) * 1000
     _tags = {"query_type": "metrics", "query_version": "v3"}
     get_metrics_provider().timer(
         "dj.sql.build_latency_ms",
-        (time.monotonic() - _t0) * 1000,
+        elapsed_ms,
         _tags,
     )
     get_metrics_provider().counter("dj.sql.requests", tags=_tags)
+
+    _logger.info(
+        "[SQL] endpoint=%s metrics=%s dimensions=%s filters=%s elapsed_ms=%.1f",
+        "/sql/metrics/v3/",
+        metrics,
+        dimensions,
+        merged_filters,
+        elapsed_ms,
+        extra={
+            "endpoint": "/sql/metrics/v3/",
+            "query_type": "metrics",
+            "query_version": "v3",
+            "metrics": metrics,
+            "dimensions": dimensions,
+            "filters": merged_filters,
+            "elapsed_ms": elapsed_ms,
+        },
+    )
 
     return V3TranslatedSQL(
         sql=result.sql,

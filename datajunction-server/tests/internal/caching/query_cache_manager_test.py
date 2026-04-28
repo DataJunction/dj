@@ -50,6 +50,33 @@ async def test_cache_key_prefix_uses_query_type():
     assert manager.cache_key_prefix == "sql:measures"
 
 
+def test_measures_metric_tags_query_version_is_v2():
+    """
+    QueryBuildType.MEASURES routes through get_measures_query (the v2 builder),
+    so its emitted query_version tag must be "v2", not "v3". The /sql/measures/v3/
+    endpoint emits its own v3 tag directly and does not go through the cache manager.
+    """
+    cache = CachelibCache()
+    manager = QueryCacheManager(cache, QueryBuildType.MEASURES)
+    assert manager._metric_tags["query_version"] == "v2"
+
+
+def test_metric_tags_query_version_for_all_types():
+    """
+    Every cache-managed query type should emit query_version=v2, since they all
+    route through v2 SQL builders.
+    """
+    cache = CachelibCache()
+    for query_type in (
+        QueryBuildType.METRICS,
+        QueryBuildType.MEASURES,
+        QueryBuildType.NODE,
+    ):
+        assert (
+            QueryCacheManager(cache, query_type)._metric_tags["query_version"] == "v2"
+        )
+
+
 @pytest.mark.asyncio
 async def test_build_cache_key_calls_versioning():
     """
