@@ -1830,6 +1830,82 @@ class TestNodeCRUD:
         assert data["name"] == "default.public.basic.comments"
 
     @pytest.mark.asyncio
+    async def test_patch_source_node_to_yaml_managed(
+        self,
+        module__client_with_basic,
+    ):
+        """
+        PATCH ``missing_table=True`` on an existing warehouse-tracked source
+        flips it to YAML-managed. Subsequent /refresh/ calls then short-circuit
+        instead of overwriting the YAML-declared columns.
+        """
+        # Create a warehouse-tracked source (missing_table defaults to False).
+        create = await module__client_with_basic.post(
+            "/nodes/source/",
+            json={
+                "name": "basic.source.convert_target",
+                "description": "Source we'll later flip to YAML-managed",
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "label", "type": "string"},
+                ],
+                "mode": "published",
+                "catalog": "public",
+                "schema_": "basic",
+                "table": "convert_target",
+            },
+        )
+        assert create.status_code in (200, 201), create.json()
+        assert create.json()["missing_table"] is False
+
+        # Convert: flip missing_table to True via PATCH.
+        patch = await module__client_with_basic.patch(
+            "/nodes/basic.source.convert_target/",
+            json={"missing_table": True},
+        )
+        assert patch.status_code == 200, patch.json()
+        assert patch.json()["missing_table"] is True
+
+        # Round-trip: GET should reflect the new flag.
+        fetched = await module__client_with_basic.get(
+            "/nodes/basic.source.convert_target/",
+        )
+        assert fetched.json()["missing_table"] is True
+
+    @pytest.mark.asyncio
+    async def test_create_source_node_with_missing_table(
+        self,
+        module__client_with_basic,
+    ):
+        """
+        ``missing_table=True`` in the create payload is honored on the new node.
+
+        Use case: YAML-managed sources where the column list is the source of
+        truth and DJ shouldn't introspect the warehouse. Setting the flag at
+        create time keeps the node out of the auto-refresh self-rewrite loop.
+        """
+        response = await module__client_with_basic.post(
+            "/nodes/source/",
+            json={
+                "name": "basic.source.yaml_managed",
+                "description": "YAML-managed source with no real warehouse table",
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "label", "type": "string"},
+                ],
+                "mode": "published",
+                "catalog": "public",
+                "schema_": "basic",
+                "table": "yaml_managed",
+                "missing_table": True,
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+        data = response.json()
+        assert data["missing_table"] is True
+        assert [c["name"] for c in data["columns"]] == ["id", "label"]
+
+    @pytest.mark.asyncio
     async def test_refresh_source_node(
         self,
         module__client_with_roads,

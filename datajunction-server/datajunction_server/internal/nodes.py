@@ -164,6 +164,10 @@ async def create_a_source_node(
         type=NodeType.SOURCE,
         current_version=0,
         created_by_id=current_user.id,
+        # YAML-managed sources can opt out of warehouse introspection by
+        # passing missing_table=True. /nodes/{name}/refresh/ then short-circuits
+        # at internal/nodes.py:3621-3623 instead of overwriting the YAML schema.
+        missing_table=data.missing_table,
     )
     catalog = await get_catalog_by_name(session=session, name=data.catalog)
 
@@ -1152,6 +1156,18 @@ async def update_any_node(
 
     if data.owners and data.owners != [owner.username for owner in node.owners]:
         await update_owners(session, node, data.owners, current_user, save_history)
+
+    # Source-only: ``missing_table`` lives on Node (not NodeRevision) and the
+    # column-rewriting refresh flow mutates it in place. Honor an explicit
+    # PATCH so a warehouse-introspected source can be flipped to a
+    # YAML-managed one (and back) without going through delete+create.
+    if (
+        node.type == NodeType.SOURCE  # type: ignore
+        and data.missing_table is not None
+        and node.missing_table != data.missing_table  # type: ignore
+    ):
+        node.missing_table = data.missing_table  # type: ignore
+        session.add(node)
 
     if node.type == NodeType.CUBE:  # type: ignore
         node = await Node.get_cube_by_name(session, name)
