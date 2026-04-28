@@ -1,4 +1,5 @@
 import asyncio
+import time
 from copy import deepcopy
 from dataclasses import asdict, dataclass
 import json
@@ -31,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 _VERSION_BY_TYPE: dict[QueryBuildType, str] = {
     QueryBuildType.METRICS: "v2",
-    QueryBuildType.MEASURES: "v3",
+    QueryBuildType.MEASURES: "v2",
     QueryBuildType.NODE: "v2",
 }
 settings = get_settings()
@@ -201,6 +202,7 @@ class QueryCacheManager(RefreshAheadCacheManager):
         in subclasses.
         """
         params = deepcopy(params)
+        _t0 = time.monotonic()
 
         async def _build_with_session(session: AsyncSession):
             access_checker = await build_access_checker_from_request(request, session)
@@ -231,14 +233,37 @@ class QueryCacheManager(RefreshAheadCacheManager):
                         access_checker,
                     )
 
-        # Use provided session or create a new one
-        if session:
-            return await _build_with_session(session)
-        async with session_context(
-            request,
-            session_label="SQL building",
-        ) as new_session:
-            return await _build_with_session(new_session)
+        try:
+            # Use provided session or create a new one
+            if session:
+                return await _build_with_session(session)
+            async with session_context(
+                request,
+                session_label="SQL building",
+            ) as new_session:
+                return await _build_with_session(new_session)
+        finally:
+            elapsed_ms = (time.monotonic() - _t0) * 1000
+            url = getattr(request, "url", None)
+            endpoint = getattr(url, "path", "") if url is not None else ""
+            query_version = _VERSION_BY_TYPE[self.query_type]
+            self.logger.info(
+                "[SQL] endpoint=%s metrics=%s dimensions=%s filters=%s elapsed_ms=%.1f",
+                endpoint,
+                params.nodes,
+                params.dimensions,
+                params.filters,
+                elapsed_ms,
+                extra={
+                    "endpoint": endpoint,
+                    "query_type": str(self.query_type),
+                    "query_version": query_version,
+                    "metrics": params.nodes,
+                    "dimensions": params.dimensions,
+                    "filters": params.filters,
+                    "elapsed_ms": elapsed_ms,
+                },
+            )
 
     @timed(
         "dj.cache.key_build_ms",
