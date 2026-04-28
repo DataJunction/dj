@@ -718,3 +718,324 @@ async def test_sql_with_dimension_loads_dim_node_chain(
         LIMIT 2
         """,
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 2.2: filters
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_sql_with_filter_on_local_column(
+    client_with_roads: AsyncClient,
+):
+    """
+    A filter that references a column on the starting node only (no joined
+    dim). The filter applies at the outer WHERE; no extra CTEs or JOINs are
+    introduced beyond what the starting node itself needs.
+    """
+    response = await client_with_roads.get(
+        "/sql/default.repair_orders_fact/",
+        params={
+            "filters": ["default.repair_orders_fact.hard_hat_id > 100"],
+            "limit": 5,
+        },
+    )
+    assert response.status_code == 200, response.json()
+
+    assert_sql_equal(
+        response.json()["sql"],
+        """
+        WITH default_repair_orders_fact AS (
+          SELECT
+            repair_orders.repair_order_id,
+            repair_orders.municipality_id,
+            repair_orders.hard_hat_id,
+            repair_orders.dispatcher_id,
+            repair_orders.order_date,
+            repair_orders.dispatched_date,
+            repair_orders.required_date,
+            repair_order_details.discount,
+            repair_order_details.price,
+            repair_order_details.quantity,
+            repair_order_details.repair_type_id,
+            repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
+            repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
+            repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
+          FROM default.roads.repair_orders repair_orders
+          JOIN default.roads.repair_order_details repair_order_details
+            ON repair_orders.repair_order_id = repair_order_details.repair_order_id
+          WHERE repair_orders.hard_hat_id > 100
+        )
+        SELECT
+          t1.repair_order_id,
+          t1.municipality_id,
+          t1.hard_hat_id,
+          t1.dispatcher_id,
+          t1.order_date,
+          t1.dispatched_date,
+          t1.required_date,
+          t1.discount,
+          t1.price,
+          t1.quantity,
+          t1.repair_type_id,
+          t1.total_repair_cost,
+          t1.time_to_dispatch,
+          t1.dispatch_delay
+        FROM default_repair_orders_fact t1
+        WHERE t1.hard_hat_id > 100
+        LIMIT 5
+        """,
+    )
+
+
+@pytest.mark.asyncio
+async def test_sql_with_filter_only_dimension(
+    client_with_roads: AsyncClient,
+):
+    """
+    A filter that references a dim column WITHOUT requesting that dim as a
+    dimension. The dim node is loaded, joined, and used in WHERE — but
+    NOT projected (it's tracked in ``ctx.filter_dimensions``).
+    """
+    response = await client_with_roads.get(
+        "/sql/default.repair_orders_fact/",
+        params={
+            "filters": ["default.hard_hat.state = 'CA'"],
+            "limit": 3,
+        },
+    )
+    assert response.status_code == 200, response.json()
+
+    assert_sql_equal(
+        response.json()["sql"],
+        """
+        WITH default_hard_hat AS (
+          SELECT hard_hat_id, last_name, first_name, title, birth_date, hire_date,
+                 address, city, state, postal_code, country, manager, contractor_id
+          FROM default.roads.hard_hats
+          WHERE state = 'CA'
+        ),
+        default_repair_orders_fact AS (
+          SELECT
+            repair_orders.repair_order_id,
+            repair_orders.municipality_id,
+            repair_orders.hard_hat_id,
+            repair_orders.dispatcher_id,
+            repair_orders.order_date,
+            repair_orders.dispatched_date,
+            repair_orders.required_date,
+            repair_order_details.discount,
+            repair_order_details.price,
+            repair_order_details.quantity,
+            repair_order_details.repair_type_id,
+            repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
+            repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
+            repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
+          FROM default.roads.repair_orders repair_orders
+          JOIN default.roads.repair_order_details repair_order_details
+            ON repair_orders.repair_order_id = repair_order_details.repair_order_id
+        )
+        SELECT
+          t1.repair_order_id,
+          t1.municipality_id,
+          t1.hard_hat_id,
+          t1.dispatcher_id,
+          t1.order_date,
+          t1.dispatched_date,
+          t1.required_date,
+          t1.discount,
+          t1.price,
+          t1.quantity,
+          t1.repair_type_id,
+          t1.total_repair_cost,
+          t1.time_to_dispatch,
+          t1.dispatch_delay
+        FROM default_repair_orders_fact t1
+        INNER JOIN default_hard_hat t2
+          ON t1.hard_hat_id = t2.hard_hat_id
+        WHERE t2.state = 'CA'
+        LIMIT 3
+        """,
+    )
+
+
+@pytest.mark.asyncio
+async def test_sql_with_dimension_and_filter_on_same_dim(
+    client_with_roads: AsyncClient,
+):
+    """
+    A user-requested dim PLUS a filter on the same dim node. The dim is in
+    the projection (since it's user-requested) AND the filter applies. The
+    JOIN is shared between projection and filter.
+    """
+    response = await client_with_roads.get(
+        "/sql/default.repair_orders_fact/",
+        params={
+            "dimensions": ["default.hard_hat.state"],
+            "filters": ["default.hard_hat.state = 'CA'"],
+            "limit": 4,
+        },
+    )
+    assert response.status_code == 200, response.json()
+
+    assert_sql_equal(
+        response.json()["sql"],
+        """
+        WITH default_hard_hat AS (
+          SELECT hard_hat_id, last_name, first_name, title, birth_date, hire_date,
+                 address, city, state, postal_code, country, manager, contractor_id
+          FROM default.roads.hard_hats
+          WHERE state = 'CA'
+        ),
+        default_repair_orders_fact AS (
+          SELECT
+            repair_orders.repair_order_id,
+            repair_orders.municipality_id,
+            repair_orders.hard_hat_id,
+            repair_orders.dispatcher_id,
+            repair_orders.order_date,
+            repair_orders.dispatched_date,
+            repair_orders.required_date,
+            repair_order_details.discount,
+            repair_order_details.price,
+            repair_order_details.quantity,
+            repair_order_details.repair_type_id,
+            repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
+            repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
+            repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
+          FROM default.roads.repair_orders repair_orders
+          JOIN default.roads.repair_order_details repair_order_details
+            ON repair_orders.repair_order_id = repair_order_details.repair_order_id
+        )
+        SELECT
+          t1.repair_order_id,
+          t1.municipality_id,
+          t1.hard_hat_id,
+          t1.dispatcher_id,
+          t1.order_date,
+          t1.dispatched_date,
+          t1.required_date,
+          t1.discount,
+          t1.price,
+          t1.quantity,
+          t1.repair_type_id,
+          t1.total_repair_cost,
+          t1.time_to_dispatch,
+          t1.dispatch_delay,
+          t2.state
+        FROM default_repair_orders_fact t1
+        INNER JOIN default_hard_hat t2
+          ON t1.hard_hat_id = t2.hard_hat_id
+        WHERE t2.state = 'CA'
+        LIMIT 4
+        """,
+    )
+
+
+@pytest.mark.asyncio
+async def test_sql_with_bare_column_filter_is_rejected(
+    client_with_roads: AsyncClient,
+):
+    """
+    Bare column refs in filters (``hour IN (1)``) are explicitly NOT
+    supported — v3 requires the ``node.column`` form so column refs are
+    routed unambiguously. This pins that contract so callers know to qualify.
+    """
+    create = await client_with_roads.post(
+        "/nodes/dimension/",
+        json={
+            "name": "default.test_filter_hours",
+            "description": "24 hour-of-day rows for filter testing",
+            "query": "SELECT CAST(hour AS INT) AS hour FROM (SELECT EXPLODE(SEQUENCE(0, 23)) AS hour) t",
+            "primary_key": ["hour"],
+            "mode": "published",
+        },
+    )
+    assert create.status_code == 201, create.json()
+
+    response = await client_with_roads.get(
+        "/sql/default.test_filter_hours/",
+        params={
+            "filters": ["hour IN (1)"],
+            "limit": 1000,
+        },
+    )
+    assert response.status_code == 422, response.json()
+    assert "not fully qualified" in response.json()["message"]
+
+
+@pytest.mark.asyncio
+async def test_sql_with_multiple_filters(
+    client_with_roads: AsyncClient,
+):
+    """
+    Multiple filters across local + dim columns. Both are AND'd into the
+    outer WHERE; the local-column one is also pushed into the starting
+    body's WHERE, and the dim one is pushed into the dim CTE — same shape
+    measures.py produces.
+    """
+    response = await client_with_roads.get(
+        "/sql/default.repair_orders_fact/",
+        params={
+            "filters": [
+                "default.repair_orders_fact.price > 50",
+                "default.hard_hat.state = 'CA'",
+            ],
+            "limit": 2,
+        },
+    )
+    assert response.status_code == 200, response.json()
+
+    assert_sql_equal(
+        response.json()["sql"],
+        """
+        WITH default_hard_hat AS (
+          SELECT hard_hat_id, last_name, first_name, title, birth_date, hire_date,
+                 address, city, state, postal_code, country, manager, contractor_id
+          FROM default.roads.hard_hats
+          WHERE state = 'CA'
+        ),
+        default_repair_orders_fact AS (
+          SELECT
+            repair_orders.repair_order_id,
+            repair_orders.municipality_id,
+            repair_orders.hard_hat_id,
+            repair_orders.dispatcher_id,
+            repair_orders.order_date,
+            repair_orders.dispatched_date,
+            repair_orders.required_date,
+            repair_order_details.discount,
+            repair_order_details.price,
+            repair_order_details.quantity,
+            repair_order_details.repair_type_id,
+            repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
+            repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
+            repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
+          FROM default.roads.repair_orders repair_orders
+          JOIN default.roads.repair_order_details repair_order_details
+            ON repair_orders.repair_order_id = repair_order_details.repair_order_id
+          WHERE repair_order_details.price > 50
+        )
+        SELECT
+          t1.repair_order_id,
+          t1.municipality_id,
+          t1.hard_hat_id,
+          t1.dispatcher_id,
+          t1.order_date,
+          t1.dispatched_date,
+          t1.required_date,
+          t1.discount,
+          t1.price,
+          t1.quantity,
+          t1.repair_type_id,
+          t1.total_repair_cost,
+          t1.time_to_dispatch,
+          t1.dispatch_delay
+        FROM default_repair_orders_fact t1
+        INNER JOIN default_hard_hat t2
+          ON t1.hard_hat_id = t2.hard_hat_id
+        WHERE t1.price > 50 AND t2.state = 'CA'
+        LIMIT 2
+        """,
+    )

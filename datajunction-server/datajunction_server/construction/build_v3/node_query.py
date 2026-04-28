@@ -52,15 +52,21 @@ from datajunction_server.construction.build_v3.loaders import (
 from datajunction_server.construction.build_v3.measures import (
     build_dimension_col_expr,
     build_dimension_joins,
+    build_filter_column_aliases,
+    build_outer_where,
     collect_cte_nodes_and_needed_columns,
 )
 from datajunction_server.construction.build_v3.types import (
     BuildContext,
     ColumnMetadata,
     GeneratedSQL,
+    PushdownFilters,
     ResolvedDimension,
 )
-from datajunction_server.construction.build_v3.utils import get_cte_name
+from datajunction_server.construction.build_v3.utils import (
+    add_dimensions_from_filters,
+    get_cte_name,
+)
 from datajunction_server.database.column import Column as DBColumn
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.errors import DJInvalidInputException
@@ -76,6 +82,7 @@ async def build_node_sql_v3(
     session: AsyncSession,
     node_name: str,
     dimensions: list[str] | None = None,
+    filters: list[str] | None = None,
     limit: int | None = None,
     dialect: Dialect = Dialect.SPARK,
     use_materialized: bool = True,
@@ -84,28 +91,33 @@ async def build_node_sql_v3(
     """
     Build executable SQL for a single non-metric / non-cube node.
 
-    With no requested dimensions, output is the starting node's compiled
-    query body, with non-source upstream parents attached as CTEs and an
-    optional LIMIT.
+    With no requested dimensions or filters, output is the starting node's
+    compiled query body, with non-source upstream parents attached as CTEs
+    and an optional LIMIT.
 
-    With requested dimensions, the starting body becomes a CTE and a new
+    With dimensions or filters, the starting body becomes a CTE and a new
     outer SELECT projects the starting node's columns plus the requested
     dim columns (alias-mapped via ``ctx.alias_registry``), with JOINs from
-    ``build_dimension_joins`` for non-local dim links.
+    ``build_dimension_joins`` for non-local dim links and a WHERE clause
+    from ``build_outer_where`` for filters. Filters whose columns belong to
+    upstream CTEs get pushed down via ``PushdownFilters`` for efficiency.
 
-    Phase 2.2 (filters) and 2.3 (orderby) extend the outer SELECT with
-    WHERE / ORDER BY assembly. Until those land, the routing layer falls
-    through to v2 for filter / orderby cases.
+    Phase 2.3 (orderby) extends the outer SELECT with ORDER BY assembly.
+    Until then, the routing layer falls through to v2 for orderby cases.
     """
     dim_list = list(dimensions or [])
+    filter_list = list(filters or [])
 
     # Collect everything we need to load: starting node + its upstream chain
-    # + every requested dim node + each dim's upstream chain.
+    # + every requested dim node + every dim referenced in filters.
     starting_set = {node_name}
     for dim_ref_str in dim_list:
         dim_ref = parse_dimension_ref(dim_ref_str)
         if dim_ref.node_name:
             starting_set.add(dim_ref.node_name)
+    # Filters can reference dim nodes that aren't in ``dimensions`` — those
+    # still need to be loaded so we can join + apply the filter. We handle
+    # the dim-list expansion below via ``add_dimensions_from_filters``.
 
     upstream_names, parent_map = await find_upstream_node_names(
         session,
@@ -126,28 +138,39 @@ async def build_node_sql_v3(
             f"got {starting.type.value} for {node_name}",
         )
 
+    starting_revision: NodeRevision = starting.current  # type: ignore[assignment]
+    starting_columns: list[DBColumn] = list(starting_revision.columns)
+
     ctx = BuildContext(
         session=session,
         metrics=[],
         dimensions=dim_list,
-        filters=[],
+        filters=filter_list,
         dialect=dialect,
         use_materialized=use_materialized,
         nodes=nodes_dict,
         parent_map=parent_map,
     )
 
-    starting_revision: NodeRevision = starting.current  # type: ignore[assignment]
-    starting_columns: list[DBColumn] = list(starting_revision.columns)
+    # ``add_dimensions_from_filters`` parses ``ctx.filters`` for dim refs
+    # and adds them to ``ctx.dimensions`` (and ``ctx.filter_dimensions`` so
+    # they're excluded from the output projection). Dim refs from filters
+    # are resolved + joined the same way user-requested dimensions are —
+    # they just don't appear as projected columns.
+    if filter_list:
+        add_dimensions_from_filters(ctx)
 
-    if dim_list:
+    # Wrap path is required when anything beyond the bare node is requested
+    # (dims, filters that pull in dim joins, etc). ``add_dimensions_from_filters``
+    # may have grown ``ctx.dimensions`` so re-check after that.
+    if ctx.dimensions or filter_list:
         # ``resolve_dimensions`` reads from ``ctx.join_paths`` to discover
         # links from the starting node to each requested dim. Without this
         # preload it returns "Cannot find join path" even when the link
         # exists in the database.
         target_dim_names = {
             parse_dimension_ref(d).node_name
-            for d in dim_list
+            for d in ctx.dimensions
             if parse_dimension_ref(d).node_name
         }
         await preload_join_paths(
@@ -166,6 +189,7 @@ async def build_node_sql_v3(
             starting,
             starting_columns,
             resolved_dims,
+            filter_list,
             limit,
         )
         output_columns = _columns_metadata_with_dims(
@@ -276,6 +300,7 @@ def _build_with_dimensions(
     starting: Node,
     starting_columns: list[DBColumn],
     resolved_dims: list[ResolvedDimension],
+    filter_list: list[str],
     limit: int | None,
 ) -> ast.Query:
     """
@@ -293,7 +318,12 @@ def _build_with_dimensions(
         FROM <starting_cte | physical_table> starting
         LEFT JOIN dim_a_cte dim_a ON ...
         LEFT JOIN ...
+        WHERE <filters>
         LIMIT N
+
+    Filters whose columns belong to upstream CTEs get pushed down into
+    those CTEs via ``PushdownFilters`` (handled inside ``collect_node_ctes``);
+    everything else is applied at the outer ``WHERE``.
     """
     # ``collect_cte_nodes_and_needed_columns`` walks every link in every
     # resolved dim's ``join_path`` and adds each intermediate hop's
@@ -308,12 +338,28 @@ def _build_with_dimensions(
         grain_col_specs=[],
         metric_expressions=[],
     )
+
+    # Build the filter-column-alias map up front so ``PushdownFilters``
+    # can resolve user filter refs to the right CTE columns.
+    filter_column_aliases = (
+        build_filter_column_aliases(ctx, resolved_dims, starting) if filter_list else {}
+    )
+
     # ``collect_node_ctes`` skips sources (they get inlined as physical refs)
     # and produces bodies in dep order. We deliberately don't pass
     # ``needed_columns_by_node`` — the v3 metric path uses it for column
     # trimming, but for ``/sql/{node}`` we want each node's full projection
     # in the CTE so the user gets every column the node defines.
-    cte_pairs, _ = collect_node_ctes(ctx, nodes_for_ctes)
+    cte_pairs, _ = collect_node_ctes(
+        ctx,
+        nodes_for_ctes,
+        pushdown=PushdownFilters(
+            filters=filter_list,
+            column_aliases=filter_column_aliases,
+        )
+        if filter_list
+        else None,
+    )
 
     # Generate the alias for the starting (FROM) table — this is what
     # ``build_dimension_joins`` and ``build_dimension_col_expr`` use to qualify
@@ -324,11 +370,16 @@ def _build_with_dimensions(
     dim_aliases, joins = build_dimension_joins(ctx, resolved_dims, main_alias)
 
     # Outer projection: starting node's columns (qualified by main_alias) +
-    # alias-registered dim columns from build_dimension_col_expr.
+    # alias-registered dim columns from ``build_dimension_col_expr``.
+    # Filter-only dimensions (those added by ``add_dimensions_from_filters``
+    # but not user-requested) are excluded from the projection — they exist
+    # to enable the filter, not to surface in the output.
     projection: list[Any] = [
         _qualified_column(col.name, main_alias) for col in starting_columns
     ]
     for resolved in resolved_dims:
+        if resolved.original_ref in ctx.filter_dimensions:
+            continue
         clean_alias = ctx.alias_registry.register(resolved.original_ref)
         projection.append(
             build_dimension_col_expr(resolved, main_alias, dim_aliases, clean_alias),
@@ -349,12 +400,33 @@ def _build_with_dimensions(
         ast.Alias(child=from_table, alias=ast.Name(main_alias), as_=False),
     )
 
+    # Outer WHERE: parse user filters and resolve column refs against the
+    # starting node's main alias / dim CTE aliases. Filters that pushed
+    # cleanly into upstream CTEs via ``PushdownFilters`` above will *also*
+    # appear here at the outer level — that's the same shape measures.py
+    # produces, and the database optimizer collapses the redundancy. The
+    # WHERE is what guarantees correctness for filters whose columns aren't
+    # in any pushdownable CTE (e.g. filters on a JOINed dim column).
+    where_clause = (
+        build_outer_where(
+            filter_list,
+            filter_column_aliases,
+            resolved_dims,
+            main_alias,
+            dim_aliases,
+            starting,
+        )
+        if filter_list
+        else None
+    )
+
     outer_query = ast.Query(
         select=ast.Select(
             projection=projection,
             from_=ast.From(
                 relations=[ast.Relation(primary=primary, extensions=joins)],
             ),
+            where=where_clause,
             limit=ast.Number(limit) if limit is not None else None,
         ),
     )
