@@ -103,10 +103,26 @@ async def build_node_sql(
         use_materialized=use_materialized,
         query_parameters=query_parameters,
     )
+    # Carry the semantic entity through to the response — clients (e.g. the
+    # python client's ``node_data``) use ``semantic_entity`` to label the
+    # resulting DataFrame columns. Without it, columns end up unnamed and
+    # pandas reports them as inferred type ``mixed`` instead of ``string``.
     return TranslatedSQL.create(
         sql=v3_result.sql,
         columns=[
-            ColumnMetadata(name=col.name, type=col.type) for col in v3_result.columns
+            ColumnMetadata(
+                name=col.name,
+                type=col.type,
+                column=col.semantic_name.rsplit(SEPARATOR, 1)[-1]
+                if col.semantic_name and SEPARATOR in col.semantic_name
+                else col.name,
+                node=col.semantic_name.rsplit(SEPARATOR, 1)[0]
+                if col.semantic_name and SEPARATOR in col.semantic_name
+                else None,
+                semantic_entity=col.semantic_name,
+                semantic_type=col.semantic_type,
+            )
+            for col in v3_result.columns
         ],
         dialect=engine.dialect if engine else None,
     )
