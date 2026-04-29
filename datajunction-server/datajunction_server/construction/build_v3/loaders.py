@@ -104,17 +104,22 @@ async def batch_load_nodes_for_chain_rewriting(
     node_names: set[str] | list[str],
 ) -> list[Node]:
     """
-    Lean batch-load for nodes whose only role is to provide enough state for
-    ``rewrite_table_references`` and CTE assembly. Skips
-    ``required_dimensions`` (only metrics use it), ``availability`` (only the
-    starting / target node's materialization is checked), and
-    ``dimension_links`` (``preload_join_paths`` already cached every path
-    needed for resolution into ``ctx.join_paths``).
+    Lean batch-load for nodes whose role is providing state for
+    ``rewrite_table_references`` and dim-chain navigation. Skips:
+
+    - ``required_dimensions`` — only metrics carry this; intermediate dim
+      hops never act as a metric.
+    - ``availability`` — only the starting / target node's materialization
+      is consulted by the build pipeline; intermediate hops are never
+      substituted with a materialized table.
+
+    Keeps ``dimension_links`` because downstream code in ``measures.py`` and
+    the dim-chain JOIN builder iterates intermediate hops' links to navigate
+    multi-hop paths even after ``preload_join_paths`` has cached the path
+    structure (the link rows themselves are needed to resolve FK columns).
 
     Used by ``load_post_preload_chain`` for the upstream chain of
-    intermediate dim hops added by ``preload_join_paths`` — those nodes
-    never act as a metric parent or a materialization target, so the heavier
-    options on ``batch_load_nodes_with_dependencies`` are wasted work.
+    intermediate dim hops added by ``preload_join_paths``.
     """
     stmt = (
         select(Node)
@@ -143,6 +148,12 @@ async def batch_load_nodes_for_chain_rewriting(
                     ),
                 ),
                 joinedload(NodeRevision.catalog),
+                selectinload(NodeRevision.dimension_links).options(
+                    joinedload(DimensionLink.dimension).options(
+                        noload(Node.created_by),
+                        noload(Node.tags),
+                    ),
+                ),
             ),
         )
     )
