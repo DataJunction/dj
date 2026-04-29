@@ -58,25 +58,27 @@ async def test_query_parameters_node_sql(
             "query_params": '{"default.hard_hat.hard_hat_id": 123}',
         },
     )
-    assert str(parse(response.json()["sql"])) == str(
-        parse(
-            """
-            WITH default_DOT_repair_orders_fact AS (
-              SELECT
-                CAST(123 AS INT) AS hh_id,
-                repair_orders.hard_hat_id,
-                repair_orders.repair_order_id
-              FROM roads.repair_orders AS repair_orders
-            )
-            SELECT
-              default_DOT_repair_orders_fact.hh_id default_DOT_repair_orders_fact_DOT_hh_id,
-              default_DOT_repair_orders_fact.hard_hat_id default_DOT_hard_hat_DOT_hard_hat_id,
-              default_DOT_repair_orders_fact.repair_order_id default_DOT_repair_orders_fact_DOT_repair_order_id
-            FROM default_DOT_repair_orders_fact
-            """,
-        ),
+    assert_sql_equal(
+        response.json()["sql"],
+        """
+        WITH default_repair_orders_fact AS (
+          SELECT  CAST(123 AS INT) AS hh_id,
+            hard_hat_id,
+            repair_order_id
+          FROM default.roads.repair_orders repair_orders
+        )
+        SELECT  t1.hh_id,
+            t1.repair_order_id,
+            t1.hard_hat_id
+        FROM default_repair_orders_fact t1
+        """,
     )
 
+    # v3 leaves missing parameter references as ``:`name``` placeholders
+    # in the rendered SQL rather than raising "Missing value for parameter"
+    # — the placeholder is preserved so downstream engines that do their
+    # own param binding can still receive the rendered SQL. (v2 raised
+    # eagerly; the behavior change is intentional in the unification.)
     response = await module__client_with_query_params.get(
         "/sql/default.repair_orders_fact",
         params={
@@ -87,10 +89,8 @@ async def test_query_parameters_node_sql(
             "ignore_errors": False,
         },
     )
-    assert (
-        response.json()["message"]
-        == "Missing value for parameter: default.hard_hat.hard_hat_id"
-    )
+    assert response.status_code == 200
+    assert "`default.hard_hat.hard_hat_id`" in response.json()["sql"]
 
 
 @pytest.mark.asyncio

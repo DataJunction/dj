@@ -99,6 +99,57 @@ async def batch_load_nodes_with_dependencies(
     return list(result.scalars().unique().all())
 
 
+async def batch_load_nodes_for_chain_rewriting(
+    session: AsyncSession,
+    node_names: set[str] | list[str],
+) -> list[Node]:
+    """
+    Lean batch-load for nodes whose only role is to provide enough state for
+    ``rewrite_table_references`` and CTE assembly. Skips
+    ``required_dimensions`` (only metrics use it), ``availability`` (only the
+    starting / target node's materialization is checked), and
+    ``dimension_links`` (``preload_join_paths`` already cached every path
+    needed for resolution into ``ctx.join_paths``).
+
+    Used by ``load_post_preload_chain`` for the upstream chain of
+    intermediate dim hops added by ``preload_join_paths`` — those nodes
+    never act as a metric parent or a materialization target, so the heavier
+    options on ``batch_load_nodes_with_dependencies`` are wasted work.
+    """
+    stmt = (
+        select(Node)
+        .where(Node.name.in_(node_names))
+        .where(Node.deactivated_at.is_(None))
+        .options(
+            load_only(
+                Node.name,
+                Node.type,
+                Node.current_version,
+            ),
+            noload(Node.created_by),
+            noload(Node.tags),
+            joinedload(Node.current).options(
+                noload(NodeRevision.created_by),
+                load_only(
+                    NodeRevision.name,
+                    NodeRevision.query,
+                    NodeRevision.schema_,
+                    NodeRevision.table,
+                ),
+                selectinload(NodeRevision.columns).options(
+                    load_only(
+                        Column.name,
+                        Column.type,
+                    ),
+                ),
+                joinedload(NodeRevision.catalog),
+            ),
+        )
+    )
+    result = await session.execute(stmt)
+    return list(result.scalars().unique().all())
+
+
 async def find_upstream_node_names(
     session: AsyncSession,
     starting_node_names: list[str],
@@ -537,6 +588,13 @@ async def load_post_preload_chain(
     main ``batch_load_nodes_with_dependencies`` call — anything in
     ``ctx.nodes`` beyond it is intermediate-hop dim node added by
     ``preload_join_paths`` whose own upstream we now need.
+
+    Uses the lean ``batch_load_nodes_for_chain_rewriting`` since these
+    nodes only need enough state for table-ref rewriting and CTE assembly
+    — they're never metric parents (no ``required_dimensions`` access) or
+    materialization targets (no ``availability`` access), and
+    ``preload_join_paths`` already used their dim_links to build
+    ``ctx.join_paths`` so we don't re-traverse them here.
     """
     newly_added_nodes = set(ctx.nodes.keys()) - baseline_node_names
     if not newly_added_nodes:
@@ -554,7 +612,7 @@ async def load_post_preload_chain(
     if not nodes_to_load:
         return
 
-    nodes = await batch_load_nodes_with_dependencies(ctx.session, nodes_to_load)
+    nodes = await batch_load_nodes_for_chain_rewriting(ctx.session, nodes_to_load)
     for node in nodes:
         ctx.nodes[node.name] = node
 
