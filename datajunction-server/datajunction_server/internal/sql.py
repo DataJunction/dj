@@ -57,31 +57,47 @@ def _v3_to_model_column(col) -> ColumnMetadata:
     Convert a v3 ``ColumnMetadata`` (semantic_name / semantic_type) into the
     REST/model ``ColumnMetadata`` (name / column / node / semantic_entity /
     semantic_type) shape that the python client and downstream consumers
-    expect. For metric columns, ``node`` is the full metric path (matching
-    v2's behavior where ``node = col.node_revision.name``); for everything
-    else, ``node`` is the prefix and ``column`` the trailing segment of the
-    semantic name.
+    expect.
+
+    The ``name`` field uses the v2-style amenable-form munging
+    (``default_DOT_revenue_DOT_payment_id``) — this is what the python
+    client, the data API, and the saved query history rely on for
+    ``DataFrame`` column labels. The actual SQL projection still uses
+    the bare column name (v3's clean output style); we only munge for
+    the metadata.
+
+    For metric columns: ``column`` and ``name`` are the amenable munge
+    of the metric path, ``node`` is the bare metric path so the python
+    client's metric-column fallback resolves correctly, and
+    ``semantic_entity`` is ``<metric_path>.<munged_name>`` to mirror v2.
     """
+    from datajunction_server.naming import amenable_name  # noqa: PLC0415
+
     semantic_name = col.semantic_name
     semantic_type = col.semantic_type
     if semantic_type == "metric":
+        munged = amenable_name(semantic_name) if semantic_name else col.name
         return ColumnMetadata(
-            name=col.name,
+            name=munged,
             type=col.type,
-            column=col.name,
+            column=munged,
             node=semantic_name,
-            semantic_entity=semantic_name,
+            semantic_entity=f"{semantic_name}.{munged}" if semantic_name else munged,
             semantic_type=semantic_type,
         )
+    if semantic_name and SEPARATOR in semantic_name:
+        column_name = semantic_name.rsplit(SEPARATOR, 1)[-1]
+        node_name = semantic_name.rsplit(SEPARATOR, 1)[0]
+        munged_name = amenable_name(semantic_name)
+    else:
+        column_name = col.name
+        node_name = None
+        munged_name = col.name
     return ColumnMetadata(
-        name=col.name,
+        name=munged_name,
         type=col.type,
-        column=semantic_name.rsplit(SEPARATOR, 1)[-1]
-        if semantic_name and SEPARATOR in semantic_name
-        else col.name,
-        node=semantic_name.rsplit(SEPARATOR, 1)[0]
-        if semantic_name and SEPARATOR in semantic_name
-        else None,
+        column=column_name,
+        node=node_name,
         semantic_entity=semantic_name,
         semantic_type=semantic_type,
     )
@@ -137,6 +153,7 @@ async def build_node_sql(
         dialect=engine.dialect if engine else Dialect.SPARK,
         use_materialized=use_materialized,
         query_parameters=query_parameters,
+        access_checker=access_checker,
     )
     # Carry the semantic entity through to the response — clients (e.g. the
     # python client's ``node_data``) use ``semantic_entity`` to label the

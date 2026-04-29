@@ -42,6 +42,11 @@ from datajunction_server.construction.build_v3.builder import (
     build_metrics_sql,
     substitute_query_params,
 )
+from datajunction_server.internal.access.authorization import (
+    AccessChecker,
+    AccessDenialMode,
+)
+from datajunction_server.models import access
 from datajunction_server.construction.build_v3.cte import collect_node_ctes
 from datajunction_server.construction.build_v3.dimensions import (
     parse_dimension_ref,
@@ -92,6 +97,7 @@ async def build_node_sql_v3(
     dialect: Dialect = Dialect.SPARK,
     use_materialized: bool = True,
     query_parameters: dict[str, Any] | None = None,
+    access_checker: AccessChecker | None = None,
 ) -> GeneratedSQL:
     """
     Build executable SQL for any DJ node — uniform entry point for
@@ -136,9 +142,22 @@ async def build_node_sql_v3(
         node_name,
         raise_if_not_exists=True,
     )
-    starting_type = starting_lookup.type  # type: ignore[union-attr]
+    # ``raise_if_not_exists=True`` guarantees a non-None Node here; assert it
+    # so the rest of the function can rely on ``.current`` / ``.type``.
+    assert starting_lookup is not None
+    starting_type = starting_lookup.type
 
     if starting_type == NodeType.METRIC:
+        # ``build_metrics_sql`` does its own loading; we don't yet thread
+        # the checker through it. Best-effort wrapper-level check on the
+        # metric itself; full upstream coverage will land when that
+        # builder also accepts ``access_checker``.
+        if access_checker:
+            access_checker.add_node(
+                starting_lookup.current,
+                access.ResourceAction.READ,
+            )
+            await access_checker.check(on_denied=AccessDenialMode.RAISE)
         return await build_metrics_sql(
             session=session,
             metrics=[node_name],
@@ -154,6 +173,9 @@ async def build_node_sql_v3(
     if starting_type == NodeType.CUBE:
         cube = await Node.get_cube_by_name(session, node_name)
         cube_revision = cube.current  # type: ignore[union-attr]
+        if access_checker:
+            access_checker.add_node(cube_revision, access.ResourceAction.READ)
+            await access_checker.check(on_denied=AccessDenialMode.RAISE)
         # Cube's stored dims come first (preserves the cube's intended
         # grain ordering); user-requested dims are appended; dedupe.
         merged_dimensions = list(
@@ -196,10 +218,32 @@ async def build_node_sql_v3(
     nodes = await batch_load_nodes_with_dependencies(session, upstream_names)
     nodes_dict = {node.name: node for node in nodes}
 
+    # Single bulk access check on every node we'll touch (starting node +
+    # transitive upstream chain + every requested dim). Matches v2's
+    # "register every loaded ``dj_node``" semantics with one round-trip.
+    # ``add_dimensions_from_filters`` further down may also pull in
+    # filter-only dims via ``preload_join_paths`` / ``load_post_preload_chain``;
+    # those go through a second check below to keep coverage complete.
+    if access_checker:
+        access_checker.add_nodes(
+            [n.current for n in nodes if n.current],  # type: ignore[arg-type]
+            access.ResourceAction.READ,
+        )
+        await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     starting = nodes_dict[node_name]
 
     starting_revision: NodeRevision = starting.current  # type: ignore[assignment]
-    starting_columns: list[DBColumn] = list(starting_revision.columns)
+    # Sort starting columns by their declared ``order`` so the output
+    # projection is stable across runs. ``current.columns`` is a
+    # SQLAlchemy collection without a guaranteed traversal order; the
+    # node's ``column.order`` field is the authoritative position.
+    # Columns without an order fall to the end (preserving relative
+    # insertion order), matching ``Node.to_full_output``.
+    starting_columns: list[DBColumn] = sorted(
+        list(starting_revision.columns),
+        key=lambda col: col.order if col.order is not None else float("inf"),
+    )
 
     ctx = BuildContext(
         session=session,
@@ -243,6 +287,16 @@ async def build_node_sql_v3(
         # the dimension_links query gives them. Reload them with the full
         # tree so ``rewrite_table_references`` and ``get_parsed_query`` work.
         await load_post_preload_chain(ctx, baseline_node_names=upstream_names)
+        # Re-check access after ``preload_join_paths`` / ``load_post_preload_chain``
+        # may have pulled in additional intermediate / filter-only dim nodes.
+        # ``add_nodes`` is idempotent in effect (we re-add already-checked
+        # nodes; the cost is one extra batch ``authorize`` call).
+        if access_checker:
+            access_checker.add_nodes(
+                [n.current for n in ctx.nodes.values() if n.current],  # type: ignore[arg-type]
+                access.ResourceAction.READ,
+            )
+            await access_checker.check(on_denied=AccessDenialMode.RAISE)
         resolved_dims = resolve_dimensions(ctx, starting)
         final_query = _build_with_dimensions(
             ctx,
@@ -437,8 +491,19 @@ def _build_with_dimensions(
     # Filter-only dimensions (those added by ``add_dimensions_from_filters``
     # but not user-requested) are excluded from the projection — they exist
     # to enable the filter, not to surface in the output.
+    # Local dims (``is_local`` — dim resolves to a column on the starting
+    # node itself) shadow the matching starting col in the output: we keep
+    # the dim's projection (so it carries the correct semantic alias) and
+    # skip the starting-col projection to avoid duplicates.
+    local_dim_cols = {
+        resolved.column_name
+        for resolved in resolved_dims
+        if resolved.is_local and resolved.original_ref not in ctx.filter_dimensions
+    }
     projection: list[Any] = [
-        _qualified_column(col.name, main_alias) for col in starting_columns
+        _qualified_column(col.name, main_alias)
+        for col in starting_columns
+        if col.name not in local_dim_cols
     ]
     for resolved in resolved_dims:
         if resolved.original_ref in ctx.filter_dimensions:
@@ -537,7 +602,18 @@ def _columns_metadata_with_dims(
     resolved_dims: list[ResolvedDimension],
     ctx: BuildContext,
 ) -> list[ColumnMetadata]:
-    """Output column metadata for the dims-present path: node cols + dim cols."""
+    """Output column metadata for the dims-present path: node cols + dim cols.
+
+    Mirrors the projection logic in ``_build_with_dimensions``: filter-only
+    dimensions are excluded (they're not in the SELECT list), and local dims
+    shadow the matching starting column (we keep the dim version, drop the
+    starting one) so the metadata stays in lockstep with the SQL.
+    """
+    local_dim_cols = {
+        resolved.column_name
+        for resolved in resolved_dims
+        if resolved.is_local and resolved.original_ref not in ctx.filter_dimensions
+    }
     columns = [
         ColumnMetadata(
             name=col.name,
@@ -546,8 +622,11 @@ def _columns_metadata_with_dims(
             semantic_type="dimension",
         )
         for col in starting_columns
+        if col.name not in local_dim_cols
     ]
     for resolved in resolved_dims:
+        if resolved.original_ref in ctx.filter_dimensions:
+            continue
         clean_alias = (
             ctx.alias_registry.get_alias(resolved.original_ref) or resolved.column_name
         )

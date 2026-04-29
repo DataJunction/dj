@@ -3324,11 +3324,11 @@ GROUP BY
             },
         )
         response = await client_with_roads.get(
-            "/sql/default.total_amount_in_region_from_struct_transform?filters="
-            "&dimensions=location_hierarchy",
+            "/sql/default.total_amount_in_region_from_struct_transform"
+            "?dimensions=default.total_amount_in_region_from_struct_transform.location_hierarchy",
         )
         expected = """
-        WITH default_DOT_regional_level_agg_structs AS (
+        WITH default_regional_level_agg_structs AS (
           SELECT  usr.us_region_id,
             us.state_name,
             CONCAT(us.state_name, '-', usr.us_region_description) AS location_hierarchy,
@@ -3336,26 +3336,27 @@ GROUP BY
             EXTRACT(MONTH, ro.order_date) AS order_month,
             EXTRACT(DAY, ro.order_date) AS order_day,
             struct(COUNT( DISTINCT CASE
-                 WHEN ro.dispatched_date IS NOT NULL THEN ro.repair_order_id
-                 ELSE NULL
-             END) AS completed_repairs, COUNT( DISTINCT ro.repair_order_id) AS total_repairs_dispatched, SUM(rd.price * rd.quantity) AS total_amount_in_region, AVG(rd.price * rd.quantity) AS avg_repair_amount_in_region, AVG(DATEDIFF(ro.dispatched_date, ro.order_date)) AS avg_dispatch_delay, COUNT( DISTINCT c.contractor_id) AS unique_contractors) AS measures
-          FROM roads.repair_orders AS ro JOIN roads.municipality AS m ON ro.municipality_id = m.municipality_id
-         JOIN roads.us_states AS us ON m.state_id = us.state_id
-         JOIN roads.us_states AS us ON m.state_id = us.state_id
-         JOIN roads.us_region AS usr ON us.state_region = usr.us_region_id
-         JOIN roads.repair_order_details AS rd ON ro.repair_order_id = rd.repair_order_id
-         JOIN roads.repair_type AS rt ON rd.repair_type_id = rt.repair_type_id
-         JOIN roads.contractors AS c ON rt.contractor_id = c.contractor_id
+                WHEN ro.dispatched_date IS NOT NULL THEN ro.repair_order_id
+                ELSE NULL
+            END) AS completed_repairs, COUNT( DISTINCT ro.repair_order_id) AS total_repairs_dispatched, SUM(rd.price * rd.quantity) AS total_amount_in_region, AVG(rd.price * rd.quantity) AS avg_repair_amount_in_region, AVG(DATEDIFF(ro.dispatched_date, ro.order_date)) AS avg_dispatch_delay, COUNT( DISTINCT c.contractor_id) AS unique_contractors) AS measures
+          FROM default.roads.repair_orders ro
+          JOIN default.roads.municipality m ON ro.municipality_id = m.municipality_id
+          JOIN default.roads.us_states us ON m.state_id = us.state_id
+          JOIN default.roads.us_states us ON m.state_id = us.state_id
+          JOIN default.roads.us_region usr ON us.state_region = usr.us_region_id
+          JOIN default.roads.repair_order_details rd ON ro.repair_order_id = rd.repair_order_id
+          JOIN default.roads.repair_type rt ON rd.repair_type_id = rt.repair_type_id
+          JOIN default.roads.contractors c ON rt.contractor_id = c.contractor_id
           GROUP BY  usr.us_region_id, EXTRACT(YEAR, ro.order_date), EXTRACT(MONTH, ro.order_date), EXTRACT(DAY, ro.order_date)
-         ),
-         default_DOT_total_amount_in_region_from_struct_transform AS (
-         SELECT  default_DOT_regional_level_agg_structs.location_hierarchy,
-            SUM(IF(default_DOT_regional_level_agg_structs.order_year = 2020, default_DOT_regional_level_agg_structs.measures.total_amount_in_region, 0)) col0
-          FROM default_DOT_regional_level_agg_structs
-         )
-         SELECT  default_DOT_total_amount_in_region_from_struct_transform.location_hierarchy default_DOT_total_amount_in_region_from_struct_transform_DOT_location_hierarchy,
-            default_DOT_total_amount_in_region_from_struct_transform.col0 default_DOT_total_amount_in_region_from_struct_transform_DOT_col0
-          FROM default_DOT_total_amount_in_region_from_struct_transform
+        ),
+        default_total_amount_in_region_from_struct_transform AS (
+          SELECT  location_hierarchy,
+            SUM(IF(order_year = 2020, measures.total_amount_in_region, 0)) col0
+          FROM default_regional_level_agg_structs
+        )
+        SELECT  t1.col0,
+            t1.location_hierarchy
+        FROM default_total_amount_in_region_from_struct_transform t1
         """
         assert str(parse(response.json()["sql"])) == str(parse(expected))
 
