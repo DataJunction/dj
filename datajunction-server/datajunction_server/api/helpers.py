@@ -24,8 +24,6 @@ from datajunction_server.internal.access.authorization import (
 )
 from datajunction_server.api.notifications import get_notifier
 from datajunction_server.construction.build import (
-    get_default_criteria,
-    rename_columns,
     validate_shared_dimensions,
 )
 from datajunction_server.construction.build_v2 import FullColumnName
@@ -233,48 +231,6 @@ async def get_catalog_by_name(session: AsyncSession, name: str) -> Catalog:
             http_status_code=404,
         )
     return catalog
-
-
-async def get_query(
-    session: AsyncSession,
-    node_name: str,
-    dimensions: List[str],
-    filters: List[str],
-    orderby: List[str],
-    limit: Optional[int] = None,
-    engine: Optional[Engine] = None,
-    *,
-    access_checker: AccessChecker,
-    use_materialized: bool = True,
-    query_parameters: Optional[Dict[str, str]] = None,
-    ignore_errors: bool = True,
-) -> ast.Query:
-    """
-    Get a query for a metric, dimensions, and filters
-    """
-    from datajunction_server.construction.build_v2 import QueryBuilder
-
-    node = await Node.get_by_name(session, node_name, raise_if_not_exists=True)
-    build_criteria = get_default_criteria(node.current, engine)  # type: ignore
-    query_builder = await QueryBuilder.create(
-        session,
-        node.current,  # type: ignore
-        use_materialized=use_materialized,
-    )
-    if ignore_errors:
-        query_builder.ignore_errors()
-    query_ast = await (
-        query_builder.with_access_control(access_checker)
-        .with_build_criteria(build_criteria)
-        .add_dimensions(dimensions)
-        .add_filters(filters)
-        .add_query_parameters(query_parameters)
-        .limit(limit)
-        .order_by(orderby)
-        .build()
-    )
-    query_ast = rename_columns(query_ast, node.current)  # type: ignore
-    return query_ast
 
 
 def _resolve_required_dimensions(

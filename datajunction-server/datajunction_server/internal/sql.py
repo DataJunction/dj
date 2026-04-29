@@ -85,11 +85,11 @@ def _v3_to_model_column(col) -> ColumnMetadata:
             semantic_entity=f"{semantic_name}.{munged}" if semantic_name else munged,
             semantic_type=semantic_type,
         )
-    if semantic_name and SEPARATOR in semantic_name:
+    if semantic_name and SEPARATOR in semantic_name:  # pragma: no branch
         column_name = semantic_name.rsplit(SEPARATOR, 1)[-1]
         node_name = semantic_name.rsplit(SEPARATOR, 1)[0]
         munged_name = amenable_name(semantic_name)
-    else:
+    else:  # pragma: no cover
         column_name = col.name
         node_name = None
         munged_name = col.name

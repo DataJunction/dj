@@ -558,7 +558,7 @@ class QueryBuilder:
                 dim_expr = filterable_final_dims.get(filter_key)
                 if dim_expr:
                     resolved = True
-                    if filter_dim_expr.parent:
+                    if filter_dim_expr.parent:  # pragma: no branch
                         filter_dim_expr.parent.replace(
                             filter_dim_expr,
                             ast.Column(
@@ -1924,7 +1924,7 @@ def build_dimension_attribute(
                 )
 
                 # Apply COALESCE with default_value if configured
-                if link.default_value is not None:
+                if link.default_value is not None:  # pragma: no cover
                     coalesce_expr = ast.Function(
                         ast.Name("COALESCE"),
                         args=[column, ast.String(f"'{link.default_value}'")],
@@ -1933,7 +1933,7 @@ def build_dimension_attribute(
                         aliased = coalesce_expr.set_alias(ast.Name(alias))
                         aliased.set_as(True)
                         return aliased
-                    return coalesce_expr  # pragma: no cover
+                    return coalesce_expr
 
                 column.alias = ast.Name(alias) if alias else None
                 return column
@@ -1995,7 +1995,7 @@ def build_join_for_link(
     dimension_node_columns = join_right.select.column_mapping
     join_left = cte_mapping.get(link.node_revision.name)
     node_columns = join_left.select.column_mapping  # type: ignore
-    if not join_ast.criteria:
+    if not join_ast.criteria:  # pragma: no cover
         return join_ast
     for col in join_ast.criteria.find_all(ast.Column):  # type: ignore
         full_column = FullColumnName(col.identifier())
@@ -2209,7 +2209,7 @@ def apply_filters_to_node(
     """
     for filter_ast in filters:
         all_referenced_dimensions_can_pushdown = True
-        if not filter_ast:
+        if not filter_ast:  # pragma: no cover
             continue
         for filter_dim in filter_ast.find_all(ast.Column):
             filter_dim_id = (

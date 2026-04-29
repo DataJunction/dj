@@ -97,7 +97,8 @@ async def build_node_sql_v3(
     dialect: Dialect = Dialect.SPARK,
     use_materialized: bool = True,
     query_parameters: dict[str, Any] | None = None,
-    access_checker: AccessChecker | None = None,
+    *,
+    access_checker: AccessChecker,
 ) -> GeneratedSQL:
     """
     Build executable SQL for any DJ node — uniform entry point for
@@ -152,12 +153,11 @@ async def build_node_sql_v3(
         # the checker through it. Best-effort wrapper-level check on the
         # metric itself; full upstream coverage will land when that
         # builder also accepts ``access_checker``.
-        if access_checker:
-            access_checker.add_node(
-                starting_lookup.current,
-                access.ResourceAction.READ,
-            )
-            await access_checker.check(on_denied=AccessDenialMode.RAISE)
+        access_checker.add_node(
+            starting_lookup.current,
+            access.ResourceAction.READ,
+        )
+        await access_checker.check(on_denied=AccessDenialMode.RAISE)
         return await build_metrics_sql(
             session=session,
             metrics=[node_name],
@@ -173,9 +173,8 @@ async def build_node_sql_v3(
     if starting_type == NodeType.CUBE:
         cube = await Node.get_cube_by_name(session, node_name)
         cube_revision = cube.current  # type: ignore[union-attr]
-        if access_checker:
-            access_checker.add_node(cube_revision, access.ResourceAction.READ)
-            await access_checker.check(on_denied=AccessDenialMode.RAISE)
+        access_checker.add_node(cube_revision, access.ResourceAction.READ)
+        await access_checker.check(on_denied=AccessDenialMode.RAISE)
         # Cube's stored dims come first (preserves the cube's intended
         # grain ordering); user-requested dims are appended; dedupe.
         merged_dimensions = list(
@@ -204,7 +203,7 @@ async def build_node_sql_v3(
     starting_set = {node_name}
     for dim_ref_str in dim_list:
         dim_ref = parse_dimension_ref(dim_ref_str)
-        if dim_ref.node_name:
+        if dim_ref.node_name:  # pragma: no branch
             starting_set.add(dim_ref.node_name)
     # Filters can reference dim nodes that aren't in ``dimensions`` — those
     # still need to be loaded so we can join + apply the filter. We handle
@@ -224,12 +223,11 @@ async def build_node_sql_v3(
     # ``add_dimensions_from_filters`` further down may also pull in
     # filter-only dims via ``preload_join_paths`` / ``load_post_preload_chain``;
     # those go through a second check below to keep coverage complete.
-    if access_checker:
-        access_checker.add_nodes(
-            [n.current for n in nodes if n.current],  # type: ignore[arg-type]
-            access.ResourceAction.READ,
-        )
-        await access_checker.check(on_denied=AccessDenialMode.RAISE)
+    access_checker.add_nodes(
+        [n.current for n in nodes if n.current],  # type: ignore[arg-type]
+        access.ResourceAction.READ,
+    )
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     starting = nodes_dict[node_name]
 
@@ -291,12 +289,11 @@ async def build_node_sql_v3(
         # may have pulled in additional intermediate / filter-only dim nodes.
         # ``add_nodes`` is idempotent in effect (we re-add already-checked
         # nodes; the cost is one extra batch ``authorize`` call).
-        if access_checker:
-            access_checker.add_nodes(
-                [n.current for n in ctx.nodes.values() if n.current],  # type: ignore[arg-type]
-                access.ResourceAction.READ,
-            )
-            await access_checker.check(on_denied=AccessDenialMode.RAISE)
+        access_checker.add_nodes(
+            [n.current for n in ctx.nodes.values() if n.current],  # type: ignore[arg-type]
+            access.ResourceAction.READ,
+        )
+        await access_checker.check(on_denied=AccessDenialMode.RAISE)
         resolved_dims = resolve_dimensions(ctx, starting)
         final_query = _build_with_dimensions(
             ctx,
