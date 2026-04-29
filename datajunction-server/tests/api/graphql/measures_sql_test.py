@@ -114,6 +114,55 @@ async def test_measures_sql(
 
 
 @pytest.mark.asyncio
+async def test_measures_sql_with_node_git_info(
+    client_with_roads: AsyncClient,
+):
+    """
+    Selecting ``node { gitInfo { ... } }`` on the measuresSql response exercises
+    the single-node pre-attach path in ``GeneratedSQL.from_pydantic``. The
+    roads fixtures have no git config, so gitInfo resolves to ``None`` — the
+    point is to hit the ``_attach_git_info`` call site, not assert config.
+    """
+    query = """
+    query GetMeasuresSQL($metrics: [String!], $dimensions: [String!], $filters: [String!]) {
+      measuresSql(
+        cube: {metrics: $metrics, dimensions: $dimensions, filters: $filters}
+        preaggregate: true
+      ) {
+        node {
+          name
+          gitInfo {
+            repo
+            branch
+            defaultBranch
+          }
+        }
+      }
+    }
+    """
+
+    response = await client_with_roads.post(
+        "/graphql",
+        json={
+            "query": query,
+            "variables": {
+                "metrics": ["default.num_repair_orders"],
+                "dimensions": ["default.us_state.state_name"],
+                "filters": [],
+            },
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["data"]["measuresSql"][0]["node"]["name"] == (
+        "default.repair_orders_fact"
+    )
+    # No git config on the fixture, so gitInfo resolves to null — but the
+    # _attach_git_info path was exercised end-to-end.
+    assert data["data"]["measuresSql"][0]["node"]["gitInfo"] is None
+
+
+@pytest.mark.asyncio
 async def test_materialization_plan(
     client_with_roads: AsyncClient,
 ):

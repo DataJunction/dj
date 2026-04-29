@@ -83,17 +83,29 @@ class GeneratedSQL:
         """
         Loads a strawberry GeneratedSQL from the original pydantic model.
         """
-        from datajunction_server.api.graphql.resolvers.nodes import get_node_by_name
+        from datajunction_server.api.graphql.resolvers.nodes import (
+            _attach_git_info,
+            get_node_by_name,
+        )
         from datajunction_server.api.graphql.utils import resolver_session
+        from datajunction_server.database.node import Node as DBNode
 
         async with resolver_session(info) as session:
             fields = extract_fields(info)
+            node_fields = fields.get("node") or {}
+            node_obj = await get_node_by_name(
+                session=session,
+                fields=node_fields,
+                name=obj.node.name,
+            )
+
+            # Mirror the per-list pre-attach so the sync gitInfo child
+            # resolver sees the value it expects on the single-node path.
+            if isinstance(node_obj, DBNode) and "git_info" in node_fields:
+                await _attach_git_info(info, [node_obj])
+
             return GeneratedSQL(  # type: ignore
-                node=await get_node_by_name(
-                    session=session,
-                    fields=fields.get("node"),
-                    name=obj.node.name,
-                ),
+                node=node_obj,
                 sql=obj.sql,
                 columns=[
                     ColumnMetadata(  # type: ignore

@@ -533,3 +533,17 @@ async def test_instrumented_dataloader_batches_distinct_keys(spy_metrics):
     assert item_counts == [
         ("dj.graphql.dataloader.items", 3, {"loader": "batched"}),
     ]
+
+
+@pytest.mark.asyncio
+async def test_attach_git_info_empty_list_short_circuits():
+    """An empty input list must short-circuit without invoking the loader."""
+    from datajunction_server.api.graphql.resolvers.nodes import _attach_git_info
+
+    loader = AsyncMock()
+    info = MagicMock()
+    info.context = {"git_info_loader": loader}
+
+    await _attach_git_info(info, [])
+
+    loader.load_many.assert_not_called()

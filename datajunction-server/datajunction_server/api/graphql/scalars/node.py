@@ -43,9 +43,6 @@ from datajunction_server.models.engine import Dialect
 from datajunction_server.models.node import NodeMode as NodeMode_
 from datajunction_server.models.node import NodeStatus as NodeStatus_
 from datajunction_server.models.node import NodeType as NodeType_
-from datajunction_server.models.node import (
-    GitRepositoryInfo as PydanticGitRepositoryInfo,
-)
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 
 NodeType = strawberry.enum(NodeType_)
@@ -294,9 +291,9 @@ class NodeRevision:
                     Backfill(  # type: ignore
                         spec=[
                             PartitionBackfill(  # type: ignore
-                                column_name=p.column_name,
-                                values=p.values,
-                                range=p.range,
+                                column_name=p["column_name"],
+                                values=p.get("values"),
+                                range=p.get("range"),
                             )
                             for p in (b.spec or [])
                         ]
@@ -574,14 +571,12 @@ class Node:
         return root.edited_by
 
     @strawberry.field
-    async def git_info(self, root: "DBNode", info: Info) -> Optional[GitRepositoryInfo]:
+    def git_info(self, root: "DBNode") -> Optional[GitRepositoryInfo]:
         """
-        Git repository information for this node's namespace
+        Git repository information for this node's namespace.
+
+        Pre-resolved at the parent (findNodes) level and attached to the node
+        as ``_resolved_git_info``. A sync resolver avoids the ~0.7ms-per-item
+        asyncio scheduling overhead that dominates for large lists.
         """
-        git_info_loader = info.context["git_info_loader"]  # type: ignore
-        git_info_dict = await git_info_loader.load(root.namespace)
-        if git_info_dict:
-            return GitRepositoryInfo.from_pydantic(  # type: ignore
-                PydanticGitRepositoryInfo(**git_info_dict),
-            )
-        return None
+        return getattr(root, "_resolved_git_info", None)
