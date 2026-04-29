@@ -5,7 +5,7 @@ Models for pre-aggregation API requests and responses.
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from datajunction_server.enum import StrEnum
 from datajunction_server.models.materialization import MaterializationStrategy
@@ -132,6 +132,14 @@ class UpdatePreAggregationAvailabilityRequest(BaseModel):
         default_factory=list,
         description="Detailed partition-level availability",
     )
+
+    @field_validator("min_temporal_partition", "max_temporal_partition", mode="before")
+    @classmethod
+    def coerce_temporal_partition_to_str(cls, value):
+        """Coerce int partition values (e.g., 20260428) to strings."""
+        if value is None:
+            return value
+        return [str(part) for part in value]
 
     class Config:
         populate_by_name = True
