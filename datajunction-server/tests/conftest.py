@@ -83,12 +83,28 @@ from .examples import COLUMN_MAPPINGS, EXAMPLES, QUERY_DATA_MAPPINGS, SERVICE_SE
 def transpile_to_duckdb(sql: str) -> str:
     """
     Transpile SQL from Spark dialect to DuckDB dialect for test execution.
+
+    The DuckDB test fixture only attaches the ``default`` catalog (see
+    ``mock_data_duckdb_loaded`` above); v3 builds SQL with fully qualified
+    3-part physical refs like ``basic.schema.table`` and ``public.schema.table``.
+    Strip those non-default catalog prefixes so DuckDB can resolve them as
+    ``schema.table`` against the attached in-memory DB.
     """
     try:
         # Transpile from Spark to DuckDB
         transpiled = sqlglot.transpile(sql, read="spark", write="duckdb", pretty=True)[
             0
         ]
+        # Strip catalog prefix from 3-part identifiers when the catalog is one
+        # of the test-only catalogs that aren't attached in DuckDB.
+        from sqlglot import expressions as exp
+
+        ast = sqlglot.parse_one(transpiled, dialect="duckdb")
+        for table in ast.find_all(exp.Table):
+            catalog = table.args.get("catalog")
+            if catalog and catalog.name in {"basic", "public"}:
+                table.set("catalog", None)
+        transpiled = ast.sql(dialect="duckdb", pretty=True)
         print(f"\n=== TRANSPILED SQL ===\n{transpiled}\n=== END ===\n")
         return transpiled
     except Exception as e:

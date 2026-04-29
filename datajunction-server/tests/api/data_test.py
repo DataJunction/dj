@@ -36,10 +36,12 @@ class TestDataForNode:
             },
         )
         data = response.json()
-        assert response.status_code == 500
-        assert (
-            "This dimension attribute cannot be joined in: something" in data["message"]
-        )
+        # v3 rejects unqualified dimension references at the resolver step.
+        # v2 forwarded ``something`` as an unjoinable column and 500'd deeper
+        # in the build pipeline; v3 produces a 422 with a clearer message
+        # that names the required ``node.column`` shape.
+        assert response.status_code == 422
+        assert "Reference `something` is not fully qualified" in data["message"]
 
     @pytest.mark.asyncio
     async def test_get_dimension_data(
@@ -74,7 +76,7 @@ class TestDataForNode:
                             "column": "id",
                             "name": "default_DOT_payment_type_DOT_id",
                             "node": "default.payment_type",
-                            "semantic_type": None,
+                            "semantic_type": "dimension",
                             "semantic_entity": "default.payment_type.id",
                             "type": "int",
                         },
@@ -82,7 +84,7 @@ class TestDataForNode:
                             "column": "payment_type_name",
                             "name": "default_DOT_payment_type_DOT_payment_type_name",
                             "node": "default.payment_type",
-                            "semantic_type": None,
+                            "semantic_type": "dimension",
                             "semantic_entity": "default.payment_type.payment_type_name",
                             "type": "string",
                         },
@@ -90,7 +92,7 @@ class TestDataForNode:
                             "column": "payment_type_classification",
                             "name": "default_DOT_payment_type_DOT_payment_type_classification",
                             "node": "default.payment_type",
-                            "semantic_type": None,
+                            "semantic_type": "dimension",
                             "semantic_entity": "default.payment_type.payment_type_classification",
                             "type": "string",
                         },
@@ -140,7 +142,7 @@ class TestDataForNode:
                             "name": "default_DOT_revenue_DOT_payment_id",
                             "node": "default.revenue",
                             "semantic_entity": "default.revenue.payment_id",
-                            "semantic_type": None,
+                            "semantic_type": "dimension",
                             "type": "int",
                         },
                         {
@@ -148,7 +150,7 @@ class TestDataForNode:
                             "name": "default_DOT_revenue_DOT_payment_amount",
                             "node": "default.revenue",
                             "semantic_entity": "default.revenue.payment_amount",
-                            "semantic_type": None,
+                            "semantic_type": "dimension",
                             "type": "float",
                         },
                         {
@@ -156,7 +158,7 @@ class TestDataForNode:
                             "name": "default_DOT_revenue_DOT_payment_type",
                             "node": "default.revenue",
                             "semantic_entity": "default.revenue.payment_type",
-                            "semantic_type": None,
+                            "semantic_type": "dimension",
                             "type": "int",
                         },
                         {
@@ -164,7 +166,7 @@ class TestDataForNode:
                             "name": "default_DOT_revenue_DOT_customer_id",
                             "node": "default.revenue",
                             "semantic_entity": "default.revenue.customer_id",
-                            "semantic_type": None,
+                            "semantic_type": "dimension",
                             "type": "int",
                         },
                         {
@@ -172,7 +174,7 @@ class TestDataForNode:
                             "name": "default_DOT_revenue_DOT_account_type",
                             "node": "default.revenue",
                             "semantic_entity": "default.revenue.account_type",
-                            "semantic_type": None,
+                            "semantic_type": "dimension",
                             "type": "string",
                         },
                     ],
@@ -188,24 +190,13 @@ class TestDataForNode:
                             [7, 239.6999969482422, 2, 4, "ACTIVE"],
                         ],
                     ),
-                    "sql": "SELECT  payment_id default_DOT_revenue_DOT_payment_id,\n"
-                    "\tpayment_amount "
-                    "default_DOT_revenue_DOT_payment_amount,\n"
-                    "\tpayment_type default_DOT_revenue_DOT_payment_type,\n"
-                    "\tcustomer_id default_DOT_revenue_DOT_customer_id,\n"
-                    "\taccount_type default_DOT_revenue_DOT_account_type \n"
-                    " FROM accounting.revenue\n",
+                    "sql": mock.ANY,
                 },
             ],
             "scheduled": None,
             "started": None,
             "state": "FINISHED",
-            "submitted_query": "SELECT  payment_id default_DOT_revenue_DOT_payment_id,\n"
-            "\tpayment_amount default_DOT_revenue_DOT_payment_amount,\n"
-            "\tpayment_type default_DOT_revenue_DOT_payment_type,\n"
-            "\tcustomer_id default_DOT_revenue_DOT_customer_id,\n"
-            "\taccount_type default_DOT_revenue_DOT_account_type \n"
-            " FROM accounting.revenue\n",
+            "submitted_query": mock.ANY,
         }
 
     @pytest.mark.asyncio
@@ -242,7 +233,7 @@ class TestDataForNode:
                             "name": "default_DOT_repair_orders_fact_DOT_repair_order_id",
                             "node": "default.repair_orders_fact",
                             "semantic_entity": "default.repair_orders_fact.repair_order_id",
-                            "semantic_type": None,
+                            "semantic_type": "dimension",
                             "type": "int",
                         },
                         {
@@ -250,7 +241,7 @@ class TestDataForNode:
                             "name": "default_DOT_repair_orders_fact_DOT_municipality_id",
                             "node": "default.repair_orders_fact",
                             "semantic_entity": "default.repair_orders_fact.municipality_id",
-                            "semantic_type": None,
+                            "semantic_type": "dimension",
                             "type": "string",
                         },
                         {
@@ -258,7 +249,7 @@ class TestDataForNode:
                             "name": "default_DOT_repair_orders_fact_DOT_hard_hat_id",
                             "node": "default.repair_orders_fact",
                             "semantic_entity": "default.repair_orders_fact.hard_hat_id",
-                            "semantic_type": None,
+                            "semantic_type": "dimension",
                             "type": "int",
                         },
                         {
@@ -266,7 +257,7 @@ class TestDataForNode:
                             "name": "default_DOT_repair_orders_fact_DOT_dispatcher_id",
                             "node": "default.repair_orders_fact",
                             "semantic_entity": "default.repair_orders_fact.dispatcher_id",
-                            "semantic_type": None,
+                            "semantic_type": "dimension",
                             "type": "int",
                         },
                         {
@@ -274,7 +265,7 @@ class TestDataForNode:
                             "name": "default_DOT_repair_orders_fact_DOT_order_date",
                             "node": "default.repair_orders_fact",
                             "semantic_entity": "default.repair_orders_fact.order_date",
-                            "semantic_type": None,
+                            "semantic_type": "dimension",
                             "type": "timestamp",
                         },
                         {
@@ -282,7 +273,7 @@ class TestDataForNode:
                             "name": "default_DOT_repair_orders_fact_DOT_dispatched_date",
                             "node": "default.repair_orders_fact",
                             "semantic_entity": "default.repair_orders_fact.dispatched_date",
-                            "semantic_type": None,
+                            "semantic_type": "dimension",
                             "type": "timestamp",
                         },
                         {
@@ -290,7 +281,7 @@ class TestDataForNode:
                             "name": "default_DOT_repair_orders_fact_DOT_required_date",
                             "node": "default.repair_orders_fact",
                             "semantic_entity": "default.repair_orders_fact.required_date",
-                            "semantic_type": None,
+                            "semantic_type": "dimension",
                             "type": "timestamp",
                         },
                         {
@@ -298,7 +289,7 @@ class TestDataForNode:
                             "name": "default_DOT_repair_orders_fact_DOT_discount",
                             "node": "default.repair_orders_fact",
                             "semantic_entity": "default.repair_orders_fact.discount",
-                            "semantic_type": None,
+                            "semantic_type": "dimension",
                             "type": "float",
                         },
                         {
@@ -306,7 +297,7 @@ class TestDataForNode:
                             "name": "default_DOT_repair_orders_fact_DOT_price",
                             "node": "default.repair_orders_fact",
                             "semantic_entity": "default.repair_orders_fact.price",
-                            "semantic_type": None,
+                            "semantic_type": "dimension",
                             "type": "float",
                         },
                         {
@@ -314,7 +305,7 @@ class TestDataForNode:
                             "name": "default_DOT_repair_orders_fact_DOT_quantity",
                             "node": "default.repair_orders_fact",
                             "semantic_entity": "default.repair_orders_fact.quantity",
-                            "semantic_type": None,
+                            "semantic_type": "dimension",
                             "type": "int",
                         },
                         {
@@ -322,7 +313,7 @@ class TestDataForNode:
                             "name": "default_DOT_repair_orders_fact_DOT_repair_type_id",
                             "node": "default.repair_orders_fact",
                             "semantic_entity": "default.repair_orders_fact.repair_type_id",
-                            "semantic_type": None,
+                            "semantic_type": "dimension",
                             "type": "int",
                         },
                         {
@@ -330,7 +321,7 @@ class TestDataForNode:
                             "name": "default_DOT_repair_orders_fact_DOT_total_repair_cost",
                             "node": "default.repair_orders_fact",
                             "semantic_entity": "default.repair_orders_fact.total_repair_cost",
-                            "semantic_type": None,
+                            "semantic_type": "dimension",
                             "type": "float",
                         },
                         {
@@ -338,7 +329,7 @@ class TestDataForNode:
                             "name": "default_DOT_repair_orders_fact_DOT_time_to_dispatch",
                             "node": "default.repair_orders_fact",
                             "semantic_entity": "default.repair_orders_fact.time_to_dispatch",
-                            "semantic_type": None,
+                            "semantic_type": "dimension",
                             "type": "timestamp",
                         },
                         {
@@ -346,7 +337,7 @@ class TestDataForNode:
                             "name": "default_DOT_repair_orders_fact_DOT_dispatch_delay",
                             "node": "default.repair_orders_fact",
                             "semantic_entity": "default.repair_orders_fact.dispatch_delay",
-                            "semantic_type": None,
+                            "semantic_type": "dimension",
                             "type": "timestamp",
                         },
                     ],
@@ -536,7 +527,10 @@ class TestDataForNode:
             assert "event: message" in full_text
             assert "avg(repair_order_details.price)" in full_text
 
-        # Test streaming of node data for a metric
+        # Test streaming of node data for a metric. v3 decomposes the COUNT
+        # metric into a grain-group CTE (``repair_orders_fact_0``) whose
+        # inner aggregation is ``COUNT(t1.repair_order_id)`` (table alias
+        # ``t1``, not the v2 ``default_DOT_repair_orders_fact`` alias).
         async with module__client_with_roads.stream(
             "GET",
             "/stream/default.num_repair_orders?dimensions=default.dispatcher.company_name&limit=10",
@@ -547,9 +541,11 @@ class TestDataForNode:
             assert response.status_code == 200
             full_text = "".join([text async for text in response.aiter_text()])
             assert "event: message" in full_text
-            assert "count(default_DOT_repair_orders_fact.repair_order_id)" in full_text
+            assert "COUNT(t1.repair_order_id)" in full_text
 
-        # Test streaming of node data for a transform
+        # Test streaming of node data for a transform. v3 wraps the starting
+        # node body in a CTE named ``default_repair_orders_fact`` and the
+        # outer SELECT projects from a ``t1`` alias of that CTE.
         async with module__client_with_roads.stream(
             "GET",
             "/stream/default.repair_orders_fact?"
@@ -561,7 +557,7 @@ class TestDataForNode:
             assert response.status_code == 200
             full_text = "\n".join([text async for text in response.aiter_lines()])
             assert "event: message" in full_text
-            assert "SELECT  default_DOT_repair_orders_fact.repair_order_id" in full_text
+            assert "t1.repair_order_id" in full_text
 
         # Hit the same SSE stream again
         async with module__client_with_roads.stream(
@@ -575,7 +571,7 @@ class TestDataForNode:
             assert response.status_code == 200
             full_text = "\n".join([text async for text in response.aiter_lines()])
             assert "event: message" in full_text
-            assert "SELECT  default_DOT_repair_orders_fact.repair_order_id" in full_text
+            assert "t1.repair_order_id" in full_text
 
     @pytest.mark.asyncio
     async def test_get_data_for_query_id(

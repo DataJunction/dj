@@ -452,7 +452,9 @@ async def test_sql_with_local_dimension(
     """
     A "local" dimension — a column that lives on the starting node itself —
     is flagged ``is_local=True`` by ``resolve_dimensions``; no JOIN is added.
-    The dim column is projected as a qualified ref against ``main_alias``.
+    The dim column is projected as a qualified ref against ``main_alias``,
+    and the matching starting column is suppressed (local-dim shadowing) so
+    the dim version wins and the projection has no duplicate.
     """
     response = await client_with_roads.get(
         "/sql/default.repair_orders_fact/",
@@ -489,7 +491,6 @@ async def test_sql_with_local_dimension(
         SELECT
           t1.repair_order_id,
           t1.municipality_id,
-          t1.hard_hat_id,
           t1.dispatcher_id,
           t1.order_date,
           t1.dispatched_date,

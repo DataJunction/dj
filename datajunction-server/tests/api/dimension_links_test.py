@@ -357,9 +357,7 @@ async def test_link_complex_dimension_without_role(
         account_type
       FROM default.examples.users
     )
-    SELECT  t1.user_id,
-        t1.event_start_date,
-        t1.event_end_date,
+    SELECT  t1.event_end_date,
         t1.elapsed_secs,
         t1.user_registration_country,
         t1.user_id,
