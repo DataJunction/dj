@@ -1,41 +1,23 @@
 """
 Single-node SQL builder for non-metric / non-cube nodes (v3-style).
 
-The metric-centric entrypoints (``build_metrics_sql`` / ``build_measures_sql``)
+The metric-centric build v3 entrypoints (`build_metrics_sql` / `build_measures_sql`)
 require at least one metric and decompose it into aggregation components. For
-``/data/{node}`` and ``/sql/{node}`` requests against dimension / transform /
-source nodes, we just need to render the node as executable SQL with any
-non-source upstream parents inlined as CTEs and source parents inlined as
-physical-table refs — and, when the request includes them, dim-link joins for
-requested dimensions.
+``/data/{node}`` and ``/sql/{node}`` requests against nodes directly, we just need
+to render the node as executable SQL with any non-source upstream parents inlined as
+CTEs and source parents inlined as physical-table refs. When the request includes them,
+we build dim-link joins for requested dimensions / filters.
 
-Implementation strategy: lean entirely on existing v3 primitives.
-
-  - ``find_upstream_node_names`` — pure parent-tracing (recursive CTE).
-  - ``batch_load_nodes_with_dependencies`` — shared eager-load tree.
-  - ``collect_node_ctes`` — compiles each node's query, rewrites parent refs
-    (sources → physical, transforms → CTE name), and pushes ``PushdownFilters``
-    into the CTEs whose columns the filters reference.
-  - ``resolve_dimensions`` — walks dim links from the starting node to find
-    join paths to requested dimensions.
-  - ``build_dimension_joins`` — multi-hop JOIN AST construction.
-  - ``build_dimension_col_expr`` — alias-mapped projection of dim columns.
-
-Two output shapes depending on whether dimensions are requested:
-
-  *Simple shape* (no dims): the starting node's compiled query *is* the
-  outer query. Parent-less node renders as just its own SELECT; node with
-  non-source parents renders as ``WITH parent_a AS (...) <starting body>``.
-
-  *Wrapped shape* (dims requested): the starting body becomes a CTE; a new
-  outer SELECT projects the starting node's columns + aliased dim columns,
-  and JOINs the resolved dim chains.
+We use existing v3 primitives for the shared logic around loading, parent tracing, and
+dim-link resolution.
 """
 
 import logging
 from typing import Any, cast
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import load_only, noload
 
 from datajunction_server.construction.build_v3.builder import (
     apply_orderby_limit,
@@ -78,7 +60,7 @@ from datajunction_server.construction.build_v3.utils import (
 )
 from datajunction_server.database.column import Column as DBColumn
 from datajunction_server.database.node import Node, NodeRevision
-from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.errors import DJInvalidInputException, DJNodeNotFound
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.parsing import ast
@@ -106,46 +88,50 @@ async def build_node_sql_v3(
 
     Dispatches on node type:
 
-    *Metric* → ``build_metrics_sql([node_name], ...)`` — the v3 metrics
+    Metric: ``build_metrics_sql([node_name], ...)`` — the v3 metrics
     pipeline with metric decomposition, grain groups, combiners.
 
-    *Cube* → load the cube revision, merge its stored ``cube_filters`` and
+    Cube: load the cube revision, merge its stored ``cube_filters`` and
     ``cube_node_dimensions`` with the user-provided ones, then call
     ``build_metrics_sql(cube.cube_node_metrics, ..., matched_cube=cube)``
     so the cube's materialized table is used when available.
 
-    *Source / dimension / transform* → the single-node path described
+    Source / Dimension / Transform: the single-node path described
     below.  With no requested dimensions or filters, output is the
     starting node's compiled query body, with non-source upstream parents
     attached as CTEs. With dimensions or filters, the starting body
     becomes a CTE and a new outer SELECT projects the starting node's
-    columns plus the requested dim columns (alias-mapped via
-    ``ctx.alias_registry``), with JOINs from ``build_dimension_joins``
-    for non-local dim links and a WHERE clause from ``build_outer_where``
-    for filters. Filters whose columns belong to upstream CTEs get pushed
-    down via ``PushdownFilters`` for efficiency.
+    columns plus the requested dim columns, with dimension joins built
+    for non-local dim links and a where clause for filters. Filters whose
+    columns belong to upstream CTEs get pushed down for efficiency.
 
-    ORDER BY and LIMIT are applied at the very end via
-    ``apply_orderby_limit`` — orderby expressions use semantic names
-    (``node.column``) that resolve through ``output_columns`` to the
-    correct output alias.
+    ORDER BY and LIMIT are applied at the very end - orderby expressions use
+    semantic names that resolve to the correct output alias.
     """
     dim_list = list(dimensions or [])
     filter_list = list(filters or [])
     orderby_list = list(orderby or [])
 
-    # Quick load of the starting node so we can dispatch on its type
-    # before paying for the full upstream-chain trace below. Metric and
-    # cube nodes don't need our single-node machinery — they have their
-    # own v3 entry point.
-    starting_lookup = await Node.get_by_name(
-        session,
-        node_name,
-        raise_if_not_exists=True,
-    )
-    # ``raise_if_not_exists=True`` guarantees a non-None Node here; assert it
-    # so the rest of the function can rely on ``.current`` / ``.type``.
-    assert starting_lookup is not None
+    # Lightweight node lookup so we can dispatch on node type before paying
+    # for the full upstream-chain trace below.
+    starting_lookup = (
+        await session.execute(
+            select(Node)
+            .where(Node.name == node_name)
+            .where(Node.deactivated_at.is_(None))
+            .options(
+                load_only(Node.name, Node.type, Node.current_version),
+                noload(Node.created_by),
+                noload(Node.tags),
+                noload(Node.current),
+            ),
+        )
+    ).scalar_one_or_none()
+    if starting_lookup is None:
+        raise DJNodeNotFound(
+            message=f"A node with name `{node_name}` does not exist.",
+            http_status_code=404,
+        )
     starting_type = starting_lookup.type
 
     if starting_type == NodeType.METRIC:
@@ -153,10 +139,7 @@ async def build_node_sql_v3(
         # the checker through it. Best-effort wrapper-level check on the
         # metric itself; full upstream coverage will land when that
         # builder also accepts ``access_checker``.
-        access_checker.add_node(
-            starting_lookup.current,
-            access.ResourceAction.READ,
-        )
+        access_checker.add_node(starting_lookup, access.ResourceAction.READ)
         await access_checker.check(on_denied=AccessDenialMode.RAISE)
         return await build_metrics_sql(
             session=session,
@@ -205,9 +188,9 @@ async def build_node_sql_v3(
         dim_ref = parse_dimension_ref(dim_ref_str)
         if dim_ref.node_name:  # pragma: no branch
             starting_set.add(dim_ref.node_name)
-    # Filters can reference dim nodes that aren't in ``dimensions`` — those
-    # still need to be loaded so we can join + apply the filter. We handle
-    # the dim-list expansion below via ``add_dimensions_from_filters``.
+    # Note: filters can reference dim nodes that aren't in ``dimensions``.
+    # Those still need to be loaded so we can join + apply the filter. We
+    # handle the dim-list expansion below via ``add_dimensions_from_filters``.
 
     upstream_names, parent_map = await find_upstream_node_names(
         session,
@@ -217,12 +200,7 @@ async def build_node_sql_v3(
     nodes = await batch_load_nodes_with_dependencies(session, upstream_names)
     nodes_dict = {node.name: node for node in nodes}
 
-    # Single bulk access check on every node we'll touch (starting node +
-    # transitive upstream chain + every requested dim). Matches v2's
-    # "register every loaded ``dj_node``" semantics with one round-trip.
-    # ``add_dimensions_from_filters`` further down may also pull in
-    # filter-only dims via ``preload_join_paths`` / ``load_post_preload_chain``;
-    # those go through a second check below to keep coverage complete.
+    # Single bulk access check on every node we'll touch
     access_checker.add_nodes(
         [n.current for n in nodes if n.current],  # type: ignore[arg-type]
         access.ResourceAction.READ,
@@ -233,11 +211,7 @@ async def build_node_sql_v3(
 
     starting_revision: NodeRevision = starting.current  # type: ignore[assignment]
     # Sort starting columns by their declared ``order`` so the output
-    # projection is stable across runs. ``current.columns`` is a
-    # SQLAlchemy collection without a guaranteed traversal order; the
-    # node's ``column.order`` field is the authoritative position.
-    # Columns without an order fall to the end (preserving relative
-    # insertion order), matching ``Node.to_full_output``.
+    # projection is stable across runs.
     starting_columns: list[DBColumn] = sorted(
         list(starting_revision.columns),
         key=lambda col: col.order if col.order is not None else float("inf"),
@@ -257,14 +231,12 @@ async def build_node_sql_v3(
     # ``add_dimensions_from_filters`` parses ``ctx.filters`` for dim refs
     # and adds them to ``ctx.dimensions`` (and ``ctx.filter_dimensions`` so
     # they're excluded from the output projection). Dim refs from filters
-    # are resolved + joined the same way user-requested dimensions are —
-    # they just don't appear as projected columns.
+    # are resolved + joined the same way user-requested dimensions are
     if filter_list:
         add_dimensions_from_filters(ctx)
 
     # Wrap path is required when anything beyond the bare node is requested
-    # (dims, filters that pull in dim joins, etc). ``add_dimensions_from_filters``
-    # may have grown ``ctx.dimensions`` so re-check after that.
+    # (dims, filters that pull in dim joins, etc).
     if ctx.dimensions or filter_list:
         # ``resolve_dimensions`` reads from ``ctx.join_paths`` to discover
         # links from the starting node to each requested dim. Without this
@@ -280,15 +252,8 @@ async def build_node_sql_v3(
             {starting_revision.id},
             target_dim_names,
         )
-        # Multi-hop join paths add intermediate dim nodes to ``ctx.nodes``
-        # via ``preload_join_paths`` — but only with the limited eager-load
-        # the dimension_links query gives them. Reload them with the full
-        # tree so ``rewrite_table_references`` and ``get_parsed_query`` work.
         await load_post_preload_chain(ctx, baseline_node_names=upstream_names)
-        # Re-check access after ``preload_join_paths`` / ``load_post_preload_chain``
-        # may have pulled in additional intermediate / filter-only dim nodes.
-        # ``add_nodes`` is idempotent in effect (we re-add already-checked
-        # nodes; the cost is one extra batch ``authorize`` call).
+        # Re-check access after pulling in additional intermediate / filter-only dim nodes.
         access_checker.add_nodes(
             [n.current for n in ctx.nodes.values() if n.current],  # type: ignore[arg-type]
             access.ResourceAction.READ,
@@ -327,10 +292,8 @@ async def build_node_sql_v3(
     if query_parameters:  # pragma: no cover
         substitute_query_params(final_query, query_parameters)
 
-    # ``apply_orderby_limit`` resolves orderby expressions through the
-    # output-column semantic name → output alias map, then sets ``ORDER BY``
-    # and ``LIMIT`` on the outermost SELECT. Reuses the same primitive the
-    # metrics path uses at ``builder.py:538``.
+    # Resolves orderby expressions through the output-column semantic name to
+    # output alias map, then sets ORDER BY and LIMIT on the outermost SELECT.
     return apply_orderby_limit(
         GeneratedSQL(
             query=final_query,
@@ -375,8 +338,8 @@ def _build_no_dimensions(
         )
 
     # ``collect_node_ctes`` returns (cte_name, body) pairs for every non-source
-    # node in the dependency chain — including the starting node itself, with
-    # its parent table refs already rewritten by ``rewrite_table_references``.
+    # node in the dependency chain (including the starting node itself, with
+    # its parent table refs already rewritten by ``rewrite_table_references``).
     cte_pairs, _ = collect_node_ctes(ctx, [starting])
     starting_cte_name = get_cte_name(starting.name)
 
@@ -393,8 +356,7 @@ def _build_no_dimensions(
             f"collect_node_ctes did not produce a body for {starting.name}",
         )
 
-    # Promote upstream parents to proper CTEs (canonical pattern from
-    # ``measures.py:1007-1013``) and attach to the starting query.
+    # Promote upstream parents to proper CTEs and attach to the starting query.
     parent_ctes: list[ast.Query] = []
     for parent_name, parent_body in parent_pairs:
         parent_body.to_cte(ast.Name(parent_name), starting_body)
