@@ -107,6 +107,39 @@ async def _attach_raw_columns(session, nodes):
         node.current._cube_metric_names = metric_names_by_rev.get(rev_id, set())
 
 
+async def _attach_git_info(info: Info, nodes: list[DBNode]) -> None:
+    """
+    Pre-resolve gitInfo for all nodes via the DataLoader and attach the built
+    Strawberry object to each node as ``_resolved_git_info``. The per-item
+    GraphQL field then reads it synchronously, avoiding 1000+ async coroutines.
+    """
+    from datajunction_server.api.graphql.scalars.git_info import (
+        GitRepositoryInfo,
+    )
+    from datajunction_server.models.node import (
+        GitRepositoryInfo as PydanticGitRepositoryInfo,
+    )
+
+    loader = info.context["git_info_loader"]  # type: ignore
+    unique_namespaces = list({node.namespace for node in nodes})
+    if not unique_namespaces:
+        return
+
+    raw_results = await loader.load_many(unique_namespaces)
+    by_ns: dict[str, Optional[GitRepositoryInfo]] = {}
+    for ns, raw in zip(unique_namespaces, raw_results):
+        by_ns[ns] = (
+            GitRepositoryInfo.from_pydantic(  # type: ignore
+                PydanticGitRepositoryInfo(**raw),
+            )
+            if raw
+            else None
+        )
+
+    for node in nodes:
+        node._resolved_git_info = by_ns.get(node.namespace)  # type: ignore
+
+
 def _is_cube_name_only_request(current_fields: dict) -> bool:
     """Check if the current revision fields only need cube metric/dimension names.
 
@@ -213,6 +246,13 @@ async def find_nodes_by(
         # of ORM objects.  This avoids hydrating ~20k Column instances.
         if is_cube_name_only and result:
             await _attach_raw_columns(session, result)
+
+        # Pre-resolve gitInfo at the parent level when requested. Per-item async
+        # resolvers cost ~0.7ms each in asyncio scheduling overhead — at N=1000
+        # that's 700ms of pure CPU time blocking the event loop. Resolving here
+        # lets the per-item GraphQL field be a sync attribute read.
+        if result and "git_info" in node_fields:
+            await _attach_git_info(info, result)
 
         return result
 
