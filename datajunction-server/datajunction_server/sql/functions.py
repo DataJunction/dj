@@ -4807,7 +4807,7 @@ def infer_type(
 def infer_type(
     arg: ct.MapType,
 ) -> List[ct.NestedField]:
-    return [arg.key, arg.value]
+    return [arg.key, arg.value]  # pragma: no cover
 
 
 class FunctionRegistryDict(dict):

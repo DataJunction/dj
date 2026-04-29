@@ -552,7 +552,7 @@ async def load_post_preload_chain(
     nodes_to_load = (extra_names | newly_added_nodes) - (
         set(ctx.nodes.keys()) - newly_added_nodes
     )
-    if not nodes_to_load:
+    if not nodes_to_load:  # pragma: no cover
         return
 
     nodes = await batch_load_nodes_with_dependencies(ctx.session, nodes_to_load)

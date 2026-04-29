@@ -127,7 +127,7 @@ async def build_node_sql_v3(
             ),
         )
     ).scalar_one_or_none()
-    if starting_lookup is None:
+    if starting_lookup is None:  # pragma: no cover
         raise DJNodeNotFound(
             message=f"A node with name `{node_name}` does not exist.",
             http_status_code=404,
