@@ -99,68 +99,6 @@ async def batch_load_nodes_with_dependencies(
     return list(result.scalars().unique().all())
 
 
-async def batch_load_nodes_for_chain_rewriting(
-    session: AsyncSession,
-    node_names: set[str] | list[str],
-) -> list[Node]:
-    """
-    Lean batch-load for nodes whose role is providing state for
-    ``rewrite_table_references`` and dim-chain navigation. Skips:
-
-    - ``required_dimensions`` — only metrics carry this; intermediate dim
-      hops never act as a metric.
-    - ``availability`` — only the starting / target node's materialization
-      is consulted by the build pipeline; intermediate hops are never
-      substituted with a materialized table.
-
-    Keeps ``dimension_links`` because downstream code in ``measures.py`` and
-    the dim-chain JOIN builder iterates intermediate hops' links to navigate
-    multi-hop paths even after ``preload_join_paths`` has cached the path
-    structure (the link rows themselves are needed to resolve FK columns).
-
-    Used by ``load_post_preload_chain`` for the upstream chain of
-    intermediate dim hops added by ``preload_join_paths``.
-    """
-    stmt = (
-        select(Node)
-        .where(Node.name.in_(node_names))
-        .where(Node.deactivated_at.is_(None))
-        .options(
-            load_only(
-                Node.name,
-                Node.type,
-                Node.current_version,
-            ),
-            noload(Node.created_by),
-            noload(Node.tags),
-            joinedload(Node.current).options(
-                noload(NodeRevision.created_by),
-                load_only(
-                    NodeRevision.name,
-                    NodeRevision.query,
-                    NodeRevision.schema_,
-                    NodeRevision.table,
-                ),
-                selectinload(NodeRevision.columns).options(
-                    load_only(
-                        Column.name,
-                        Column.type,
-                    ),
-                ),
-                joinedload(NodeRevision.catalog),
-                selectinload(NodeRevision.dimension_links).options(
-                    joinedload(DimensionLink.dimension).options(
-                        noload(Node.created_by),
-                        noload(Node.tags),
-                    ),
-                ),
-            ),
-        )
-    )
-    result = await session.execute(stmt)
-    return list(result.scalars().unique().all())
-
-
 async def find_upstream_node_names(
     session: AsyncSession,
     starting_node_names: list[str],
@@ -600,12 +538,6 @@ async def load_post_preload_chain(
     ``ctx.nodes`` beyond it is intermediate-hop dim node added by
     ``preload_join_paths`` whose own upstream we now need.
 
-    Uses the lean ``batch_load_nodes_for_chain_rewriting`` since these
-    nodes only need enough state for table-ref rewriting and CTE assembly
-    — they're never metric parents (no ``required_dimensions`` access) or
-    materialization targets (no ``availability`` access), and
-    ``preload_join_paths`` already used their dim_links to build
-    ``ctx.join_paths`` so we don't re-traverse them here.
     """
     newly_added_nodes = set(ctx.nodes.keys()) - baseline_node_names
     if not newly_added_nodes:
@@ -623,7 +555,7 @@ async def load_post_preload_chain(
     if not nodes_to_load:
         return
 
-    nodes = await batch_load_nodes_for_chain_rewriting(ctx.session, nodes_to_load)
+    nodes = await batch_load_nodes_with_dependencies(ctx.session, nodes_to_load)
     for node in nodes:
         ctx.nodes[node.name] = node
 
