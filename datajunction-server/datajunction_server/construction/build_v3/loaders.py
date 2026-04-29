@@ -30,6 +30,75 @@ JoinPathState = namedtuple(
 )
 
 
+async def batch_load_nodes_with_dependencies(
+    session: AsyncSession,
+    node_names: set[str] | list[str],
+) -> list[Node]:
+    """
+    Batch-load a set of nodes with the eager-load tree the v3 SQL builders
+    rely on (current revision, columns, catalog, availability, required
+    dimensions, dimension links).
+
+    Used both by ``load_nodes`` (for metric-driven SQL building) and by
+    single-node entrypoints like ``build_node_sql_v3`` that want the same
+    eager-load shape without the metric-required scaffolding around it.
+    """
+    stmt = (
+        select(Node)
+        .where(Node.name.in_(node_names))
+        .where(Node.deactivated_at.is_(None))
+        .options(
+            load_only(
+                Node.name,
+                Node.type,
+                Node.current_version,
+            ),
+            noload(Node.created_by),  # Prevent User selectin chain on root Node
+            noload(Node.tags),  # Prevent Tag selectin chain on root Node
+            joinedload(Node.current).options(
+                noload(NodeRevision.created_by),  # Prevent User N+1 queries
+                load_only(
+                    NodeRevision.name,
+                    NodeRevision.query,
+                    NodeRevision.schema_,
+                    NodeRevision.table,
+                ),
+                # NOTE: don't noload Column.attributes — Columns are identity-
+                # mapped and downstream code (get_native_grain) reads
+                # col.has_primary_key_attribute().
+                selectinload(NodeRevision.columns).options(
+                    load_only(
+                        Column.name,
+                        Column.type,
+                    ),
+                ),
+                # NOTE: don't noload Catalog.engines — see load_dimension_links_batch.
+                joinedload(NodeRevision.catalog),
+                selectinload(NodeRevision.required_dimensions).options(
+                    # Load the node_revision and node to reconstruct full dimension path
+                    joinedload(Column.node_revision).options(
+                        noload(NodeRevision.created_by),  # Prevent User N+1 queries
+                        joinedload(NodeRevision.node).options(
+                            noload(Node.created_by),  # Prevent User N+1 queries
+                            noload(Node.tags),  # Prevent Tag selectin chain
+                        ),
+                    ),
+                ),
+                joinedload(NodeRevision.availability),  # For materialization support
+                selectinload(NodeRevision.dimension_links).options(
+                    # Load dimension node for link matching in temporal filters
+                    joinedload(DimensionLink.dimension).options(
+                        noload(Node.created_by),  # Prevent User N+1 queries
+                        noload(Node.tags),  # Prevent Tag selectin chain
+                    ),
+                ),
+            ),
+        )
+    )
+    result = await session.execute(stmt)
+    return list(result.scalars().unique().all())
+
+
 async def find_upstream_node_names(
     session: AsyncSession,
     starting_node_names: list[str],
@@ -374,61 +443,7 @@ async def load_nodes(ctx: BuildContext) -> None:
     all_node_names.update(initial_node_names)
 
     # Query 2: Batch load all nodes with appropriate eager loading
-    stmt = (
-        select(Node)
-        .where(Node.name.in_(all_node_names))
-        .where(Node.deactivated_at.is_(None))
-        .options(
-            load_only(
-                Node.name,
-                Node.type,
-                Node.current_version,
-            ),
-            noload(Node.created_by),  # Prevent User selectin chain on root Node
-            noload(Node.tags),  # Prevent Tag selectin chain on root Node
-            joinedload(Node.current).options(
-                noload(NodeRevision.created_by),  # Prevent User N+1 queries
-                load_only(
-                    NodeRevision.name,
-                    NodeRevision.query,
-                    NodeRevision.schema_,
-                    NodeRevision.table,
-                ),
-                # NOTE: don't noload Column.attributes — Columns are identity-
-                # mapped and downstream code (get_native_grain) reads
-                # col.has_primary_key_attribute().
-                selectinload(NodeRevision.columns).options(
-                    load_only(
-                        Column.name,
-                        Column.type,
-                    ),
-                ),
-                # NOTE: don't noload Catalog.engines — see load_dimension_links_batch.
-                joinedload(NodeRevision.catalog),
-                selectinload(NodeRevision.required_dimensions).options(
-                    # Load the node_revision and node to reconstruct full dimension path
-                    joinedload(Column.node_revision).options(
-                        noload(NodeRevision.created_by),  # Prevent User N+1 queries
-                        joinedload(NodeRevision.node).options(
-                            noload(Node.created_by),  # Prevent User N+1 queries
-                            noload(Node.tags),  # Prevent Tag selectin chain
-                        ),
-                    ),
-                ),
-                joinedload(NodeRevision.availability),  # For materialization support
-                selectinload(NodeRevision.dimension_links).options(
-                    # Load dimension node for link matching in temporal filters
-                    joinedload(DimensionLink.dimension).options(
-                        noload(Node.created_by),  # Prevent User N+1 queries
-                        noload(Node.tags),  # Prevent Tag selectin chain
-                    ),
-                ),
-            ),
-        )
-    )
-
-    result = await ctx.session.execute(stmt)
-    nodes = result.scalars().unique().all()
+    nodes = await batch_load_nodes_with_dependencies(ctx.session, all_node_names)
 
     # Cache all loaded nodes
     for node in nodes:
@@ -502,47 +517,47 @@ async def load_nodes(ctx: BuildContext) -> None:
     # other upstream nodes that weren't in the original find_upstream_node_names traversal.
     # Load these upstream dependencies so that collect_refs() can resolve them and
     # rewrite_table_references() can replace them with CTE names.
-    newly_added_nodes = set(ctx.nodes.keys()) - all_node_names
-    if newly_added_nodes:
-        extra_names, _ = await find_upstream_node_names(
-            ctx.session,
-            list(newly_added_nodes),
-        )
-        nodes_to_load = extra_names - set(ctx.nodes.keys())
-        if nodes_to_load:
-            extra_stmt = (
-                select(Node)
-                .where(Node.name.in_(nodes_to_load))
-                .where(Node.deactivated_at.is_(None))
-                .options(
-                    load_only(Node.name, Node.type, Node.current_version),
-                    noload(Node.created_by),
-                    noload(Node.tags),
-                    joinedload(Node.current).options(
-                        noload(NodeRevision.created_by),
-                        load_only(
-                            NodeRevision.name,
-                            NodeRevision.query,
-                            NodeRevision.schema_,
-                            NodeRevision.table,
-                        ),
-                        # NOTE: don't noload Column.attributes — Columns are
-                        # identity-mapped and downstream reads primary-key attrs.
-                        selectinload(NodeRevision.columns).options(
-                            load_only(Column.name, Column.type),
-                        ),
-                        # NOTE: don't noload Catalog.engines — see load_dimension_links_batch.
-                        joinedload(NodeRevision.catalog),
-                        joinedload(NodeRevision.availability),
-                    ),
-                )
-            )
-            extra_result = await ctx.session.execute(extra_stmt)
-            for node in extra_result.scalars().unique().all():
-                ctx.nodes[node.name] = node
+    await load_post_preload_chain(ctx, baseline_node_names=all_node_names)
 
     # Store parent_revision_ids for pre-agg loading (if needed)
     ctx._parent_revision_ids = parent_revision_ids
+
+
+async def load_post_preload_chain(
+    ctx: BuildContext,
+    baseline_node_names: set[str],
+) -> None:
+    """
+    After ``preload_join_paths`` cached intermediate dim-chain nodes into
+    ``ctx.nodes``, walk *their* upstream chains and batch-load everything
+    that wasn't in the baseline. Required so ``rewrite_table_references``
+    can resolve every ref in every CTE body.
+
+    ``baseline_node_names`` is the set of node names already loaded via the
+    main ``batch_load_nodes_with_dependencies`` call — anything in
+    ``ctx.nodes`` beyond it is intermediate-hop dim node added by
+    ``preload_join_paths`` whose own upstream we now need.
+
+    """
+    newly_added_nodes = set(ctx.nodes.keys()) - baseline_node_names
+    if not newly_added_nodes:
+        return
+
+    extra_names, _ = await find_upstream_node_names(
+        ctx.session,
+        list(newly_added_nodes),
+    )
+    # Re-load both the newly-added dim hops (preload only attached limited
+    # eager-loading) and any of their upstream that we hadn't seen.
+    nodes_to_load = (extra_names | newly_added_nodes) - (
+        set(ctx.nodes.keys()) - newly_added_nodes
+    )
+    if not nodes_to_load:  # pragma: no cover
+        return
+
+    nodes = await batch_load_nodes_with_dependencies(ctx.session, nodes_to_load)
+    for node in nodes:
+        ctx.nodes[node.name] = node
 
 
 async def load_available_preaggs(ctx: BuildContext) -> None:

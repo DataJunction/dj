@@ -2780,13 +2780,12 @@ class FunctionTable(FunctionTableExpression):
     """
 
     def __str__(self) -> str:
-        alias = f" {self.alias}" if self.alias else ""
-        as_ = " AS " if self.as_ else ""
         cols = (
             f" {', '.join(col.name.name for col in self.column_list)}"
             if self.column_list
             else ""
         )
+        args_str = f"({', '.join(str(col) for col in self.args)})" if self.args else ""
 
         # UNNEST / EXPLODE outside a lateral view need their column list wrapped
         # in parens (e.g. `UNNEST(arr) AS t(x)`). With no column list — common
@@ -2800,8 +2799,20 @@ class FunctionTable(FunctionTableExpression):
             )
         )
         column_list_str = f"({cols})" if wraps_column_list else f"{cols}"
-        args_str = f"({', '.join(str(col) for col in self.args)})" if self.args else ""
-        return f"{self.name}{args_str}{alias}{as_}{column_list_str}"
+
+        # AS placement depends on whether there's a column list:
+        #   With cols (LATERAL VIEW shape): ``EXPLODE(arr) tab AS (c1, c2)``
+        #     — alias names a table, AS sits between alias and the column list.
+        #   Without cols (scalar/expression usage): ``EXPLODE(arr) AS hour``
+        #     — alias names the single output column, AS goes before it.
+        if cols:
+            alias = f" {self.alias}" if self.alias else ""
+            as_ = " AS " if self.as_ else ""
+            return f"{self.name}{args_str}{alias}{as_}{column_list_str}"
+        if self.alias:
+            as_keyword = "AS " if self.as_ else ""
+            return f"{self.name}{args_str} {as_keyword}{self.alias}"
+        return f"{self.name}{args_str}"
 
     def set_alias(self: TNode, alias: Name) -> TNode:
         self.alias = alias

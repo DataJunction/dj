@@ -86,7 +86,16 @@ async def get_data_for_system_metric(
             limit=limit,
         ),
     )
-    results = await session.execute(text(translated_sql.sql))
+    # The /system/data endpoint executes the SQL directly against the DJ
+    # metadata database (Postgres), which doesn't support 3-part
+    # ``catalog.schema.table`` references. v3 emits the system catalog
+    # name (``dj_metadata``) as a prefix on physical-table references —
+    # strip it here so Postgres can resolve the remaining ``schema.table``.
+    sql_to_run = translated_sql.sql.replace(
+        f"{settings.seed_setup.system_catalog_name}.",
+        "",
+    )
+    results = await session.execute(text(sql_to_run))
     output = [
         [
             RowOutput(

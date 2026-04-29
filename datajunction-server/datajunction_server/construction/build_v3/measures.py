@@ -557,7 +557,7 @@ def _build_temporal_pushdown(
     return temporal_filter_ast, injected_cte_filters
 
 
-def _build_filter_column_aliases(
+def build_filter_column_aliases(
     ctx: BuildContext,
     resolved_dimensions: list[ResolvedDimension],
     parent_node: Node,
@@ -600,7 +600,7 @@ def _build_filter_column_aliases(
     return aliases
 
 
-def _build_outer_where(
+def build_outer_where(
     filters: list[str],
     filter_column_aliases: dict[str, str],
     resolved_dimensions: list[ResolvedDimension],
@@ -629,7 +629,7 @@ def _build_outer_where(
     return where_clause
 
 
-def _build_dimension_col_expr(
+def build_dimension_col_expr(
     resolved_dim: ResolvedDimension,
     main_alias: str,
     dim_aliases: dict[tuple[str, Optional[str]], str],
@@ -760,7 +760,7 @@ def _collect_spark_hints(
     return hints
 
 
-def _build_dimension_joins(
+def build_dimension_joins(
     ctx: BuildContext,
     resolved_dimensions: list[ResolvedDimension],
     main_alias: str,
@@ -854,7 +854,7 @@ def build_select_ast(
     # Generate alias for the main table
     main_alias = ctx.next_table_alias(parent_node.name)
 
-    dim_aliases, joins = _build_dimension_joins(ctx, resolved_dimensions, main_alias)
+    dim_aliases, joins = build_dimension_joins(ctx, resolved_dimensions, main_alias)
     spark_hints = _collect_spark_hints(resolved_dimensions, dim_aliases)
 
     # Add dimension columns to projection
@@ -863,7 +863,7 @@ def build_select_ast(
         clean_alias = ctx.alias_registry.register(resolved_dim.original_ref)
         if resolved_dim.original_ref in ctx.filter_dimensions:
             continue
-        col_expr = _build_dimension_col_expr(
+        col_expr = build_dimension_col_expr(
             resolved_dim,
             main_alias,
             dim_aliases,
@@ -952,12 +952,12 @@ def build_select_ast(
     where_clause: Optional[ast.Expression] = None
     filter_column_aliases: dict[str, str] = {}
     if all_filters:
-        filter_column_aliases = _build_filter_column_aliases(
+        filter_column_aliases = build_filter_column_aliases(
             ctx,
             resolved_dimensions,
             parent_node,
         )
-        where_clause = _build_outer_where(
+        where_clause = build_outer_where(
             all_filters,
             filter_column_aliases,
             resolved_dimensions,

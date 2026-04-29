@@ -341,35 +341,32 @@ async def test_link_complex_dimension_without_role(
         "&dimensions=default.users.registration_country",
     )
     query = response.json()["sql"]
-    expected = """WITH default_DOT_events AS (
-      SELECT
-        default_DOT_events_table.user_id,
-        default_DOT_events_table.event_start_date,
-        default_DOT_events_table.event_end_date,
-        default_DOT_events_table.elapsed_secs,
-        default_DOT_events_table.user_registration_country
-      FROM examples.events AS default_DOT_events_table
+    expected = """WITH default_events AS (
+      SELECT  user_id,
+        event_start_date,
+        event_end_date,
+        elapsed_secs,
+        user_registration_country
+      FROM default.examples.events
     ),
-    default_DOT_users AS (
-      SELECT
-        default_DOT_users_table.user_id,
-        default_DOT_users_table.snapshot_date,
-        default_DOT_users_table.registration_country,
-        default_DOT_users_table.residence_country,
-        default_DOT_users_table.account_type
-      FROM examples.users AS default_DOT_users_table
+    default_users AS (
+      SELECT  user_id,
+        snapshot_date,
+        registration_country,
+        residence_country,
+        account_type
+      FROM default.examples.users
     )
-    SELECT
-        default_DOT_events.user_id default_DOT_users_DOT_user_id,
-        default_DOT_events.event_start_date default_DOT_users_DOT_snapshot_date,
-        default_DOT_events.event_end_date default_DOT_events_DOT_event_end_date,
-        default_DOT_events.elapsed_secs default_DOT_events_DOT_elapsed_secs,
-        default_DOT_events.user_registration_country default_DOT_events_DOT_user_registration_country,
-        default_DOT_users.registration_country default_DOT_users_DOT_registration_country
-    FROM default_DOT_events
-    LEFT JOIN default_DOT_users
-      ON default_DOT_events.user_id = default_DOT_users.user_id
-        AND default_DOT_events.event_start_date = default_DOT_users.snapshot_date
+    SELECT  t1.event_end_date,
+        t1.elapsed_secs,
+        t1.user_registration_country,
+        t1.user_id,
+        t1.event_start_date snapshot_date,
+        t2.registration_country
+    FROM default_events t1
+    LEFT OUTER JOIN default_users t2
+      ON t1.user_id = t2.user_id
+        AND t1.event_start_date = t2.snapshot_date
     """
     assert str(parse(query)) == str(parse(expected))
 
@@ -565,45 +562,40 @@ async def test_link_complex_dimension_with_role(
         },
     )
     query = response.json()["sql"]
-    expected = """WITH default_DOT_events AS (
-  SELECT
-    default_DOT_events_table.user_id,
-    default_DOT_events_table.event_start_date,
-    default_DOT_events_table.event_end_date,
-    default_DOT_events_table.elapsed_secs,
-    default_DOT_events_table.user_registration_country
-  FROM examples.events AS default_DOT_events_table
-), default_DOT_users AS (
-  SELECT
-    default_DOT_users_table.user_id,
-    default_DOT_users_table.snapshot_date,
-    default_DOT_users_table.registration_country,
-    default_DOT_users_table.residence_country,
-    default_DOT_users_table.account_type
-  FROM examples.users AS default_DOT_users_table
+    expected = """WITH default_events AS (
+  SELECT  user_id,
+    event_start_date,
+    elapsed_secs
+  FROM default.examples.events
 ),
-default_DOT_events_metrics AS (
-  SELECT
-    user_windowed.user_id default_DOT_users_DOT_user_id_LBRACK_user_windowed_RBRACK,
-    user_windowed.snapshot_date default_DOT_users_DOT_snapshot_date_LBRACK_user_windowed_RBRACK,
-    user_windowed.registration_country default_DOT_users_DOT_registration_country_LBRACK_user_windowed_RBRACK,
-    SUM(default_DOT_events.elapsed_secs) default_DOT_elapsed_secs
-  FROM default_DOT_events
-  LEFT JOIN default_DOT_users AS user_windowed ON default_DOT_events.user_id = user_windowed.user_id
-    AND default_DOT_events.event_start_date BETWEEN user_windowed.snapshot_date
-    AND CAST(DATE_ADD(CAST(user_windowed.snapshot_date AS DATE), 10) AS INT)
-  WHERE  user_windowed.registration_country = 'NZ'
-  GROUP BY
-    user_windowed.user_id,
-    user_windowed.snapshot_date,
-    user_windowed.registration_country
+default_users AS (
+  SELECT  user_id,
+    snapshot_date,
+    registration_country
+  FROM default.examples.users
+  WHERE  registration_country = 'NZ'
+),
+events_0 AS (
+  SELECT  t1.user_id user_id_user_windowed,
+    t2.snapshot_date snapshot_date_user_windowed,
+    t2.registration_country registration_country_user_windowed,
+    SUM(t1.elapsed_secs) elapsed_secs_sum_88a2603f
+  FROM default_events t1
+  LEFT OUTER JOIN default_users t2 ON t1.user_id = t2.user_id
+    AND t1.event_start_date BETWEEN t2.snapshot_date
+    AND CAST(DATE_ADD(CAST(t2.snapshot_date AS DATE), 10) AS INT)
+  WHERE  t2.registration_country = 'NZ'
+  GROUP BY  t1.user_id, t2.snapshot_date, t2.registration_country
 )
-SELECT
-  default_DOT_events_metrics.default_DOT_users_DOT_user_id_LBRACK_user_windowed_RBRACK,
-  default_DOT_events_metrics.default_DOT_users_DOT_snapshot_date_LBRACK_user_windowed_RBRACK,
-  default_DOT_events_metrics.default_DOT_users_DOT_registration_country_LBRACK_user_windowed_RBRACK,
-  default_DOT_events_metrics.default_DOT_elapsed_secs
-FROM default_DOT_events_metrics
+SELECT  events_0.user_id_user_windowed AS user_id_user_windowed,
+  events_0.snapshot_date_user_windowed AS snapshot_date_user_windowed,
+  events_0.registration_country_user_windowed AS registration_country_user_windowed,
+  SUM(events_0.elapsed_secs_sum_88a2603f) AS elapsed_secs
+FROM events_0
+WHERE  events_0.registration_country_user_windowed = 'NZ'
+GROUP BY  events_0.user_id_user_windowed,
+  events_0.snapshot_date_user_windowed,
+  events_0.registration_country_user_windowed
 """
     assert str(parse(query)) == str(parse(expected))
 
@@ -614,44 +606,36 @@ FROM default_DOT_events_metrics
         "&dimensions=default.users.registration_country[user_direct]",
     )
     query = response.json()["sql"]
-    expected = """WITH default_DOT_events AS (
-      SELECT
-        default_DOT_events_table.user_id,
-        default_DOT_events_table.event_start_date,
-        default_DOT_events_table.event_end_date,
-        default_DOT_events_table.elapsed_secs,
-        default_DOT_events_table.user_registration_country
-      FROM examples.events AS default_DOT_events_table
-    ), default_DOT_users AS (
-      SELECT
-        default_DOT_users_table.user_id,
-        default_DOT_users_table.snapshot_date,
-        default_DOT_users_table.registration_country,
-        default_DOT_users_table.residence_country,
-        default_DOT_users_table.account_type
-      FROM examples.users AS default_DOT_users_table
+    expected = """WITH default_events AS (
+      SELECT  user_id,
+        event_start_date,
+        elapsed_secs
+      FROM default.examples.events
     ),
-    default_DOT_events_metrics AS (
-      SELECT
-        user_direct.user_id default_DOT_users_DOT_user_id_LBRACK_user_direct_RBRACK,
-        user_direct.snapshot_date default_DOT_users_DOT_snapshot_date_LBRACK_user_direct_RBRACK,
-        user_direct.registration_country default_DOT_users_DOT_registration_country_LBRACK_user_direct_RBRACK,
-        SUM(default_DOT_events.elapsed_secs) default_DOT_elapsed_secs
-      FROM default_DOT_events
-      LEFT JOIN default_DOT_users AS user_direct
-        ON default_DOT_events.user_id = user_direct.user_id
-        AND default_DOT_events.event_start_date = user_direct.snapshot_date
-      GROUP BY
-        user_direct.user_id,
-        user_direct.snapshot_date,
-        user_direct.registration_country
+    default_users AS (
+      SELECT  user_id,
+        snapshot_date,
+        registration_country
+      FROM default.examples.users
+    ),
+    events_0 AS (
+      SELECT  t1.user_id user_id_user_direct,
+        t1.event_start_date snapshot_date_user_direct,
+        t2.registration_country registration_country_user_direct,
+        SUM(t1.elapsed_secs) elapsed_secs_sum_88a2603f
+      FROM default_events t1
+      LEFT OUTER JOIN default_users t2 ON t1.user_id = t2.user_id
+        AND t1.event_start_date = t2.snapshot_date
+      GROUP BY  t1.user_id, t1.event_start_date, t2.registration_country
     )
-    SELECT
-      default_DOT_events_metrics.default_DOT_users_DOT_user_id_LBRACK_user_direct_RBRACK,
-      default_DOT_events_metrics.default_DOT_users_DOT_snapshot_date_LBRACK_user_direct_RBRACK,
-      default_DOT_events_metrics.default_DOT_users_DOT_registration_country_LBRACK_user_direct_RBRACK,
-      default_DOT_events_metrics.default_DOT_elapsed_secs
-    FROM default_DOT_events_metrics"""
+    SELECT  events_0.user_id_user_direct AS user_id_user_direct,
+      events_0.snapshot_date_user_direct AS snapshot_date_user_direct,
+      events_0.registration_country_user_direct AS registration_country_user_direct,
+      SUM(events_0.elapsed_secs_sum_88a2603f) AS elapsed_secs
+    FROM events_0
+    GROUP BY  events_0.user_id_user_direct,
+      events_0.snapshot_date_user_direct,
+      events_0.registration_country_user_direct"""
     assert str(parse(query)) == str(parse(expected))
 
     # Get SQL for the downstream metric grouped by the user's registration country and
@@ -672,53 +656,45 @@ FROM default_DOT_events_metrics
     )
     data = response.json()
     query = data["sql"]
-    expected = """WITH default_DOT_events AS (
-  SELECT
-    default_DOT_events_table.user_id,
-    default_DOT_events_table.event_start_date,
-    default_DOT_events_table.event_end_date,
-    default_DOT_events_table.elapsed_secs,
-    default_DOT_events_table.user_registration_country
-  FROM examples.events AS default_DOT_events_table
-), default_DOT_users AS (
-  SELECT
-    default_DOT_users_table.user_id,
-    default_DOT_users_table.snapshot_date,
-    default_DOT_users_table.registration_country,
-    default_DOT_users_table.residence_country,
-    default_DOT_users_table.account_type
-  FROM examples.users AS default_DOT_users_table
-), default_DOT_countries AS (
-  SELECT
-    default_DOT_countries_table.country_code,
-    default_DOT_countries_table.name,
-    default_DOT_countries_table.population
-  FROM examples.countries AS default_DOT_countries_table
+    expected = """WITH default_countries AS (
+  SELECT  country_code,
+    name
+  FROM default.examples.countries
+  WHERE  name = 'NZ'
 ),
-default_DOT_events_metrics AS (
-  SELECT
-    user_direct__registration_country.name default_DOT_countries_DOT_name_LBRACK_user_direct_MINUS__GT_registration_country_RBRACK,
-    user_direct.snapshot_date default_DOT_users_DOT_snapshot_date_LBRACK_user_direct_RBRACK,
-    user_direct.registration_country default_DOT_users_DOT_registration_country_LBRACK_user_direct_RBRACK,
-    SUM(default_DOT_events.elapsed_secs) default_DOT_elapsed_secs
-  FROM default_DOT_events
-  LEFT JOIN default_DOT_users AS user_direct
-    ON default_DOT_events.user_id = user_direct.user_id
-    AND default_DOT_events.event_start_date = user_direct.snapshot_date
-  INNER JOIN default_DOT_countries AS user_direct__registration_country
-    ON user_direct.registration_country = user_direct__registration_country.country_code
-  WHERE  user_direct__registration_country.name = 'NZ'
-  GROUP BY
-    user_direct__registration_country.name,
-    user_direct.snapshot_date,
-    user_direct.registration_country
+default_events AS (
+  SELECT  user_id,
+    event_start_date,
+    elapsed_secs
+  FROM default.examples.events
+),
+default_users AS (
+  SELECT  user_id,
+    snapshot_date,
+    registration_country
+  FROM default.examples.users
+),
+events_0 AS (
+  SELECT  t3.name name_registration_country,
+    t1.event_start_date snapshot_date_user_direct,
+    t2.registration_country registration_country_user_direct,
+    SUM(t1.elapsed_secs) elapsed_secs_sum_88a2603f
+  FROM default_events t1
+  LEFT OUTER JOIN default_users t2 ON t1.user_id = t2.user_id
+    AND t1.event_start_date = t2.snapshot_date
+  INNER JOIN default_countries t3 ON t2.registration_country = t3.country_code
+  WHERE  t3.name = 'NZ'
+  GROUP BY  t3.name, t1.event_start_date, t2.registration_country
 )
-SELECT
-  default_DOT_events_metrics.default_DOT_countries_DOT_name_LBRACK_user_direct_MINUS__GT_registration_country_RBRACK,
-  default_DOT_events_metrics.default_DOT_users_DOT_snapshot_date_LBRACK_user_direct_RBRACK,
-  default_DOT_events_metrics.default_DOT_users_DOT_registration_country_LBRACK_user_direct_RBRACK,
-  default_DOT_events_metrics.default_DOT_elapsed_secs
-FROM default_DOT_events_metrics
+SELECT  events_0.name_registration_country AS name_registration_country,
+  events_0.snapshot_date_user_direct AS snapshot_date_user_direct,
+  events_0.registration_country_user_direct AS registration_country_user_direct,
+  SUM(events_0.elapsed_secs_sum_88a2603f) AS elapsed_secs
+FROM events_0
+WHERE  events_0.name_registration_country = 'NZ'
+GROUP BY  events_0.name_registration_country,
+  events_0.snapshot_date_user_direct,
+  events_0.registration_country_user_direct
 """
     assert str(parse(query)) == str(parse(expected))
     assert data["columns"] == [
@@ -1151,32 +1127,29 @@ async def test_dimension_link_cross_join(
         "/sql/default.events?dimensions=default.areas.area&dimensions=default.areas.area_rep",
     )
     expected = """WITH
-    default_DOT_events AS (
-      SELECT
-        default_DOT_events_table.user_id,
-        default_DOT_events_table.event_start_date,
-        default_DOT_events_table.event_end_date,
-        default_DOT_events_table.elapsed_secs,
-        default_DOT_events_table.user_registration_country
-      FROM examples.events AS default_DOT_events_table
-    ),
-    default_DOT_areas AS (
-      SELECT
-        tab.area,
-      1 AS area_rep
+    default_areas AS (
+      SELECT  tab.area,
+        1 AS area_rep
       FROM VALUES ('A'),
-      ('B'),
-      ('C') AS tab(area)
+        ('B'),
+        ('C') AS tab(area)
+    ),
+    default_events AS (
+      SELECT  user_id,
+        event_start_date,
+        event_end_date,
+        elapsed_secs,
+        user_registration_country
+      FROM default.examples.events
     )
-    SELECT
-      default_DOT_events.user_id default_DOT_events_DOT_user_id,
-      default_DOT_events.event_start_date default_DOT_events_DOT_event_start_date,
-      default_DOT_events.event_end_date default_DOT_events_DOT_event_end_date,
-      default_DOT_events.elapsed_secs default_DOT_events_DOT_elapsed_secs,
-      default_DOT_events.user_registration_country default_DOT_events_DOT_user_registration_country,
-      default_DOT_areas.area default_DOT_areas_DOT_area,
-      default_DOT_areas.area_rep default_DOT_areas_DOT_area_rep
-    FROM default_DOT_events CROSS JOIN default_DOT_areas
+    SELECT  t1.user_id,
+      t1.event_start_date,
+      t1.event_end_date,
+      t1.elapsed_secs,
+      t1.user_registration_country,
+      t2.area,
+      t2.area_rep
+    FROM default_events t1 CROSS JOIN default_areas t2
     """
     assert str(parse(response.json()["sql"])) == str(parse(expected))
 
@@ -1334,35 +1307,31 @@ async def test_dimension_link_with_default_value(
     query = response.json()["sql"]
     # The dimension column should be wrapped in COALESCE with the default_value
     expected_sql = """
-    WITH default_DOT_events AS (
-      SELECT
-        default_DOT_events_table.user_id,
-        default_DOT_events_table.event_start_date,
-        default_DOT_events_table.event_end_date,
-        default_DOT_events_table.elapsed_secs,
-        default_DOT_events_table.user_registration_country
-      FROM examples.events AS default_DOT_events_table
+    WITH default_events AS (
+      SELECT  user_id,
+        event_start_date,
+        event_end_date,
+        elapsed_secs,
+        user_registration_country
+      FROM default.examples.events
     ),
-    default_DOT_users AS (
-      SELECT
-        default_DOT_users_table.user_id,
-        default_DOT_users_table.snapshot_date,
-        default_DOT_users_table.registration_country,
-        default_DOT_users_table.residence_country,
-        default_DOT_users_table.account_type
-      FROM examples.users AS default_DOT_users_table
+    default_users AS (
+      SELECT  user_id,
+        snapshot_date,
+        registration_country,
+        residence_country,
+        account_type
+      FROM default.examples.users
     )
-    SELECT
-      default_DOT_events.user_id default_DOT_events_DOT_user_id,
-      default_DOT_events.event_start_date default_DOT_events_DOT_event_start_date,
-      default_DOT_events.event_end_date default_DOT_events_DOT_event_end_date,
-      default_DOT_events.elapsed_secs default_DOT_events_DOT_elapsed_secs,
-      default_DOT_events.user_registration_country default_DOT_events_DOT_user_registration_country,
-      COALESCE(default_DOT_users.registration_country, 'N/A') AS default_DOT_users_DOT_registration_country
-    FROM default_DOT_events
-    LEFT JOIN default_DOT_users
-      ON default_DOT_events.user_id = default_DOT_users.user_id
-        AND default_DOT_events.event_start_date = default_DOT_users.snapshot_date
+    SELECT  t1.user_id,
+      t1.event_start_date,
+      t1.event_end_date,
+      t1.elapsed_secs,
+      t1.user_registration_country,
+      COALESCE(t2.registration_country, 'N/A') AS registration_country
+    FROM default_events t1
+    LEFT OUTER JOIN default_users t2 ON t1.user_id = t2.user_id
+      AND t1.event_start_date = t2.snapshot_date
     """
     assert_sql_equal(query, expected_sql)
 

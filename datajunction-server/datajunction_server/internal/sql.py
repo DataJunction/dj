@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Tuple, OrderedDict, cast
+from typing import Any, Tuple, cast
 import re
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,7 +13,6 @@ from datajunction_server.api.helpers import (
     assemble_column_metadata,
     find_existing_cube,
     get_catalog_by_name,
-    get_query,
     validate_orderby,
     validate_cube,
     check_dimension_attributes_exist,
@@ -53,6 +52,57 @@ from datajunction_server.utils import SEPARATOR, refresh_if_needed
 logger = logging.getLogger(__name__)
 
 
+def _v3_to_model_column(col) -> ColumnMetadata:
+    """
+    Convert a v3 ``ColumnMetadata`` (semantic_name / semantic_type) into the
+    REST/model ``ColumnMetadata`` (name / column / node / semantic_entity /
+    semantic_type) shape that the python client and downstream consumers
+    expect.
+
+    The ``name`` field uses the v2-style amenable-form munging
+    (``default_DOT_revenue_DOT_payment_id``) — this is what the python
+    client, the data API, and the saved query history rely on for
+    ``DataFrame`` column labels. The actual SQL projection still uses
+    the bare column name (v3's clean output style); we only munge for
+    the metadata.
+
+    For metric columns: ``column`` and ``name`` are the amenable munge
+    of the metric path, ``node`` is the bare metric path so the python
+    client's metric-column fallback resolves correctly, and
+    ``semantic_entity`` is ``<metric_path>.<munged_name>`` to mirror v2.
+    """
+    from datajunction_server.naming import amenable_name  # noqa: PLC0415
+
+    semantic_name = col.semantic_name
+    semantic_type = col.semantic_type
+    if semantic_type == "metric":
+        munged = amenable_name(semantic_name) if semantic_name else col.name
+        return ColumnMetadata(
+            name=munged,
+            type=col.type,
+            column=munged,
+            node=semantic_name,
+            semantic_entity=f"{semantic_name}.{munged}" if semantic_name else munged,
+            semantic_type=semantic_type,
+        )
+    if semantic_name and SEPARATOR in semantic_name:  # pragma: no branch
+        column_name = semantic_name.rsplit(SEPARATOR, 1)[-1]
+        node_name = semantic_name.rsplit(SEPARATOR, 1)[0]
+        munged_name = amenable_name(semantic_name)
+    else:  # pragma: no cover
+        column_name = col.name
+        node_name = None
+        munged_name = col.name
+    return ColumnMetadata(
+        name=munged_name,
+        type=col.type,
+        column=column_name,
+        node=node_name,
+        semantic_entity=semantic_name,
+        semantic_type=semantic_type,
+    )
+
+
 async def build_node_sql(
     session: AsyncSession,
     node_name: str,
@@ -70,8 +120,12 @@ async def build_node_sql(
     """
     Build node SQL and save it to query requests
     """
-    if orderby:
-        validate_orderby(orderby, [node_name], dimensions or [])
+    # Note: v2's strict ``validate_orderby`` check (orderby cols must appear
+    # in metrics or dimensions) is gone — v3's ``apply_orderby_limit``
+    # resolves orderby through the output-column semantic-name map and
+    # skips anything it can't resolve, which is the right behavior for
+    # ``/sql/{node}`` requests where local columns of the starting node
+    # are valid orderby targets without being explicitly requested.
 
     node = cast(
         Node,
@@ -80,76 +134,34 @@ async def build_node_sql(
     if not engine:  # pragma: no cover
         engine = node.current.catalog.engines[0]
 
-    # If it's a cube, we'll build SQL for the metrics in the cube, along with any additional
-    # dimensions or filters provided in the arguments
-    if node.type == NodeType.CUBE:
-        node = cast(
-            Node,
-            await Node.get_cube_by_name(session, node_name),
-        )
-        dimensions = list(
-            OrderedDict.fromkeys(node.current.cube_node_dimensions + dimensions),
-        )
-        # Prepend cube-level stored filters before any request-provided filters
-        cube_stored_filters = node.current.cube_filters or []
-        combined_filters = cube_stored_filters + (filters or [])
-        translated_sql, engine, _ = await build_sql_for_multiple_metrics(
-            session=session,
-            metrics=node.current.cube_node_metrics,
-            dimensions=dimensions,
-            filters=combined_filters,
-            orderby=orderby,
-            limit=limit,
-            engine_name=engine.name if engine else None,
-            engine_version=engine.version if engine else None,
-            access_checker=access_checker,
-            use_materialized=use_materialized,
-            query_parameters=query_parameters,
-        )
-        return translated_sql
+    # All ``/sql/{node}`` and ``/data/{node}`` requests now route through the
+    # single v3 single-node entry point. ``build_node_sql_v3`` dispatches
+    # internally on node type: metrics → ``build_metrics_sql([node])``;
+    # cubes → ``build_metrics_sql(cube.metrics, ..., matched_cube=cube)``;
+    # source / dimension / transform → its own assembly path.
+    from datajunction_server.construction.build_v3.node_query import (  # noqa: PLC0415
+        build_node_sql_v3,
+    )
 
-    # For all other nodes, build the node query
-    node = await Node.get_by_name(session, node_name, raise_if_not_exists=True)  # type: ignore
-    if node.type == NodeType.METRIC:
-        translated_sql, engine, _ = await build_sql_for_multiple_metrics(
-            session,
-            [node_name],
-            dimensions or [],
-            filters or [],
-            orderby or [],
-            limit,
-            engine.name if engine else None,
-            engine.version if engine else None,
-            access_checker=access_checker,
-            ignore_errors=ignore_errors,
-            use_materialized=use_materialized,
-            query_parameters=query_parameters,
-        )
-        query = translated_sql.sql
-        columns = translated_sql.columns
-    else:
-        query_ast = await get_query(
-            session=session,
-            node_name=node_name,
-            dimensions=dimensions or [],
-            filters=filters or [],
-            orderby=orderby or [],
-            limit=limit,
-            engine=engine,
-            access_checker=access_checker,
-            use_materialized=use_materialized,
-            query_parameters=query_parameters,
-            ignore_errors=ignore_errors,
-        )
-        columns = [
-            assemble_column_metadata(col, use_semantic_metadata=True)  # type: ignore
-            for col in query_ast.select.projection
-        ]
-        query = str(query_ast)
-
+    v3_result = await build_node_sql_v3(
+        session=session,
+        node_name=node_name,
+        dimensions=dimensions or [],
+        filters=filters or [],
+        orderby=orderby or [],
+        limit=limit,
+        dialect=engine.dialect if engine else Dialect.SPARK,
+        use_materialized=use_materialized,
+        query_parameters=query_parameters,
+        access_checker=access_checker,
+    )
+    # Carry the semantic entity through to the response — clients (e.g. the
+    # python client's ``node_data``) use ``semantic_entity`` to label the
+    # resulting DataFrame columns. Without it, columns end up unnamed and
+    # pandas reports them as inferred type ``mixed`` instead of ``string``.
     return TranslatedSQL.create(
-        sql=query,
-        columns=columns,
+        sql=v3_result.sql,
+        columns=[_v3_to_model_column(col) for col in v3_result.columns],
         dialect=engine.dialect if engine else None,
     )
 

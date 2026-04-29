@@ -22,7 +22,7 @@ async def module__client_with_system(
             "display_name": "Nodes",
             "description": "Nodes in the system",
             "query": """SELECT
-    id,
+    N.id,
     N.name,
     NR.display_name,
     cast(N.type AS STRING) type,
@@ -32,7 +32,7 @@ async def module__client_with_system(
     CAST(TO_CHAR(CAST(N.created_at AS date), 'YYYYMMDD') AS integer) AS created_at_date,
     CAST(TO_CHAR(CAST(DATE_TRUNC('week', N.created_at) AS date), 'YYYYMMDD') AS integer) AS created_at_week,
     N.current_version,
-    CASE WHEN deactivated_at IS NULL THEN true ELSE false END AS is_active,
+    CASE WHEN N.deactivated_at IS NULL THEN true ELSE false END AS is_active,
     NR.status,
     NR.description,
     NR.id AS current_revision_id
@@ -110,8 +110,10 @@ async def test_system_metric_data_no_dimensions(
     assert len(data) == 1
     assert len(data[0]) == 1
     assert data[0][0]["col"] == "system.dj.number_of_nodes"
-    # With all examples loaded, there will be more nodes than just roads
-    assert data[0][0]["value"] >= 42
+    # With all examples loaded, there will be more nodes than just roads.
+    # v3 wraps the metric in ``SUM(COUNT(...))``; Postgres returns ``numeric``
+    # for ``SUM(bigint)``, which pydantic serializes as a JSON string.
+    assert int(data[0][0]["value"]) >= 42
 
 
 @pytest.mark.asyncio
@@ -150,14 +152,15 @@ async def test_system_metric_data_with_dimensions(
             None,
         )
         if type_col and count_col:
+            count_val = int(count_col["value"])  # ``SUM(bigint)`` returns numeric in pg
             if type_col["value"] == "dimension":
-                assert count_col["value"] >= 13
+                assert count_val >= 13
             elif type_col["value"] == "metric":
-                assert count_col["value"] >= 11
+                assert count_val >= 11
             elif type_col["value"] == "source":
-                assert count_col["value"] >= 15
+                assert count_val >= 15
             elif type_col["value"] == "transform":
-                assert count_col["value"] >= 3
+                assert count_val >= 3
 
 
 @pytest.mark.asyncio

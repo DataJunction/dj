@@ -567,7 +567,7 @@ class TestPushdownEdgeCases:
         the underlying qualified reference and the role suffix is consumed
         with the rest of the matched dim_ref.
 
-        Upstream ``_build_filter_column_aliases`` populates both the
+        Upstream ``build_filter_column_aliases`` populates both the
         role-suffixed key and a bare fallback; longest-first iteration
         ensures the role-suffixed form is matched wholesale and replaced
         before the bare key gets a chance.
