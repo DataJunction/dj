@@ -12,8 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import get_catalog_by_name
 from datajunction_server.construction.build_v3.combiners import (
+    _reorder_partition_column_last,
     build_combiner_sql_from_preaggs,
 )
+from datajunction_server.construction.build_v3.cte import strip_role_suffix
 from datajunction_server.internal.views import _build_view_body, CubeViewNames
 from datajunction_server.transpilation import transpile_sql
 from datajunction_server.models.materialization import (
@@ -455,6 +457,8 @@ async def materialize_cube(
             http_status_code=HTTPStatus.NOT_FOUND,
         )
 
+    cube_tps = cube_revision.temporal_partition_columns()
+
     # Build combined SQL from pre-agg tables
     try:
         (
@@ -474,16 +478,19 @@ async def materialize_cube(
             http_status_code=HTTPStatus.BAD_REQUEST,
         ) from e
 
-    # For incremental strategy, we need a temporal partition
+    # For incremental strategy, we need a temporal partition — either the cube
+    # has one declared on its own column, or the upstream pre-aggs surface one.
     if (
         data.strategy == MaterializationStrategy.INCREMENTAL_TIME
         and not temporal_partition_info
+        and not cube_tps
     ):
         raise DJInvalidInputException(
             message=(
-                "Could not auto-detect temporal partition from pre-aggregations. "
-                "Please ensure the source nodes have temporal partitions configured, "
-                "or use FULL materialization strategy."
+                "Could not determine temporal partition for cube. Either declare "
+                "one on the cube via POST /nodes/{cube}/columns/{dim_ref}/partition "
+                "or ensure source nodes / pre-aggs have temporal partitions configured. "
+                "Otherwise use FULL materialization strategy."
             ),
             http_status_code=HTTPStatus.BAD_REQUEST,
         )
@@ -517,25 +524,83 @@ async def materialize_cube(
         if col.semantic_type in ("metric", "metric_component", "measure")
     ]
 
-    # Build timestamp spec from auto-detected temporal partition.
-    # For FULL strategy without a temporal partition, these stay None and Druid
-    # ingests everything as a single ALL-granularity segment.
-    timestamp_column = (
-        temporal_partition_info.column_name if temporal_partition_info else None
-    )
-    timestamp_format = (
-        temporal_partition_info.format if temporal_partition_info else None
-    )
-    segment_granularity = (
-        temporal_partition_info.granularity.upper()
-        if temporal_partition_info and temporal_partition_info.granularity
-        else "ALL"
-    )
+    # Source the Druid timestampSpec from the cube's own partition declaration
+    # The cube column stores the dim-attr FQN while the combined SQL output
+    # uses the short, role-aliased name. Resolve the output name by matching against
+    # `semantic_name` in the combiner's column metadata — stripping the
+    # optional `[role]` suffix so a dim attr selected with any role still
+    # matches the cube column.
+    #
+    # For FULL pre-aggs the upstream `temporal_partition_info` comes back empty
+    # (FULL pre-aggs don't carry source-column partition info), so the cube-side
+    # declaration is the only reliable source. Fall back to the upstream-derived
+    # value when the cube hasn't declared one.
+    if cube_tps:
+        cube_tp = cube_tps[0]
+        cube_partition_ref = cube_tp.name
+        # Look up the actual output column name by semantic identity
+        output_col = next(
+            (
+                c
+                for c in combined_result.columns
+                if c.semantic_name
+                and strip_role_suffix(c.semantic_name) == cube_partition_ref
+            ),
+            None,
+        )
+        if output_col is None:
+            output_names = sorted(c.name for c in combined_result.columns)
+            raise DJInvalidInputException(
+                message=(
+                    f"Cube partition column '{cube_partition_ref}' was not found "
+                    f"in the combined query output. Make sure the partition is set "
+                    f"on a dimension that's actually selected by the cube. "
+                    f"Available output columns: {output_names}"
+                ),
+                http_status_code=HTTPStatus.BAD_REQUEST,
+            )
+        timestamp_column = output_col.name
+        timestamp_format = cube_tp.partition.format if cube_tp.partition else None
+        segment_granularity = (
+            str(cube_tp.partition.granularity.value).upper()
+            if cube_tp.partition and cube_tp.partition.granularity
+            else "ALL"
+        )
+        # `build_combiner_sql_from_preaggs` only reorders when its own
+        # auto-detect succeeded. When we sourced the partition from the cube
+        # instead, apply the same reorder so Hive/Spark INSERT OVERWRITE
+        # PARTITION still gets the partition column last.
+        if not temporal_partition_info:
+            combined_result = _reorder_partition_column_last(
+                combined_result,
+                timestamp_column,
+            )
+    elif temporal_partition_info:
+        timestamp_column = temporal_partition_info.column_name
+        timestamp_format = temporal_partition_info.format
+        segment_granularity = (
+            temporal_partition_info.granularity.upper()
+            if temporal_partition_info.granularity
+            else "ALL"
+        )
+    else:
+        raise DJInvalidInputException(
+            message=(
+                f"Cube '{name}' has no temporal partition declared. Druid requires "
+                f"a timestampSpec, so set one via "
+                f"POST /nodes/{name}/columns/{{dim_ref}}/partition with format and "
+                f"granularity before materializing."
+            ),
+            http_status_code=HTTPStatus.BAD_REQUEST,
+        )
 
-    # Validate that the timestamp column is in the output columns
+    # Validate that the timestamp column is in the output columns. The cube
+    # path resolves through `semantic_name` and already errors above if the
+    # cube partition wasn't selected, so this primarily guards the
+    # upstream-derived fallback.
     all_output_col_names = {col.name for col in combined_result.columns}
     if timestamp_column and timestamp_column not in all_output_col_names:
-        raise DJInvalidInputException(  # pragma: no cover
+        raise DJInvalidInputException(
             message=(
                 f"Detected temporal partition column '{timestamp_column}' is not in the "
                 f"combined query output columns ({all_output_col_names}). "
