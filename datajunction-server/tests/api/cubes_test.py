@@ -4344,6 +4344,193 @@ class TestCubeMaterializeV2SuccessPaths:
         )
 
     @pytest.mark.asyncio
+    async def test_materialize_cube_partition_not_in_combined_output_fails(
+        self,
+        client_with_repairs_cube: AsyncClient,
+        mocker,
+    ):
+        """
+        If the cube's declared partition column doesn't show up in the combined
+        SQL output (e.g., the user partitioned on a dim attr that isn't actually
+        selected by the cube), we should error out with a clear message rather
+        than emit a Druid spec referencing a missing column.
+        """
+        cube_name = "default.test_materialize_partition_missing_cube"
+        await make_a_test_cube(
+            client_with_repairs_cube,
+            cube_name,
+            with_materialization=False,
+        )
+        partition_response = await client_with_repairs_cube.post(
+            f"/nodes/{cube_name}/columns/default.hard_hat.hire_date/partition",
+            json={
+                "type_": "temporal",
+                "granularity": "day",
+                "format": "yyyyMMdd",
+            },
+        )
+        assert partition_response.status_code < 400, partition_response.json()
+
+        # Combined output is missing the partitioned dim attr entirely.
+        mock_columns = [
+            V3ColumnMetadata(
+                name="state",
+                type="string",
+                semantic_name="default.hard_hat.state",
+                semantic_type="dimension",
+            ),
+        ]
+        mock_combined_result = _create_mock_combined_result(
+            mocker,
+            columns=mock_columns,
+            shared_dimensions=["default.hard_hat.state"],
+            sql_string="SELECT state FROM preagg GROUP BY state",
+        )
+        mocker.patch(
+            "datajunction_server.api.cubes.build_combiner_sql_from_preaggs",
+            return_value=(
+                mock_combined_result,
+                [
+                    PreAggSourceInfo(
+                        table_ref="catalog.schema.preagg_table1",
+                        parent_name="default.repair_orders",
+                        strategy=None,
+                    ),
+                ],
+                None,
+            ),
+        )
+
+        response = await client_with_repairs_cube.post(
+            f"/cubes/{cube_name}/materialize",
+            json={"strategy": "full", "schedule": "0 0 * * *"},
+        )
+
+        assert response.status_code == 400
+        message = response.json()["message"]
+        assert "default.hard_hat.hire_date" in message
+        assert "not found in the combined query output" in message
+
+    @pytest.mark.asyncio
+    async def test_materialize_cube_full_no_partition_anywhere_fails(
+        self,
+        client_with_repairs_cube: AsyncClient,
+        mocker,
+    ):
+        """
+        FULL strategy with neither a cube-side partition nor an upstream-derived
+        one must error out — Druid requires a `timestampSpec` to ingest.
+        """
+        cube_name = "default.test_materialize_full_no_partition_cube"
+        await make_a_test_cube(
+            client_with_repairs_cube,
+            cube_name,
+            with_materialization=False,
+        )
+
+        mock_columns = [
+            V3ColumnMetadata(
+                name="state",
+                type="string",
+                semantic_name="default.hard_hat.state",
+                semantic_type="dimension",
+            ),
+        ]
+        mock_combined_result = _create_mock_combined_result(
+            mocker,
+            columns=mock_columns,
+            shared_dimensions=["default.hard_hat.state"],
+            sql_string="SELECT state FROM preagg GROUP BY state",
+        )
+        mocker.patch(
+            "datajunction_server.api.cubes.build_combiner_sql_from_preaggs",
+            return_value=(
+                mock_combined_result,
+                [
+                    PreAggSourceInfo(
+                        table_ref="catalog.schema.preagg_table1",
+                        parent_name="default.repair_orders",
+                        strategy=None,
+                    ),
+                ],
+                None,
+            ),
+        )
+
+        response = await client_with_repairs_cube.post(
+            f"/cubes/{cube_name}/materialize",
+            json={"strategy": "full", "schedule": "0 0 * * *"},
+        )
+
+        assert response.status_code == 400
+        message = response.json()["message"]
+        assert "no temporal partition declared" in message
+        assert "Druid requires" in message
+
+    @pytest.mark.asyncio
+    async def test_materialize_cube_upstream_partition_column_missing_fails(
+        self,
+        client_with_repairs_cube: AsyncClient,
+        mocker,
+    ):
+        """
+        When the cube has no partition declared and the upstream-derived
+        `temporal_partition_info.column_name` isn't in the combined output
+        either, the validator must reject the spec.
+        """
+        cube_name = "default.test_materialize_upstream_missing_col_cube"
+        await make_a_test_cube(
+            client_with_repairs_cube,
+            cube_name,
+            with_materialization=False,
+        )
+
+        mock_columns = [
+            V3ColumnMetadata(
+                name="state",
+                type="string",
+                semantic_name="default.hard_hat.state",
+                semantic_type="dimension",
+            ),
+        ]
+        mock_combined_result = _create_mock_combined_result(
+            mocker,
+            columns=mock_columns,
+            shared_dimensions=["default.hard_hat.state"],
+            sql_string="SELECT state FROM preagg GROUP BY state",
+        )
+        # Upstream surfaces a column that doesn't exist in the combined output.
+        mock_temporal_info = TemporalPartitionInfo(
+            column_name="not_in_output",
+            format="yyyyMMdd",
+            granularity="day",
+        )
+        mocker.patch(
+            "datajunction_server.api.cubes.build_combiner_sql_from_preaggs",
+            return_value=(
+                mock_combined_result,
+                [
+                    PreAggSourceInfo(
+                        table_ref="catalog.schema.preagg_table1",
+                        parent_name="default.repair_orders",
+                        strategy=None,
+                    ),
+                ],
+                mock_temporal_info,
+            ),
+        )
+
+        response = await client_with_repairs_cube.post(
+            f"/cubes/{cube_name}/materialize",
+            json={"strategy": "full", "schedule": "0 0 * * *"},
+        )
+
+        assert response.status_code == 400
+        message = response.json()["message"]
+        assert "not_in_output" in message
+        assert "combined query output columns" in message
+
+    @pytest.mark.asyncio
     async def test_materialize_cube_incremental_time_success(
         self,
         client_with_repairs_cube: AsyncClient,
