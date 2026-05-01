@@ -1038,18 +1038,43 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
                 params={"delete_git_branch": True},
             )
 
-    def test_delete_branch_error(self, client):
+    def test_delete_branch_404_is_idempotent(self, client):
         """
-        Verifies that delete_branch raises on error.
+        Verifies that delete_branch treats a 404 as success — DELETE is idempotent.
         """
         mock_response = MagicMock(
             status_code=404,
             json=lambda: {"message": "Branch not found"},
         )
         with patch.object(client._session, "request", return_value=mock_response):
-            with pytest.raises(DJClientException) as exc_info:
+            assert (
                 client.delete_branch(namespace="myns", branch_name="nonexistent")
-            assert "Branch not found" in str(exc_info.value)
+                is None
+            )
+
+    def test_delete_branch_error(self, client):
+        """
+        Verifies that delete_branch raises on non-404 errors.
+        """
+        mock_response = MagicMock(
+            status_code=500,
+            json=lambda: {"message": "Internal server error"},
+        )
+        with patch.object(client._session, "request", return_value=mock_response):
+            with pytest.raises(DJClientException) as exc_info:
+                client.delete_branch(namespace="myns", branch_name="feature-x")
+            assert "Internal server error" in str(exc_info.value)
+
+    def test_delete_namespace_404_is_idempotent(self, client):
+        """
+        Verifies that delete_namespace treats a 404 as success — DELETE is idempotent.
+        """
+        mock_response = MagicMock(
+            status_code=404,
+            json=lambda: {"message": "Namespace not found"},
+        )
+        with patch.object(client._session, "request", return_value=mock_response):
+            assert client.delete_namespace(namespace="nonexistent") is None
 
     #
     # Git config
