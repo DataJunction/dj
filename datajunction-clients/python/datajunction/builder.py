@@ -99,6 +99,8 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
                 "cascade": cascade,
             },
         )
+        if response.status_code == 404:
+            return
         if not response.status_code < 400:
             raise DJClientException(response.json()["message"])
 
@@ -176,6 +178,8 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
             timeout=self._timeout,
             params={"delete_git_branch": delete_git_branch},
         )
+        if response.status_code == 404:
+            return
         if not response.status_code < 400:
             raise DJClientException(response.json()["message"])
 
