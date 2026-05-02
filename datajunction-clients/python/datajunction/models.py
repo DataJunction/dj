@@ -317,7 +317,7 @@ class BranchInfo(SerializableMixin):
     num_nodes: int = 0
     invalid_node_count: int = 0
     git_only: bool = False
-    last_deployed_at: Optional[str] = None
+    last_updated_at: Optional[str] = None
 
     @classmethod
     def from_dict(
@@ -334,7 +334,7 @@ class BranchInfo(SerializableMixin):
             num_nodes=data.get("num_nodes", 0),
             invalid_node_count=data.get("invalid_node_count", 0),
             git_only=data.get("git_only", False),
-            last_deployed_at=data.get("last_deployed_at"),
+            last_updated_at=data.get("last_updated_at"),
         )
 
 

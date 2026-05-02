@@ -56,7 +56,7 @@ function DefaultBranchPreview({ groups, defaultBranchNs }) {
         margin: '20px',
       }}
     >
-      {filtered.map(({ type, nodes: typeNodes, hasMore }, idx) => {
+      {filtered.map(({ type, nodes: typeNodes, hasMore, totalCount }, idx) => {
         const shown = typeNodes;
         const isLeftCol = idx % 2 === 0;
         return (
@@ -100,7 +100,7 @@ function DefaultBranchPreview({ groups, defaultBranchNs }) {
                     borderRadius: '8px',
                   }}
                 >
-                  {typeNodes.length}
+                  {totalCount ?? (hasMore ? `${MAX_PER_TYPE}+` : typeNodes.length)}
                 </span>
               </span>
               {hasMore && (
@@ -440,6 +440,8 @@ export function NamespacePage() {
           )
           .then(result => {
             const edges = result?.data?.findNodesPaginated?.edges ?? [];
+            const totalCount =
+              result?.data?.findNodesPaginated?.totalCount ?? null;
             const nodes = edges.map(e => ({
               ...e.node,
               status: e.node.current?.status,
@@ -449,9 +451,10 @@ export function NamespacePage() {
               type,
               nodes: nodes.slice(0, MAX_PER_TYPE),
               hasMore: nodes.length > MAX_PER_TYPE,
+              totalCount,
             };
           })
-          .catch(() => ({ type, nodes: [], hasMore: false })),
+          .catch(() => ({ type, nodes: [], hasMore: false, totalCount: null })),
       ),
     )
       .then(groups => setDefaultBranchGroups(groups))
@@ -1430,7 +1433,7 @@ export function NamespacePage() {
                                     {b.invalid_node_count} invalid
                                   </span>
                                 )}
-                                {b.last_deployed_at && (
+                                {b.last_updated_at && (
                                   <span
                                     style={{
                                       display: 'flex',
@@ -1438,9 +1441,9 @@ export function NamespacePage() {
                                       gap: '3px',
                                       color: '#94a3b8',
                                     }}
-                                    title={new Date(
-                                      b.last_deployed_at,
-                                    ).toLocaleString()}
+                                    title={`Last node update: ${new Date(
+                                      b.last_updated_at,
+                                    ).toLocaleString()}`}
                                   >
                                     <svg
                                       xmlns="http://www.w3.org/2000/svg"
@@ -1456,7 +1459,7 @@ export function NamespacePage() {
                                       <circle cx="12" cy="12" r="10" />
                                       <polyline points="12 6 12 12 16 14" />
                                     </svg>
-                                    {formatRelativeTime(b.last_deployed_at)}
+                                    {formatRelativeTime(b.last_updated_at)}
                                   </span>
                                 )}
                               </div>

@@ -322,6 +322,11 @@ type Node {
 type NodeConnection {
   pageInfo: PageInfo!
   edges: [NodeEdge!]!
+
+  """
+  Total number of items matching the filters, ignoring pagination. Populated only when requested by the client to avoid the extra count query.
+  """
+  totalCount: Int
 }
 
 type NodeEdge {

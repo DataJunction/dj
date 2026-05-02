@@ -257,6 +257,60 @@ async def find_nodes_by(
         return result
 
 
+async def count_nodes_by(
+    info: Info,
+    names: Optional[List[str]] = None,
+    fragment: Optional[str] = None,
+    node_types: Optional[List[NodeType]] = None,
+    tags: Optional[List[str]] = None,
+    edited_by: Optional[str] = None,
+    namespace: Optional[str] = None,
+    mode: Optional[NodeMode] = None,
+    owned_by: Optional[str] = None,
+    include_team: bool = False,
+    missing_description: bool = False,
+    missing_owner: bool = False,
+    dimensions: Optional[List[str]] = None,
+    statuses: Optional[List[NodeStatus]] = None,
+    has_materialization: bool = False,
+    orphaned_dimension: bool = False,
+    search: Optional[str] = None,
+) -> int:
+    """
+    Count nodes that match the same filters as ``find_nodes_by``. Used to
+    populate ``totalCount`` on paginated connections.
+    """
+    async with resolver_session(info) as session:
+        owned_by_list: Optional[List[str]] = None
+        if owned_by:
+            owned_by_list = [owned_by]
+            if include_team:
+                groups = await get_group_membership_service().get_user_groups(
+                    session,
+                    owned_by,
+                )
+                owned_by_list = list({owned_by, *groups})
+
+        return await DBNode.count_by(
+            session,
+            names=names,
+            fragment=fragment,
+            node_types=node_types,
+            tags=tags,
+            edited_by=edited_by,
+            namespace=namespace,
+            mode=mode,
+            owned_by=owned_by_list,
+            missing_description=missing_description,
+            missing_owner=missing_owner,
+            dimensions=dimensions,
+            statuses=statuses,
+            has_materialization=has_materialization,
+            orphaned_dimension=orphaned_dimension,
+            search=search,
+        )
+
+
 async def get_node_by_name(
     session: AsyncSession,
     fields: dict[str, Any] | None,

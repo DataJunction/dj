@@ -678,7 +678,7 @@ class TestBranchManagement:
                 "num_nodes": 0,
                 "invalid_node_count": 0,
                 "git_only": False,
-                "last_deployed_at": None,
+                "last_updated_at": None,
             },
             {
                 "namespace": "list_parent.feat1",
@@ -688,7 +688,7 @@ class TestBranchManagement:
                 "num_nodes": 0,
                 "invalid_node_count": 0,
                 "git_only": False,
-                "last_deployed_at": None,
+                "last_updated_at": None,
             },
             {
                 "namespace": "list_parent.feat2",
@@ -698,7 +698,7 @@ class TestBranchManagement:
                 "num_nodes": 0,
                 "invalid_node_count": 0,
                 "git_only": False,
-                "last_deployed_at": None,
+                "last_updated_at": None,
             },
         ]
 
