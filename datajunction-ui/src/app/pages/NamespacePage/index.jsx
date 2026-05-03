@@ -100,7 +100,8 @@ function DefaultBranchPreview({ groups, defaultBranchNs }) {
                     borderRadius: '8px',
                   }}
                 >
-                  {totalCount ?? (hasMore ? `${MAX_PER_TYPE}+` : typeNodes.length)}
+                  {totalCount ??
+                    (hasMore ? `${MAX_PER_TYPE}+` : typeNodes.length)}
                 </span>
               </span>
               {hasMore && (
