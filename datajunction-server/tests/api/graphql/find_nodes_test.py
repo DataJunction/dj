@@ -3463,3 +3463,119 @@ async def test_find_nodes_columns_with_partition(
     # Columns without a partition should return None.
     no_partition = next(c for c in columns if c["name"] == "repair_order_id")
     assert no_partition["partition"] is None
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_paginated_total_count(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    ``totalCount`` reflects the total filter match count, independent of the
+    pagination ``limit``. Without the field selected, no count query runs (the
+    resolver short-circuits) — but selecting it yields the real total.
+    """
+    # Without totalCount, the field is absent from the response.
+    no_total_query = """
+    {
+      findNodesPaginated(nodeTypes: [TRANSFORM], limit: 2) {
+        edges { node { name } }
+      }
+    }
+    """
+    resp = await client_with_roads.post(
+        "/graphql",
+        json={"query": no_total_query},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "errors" not in body, body
+    assert "totalCount" not in body["data"]["findNodesPaginated"]
+
+    # With totalCount selected, the count is independent of limit.
+    with_total_query = """
+    {
+      findNodesPaginated(nodeTypes: [TRANSFORM], limit: 2) {
+        totalCount
+        edges { node { name } }
+      }
+    }
+    """
+    resp = await client_with_roads.post(
+        "/graphql",
+        json={"query": with_total_query},
+    )
+    assert resp.status_code == 200
+    paginated = resp.json()["data"]["findNodesPaginated"]
+    assert len(paginated["edges"]) == 2
+    assert paginated["totalCount"] is not None
+    assert paginated["totalCount"] > 2
+
+    # The count should match an unpaginated `findNodes` query of the same shape.
+    unpaginated = await client_with_roads.post(
+        "/graphql",
+        json={"query": "{ findNodes(nodeTypes: [TRANSFORM]) { name } }"},
+    )
+    assert paginated["totalCount"] == len(
+        unpaginated.json()["data"]["findNodes"],
+    )
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_paginated_total_count_with_owner_filters(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    ``totalCount`` honors ``ownedBy`` and ``includeTeam`` — exercising the
+    owner-filter expansion path inside ``count_nodes_by``.
+    """
+    await _setup_team_ownership(client_with_roads)
+
+    query_template = """
+    {{
+      findNodesPaginated(ownedBy: "dj", includeTeam: {include_team}, limit: 1) {{
+        totalCount
+        edges {{ node {{ name }} }}
+      }}
+    }}
+    """
+
+    # ownedBy without includeTeam — only nodes owned directly by 'dj'.
+    resp = await client_with_roads.post(
+        "/graphql",
+        json={"query": query_template.format(include_team="false")},
+    )
+    assert resp.status_code == 200
+    without_team = resp.json()["data"]["findNodesPaginated"]["totalCount"]
+    assert without_team is not None and without_team >= 1
+
+    # includeTeam expands to nodes owned by 'dj' or by groups dj is a member of.
+    resp = await client_with_roads.post(
+        "/graphql",
+        json={"query": query_template.format(include_team="true")},
+    )
+    assert resp.status_code == 200
+    with_team = resp.json()["data"]["findNodesPaginated"]["totalCount"]
+    assert with_team == without_team + 1
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_paginated_total_count_no_matches(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    ``totalCount`` is 0 when no nodes match (covers the early-return path
+    inside ``count_by`` for filters that rule out every row).
+    """
+    query = """
+    {
+      findNodesPaginated(tags: ["__nonexistent_tag__"], limit: 5) {
+        totalCount
+        edges { node { name } }
+      }
+    }
+    """
+    resp = await client_with_roads.post("/graphql", json={"query": query})
+    assert resp.status_code == 200
+    paginated = resp.json()["data"]["findNodesPaginated"]
+    assert paginated["edges"] == []
+    assert paginated["totalCount"] == 0
