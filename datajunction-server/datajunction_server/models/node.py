@@ -1174,7 +1174,7 @@ class BranchNamespaceOutput(BaseModel):
     num_nodes: int
     invalid_node_count: int
     git_only: bool
-    last_deployed_at: UTCDatetime | None
+    last_updated_at: UTCDatetime | None
 
 
 class NodeIndegreeOutput(BaseModel):

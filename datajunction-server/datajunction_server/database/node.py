@@ -731,7 +731,7 @@ class Node(Base):
         return result.unique().scalars().all()
 
     @classmethod
-    async def find_by(
+    async def _build_filtered_node_statement(
         cls,
         session: AsyncSession,
         names: list[str] | None = None,
@@ -740,12 +740,6 @@ class Node(Base):
         tags: list[str] | None = None,
         edited_by: str | None = None,
         namespace: str | None = None,
-        limit: int | None = 100,
-        before: str | None = None,
-        after: str | None = None,
-        order_by: MappedColumn | None = None,
-        ascending: bool = False,
-        options: list[ExecutableOption] = None,
         mode: NodeMode | None = None,
         owned_by: list[str] | None = None,
         missing_description: bool = False,
@@ -755,13 +749,18 @@ class Node(Base):
         has_materialization: bool = False,
         orphaned_dimension: bool = False,
         search: str | None = None,
-    ) -> List["Node"]:
+        order_by: MappedColumn | None = None,
+    ):
         """
-        Finds a list of nodes by prefix
-        """
-        if not order_by:
-            order_by = Node.created_at
+        Build a select statement for Node rows with all listed filters applied.
 
+        Returns ``(statement, NodeRevisionAlias, search_score_expr, order_by)``.
+        Returns ``(None, ..., ..., ...)`` when a filter rules out every row up
+        front (e.g. a tag with no matching nodes). Callers add order/limit/
+        cursor on top of the returned statement.
+        """
+        if order_by is None:
+            order_by = Node.created_at
         NodeRevisionAlias = aliased(NodeRevision)
 
         nodes_with_tags = []
@@ -781,7 +780,7 @@ class Node(Base):
                 (await session.execute(statement)).scalars().all(),
             )
             if not nodes_with_tags:  # pragma: no cover
-                return []
+                return None, NodeRevisionAlias, None, order_by
 
         # Filter by dimensions (supports node names or attributes)
         nodes_with_dimensions: list[str] | None = None
@@ -792,7 +791,7 @@ class Node(Base):
                 node_types,
             )
             if nodes_with_dimensions is None:
-                return []  # Dimension not found
+                return None, NodeRevisionAlias, None, order_by
 
         statement = select(Node).where(is_(Node.deactivated_at, None))
 
@@ -987,6 +986,67 @@ class Node(Base):
             statement = statement.join(NodeRevisionAlias, Node.current)
             join_revision = True  # noqa: F841
 
+        return statement, NodeRevisionAlias, search_score_expr, order_by
+
+    @classmethod
+    async def find_by(
+        cls,
+        session: AsyncSession,
+        names: list[str] | None = None,
+        fragment: str | None = None,
+        node_types: list[NodeType] | None = None,
+        tags: list[str] | None = None,
+        edited_by: str | None = None,
+        namespace: str | None = None,
+        limit: int | None = 100,
+        before: str | None = None,
+        after: str | None = None,
+        order_by: MappedColumn | None = None,
+        ascending: bool = False,
+        options: list[ExecutableOption] = None,
+        mode: NodeMode | None = None,
+        owned_by: list[str] | None = None,
+        missing_description: bool = False,
+        missing_owner: bool = False,
+        dimensions: list[str] | None = None,
+        statuses: list[NodeStatus] | None = None,
+        has_materialization: bool = False,
+        orphaned_dimension: bool = False,
+        search: str | None = None,
+    ) -> List["Node"]:
+        """
+        Finds a list of nodes by prefix
+        """
+        if not order_by:
+            order_by = Node.created_at
+
+        (
+            statement,
+            _,
+            search_score_expr,
+            order_by,
+        ) = await cls._build_filtered_node_statement(
+            session,
+            names=names,
+            fragment=fragment,
+            node_types=node_types,
+            tags=tags,
+            edited_by=edited_by,
+            namespace=namespace,
+            mode=mode,
+            owned_by=owned_by,
+            missing_description=missing_description,
+            missing_owner=missing_owner,
+            dimensions=dimensions,
+            statuses=statuses,
+            has_materialization=has_materialization,
+            orphaned_dimension=orphaned_dimension,
+            search=search,
+            order_by=order_by,
+        )
+        if statement is None:
+            return []
+
         if after:
             cursor = NodeCursor.decode(after)
             statement = statement.where(
@@ -1024,6 +1084,56 @@ class Node(Base):
         if before:
             nodes.reverse()
         return nodes
+
+    @classmethod
+    async def count_by(
+        cls,
+        session: AsyncSession,
+        names: list[str] | None = None,
+        fragment: str | None = None,
+        node_types: list[NodeType] | None = None,
+        tags: list[str] | None = None,
+        edited_by: str | None = None,
+        namespace: str | None = None,
+        mode: NodeMode | None = None,
+        owned_by: list[str] | None = None,
+        missing_description: bool = False,
+        missing_owner: bool = False,
+        dimensions: list[str] | None = None,
+        statuses: list[NodeStatus] | None = None,
+        has_materialization: bool = False,
+        orphaned_dimension: bool = False,
+        search: str | None = None,
+    ) -> int:
+        """
+        Count nodes that match the same filters as ``find_by``, ignoring
+        pagination / order. Used to populate ``totalCount`` on connections.
+        """
+        statement, _, _, _ = await cls._build_filtered_node_statement(
+            session,
+            names=names,
+            fragment=fragment,
+            node_types=node_types,
+            tags=tags,
+            edited_by=edited_by,
+            namespace=namespace,
+            mode=mode,
+            owned_by=owned_by,
+            missing_description=missing_description,
+            missing_owner=missing_owner,
+            dimensions=dimensions,
+            statuses=statuses,
+            has_materialization=has_materialization,
+            orphaned_dimension=orphaned_dimension,
+            search=search,
+        )
+        if statement is None:
+            return 0
+        count_stmt = statement.with_only_columns(
+            func.count(func.distinct(Node.id)),
+        ).order_by(None)
+        result = await session.execute(count_stmt)
+        return int(result.scalar() or 0)
 
     @classmethod
     async def _resolve_dimension_filter(

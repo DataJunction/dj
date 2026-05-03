@@ -639,14 +639,14 @@ describe('NamespacePage', () => {
         git_branch: 'main',
         num_nodes: 10,
         invalid_node_count: 1,
-        last_deployed_at: '2024-10-18T12:00:00+00:00',
+        last_updated_at: '2024-10-18T12:00:00+00:00',
       },
       {
         namespace: 'default.feature-xyz',
         git_branch: 'feature-xyz',
         num_nodes: 5,
         invalid_node_count: 0,
-        last_deployed_at: null,
+        last_updated_at: null,
       },
     ];
 
@@ -797,7 +797,7 @@ describe('NamespacePage', () => {
   });
 
   describe('formatRelativeTime', () => {
-    it('shows last_deployed_at timestamp on branch cards', async () => {
+    it('shows last_updated_at timestamp on branch cards', async () => {
       mockDjClient.getNamespaceGitConfig.mockResolvedValue({
         github_repo_path: 'org/repo',
         git_branch: 'main',
@@ -811,7 +811,7 @@ describe('NamespacePage', () => {
           git_branch: 'main',
           num_nodes: 3,
           invalid_node_count: 0,
-          last_deployed_at: new Date(
+          last_updated_at: new Date(
             Date.now() - 2 * 24 * 60 * 60 * 1000,
           ).toISOString(),
         },

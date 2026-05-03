@@ -60,6 +60,7 @@ export const DataJunctionAPI = {
             hasPrevPage
             startCursor
           }
+          totalCount
           edges {
             node {
               name

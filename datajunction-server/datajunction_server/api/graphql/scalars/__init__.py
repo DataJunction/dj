@@ -112,6 +112,14 @@ class Connection(Generic[GenericItemNode]):
 
     page_info: PageInfo
     edges: list[Edge[GenericItemNode]]
+    total_count: Optional[int] = field(
+        default=None,
+        description=(
+            "Total number of items matching the filters, ignoring pagination. "
+            "Populated only when requested by the client to avoid the extra "
+            "count query."
+        ),
+    )
 
     @classmethod
     def from_list(
@@ -121,6 +129,7 @@ class Connection(Generic[GenericItemNode]):
         after: Optional[str],
         limit: int,
         encode_cursor: Callable[[GenericItem], Cursor],
+        total_count: Optional[int] = None,
     ) -> "Connection":
         """
         Construct a Connection from a list of items.
@@ -141,4 +150,5 @@ class Connection(Generic[GenericItemNode]):
                 end_cursor=end_cursor,
             ),
             edges=[Edge(node=item) for item in items[:limit]],  # type: ignore
+            total_count=total_count,
         )

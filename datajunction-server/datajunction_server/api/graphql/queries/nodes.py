@@ -8,9 +8,13 @@ from typing import Annotated
 import strawberry
 from strawberry.types import Info
 
-from datajunction_server.api.graphql.resolvers.nodes import find_nodes_by
+from datajunction_server.api.graphql.resolvers.nodes import (
+    count_nodes_by,
+    find_nodes_by,
+)
 from datajunction_server.api.graphql.scalars import Connection
 from datajunction_server.api.graphql.scalars.node import Node, NodeSortField
+from datajunction_server.api.graphql.utils import extract_fields
 from datajunction_server.models.node import NodeCursor, NodeMode, NodeStatus, NodeType
 
 DEFAULT_LIMIT = 1000
@@ -314,6 +318,30 @@ async def find_nodes_paginated(
         orphaned_dimension=orphaned_dimension,
         search=search,
     )
+
+    # Run a separate count query only when the client asked for totalCount
+    total_count: int | None = None
+    if "total_count" in extract_fields(info):
+        total_count = await count_nodes_by(
+            info=info,
+            names=names,
+            fragment=fragment,
+            node_types=node_types,
+            tags=tags,
+            dimensions=dimensions,
+            edited_by=edited_by,
+            namespace=namespace,
+            mode=mode,
+            owned_by=owned_by,
+            include_team=include_team,
+            missing_description=missing_description,
+            missing_owner=missing_owner,
+            statuses=statuses,
+            has_materialization=has_materialization,
+            orphaned_dimension=orphaned_dimension,
+            search=search,
+        )
+
     return Connection.from_list(
         items=nodes_list,
         before=before,
@@ -323,4 +351,5 @@ async def find_nodes_paginated(
             created_at=dj_node.created_at,
             id=dj_node.id,
         ),
+        total_count=total_count,
     )

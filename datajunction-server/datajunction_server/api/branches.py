@@ -19,10 +19,8 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import get_node_namespace
-from datajunction_server.database.deployment import Deployment
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import Node, NodeRevision
-from datajunction_server.models.deployment import DeploymentStatus
 from datajunction_server.database.user import User
 from datajunction_server.errors import (
     DJAlreadyExistsException,
@@ -66,7 +64,7 @@ class BranchInfo(BaseModel):
     num_nodes: int = 0
     invalid_node_count: int = 0
     git_only: bool = False
-    last_deployed_at: Optional[datetime] = None
+    last_updated_at: Optional[datetime] = None
 
 
 class CreateBranchResult(BaseModel):
@@ -536,14 +534,14 @@ async def list_branches(
         .correlate(NodeNamespace)
         .scalar_subquery()
     )
-    last_deployed_subq = (
-        select(func.max(Deployment.created_at))
+    last_updated_subq = (
+        select(func.max(NodeRevision.updated_at))
+        .join(Node, Node.id == NodeRevision.node_id)
         .where(
             or_(
-                Deployment.namespace == NodeNamespace.namespace,
-                Deployment.namespace.like(NodeNamespace.namespace + ".%"),
+                Node.namespace == NodeNamespace.namespace,
+                Node.namespace.like(NodeNamespace.namespace + ".%"),
             ),
-            Deployment.status == DeploymentStatus.SUCCESS,
         )
         .correlate(NodeNamespace)
         .scalar_subquery()
@@ -553,7 +551,7 @@ async def list_branches(
         NodeNamespace,
         node_count_subq.label("num_nodes"),
         invalid_count_subq.label("invalid_node_count"),
-        last_deployed_subq.label("last_deployed_at"),
+        last_updated_subq.label("last_updated_at"),
     ).where(base_filter, NodeNamespace.deactivated_at.is_(None))
 
     result = await session.execute(stmt)
@@ -579,9 +577,9 @@ async def list_branches(
             num_nodes=num_nodes or 0,
             invalid_node_count=invalid_node_count or 0,
             git_only=ns.git_only,
-            last_deployed_at=last_deployed_at,
+            last_updated_at=last_updated_at,
         )
-        for ns, num_nodes, invalid_node_count, last_deployed_at in rows
+        for ns, num_nodes, invalid_node_count, last_updated_at in rows
     ]
 
 
