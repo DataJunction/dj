@@ -457,6 +457,15 @@ class CubeMaterializeRequest(BaseModel):
         default=True,
         description="Whether to run an initial backfill",
     )
+    druid_overrides: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Override any part of the generated Druid ingestion spec. "
+            "This dict is deep-merged into the generated spec, allowing fine-grained "
+            "control over tuningConfig, indexSpec, granularitySpec, etc. "
+            "Example: {'tuningConfig': {'partitionsSpec': {'targetRowsPerSegment': 1000000}}}"
+        ),
+    )
 
 
 class PreAggTableInfo(BaseModel):
@@ -587,6 +596,12 @@ class CubeMaterializationV2Input(BaseModel):
         description="Lookback window for incremental. None for FULL strategy.",
     )
 
+    # Druid spec overrides (passed through from request)
+    druid_overrides: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="User-provided overrides that were deep-merged into druid_spec.",
+    )
+
 
 class DruidCubeV3Config(BaseModel):
     """
@@ -663,6 +678,12 @@ class DruidCubeV3Config(BaseModel):
     timestamp_format: Optional[str] = Field(
         default=None,
         description="Format of the timestamp column. None when timestamp_column is None.",
+    )
+
+    # User-provided Druid spec overrides (persisted for reference)
+    druid_overrides: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="User-provided overrides that were applied to the Druid spec.",
     )
 
     # Workflow tracking
