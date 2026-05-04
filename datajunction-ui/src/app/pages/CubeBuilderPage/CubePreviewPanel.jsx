@@ -2,8 +2,13 @@
  * Preview panel for cube builder showing selection summary and generated SQL.
  * Matches Query Planner styling exactly.
  */
-import React, { useContext, useEffect, useState, useCallback } from 'react';
-import { useFormikContext } from 'formik';
+import React, {
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  useCallback,
+} from 'react';
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import sql from 'react-syntax-highlighter/dist/esm/languages/hljs/sql';
 import { atomOneLight } from 'react-syntax-highlighter/dist/esm/styles/hljs';
@@ -23,15 +28,14 @@ const debounce = (fn, ms) => {
   };
 };
 
-export const CubePreviewPanel = () => {
+export const CubePreviewPanel = React.memo(function CubePreviewPanel({
+  metrics = [],
+  dimensions = [],
+}) {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
-  const { values } = useFormikContext();
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-
-  const metrics = values.metrics || [];
-  const dimensions = values.dimensions || [];
 
   // Fetch SQL when metrics/dimensions change
   const fetchSql = useCallback(
@@ -81,6 +85,29 @@ export const CubePreviewPanel = () => {
   };
 
   const scanInfo = formatScanEstimate(result?.scan_estimate);
+
+  // SyntaxHighlighter is the heaviest piece of DOM in the form — re-rendering
+  // it on every keystroke makes typing in unrelated fields feel laggy. Memo
+  // by `result?.sql` so the highlighted output is reused as long as the SQL
+  // hasn't changed.
+  const highlightedSql = useMemo(() => {
+    if (!result?.sql) return null;
+    return (
+      <SyntaxHighlighter
+        language="sql"
+        style={atomOneLight}
+        customStyle={{
+          margin: 0,
+          padding: 0,
+          fontSize: '11px',
+          background: 'transparent',
+          border: 'none',
+        }}
+      >
+        {result.sql}
+      </SyntaxHighlighter>
+    );
+  }, [result?.sql]);
 
   return (
     <div className="cube-preview-panel">
@@ -139,22 +166,8 @@ export const CubePreviewPanel = () => {
             Select metrics and dimensions to preview SQL
           </div>
         )}
-        {!loading && !error && result?.sql && (
-          <SyntaxHighlighter
-            language="sql"
-            style={atomOneLight}
-            customStyle={{
-              margin: 0,
-              padding: 0,
-              fontSize: '11px',
-              background: 'transparent',
-              border: 'none',
-            }}
-          >
-            {result.sql}
-          </SyntaxHighlighter>
-        )}
+        {!loading && !error && highlightedSql}
       </div>
     </div>
   );
-};
+});

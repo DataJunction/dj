@@ -1,5 +1,4 @@
 import { render, screen, waitFor } from '@testing-library/react';
-import { Formik } from 'formik';
 import { CubePreviewPanel } from '../CubePreviewPanel';
 import DJClientContext from '../../../providers/djclient';
 import React from 'react';
@@ -7,9 +6,10 @@ import React from 'react';
 const renderPanel = ({ djClient, initialValues }) =>
   render(
     <DJClientContext.Provider value={{ DataJunctionAPI: djClient }}>
-      <Formik initialValues={initialValues} onSubmit={() => {}}>
-        {() => <CubePreviewPanel />}
-      </Formik>
+      <CubePreviewPanel
+        metrics={initialValues.metrics}
+        dimensions={initialValues.dimensions}
+      />
     </DJClientContext.Provider>,
   );
 

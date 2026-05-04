@@ -3,7 +3,6 @@
  * Uses async search to efficiently handle large numbers of metrics.
  * Results are grouped by namespace for easier navigation.
  */
-import { useField, useFormikContext } from 'formik';
 import AsyncSelect, { components } from 'react-select/async';
 import React, { useContext, useEffect, useState, useCallback } from 'react';
 import DJClientContext from '../../providers/djclient';
@@ -180,12 +179,11 @@ const formatOptionLabel = (option, { context }) => {
   );
 };
 
-export const MetricsSelect = ({ cube }) => {
+export const MetricsSelect = React.memo(function MetricsSelect({
+  cube,
+  onChange,
+}) {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
-
-  // eslint-disable-next-line no-unused-vars
-  const [field, _, helpers] = useField('metrics');
-  const { setValue } = helpers;
 
   // Currently selected metrics (for controlled component)
   const [selectedMetrics, setSelectedMetrics] = useState([]);
@@ -198,7 +196,7 @@ export const MetricsSelect = ({ cube }) => {
         label: metric.displayName || metric.name,
       }));
       setSelectedMetrics(cubeMetrics);
-      setValue(cubeMetrics.map(m => m.value));
+      onChange(cubeMetrics.map(m => m.value));
 
       // Fetch gitInfo for existing metrics so we can display branch badges
       const names = cubeMetrics.map(m => m.value);
@@ -213,7 +211,7 @@ export const MetricsSelect = ({ cube }) => {
         }
       });
     }
-  }, [cube, setValue, djClient]);
+  }, [cube, onChange, djClient]);
 
   // Async load options - searches metrics via GraphQL, grouped by namespace
   const loadOptions = useCallback(
@@ -234,7 +232,7 @@ export const MetricsSelect = ({ cube }) => {
 
   const handleChange = selected => {
     setSelectedMetrics(selected || []);
-    setValue((selected || []).map(option => option.value));
+    onChange((selected || []).map(option => option.value));
   };
 
   // Custom styles to color-code metric tags (matching Query Planner exactly)
@@ -287,4 +285,4 @@ export const MetricsSelect = ({ cube }) => {
       defaultOptions={false}
     />
   );
-};
+});

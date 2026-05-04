@@ -2,7 +2,6 @@
  * A select component for picking dimensions.
  * Dimensions are grouped by hop distance (how many joins away from the metrics).
  */
-import { useField, useFormikContext } from 'formik';
 import Select from 'react-select';
 import React, { useContext, useEffect, useState } from 'react';
 import DJClientContext from '../../providers/djclient';
@@ -49,13 +48,12 @@ const getHopLabel = hopDistance => {
   return `${hopDistance} Hops Away`;
 };
 
-export const DimensionsSelect = ({ cube }) => {
+export const DimensionsSelect = React.memo(function DimensionsSelect({
+  cube,
+  metrics,
+  onChange,
+}) {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
-  const { values, setFieldValue } = useFormikContext();
-
-  // eslint-disable-next-line no-unused-vars
-  const [field, _, helpers] = useField('dimensions');
-  const { setValue } = helpers;
 
   // Dimensions grouped by hop distance, then by node+path
   const [dimensionsByHop, setDimensionsByHop] = useState({});
@@ -82,14 +80,12 @@ export const DimensionsSelect = ({ cube }) => {
           };
         });
         setDefaultDimensions(cubeDimensions);
-        setValue(cubeDimensions.map(m => m.value));
+        onChange(cubeDimensions.map(m => m.value));
       }
 
-      if (values.metrics && values.metrics.length > 0) {
+      if (metrics && metrics.length > 0) {
         // Populate the common dimensions list based on the selected metrics
-        const commonDimensions = await djClient.commonDimensions(
-          values.metrics,
-        );
+        const commonDimensions = await djClient.commonDimensions(metrics);
 
         // First group by node_name + path (original grouping)
         const groupedByNodePath = commonDimensions.reduce(
@@ -128,14 +124,14 @@ export const DimensionsSelect = ({ cube }) => {
             );
           });
           setSelectedDimensionsByGroup(currentSelectedDimensionsByGroup);
-          setValue(Object.values(currentSelectedDimensionsByGroup).flat(2));
+          onChange(Object.values(currentSelectedDimensionsByGroup).flat(2));
         }
       } else {
         setDimensionsByHop({});
       }
     };
     fetchData().catch(console.error);
-  }, [djClient, setFieldValue, setValue, values.metrics, cube]);
+  }, [djClient, onChange, metrics, cube]);
 
   // Retrieves the selected values as a list (since it is a multi-select)
   const getValue = options => {
@@ -311,7 +307,7 @@ export const DimensionsSelect = ({ cube }) => {
                             [groupKey]: getValue(selected),
                           };
                           setSelectedDimensionsByGroup(newSelected);
-                          setValue(Object.values(newSelected).flat(2));
+                          onChange(Object.values(newSelected).flat(2));
                         }}
                       />
                     </span>
@@ -324,4 +320,4 @@ export const DimensionsSelect = ({ cube }) => {
       })}
     </div>
   );
-};
+});

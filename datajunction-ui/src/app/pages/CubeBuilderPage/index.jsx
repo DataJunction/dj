@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useState } from 'react';
 import Select from 'react-select';
 import NamespaceHeader from '../../components/NamespaceHeader';
 import { DataJunctionAPI } from '../../services/DJService';
@@ -8,7 +8,7 @@ import 'react-querybuilder/dist/query-builder.scss';
 import 'styles/styles.scss';
 import './styles.css';
 import '../QueryPlannerPage/styles.css';
-import { ErrorMessage, Field, Form, Formik, useField } from 'formik';
+import { ErrorMessage, FastField, Field, Form, Formik, useField } from 'formik';
 import { displayMessageAfterSubmit } from '../../../utils/form';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Action } from '../../components/forms/Action';
@@ -17,20 +17,16 @@ import { MetricsSelect } from './MetricsSelect';
 import { DimensionsSelect } from './DimensionsSelect';
 import { CubePreviewPanel } from './CubePreviewPanel';
 
-// Description textarea that directly binds to Formik so typing is reflected
-const DescriptionField = () => {
-  const [field] = useField('description');
-  return (
-    <textarea
-      id="Description"
-      name="description"
-      placeholder="Describe your cube"
-      value={field.value ?? ''}
-      onChange={field.onChange}
-      onBlur={field.onBlur}
-    />
-  );
-};
+// Description textarea using FastField so typing here doesn't trigger
+// re-renders of unrelated form sections (heavy ones like the SQL preview).
+const DescriptionField = () => (
+  <FastField
+    as="textarea"
+    id="Description"
+    name="description"
+    placeholder="Describe your cube"
+  />
+);
 
 // Simple Tags select matching MetricsSelect styling
 const CubeTagsSelect = ({ defaultValue }) => {
@@ -243,7 +239,13 @@ export function CubeBuilderPage() {
           validate={validator}
           onSubmit={handleSubmit}
         >
-          {function Render({ isSubmitting, status, setFieldValue, props }) {
+          {function Render({
+            isSubmitting,
+            status,
+            setFieldValue,
+            values,
+            props,
+          }) {
             const [node, setNode] = useState([]);
             const [selectTags, setSelectTags] = useState(null);
             const [selectOwners, setSelectOwners] = useState(null);
@@ -266,6 +268,17 @@ export function CubeBuilderPage() {
               };
               fetchData().catch(console.error);
             }, [setFieldValue]);
+
+            // Stable callbacks so the memoized child components don't re-render
+            // on every Formik state change (e.g. typing in display_name).
+            const setMetrics = useCallback(
+              v => setFieldValue('metrics', v),
+              [setFieldValue],
+            );
+            const setDimensions = useCallback(
+              v => setFieldValue('dimensions', v),
+              [setFieldValue],
+            );
 
             // Briefly show "Saved" state on the button, then redirect to the cube page
             useEffect(() => {
@@ -374,7 +387,7 @@ export function CubeBuilderPage() {
                                 >
                                   Display Name
                                 </label>
-                                <Field
+                                <FastField
                                   type="text"
                                   name="display_name"
                                   id="displayName"
@@ -439,9 +452,9 @@ export function CubeBuilderPage() {
                       <div className="cube-form-section-body">
                         <div data-testid="select-metrics">
                           {action === Action.Edit ? (
-                            <MetricsSelect cube={node} />
+                            <MetricsSelect cube={node} onChange={setMetrics} />
                           ) : (
-                            <MetricsSelect />
+                            <MetricsSelect onChange={setMetrics} />
                           )}
                         </div>
                       </div>
@@ -455,9 +468,16 @@ export function CubeBuilderPage() {
                       <div className="cube-form-section-body">
                         <div data-testid="select-dimensions">
                           {action === Action.Edit ? (
-                            <DimensionsSelect cube={node} />
+                            <DimensionsSelect
+                              cube={node}
+                              metrics={values.metrics}
+                              onChange={setDimensions}
+                            />
                           ) : (
-                            <DimensionsSelect />
+                            <DimensionsSelect
+                              metrics={values.metrics}
+                              onChange={setDimensions}
+                            />
                           )}
                         </div>
                       </div>
@@ -466,7 +486,10 @@ export function CubeBuilderPage() {
 
                   {/* Right: Sidebar */}
                   <div className="cube-builder-sidebar">
-                    <CubePreviewPanel />
+                    <CubePreviewPanel
+                      metrics={values.metrics}
+                      dimensions={values.dimensions}
+                    />
 
                     <div className="cube-settings">
                       {saveError && (

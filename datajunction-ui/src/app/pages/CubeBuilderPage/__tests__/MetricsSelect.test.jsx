@@ -1,15 +1,12 @@
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
-import { Formik } from 'formik';
 import { MetricsSelect } from '../MetricsSelect';
 import DJClientContext from '../../../providers/djclient';
 import React from 'react';
 
-const renderInForm = ({ djClient, cube, initialValues = { metrics: [] } }) =>
+const renderInForm = ({ djClient, cube, onChange = () => {} }) =>
   render(
     <DJClientContext.Provider value={{ DataJunctionAPI: djClient }}>
-      <Formik initialValues={initialValues} onSubmit={() => {}}>
-        {() => <MetricsSelect cube={cube} />}
-      </Formik>
+      <MetricsSelect cube={cube} onChange={onChange} />
     </DJClientContext.Provider>,
   );
 
