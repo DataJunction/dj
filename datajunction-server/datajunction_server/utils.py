@@ -609,7 +609,7 @@ def deep_merge(base: Dict[str, Any], overrides: Dict[str, Any]) -> Dict[str, Any
         >>> base = {"a": 1, "b": {"c": 2, "d": 3}}
         >>> overrides = {"b": {"c": 10, "e": 5}}
         >>> deep_merge(base, overrides)
-        {"a": 1, "b": {"c": 10, "d": 3, "e": 5}}
+        {'a': 1, 'b': {'c': 10, 'd': 3, 'e': 5}}
     """
     result = copy.deepcopy(base)
 

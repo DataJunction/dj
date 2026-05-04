@@ -690,7 +690,6 @@ async def materialize_cube(
         strategy=data.strategy,
         schedule=data.schedule,
         lookback_window=effective_lookback,
-        druid_overrides=data.druid_overrides,
     )
 
     # Call the query service to create the workflow.

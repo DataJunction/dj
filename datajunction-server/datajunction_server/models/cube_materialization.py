@@ -596,12 +596,6 @@ class CubeMaterializationV2Input(BaseModel):
         description="Lookback window for incremental. None for FULL strategy.",
     )
 
-    # Druid spec overrides (passed through from request)
-    druid_overrides: Optional[Dict[str, Any]] = Field(
-        default=None,
-        description="User-provided overrides that were deep-merged into druid_spec.",
-    )
-
 
 class DruidCubeV3Config(BaseModel):
     """
