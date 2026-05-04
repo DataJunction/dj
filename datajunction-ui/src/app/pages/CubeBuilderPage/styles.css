@@ -1,0 +1,489 @@
+/* CubeBuilderPage - Query Planner inspired styling */
+
+/* ================================
+   Page Container - viewport-constrained
+   ================================ */
+.cube-builder {
+  padding: 16px 24px;
+  background: var(--planner-bg, #f8fafc);
+  height: calc(100vh - 150px);
+  display: flex;
+  flex-direction: column;
+  font-family: var(
+    --font-body,
+    'Inter',
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif
+  );
+  color: var(--planner-text, #1e293b);
+  font-size: 13px;
+  box-sizing: border-box;
+}
+
+/* Header */
+.cube-builder-header {
+  margin-bottom: 16px;
+  flex-shrink: 0;
+}
+
+.cube-builder-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+/* ================================
+   Two-Column Layout
+   ================================ */
+.cube-builder-layout {
+  display: flex;
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Left: Main form area - scrolls internally */
+.cube-builder-main {
+  flex: 1;
+  min-width: 0;
+  background: var(--planner-surface, #ffffff);
+  border: 1px solid var(--planner-border, #e2e8f0);
+  overflow-y: auto;
+}
+
+/* Right: Sidebar - fixed height matching main column */
+.cube-builder-sidebar {
+  width: 480px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.cube-builder-sidebar .cube-preview-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.cube-builder-sidebar .cube-preview-panel .preview-sql-container {
+  flex: 1;
+  min-height: 100px;
+  overflow: auto;
+}
+
+/* ================================
+   Section styling (like Query Planner panels)
+   ================================ */
+.cube-form-section {
+  border-bottom: 1px solid var(--planner-border, #e2e8f0);
+}
+
+.cube-form-section:last-child {
+  border-bottom: none;
+}
+
+.cube-form-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: var(--planner-surface, #ffffff);
+  border-bottom: 1px solid var(--planner-border, #e2e8f0);
+}
+
+.cube-form-section-header h3 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--planner-text, #1e293b);
+}
+
+.cube-form-section-body {
+  padding: 12px 16px;
+}
+
+/* ================================
+   Form Fields
+   ================================ */
+.cube-field {
+  margin-bottom: 16px;
+}
+
+.cube-field:last-child {
+  margin-bottom: 0;
+}
+
+/* Two-column row */
+.cube-field-row {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.cube-field-row:last-child {
+  margin-bottom: 0;
+}
+
+.cube-field-row .cube-field {
+  margin-bottom: 0;
+}
+
+.cube-field-grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.cube-field-small {
+  width: 140px;
+  flex-shrink: 0;
+}
+
+.cube-field-half {
+  flex: 1;
+  min-width: 0;
+}
+
+.cube-field-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--planner-text-muted, #64748b);
+  margin-bottom: 6px;
+}
+
+.cube-field-input,
+.cube-builder input[type='text'],
+.cube-builder textarea,
+.cube-builder select {
+  width: 100%;
+  height: 36px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--planner-text, #1e293b);
+  background: var(--planner-surface, #ffffff);
+  border: 1px solid var(--planner-border, #e2e8f0);
+  border-radius: var(--radius-sm, 4px);
+  box-sizing: border-box;
+  transition: border-color 0.15s ease;
+}
+
+.cube-builder input[type='text']:focus,
+.cube-builder textarea:focus,
+.cube-builder select:focus {
+  outline: none;
+  border-color: var(--accent-primary, #3b82f6);
+}
+
+.cube-builder textarea {
+  height: auto;
+  min-height: 36px;
+  max-height: 80px;
+  resize: vertical;
+}
+
+.cube-field-static {
+  height: 36px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--planner-text, #1e293b);
+  background: var(--planner-surface-hover, #f8fafc);
+  border: 1px solid var(--planner-border, #e2e8f0);
+  border-radius: var(--radius-sm, 4px);
+  box-sizing: border-box;
+}
+
+/* Override legacy form field styles */
+.cube-builder .NodeCreationInput,
+.cube-builder .CubeCreationInput,
+.cube-builder .NodeNameInput,
+.cube-builder .DisplayNameInput,
+.cube-builder .DescriptionInput,
+.cube-builder .NamespaceInput,
+.cube-builder .FullNameInput,
+.cube-builder .TagsInput,
+.cube-builder .cube-field-half > div,
+.cube-builder .cube-field-row .TagsInput,
+.cube-builder .cube-field-row .NodeCreationInput {
+  display: block !important;
+  width: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.cube-builder .cube-form-section-body > .NodeCreationInput,
+.cube-builder .cube-form-section-body > .NamespaceInput {
+  margin-bottom: 16px !important;
+}
+
+.cube-builder .NodeCreationInput label,
+.cube-builder .CubeCreationInput label,
+.cube-builder .NamespaceInput label,
+.cube-builder .FullNameInput label,
+.cube-builder .TagsInput label,
+.cube-builder .cube-field-half label {
+  display: block !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.3px !important;
+  color: var(--planner-text-muted, #64748b) !important;
+  margin-bottom: 6px !important;
+  padding: 0 !important;
+}
+
+/* ================================
+   Settings Panel (in sidebar)
+   ================================ */
+.cube-settings {
+  margin-top: 12px;
+  flex-shrink: 0;
+}
+
+.save-cube-btn {
+  width: 100%;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  background: var(--accent-primary, #3b82f6);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm, 4px);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.save-cube-btn:hover {
+  background: #2563eb;
+}
+
+.save-cube-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Success state - briefly shown after save */
+.save-cube-btn.save-cube-btn--saved,
+.save-cube-btn.save-cube-btn--saved:disabled {
+  background: var(--accent-success, #059669);
+  opacity: 1;
+  cursor: default;
+}
+
+/* Loading state with spinner */
+.save-cube-btn.save-cube-btn--loading,
+.save-cube-btn.save-cube-btn--loading:disabled {
+  opacity: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: wait;
+}
+
+.save-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: save-spinner-spin 0.6s linear infinite;
+  display: inline-block;
+}
+
+@keyframes save-spinner-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Error message shown above the save button */
+.save-error-message {
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  background: rgba(220, 38, 38, 0.08);
+  color: var(--accent-error, #dc2626);
+  border: 1px solid rgba(220, 38, 38, 0.2);
+  border-radius: var(--radius-sm, 4px);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* ================================
+   Preview Panel (SQL)
+   ================================ */
+.cube-preview-panel {
+  background: var(--planner-surface, #ffffff);
+  border: 1px solid var(--planner-border, #e2e8f0);
+  overflow: hidden;
+}
+
+/* Flatten the scan estimate banner so it doesn't look like a nested panel */
+.cube-preview-panel .scan-estimate-banner {
+  margin: 0 !important;
+  border-radius: 0 !important;
+  border: none !important;
+  border-bottom: 1px solid var(--planner-border, #e2e8f0) !important;
+  padding: 10px 16px !important;
+}
+
+.preview-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--planner-border, #e2e8f0);
+}
+
+.preview-section-icon {
+  font-size: 12px;
+  color: var(--planner-text-muted, #64748b);
+}
+
+.preview-section-title {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--planner-text, #1e293b);
+}
+
+.preview-sql-container {
+  max-height: 600px;
+  overflow: auto;
+  background: var(--planner-surface-hover, #f8fafc);
+  padding: 16px;
+}
+
+.preview-sql-container pre,
+.preview-sql-container code {
+  border-radius: 0 !important;
+  background: transparent !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+.preview-loading,
+.preview-error,
+.preview-empty {
+  font-size: 12px;
+  color: var(--planner-text-muted, #64748b);
+}
+
+.preview-error {
+  color: var(--accent-error, #dc2626);
+}
+
+/* ================================
+   Dimensions (hop groups)
+   ================================ */
+.hop-section {
+  margin-bottom: 20px;
+}
+
+.hop-section:last-child {
+  margin-bottom: 0;
+}
+
+.hop-header {
+  display: flex;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--planner-border, #e2e8f0);
+  margin-bottom: 12px;
+}
+
+.hop-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--planner-text, #1e293b);
+}
+
+.hop-count {
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--planner-text-dim, #94a3b8);
+}
+
+.dimension-groups {
+  padding-left: 16px;
+}
+
+.dimension-group {
+  margin-bottom: 12px;
+}
+
+.dimension-group-header {
+  font-size: 13px;
+  font-weight: normal;
+  margin: 0 0 6px 0;
+  color: var(--planner-text, #1e293b);
+}
+
+.dimension-group-header a {
+  color: var(--accent-primary, #3b82f6);
+  text-decoration: none;
+}
+
+.dimension-group-header a:hover {
+  text-decoration: underline;
+}
+
+.dimension-group-header .via-text {
+  color: var(--planner-text-muted, #64748b);
+}
+
+/* ================================
+   React-Select styling (matching Query Planner chips exactly)
+   ================================ */
+.cube-builder .cube-field-half > div > div {
+  font-size: 13px;
+}
+
+/* Multi-value chips - simple spacing */
+.cube-builder div[class*='multiValue'] {
+  margin: 2px 4px 2px 0 !important;
+  border-radius: 3px !important;
+}
+
+.cube-builder div[class*='multiValueLabel'] {
+  font-size: 10px !important;
+  font-weight: 500 !important;
+}
+
+.cube-builder div[class*='multiValueRemove'] svg {
+  width: 12px !important;
+  height: 12px !important;
+}
+
+/* Reduce Input wrapper height to match chip height */
+.cube-builder div[class*='-Input'],
+.cube-builder div[class*='Input'] {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.cube-builder div[class*='Input'] > div,
+.cube-builder div[class*='Input'] > input {
+  height: 20px !important;
+  line-height: 20px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  font-size: 13px !important;
+}
+
+/* Target the grid sizer inside Input that forces a minimum height */
+.cube-builder div[class*='Input'] [data-value] {
+  height: 20px !important;
+}

@@ -2079,6 +2079,106 @@ describe('DataJunctionAPI', () => {
     expect(result).toBeNull();
   });
 
+  // searchMetrics — wraps findNodes(METRIC) and shapes results for react-select
+  it('calls searchMetrics correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify({
+        data: {
+          findNodes: [
+            {
+              name: 'default.revenue',
+              current: { displayName: 'Revenue' },
+              gitInfo: { branch: 'main', isDefaultBranch: true },
+            },
+            {
+              name: 'default.orders',
+              current: { displayName: null },
+              gitInfo: null,
+            },
+          ],
+        },
+      }),
+    );
+
+    const result = await DataJunctionAPI.searchMetrics('rev', 25);
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/graphql',
+      expect.objectContaining({ method: 'POST', credentials: 'include' }),
+    );
+    const sentBody = JSON.parse(fetch.mock.calls[0][1].body);
+    expect(sentBody.variables).toEqual({ q: 'rev', limit: 25 });
+    expect(result).toEqual([
+      {
+        value: 'default.revenue',
+        label: 'Revenue',
+        name: 'default.revenue',
+        gitInfo: { branch: 'main', isDefaultBranch: true },
+      },
+      // Falls back to name when displayName is missing.
+      {
+        value: 'default.orders',
+        label: 'default.orders',
+        name: 'default.orders',
+        gitInfo: null,
+      },
+    ]);
+  });
+
+  it('searchMetrics returns [] when the GraphQL response has no data', async () => {
+    fetch.mockResponseOnce(JSON.stringify({}));
+    const result = await DataJunctionAPI.searchMetrics('whatever');
+    expect(result).toEqual([]);
+  });
+
+  it('searchMetrics defaults limit to 50', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ data: { findNodes: [] } }));
+    await DataJunctionAPI.searchMetrics('rev');
+    const sentBody = JSON.parse(fetch.mock.calls[0][1].body);
+    expect(sentBody.variables.limit).toBe(50);
+  });
+
+  // getMetricsInfo — bulk-fetches existing metric metadata, used to populate
+  // branch badges on previously-selected chips when editing a cube.
+  it('calls getMetricsInfo correctly and shapes the response', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify({
+        data: {
+          findNodes: [
+            {
+              name: 'default.revenue',
+              current: { displayName: 'Revenue' },
+              gitInfo: { branch: 'main', isDefaultBranch: true },
+            },
+          ],
+        },
+      }),
+    );
+
+    const result = await DataJunctionAPI.getMetricsInfo(['default.revenue']);
+    const sentBody = JSON.parse(fetch.mock.calls[0][1].body);
+    expect(sentBody.variables).toEqual({ names: ['default.revenue'] });
+    expect(result).toEqual([
+      {
+        value: 'default.revenue',
+        label: 'Revenue',
+        name: 'default.revenue',
+        gitInfo: { branch: 'main', isDefaultBranch: true },
+      },
+    ]);
+  });
+
+  it('getMetricsInfo short-circuits on empty/null input without hitting fetch', async () => {
+    expect(await DataJunctionAPI.getMetricsInfo([])).toEqual([]);
+    expect(await DataJunctionAPI.getMetricsInfo(null)).toEqual([]);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('getMetricsInfo returns [] when GraphQL has no data', async () => {
+    fetch.mockResponseOnce(JSON.stringify({}));
+    const result = await DataJunctionAPI.getMetricsInfo(['anything']);
+    expect(result).toEqual([]);
+  });
+
   // Test logout (lines 225-230)
   it('calls logout correctly', async () => {
     fetch.mockResponseOnce('', { status: 200 });
