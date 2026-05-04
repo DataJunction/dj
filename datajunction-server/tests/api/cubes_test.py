@@ -370,6 +370,7 @@ def repairs_cube_elements():
             "name": "default_DOT_discounted_orders_rate",
             "node_name": "default.discounted_orders_rate",
             "partition": None,
+            "role": None,
             "type": "metric",
         },
         {
@@ -377,6 +378,7 @@ def repairs_cube_elements():
             "name": "company_name",
             "node_name": "default.dispatcher",
             "partition": None,
+            "role": None,
             "type": "dimension",
         },
         {
@@ -384,6 +386,7 @@ def repairs_cube_elements():
             "name": "local_region",
             "node_name": "default.municipality_dim",
             "partition": None,
+            "role": None,
             "type": "dimension",
         },
         {
@@ -391,6 +394,7 @@ def repairs_cube_elements():
             "name": "hire_date",
             "node_name": "default.hard_hat",
             "partition": None,
+            "role": None,
             "type": "dimension",
         },
         {
@@ -398,6 +402,7 @@ def repairs_cube_elements():
             "name": "city",
             "node_name": "default.hard_hat",
             "partition": None,
+            "role": None,
             "type": "dimension",
         },
         {
@@ -405,6 +410,7 @@ def repairs_cube_elements():
             "name": "state",
             "node_name": "default.hard_hat",
             "partition": None,
+            "role": None,
             "type": "dimension",
         },
         {
@@ -412,6 +418,7 @@ def repairs_cube_elements():
             "name": "postal_code",
             "node_name": "default.hard_hat",
             "partition": None,
+            "role": None,
             "type": "dimension",
         },
         {
@@ -419,6 +426,7 @@ def repairs_cube_elements():
             "name": "country",
             "node_name": "default.hard_hat",
             "partition": None,
+            "role": None,
             "type": "dimension",
         },
         {
@@ -426,6 +434,7 @@ def repairs_cube_elements():
             "name": "default_DOT_num_repair_orders",
             "node_name": "default.num_repair_orders",
             "partition": None,
+            "role": None,
             "type": "metric",
         },
         {
@@ -433,6 +442,7 @@ def repairs_cube_elements():
             "name": "default_DOT_avg_repair_price",
             "node_name": "default.avg_repair_price",
             "partition": None,
+            "role": None,
             "type": "metric",
         },
         {
@@ -440,6 +450,7 @@ def repairs_cube_elements():
             "name": "default_DOT_total_repair_cost",
             "node_name": "default.total_repair_cost",
             "partition": None,
+            "role": None,
             "type": "metric",
         },
         {
@@ -447,6 +458,7 @@ def repairs_cube_elements():
             "name": "default_DOT_total_repair_order_discounts",
             "node_name": "default.total_repair_order_discounts",
             "partition": None,
+            "role": None,
             "type": "metric",
         },
         {
@@ -454,6 +466,7 @@ def repairs_cube_elements():
             "name": "default_DOT_double_total_repair_cost",
             "node_name": "default.double_total_repair_cost",
             "partition": None,
+            "role": None,
             "type": "metric",
         },
     ]
@@ -2155,6 +2168,7 @@ async def test_changing_node_upstream_from_cube(
             "node_name": "default.order_date_count__one",
             "type": "metric",
             "partition": None,
+            "role": None,
         },
         {
             "name": "municipality_id",
@@ -2162,6 +2176,7 @@ async def test_changing_node_upstream_from_cube(
             "node_name": "default.repair_order_dim__one",
             "type": "dimension",
             "partition": None,
+            "role": None,
         },
         {
             "name": "hard_hat_id",
@@ -2169,6 +2184,7 @@ async def test_changing_node_upstream_from_cube(
             "node_name": "default.repair_order_dim__one",
             "type": "dimension",
             "partition": None,
+            "role": None,
         },
     ]
     assert data["cube_elements"] == expected_elements
@@ -2201,6 +2217,7 @@ def assert_updated_repairs_cube(data):
             "node_name": "default.hard_hat",
             "type": "dimension",
             "partition": None,
+            "role": None,
         },
         {
             "display_name": "Discounted Orders Rate",
@@ -2208,12 +2225,14 @@ def assert_updated_repairs_cube(data):
             "node_name": "default.discounted_orders_rate",
             "type": "metric",
             "partition": None,
+            "role": None,
         },
         {
             "display_name": "Hire Date",
             "name": "hire_date",
             "node_name": "default.hard_hat",
             "partition": None,
+            "role": None,
             "type": "dimension",
         },
     ]
