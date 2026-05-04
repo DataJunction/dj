@@ -564,13 +564,6 @@ class Node:
     owners: list[User]
 
     @strawberry.field
-    def namespace(self, root: "DBNode") -> list[str]:
-        """
-        The users who edited this node
-        """
-        return root.name.split(".")[:-1]
-
-    @strawberry.field
     def edited_by(self, root: "DBNode") -> list[str]:
         """
         The users who edited this node

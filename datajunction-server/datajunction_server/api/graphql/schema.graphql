@@ -315,7 +315,6 @@ type Node {
   tags: [TagBase!]!
   createdBy: User!
   owners: [User!]!
-  namespace: [String!]!
   editedBy: [String!]!
   gitInfo: GitRepositoryInfo
 }
