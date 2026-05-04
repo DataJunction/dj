@@ -573,6 +573,7 @@ export const DataJunctionAPI = {
             mode
             cubeMetrics {
               name
+              displayName
             }
             cubeDimensions {
               name
@@ -1046,6 +1047,73 @@ export const DataJunctionAPI = {
         credentials: 'include',
       })
     ).json();
+  },
+
+  getMetricsInfo: async function (names) {
+    if (!names || names.length === 0) return [];
+    const gqlQuery = `
+      query GetMetricsInfo($names: [String!]!) {
+        findNodes(names: $names) {
+          name
+          current {
+            displayName
+          }
+          gitInfo {
+            branch
+            isDefaultBranch
+          }
+        }
+      }
+    `;
+    const response = await fetch(DJ_GQL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        query: gqlQuery,
+        variables: { names },
+      }),
+    });
+    const result = await response.json();
+    return (result?.data?.findNodes || []).map(node => ({
+      value: node.name,
+      label: node.current?.displayName || node.name,
+      name: node.name,
+      gitInfo: node.gitInfo,
+    }));
+  },
+
+  searchMetrics: async function (query, limit = 50) {
+    const gqlQuery = `
+      query SearchMetrics($q: String!, $limit: Int!) {
+        findNodes(search: $q, nodeTypes: [METRIC], limit: $limit) {
+          name
+          current {
+            displayName
+          }
+          gitInfo {
+            branch
+            isDefaultBranch
+          }
+        }
+      }
+    `;
+    const response = await fetch(DJ_GQL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        query: gqlQuery,
+        variables: { q: query, limit },
+      }),
+    });
+    const result = await response.json();
+    return (result?.data?.findNodes || []).map(node => ({
+      value: node.name,
+      label: node.current?.displayName || node.name,
+      name: node.name,
+      gitInfo: node.gitInfo,
+    }));
   },
 
   commonDimensions: async function (metrics) {

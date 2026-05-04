@@ -1,11 +1,30 @@
 /**
- * A select component for picking dimensions
+ * A select component for picking dimensions.
+ * Dimensions are grouped by hop distance (how many joins away from the metrics).
  */
 import { useField, useFormikContext } from 'formik';
 import Select from 'react-select';
 import React, { useContext, useEffect, useState } from 'react';
 import DJClientContext from '../../providers/djclient';
 import { labelize } from '../../../utils/form';
+
+/**
+ * Calculate hop distance from path length.
+ * path.length represents how many joins away the dimension is.
+ */
+const getHopDistance = path => {
+  if (!path || path.length === 0) return 0;
+  return path.length;
+};
+
+/**
+ * Get human-readable label for hop distance.
+ */
+const getHopLabel = hopDistance => {
+  if (hopDistance === 0) return 'Direct Dimensions';
+  if (hopDistance === 1) return '1 Hop Away';
+  return `${hopDistance} Hops Away`;
+};
 
 export const DimensionsSelect = ({ cube }) => {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
@@ -15,10 +34,10 @@ export const DimensionsSelect = ({ cube }) => {
   const [field, _, helpers] = useField('dimensions');
   const { setValue } = helpers;
 
-  // All common dimensions for the selected metrics, grouped by the dimension node and path
-  const [allDimensionsOptions, setAllDimensionsOptions] = useState([]);
+  // Dimensions grouped by hop distance, then by node+path
+  const [dimensionsByHop, setDimensionsByHop] = useState({});
 
-  // The selected dimensions, also grouped by dimension node and path
+  // The selected dimensions, grouped by dimension node and path
   const [selectedDimensionsByGroup, setSelectedDimensionsByGroup] = useState(
     {},
   );
@@ -47,36 +66,48 @@ export const DimensionsSelect = ({ cube }) => {
         const commonDimensions = await djClient.commonDimensions(
           values.metrics,
         );
-        const grouped = Object.entries(
-          commonDimensions.reduce((group, dimension) => {
-            group[dimension.node_name + dimension.path] =
-              group[dimension.node_name + dimension.path] ?? [];
-            group[dimension.node_name + dimension.path].push(dimension);
+
+        // First group by node_name + path (original grouping)
+        const groupedByNodePath = commonDimensions.reduce(
+          (group, dimension) => {
+            const key = dimension.node_name + JSON.stringify(dimension.path);
+            group[key] = group[key] ?? [];
+            group[key].push(dimension);
             return group;
-          }, {}),
+          },
+          {},
         );
-        setAllDimensionsOptions(grouped);
+
+        // Then organize by hop distance
+        const byHop = {};
+        Object.values(groupedByNodePath).forEach(dimensionsInGroup => {
+          const hopDistance = getHopDistance(dimensionsInGroup[0].path);
+          byHop[hopDistance] = byHop[hopDistance] ?? [];
+          byHop[hopDistance].push(dimensionsInGroup);
+        });
+
+        setDimensionsByHop(byHop);
 
         // Set the selected cube dimensions if an existing cube is being edited
         if (cube) {
           const currentSelectedDimensionsByGroup = {};
-          grouped.forEach(grouping => {
-            const dimensionsInGroup = grouping[1];
-            currentSelectedDimensionsByGroup[dimensionsInGroup[0].node_name] =
-              getValue(
-                cubeDimensions.filter(
-                  dim =>
-                    dimensionsInGroup.filter(x => {
-                      return dim.value === x.name;
-                    }).length > 0,
-                ),
-              );
-            setSelectedDimensionsByGroup(currentSelectedDimensionsByGroup);
-            setValue(Object.values(currentSelectedDimensionsByGroup).flat(2));
+          Object.values(groupedByNodePath).forEach(dimensionsInGroup => {
+            const groupKey =
+              dimensionsInGroup[0].node_name +
+              JSON.stringify(dimensionsInGroup[0].path);
+            currentSelectedDimensionsByGroup[groupKey] = getValue(
+              cubeDimensions.filter(
+                dim =>
+                  dimensionsInGroup.filter(x => dim.value === x.name).length >
+                  0,
+              ),
+            );
           });
+          setSelectedDimensionsByGroup(currentSelectedDimensionsByGroup);
+          setValue(Object.values(currentSelectedDimensionsByGroup).flat(2));
         }
       } else {
-        setAllDimensionsOptions([]);
+        setDimensionsByHop({});
       }
     };
     fetchData().catch(console.error);
@@ -91,62 +122,180 @@ export const DimensionsSelect = ({ cube }) => {
     }
   };
 
-  // Builds the block of dimensions selectors, grouped by node name + path
-  return allDimensionsOptions.map(grouping => {
-    const dimensionsInGroup = grouping[1];
-    const groupHeader = (
-      <h5
-        style={{
-          fontWeight: 'normal',
-          marginBottom: '5px',
-          marginTop: '15px',
-        }}
-      >
-        <a href={`/nodes/${dimensionsInGroup[0].node_name}`}>
-          <b>{dimensionsInGroup[0].node_display_name}</b>
-        </a>{' '}
-        via{' '}
-        <span className="HighlightPath">
-          {dimensionsInGroup[0].path.join(' → ')}
-        </span>
-      </h5>
-    );
-    const dimensionGroupOptions = dimensionsInGroup.map(dim => {
-      return {
-        value: dim.name,
-        label:
-          labelize(dim.name.split('.').slice(-1)[0]) +
-          (dim.properties?.includes('primary_key') ? ' (PK)' : ''),
-      };
-    });
-    //
-    const cubeDimensions = defaultDimensions.filter(
-      dim =>
-        dimensionGroupOptions.filter(x => {
-          return dim.value === x.value;
-        }).length > 0,
-    );
-    return (
-      <>
-        {groupHeader}
-        <span data-testid={'dimensions-' + dimensionsInGroup[0].node_name}>
-          <Select
-            className=""
-            name={'dimensions-' + dimensionsInGroup[0].node_name}
-            defaultValue={cubeDimensions}
-            options={dimensionGroupOptions}
-            isMulti
-            isClearable
-            closeMenuOnSelect={false}
-            onChange={selected => {
-              selectedDimensionsByGroup[dimensionsInGroup[0].node_name] =
-                getValue(selected);
-              setSelectedDimensionsByGroup(selectedDimensionsByGroup);
-              setValue(Object.values(selectedDimensionsByGroup).flat(2));
-            }}
-          />
-        </span>
-      </>
-    );
-  });
+  // Sort hop distances numerically
+  const sortedHops = Object.keys(dimensionsByHop)
+    .map(Number)
+    .sort((a, b) => a - b);
+
+  // Custom styles to color-code dimension tags (matching Query Planner exactly)
+  const dimensionStyles = {
+    multiValue: base => ({
+      ...base,
+      backgroundColor: '#ffefd0',
+      border: '1px solid rgba(169, 102, 33, 0.3)',
+      borderRadius: '3px',
+      margin: '2px',
+    }),
+    multiValueLabel: base => ({
+      ...base,
+      color: '#a96621',
+      fontSize: '10px',
+      fontWeight: 500,
+      padding: '2px 4px 2px 6px',
+    }),
+    multiValueRemove: base => ({
+      ...base,
+      color: '#a96621',
+      padding: '0 4px',
+      ':hover': {
+        backgroundColor: '#ffe4b3',
+        color: '#a96621',
+      },
+    }),
+  };
+
+  if (sortedHops.length === 0) {
+    return null;
+  }
+
+  return (
+    <div>
+      {sortedHops.map(hopDistance => {
+        const groupsAtHop = dimensionsByHop[hopDistance];
+        const dimensionCount = groupsAtHop.reduce(
+          (sum, g) => sum + g.length,
+          0,
+        );
+
+        return (
+          <div key={hopDistance} style={{ marginBottom: '20px' }}>
+            {/* Hop distance header */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                padding: '6px 0',
+                borderBottom: '1px solid #dee2e6',
+                marginBottom: '8px',
+                marginTop: hopDistance > 0 ? '24px' : '0',
+              }}
+            >
+              <span
+                style={{
+                  fontWeight: 600,
+                  color: '#212529',
+                  fontSize: '14px',
+                }}
+              >
+                {getHopLabel(hopDistance)}
+              </span>
+              <span
+                style={{
+                  marginLeft: '10px',
+                  color: '#6c757d',
+                  fontSize: '13px',
+                }}
+              >
+                ({dimensionCount} dimension{dimensionCount !== 1 ? 's' : ''})
+              </span>
+            </div>
+
+            {/* Dimension groups within this hop - indented */}
+            <div style={{ paddingLeft: '6px' }}>
+              {groupsAtHop.map(dimensionsInGroup => {
+                const groupKey =
+                  dimensionsInGroup[0].node_name +
+                  JSON.stringify(dimensionsInGroup[0].path);
+
+                // Convert path node names to display names
+                const pathDisplayNames = dimensionsInGroup[0].path.map(
+                  nodeName => {
+                    const lastSegment = nodeName.split('.').pop();
+                    return labelize(lastSegment);
+                  },
+                );
+
+                const groupHeader = (
+                  <h5
+                    style={{
+                      fontWeight: 'normal',
+                      marginBottom: '5px',
+                      marginTop: '10px',
+                      fontSize: '13px',
+                    }}
+                    title={dimensionsInGroup[0].path.join(' → ')}
+                  >
+                    <a href={`/nodes/${dimensionsInGroup[0].node_name}`}>
+                      <b>{dimensionsInGroup[0].node_display_name}</b>
+                    </a>
+                    {pathDisplayNames.length > 0 && (
+                      <>
+                        {' '}
+                        <span style={{ color: '#6c757d' }}>via</span>{' '}
+                        {pathDisplayNames.map((displayName, idx) => (
+                          <span key={idx}>
+                            {idx > 0 && ' → '}
+                            <a
+                              href={`/nodes/${dimensionsInGroup[0].path[idx]}`}
+                            >
+                              {displayName}
+                            </a>
+                          </span>
+                        ))}
+                      </>
+                    )}
+                  </h5>
+                );
+
+                const dimensionGroupOptions = dimensionsInGroup.map(dim => {
+                  return {
+                    value: dim.name,
+                    label:
+                      labelize(dim.name.split('.').slice(-1)[0]) +
+                      (dim.properties?.includes('primary_key') ? ' (PK)' : ''),
+                  };
+                });
+
+                const cubeDimensions = defaultDimensions.filter(
+                  dim =>
+                    dimensionGroupOptions.filter(x => dim.value === x.value)
+                      .length > 0,
+                );
+
+                return (
+                  <div key={groupKey}>
+                    {groupHeader}
+                    <span
+                      data-testid={
+                        'dimensions-' + dimensionsInGroup[0].node_name
+                      }
+                    >
+                      <Select
+                        className=""
+                        name={'dimensions-' + groupKey}
+                        defaultValue={cubeDimensions}
+                        options={dimensionGroupOptions}
+                        styles={dimensionStyles}
+                        isMulti
+                        isClearable
+                        closeMenuOnSelect={false}
+                        onChange={selected => {
+                          const newSelected = {
+                            ...selectedDimensionsByGroup,
+                            [groupKey]: getValue(selected),
+                          };
+                          setSelectedDimensionsByGroup(newSelected);
+                          setValue(Object.values(newSelected).flat(2));
+                        }}
+                      />
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
 };
