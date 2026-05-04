@@ -41,6 +41,7 @@ class CubeElementMetadata(BaseModel):
     node_name: str
     type: str
     partition: Optional[PartitionOutput] = None
+    role: Optional[str] = None
 
     @model_validator(mode="before")
     def type_string(cls, values):
@@ -130,8 +131,30 @@ class CubeRevisionMetadata(BaseModel):
             key=lambda elem: element_ordering.get(from_amenable_name(elem.name), 0),
         )
 
+        # Cube columns hold the role suffix in `dimension_column` for any
+        # element selected via a named role. Build a lookup keyed by the same
+        # full dotted name we'll reconstruct for each dimension element below.
+        roles_by_full_name: dict[str, str] = {
+            col.name: col.dimension_column
+            for col in cube.columns
+            if col.dimension_column
+        }
+
         # Parse the database object into a pydantic object
         cube_metadata = cls.model_validate(cube)
+
+        # Attach role to each dimension element by matching its reconstructed
+        # full name (`<node_name>.<element_name>`) against the cube columns.
+        for elem_meta, raw_elem in zip(
+            cube_metadata.cube_elements,
+            cube.cube_elements,
+        ):
+            if elem_meta.type == "metric":
+                continue
+            full_name = f"{raw_elem.node_revision.name}.{raw_elem.name}"
+            role_suffix = roles_by_full_name.get(full_name)
+            if role_suffix:
+                elem_meta.role = role_suffix.strip("[]")
 
         # Populate metric measures
         cube_metadata.measures = []

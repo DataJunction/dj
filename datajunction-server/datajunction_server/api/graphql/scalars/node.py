@@ -505,28 +505,39 @@ class NodeRevision:
                 ),
             )
 
-        # Full path: node_revision loaded on each cube element
-        dimension_to_roles = {col.name: col.dimension_column for col in root.columns}
+        # Full path: node_revision loaded on each cube element. Cube columns
+        # store the full dotted name (e.g. "ns.dim.col") and the role suffix
+        # (e.g. "[event_date]") separately, so build the role lookup keyed by
+        # the same full name we reconstruct from each cube element below.
+        dimension_to_roles = {
+            col.name: col.dimension_column or "" for col in root.columns
+        }
         ordering = root.ordering()
+
+        def make_attr(element, node_revision):
+            full_name = f"{node_revision.name}.{element.name}"
+            role = dimension_to_roles.get(full_name, "")
+            return DimensionAttribute(  # type: ignore
+                name=full_name + role,
+                attribute=element.name,
+                role=role,
+                _dimension_node=node_revision,
+                type=element.type,
+                properties=element.attribute_names(),
+            )
+
         return sorted(
             [
-                DimensionAttribute(  # type: ignore
-                    name=(
-                        node_revision.name
-                        + "."
-                        + element.name
-                        + dimension_to_roles.get(element.name, "")
-                    ),
-                    attribute=element.name,
-                    role=dimension_to_roles.get(element.name, ""),
-                    _dimension_node=node_revision,
-                    type=element.type,
-                    properties=element.attribute_names(),
-                )
+                make_attr(element, node_revision)
                 for element, node_revision in root.cube_elements_with_nodes()
                 if node_revision and node_revision.type != NodeType.METRIC
             ],
-            key=lambda x: ordering[x.name],
+            # Strip the role suffix when ordering — `ordering` is keyed by the
+            # role-less column name.
+            key=lambda x: ordering.get(
+                x.name,
+                ordering.get(x.name.split("[", 1)[0], 0),
+            ),
         )
 
 
