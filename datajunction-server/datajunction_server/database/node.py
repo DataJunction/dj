@@ -108,6 +108,19 @@ _SEARCH_POPULARITY_WEIGHT = 0.2
 _SEARCH_MIN_FUZZY_LENGTH = 2
 
 
+def _normalize_for_search(text_col):
+    """
+    Normalize a text column for search by replacing dots and underscores with spaces.
+    This allows queries like "totalrevenue" to match "total_revenue" or "total.revenue".
+    """
+    return func.regexp_replace(
+        func.regexp_replace(text_col, r"[._]", " ", "g"),
+        r"\s+",
+        " ",
+        "g",
+    )
+
+
 def _build_search_score(
     nr_alias,
     ns_alias,
@@ -121,17 +134,30 @@ def _build_search_score(
     Build the relevance score SQL expression used to rank search results.
 
     For multi-char queries: max weighted pg_trgm similarity across
-    name/display_name/description.  For single-char queries: a flat relevance
+    name/display_name/description, including normalized versions (dots/underscores
+    replaced with spaces). For single-char queries: a flat relevance
     of 1.0 so the prefix filter is ranked purely by branch + popularity.
     Multiplied by a main-branch boost and a log-scaled popularity multiplier.
     """
     if short_query:
         relevance = sa.literal(1.0)
     else:
+        # Normalize the query (replace dots/underscores with spaces)
+        normalized_query = query.replace(".", " ").replace("_", " ")
+
         relevance = func.greatest(
+            # Original name matching
             func.similarity(nr_alias.name, query) * _SEARCH_WEIGHT_NAME,
             func.similarity(nr_alias.display_name, query) * _SEARCH_WEIGHT_DISPLAY_NAME,
             func.similarity(nr_alias.description, query) * _SEARCH_WEIGHT_DESCRIPTION,
+            # Normalized name matching (dots/underscores → spaces)
+            func.similarity(_normalize_for_search(nr_alias.name), normalized_query)
+            * _SEARCH_WEIGHT_NAME,
+            func.similarity(
+                _normalize_for_search(nr_alias.display_name),
+                normalized_query,
+            )
+            * _SEARCH_WEIGHT_DISPLAY_NAME,
         )
     branch_boost = case(
         (parent_ns_alias.namespace.is_(None), _SEARCH_BOOST_MAIN),
