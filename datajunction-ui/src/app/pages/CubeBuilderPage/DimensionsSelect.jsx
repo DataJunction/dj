@@ -18,6 +18,29 @@ const getHopDistance = path => {
 };
 
 /**
+ * Render role information as a label suffix when a dimension is reached
+ * via a named role (e.g. "[birth_country]"). Stored role values can be raw
+ * (e.g. "birth_country") or already bracketed; normalize either form to
+ * " [role]". Returns "" when there is no role.
+ */
+const formatRoleSuffix = role => {
+  if (!role) return '';
+  const stripped = role.replace(/^\[|\]$/g, '');
+  return stripped ? ` [${stripped}]` : '';
+};
+
+/**
+ * Parse a role suffix off the end of a dimension's full name.
+ * "default.user_dim.country_code[birth_country]" → ["default.user_dim.country_code", "birth_country"]
+ * "default.user_dim.country_code"                → ["default.user_dim.country_code", ""]
+ */
+const splitRole = fullName => {
+  if (!fullName) return [fullName, ''];
+  const match = fullName.match(/^(.+?)\[([^\]]+)\]$/);
+  return match ? [match[1], match[2]] : [fullName, ''];
+};
+
+/**
  * Get human-readable label for hop distance.
  */
 const getHopLabel = hopDistance => {
@@ -54,6 +77,7 @@ export const DimensionsSelect = ({ cube }) => {
             value: cubeDim.name,
             label:
               labelize(cubeDim.attribute) +
+              formatRoleSuffix(cubeDim.role) +
               (cubeDim.properties?.includes('primary_key') ? ' (PK)' : ''),
           };
         });
@@ -248,10 +272,12 @@ export const DimensionsSelect = ({ cube }) => {
                 );
 
                 const dimensionGroupOptions = dimensionsInGroup.map(dim => {
+                  const [bareName, role] = splitRole(dim.name);
                   return {
                     value: dim.name,
                     label:
-                      labelize(dim.name.split('.').slice(-1)[0]) +
+                      labelize(bareName.split('.').slice(-1)[0]) +
+                      formatRoleSuffix(role) +
                       (dim.properties?.includes('primary_key') ? ' (PK)' : ''),
                   };
                 });

@@ -169,7 +169,7 @@ export default function NodeInfoTab({ node }) {
     return (
       <div
         className="button-3 cube-element"
-        key={cubeElem.name}
+        key={cubeElem.name + (cubeElem.role || '')}
         role="cell"
         aria-label="CubeElement"
         aria-hidden="false"
@@ -179,6 +179,17 @@ export default function NodeInfoTab({ node }) {
             ? labelize(cubeElem.node_name.split('.').slice(-1)[0]) + ' → '
             : ''}
           {cubeElem.display_name}
+          {cubeElem.role && (
+            <span
+              style={{
+                marginLeft: '4px',
+                fontSize: '85%',
+                color: '#6c757d',
+              }}
+            >
+              [{cubeElem.role}]
+            </span>
+          )}
         </a>
         <span
           className={`badge node_type__${

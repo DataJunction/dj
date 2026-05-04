@@ -126,4 +126,102 @@ describe('DimensionsSelect', () => {
       await screen.findByText(content => content.includes('(PK)')),
     ).toBeInTheDocument();
   });
+
+  it('shows the role suffix on chip labels for role-aliased cube dimensions', async () => {
+    const djClient = {
+      commonDimensions: jest.fn().mockResolvedValue([
+        {
+          name: 'default.user_dim.country_code[birth_country]',
+          node_name: 'default.user_dim',
+          node_display_name: 'User Dim',
+          attribute: 'country_code',
+          properties: [],
+          path: [],
+        },
+      ]),
+    };
+    const cube = {
+      current: {
+        cubeDimensions: [
+          {
+            name: 'default.user_dim.country_code[birth_country]',
+            attribute: 'country_code',
+            role: 'birth_country',
+            properties: [],
+          },
+        ],
+      },
+    };
+
+    renderInForm({
+      djClient,
+      cube,
+      initialValues: { metrics: ['default.users'], dimensions: [] },
+    });
+
+    // Role surfaces as a "[birth_country]" suffix on the labelized attribute.
+    expect(
+      await screen.findByText(content =>
+        content.includes('Country Code [birth_country]'),
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('renders the role suffix on the chip even for selected role-aliased options', async () => {
+    // Two role-aliased instances of the same attribute show as two distinct
+    // chips, distinguishable by the role suffix in the label.
+    const djClient = {
+      commonDimensions: jest.fn().mockResolvedValue([
+        {
+          name: 'default.user_dim.country_code[birth_country]',
+          node_name: 'default.user_dim',
+          node_display_name: 'User Dim',
+          attribute: 'country_code',
+          properties: [],
+          path: [],
+        },
+        {
+          name: 'default.user_dim.country_code[residence_country]',
+          node_name: 'default.user_dim',
+          node_display_name: 'User Dim',
+          attribute: 'country_code',
+          properties: [],
+          path: [],
+        },
+      ]),
+    };
+    const cube = {
+      current: {
+        cubeDimensions: [
+          {
+            name: 'default.user_dim.country_code[birth_country]',
+            attribute: 'country_code',
+            role: 'birth_country',
+            properties: [],
+          },
+          {
+            name: 'default.user_dim.country_code[residence_country]',
+            attribute: 'country_code',
+            role: 'residence_country',
+            properties: [],
+          },
+        ],
+      },
+    };
+
+    renderInForm({
+      djClient,
+      cube,
+      initialValues: { metrics: ['default.users'], dimensions: [] },
+    });
+
+    expect(
+      await screen.findByText(c => c.includes('Country Code [birth_country]')),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText(c =>
+        c.includes('Country Code [residence_country]'),
+      ),
+    ).toBeInTheDocument();
+  });
 });

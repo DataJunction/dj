@@ -578,6 +578,7 @@ export const DataJunctionAPI = {
             cubeDimensions {
               name
               attribute
+              role
               properties
             }
           }
