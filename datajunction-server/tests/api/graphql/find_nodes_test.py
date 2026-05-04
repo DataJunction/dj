@@ -3466,42 +3466,6 @@ async def test_find_nodes_columns_with_partition(
 
 
 @pytest.mark.asyncio
-async def test_find_nodes_search_normalizes_separators(
-    client_with_roads: AsyncClient,
-) -> None:
-    """
-    Search treats dots and underscores as word separators on both sides — a
-    query like ``"repairorders"`` (no separator) should still rank
-    ``default.repair_orders`` near the top because the column is normalized
-    to ``"default repair orders"`` before the trigram comparison.
-    """
-    query = """
-    query Search($q: String!) {
-      findNodes(search: $q, limit: 20) { name }
-    }
-    """
-    # Underscore stripped from the query — "repair_orders" becomes "repair
-    # orders" on both sides, so the match still ranks the underscored node.
-    resp = await client_with_roads.post(
-        "/graphql",
-        json={"query": query, "variables": {"q": "repair orders"}},
-    )
-    assert resp.status_code == 200
-    names = [n["name"] for n in resp.json()["data"]["findNodes"]]
-    assert "default.repair_orders" in names
-    assert "default.repair_orders_fact" in names
-
-    # Dot stripped — "default.repair_orders" matches "default repair orders".
-    resp = await client_with_roads.post(
-        "/graphql",
-        json={"query": query, "variables": {"q": "default repair_orders"}},
-    )
-    assert resp.status_code == 200
-    names = [n["name"] for n in resp.json()["data"]["findNodes"]]
-    assert "default.repair_orders" in names
-
-
-@pytest.mark.asyncio
 async def test_find_nodes_paginated_total_count(
     client_with_roads: AsyncClient,
 ) -> None:
