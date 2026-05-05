@@ -217,7 +217,11 @@ def apply_orderby_limit(
             ]
             raise DJInvalidInputException(errors=errors)
 
-        if resolved_sort_items:
+        # Always non-empty when ``orderby`` is non-empty: every sort_item
+        # either resolves (and goes into ``resolved_sort_items``) or fails
+        # (and we raise above). Kept explicit so the type checker sees the
+        # narrowing.
+        if resolved_sort_items:  # pragma: no branch
             select.organization = ast.Organization(order=resolved_sort_items)
 
     # Apply LIMIT

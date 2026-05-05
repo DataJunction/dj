@@ -694,6 +694,45 @@ class TestFilterHelpers:
         ]
         assert exc_info.value.message == "\n".join(error_messages)
 
+    def test_resolve_filter_references_falls_back_when_ref_isnt_node_qualified(self):
+        """A bare unresolved column ref (no ``node.column`` form) cannot be
+        validated against any node, so the safety net falls back to the
+        generic message even when ``nodes`` is supplied. Covers the parse
+        failure branch in ``_raise_for_unresolved_filter_refs``.
+        """
+        filter_ast = parse_filter("bare_col = 'x'")
+        nodes = {
+            "v3.product": _make_node_with_columns(
+                "v3.product",
+                ["category", "price"],
+            ),
+        }
+        with pytest.raises(DJInvalidInputException) as exc_info:
+            resolve_filter_references(filter_ast, {}, nodes=nodes)
+        assert exc_info.value.message == (
+            "Filter references unknown column(s): `bare_col`. "
+            "Make sure each reference uses the `node.column` form and that "
+            "the column exists on the referenced node."
+        )
+
+    def test_resolve_filter_references_falls_back_when_node_not_loaded(self):
+        """A qualified ref whose node isn't in the supplied ``nodes`` dict
+        also falls back to the generic message — we can't construct the
+        rich "Did you mean?" without the node's column list. Covers the
+        ``node is None`` branch.
+        """
+        filter_ast = parse_filter("v3.unloaded_node.some_col = 'x'")
+        nodes = {
+            "v3.product": _make_node_with_columns("v3.product", ["category"]),
+        }
+        with pytest.raises(DJInvalidInputException) as exc_info:
+            resolve_filter_references(filter_ast, {}, nodes=nodes)
+        assert exc_info.value.message == (
+            "Filter references unknown column(s): `v3.unloaded_node.some_col`. "
+            "Make sure each reference uses the `node.column` form and that "
+            "the column exists on the referenced node."
+        )
+
 
 class TestAddTablePrefixesToFilter:
     """Tests for the _add_table_prefixes_to_filter helper in measures.py."""

@@ -3575,6 +3575,44 @@ class TestMetricsSQLOrderByLimit:
             "warnings": [],
         }
 
+    @pytest.mark.asyncio
+    async def test_order_by_multiple_invalid_columns_batches_errors(
+        self,
+        client_with_build_v3,
+    ):
+        """Multiple invalid ORDER BY refs are surfaced as separate DJError
+        entries instead of being collapsed into a single message — so the
+        user can fix every typo in one shot.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+                "orderby": ["v3.bogus_a DESC", "v3.bogus_b ASC"],
+            },
+        )
+
+        msg_a = (
+            "ORDER BY references unknown column `v3.bogus_a`. "
+            "Use one of the requested metric or dimension names: "
+            "`v3.order_details.status`, `v3.total_revenue`."
+        )
+        msg_b = (
+            "ORDER BY references unknown column `v3.bogus_b`. "
+            "Use one of the requested metric or dimension names: "
+            "`v3.order_details.status`, `v3.total_revenue`."
+        )
+        assert response.status_code == 422
+        assert response.json() == {
+            "message": f"{msg_a}\n{msg_b}",
+            "errors": [
+                {"code": 208, "message": msg_a, "debug": None, "context": ""},
+                {"code": 208, "message": msg_b, "debug": None, "context": ""},
+            ],
+            "warnings": [],
+        }
+
 
 class TestFilterOnlyDimensions:
     """Tests for filter-only dimensions (dimensions in WHERE but not in GROUP BY)."""

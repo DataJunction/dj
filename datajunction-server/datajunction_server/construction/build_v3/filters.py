@@ -200,7 +200,7 @@ def resolve_filter_references(
         # later flagged as an unresolved reference.
         if isinstance(subscript.index, ast.Column):
             role_marker_ids.add(id(subscript.index))
-        if hasattr(subscript.index, "find_all"):
+        if hasattr(subscript.index, "find_all"):  # pragma: no branch
             for inner_col in subscript.index.find_all(ast.Column):
                 role_marker_ids.add(id(inner_col))
 
@@ -251,7 +251,7 @@ def resolve_filter_references(
                     node.name = ast.Name(col_alias, namespace=ast.Name(cte_alias))
                 else:
                     node.name = ast.Name(col_alias)
-            elif full_ref:
+            elif full_ref:  # pragma: no branch
                 unresolved.append(full_ref)
 
         # Recursively process children
