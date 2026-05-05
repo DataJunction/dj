@@ -340,10 +340,16 @@ class DruidMeasuresCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
         # Use the user-defined temporal partition if it exists
         user_defined_temporal_partition = None
         user_defined_temporal_partition = user_defined_temporal_partitions[0]
+        # The cube column stores the role separately in ``dimension_column`` as
+        # ``[role]``. Reconstruct the role-qualified form to match the v3
+        # measures-query ``semantic_entity`` (e.g. ``default.date.dateint[asset_create_date]``).
+        partition_ref = user_defined_temporal_partition.name + (
+            user_defined_temporal_partition.dimension_column or ""
+        )
         timestamp_column = [
             col.name
             for col in self.columns  # type: ignore
-            if col.semantic_entity == user_defined_temporal_partition.name
+            if col.semantic_entity == partition_ref
         ][0]
 
         druid_datasource_name = (
