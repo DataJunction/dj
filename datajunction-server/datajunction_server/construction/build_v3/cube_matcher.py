@@ -561,6 +561,7 @@ def build_synthetic_grain_group(
             ctx.dimension_filters,
             dimension_aliases,
             cte_alias=None,  # No CTE alias - selecting directly from cube table
+            nodes=ctx.nodes,
         )
 
     # Build SELECT ... FROM cube_table WHERE filters

@@ -46,7 +46,7 @@ from datajunction_server.construction.build_v3.utils import (
     add_dimensions_from_metric_expressions,
 )
 from datajunction_server.database.partition import Partition
-from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.errors import DJError, DJInvalidInputException, ErrorCode
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.partition import PartitionType
 from datajunction_server.sql.parsing import ast
@@ -179,6 +179,7 @@ def apply_orderby_limit(
         )
 
         resolved_sort_items = []
+        unknown: list[str] = []
         for sort_item in sort_items:
             # Get semantic name from the sort expression
             if isinstance(sort_item.expr, ast.Column):
@@ -197,11 +198,30 @@ def apply_orderby_limit(
                     ),
                 )
             else:
-                logger.warning(
-                    f"[BuildV3] ORDER BY '{semantic_name}' not found in columns, skipping",
-                )
+                unknown.append(semantic_name)
 
-        if resolved_sort_items:
+        if unknown:
+            available = sorted(semantic_to_output.keys())
+            unique_unknown = list(dict.fromkeys(unknown))
+            available_str = ", ".join(f"`{n}`" for n in available)
+            errors = [
+                DJError(
+                    code=ErrorCode.INVALID_ORDER_BY,
+                    message=(
+                        f"ORDER BY references unknown column `{ref}`. "
+                        f"Use one of the requested metric or dimension names: "
+                        f"{available_str}."
+                    ),
+                )
+                for ref in unique_unknown
+            ]
+            raise DJInvalidInputException(errors=errors)
+
+        # Always non-empty when ``orderby`` is non-empty: every sort_item
+        # either resolves (and goes into ``resolved_sort_items``) or fails
+        # (and we raise above). Kept explicit so the type checker sees the
+        # narrowing.
+        if resolved_sort_items:  # pragma: no branch
             select.organization = ast.Organization(order=resolved_sort_items)
 
     # Apply LIMIT

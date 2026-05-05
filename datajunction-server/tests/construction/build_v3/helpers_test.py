@@ -104,6 +104,21 @@ class TestDimensionRefParsing:
             parse_dimension_ref("status")
 
 
+def _make_node_with_columns(name: str, columns: list[str]) -> MagicMock:
+    """Build a Node mock whose ``current.columns`` exposes the given column names."""
+    mock_cols = []
+    for col_name in columns:
+        col = MagicMock()
+        col.name = col_name
+        mock_cols.append(col)
+    rev = MagicMock()
+    rev.columns = mock_cols
+    node = MagicMock()
+    node.name = name
+    node.current = rev
+    return node
+
+
 class TestMakeColumnRef:
     """Tests for make_column_ref function."""
 
@@ -562,32 +577,161 @@ class TestFilterHelpers:
         assert "order_details_0.country_home" in result_str
 
     def test_resolve_filter_references_unrecognized_subscript_index(self):
-        """Test that subscripts with unrecognized index types (not Column/Name/Lambda) are skipped.
+        """A subscript with a non-role index whose base column has no alias is rejected.
 
-        Covers the branch where subscript.index is neither ast.Column, ast.Name, nor
-        ast.Lambda (e.g., a numeric literal), so role stays None and the subscript
-        is left unchanged.
+        ``arr[0] = 'x'`` references unknown column ``arr``. The unresolved-ref
+        guard surfaces it as a DJInvalidInputException rather than letting the
+        broken reference reach the generated SQL.
         """
-        # arr[0] has a numeric index — not a role marker
         filter_ast = parse_filter("arr[0] = 'x'")
-        aliases = {}
-        result = resolve_filter_references(filter_ast, aliases)
-        # Subscript with unrecognized index is preserved as-is
-        assert result is not None
-        assert "[0]" in str(result)
+        with pytest.raises(DJInvalidInputException) as exc_info:
+            resolve_filter_references(filter_ast, {})
+        assert exc_info.value.message == (
+            "Filter references unknown column(s): `arr`. "
+            "Make sure each reference uses the `node.column` form and that "
+            "the column exists on the referenced node."
+        )
 
     def test_resolve_filter_references_role_not_in_aliases(self):
-        """Test that a role-subscript whose role doesn't appear in aliases is left unchanged.
+        """A role-subscript whose role doesn't appear in aliases is rejected.
 
-        Covers the branch where role is successfully extracted (Column index) but
-        alias_to_use is None (neither the role-qualified ref nor the base ref is in aliases).
+        Previously the subscript was silently left unchanged, producing invalid
+        SQL like ``t1.year[order] >= 2024``. We now raise so the bad reference
+        is surfaced before SQL is built.
         """
         filter_ast = parse_filter("v3.date.year[order] >= 2024")
-        # Empty aliases — the role 'order' is extracted but maps to nothing
-        result = resolve_filter_references(filter_ast, {})
-        # Subscript is preserved because there's no alias to replace it with
-        assert result is not None
-        assert "[order]" in str(result)
+        with pytest.raises(DJInvalidInputException) as exc_info:
+            resolve_filter_references(filter_ast, {})
+        assert exc_info.value.message == (
+            "Filter references unknown column(s): `v3.date.year[order]`. "
+            "Make sure each reference uses the `node.column` form and that "
+            "the column exists on the referenced node."
+        )
+
+    def test_resolve_filter_references_unknown_column_raises(self):
+        """An unknown qualified column ref is rejected by the safety net.
+
+        Regression guard for a real incident where a filter referenced
+        ``some.fact.dateint`` — a column that did not exist on that node.
+        DJ used to silently emit the bad column into the WHERE clause; now
+        it raises with the offending ref in the message.
+        """
+        filter_ast = parse_filter(
+            "arc.main.season_market.dateint BETWEEN 20260401 AND 20260429",
+        )
+        with pytest.raises(DJInvalidInputException) as exc_info:
+            resolve_filter_references(filter_ast, {})
+        assert exc_info.value.message == (
+            "Filter references unknown column(s): `arc.main.season_market.dateint`. "
+            "Make sure each reference uses the `node.column` form and that "
+            "the column exists on the referenced node."
+        )
+
+    def test_resolve_filter_references_partial_resolution_raises(self):
+        """If one column resolves but another doesn't, the unresolved ref still raises."""
+        filter_ast = parse_filter(
+            "v3.product.category = 'X' AND v3.product.bogus = 'Y'",
+        )
+        aliases = {"v3.product.category": "category"}
+        with pytest.raises(DJInvalidInputException) as exc_info:
+            resolve_filter_references(filter_ast, aliases)
+        assert exc_info.value.message == (
+            "Filter references unknown column(s): `v3.product.bogus`. "
+            "Make sure each reference uses the `node.column` form and that "
+            "the column exists on the referenced node."
+        )
+
+    def test_resolve_filter_references_unknown_column_with_nodes_uses_validate_helper(
+        self,
+    ):
+        """When ``nodes`` is plumbed in, the unresolved-ref message escalates
+        to ``_format_column_validation_error`` so the user gets the rich
+        "Column X does not exist on node Y" error with suggestions.
+        """
+        filter_ast = parse_filter(
+            "arc.main.season_market_r.dateint BETWEEN 20260401 AND 20260429",
+        )
+        nodes = {
+            "arc.main.season_market_r": _make_node_with_columns(
+                "arc.main.season_market_r",
+                ["market_code", "season_title_id"],
+            ),
+        }
+        with pytest.raises(DJInvalidInputException) as exc_info:
+            resolve_filter_references(filter_ast, {}, nodes=nodes)
+        assert exc_info.value.message == (
+            "Column `dateint` does not exist on node `arc.main.season_market_r` "
+            "(referenced as `arc.main.season_market_r.dateint`)."
+        )
+
+    def test_resolve_filter_references_batches_multiple_unknown_refs(self):
+        """Every unresolved ref shows up as its own DJError so the user can
+        fix them all at once instead of one round-trip per typo.
+        """
+        filter_ast = parse_filter(
+            "v3.product.bogus_a = 'X' AND v3.customer.bogus_b = 'Y' "
+            "AND v3.product.category = 'Z'",
+        )
+        aliases = {"v3.product.category": "category"}
+        nodes = {
+            "v3.product": _make_node_with_columns(
+                "v3.product",
+                ["category", "price"],
+            ),
+            "v3.customer": _make_node_with_columns(
+                "v3.customer",
+                ["customer_id", "name"],
+            ),
+        }
+        with pytest.raises(DJInvalidInputException) as exc_info:
+            resolve_filter_references(filter_ast, aliases, nodes=nodes)
+        error_messages = [e.message for e in exc_info.value.errors]
+        assert error_messages == [
+            "Column `bogus_a` does not exist on node `v3.product` "
+            "(referenced as `v3.product.bogus_a`).",
+            "Column `bogus_b` does not exist on node `v3.customer` "
+            "(referenced as `v3.customer.bogus_b`).",
+        ]
+        assert exc_info.value.message == "\n".join(error_messages)
+
+    def test_resolve_filter_references_falls_back_when_ref_isnt_node_qualified(self):
+        """A bare unresolved column ref (no ``node.column`` form) cannot be
+        validated against any node, so the safety net falls back to the
+        generic message even when ``nodes`` is supplied. Covers the parse
+        failure branch in ``_raise_for_unresolved_filter_refs``.
+        """
+        filter_ast = parse_filter("bare_col = 'x'")
+        nodes = {
+            "v3.product": _make_node_with_columns(
+                "v3.product",
+                ["category", "price"],
+            ),
+        }
+        with pytest.raises(DJInvalidInputException) as exc_info:
+            resolve_filter_references(filter_ast, {}, nodes=nodes)
+        assert exc_info.value.message == (
+            "Filter references unknown column(s): `bare_col`. "
+            "Make sure each reference uses the `node.column` form and that "
+            "the column exists on the referenced node."
+        )
+
+    def test_resolve_filter_references_falls_back_when_node_not_loaded(self):
+        """A qualified ref whose node isn't in the supplied ``nodes`` dict
+        also falls back to the generic message — we can't construct the
+        rich "Did you mean?" without the node's column list. Covers the
+        ``node is None`` branch.
+        """
+        filter_ast = parse_filter("v3.unloaded_node.some_col = 'x'")
+        nodes = {
+            "v3.product": _make_node_with_columns("v3.product", ["category"]),
+        }
+        with pytest.raises(DJInvalidInputException) as exc_info:
+            resolve_filter_references(filter_ast, {}, nodes=nodes)
+        assert exc_info.value.message == (
+            "Filter references unknown column(s): `v3.unloaded_node.some_col`. "
+            "Make sure each reference uses the `node.column` form and that "
+            "the column exists on the referenced node."
+        )
 
 
 class TestAddTablePrefixesToFilter:

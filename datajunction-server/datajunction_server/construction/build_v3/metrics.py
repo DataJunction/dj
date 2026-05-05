@@ -2141,26 +2141,27 @@ def generate_metrics_sql(
                 applicable_dimension_filters,
                 dimension_aliases,
                 cte_alias=filter_cte,
+                nodes=ctx.nodes,
             )
 
     # Build HAVING clause from metric filters
     # Metric filters are applied after aggregation on computed metric values
-    # Use full aggregation expressions (not aliases) for SQL dialect portability
+    # Use full aggregation expressions (not aliases) for SQL dialect portability.
+    # Note: typo'd column refs in metric filters are caught upstream by
+    # ``add_dimensions_from_filters`` + ``resolve_dimensions`` — by the time
+    # we reach this block, every Column is either a known metric (replaced
+    # below) or a known dimension (passes through to engine-side resolution).
     having_clause: Optional[ast.Expression] = None
     if metric_filters_raw:
-        # Parse and resolve metric filters
-        # Replace metric references with their full aggregation expressions
         parsed_metric_filters = []
         for f in metric_filters_raw:
             filter_ast = parse_filter(f)
 
             # Replace metric column references with their full aggregation expressions
-            # This ensures compatibility across all SQL dialects (some don't support aliases in HAVING)
-            # Use the AST's built-in replace() method for clean, robust replacement
+            # so HAVING is portable across dialects that don't support aliases there.
             for col in filter_ast.find_all(ast.Column):
                 full_name = get_column_full_name(col)
                 if full_name and full_name in metric_expr_asts:  # pragma: no branch
-                    # Replace this column node with the metric's full expression
                     metric_expr = metric_expr_asts[full_name].expr_ast
                     filter_ast.replace(from_=col, to=metric_expr, copy=True)
 

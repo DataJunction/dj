@@ -1167,13 +1167,13 @@ async def test_sql_with_orderby_on_dim_column(
 
 
 @pytest.mark.asyncio
-async def test_sql_orderby_unknown_column_is_skipped(
+async def test_sql_orderby_unknown_column_raises(
     client_with_roads: AsyncClient,
 ):
     """
-    ORDER BY references that don't resolve to any output column are dropped
-    with a warning rather than raising — same behavior as
-    ``apply_orderby_limit`` in the metrics path.
+    ORDER BY references that don't resolve to any output column are now
+    rejected with 422 instead of being silently dropped. Silently dropping
+    them previously produced unsorted output that looked successful.
     """
     response = await client_with_roads.get(
         "/sql/default.repair_orders_fact/",
@@ -1182,35 +1182,37 @@ async def test_sql_orderby_unknown_column_is_skipped(
             "limit": 2,
         },
     )
-    assert response.status_code == 200, response.json()
-
-    # No dims, no filters, no resolved orderby → simple Phase 1 shape +
-    # LIMIT only. The unknown ``default.nonexistent.column`` was silently
-    # skipped by ``apply_orderby_limit`` — same as the metrics path does.
-    assert_sql_equal(
-        response.json()["sql"],
-        """
-        SELECT
-          repair_orders.repair_order_id,
-          repair_orders.municipality_id,
-          repair_orders.hard_hat_id,
-          repair_orders.dispatcher_id,
-          repair_orders.order_date,
-          repair_orders.dispatched_date,
-          repair_orders.required_date,
-          repair_order_details.discount,
-          repair_order_details.price,
-          repair_order_details.quantity,
-          repair_order_details.repair_type_id,
-          repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
-          repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
-          repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
-        FROM default.roads.repair_orders repair_orders
-        JOIN default.roads.repair_order_details repair_order_details
-          ON repair_orders.repair_order_id = repair_order_details.repair_order_id
-        LIMIT 2
-        """,
+    expected_message = (
+        "ORDER BY references unknown column `default.nonexistent.column`. "
+        "Use one of the requested metric or dimension names: "
+        "`default.repair_orders_fact.discount`, "
+        "`default.repair_orders_fact.dispatch_delay`, "
+        "`default.repair_orders_fact.dispatched_date`, "
+        "`default.repair_orders_fact.dispatcher_id`, "
+        "`default.repair_orders_fact.hard_hat_id`, "
+        "`default.repair_orders_fact.municipality_id`, "
+        "`default.repair_orders_fact.order_date`, "
+        "`default.repair_orders_fact.price`, "
+        "`default.repair_orders_fact.quantity`, "
+        "`default.repair_orders_fact.repair_order_id`, "
+        "`default.repair_orders_fact.repair_type_id`, "
+        "`default.repair_orders_fact.required_date`, "
+        "`default.repair_orders_fact.time_to_dispatch`, "
+        "`default.repair_orders_fact.total_repair_cost`."
     )
+    assert response.status_code == 422
+    assert response.json() == {
+        "message": expected_message,
+        "errors": [
+            {
+                "code": 208,
+                "message": expected_message,
+                "debug": None,
+                "context": "",
+            },
+        ],
+        "warnings": [],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1290,3 +1292,76 @@ async def test_sql_for_cube_node_dispatches_to_metrics_sql(
     assert via_metrics_v3.status_code == 200, via_metrics_v3.json()
 
     assert_sql_equal(via_node.json()["sql"], via_metrics_v3.json()["sql"])
+
+
+@pytest.mark.asyncio
+async def test_sql_with_filter_on_nonexistent_column_on_local_node(
+    client_with_roads: AsyncClient,
+):
+    """
+    A filter that references a column that does not exist on the starting
+    node is rejected with a 422 and an actionable message — not silently
+    compiled into bad SQL that only fails at engine runtime.
+
+    Regression guard for the season_market.dateint incident.
+    """
+    response = await client_with_roads.get(
+        "/sql/default.repair_orders_fact/",
+        params={
+            "filters": ["default.repair_orders_fact.bogus_col > 100"],
+            "limit": 5,
+        },
+    )
+    expected_message = (
+        "Column `bogus_col` does not exist on node `default.repair_orders_fact` "
+        "(referenced as `default.repair_orders_fact.bogus_col`)."
+    )
+    assert response.status_code == 422
+    assert response.json() == {
+        "message": expected_message,
+        "errors": [
+            {
+                "code": 206,
+                "message": expected_message,
+                "debug": None,
+                "context": "",
+            },
+        ],
+        "warnings": [],
+    }
+
+
+@pytest.mark.asyncio
+async def test_sql_with_filter_on_nonexistent_column_on_joined_dim(
+    client_with_roads: AsyncClient,
+):
+    """
+    A filter referencing a non-existent column on a *joined* dimension node
+    is also rejected. The join path is reachable, but the column itself is
+    unknown — that's the case where DJ used to emit ``tN.bogus_col`` and
+    only fail in the warehouse.
+    """
+    response = await client_with_roads.get(
+        "/sql/default.repair_orders_fact/",
+        params={
+            "filters": ["default.hard_hat.not_a_real_column = 'CA'"],
+            "limit": 3,
+        },
+    )
+    expected_message = (
+        "Column `not_a_real_column` does not exist on node `default.hard_hat` "
+        "(referenced as `default.hard_hat.not_a_real_column`)."
+    )
+    assert response.status_code == 422
+    assert response.json() == {
+        "message": expected_message,
+        "errors": [
+            {
+                "code": 206,
+                "message": expected_message,
+                "debug": None,
+                "context": "",
+            },
+        ],
+        "warnings": [],
+    }

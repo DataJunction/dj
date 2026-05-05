@@ -3506,10 +3506,11 @@ class TestMetricsSQLOrderByLimit:
         )
 
     @pytest.mark.asyncio
-    async def test_order_by_invalid_column_ignored(self, client_with_build_v3):
+    async def test_order_by_invalid_column_raises(self, client_with_build_v3):
         """
-        Test that invalid ORDER BY columns are ignored with a warning.
-        Valid columns should still work.
+        An ORDER BY referencing a name that's not in the result columns is
+        rejected with 422. Previously it was silently dropped, leaving the
+        user with unsorted results and no error to investigate.
         """
         response = await client_with_build_v3.get(
             "/sql/metrics/v3/",
@@ -3520,36 +3521,31 @@ class TestMetricsSQLOrderByLimit:
             },
         )
 
-        assert response.status_code == 200, response.json()
-        result = response.json()
-
-        # The invalid column should be skipped, valid one should work
-        assert_sql_equal(
-            result["sql"],
-            """
-            WITH
-            v3_order_details AS (
-                SELECT o.status, oi.quantity * oi.unit_price AS line_total
-                FROM default.v3.orders o
-                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
-            ),
-            order_details_0 AS (
-                SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
-                FROM v3_order_details t1
-                GROUP BY t1.status
-            )
-            SELECT order_details_0.status AS status,
-                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
-            FROM order_details_0
-            GROUP BY order_details_0.status
-            ORDER BY total_revenue ASC
-            """,
+        expected_message = (
+            "ORDER BY references unknown column `v3.nonexistent_column`. "
+            "Use one of the requested metric or dimension names: "
+            "`v3.order_details.status`, `v3.total_revenue`."
         )
+        assert response.status_code == 422
+        assert response.json() == {
+            "message": expected_message,
+            "errors": [
+                {
+                    "code": 208,
+                    "message": expected_message,
+                    "debug": None,
+                    "context": "",
+                },
+            ],
+            "warnings": [],
+        }
 
     @pytest.mark.asyncio
-    async def test_order_by_all_invalid_columns(self, client_with_build_v3):
+    async def test_order_by_all_invalid_columns_raises(self, client_with_build_v3):
         """
-        Test that when all ORDER BY columns are invalid, no ORDER BY is added.
+        When every ORDER BY ref is unknown, the request is still rejected —
+        the prior behavior of silently dropping ORDER BY entirely produced
+        unsorted output that looked successful.
         """
         response = await client_with_build_v3.get(
             "/sql/metrics/v3/",
@@ -3560,30 +3556,62 @@ class TestMetricsSQLOrderByLimit:
             },
         )
 
-        assert response.status_code == 200, response.json()
-        result = response.json()
-
-        # No ORDER BY should be in the SQL since all columns were invalid
-        assert_sql_equal(
-            result["sql"],
-            """
-            WITH
-            v3_order_details AS (
-                SELECT o.status, oi.quantity * oi.unit_price AS line_total
-                FROM default.v3.orders o
-                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
-            ),
-            order_details_0 AS (
-                SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
-                FROM v3_order_details t1
-                GROUP BY t1.status
-            )
-            SELECT order_details_0.status AS status,
-                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
-            FROM order_details_0
-            GROUP BY order_details_0.status
-            """,
+        expected_message = (
+            "ORDER BY references unknown column `v3.nonexistent_column`. "
+            "Use one of the requested metric or dimension names: "
+            "`v3.order_details.status`, `v3.total_revenue`."
         )
+        assert response.status_code == 422
+        assert response.json() == {
+            "message": expected_message,
+            "errors": [
+                {
+                    "code": 208,
+                    "message": expected_message,
+                    "debug": None,
+                    "context": "",
+                },
+            ],
+            "warnings": [],
+        }
+
+    @pytest.mark.asyncio
+    async def test_order_by_multiple_invalid_columns_batches_errors(
+        self,
+        client_with_build_v3,
+    ):
+        """Multiple invalid ORDER BY refs are surfaced as separate DJError
+        entries instead of being collapsed into a single message — so the
+        user can fix every typo in one shot.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+                "orderby": ["v3.bogus_a DESC", "v3.bogus_b ASC"],
+            },
+        )
+
+        msg_a = (
+            "ORDER BY references unknown column `v3.bogus_a`. "
+            "Use one of the requested metric or dimension names: "
+            "`v3.order_details.status`, `v3.total_revenue`."
+        )
+        msg_b = (
+            "ORDER BY references unknown column `v3.bogus_b`. "
+            "Use one of the requested metric or dimension names: "
+            "`v3.order_details.status`, `v3.total_revenue`."
+        )
+        assert response.status_code == 422
+        assert response.json() == {
+            "message": f"{msg_a}\n{msg_b}",
+            "errors": [
+                {"code": 208, "message": msg_a, "debug": None, "context": ""},
+                {"code": 208, "message": msg_b, "debug": None, "context": ""},
+            ],
+            "warnings": [],
+        }
 
 
 class TestFilterOnlyDimensions:
