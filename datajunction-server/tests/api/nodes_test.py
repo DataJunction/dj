@@ -2075,7 +2075,7 @@ class TestNodeCRUD:
         )
         data = response.json()
 
-        the_good_columns = module__query_service_client.get_columns_for_table(
+        the_good_columns = await module__query_service_client.get_columns_for_table(
             "default",
             "roads",
             "repair_orders",
