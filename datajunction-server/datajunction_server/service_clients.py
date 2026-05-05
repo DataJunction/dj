@@ -1,11 +1,13 @@
 """Clients for various configurable services."""
 
+import asyncio
 import logging
 from enum import Enum
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Dict, List, Optional, Union, Any
 from urllib.parse import urljoin
 
+import httpx
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3 import Retry
@@ -95,8 +97,11 @@ class QueryServiceClient:
     Client for the query service.
     """
 
+    _RETRYABLE_STATUSES = frozenset({429, 500, 502, 503, 504})
+
     def __init__(self, uri: str, retries: int = 0):
         self.uri = uri
+        self._retries = retries
         retry_strategy = Retry(
             total=retries,
             backoff_factor=1.5,
@@ -107,6 +112,52 @@ class QueryServiceClient:
             endpoint=self.uri,
             retry_strategy=retry_strategy,
         )
+        self._async_client: Optional[httpx.AsyncClient] = None
+
+    def _get_async_client(self) -> httpx.AsyncClient:
+        """
+        Lazily build the AsyncClient on the running event loop. Avoids creating
+        the client at __init__ time, when there may be no loop yet.
+        """
+        if self._async_client is None:
+            transport = httpx.AsyncHTTPTransport(retries=self._retries)
+            self._async_client = httpx.AsyncClient(
+                base_url=self.uri,
+                transport=transport,
+                timeout=httpx.Timeout(30.0, connect=5.0),
+            )
+        return self._async_client
+
+    async def _arequest(
+        self,
+        method: str,
+        path: str,
+        *,
+        retryable_statuses: frozenset = _RETRYABLE_STATUSES,
+        **kwargs,
+    ) -> httpx.Response:
+        """
+        Issue an async HTTP request with status-code retries (429/5xx).
+
+        httpx's transport-level retries cover connect errors only; this wraps
+        the request to also retry on the same status codes the sync client
+        retries via urllib3 Retry.
+        """
+        client = self._get_async_client()
+        attempt = 0
+        while True:
+            response = await client.request(method, path, **kwargs)
+            if response.status_code in retryable_statuses and attempt < self._retries:
+                attempt += 1
+                await asyncio.sleep(1.5 * (2 ** (attempt - 1)))
+                continue
+            return response
+
+    async def aclose(self) -> None:
+        """Close the underlying async client. Safe to call multiple times."""
+        if self._async_client is not None:
+            await self._async_client.aclose()
+            self._async_client = None
 
     def get_columns_for_table(
         self,
@@ -128,6 +179,44 @@ class QueryServiceClient:
             if engine
             else {},
             headers=self.requests_session.headers,
+        )
+        if response.status_code not in (200, 201):
+            if response.status_code == HTTPStatus.NOT_FOUND:
+                raise DJDoesNotExistException(
+                    message=f"Table not found: {response.text}",
+                )
+            raise DJQueryServiceClientException(
+                message=f"Error response from query service: {response.text}",
+            )
+        table_columns = response.json()["columns"]
+        if not table_columns:
+            raise DJDoesNotExistException(
+                message=f"No columns found: {response.text}",
+            )
+        return [
+            Column(name=column["name"], type=ColumnType(column["type"]), order=idx)
+            for idx, column in enumerate(table_columns)
+        ]
+
+    async def get_columns_for_table_async(
+        self,
+        catalog: str,
+        schema: str,
+        table: str,
+        request_headers: Optional[Dict[str, str]] = None,
+        engine: Optional["Engine"] = None,
+    ) -> List[Column]:
+        """Async variant of get_columns_for_table."""
+        params = (
+            {"engine": engine.name, "engine_version": engine.version}
+            if engine
+            else None
+        )
+        response = await self._arequest(
+            "GET",
+            f"/table/{catalog}.{schema}.{table}/columns/",
+            params=params,
+            headers=request_headers,
         )
         if response.status_code not in (200, 201):
             if response.status_code == HTTPStatus.NOT_FOUND:
@@ -192,6 +281,43 @@ class QueryServiceClient:
 
         return result
 
+    async def get_columns_for_tables_batch_async(
+        self,
+        tables: List[tuple[str, str, str]],
+        request_headers: Optional[Dict[str, str]] = None,
+        engine: Optional["Engine"] = None,
+    ) -> Dict[tuple[str, str, str], List[Column]]:
+        """Async variant of get_columns_for_tables_batch."""
+        table_names = [
+            f"{catalog}.{schema}.{table}" for catalog, schema, table in tables
+        ]
+        response = await self._arequest(
+            "POST",
+            "/tables/columns/",
+            headers=request_headers,
+            json=table_names,
+        )
+        if response.status_code not in (200, 201):
+            raise DJQueryServiceClientException(
+                message=f"Error response from query service: {response.text}",
+                http_status_code=response.status_code,
+            )
+
+        result = {}
+        tables_data = response.json()
+        for catalog, schema, table in tables:
+            table_name = f"{catalog}.{schema}.{table}"
+            table_info = tables_data.get(table_name)
+            if table_info and table_info.get("columns"):
+                result[(catalog, schema, table)] = [
+                    Column(name=col["name"], type=ColumnType(col["type"]), order=idx)
+                    for idx, col in enumerate(table_info["columns"])
+                ]
+            else:
+                _logger.warning(f"No columns returned for table {table_name}")
+                result[(catalog, schema, table)] = []
+        return result
+
     def create_view(
         self,
         view_name: str,
@@ -244,6 +370,52 @@ class QueryServiceClient:
 
         return f"View '{view_name}' created successfully."
 
+    async def create_view_async(
+        self,
+        view_name: str,
+        query_create: QueryCreate,
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> str:
+        """Async variant of create_view."""
+        _logger.info(
+            "[create_view] Submitting DDL for view '%s' to query service",
+            view_name,
+        )
+        payload = {
+            "submitted_query": query_create.submitted_query,
+            "catalog_name": query_create.catalog_name,
+            "engine_name": query_create.engine_name,
+            "engine_version": query_create.engine_version or "",
+        }
+        response = await self._arequest(
+            "POST",
+            "/ddl/execute",
+            headers=request_headers,
+            json=payload,
+        )
+        if response.status_code not in (200, 201):
+            raise DJQueryServiceClientException(
+                message=f"Error response from query service: {response.text}",
+                http_status_code=response.status_code,
+            )
+        result = response.json()
+        status = result.get("status", "UNKNOWN")
+        message = result.get("message", "")
+        errors = result.get("errors", [])
+        _logger.info(
+            "[create_view] DDL result for view '%s': status=%s message=%s",
+            view_name,
+            status,
+            message,
+        )
+        if status != DDLStatus.SUCCESS:
+            error_msg = "; ".join(str(e) for e in errors) if errors else message
+            raise DJQueryServiceClientException(
+                message=f"View '{view_name}' creation failed: {error_msg}",
+                http_status_code=response.status_code,
+            )
+        return f"View '{view_name}' created successfully."
+
     def submit_query(
         self,
         query_create: QueryCreate,
@@ -267,6 +439,28 @@ class QueryServiceClient:
             )
         query_info = response.json()
         return QueryWithResults(**query_info)
+
+    async def submit_query_async(
+        self,
+        query_create: QueryCreate,
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> QueryWithResults:
+        """Async variant of submit_query."""
+        headers = {"accept": "application/json"}
+        if request_headers:
+            headers = {**request_headers, **headers}
+        response = await self._arequest(
+            "POST",
+            "/queries/",
+            headers=headers,
+            json=query_create.model_dump(),
+        )
+        if response.status_code not in (200, 201):
+            raise DJQueryServiceClientException(
+                message=f"Error response from query service: {response.text}",
+                http_status_code=response.status_code,
+            )
+        return QueryWithResults(**response.json())
 
     def get_query(
         self,
@@ -302,6 +496,39 @@ class QueryServiceClient:
             get_query_endpoint,
         )
         return QueryWithResults(**query_info)
+
+    async def get_query_async(
+        self,
+        query_id: str,
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> QueryWithResults:
+        """Async variant of get_query."""
+        get_query_endpoint = f"/queries/{query_id}/"
+        response = await self._arequest(
+            "GET",
+            get_query_endpoint,
+            headers=request_headers,
+        )
+        if response.status_code == 404:
+            _logger.exception(
+                "[DJQS] Failed to get query_id=%s with `GET %s`",
+                query_id,
+                get_query_endpoint,
+                exc_info=True,
+            )
+            raise DJQueryServiceClientEntityNotFound(  # pragma: no cover
+                message=f"Error response from query service: {response.text}",
+            )
+        if response.status_code not in (200, 201):
+            raise DJQueryServiceClientException(
+                message=f"Error response from query service: {response.text}",
+            )
+        _logger.info(
+            "[DJQS] Retrieved query_id=%s with `GET %s`",
+            query_id,
+            get_query_endpoint,
+        )
+        return QueryWithResults(**response.json())
 
     def materialize(
         self,

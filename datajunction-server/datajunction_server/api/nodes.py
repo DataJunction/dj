@@ -685,7 +685,7 @@ async def register_table(
 
     # Use reflection to get column names and types
     _catalog = await get_catalog_by_name(session=session, name=catalog)
-    columns = query_service_client.get_columns_for_table(
+    columns = await query_service_client.get_columns_for_table_async(
         _catalog.name,
         schema_,
         table,
@@ -762,14 +762,14 @@ async def register_view(
         submitted_query=query,
         async_=False,
     )
-    query_service_client.create_view(
+    await query_service_client.create_view_async(
         view_name,
         query_create,
         request_headers,
     )
 
     # Use reflection to get column names and types
-    columns = query_service_client.get_columns_for_table(
+    columns = await query_service_client.get_columns_for_table_async(
         _catalog.name,
         schema_,
         view,

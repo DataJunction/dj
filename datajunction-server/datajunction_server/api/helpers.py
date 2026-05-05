@@ -759,7 +759,7 @@ async def query_event_stream(
             break
 
         # Check the current state of the query
-        query_next = query_service_client.get_query(  # type: ignore # pragma: no cover
+        query_next = await query_service_client.get_query_async(  # type: ignore # pragma: no cover
             query_id=query_id,
             request_headers=request_headers,
         )

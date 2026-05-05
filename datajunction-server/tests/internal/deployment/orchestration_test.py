@@ -1374,10 +1374,12 @@ async def test_auto_register_sources_with_empty_columns(
 
     mock_query_client = Mock()
     # Mock batch column fetch returning empty columns for one table
-    mock_query_client.get_columns_for_tables_batch.return_value = {
-        ("test_catalog", "schema1", "table1"): [],  # Empty columns
-        ("test_catalog", "schema1", "table2"): [mock_col],
-    }
+    mock_query_client.get_columns_for_tables_batch_async = AsyncMock(
+        return_value={
+            ("test_catalog", "schema1", "table1"): [],  # Empty columns
+            ("test_catalog", "schema1", "table2"): [mock_col],
+        },
+    )
 
     context = DeploymentContext(
         current_user=current_user,
@@ -1426,8 +1428,8 @@ async def test_auto_register_sources_batch_introspection_failure(
 
     mock_query_client = Mock()
     # Mock batch column fetch to raise exception
-    mock_query_client.get_columns_for_tables_batch.side_effect = Exception(
-        "Connection timeout",
+    mock_query_client.get_columns_for_tables_batch_async = AsyncMock(
+        side_effect=Exception("Connection timeout"),
     )
 
     context = DeploymentContext(
@@ -1511,15 +1513,17 @@ async def test_auto_register_sources_success(
 
     mock_query_client = Mock()
     # Mock successful batch column fetch
-    mock_query_client.get_columns_for_tables_batch.return_value = {
-        ("test_catalog", "schema1", "table1"): [
-            Column(name="id", type="int", order=0),
-            Column(name="name", type="str", order=1),
-        ],
-        ("test_catalog", "schema1", "table2"): [
-            Column(name="value", type="bigint", order=0),
-        ],
-    }
+    mock_query_client.get_columns_for_tables_batch_async = AsyncMock(
+        return_value={
+            ("test_catalog", "schema1", "table1"): [
+                Column(name="id", type="int", order=0),
+                Column(name="name", type="str", order=1),
+            ],
+            ("test_catalog", "schema1", "table2"): [
+                Column(name="value", type="bigint", order=0),
+            ],
+        },
+    )
 
     context = DeploymentContext(
         current_user=current_user,
@@ -1707,9 +1711,11 @@ async def test_auto_register_sources_preserves_source_prefix_in_name(
     mock_col.type = "int"
 
     mock_query_client = Mock()
-    mock_query_client.get_columns_for_tables_batch.return_value = {
-        ("test_catalog", "schema1", "table1"): [mock_col],
-    }
+    mock_query_client.get_columns_for_tables_batch_async = AsyncMock(
+        return_value={
+            ("test_catalog", "schema1", "table1"): [mock_col],
+        },
+    )
 
     context = DeploymentContext(
         current_user=current_user,
@@ -1839,8 +1845,8 @@ async def test_check_external_deps_auto_register_fails_with_errors(
     await session.commit()
 
     mock_client = Mock()
-    mock_client.get_columns_for_tables_batch.side_effect = Exception(
-        "Connection timeout",
+    mock_client.get_columns_for_tables_batch_async = AsyncMock(
+        side_effect=Exception("Connection timeout"),
     )
 
     context = DeploymentContext(

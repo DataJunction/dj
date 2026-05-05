@@ -111,6 +111,71 @@ class HttpQueryServiceClient(BaseQueryServiceClient):
             request_headers=request_headers,
         )
 
+    async def get_columns_for_table_async(
+        self,
+        catalog: str,
+        schema: str,
+        table: str,
+        request_headers: Optional[Dict[str, str]] = None,
+        engine: Optional["Engine"] = None,
+    ) -> List[Column]:
+        """Async variant — uses underlying httpx.AsyncClient."""
+        return await self._client.get_columns_for_table_async(
+            catalog=catalog,
+            schema=schema,
+            table=table,
+            request_headers=request_headers,
+            engine=engine,
+        )
+
+    async def get_columns_for_tables_batch_async(
+        self,
+        tables: List[tuple[str, str, str]],
+        request_headers: Optional[Dict[str, str]] = None,
+        engine: Optional["Engine"] = None,
+    ) -> Dict[tuple[str, str, str], List[Column]]:
+        """Async batch variant — uses underlying httpx.AsyncClient."""
+        return await self._client.get_columns_for_tables_batch_async(
+            tables=tables,
+            request_headers=request_headers,
+            engine=engine,
+        )
+
+    async def create_view_async(
+        self,
+        view_name: str,
+        query_create: QueryCreate,
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> str:
+        """Async variant — uses underlying httpx.AsyncClient."""
+        return await self._client.create_view_async(
+            view_name=view_name,
+            query_create=query_create,
+            request_headers=request_headers,
+        )
+
+    async def submit_query_async(
+        self,
+        query_create: QueryCreate,
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> QueryWithResults:
+        """Async variant — uses underlying httpx.AsyncClient."""
+        return await self._client.submit_query_async(
+            query_create=query_create,
+            request_headers=request_headers,
+        )
+
+    async def get_query_async(
+        self,
+        query_id: str,
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> QueryWithResults:
+        """Async variant — uses underlying httpx.AsyncClient."""
+        return await self._client.get_query_async(
+            query_id=query_id,
+            request_headers=request_headers,
+        )
+
     def materialize(
         self,
         materialization_input: Union[

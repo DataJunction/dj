@@ -612,12 +612,10 @@ class DeploymentOrchestrator:
         engine = _catalog.engines[0] if _catalog.engines else None
 
         try:
-            columns_by_table = (
-                self.context.query_service_client.get_columns_for_tables_batch(
-                    tables=tables,
-                    request_headers=request_headers,
-                    engine=engine,
-                )
+            columns_by_table = await self.context.query_service_client.get_columns_for_tables_batch_async(
+                tables=tables,
+                request_headers=request_headers,
+                engine=engine,
             )
 
             for (catalog, schema, table), columns in columns_by_table.items():

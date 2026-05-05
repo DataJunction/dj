@@ -1,5 +1,6 @@
 """Base abstract class for query service clients."""
 
+import asyncio
 import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
@@ -167,6 +168,82 @@ class BaseQueryServiceClient(ABC):
         """
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support query retrieval",
+        )
+
+    async def get_columns_for_table_async(
+        self,
+        catalog: str,
+        schema: str,
+        table: str,
+        request_headers: Optional[Dict[str, str]] = None,
+        engine: Optional["Engine"] = None,
+    ) -> List[Column]:
+        """
+        Async variant of get_columns_for_table.
+
+        Default implementation runs the sync method in a threadpool so that
+        non-HTTP backends (Snowflake, BigQuery) don't block the event loop.
+        Backends with native async I/O should override this.
+        """
+        return await asyncio.to_thread(
+            self.get_columns_for_table,
+            catalog,
+            schema,
+            table,
+            request_headers,
+            engine,
+        )
+
+    async def get_columns_for_tables_batch_async(
+        self,
+        tables: List[tuple[str, str, str]],
+        request_headers: Optional[Dict[str, str]] = None,
+        engine: Optional["Engine"] = None,
+    ) -> Dict[tuple[str, str, str], List[Column]]:
+        """Async variant of get_columns_for_tables_batch (threadpool fallback)."""
+        return await asyncio.to_thread(
+            self.get_columns_for_tables_batch,
+            tables,
+            request_headers,
+            engine,
+        )
+
+    async def create_view_async(
+        self,
+        view_name: str,
+        query_create: QueryCreate,
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> str:
+        """Async variant of create_view (threadpool fallback)."""
+        return await asyncio.to_thread(
+            self.create_view,
+            view_name,
+            query_create,
+            request_headers,
+        )
+
+    async def submit_query_async(
+        self,
+        query_create: QueryCreate,
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> QueryWithResults:
+        """Async variant of submit_query (threadpool fallback)."""
+        return await asyncio.to_thread(
+            self.submit_query,
+            query_create,
+            request_headers,
+        )
+
+    async def get_query_async(
+        self,
+        query_id: str,
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> QueryWithResults:
+        """Async variant of get_query (threadpool fallback)."""
+        return await asyncio.to_thread(
+            self.get_query,
+            query_id,
+            request_headers,
         )
 
     def materialize(
