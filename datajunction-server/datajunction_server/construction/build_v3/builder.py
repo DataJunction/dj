@@ -179,6 +179,7 @@ def apply_orderby_limit(
         )
 
         resolved_sort_items = []
+        unknown: list[str] = []
         for sort_item in sort_items:
             # Get semantic name from the sort expression
             if isinstance(sort_item.expr, ast.Column):
@@ -197,9 +198,26 @@ def apply_orderby_limit(
                     ),
                 )
             else:
-                logger.warning(
-                    f"[BuildV3] ORDER BY '{semantic_name}' not found in columns, skipping",
+                unknown.append(semantic_name)
+
+        if unknown:
+            from datajunction_server.errors import DJError, ErrorCode
+
+            available = sorted(semantic_to_output.keys())
+            unique_unknown = list(dict.fromkeys(unknown))
+            available_str = ", ".join(f"`{n}`" for n in available)
+            errors = [
+                DJError(
+                    code=ErrorCode.INVALID_ORDER_BY,
+                    message=(
+                        f"ORDER BY references unknown column `{ref}`. "
+                        f"Use one of the requested metric or dimension names: "
+                        f"{available_str}."
+                    ),
                 )
+                for ref in unique_unknown
+            ]
+            raise DJInvalidInputException(errors=errors)
 
         if resolved_sort_items:
             select.organization = ast.Organization(order=resolved_sort_items)

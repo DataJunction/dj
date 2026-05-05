@@ -607,6 +607,7 @@ def build_outer_where(
     main_alias: str,
     dim_aliases: dict[tuple[str, Optional[str]], str],
     parent_node: Node,
+    nodes: Optional[dict[str, Node]] = None,
 ) -> Optional[ast.Expression]:
     """Parse user filters and resolve column references for the outer WHERE clause.
 
@@ -617,6 +618,7 @@ def build_outer_where(
         filters,
         filter_column_aliases,
         cte_alias=None,
+        nodes=nodes,
     )
     if where_clause:  # pragma: no branch
         _add_table_prefixes_to_filter(
@@ -964,6 +966,7 @@ def build_select_ast(
             main_alias,
             dim_aliases,
             parent_node,
+            nodes=ctx.nodes,
         )
 
     # Build CTEs for all non-source nodes. Requested dimension filters and their

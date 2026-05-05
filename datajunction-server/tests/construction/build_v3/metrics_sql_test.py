@@ -3506,10 +3506,11 @@ class TestMetricsSQLOrderByLimit:
         )
 
     @pytest.mark.asyncio
-    async def test_order_by_invalid_column_ignored(self, client_with_build_v3):
+    async def test_order_by_invalid_column_raises(self, client_with_build_v3):
         """
-        Test that invalid ORDER BY columns are ignored with a warning.
-        Valid columns should still work.
+        An ORDER BY referencing a name that's not in the result columns is
+        rejected with 422. Previously it was silently dropped, leaving the
+        user with unsorted results and no error to investigate.
         """
         response = await client_with_build_v3.get(
             "/sql/metrics/v3/",
@@ -3520,36 +3521,18 @@ class TestMetricsSQLOrderByLimit:
             },
         )
 
-        assert response.status_code == 200, response.json()
-        result = response.json()
-
-        # The invalid column should be skipped, valid one should work
-        assert_sql_equal(
-            result["sql"],
-            """
-            WITH
-            v3_order_details AS (
-                SELECT o.status, oi.quantity * oi.unit_price AS line_total
-                FROM default.v3.orders o
-                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
-            ),
-            order_details_0 AS (
-                SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
-                FROM v3_order_details t1
-                GROUP BY t1.status
-            )
-            SELECT order_details_0.status AS status,
-                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
-            FROM order_details_0
-            GROUP BY order_details_0.status
-            ORDER BY total_revenue ASC
-            """,
-        )
+        assert response.status_code == 422, response.json()
+        message = response.json()["message"]
+        assert "v3.nonexistent_column" in message
+        # The valid name should also be surfaced as a hint
+        assert "v3.total_revenue" in message
 
     @pytest.mark.asyncio
-    async def test_order_by_all_invalid_columns(self, client_with_build_v3):
+    async def test_order_by_all_invalid_columns_raises(self, client_with_build_v3):
         """
-        Test that when all ORDER BY columns are invalid, no ORDER BY is added.
+        When every ORDER BY ref is unknown, the request is still rejected —
+        the prior behavior of silently dropping ORDER BY entirely produced
+        unsorted output that looked successful.
         """
         response = await client_with_build_v3.get(
             "/sql/metrics/v3/",
@@ -3560,30 +3543,8 @@ class TestMetricsSQLOrderByLimit:
             },
         )
 
-        assert response.status_code == 200, response.json()
-        result = response.json()
-
-        # No ORDER BY should be in the SQL since all columns were invalid
-        assert_sql_equal(
-            result["sql"],
-            """
-            WITH
-            v3_order_details AS (
-                SELECT o.status, oi.quantity * oi.unit_price AS line_total
-                FROM default.v3.orders o
-                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
-            ),
-            order_details_0 AS (
-                SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
-                FROM v3_order_details t1
-                GROUP BY t1.status
-            )
-            SELECT order_details_0.status AS status,
-                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
-            FROM order_details_0
-            GROUP BY order_details_0.status
-            """,
-        )
+        assert response.status_code == 422, response.json()
+        assert "v3.nonexistent_column" in response.json()["message"]
 
 
 class TestFilterOnlyDimensions:

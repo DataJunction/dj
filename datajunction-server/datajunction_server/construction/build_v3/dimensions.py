@@ -4,6 +4,7 @@ Dimension + join path resolution and building functions
 
 from __future__ import annotations
 
+import difflib
 from http import HTTPStatus
 import logging
 from typing import Optional, cast
@@ -12,7 +13,12 @@ from datajunction_server.construction.build_v3.utils import (
     get_short_name,
     make_name,
 )
-from datajunction_server.errors import DJException
+from datajunction_server.errors import (
+    DJError,
+    DJException,
+    DJInvalidInputException,
+    ErrorCode,
+)
 from datajunction_server.construction.build_v3.materialization import (
     get_table_reference_parts_with_materialization,
 )
@@ -184,6 +190,50 @@ def can_skip_join_for_dimension(
     return False, None
 
 
+def _format_column_validation_error(
+    node: Node,
+    column_name: str,
+    original_ref: str,
+) -> str | None:
+    """
+    Return an error message string when ``column_name`` is not on ``node``,
+    or ``None`` when the column is valid (or the node has no loaded columns).
+
+    This is the non-raising form of ``_validate_column_on_node``. Use it when
+    you want to batch multiple validation errors into a single exception
+    instead of raising on the first failure.
+    """
+    if not node.current or not node.current.columns:  # pragma: no cover
+        return None
+
+    available = [col.name for col in node.current.columns]
+    if column_name in available:
+        return None
+
+    suggestions = difflib.get_close_matches(column_name, available, n=3, cutoff=0.6)
+    suffix = f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
+    return (
+        f"Column `{column_name}` does not exist on node `{node.name}` "
+        f"(referenced as `{original_ref}`).{suffix}"
+    )
+
+
+def _validate_column_on_node(
+    node: Node,
+    column_name: str,
+    original_ref: str,
+) -> None:
+    """
+    Raise DJInvalidInputException if ``column_name`` is not a column on ``node``.
+
+    Catches typos and stale references early, before they leak into generated
+    SQL where they only surface as engine-level errors at execution time.
+    """
+    message = _format_column_validation_error(node, column_name, original_ref)
+    if message is not None:
+        raise DJInvalidInputException(message)
+
+
 def resolve_dimensions(
     ctx: BuildContext,
     parent_node: Node,
@@ -197,6 +247,7 @@ def resolve_dimensions(
     Returns a list of ResolvedDimension objects with join path information.
     """
     resolved = []
+    column_errors: list[str] = []
 
     for dim in ctx.dimensions:
         dim_ref = parse_dimension_ref(dim)
@@ -213,6 +264,14 @@ def resolve_dimensions(
             dim_ref.node_name = parent_node.name
 
         if is_local:
+            err = _format_column_validation_error(
+                parent_node,
+                dim_ref.column_name,
+                dim,
+            )
+            if err is not None:
+                column_errors.append(err)
+                continue
             resolved.append(
                 ResolvedDimension(
                     original_ref=dim,
@@ -254,6 +313,17 @@ def resolve_dimensions(
                     f"Please create a dimension link between these nodes.",
                 )
 
+            # Validate column exists on the target dimension node before we
+            # commit to a column reference that might never resolve.
+            err = _format_column_validation_error(
+                join_path.target_dimension,
+                dim_ref.column_name,
+                dim,
+            )
+            if err is not None:
+                column_errors.append(err)
+                continue
+
             # Optimization: if requesting the join key column, skip the join
             can_skip, local_col = can_skip_join_for_dimension(
                 dim_ref,
@@ -285,6 +355,14 @@ def resolve_dimensions(
                         is_local=False,
                     ),
                 )
+
+    if column_errors:
+        raise DJInvalidInputException(
+            errors=[
+                DJError(code=ErrorCode.INVALID_COLUMN, message=msg)
+                for msg in column_errors
+            ],
+        )
 
     return resolved
 

@@ -1167,13 +1167,13 @@ async def test_sql_with_orderby_on_dim_column(
 
 
 @pytest.mark.asyncio
-async def test_sql_orderby_unknown_column_is_skipped(
+async def test_sql_orderby_unknown_column_raises(
     client_with_roads: AsyncClient,
 ):
     """
-    ORDER BY references that don't resolve to any output column are dropped
-    with a warning rather than raising — same behavior as
-    ``apply_orderby_limit`` in the metrics path.
+    ORDER BY references that don't resolve to any output column are now
+    rejected with 422 instead of being silently dropped. Silently dropping
+    them previously produced unsorted output that looked successful.
     """
     response = await client_with_roads.get(
         "/sql/default.repair_orders_fact/",
@@ -1182,35 +1182,8 @@ async def test_sql_orderby_unknown_column_is_skipped(
             "limit": 2,
         },
     )
-    assert response.status_code == 200, response.json()
-
-    # No dims, no filters, no resolved orderby → simple Phase 1 shape +
-    # LIMIT only. The unknown ``default.nonexistent.column`` was silently
-    # skipped by ``apply_orderby_limit`` — same as the metrics path does.
-    assert_sql_equal(
-        response.json()["sql"],
-        """
-        SELECT
-          repair_orders.repair_order_id,
-          repair_orders.municipality_id,
-          repair_orders.hard_hat_id,
-          repair_orders.dispatcher_id,
-          repair_orders.order_date,
-          repair_orders.dispatched_date,
-          repair_orders.required_date,
-          repair_order_details.discount,
-          repair_order_details.price,
-          repair_order_details.quantity,
-          repair_order_details.repair_type_id,
-          repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
-          repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
-          repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
-        FROM default.roads.repair_orders repair_orders
-        JOIN default.roads.repair_order_details repair_order_details
-          ON repair_orders.repair_order_id = repair_order_details.repair_order_id
-        LIMIT 2
-        """,
-    )
+    assert response.status_code == 422, response.json()
+    assert "default.nonexistent.column" in response.json()["message"]
 
 
 # ---------------------------------------------------------------------------

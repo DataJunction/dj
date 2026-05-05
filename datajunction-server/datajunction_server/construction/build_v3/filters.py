@@ -6,11 +6,19 @@ from __future__ import annotations
 
 from copy import deepcopy
 from functools import reduce
+from typing import TYPE_CHECKING
 
-from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.errors import (
+    DJError,
+    DJInvalidInputException,
+    ErrorCode,
+)
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.utils import SEPARATOR
+
+if TYPE_CHECKING:
+    from datajunction_server.database.node import Node
 
 
 def parse_filter(filter_str: str) -> ast.Expression:
@@ -63,10 +71,74 @@ def extract_subscript_role(subscript: ast.Subscript) -> str | None:
     return None  # pragma: no cover
 
 
+def _raise_for_unresolved_filter_refs(
+    refs: list[str],
+    nodes: dict[str, "Node"] | None,
+) -> None:
+    """
+    Raise a single DJInvalidInputException covering every unresolved filter ref.
+
+    When ``nodes`` is provided, each ref that decomposes into a known
+    ``node.column`` pair gets the rich "Column X does not exist on node Y
+    (Did you mean: ...?)" message from ``_format_column_validation_error``.
+    Refs that don't have a matching node fall back to a generic message.
+
+    All ref-level messages are joined with newlines so the user sees every
+    bad reference at once rather than fixing them one round-trip at a time.
+    """
+    # Local import to avoid the dimensions <-> filters cycle at import time.
+    from datajunction_server.construction.build_v3.dimensions import (
+        _format_column_validation_error,
+        parse_dimension_ref,
+    )
+
+    unique = list(dict.fromkeys(refs))
+    errors: list[DJError] = []
+    fallback_refs: list[str] = []
+
+    for ref in unique:
+        rich_message: str | None = None
+        if nodes:
+            try:
+                dim_ref = parse_dimension_ref(ref)
+            except DJInvalidInputException:
+                dim_ref = None
+            if dim_ref is not None:
+                node = nodes.get(dim_ref.node_name)
+                if node is not None:
+                    rich_message = _format_column_validation_error(
+                        node,
+                        dim_ref.column_name,
+                        ref,
+                    )
+        if rich_message is not None:
+            errors.append(
+                DJError(code=ErrorCode.INVALID_COLUMN_IN_FILTER, message=rich_message),
+            )
+        else:
+            fallback_refs.append(ref)
+
+    if fallback_refs:
+        joined = ", ".join(f"`{r}`" for r in fallback_refs)
+        errors.append(
+            DJError(
+                code=ErrorCode.INVALID_COLUMN_IN_FILTER,
+                message=(
+                    f"Filter references unknown column(s): {joined}. "
+                    f"Make sure each reference uses the `node.column` form and that "
+                    f"the column exists on the referenced node."
+                ),
+            ),
+        )
+
+    raise DJInvalidInputException(errors=errors)
+
+
 def resolve_filter_references(
     filter_ast: ast.Expression,
     column_aliases: dict[str, str],
     cte_alias: str | None = None,
+    nodes: dict[str, "Node"] | None = None,
 ) -> ast.Expression:
     """
     Resolve dimension/column references in a filter AST to their actual column aliases.
@@ -155,11 +227,7 @@ def resolve_filter_references(
             already_resolved_ids.add(id(replacement))
             subscript.swap(replacement)
         else:
-            raise DJInvalidInputException(
-                f"Filter references unknown dimension `{dim_ref_with_role}`. "
-                f"Make sure the dimension exists and is reachable from the "
-                f"requested metrics.",
-            )
+            _raise_for_unresolved_filter_refs([dim_ref_with_role], nodes)
 
     # Second pass: handle regular Column references (no subscript role syntax)
     unresolved: list[str] = []
@@ -194,13 +262,7 @@ def resolve_filter_references(
     resolve_refs(filter_ast)
 
     if unresolved:
-        unique_refs = list(dict.fromkeys(unresolved))
-        joined = ", ".join(f"`{r}`" for r in unique_refs)
-        raise DJInvalidInputException(
-            f"Filter references unknown column(s): {joined}. "
-            f"Make sure each reference uses the `node.column` form and that "
-            f"the column exists on the referenced node.",
-        )
+        _raise_for_unresolved_filter_refs(unresolved, nodes)
 
     return filter_ast
 
@@ -255,6 +317,7 @@ def parse_and_resolve_filters(
     filter_strs: list[str],
     column_aliases: dict[str, str],
     cte_alias: str | None = None,
+    nodes: dict[str, "Node"] | None = None,
 ) -> ast.Expression | None:
     """
     Parse filter strings and resolve references, returning combined WHERE clause.
@@ -266,6 +329,9 @@ def parse_and_resolve_filters(
         filter_strs: List of filter strings
         column_aliases: Map from dimension ref to alias
         cte_alias: Optional CTE alias to prefix column refs with
+        nodes: Optional ``ctx.nodes`` map. When provided, unresolved-ref errors
+            are escalated through ``_validate_column_on_node`` so callers get
+            actionable "Did you mean?" suggestions for typos.
 
     Returns:
         Combined filter expression or None if no filters
@@ -286,6 +352,7 @@ def parse_and_resolve_filters(
             deepcopy(filter_ast),  # Make a copy to avoid mutating cache
             column_aliases,
             cte_alias,
+            nodes=nodes,
         )
         parsed_filters.append(resolved)
 

@@ -2141,6 +2141,7 @@ def generate_metrics_sql(
                 applicable_dimension_filters,
                 dimension_aliases,
                 cte_alias=filter_cte,
+                nodes=ctx.nodes,
             )
 
     # Build HAVING clause from metric filters
@@ -2151,6 +2152,7 @@ def generate_metrics_sql(
         # Parse and resolve metric filters
         # Replace metric references with their full aggregation expressions
         parsed_metric_filters = []
+        having_unknown: list[str] = []
         for f in metric_filters_raw:
             filter_ast = parse_filter(f)
 
@@ -2159,12 +2161,67 @@ def generate_metrics_sql(
             # Use the AST's built-in replace() method for clean, robust replacement
             for col in filter_ast.find_all(ast.Column):
                 full_name = get_column_full_name(col)
-                if full_name and full_name in metric_expr_asts:  # pragma: no branch
+                if not full_name:
+                    continue  # pragma: no cover
+                if full_name in metric_expr_asts:
                     # Replace this column node with the metric's full expression
                     metric_expr = metric_expr_asts[full_name].expr_ast
                     filter_ast.replace(from_=col, to=metric_expr, copy=True)
+                elif full_name not in dimension_aliases:
+                    # Anything that is neither a known metric expression nor a
+                    # known dimension is a typo / stale ref — surface it now
+                    # rather than letting it leak into the HAVING clause.
+                    having_unknown.append(full_name)
 
             parsed_metric_filters.append(filter_ast)
+
+        if having_unknown:
+            from datajunction_server.construction.build_v3.dimensions import (
+                _format_column_validation_error,
+                parse_dimension_ref,
+            )
+            from datajunction_server.errors import DJError, ErrorCode
+
+            unique = list(dict.fromkeys(having_unknown))
+            errors: list[DJError] = []
+            fallback_refs: list[str] = []
+            for ref in unique:
+                rich: str | None = None
+                try:
+                    parsed = parse_dimension_ref(ref)
+                except DJInvalidInputException:
+                    parsed = None
+                if parsed is not None:
+                    node = ctx.nodes.get(parsed.node_name)
+                    if node is not None:
+                        rich = _format_column_validation_error(
+                            node,
+                            parsed.column_name,
+                            ref,
+                        )
+                if rich is not None:
+                    errors.append(
+                        DJError(
+                            code=ErrorCode.INVALID_COLUMN_IN_FILTER,
+                            message=rich,
+                        ),
+                    )
+                else:
+                    fallback_refs.append(ref)
+
+            if fallback_refs:
+                joined = ", ".join(f"`{r}`" for r in fallback_refs)
+                errors.append(
+                    DJError(
+                        code=ErrorCode.INVALID_COLUMN_IN_FILTER,
+                        message=(
+                            f"Metric filter references unknown column(s): {joined}. "
+                            f"Use a metric or dimension that is part of the requested query."
+                        ),
+                    ),
+                )
+
+            raise DJInvalidInputException(errors=errors)
 
         if parsed_metric_filters:  # pragma: no branch
             having_clause = combine_filters(parsed_metric_filters)
