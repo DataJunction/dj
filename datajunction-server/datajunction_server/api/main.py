@@ -143,6 +143,10 @@ def configure_app(app: FastAPI) -> None:
     app.include_router(service_account.router)
     app.include_router(system.router)
 
+    from datajunction_server.mcp.transport import mount_mcp
+
+    mount_mcp(app)
+
     @app.exception_handler(DJException)
     async def dj_exception_handler(
         request: Request,
