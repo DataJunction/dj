@@ -326,7 +326,7 @@ async def get_data(
         submitted_query=generated_sql.sql,
         async_=async_,
     )
-    result = await query_service_client.submit_query_async(
+    result = await query_service_client.submit_query(
         query_create,
         request_headers=request_headers,
     )
@@ -398,7 +398,7 @@ async def get_data_stream_for_node(
         submitted_query=translated_sql.sql,
         async_=True,
     )
-    initial_query_info = await query_service_client.submit_query_async(
+    initial_query_info = await query_service_client.submit_query(
         query_create,
         request_headers=request_headers,
     )
@@ -429,7 +429,7 @@ async def get_data_for_query(
     """
     request_headers = dict(request.headers)
     try:
-        return await query_service_client.get_query_async(
+        return await query_service_client.get_query(
             query_id=query_id,
             request_headers=request_headers,
         )
@@ -516,7 +516,7 @@ async def get_data_for_metrics(
         submitted_query=generated_sql.sql,
         async_=async_,
     )
-    result = await query_service_client.submit_query_async(
+    result = await query_service_client.submit_query(
         query_create,
         request_headers=request_headers,
     )
@@ -586,7 +586,7 @@ async def get_data_stream_for_metrics(
         async_=True,
     )
     # Submits the query, equivalent to calling POST /data/ directly
-    initial_query_info = await query_service_client.submit_query_async(
+    initial_query_info = await query_service_client.submit_query(
         query_create,
         request_headers=request_headers,
     )

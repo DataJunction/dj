@@ -143,9 +143,10 @@ class TestHttpQueryServiceClientCubeV2Methods:
             request_headers={"X-Test": "1"},
         )
 
-    def test_get_columns_for_tables_batch(self, mock_client):
+    @pytest.mark.asyncio
+    async def test_get_columns_for_tables_batch(self, mock_client):
         """Test get_columns_for_tables_batch delegates to underlying client."""
-        from unittest.mock import Mock
+        from unittest.mock import AsyncMock, Mock
 
         client, mock_inner = mock_client
 
@@ -153,12 +154,14 @@ class TestHttpQueryServiceClientCubeV2Methods:
         mock_col = Mock()
         mock_col.name = "col1"
 
-        mock_inner.get_columns_for_tables_batch.return_value = {
-            ("cat1", "sch1", "table1"): [mock_col],
-        }
+        mock_inner.get_columns_for_tables_batch = AsyncMock(
+            return_value={
+                ("cat1", "sch1", "table1"): [mock_col],
+            },
+        )
 
         tables = [("cat1", "sch1", "table1")]
-        result = client.get_columns_for_tables_batch(
+        result = await client.get_columns_for_tables_batch(
             tables=tables,
             request_headers={"X-Test": "1"},
             engine=None,

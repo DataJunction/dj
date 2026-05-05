@@ -81,7 +81,8 @@ def _make_client(project="my-project", **kwargs):
         return BigQueryClient(project=project, **kwargs)
 
 
-def test_get_columns_for_table():
+@pytest.mark.asyncio
+async def test_get_columns_for_table():
     """get_columns_for_table returns correct Column objects from INFORMATION_SCHEMA."""
     from datajunction_server.sql.parsing.types import (
         BigIntType,
@@ -132,7 +133,7 @@ def test_get_columns_for_table():
             return_value=mock_bq_client,
         ),
     ):
-        columns = client.get_columns_for_table(
+        columns = await client.get_columns_for_table(
             catalog="my-project",
             schema="my_dataset",
             table="my_table",
@@ -152,7 +153,8 @@ def test_get_columns_for_table():
     assert columns[2].order == 2
 
 
-def test_get_columns_for_table_uses_project_from_engine_uri():
+@pytest.mark.asyncio
+async def test_get_columns_for_table_uses_project_from_engine_uri():
     """get_columns_for_table uses project resolved from the engine URI."""
     client = _make_client(project="default-project")
 
@@ -188,7 +190,7 @@ def test_get_columns_for_table_uses_project_from_engine_uri():
             return_value=mock_bq_client,
         ),
     ):
-        client.get_columns_for_table(
+        await client.get_columns_for_table(
             catalog="catalog-project",
             schema="my_dataset",
             table="my_table",
@@ -199,7 +201,8 @@ def test_get_columns_for_table_uses_project_from_engine_uri():
     assert "`uri-project.my_dataset.INFORMATION_SCHEMA.COLUMNS`" in query_sql
 
 
-def test_get_columns_for_table_not_found():
+@pytest.mark.asyncio
+async def test_get_columns_for_table_not_found():
     """get_columns_for_table raises DJDoesNotExistException when no columns are returned."""
     from datajunction_server.errors import DJDoesNotExistException
 
@@ -230,14 +233,15 @@ def test_get_columns_for_table_not_found():
         ),
     ):
         with pytest.raises(DJDoesNotExistException):
-            client.get_columns_for_table(
+            await client.get_columns_for_table(
                 catalog="my-project",
                 schema="my_dataset",
                 table="nonexistent_table",
             )
 
 
-def test_get_columns_for_table_query_error():
+@pytest.mark.asyncio
+async def test_get_columns_for_table_query_error():
     """get_columns_for_table wraps unexpected errors in DJQueryServiceClientException."""
     from datajunction_server.errors import DJQueryServiceClientException
 
@@ -262,7 +266,7 @@ def test_get_columns_for_table_query_error():
         ),
     ):
         with pytest.raises(DJQueryServiceClientException) as exc_info:
-            client.get_columns_for_table(
+            await client.get_columns_for_table(
                 catalog="my-project",
                 schema="my_dataset",
                 table="my_table",
@@ -369,7 +373,8 @@ def test_get_project_from_engine_fallback_to_catalog():
     assert project == "catalog-project"
 
 
-def test_get_columns_for_table_uses_engine_uri_project():
+@pytest.mark.asyncio
+async def test_get_columns_for_table_uses_engine_uri_project():
     """get_columns_for_table passes the engine URI project to _get_client."""
     from datajunction_server.sql.parsing.types import StringType
 
@@ -407,7 +412,7 @@ def test_get_columns_for_table_uses_engine_uri_project():
             return_value=mock_bq_client,
         ) as mock_get_client,
     ):
-        columns = client.get_columns_for_table(
+        columns = await client.get_columns_for_table(
             catalog="catalog-alias",
             schema="my_dataset",
             table="my_table",
@@ -714,7 +719,8 @@ def test_utils_unsupported_client_type():
         _create_configured_query_client(config)
 
 
-def test_get_columns_for_table_with_engine_project_override():
+@pytest.mark.asyncio
+async def test_get_columns_for_table_with_engine_project_override():
     """get_columns_for_table uses project from engine URI over client default."""
     client = _make_client()
 
@@ -743,7 +749,7 @@ def test_get_columns_for_table_with_engine_project_override():
             return_value=mock_bq_client,
         ) as mock_get,
     ):
-        columns = client.get_columns_for_table(
+        columns = await client.get_columns_for_table(
             catalog="fallback-catalog",
             schema="my_dataset",
             table="my_table",

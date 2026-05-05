@@ -487,7 +487,8 @@ def test_get_legacy_query_service_client(
     assert client == mock_query_service_client_instance
 
 
-def test_http_query_service_client_wrapper(mocker: MockerFixture) -> None:
+@pytest.mark.asyncio
+async def test_http_query_service_client_wrapper(mocker: MockerFixture) -> None:
     """
     Test HttpQueryServiceClient properly wraps QueryServiceClient.
     """
@@ -506,32 +507,36 @@ def test_http_query_service_client_wrapper(mocker: MockerFixture) -> None:
     client = HttpQueryServiceClient("http://test:8001", retries=3)
     assert client.uri == "http://test:8001"
 
-    # Test get_columns_for_table
-    mock_client.get_columns_for_table.return_value = []
-    get_columns_for_table_result = client.get_columns_for_table("cat", "sch", "tbl")
+    # Test get_columns_for_table (now async — returns coroutine via AsyncMock)
+    mock_client.get_columns_for_table = AsyncMock(return_value=[])
+    get_columns_for_table_result = await client.get_columns_for_table(
+        "cat",
+        "sch",
+        "tbl",
+    )
     assert get_columns_for_table_result == []
     mock_client.get_columns_for_table.assert_called_once()
 
     # Test create_view
-    mock_client.create_view.return_value = "view_created"
+    mock_client.create_view = AsyncMock(return_value="view_created")
     query = QueryCreate(
         submitted_query="SELECT 1",
         catalog_name="test",
         engine_name="test",
         engine_version="v1",
     )
-    create_view_result = client.create_view("test_view", query)
+    create_view_result = await client.create_view("test_view", query)
     assert create_view_result == "view_created"
 
     # Test submit_query
     mock_result = mocker.MagicMock()
-    mock_client.submit_query.return_value = mock_result
-    submit_query_result = client.submit_query(query)
+    mock_client.submit_query = AsyncMock(return_value=mock_result)
+    submit_query_result = await client.submit_query(query)
     assert submit_query_result == mock_result
 
     # Test get_query
-    mock_client.get_query.return_value = mock_result
-    get_query_result = client.get_query("query_id_123")
+    mock_client.get_query = AsyncMock(return_value=mock_result)
+    get_query_result = await client.get_query("query_id_123")
     assert get_query_result == mock_result
 
     # Test materialize
@@ -600,7 +605,10 @@ def test_http_query_service_client_wrapper(mocker: MockerFixture) -> None:
     )
 
 
-def test_snowflake_client_initialization_with_mock(mocker: MockerFixture) -> None:
+@pytest.mark.asyncio
+async def test_snowflake_client_initialization_with_mock(
+    mocker: MockerFixture,
+) -> None:
     """
     Test SnowflakeClient initialization when snowflake package is available.
     """
@@ -654,7 +662,7 @@ def test_snowflake_client_initialization_with_mock(mocker: MockerFixture) -> Non
     assert client.connection_params["database"] == "TEST_DB"
 
     # Test get_columns_for_table
-    result = client.get_columns_for_table("catalog", "schema", "table")
+    result = await client.get_columns_for_table("catalog", "schema", "table")
     assert len(result) == 1
     assert result[0].name == "id"
 
@@ -714,7 +722,7 @@ def test_snowflake_client_initialization_with_mock(mocker: MockerFixture) -> Non
 
     mock_cursor.fetchall.return_value = []
     with pytest.raises(DJDoesNotExistException):
-        client.get_columns_for_table("catalog", "schema", "nonexistent")
+        await client.get_columns_for_table("catalog", "schema", "nonexistent")
 
     # Test connection failure
     mock_snowflake.connector.connect.side_effect = Exception("Connection failed")
@@ -731,14 +739,14 @@ def test_snowflake_client_initialization_with_mock(mocker: MockerFixture) -> Non
         "Table does not exist",
     )
     with pytest.raises(DJDoesNotExistException):
-        client.get_columns_for_table("catalog", "schema", "missing_table")
+        await client.get_columns_for_table("catalog", "schema", "missing_table")
 
     # Test other database error
     mock_cursor.execute.side_effect = mock_snowflake.connector.DatabaseError(
         "Connection timeout",
     )
     with pytest.raises(DJQueryServiceClientException):
-        client.get_columns_for_table("catalog", "schema", "table")
+        await client.get_columns_for_table("catalog", "schema", "table")
 
     # Test type mapping with decimal parameters
     assert client._map_snowflake_type_to_dj("NUMBER(10,2)")

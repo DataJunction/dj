@@ -229,7 +229,7 @@ async def get_data_for_djsql(
         async_=async_,
     )
 
-    result = await query_service_client.submit_query_async(
+    result = await query_service_client.submit_query(
         query_create,
         request_headers=request_headers,
     )
@@ -272,7 +272,7 @@ async def get_data_stream_for_djsql(
     )
 
     # Submits the query, equivalent to calling POST /data/ directly
-    initial_query_info = await query_service_client.submit_query_async(
+    initial_query_info = await query_service_client.submit_query(
         query_create,
         request_headers=request_headers,
     )

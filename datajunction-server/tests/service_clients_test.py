@@ -3,8 +3,9 @@ Tests for ``datajunction_server.service_clients``.
 """
 
 from datetime import date
-from unittest.mock import ANY, MagicMock
+from unittest.mock import ANY, AsyncMock, MagicMock
 
+import httpx
 import pytest
 from pytest_mock import MockerFixture
 from requests import Request
@@ -99,7 +100,8 @@ class TestQueryServiceClient:
 
     endpoint = "http://queryservice:8001"
 
-    def test_query_service_client_get_columns_for_table(
+    @pytest.mark.asyncio
+    async def test_query_service_client_get_columns_for_table(
         self,
         mocker: MockerFixture,
     ) -> None:
@@ -107,19 +109,22 @@ class TestQueryServiceClient:
         Test the query service client.
         """
 
-        mock_request = mocker.patch("requests.Session.request")
-        mock_request.return_value = MagicMock(status_code=200, text="Unknown")
+        mock_response = MagicMock(status_code=200, text="Unknown")
+        mock_request = mocker.patch.object(
+            httpx.AsyncClient,
+            "request",
+            AsyncMock(return_value=mock_response),
+        )
         query_service_client = QueryServiceClient(uri=self.endpoint)
-        query_service_client.get_columns_for_table("hive", "test", "pies")
+        await query_service_client.get_columns_for_table("hive", "test", "pies")
         mock_request.assert_called_with(
             "GET",
-            "http://queryservice:8001/table/hive.test.pies/columns/",
-            params={},
-            allow_redirects=True,
-            headers=ANY,
+            "/table/hive.test.pies/columns/",
+            params=None,
+            headers=None,
         )
 
-        query_service_client.get_columns_for_table(
+        await query_service_client.get_columns_for_table(
             "hive",
             "test",
             "pies",
@@ -127,38 +132,53 @@ class TestQueryServiceClient:
         )
         mock_request.assert_called_with(
             "GET",
-            "http://queryservice:8001/table/hive.test.pies/columns/",
+            "/table/hive.test.pies/columns/",
             params={"engine": "spark", "engine_version": "2.4.4"},
-            allow_redirects=True,
-            headers=ANY,
+            headers=None,
         )
 
         # failed request with unknown reason
-        mock_request = mocker.patch("requests.Session.request")
-        mock_request.return_value = MagicMock(status_code=400, text="Unknown")
+        mock_response = MagicMock(status_code=400, text="Unknown")
+        mocker.patch.object(
+            httpx.AsyncClient,
+            "request",
+            AsyncMock(return_value=mock_response),
+        )
         query_service_client = QueryServiceClient(uri=self.endpoint)
         with pytest.raises(DJQueryServiceClientException) as exc_info:
-            query_service_client.get_columns_for_table("hive", "test", "pies")
+            await query_service_client.get_columns_for_table("hive", "test", "pies")
         assert "Error response from query service" in str(exc_info.value)
 
         # failed request with table not found
-        mock_request = mocker.patch("requests.Session.request")
-        mock_request.return_value = MagicMock(status_code=404, text="Table not found")
+        mock_response = MagicMock(status_code=404, text="Table not found")
+        mocker.patch.object(
+            httpx.AsyncClient,
+            "request",
+            AsyncMock(return_value=mock_response),
+        )
         with pytest.raises(DJDoesNotExistException) as exc_info:
-            query_service_client.get_columns_for_table("hive", "test", "pies")
+            await query_service_client.get_columns_for_table("hive", "test", "pies")
         assert "Table not found" in str(exc_info.value)
 
         # no columns returned
-        mock_request = mocker.patch("requests.Session.request")
-        mock_request.return_value = MagicMock(
+        mock_response = MagicMock(
             status_code=200,
             json=MagicMock(return_value={"columns": []}),
         )
+        mocker.patch.object(
+            httpx.AsyncClient,
+            "request",
+            AsyncMock(return_value=mock_response),
+        )
         with pytest.raises(DJDoesNotExistException) as exc_info:
-            query_service_client.get_columns_for_table("hive", "test", "pies")
+            await query_service_client.get_columns_for_table("hive", "test", "pies")
         assert "No columns found" in str(exc_info.value)
 
-    def test_query_service_client_create_view(self, mocker: MockerFixture) -> None:
+    @pytest.mark.asyncio
+    async def test_query_service_client_create_view(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
         """
         Successful DDL submission goes to /ddl/execute and returns when status=SUCCESS.
         """
@@ -171,9 +191,10 @@ class TestQueryServiceClient:
             "errors": [],
         }
 
-        mock_request = mocker.patch(
-            "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
-            return_value=mock_response,
+        mock_request = mocker.patch.object(
+            httpx.AsyncClient,
+            "request",
+            AsyncMock(return_value=mock_response),
         )
 
         query_service_client = QueryServiceClient(uri=self.endpoint)
@@ -184,14 +205,15 @@ class TestQueryServiceClient:
             submitted_query="CREATE OR REPLACE VIEW foo SELECT 1 as num",
             async_=False,
         )
-        query_service_client.create_view(
+        await query_service_client.create_view(
             view_name="foo",
             query_create=query_create,
         )
 
         mock_request.assert_called_with(
+            "POST",
             "/ddl/execute",
-            headers=ANY,
+            headers=None,
             json={
                 "submitted_query": "CREATE OR REPLACE VIEW foo SELECT 1 as num",
                 "catalog_name": "default",
@@ -200,7 +222,8 @@ class TestQueryServiceClient:
             },
         )
 
-    def test_query_service_client_create_view_http_error(
+    @pytest.mark.asyncio
+    async def test_query_service_client_create_view_http_error(
         self,
         mocker: MockerFixture,
     ) -> None:
@@ -209,9 +232,10 @@ class TestQueryServiceClient:
         mock_response = MagicMock()
         mock_response.status_code = 500
         mock_response.text = "Internal server error"
-        mock_request = mocker.patch(
-            "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
-            return_value=mock_response,
+        mock_request = mocker.patch.object(
+            httpx.AsyncClient,
+            "request",
+            AsyncMock(return_value=mock_response),
         )
 
         query_service_client = QueryServiceClient(uri=self.endpoint)
@@ -224,7 +248,7 @@ class TestQueryServiceClient:
         )
 
         with pytest.raises(DJQueryServiceClientException) as exc_info:
-            query_service_client.create_view(
+            await query_service_client.create_view(
                 view_name="foo",
                 query_create=query_create,
             )
@@ -233,8 +257,9 @@ class TestQueryServiceClient:
         )
 
         mock_request.assert_called_with(
+            "POST",
             "/ddl/execute",
-            headers=ANY,
+            headers=None,
             json={
                 "submitted_query": "CREATE OR REPLACE VIEW foo SELECT 1 as num",
                 "catalog_name": "default",
@@ -243,7 +268,8 @@ class TestQueryServiceClient:
             },
         )
 
-    def test_query_service_client_create_view_ddl_failure_status(
+    @pytest.mark.asyncio
+    async def test_query_service_client_create_view_ddl_failure_status(
         self,
         mocker: MockerFixture,
     ) -> None:
@@ -256,9 +282,10 @@ class TestQueryServiceClient:
             "message": "Schema does not exist",
             "errors": ["dj_views.foo not found", "permission denied"],
         }
-        mocker.patch(
-            "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
-            return_value=mock_response,
+        mocker.patch.object(
+            httpx.AsyncClient,
+            "request",
+            AsyncMock(return_value=mock_response),
         )
 
         query_service_client = QueryServiceClient(uri=self.endpoint)
@@ -271,7 +298,7 @@ class TestQueryServiceClient:
         )
 
         with pytest.raises(DJQueryServiceClientException) as exc_info:
-            query_service_client.create_view(
+            await query_service_client.create_view(
                 view_name="foo",
                 query_create=query_create,
             )
@@ -280,7 +307,11 @@ class TestQueryServiceClient:
             in str(exc_info.value)
         )
 
-    def test_query_service_client_submit_query(self, mocker: MockerFixture) -> None:
+    @pytest.mark.asyncio
+    async def test_query_service_client_submit_query(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
         """
         Test submitting a query to a query service client.
         """
@@ -312,9 +343,10 @@ class TestQueryServiceClient:
             "errors": [],
         }
 
-        mock_request = mocker.patch(
-            "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
-            return_value=mock_response,
+        mock_request = mocker.patch.object(
+            httpx.AsyncClient,
+            "request",
+            AsyncMock(return_value=mock_response),
         )
 
         query_service_client = QueryServiceClient(uri=self.endpoint)
@@ -325,13 +357,14 @@ class TestQueryServiceClient:
             submitted_query="SELECT 1",
             async_=False,
         )
-        query_service_client.submit_query(
+        await query_service_client.submit_query(
             query_create,
         )
 
         mock_request.assert_called_with(
+            "POST",
             "/queries/",
-            headers=ANY,
+            headers={"accept": "application/json"},
             json={
                 "catalog_name": "default",
                 "engine_name": "postgres",
@@ -341,7 +374,11 @@ class TestQueryServiceClient:
             },
         )
 
-    def test_query_service_client_get_query(self, mocker: MockerFixture) -> None:
+    @pytest.mark.asyncio
+    async def test_query_service_client_get_query(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
         """
         Test getting a previously submitted query from a query service client.
         """
@@ -373,19 +410,21 @@ class TestQueryServiceClient:
             "database_id": 1,  # Will be deprecated soon in favor of catalog
         }
 
-        mock_request = mocker.patch(
-            "datajunction_server.service_clients.RequestsSessionWithEndpoint.get",
-            return_value=mock_response,
+        mock_request = mocker.patch.object(
+            httpx.AsyncClient,
+            "request",
+            AsyncMock(return_value=mock_response),
         )
 
         query_service_client = QueryServiceClient(uri=self.endpoint)
-        query_service_client.get_query(
+        await query_service_client.get_query(
             "ef209eef-c31a-4089-aae6-833259a08e22",
         )
 
         mock_request.assert_called_with(
+            "GET",
             "/queries/ef209eef-c31a-4089-aae6-833259a08e22/",
-            headers=ANY,
+            headers=None,
         )
 
     def test_query_service_client_materialize(self, mocker: MockerFixture) -> None:
@@ -473,7 +512,11 @@ class TestQueryServiceClient:
             json={},
         )
 
-    def test_query_service_client_raising_error(self, mocker: MockerFixture) -> None:
+    @pytest.mark.asyncio
+    async def test_query_service_client_raising_error(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
         """
         Test handling an error response from the query service client
         """
@@ -487,24 +530,26 @@ class TestQueryServiceClient:
 
         query_service_client = QueryServiceClient(uri=self.endpoint)
 
-        with mocker.patch(
-            "datajunction_server.service_clients.RequestsSessionWithEndpoint.get",
-            return_value=mock_400_response,
-        ):
-            with pytest.raises(DJQueryServiceClientException) as exc_info:
-                query_service_client.get_query(
-                    "ef209eef-c31a-4089-aae6-833259a08e22",
-                )
+        mocker.patch.object(
+            httpx.AsyncClient,
+            "request",
+            AsyncMock(return_value=mock_400_response),
+        )
+        with pytest.raises(DJQueryServiceClientException) as exc_info:
+            await query_service_client.get_query(
+                "ef209eef-c31a-4089-aae6-833259a08e22",
+            )
         assert "Bad request error" in str(exc_info.value)
 
-        with mocker.patch(
-            "datajunction_server.service_clients.RequestsSessionWithEndpoint.get",
-            return_value=mock_404_response,
-        ):
-            with pytest.raises(DJQueryServiceClientEntityNotFound) as exc_info:
-                query_service_client.get_query(
-                    "ef209eef-c31a-4089-aae6-833259a08e22",
-                )
+        mocker.patch.object(
+            httpx.AsyncClient,
+            "request",
+            AsyncMock(return_value=mock_404_response),
+        )
+        with pytest.raises(DJQueryServiceClientEntityNotFound) as exc_info:
+            await query_service_client.get_query(
+                "ef209eef-c31a-4089-aae6-833259a08e22",
+            )
         assert "Query not found" in str(exc_info.value)
 
         query_create = QueryCreate(
@@ -515,14 +560,15 @@ class TestQueryServiceClient:
             async_=False,
         )
 
-        with mocker.patch(
-            "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
-            return_value=mock_400_response,
-        ):
-            with pytest.raises(DJQueryServiceClientException) as exc_info:
-                query_service_client.submit_query(
-                    query_create,
-                )
+        mocker.patch.object(
+            httpx.AsyncClient,
+            "request",
+            AsyncMock(return_value=mock_400_response),
+        )
+        with pytest.raises(DJQueryServiceClientException) as exc_info:
+            await query_service_client.submit_query(
+                query_create,
+            )
         assert "Bad request error" in str(exc_info.value)
 
     def test_materialize(self, mocker: MockerFixture) -> None:
@@ -1326,7 +1372,8 @@ class TestQueryServiceClient:
             json={},
         )
 
-    def test_get_columns_for_tables_batch_success(
+    @pytest.mark.asyncio
+    async def test_get_columns_for_tables_batch_success(
         self,
         mocker: MockerFixture,
     ) -> None:
@@ -1349,13 +1396,14 @@ class TestQueryServiceClient:
             },
         }
 
-        mock_request = mocker.patch(
-            "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
-            return_value=mock_response,
+        mock_request = mocker.patch.object(
+            httpx.AsyncClient,
+            "request",
+            AsyncMock(return_value=mock_response),
         )
 
         query_service_client = QueryServiceClient(uri=self.endpoint)
-        result = query_service_client.get_columns_for_tables_batch(
+        result = await query_service_client.get_columns_for_tables_batch(
             tables=[
                 ("catalog1", "schema1", "table1"),
                 ("catalog1", "schema1", "table2"),
@@ -1363,8 +1411,9 @@ class TestQueryServiceClient:
         )
 
         mock_request.assert_called_once_with(
+            "POST",
             "/tables/columns/",
-            headers=ANY,
+            headers=None,
             json=[
                 "catalog1.schema1.table1",
                 "catalog1.schema1.table2",
@@ -1377,7 +1426,8 @@ class TestQueryServiceClient:
         assert result[("catalog1", "schema1", "table1")][0].name == "col1"
         assert len(result[("catalog1", "schema1", "table2")]) == 1
 
-    def test_get_columns_for_tables_batch_with_empty_columns(
+    @pytest.mark.asyncio
+    async def test_get_columns_for_tables_batch_with_empty_columns(
         self,
         mocker: MockerFixture,
     ) -> None:
@@ -1398,13 +1448,14 @@ class TestQueryServiceClient:
             "catalog1.schema1.table3": {},  # Missing columns key
         }
 
-        mocker.patch(
-            "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
-            return_value=mock_response,
+        mocker.patch.object(
+            httpx.AsyncClient,
+            "request",
+            AsyncMock(return_value=mock_response),
         )
 
         query_service_client = QueryServiceClient(uri=self.endpoint)
-        result = query_service_client.get_columns_for_tables_batch(
+        result = await query_service_client.get_columns_for_tables_batch(
             tables=[
                 ("catalog1", "schema1", "table1"),
                 ("catalog1", "schema1", "table2"),
@@ -1419,7 +1470,8 @@ class TestQueryServiceClient:
         assert result[("catalog1", "schema1", "table2")] == []
         assert result[("catalog1", "schema1", "table3")] == []
 
-    def test_get_columns_for_tables_batch_with_error(
+    @pytest.mark.asyncio
+    async def test_get_columns_for_tables_batch_with_error(
         self,
         mocker: MockerFixture,
     ) -> None:
@@ -1430,14 +1482,15 @@ class TestQueryServiceClient:
         mock_response.status_code = 500
         mock_response.text = "Internal server error"
 
-        mocker.patch(
-            "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
-            return_value=mock_response,
+        mocker.patch.object(
+            httpx.AsyncClient,
+            "request",
+            AsyncMock(return_value=mock_response),
         )
 
         query_service_client = QueryServiceClient(uri=self.endpoint)
         with pytest.raises(DJQueryServiceClientException) as exc_info:
-            query_service_client.get_columns_for_tables_batch(
+            await query_service_client.get_columns_for_tables_batch(
                 tables=[
                     ("catalog1", "schema1", "table1"),
                 ],

@@ -721,7 +721,7 @@ def query_service_client(
     )
     mocker.patch.object(
         qs_client,
-        "get_columns_for_table_async",
+        "get_columns_for_table",
         mock_get_columns_for_table_async,
     )
 
@@ -768,7 +768,7 @@ def query_service_client(
     )
     mocker.patch.object(
         qs_client,
-        "submit_query_async",
+        "submit_query",
         mock_submit_query_async,
     )
 
@@ -796,7 +796,7 @@ def query_service_client(
     )
     mocker.patch.object(
         qs_client,
-        "create_view_async",
+        "create_view",
         mock_create_view_async,
     )
 
@@ -824,7 +824,7 @@ def query_service_client(
     )
     mocker.patch.object(
         qs_client,
-        "get_query_async",
+        "get_query",
         mock_get_query_async,
     )
 
@@ -2230,7 +2230,7 @@ def module__query_service_client(
     )
     module_mocker.patch.object(
         qs_client,
-        "get_columns_for_table_async",
+        "get_columns_for_table",
         mock_get_columns_for_table_async,
     )
 
@@ -2281,7 +2281,7 @@ def module__query_service_client(
     )
     module_mocker.patch.object(
         qs_client,
-        "submit_query_async",
+        "submit_query",
         mock_submit_query_async,
     )
 
@@ -2309,7 +2309,7 @@ def module__query_service_client(
     )
     module_mocker.patch.object(
         qs_client,
-        "create_view_async",
+        "create_view",
         mock_create_view_async,
     )
 
@@ -2337,7 +2337,7 @@ def module__query_service_client(
     )
     module_mocker.patch.object(
         qs_client,
-        "get_query_async",
+        "get_query",
         mock_get_query_async,
     )
 

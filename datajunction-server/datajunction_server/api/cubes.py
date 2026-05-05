@@ -376,7 +376,7 @@ async def get_cube_dimension_values(
         submitted_query=translated_sql.sql,
         async_=async_,
     )
-    result = query_service_client.submit_query(
+    result = await query_service_client.submit_query(
         query_create,
         request_headers=request_headers,
     )

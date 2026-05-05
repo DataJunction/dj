@@ -159,7 +159,7 @@ async def create_cube_views(
                 cube_name,
                 ddl[:200],
             )
-            await query_service_client.create_view_async(
+            await query_service_client.create_view(
                 view_name=view_name,
                 query_create=QueryCreate(
                     engine_name=engine,

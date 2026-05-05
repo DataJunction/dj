@@ -9,7 +9,7 @@ from datajunction_server.models.query import QueryCreate
 class MockQueryServiceClient(BaseQueryServiceClient):
     """Mock implementation for testing."""
 
-    def get_columns_for_table(
+    async def get_columns_for_table(
         self,
         catalog,
         schema,
@@ -26,12 +26,13 @@ class AbstractOnlyClient(BaseQueryServiceClient):
     pass
 
 
-def test_base_client_abstract_methods():
+@pytest.mark.asyncio
+async def test_base_client_abstract_methods():
     """Test that BaseQueryServiceClient defines abstract methods correctly."""
     client = MockQueryServiceClient()
 
     # Only get_columns_for_table is implemented
-    assert client.get_columns_for_table("cat", "sch", "tbl") == []
+    assert await client.get_columns_for_table("cat", "sch", "tbl") == []
 
     # Other methods should raise NotImplementedError
     query_create = QueryCreate(
@@ -42,13 +43,13 @@ def test_base_client_abstract_methods():
     )
 
     with pytest.raises(NotImplementedError):
-        client.create_view("test_view", query_create)
+        await client.create_view("test_view", query_create)
 
     with pytest.raises(NotImplementedError):
-        client.submit_query(query_create)
+        await client.submit_query(query_create)
 
     with pytest.raises(NotImplementedError):
-        client.get_query("query_id")
+        await client.get_query("query_id")
 
     with pytest.raises(NotImplementedError):
         client.materialize(None)
@@ -79,7 +80,8 @@ def test_base_client_abstract_methods():
         client.run_preagg_backfill(None)
 
 
-def test_base_client_error_messages():
+@pytest.mark.asyncio
+async def test_base_client_error_messages():
     """Test that error messages include class name."""
     client = MockQueryServiceClient()
 
@@ -91,13 +93,13 @@ def test_base_client_error_messages():
     )
 
     try:
-        client.create_view("test", query_create)
+        await client.create_view("test", query_create)
     except NotImplementedError as e:
         assert "MockQueryServiceClient" in str(e)
         assert "does not support view creation" in str(e)
 
     try:
-        client.submit_query(query_create)
+        await client.submit_query(query_create)
     except NotImplementedError as e:
         assert "MockQueryServiceClient" in str(e)
         assert "does not support query submission" in str(e)
@@ -137,27 +139,29 @@ def test_preagg_error_messages():
         assert "does not support pre-aggregation backfill" in str(e)
 
 
-def test_abstract_method_coverage():
-    """Test abstract method implementation to hit the pass statement."""
+@pytest.mark.asyncio
+async def test_abstract_method_coverage():
+    """Test abstract method implementation to hit the empty body."""
     # Use the MockQueryServiceClient which does implement get_columns_for_table
     client = MockQueryServiceClient()
 
     # But call the actual abstract method implementation from the base class
-    # This should hit the pass statement in the abstract method
-    result = BaseQueryServiceClient.__dict__["get_columns_for_table"](
+    # This should hit the empty body of the abstract coroutine.
+    result = await BaseQueryServiceClient.__dict__["get_columns_for_table"](
         client,
         "cat",
         "sch",
         "tbl",
     )
 
-    # The abstract method should return None due to the pass statement
+    # An async def with only a docstring returns None
     assert result is None
 
 
-def test_get_columns_for_tables_batch_fallback():
+@pytest.mark.asyncio
+async def test_get_columns_for_tables_batch_fallback():
     """Test default implementation falls back to individual calls."""
-    from unittest.mock import MagicMock, Mock
+    from unittest.mock import AsyncMock, Mock
 
     client = MockQueryServiceClient()
 
@@ -170,17 +174,23 @@ def test_get_columns_for_tables_batch_fallback():
     mock_col3.name = "col3"
 
     # Mock get_columns_for_table to return different columns for each table
-    def mock_get_columns(catalog, schema, table, request_headers=None, engine=None):
+    async def mock_get_columns(
+        catalog,
+        schema,
+        table,
+        request_headers=None,
+        engine=None,
+    ):
         if table == "table1":
             return [mock_col1, mock_col2]
         elif table == "table2":
             return [mock_col3]
         return []
 
-    client.get_columns_for_table = MagicMock(side_effect=mock_get_columns)
+    client.get_columns_for_table = AsyncMock(side_effect=mock_get_columns)
 
     # Call batch method
-    result = client.get_columns_for_tables_batch(
+    result = await client.get_columns_for_tables_batch(
         tables=[
             ("cat1", "sch1", "table1"),
             ("cat1", "sch1", "table2"),
@@ -198,22 +208,29 @@ def test_get_columns_for_tables_batch_fallback():
     assert result[("cat1", "sch1", "table2")][0].name == "col3"
 
 
-def test_get_columns_for_tables_batch_fallback_with_exception():
+@pytest.mark.asyncio
+async def test_get_columns_for_tables_batch_fallback_with_exception():
     """Test default implementation handles exceptions gracefully."""
-    from unittest.mock import MagicMock
+    from unittest.mock import AsyncMock
 
     client = MockQueryServiceClient()
 
     # Mock get_columns_for_table to raise exception for one table
-    def mock_get_columns(catalog, schema, table, request_headers=None, engine=None):
+    async def mock_get_columns(
+        catalog,
+        schema,
+        table,
+        request_headers=None,
+        engine=None,
+    ):
         if table == "table1":
             raise Exception("Connection error")
         return []
 
-    client.get_columns_for_table = MagicMock(side_effect=mock_get_columns)
+    client.get_columns_for_table = AsyncMock(side_effect=mock_get_columns)
 
     # Call batch method - should not raise, should return empty list for failed table
-    result = client.get_columns_for_tables_batch(
+    result = await client.get_columns_for_tables_batch(
         tables=[
             ("cat1", "sch1", "table1"),
             ("cat1", "sch1", "table2"),

@@ -204,7 +204,7 @@ class TestViewCreationOnLifecycle:
             get_query_service_client
         ]()
 
-        original_create_view_async = qs_client.create_view_async
+        original_create_view_async = qs_client.create_view
         create_view_calls: list[str] = []
 
         async def tracking_create_view_async(
@@ -219,7 +219,7 @@ class TestViewCreationOnLifecycle:
                 request_headers,
             )
 
-        qs_client.create_view_async = tracking_create_view_async
+        qs_client.create_view = tracking_create_view_async
 
         try:
             response = await module__client_with_roads.post(
@@ -243,7 +243,7 @@ class TestViewCreationOnLifecycle:
                 "default.dj_views.default_lifecycle_test_cube_v1_0__trino",
             ]
         finally:
-            qs_client.create_view_async = original_create_view_async
+            qs_client.create_view = original_create_view_async
 
     @pytest.mark.asyncio
     async def test_validate_cube_triggers_view_creation(
@@ -255,7 +255,7 @@ class TestViewCreationOnLifecycle:
             get_query_service_client
         ]()
 
-        original_create_view_async = qs_client.create_view_async
+        original_create_view_async = qs_client.create_view
         create_view_calls: list[str] = []
 
         async def tracking_create_view_async(
@@ -270,7 +270,7 @@ class TestViewCreationOnLifecycle:
                 request_headers,
             )
 
-        qs_client.create_view_async = tracking_create_view_async
+        qs_client.create_view = tracking_create_view_async
 
         try:
             response = await client_with_cube.post(
@@ -285,7 +285,7 @@ class TestViewCreationOnLifecycle:
                 TRINO_VERSIONED,
             ]
         finally:
-            qs_client.create_view_async = original_create_view_async
+            qs_client.create_view = original_create_view_async
 
     @pytest.mark.asyncio
     async def test_validate_non_cube_with_sync_views_does_not_create_views(
@@ -297,7 +297,7 @@ class TestViewCreationOnLifecycle:
             get_query_service_client
         ]()
 
-        original_create_view_async = qs_client.create_view_async
+        original_create_view_async = qs_client.create_view
         create_view_calls: list[str] = []
 
         async def tracking_create_view_async(
@@ -312,7 +312,7 @@ class TestViewCreationOnLifecycle:
                 request_headers,
             )
 
-        qs_client.create_view_async = tracking_create_view_async
+        qs_client.create_view = tracking_create_view_async
 
         try:
             response = await module__client_with_roads.post(
@@ -322,7 +322,7 @@ class TestViewCreationOnLifecycle:
 
             assert create_view_calls == []
         finally:
-            qs_client.create_view_async = original_create_view_async
+            qs_client.create_view = original_create_view_async
 
     @pytest.mark.asyncio
     async def test_validate_cube_without_sync_views_does_not_create_views(
@@ -334,7 +334,7 @@ class TestViewCreationOnLifecycle:
             get_query_service_client
         ]()
 
-        original_create_view_async = qs_client.create_view_async
+        original_create_view_async = qs_client.create_view
         create_view_calls: list[str] = []
 
         async def tracking_create_view_async(
@@ -349,7 +349,7 @@ class TestViewCreationOnLifecycle:
                 request_headers,
             )
 
-        qs_client.create_view_async = tracking_create_view_async
+        qs_client.create_view = tracking_create_view_async
 
         try:
             response = await client_with_cube.post(
@@ -363,7 +363,7 @@ class TestViewCreationOnLifecycle:
                 f"got: {create_view_calls}"
             )
         finally:
-            qs_client.create_view_async = original_create_view_async
+            qs_client.create_view = original_create_view_async
 
     @pytest.mark.asyncio
     async def test_update_cube_triggers_view_creation(
@@ -375,7 +375,7 @@ class TestViewCreationOnLifecycle:
             get_query_service_client
         ]()
 
-        original_create_view_async = qs_client.create_view_async
+        original_create_view_async = qs_client.create_view
         create_view_calls: list[str] = []
 
         async def tracking_create_view_async(
@@ -390,7 +390,7 @@ class TestViewCreationOnLifecycle:
                 request_headers,
             )
 
-        qs_client.create_view_async = tracking_create_view_async
+        qs_client.create_view = tracking_create_view_async
 
         try:
             response = await client_with_cube.patch(
@@ -407,7 +407,7 @@ class TestViewCreationOnLifecycle:
                 "default.dj_views.default_view_test_cube_v1_1__trino",
             ]
         finally:
-            qs_client.create_view_async = original_create_view_async
+            qs_client.create_view = original_create_view_async
 
     @pytest.mark.asyncio
     async def test_update_non_cube_does_not_trigger_view_creation(
@@ -419,7 +419,7 @@ class TestViewCreationOnLifecycle:
             get_query_service_client
         ]()
 
-        original_create_view_async = qs_client.create_view_async
+        original_create_view_async = qs_client.create_view
         create_view_calls: list[str] = []
 
         async def tracking_create_view_async(
@@ -434,7 +434,7 @@ class TestViewCreationOnLifecycle:
                 request_headers,
             )
 
-        qs_client.create_view_async = tracking_create_view_async
+        qs_client.create_view = tracking_create_view_async
 
         try:
             response = await module__client_with_roads.patch(
@@ -445,7 +445,7 @@ class TestViewCreationOnLifecycle:
 
             assert create_view_calls == []
         finally:
-            qs_client.create_view_async = original_create_view_async
+            qs_client.create_view = original_create_view_async
 
     @pytest.mark.asyncio
     async def test_view_creation_failure_is_swallowed(
@@ -458,7 +458,7 @@ class TestViewCreationOnLifecycle:
             get_query_service_client
         ]()
 
-        original_create_view_async = qs_client.create_view_async
+        original_create_view_async = qs_client.create_view
 
         async def failing_create_view_async(
             view_name,
@@ -467,7 +467,7 @@ class TestViewCreationOnLifecycle:
         ):
             raise RuntimeError("query service exploded")
 
-        qs_client.create_view_async = failing_create_view_async
+        qs_client.create_view = failing_create_view_async
 
         try:
             response = await module__client_with_roads.post(
@@ -496,4 +496,4 @@ class TestViewCreationOnLifecycle:
                 ),
             ]
         finally:
-            qs_client.create_view_async = original_create_view_async
+            qs_client.create_view = original_create_view_async

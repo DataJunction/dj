@@ -239,8 +239,8 @@ async def main():
 
         qs_client.get_columns_for_table = mock_get_columns_for_table  # type: ignore
         qs_client.submit_query = mock_submit_query  # type: ignore
-        qs_client.get_columns_for_table_async = mock_get_columns_for_table_async  # type: ignore
-        qs_client.submit_query_async = mock_submit_query_async  # type: ignore
+        qs_client.get_columns_for_table = mock_get_columns_for_table_async  # type: ignore
+        qs_client.submit_query = mock_submit_query_async  # type: ignore
 
         # Override dependencies
         def get_session_override() -> AsyncSession:

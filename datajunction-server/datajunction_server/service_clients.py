@@ -159,7 +159,7 @@ class QueryServiceClient:
             await self._async_client.aclose()
             self._async_client = None
 
-    def get_columns_for_table(
+    async def get_columns_for_table(
         self,
         catalog: str,
         schema: str,
@@ -167,46 +167,7 @@ class QueryServiceClient:
         request_headers: Optional[Dict[str, str]] = None,
         engine: Optional["Engine"] = None,
     ) -> List[Column]:
-        """
-        Retrieves columns for a table.
-        """
-        response = self.requests_session.get(
-            f"/table/{catalog}.{schema}.{table}/columns/",
-            params={
-                "engine": engine.name,
-                "engine_version": engine.version,
-            }
-            if engine
-            else {},
-            headers=self.requests_session.headers,
-        )
-        if response.status_code not in (200, 201):
-            if response.status_code == HTTPStatus.NOT_FOUND:
-                raise DJDoesNotExistException(
-                    message=f"Table not found: {response.text}",
-                )
-            raise DJQueryServiceClientException(
-                message=f"Error response from query service: {response.text}",
-            )
-        table_columns = response.json()["columns"]
-        if not table_columns:
-            raise DJDoesNotExistException(
-                message=f"No columns found: {response.text}",
-            )
-        return [
-            Column(name=column["name"], type=ColumnType(column["type"]), order=idx)
-            for idx, column in enumerate(table_columns)
-        ]
-
-    async def get_columns_for_table_async(
-        self,
-        catalog: str,
-        schema: str,
-        table: str,
-        request_headers: Optional[Dict[str, str]] = None,
-        engine: Optional["Engine"] = None,
-    ) -> List[Column]:
-        """Async variant of get_columns_for_table."""
+        """Retrieves columns for a table."""
         params = (
             {"engine": engine.name, "engine_version": engine.version}
             if engine
@@ -236,58 +197,13 @@ class QueryServiceClient:
             for idx, column in enumerate(table_columns)
         ]
 
-    def get_columns_for_tables_batch(
+    async def get_columns_for_tables_batch(
         self,
         tables: List[tuple[str, str, str]],
         request_headers: Optional[Dict[str, str]] = None,
         engine: Optional["Engine"] = None,
     ) -> Dict[tuple[str, str, str], List[Column]]:
-        """
-        Retrieves columns for multiple tables in a single batch request.
-        """
-        # Format tables as "catalog.schema.table" strings
-        table_names = [
-            f"{catalog}.{schema}.{table}" for catalog, schema, table in tables
-        ]
-
-        response = self.requests_session.post(
-            "/tables/columns/",
-            headers=self.requests_session.headers,
-            json=table_names,
-        )
-        if response.status_code not in (200, 201):
-            raise DJQueryServiceClientException(
-                message=f"Error response from query service: {response.text}",
-                http_status_code=response.status_code,
-            )
-
-        # Parse response and convert back to expected format
-        result = {}
-        tables_data = response.json()
-
-        for catalog, schema, table in tables:
-            table_name = f"{catalog}.{schema}.{table}"
-            table_info = tables_data.get(table_name)
-
-            if table_info and table_info.get("columns"):
-                result[(catalog, schema, table)] = [
-                    Column(name=col["name"], type=ColumnType(col["type"]), order=idx)
-                    for idx, col in enumerate(table_info["columns"])
-                ]
-            else:
-                # Table not found or has no columns
-                _logger.warning(f"No columns returned for table {table_name}")
-                result[(catalog, schema, table)] = []
-
-        return result
-
-    async def get_columns_for_tables_batch_async(
-        self,
-        tables: List[tuple[str, str, str]],
-        request_headers: Optional[Dict[str, str]] = None,
-        engine: Optional["Engine"] = None,
-    ) -> Dict[tuple[str, str, str], List[Column]]:
-        """Async variant of get_columns_for_tables_batch."""
+        """Retrieves columns for multiple tables in a single batch request."""
         table_names = [
             f"{catalog}.{schema}.{table}" for catalog, schema, table in tables
         ]
@@ -318,7 +234,7 @@ class QueryServiceClient:
                 result[(catalog, schema, table)] = []
         return result
 
-    def create_view(
+    async def create_view(
         self,
         view_name: str,
         query_create: QueryCreate,
@@ -338,55 +254,6 @@ class QueryServiceClient:
             "engine_name": query_create.engine_name,
             "engine_version": query_create.engine_version or "",
         }
-        response = self.requests_session.post(
-            "/ddl/execute",
-            headers=self.requests_session.headers,
-            json=payload,
-        )
-        if response.status_code not in (200, 201):
-            raise DJQueryServiceClientException(
-                message=f"Error response from query service: {response.text}",
-                http_status_code=response.status_code,
-            )
-
-        result = response.json()
-        status = result.get("status", "UNKNOWN")
-        message = result.get("message", "")
-        errors = result.get("errors", [])
-
-        _logger.info(
-            "[create_view] DDL result for view '%s': status=%s message=%s",
-            view_name,
-            status,
-            message,
-        )
-
-        if status != DDLStatus.SUCCESS:
-            error_msg = "; ".join(str(e) for e in errors) if errors else message
-            raise DJQueryServiceClientException(
-                message=f"View '{view_name}' creation failed: {error_msg}",
-                http_status_code=response.status_code,
-            )
-
-        return f"View '{view_name}' created successfully."
-
-    async def create_view_async(
-        self,
-        view_name: str,
-        query_create: QueryCreate,
-        request_headers: Optional[Dict[str, str]] = None,
-    ) -> str:
-        """Async variant of create_view."""
-        _logger.info(
-            "[create_view] Submitting DDL for view '%s' to query service",
-            view_name,
-        )
-        payload = {
-            "submitted_query": query_create.submitted_query,
-            "catalog_name": query_create.catalog_name,
-            "engine_name": query_create.engine_name,
-            "engine_version": query_create.engine_version or "",
-        }
         response = await self._arequest(
             "POST",
             "/ddl/execute",
@@ -416,36 +283,12 @@ class QueryServiceClient:
             )
         return f"View '{view_name}' created successfully."
 
-    def submit_query(
+    async def submit_query(
         self,
         query_create: QueryCreate,
         request_headers: Optional[Dict[str, str]] = None,
     ) -> QueryWithResults:
-        """
-        Submit a query to the query service
-        """
-        response = self.requests_session.post(
-            "/queries/",
-            headers={
-                **self.requests_session.headers,
-                "accept": "application/json",
-            },
-            json=query_create.model_dump(),
-        )
-        if response.status_code not in (200, 201):
-            raise DJQueryServiceClientException(
-                message=f"Error response from query service: {response.text}",
-                http_status_code=response.status_code,
-            )
-        query_info = response.json()
-        return QueryWithResults(**query_info)
-
-    async def submit_query_async(
-        self,
-        query_create: QueryCreate,
-        request_headers: Optional[Dict[str, str]] = None,
-    ) -> QueryWithResults:
-        """Async variant of submit_query."""
+        """Submit a query to the query service."""
         headers = {"accept": "application/json"}
         if request_headers:
             headers = {**request_headers, **headers}
@@ -462,47 +305,12 @@ class QueryServiceClient:
             )
         return QueryWithResults(**response.json())
 
-    def get_query(
+    async def get_query(
         self,
         query_id: str,
         request_headers: Optional[Dict[str, str]] = None,
     ) -> QueryWithResults:
-        """
-        Get a previously submitted query
-        """
-        get_query_endpoint = f"/queries/{query_id}/"
-        response = self.requests_session.get(
-            get_query_endpoint,
-            headers=self.requests_session.headers,
-        )
-        if response.status_code == 404:
-            _logger.exception(
-                "[DJQS] Failed to get query_id=%s with `GET %s`",
-                query_id,
-                get_query_endpoint,
-                exc_info=True,
-            )
-            raise DJQueryServiceClientEntityNotFound(  # pragma: no cover
-                message=f"Error response from query service: {response.text}",
-            )
-        if response.status_code not in (200, 201):
-            raise DJQueryServiceClientException(
-                message=f"Error response from query service: {response.text}",
-            )
-        query_info = response.json()
-        _logger.info(
-            "[DJQS] Retrieved query_id=%s with `GET %s`",
-            query_id,
-            get_query_endpoint,
-        )
-        return QueryWithResults(**query_info)
-
-    async def get_query_async(
-        self,
-        query_id: str,
-        request_headers: Optional[Dict[str, str]] = None,
-    ) -> QueryWithResults:
-        """Async variant of get_query."""
+        """Get a previously submitted query."""
         get_query_endpoint = f"/queries/{query_id}/"
         response = await self._arequest(
             "GET",

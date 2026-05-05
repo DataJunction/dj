@@ -46,7 +46,7 @@ class HttpQueryServiceClient(BaseQueryServiceClient):
         self.uri = uri
         self._client = QueryServiceClient(uri=uri, retries=retries)
 
-    def get_columns_for_table(
+    async def get_columns_for_table(
         self,
         catalog: str,
         schema: str,
@@ -55,7 +55,7 @@ class HttpQueryServiceClient(BaseQueryServiceClient):
         engine: Optional["Engine"] = None,
     ) -> List[Column]:
         """Retrieves columns for a table via HTTP query service."""
-        return self._client.get_columns_for_table(
+        return await self._client.get_columns_for_table(
             catalog=catalog,
             schema=schema,
             table=table,
@@ -63,115 +63,50 @@ class HttpQueryServiceClient(BaseQueryServiceClient):
             engine=engine,
         )
 
-    def get_columns_for_tables_batch(
+    async def get_columns_for_tables_batch(
         self,
         tables: List[tuple[str, str, str]],
         request_headers: Optional[Dict[str, str]] = None,
         engine: Optional["Engine"] = None,
     ) -> Dict[tuple[str, str, str], List[Column]]:
         """Retrieves columns for multiple tables in a single batch request via HTTP query service."""
-        return self._client.get_columns_for_tables_batch(
+        return await self._client.get_columns_for_tables_batch(
             tables=tables,
             request_headers=request_headers,
             engine=engine,
         )
 
-    def create_view(
+    async def create_view(
         self,
         view_name: str,
         query_create: QueryCreate,
         request_headers: Optional[Dict[str, str]] = None,
     ) -> str:
         """Re-create a view using the HTTP query service."""
-        return self._client.create_view(
+        return await self._client.create_view(
             view_name=view_name,
             query_create=query_create,
             request_headers=request_headers,
         )
 
-    def submit_query(
+    async def submit_query(
         self,
         query_create: QueryCreate,
         request_headers: Optional[Dict[str, str]] = None,
     ) -> QueryWithResults:
         """Submit a query to the HTTP query service."""
-        return self._client.submit_query(
+        return await self._client.submit_query(
             query_create=query_create,
             request_headers=request_headers,
         )
 
-    def get_query(
+    async def get_query(
         self,
         query_id: str,
         request_headers: Optional[Dict[str, str]] = None,
     ) -> QueryWithResults:
         """Get a previously submitted query from the HTTP query service."""
-        return self._client.get_query(
-            query_id=query_id,
-            request_headers=request_headers,
-        )
-
-    async def get_columns_for_table_async(
-        self,
-        catalog: str,
-        schema: str,
-        table: str,
-        request_headers: Optional[Dict[str, str]] = None,
-        engine: Optional["Engine"] = None,
-    ) -> List[Column]:
-        """Async variant — uses underlying httpx.AsyncClient."""
-        return await self._client.get_columns_for_table_async(
-            catalog=catalog,
-            schema=schema,
-            table=table,
-            request_headers=request_headers,
-            engine=engine,
-        )
-
-    async def get_columns_for_tables_batch_async(
-        self,
-        tables: List[tuple[str, str, str]],
-        request_headers: Optional[Dict[str, str]] = None,
-        engine: Optional["Engine"] = None,
-    ) -> Dict[tuple[str, str, str], List[Column]]:
-        """Async batch variant — uses underlying httpx.AsyncClient."""
-        return await self._client.get_columns_for_tables_batch_async(
-            tables=tables,
-            request_headers=request_headers,
-            engine=engine,
-        )
-
-    async def create_view_async(
-        self,
-        view_name: str,
-        query_create: QueryCreate,
-        request_headers: Optional[Dict[str, str]] = None,
-    ) -> str:
-        """Async variant — uses underlying httpx.AsyncClient."""
-        return await self._client.create_view_async(
-            view_name=view_name,
-            query_create=query_create,
-            request_headers=request_headers,
-        )
-
-    async def submit_query_async(
-        self,
-        query_create: QueryCreate,
-        request_headers: Optional[Dict[str, str]] = None,
-    ) -> QueryWithResults:
-        """Async variant — uses underlying httpx.AsyncClient."""
-        return await self._client.submit_query_async(
-            query_create=query_create,
-            request_headers=request_headers,
-        )
-
-    async def get_query_async(
-        self,
-        query_id: str,
-        request_headers: Optional[Dict[str, str]] = None,
-    ) -> QueryWithResults:
-        """Async variant — uses underlying httpx.AsyncClient."""
-        return await self._client.get_query_async(
+        return await self._client.get_query(
             query_id=query_id,
             request_headers=request_headers,
         )

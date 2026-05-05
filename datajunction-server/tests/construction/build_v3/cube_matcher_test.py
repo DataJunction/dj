@@ -2754,7 +2754,7 @@ class TestDataEndpointCubePath:
 
         # Create mock query service client
         mock_qs_client = MagicMock()
-        mock_qs_client.submit_query_async = mock_submit_query_async
+        mock_qs_client.submit_query = mock_submit_query_async
 
         # Override the dependency at the app level
         client.app.dependency_overrides[get_query_service_client] = (
@@ -2846,7 +2846,7 @@ class TestDataEndpointCubePath:
             return mock_response
 
         mock_qs_client = MagicMock()
-        mock_qs_client.submit_query_async = mock_submit_query_async
+        mock_qs_client.submit_query = mock_submit_query_async
         client.app.dependency_overrides[get_query_service_client] = (
             lambda: mock_qs_client
         )

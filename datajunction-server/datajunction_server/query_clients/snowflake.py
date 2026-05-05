@@ -1,5 +1,6 @@
 """Snowflake query client using direct snowflake-connector-python."""
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
@@ -142,7 +143,7 @@ class SnowflakeClient(BaseQueryServiceClient):
         # Fall back to the configured database or catalog name
         return self.connection_params.get("database", fallback_catalog)
 
-    def get_columns_for_table(
+    async def get_columns_for_table(
         self,
         catalog: str,
         schema: str,
@@ -152,82 +153,92 @@ class SnowflakeClient(BaseQueryServiceClient):
     ) -> List[Column]:
         """
         Retrieves columns for a table from Snowflake information schema.
+
+        The snowflake-connector-python driver is sync, so we run the query
+        in a threadpool to avoid blocking the event loop.
         """
-        try:
-            conn = self._get_connection()
 
-            # Extract actual Snowflake database name from engine URI if provided
-            actual_database = self._get_database_from_engine(engine, catalog)
+        def _fetch() -> List[Column]:
+            try:
+                conn = self._get_connection()
 
-            with conn.cursor(DictCursor) as cursor:
-                # Use Snowflake's INFORMATION_SCHEMA to get column information
-                query = """
-                SELECT
-                    column_name,
-                    data_type,
-                    is_nullable,
-                    ordinal_position
-                FROM information_schema.columns
-                WHERE table_catalog = %s
-                    AND table_schema = %s
-                    AND table_name = %s
-                ORDER BY ordinal_position
-                """
+                # Extract actual Snowflake database name from engine URI if provided
+                actual_database = self._get_database_from_engine(engine, catalog)
 
-                cursor.execute(
-                    query,
-                    (actual_database.upper(), schema.upper(), table.upper()),
-                )
-                rows = cursor.fetchall()
+                with conn.cursor(DictCursor) as cursor:
+                    # Use Snowflake's INFORMATION_SCHEMA to get column information
+                    query = """
+                    SELECT
+                        column_name,
+                        data_type,
+                        is_nullable,
+                        ordinal_position
+                    FROM information_schema.columns
+                    WHERE table_catalog = %s
+                        AND table_schema = %s
+                        AND table_name = %s
+                    ORDER BY ordinal_position
+                    """
 
-                if not rows:
-                    raise DJDoesNotExistException(
-                        message=f"No columns found for table {actual_database}.{schema}.{table} "
-                        f"(DJ catalog: {catalog})",
+                    cursor.execute(
+                        query,
+                        (actual_database.upper(), schema.upper(), table.upper()),
                     )
+                    rows = cursor.fetchall()
 
-                columns = []
-                for row in rows:
-                    column_type = self._map_snowflake_type_to_dj(row["DATA_TYPE"])
-                    columns.append(
-                        Column(
-                            name=row["COLUMN_NAME"],
-                            type=column_type,
-                            order=row["ORDINAL_POSITION"]
-                            - 1,  # Convert to 0-based index
-                        ),
+                    if not rows:
+                        raise DJDoesNotExistException(
+                            message=f"No columns found for table {actual_database}.{schema}.{table} "
+                            f"(DJ catalog: {catalog})",
+                        )
+
+                    columns = []
+                    for row in rows:
+                        column_type = self._map_snowflake_type_to_dj(row["DATA_TYPE"])
+                        columns.append(
+                            Column(
+                                name=row["COLUMN_NAME"],
+                                type=column_type,
+                                order=row["ORDINAL_POSITION"]
+                                - 1,  # Convert to 0-based index
+                            ),
+                        )
+
+                    return columns
+
+            except DJDoesNotExistException:
+                # Re-raise DJDoesNotExistException as-is
+                raise
+            except Exception as e:  # pragma: no cover
+                # Check if it's a Snowflake DatabaseError (only if snowflake is available)
+                if (
+                    SNOWFLAKE_AVAILABLE
+                    and SnowflakeDatabaseError
+                    and isinstance(e, SnowflakeDatabaseError)
+                ):
+                    if "does not exist" in str(e).lower():
+                        actual_database = self._get_database_from_engine(
+                            engine,
+                            catalog,
+                        )
+                        raise DJDoesNotExistException(
+                            message=f"Table not found: {actual_database}.{schema}.{table} "
+                            f"(DJ catalog: {catalog})",
+                        )
+                    raise DJQueryServiceClientException(
+                        message=f"Error retrieving columns from Snowflake: {str(e)}",
                     )
-
-                return columns
-
-        except DJDoesNotExistException:
-            # Re-raise DJDoesNotExistException as-is
-            raise
-        except Exception as e:  # pragma: no cover
-            # Check if it's a Snowflake DatabaseError (only if snowflake is available)
-            if (
-                SNOWFLAKE_AVAILABLE
-                and SnowflakeDatabaseError
-                and isinstance(e, SnowflakeDatabaseError)
-            ):
-                if "does not exist" in str(e).lower():
-                    actual_database = self._get_database_from_engine(engine, catalog)
-                    raise DJDoesNotExistException(
-                        message=f"Table not found: {actual_database}.{schema}.{table} "
-                        f"(DJ catalog: {catalog})",
-                    )
+                _logger.exception(
+                    "Unexpected error in get_columns_for_table",
+                )  # pragma: no cover
                 raise DJQueryServiceClientException(
-                    message=f"Error retrieving columns from Snowflake: {str(e)}",
+                    message=f"Unexpected error retrieving columns: {str(e)}",
                 )
-            _logger.exception(
-                "Unexpected error in get_columns_for_table",
-            )  # pragma: no cover
-            raise DJQueryServiceClientException(
-                message=f"Unexpected error retrieving columns: {str(e)}",
-            )
-        finally:  # pragma: no cover
-            if "conn" in locals():
-                conn.close()
+            finally:  # pragma: no cover
+                if "conn" in locals():
+                    conn.close()
+
+        return await asyncio.to_thread(_fetch)
 
     def _map_snowflake_type_to_dj(self, snowflake_type: str) -> ColumnType:
         """

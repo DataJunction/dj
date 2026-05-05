@@ -1,6 +1,5 @@
 """Base abstract class for query service clients."""
 
-import asyncio
 import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
@@ -38,7 +37,7 @@ class BaseQueryServiceClient(ABC):
     """
 
     @abstractmethod
-    def get_columns_for_table(
+    async def get_columns_for_table(
         self,
         catalog: str,
         schema: str,
@@ -46,22 +45,9 @@ class BaseQueryServiceClient(ABC):
         request_headers: Optional[Dict[str, str]] = None,
         engine: Optional["Engine"] = None,
     ) -> List[Column]:
-        """
-        Retrieves columns for a table.
+        """Retrieves columns for a table."""
 
-        Args:
-            catalog: The catalog name
-            schema: The schema name
-            table: The table name
-            request_headers: Optional HTTP headers
-            engine: Optional engine for context
-
-        Returns:
-            List of Column objects
-        """
-        pass
-
-    def get_columns_for_tables_batch(
+    async def get_columns_for_tables_batch(
         self,
         tables: List[tuple[str, str, str]],  # [(catalog, schema, table), ...]
         request_headers: Optional[Dict[str, str]] = None,
@@ -70,16 +56,8 @@ class BaseQueryServiceClient(ABC):
         """
         Retrieves columns for multiple tables in a single batch request.
 
-        Default implementation falls back to individual calls.
-        Override in subclasses that support batched column retrieval.
-
-        Args:
-            tables: List of (catalog, schema, table) tuples
-            request_headers: Optional HTTP headers
-            engine: Optional engine for context
-
-        Returns:
-            Dict mapping (catalog, schema, table) to List of Column objects
+        Default implementation falls back to individual calls. Override in
+        subclasses that support batched column retrieval natively.
         """
         _logger.info(
             "get_columns_for_tables_batch not implemented, falling back to individual calls",
@@ -87,7 +65,7 @@ class BaseQueryServiceClient(ABC):
         result = {}
         for catalog, schema, table in tables:
             try:
-                columns = self.get_columns_for_table(
+                columns = await self.get_columns_for_table(
                     catalog,
                     schema,
                     table,
@@ -102,148 +80,35 @@ class BaseQueryServiceClient(ABC):
                 result[(catalog, schema, table)] = []
         return result
 
-    def create_view(
+    async def create_view(
         self,
         view_name: str,
         query_create: QueryCreate,
         request_headers: Optional[Dict[str, str]] = None,
     ) -> str:
-        """
-        Re-create a view using the query service.
-
-        Default implementation raises NotImplementedError.
-        Override in subclasses that support view creation.
-
-        Args:
-            view_name: Name of the view to create
-            query_create: Query creation parameters
-            request_headers: Optional HTTP headers
-
-        Returns:
-            Success message string
-        """
+        """Re-create a view using the query service."""
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support view creation",
         )
 
-    def submit_query(
+    async def submit_query(
         self,
         query_create: QueryCreate,
         request_headers: Optional[Dict[str, str]] = None,
     ) -> QueryWithResults:
-        """
-        Submit a query to the query service.
-
-        Default implementation raises NotImplementedError.
-        Override in subclasses that support query submission.
-
-        Args:
-            query_create: Query creation parameters
-            request_headers: Optional HTTP headers
-
-        Returns:
-            QueryWithResults containing query results
-        """
+        """Submit a query to the query service."""
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support query submission",
         )
 
-    def get_query(
+    async def get_query(
         self,
         query_id: str,
         request_headers: Optional[Dict[str, str]] = None,
     ) -> QueryWithResults:
-        """
-        Get a previously submitted query.
-
-        Default implementation raises NotImplementedError.
-        Override in subclasses that support query retrieval.
-
-        Args:
-            query_id: ID of the query to retrieve
-            request_headers: Optional HTTP headers
-
-        Returns:
-            QueryWithResults containing query results
-        """
+        """Get a previously submitted query."""
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support query retrieval",
-        )
-
-    async def get_columns_for_table_async(
-        self,
-        catalog: str,
-        schema: str,
-        table: str,
-        request_headers: Optional[Dict[str, str]] = None,
-        engine: Optional["Engine"] = None,
-    ) -> List[Column]:
-        """
-        Async variant of get_columns_for_table.
-
-        Default implementation runs the sync method in a threadpool so that
-        non-HTTP backends (Snowflake, BigQuery) don't block the event loop.
-        Backends with native async I/O should override this.
-        """
-        return await asyncio.to_thread(
-            self.get_columns_for_table,
-            catalog,
-            schema,
-            table,
-            request_headers,
-            engine,
-        )
-
-    async def get_columns_for_tables_batch_async(
-        self,
-        tables: List[tuple[str, str, str]],
-        request_headers: Optional[Dict[str, str]] = None,
-        engine: Optional["Engine"] = None,
-    ) -> Dict[tuple[str, str, str], List[Column]]:
-        """Async variant of get_columns_for_tables_batch (threadpool fallback)."""
-        return await asyncio.to_thread(
-            self.get_columns_for_tables_batch,
-            tables,
-            request_headers,
-            engine,
-        )
-
-    async def create_view_async(
-        self,
-        view_name: str,
-        query_create: QueryCreate,
-        request_headers: Optional[Dict[str, str]] = None,
-    ) -> str:
-        """Async variant of create_view (threadpool fallback)."""
-        return await asyncio.to_thread(
-            self.create_view,
-            view_name,
-            query_create,
-            request_headers,
-        )
-
-    async def submit_query_async(
-        self,
-        query_create: QueryCreate,
-        request_headers: Optional[Dict[str, str]] = None,
-    ) -> QueryWithResults:
-        """Async variant of submit_query (threadpool fallback)."""
-        return await asyncio.to_thread(
-            self.submit_query,
-            query_create,
-            request_headers,
-        )
-
-    async def get_query_async(
-        self,
-        query_id: str,
-        request_headers: Optional[Dict[str, str]] = None,
-    ) -> QueryWithResults:
-        """Async variant of get_query (threadpool fallback)."""
-        return await asyncio.to_thread(
-            self.get_query,
-            query_id,
-            request_headers,
         )
 
     def materialize(

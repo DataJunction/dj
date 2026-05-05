@@ -2108,7 +2108,7 @@ class TestNodeCRUD:
 
         mocker.patch.object(
             module__query_service_client,
-            "get_columns_for_table_async",
+            "get_columns_for_table",
             _empty_columns_async,
         )
         response = await module__client_with_roads.post(
@@ -2129,7 +2129,7 @@ class TestNodeCRUD:
 
         mocker.patch.object(
             module__query_service_client,
-            "get_columns_for_table_async",
+            "get_columns_for_table",
             _missing_table_async,
         )
         response = await module__client_with_roads.post(
@@ -2162,7 +2162,7 @@ class TestNodeCRUD:
 
         mocker.patch.object(
             module__query_service_client,
-            "get_columns_for_table_async",
+            "get_columns_for_table",
             _good_columns_async,
         )
         response = await module__client_with_roads.post(
