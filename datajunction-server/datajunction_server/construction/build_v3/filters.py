@@ -78,6 +78,11 @@ def resolve_filter_references(
     "v3.date.month[order] >= 2024" where [order] is the role indicator.
     The SQL parser interprets [order] as an array subscript (ast.Subscript).
 
+    Any column reference that does not resolve to an entry in ``column_aliases``
+    raises ``DJInvalidInputException``. This is the last line of defense
+    against typos that would otherwise leak into the generated SQL and only
+    surface as engine-level errors at execution time.
+
     Args:
         filter_ast: The parsed filter expression (will be mutated!)
         column_aliases: Map from dimension ref (e.g., "v3.product.category") to alias (e.g., "category")
@@ -93,6 +98,16 @@ def resolve_filter_references(
         resolve_filter_references(filter_ast, aliases, "t2")
         # Now filter_ast contains "t2.category = 'Electronics'"
     """
+    # Track Column nodes that appear inside Subscript indexes — these are
+    # role markers (e.g., "order" in "dim.col[order]"), not real column refs,
+    # and must be excluded from the unresolved-ref check below.
+    role_marker_ids: set[int] = set()
+
+    # Track Column nodes inserted by the subscript pass below. Their names
+    # already point at the resolved alias (not a known column_aliases key),
+    # so the second-pass walk must skip them rather than re-resolve or flag.
+    already_resolved_ids: set[int] = set()
+
     # First pass: handle Subscript nodes that represent role-suffixed dimension refs.
     # The SQL parser interprets "dim.col[role]" as Subscript(Column("dim.col"), Column("role")).
     # We need to reconstruct the full dim ref with role and replace the entire Subscript.
@@ -107,6 +122,14 @@ def resolve_filter_references(
         role = extract_subscript_role(subscript)
         if not role:
             continue  # pragma: no cover
+
+        # Mark every Column under the index as a role marker so it isn't
+        # later flagged as an unresolved reference.
+        if isinstance(subscript.index, ast.Column):
+            role_marker_ids.add(id(subscript.index))
+        if hasattr(subscript.index, "find_all"):
+            for inner_col in subscript.index.find_all(ast.Column):
+                role_marker_ids.add(id(inner_col))
 
         # Look up with role first, then fall back to base ref without role
         dim_ref_with_role = f"{base_col_ref}[{role}]"
@@ -129,12 +152,25 @@ def resolve_filter_references(
                 name=ast.Name(col_name_for_replacement),
                 _table=ast.Table(ast.Name(cte_alias)) if cte_alias else None,
             )
+            already_resolved_ids.add(id(replacement))
             subscript.swap(replacement)
+        else:
+            raise DJInvalidInputException(
+                f"Filter references unknown dimension `{dim_ref_with_role}`. "
+                f"Make sure the dimension exists and is reachable from the "
+                f"requested metrics.",
+            )
 
     # Second pass: handle regular Column references (no subscript role syntax)
+    unresolved: list[str] = []
+
     def resolve_refs(node: ast.Expression) -> None:
         """Recursively resolve column references in the AST."""
-        if isinstance(node, ast.Column):
+        if (
+            isinstance(node, ast.Column)
+            and id(node) not in role_marker_ids
+            and id(node) not in already_resolved_ids
+        ):
             # Reconstruct the full reference from the column name
             # Column names may be namespaced (e.g., v3.product.category)
             full_ref = _extract_full_column_ref(node)
@@ -146,6 +182,8 @@ def resolve_filter_references(
                     node.name = ast.Name(col_alias, namespace=ast.Name(cte_alias))
                 else:
                     node.name = ast.Name(col_alias)
+            elif full_ref:
+                unresolved.append(full_ref)
 
         # Recursively process children
         if hasattr(node, "children"):  # pragma: no branch
@@ -154,6 +192,16 @@ def resolve_filter_references(
                     resolve_refs(child)
 
     resolve_refs(filter_ast)
+
+    if unresolved:
+        unique_refs = list(dict.fromkeys(unresolved))
+        joined = ", ".join(f"`{r}`" for r in unique_refs)
+        raise DJInvalidInputException(
+            f"Filter references unknown column(s): {joined}. "
+            f"Make sure each reference uses the `node.column` form and that "
+            f"the column exists on the referenced node.",
+        )
+
     return filter_ast
 
 

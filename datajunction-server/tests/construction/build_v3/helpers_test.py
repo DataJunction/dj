@@ -562,32 +562,56 @@ class TestFilterHelpers:
         assert "order_details_0.country_home" in result_str
 
     def test_resolve_filter_references_unrecognized_subscript_index(self):
-        """Test that subscripts with unrecognized index types (not Column/Name/Lambda) are skipped.
+        """A subscript with a non-role index whose base column has no alias is rejected.
 
-        Covers the branch where subscript.index is neither ast.Column, ast.Name, nor
-        ast.Lambda (e.g., a numeric literal), so role stays None and the subscript
-        is left unchanged.
+        ``arr[0] = 'x'`` references unknown column ``arr``. The unresolved-ref
+        guard surfaces it as a DJInvalidInputException rather than letting the
+        broken reference reach the generated SQL.
         """
-        # arr[0] has a numeric index — not a role marker
         filter_ast = parse_filter("arr[0] = 'x'")
-        aliases = {}
-        result = resolve_filter_references(filter_ast, aliases)
-        # Subscript with unrecognized index is preserved as-is
-        assert result is not None
-        assert "[0]" in str(result)
+        with pytest.raises(DJInvalidInputException) as exc_info:
+            resolve_filter_references(filter_ast, {})
+        assert "arr" in str(exc_info.value)
 
     def test_resolve_filter_references_role_not_in_aliases(self):
-        """Test that a role-subscript whose role doesn't appear in aliases is left unchanged.
+        """A role-subscript whose role doesn't appear in aliases is rejected.
 
-        Covers the branch where role is successfully extracted (Column index) but
-        alias_to_use is None (neither the role-qualified ref nor the base ref is in aliases).
+        Previously the subscript was silently left unchanged, producing invalid
+        SQL like ``t1.year[order] >= 2024``. We now raise so the bad reference
+        is surfaced before SQL is built.
         """
         filter_ast = parse_filter("v3.date.year[order] >= 2024")
-        # Empty aliases — the role 'order' is extracted but maps to nothing
-        result = resolve_filter_references(filter_ast, {})
-        # Subscript is preserved because there's no alias to replace it with
-        assert result is not None
-        assert "[order]" in str(result)
+        with pytest.raises(DJInvalidInputException) as exc_info:
+            resolve_filter_references(filter_ast, {})
+        assert "v3.date.year[order]" in str(exc_info.value)
+
+    def test_resolve_filter_references_unknown_column_raises(self):
+        """An unknown qualified column ref is rejected by the safety net.
+
+        Regression guard for a real incident where a filter referenced
+        ``some.fact.dateint`` — a column that did not exist on that node.
+        DJ used to silently emit the bad column into the WHERE clause; now
+        it raises with the offending ref in the message.
+        """
+        filter_ast = parse_filter(
+            "arc.main.season_market.dateint BETWEEN 20260401 AND 20260429",
+        )
+        with pytest.raises(DJInvalidInputException) as exc_info:
+            resolve_filter_references(filter_ast, {})
+        assert "arc.main.season_market.dateint" in str(exc_info.value)
+
+    def test_resolve_filter_references_partial_resolution_raises(self):
+        """If one column resolves but another doesn't, the unresolved ref still raises."""
+        filter_ast = parse_filter(
+            "v3.product.category = 'X' AND v3.product.bogus = 'Y'",
+        )
+        aliases = {"v3.product.category": "category"}
+        with pytest.raises(DJInvalidInputException) as exc_info:
+            resolve_filter_references(filter_ast, aliases)
+        msg = str(exc_info.value)
+        assert "v3.product.bogus" in msg
+        # The valid ref shouldn't be flagged
+        assert "v3.product.category`" not in msg
 
 
 class TestAddTablePrefixesToFilter:

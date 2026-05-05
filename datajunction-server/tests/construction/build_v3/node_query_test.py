@@ -1290,3 +1290,50 @@ async def test_sql_for_cube_node_dispatches_to_metrics_sql(
     assert via_metrics_v3.status_code == 200, via_metrics_v3.json()
 
     assert_sql_equal(via_node.json()["sql"], via_metrics_v3.json()["sql"])
+
+
+@pytest.mark.asyncio
+async def test_sql_with_filter_on_nonexistent_column_on_local_node(
+    client_with_roads: AsyncClient,
+):
+    """
+    A filter that references a column that does not exist on the starting
+    node is rejected with a 422 and an actionable message — not silently
+    compiled into bad SQL that only fails at engine runtime.
+
+    Regression guard for the season_market.dateint incident.
+    """
+    response = await client_with_roads.get(
+        "/sql/default.repair_orders_fact/",
+        params={
+            "filters": ["default.repair_orders_fact.bogus_col > 100"],
+            "limit": 5,
+        },
+    )
+    assert response.status_code == 422, response.json()
+    message = response.json()["message"]
+    assert "bogus_col" in message
+    assert "default.repair_orders_fact" in message
+
+
+@pytest.mark.asyncio
+async def test_sql_with_filter_on_nonexistent_column_on_joined_dim(
+    client_with_roads: AsyncClient,
+):
+    """
+    A filter referencing a non-existent column on a *joined* dimension node
+    is also rejected. The join path is reachable, but the column itself is
+    unknown — that's the case where DJ used to emit ``tN.bogus_col`` and
+    only fail in the warehouse.
+    """
+    response = await client_with_roads.get(
+        "/sql/default.repair_orders_fact/",
+        params={
+            "filters": ["default.hard_hat.not_a_real_column = 'CA'"],
+            "limit": 3,
+        },
+    )
+    assert response.status_code == 422, response.json()
+    message = response.json()["message"]
+    assert "not_a_real_column" in message
+    assert "default.hard_hat" in message
