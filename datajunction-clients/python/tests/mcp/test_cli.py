@@ -1,102 +1,112 @@
 """
-Tests for MCP CLI entry point
+Tests for the dj-mcp stdio→HTTP proxy CLI.
+
+The CLI delegates everything to a hosted DJ MCP server via Streamable HTTP.
+We just verify the wiring: settings → headers, upstream connect, stdio
+bridge runs. Actual tool behavior is tested in datajunction-server's
+``tests/dj_mcp/`` suite.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from datajunction.mcp.cli import main, run
+
+@pytest.mark.asyncio
+async def test_main_connects_with_bearer_token_when_set(monkeypatch):
+    """When DJ_API_TOKEN is set, it's forwarded as an Authorization header."""
+    monkeypatch.setenv("DJ_API_TOKEN", "test-token")
+    monkeypatch.setenv("DJ_MCP_URL", "http://example.com/mcp")
+
+    from datajunction.mcp import cli
+
+    captured: dict = {}
+
+    class _FakeStreamCtx:
+        async def __aenter__(self):
+            return (MagicMock(), MagicMock(), lambda: None)
+
+        async def __aexit__(self, *exc):
+            return False
+
+    def fake_streamablehttp_client(url, headers=None, timeout=None):
+        captured["url"] = url
+        captured["headers"] = headers
+        return _FakeStreamCtx()
+
+    class _FakeSessionCtx:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def __aenter__(self):
+            session = MagicMock()
+            session.initialize = AsyncMock()
+            return session
+
+        async def __aexit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(cli, "streamablehttp_client", fake_streamablehttp_client)
+    monkeypatch.setattr(cli, "ClientSession", _FakeSessionCtx)
+    monkeypatch.setattr(cli, "_serve", AsyncMock())
+
+    await cli.main()
+
+    assert captured["url"] == "http://example.com/mcp"
+    assert captured["headers"] == {"Authorization": "Bearer test-token"}
 
 
 @pytest.mark.asyncio
-async def test_main_starts_server():
-    """Test that main() initializes and starts the MCP server"""
-    mock_read_stream = MagicMock()
-    mock_write_stream = MagicMock()
+async def test_main_without_token_omits_auth_header(monkeypatch):
+    """No DJ_API_TOKEN → no Authorization header (None passed to httpx)."""
+    monkeypatch.delenv("DJ_API_TOKEN", raising=False)
+    monkeypatch.setenv("DJ_MCP_URL", "http://example.com/mcp")
 
-    with (
-        patch("datajunction.mcp.cli.stdio_server") as mock_stdio,
-        patch("datajunction.mcp.cli.app") as mock_app,
-        patch("datajunction.mcp.cli.get_mcp_settings") as mock_settings,
-    ):
-        # Setup mock settings
-        mock_settings.return_value = MagicMock(
-            dj_api_url="http://localhost:8000",
-        )
+    from datajunction.mcp import cli
 
-        # Setup mock stdio_server context manager
-        mock_stdio.return_value.__aenter__.return_value = (
-            mock_read_stream,
-            mock_write_stream,
-        )
+    captured: dict = {}
 
-        # Setup mock app.run - needs to be async
-        mock_app.run = AsyncMock()
+    class _FakeStreamCtx:
+        async def __aenter__(self):
+            return (MagicMock(), MagicMock(), lambda: None)
 
-        # Run main
-        await main()
+        async def __aexit__(self, *exc):
+            return False
 
-        # Verify server was started with correct parameters
-        mock_app.run.assert_called_once_with(
-            mock_read_stream,
-            mock_write_stream,
-            mock_app.create_initialization_options(),
-        )
+    def fake_streamablehttp_client(url, headers=None, timeout=None):
+        captured["headers"] = headers
+        return _FakeStreamCtx()
 
+    class _FakeSessionCtx:
+        def __init__(self, *a, **kw):
+            pass
 
-def test_run_calls_asyncio_run():
-    """Test that run() wrapper properly invokes asyncio.run"""
-    with patch("datajunction.mcp.cli.asyncio.run") as mock_asyncio_run:
-        mock_asyncio_run.return_value = None
+        async def __aenter__(self):
+            session = MagicMock()
+            session.initialize = AsyncMock()
+            return session
 
-        run()
+        async def __aexit__(self, *exc):
+            return False
 
-        # Verify asyncio.run was called once
-        mock_asyncio_run.assert_called_once()
-        # The argument should be a coroutine (from calling main())
-        call_args = mock_asyncio_run.call_args[0][0]
-        assert hasattr(call_args, "__await__")  # Verify it's a coroutine
+    monkeypatch.setattr(cli, "streamablehttp_client", fake_streamablehttp_client)
+    monkeypatch.setattr(cli, "ClientSession", _FakeSessionCtx)
+    monkeypatch.setattr(cli, "_serve", AsyncMock())
+
+    await cli.main()
+    assert captured["headers"] is None
 
 
-def test_run_handles_keyboard_interrupt():
-    """Test that run() handles KeyboardInterrupt gracefully"""
-    with (
-        patch("datajunction.mcp.cli.asyncio.run") as mock_asyncio_run,
-        patch("datajunction.mcp.cli.logger") as mock_logger,
-    ):
-        mock_asyncio_run.side_effect = KeyboardInterrupt()
+def test_run_invokes_asyncio_run(monkeypatch):
+    """``run()`` is the script entrypoint — it should drive ``main()`` via asyncio."""
+    from datajunction.mcp import cli
 
-        # Should not raise exception
-        run()
+    invoked = {}
 
-        # Verify it logged the message
-        mock_logger.info.assert_called_with("MCP Server stopped by user")
+    def fake_asyncio_run(coro):
+        invoked["called"] = True
+        coro.close()  # avoid "coroutine was never awaited" warning
 
-
-def test_run_handles_exception():
-    """Test that run() handles exceptions and exits with code 1"""
-    with (
-        patch("datajunction.mcp.cli.asyncio.run") as mock_asyncio_run,
-        patch("datajunction.mcp.cli.logger") as mock_logger,
-        patch("sys.exit") as mock_exit,
-    ):
-        mock_asyncio_run.side_effect = Exception("Test error")
-
-        run()
-
-        # Verify error was logged
-        mock_logger.error.assert_called_once()
-        assert "Test error" in str(mock_logger.error.call_args)
-
-        # Verify sys.exit was called with code 1
-        mock_exit.assert_called_once_with(1)
-
-
-def test_cli_entry_point_exists():
-    """Test that the dj-mcp entry point is properly configured"""
-    # This test verifies that the module can be imported and run() exists
-    from datajunction.mcp.cli import run
-
-    assert callable(run)
-    assert run.__module__ == "datajunction.mcp.cli"
+    monkeypatch.setattr(cli.asyncio, "run", fake_asyncio_run)
+    cli.run()
+    assert invoked["called"]
