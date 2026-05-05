@@ -375,6 +375,117 @@ class TestQueryServiceClient:
         )
 
     @pytest.mark.asyncio
+    async def test_submit_query_merges_request_headers(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """When request_headers are passed, they merge with the default Accept header."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "catalog_name": "public",
+            "engine_name": "postgres",
+            "engine_version": "15.2",
+            "id": "ef209eef-c31a-4089-aae6-833259a08e22",
+            "submitted_query": "SELECT 1",
+            "executed_query": "SELECT 1",
+            "scheduled": "2023-01-01T00:00:00.000000",
+            "started": "2023-01-01T00:00:00.000000",
+            "finished": "2023-01-01T00:00:00.000001",
+            "state": "FINISHED",
+            "progress": 1,
+            "results": [],
+            "next": None,
+            "previous": None,
+            "errors": [],
+        }
+        mock_request = mocker.patch.object(
+            httpx.AsyncClient,
+            "request",
+            AsyncMock(return_value=mock_response),
+        )
+
+        client = QueryServiceClient(uri=self.endpoint)
+        await client.submit_query(
+            QueryCreate(
+                catalog_name="default",
+                engine_name="postgres",
+                engine_version="15.2",
+                submitted_query="SELECT 1",
+                async_=False,
+            ),
+            request_headers={"X-DJ-User": "alice", "accept": "application/xml"},
+        )
+        # Caller's headers come through; the explicit ``accept`` default wins.
+        mock_request.assert_called_with(
+            "POST",
+            "/queries/",
+            headers={"X-DJ-User": "alice", "accept": "application/json"},
+            json=ANY,
+        )
+
+    @pytest.mark.asyncio
+    async def test_arequest_retries_retryable_status_codes(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """``_arequest`` retries on 429/5xx until success or retries exhausted."""
+        flaky = MagicMock(status_code=503, text="busy")
+        ok = MagicMock(status_code=200, json=MagicMock(return_value={"columns": []}))
+        # Skip the backoff sleep so the test is fast.
+        mocker.patch(
+            "datajunction_server.service_clients.asyncio.sleep",
+            AsyncMock(),
+        )
+        mock_request = mocker.patch.object(
+            httpx.AsyncClient,
+            "request",
+            AsyncMock(side_effect=[flaky, flaky, ok]),
+        )
+
+        client = QueryServiceClient(uri=self.endpoint, retries=3)
+        # 200 with an empty columns list raises DJDoesNotExistException —
+        # we just want to confirm the retry path was taken.
+        with pytest.raises(DJDoesNotExistException):
+            await client.get_columns_for_table("hive", "test", "pies")
+        assert mock_request.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_aclose_releases_async_client(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """``aclose`` closes the underlying httpx client and clears the handle."""
+        mocker.patch.object(
+            httpx.AsyncClient,
+            "request",
+            AsyncMock(
+                return_value=MagicMock(
+                    status_code=200,
+                    json=MagicMock(
+                        return_value={
+                            "columns": [{"name": "x", "type": "INT"}],
+                        },
+                    ),
+                ),
+            ),
+        )
+        aclose_mock = mocker.patch.object(httpx.AsyncClient, "aclose", AsyncMock())
+
+        client = QueryServiceClient(uri=self.endpoint)
+        # Force lazy creation of the underlying httpx.AsyncClient.
+        await client.get_columns_for_table("hive", "test", "pies")
+        assert client._async_client is not None
+
+        await client.aclose()
+        aclose_mock.assert_awaited_once()
+        assert client._async_client is None
+
+        # Idempotent: a second call is a no-op.
+        await client.aclose()
+        aclose_mock.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_query_service_client_get_query(
         self,
         mocker: MockerFixture,
