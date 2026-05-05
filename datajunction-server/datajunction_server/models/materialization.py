@@ -342,7 +342,7 @@ class DruidMeasuresCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
         user_defined_temporal_partition = user_defined_temporal_partitions[0]
         # The cube column stores the role separately in ``dimension_column`` as
         # ``[role]``. Reconstruct the role-qualified form to match the v3
-        # measures-query ``semantic_entity`` (e.g. ``default.date.dateint[asset_create_date]``).
+        # measures-query ``semantic_entity`` (e.g. ``node.col[role]``).
         partition_ref = user_defined_temporal_partition.name + (
             user_defined_temporal_partition.dimension_column or ""
         )

@@ -221,12 +221,12 @@ class TestFromMeasuresQueryRoleResolution:
         """A v3-style measures query with a role-qualified date dimension."""
         return SimpleNamespace(
             node=NodeNameVersion(name="default.cube", version="v1.0"),
-            grain=["default_DOT_date_DOT_dateint_LBRACKET_asset_create_date_RBRACKET"],
+            grain=["default_DOT_date_DOT_dateint_LBRACKET_reporting_date_RBRACKET"],
             columns=[
                 ColumnMetadata(
                     name="dateint",
                     type="int",
-                    semantic_entity="default.date.dateint[asset_create_date]",
+                    semantic_entity="default.date.dateint[reporting_date]",
                     semantic_type="dimension",
                 ),
                 ColumnMetadata(
@@ -256,13 +256,13 @@ class TestFromMeasuresQueryRoleResolution:
         )
 
     def test_role_qualified_partition_resolves(self, measures_query):
-        """Cube column with ``dimension_column='[asset_create_date]'`` must
+        """Cube column with ``dimension_column='[reporting_date]'`` must
         match the role-qualified ``semantic_entity`` in the measures query."""
         # Mimics a database Column for a role-qualified temporal partition.
         # Cube columns store the role separately in ``dimension_column``.
         temporal_partition = SimpleNamespace(
             name="default.date.dateint",
-            dimension_column="[asset_create_date]",
+            dimension_column="[reporting_date]",
             partition=SimpleNamespace(format="yyyyMMdd", granularity=Granularity.DAY),
         )
 
