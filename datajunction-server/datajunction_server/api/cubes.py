@@ -74,6 +74,7 @@ from datajunction_server.models.query import ColumnMetadata, QueryCreate
 from datajunction_server.naming import from_amenable_name
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.utils import (
+    deep_merge,
     get_current_user,
     get_query_service_client,
     get_session,
@@ -647,6 +648,15 @@ async def materialize_cube(
         },
     }
 
+    # Apply user-provided overrides to the Druid spec
+    if data.druid_overrides:
+        druid_spec = deep_merge(druid_spec, data.druid_overrides)
+        _logger.info(
+            "Applied druid_overrides to cube=%s: %s",
+            name,
+            list(data.druid_overrides.keys()),
+        )
+
     # Convert columns to ColumnMetadata
     output_columns = [
         ColumnMetadata(
@@ -738,6 +748,7 @@ async def materialize_cube(
         metrics=metrics_list,
         timestamp_column=timestamp_column,
         timestamp_format=timestamp_format,
+        druid_overrides=data.druid_overrides,
         workflow_urls=workflow_urls,
         workflow_names=workflow_names,
     )

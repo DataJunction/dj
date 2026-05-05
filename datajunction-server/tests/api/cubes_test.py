@@ -4838,6 +4838,129 @@ class TestCubeMaterializeV2SuccessPaths:
         assert data["schedule"] == "0 6 * * *"
 
     @pytest.mark.asyncio
+    async def test_materialize_cube_with_druid_overrides(
+        self,
+        client_with_repairs_cube: AsyncClient,
+        mocker,
+    ):
+        """Test that druid_overrides are deep-merged into the generated Druid spec.
+
+        This allows users to override tuningConfig, indexSpec, or any other Druid
+        settings without DJ having to expose every possible knob.
+        """
+        cube_name = "default.test_materialize_druid_overrides_cube"
+        await make_a_test_cube(
+            client_with_repairs_cube,
+            cube_name,
+            with_materialization=False,
+        )
+
+        mock_columns = [
+            V3ColumnMetadata(
+                name="date_id",
+                type="int",
+                semantic_name="default.hard_hat.hire_date",
+                semantic_type="dimension",
+            ),
+            V3ColumnMetadata(
+                name="num_repair_orders",
+                type="bigint",
+                semantic_name="default.num_repair_orders",
+                semantic_type="measure",
+            ),
+        ]
+
+        mock_combined_result = _create_mock_combined_result(
+            mocker,
+            columns=mock_columns,
+            shared_dimensions=["default.hard_hat.hire_date"],
+            sql_string="SELECT date_id, COUNT(*) FROM preagg GROUP BY date_id",
+        )
+
+        mock_temporal_info = TemporalPartitionInfo(
+            column_name="date_id",
+            format="yyyyMMdd",
+            granularity="day",
+        )
+
+        mocker.patch(
+            "datajunction_server.api.cubes.build_combiner_sql_from_preaggs",
+            return_value=(
+                mock_combined_result,
+                [
+                    PreAggSourceInfo(
+                        table_ref="catalog.schema.preagg_table1",
+                        parent_name="default.repair_orders",
+                        strategy=None,
+                    ),
+                ],
+                mock_temporal_info,
+            ),
+        )
+
+        qs_client = client_with_repairs_cube.app.dependency_overrides[
+            get_query_service_client
+        ]()
+        mocker.patch.object(
+            qs_client,
+            "materialize_cube_v2",
+            return_value=mocker.MagicMock(
+                urls=["http://workflow/cube-workflow"],
+                workflow_names=["cube-workflow"],
+            ),
+        )
+
+        # Request with druid_overrides
+        druid_overrides = {
+            "tuningConfig": {
+                "partitionsSpec": {
+                    "targetRowsPerSegment": 1000000,  # Override default 5000000
+                    "type": "single_dim",  # Override default "hashed"
+                    "partitionDimension": "date_id",
+                },
+                "maxNumConcurrentSubTasks": 20,  # Add new field
+            },
+            "dataSchema": {
+                "granularitySpec": {
+                    "queryGranularity": "HOUR",  # Add rollup granularity
+                },
+            },
+        }
+
+        response = await client_with_repairs_cube.post(
+            f"/cubes/{cube_name}/materialize",
+            json={
+                "strategy": "incremental_time",
+                "schedule": "0 6 * * *",
+                "lookback_window": "1 DAY",
+                "druid_overrides": druid_overrides,
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        data = response.json()
+
+        # Verify overrides were applied
+        druid_spec = data["druid_spec"]
+
+        # Check tuningConfig overrides
+        tuning_config = druid_spec["tuningConfig"]
+        assert tuning_config["partitionsSpec"]["targetRowsPerSegment"] == 1000000
+        assert tuning_config["partitionsSpec"]["type"] == "single_dim"
+        assert tuning_config["partitionsSpec"]["partitionDimension"] == "date_id"
+        assert tuning_config["maxNumConcurrentSubTasks"] == 20
+        # Verify existing defaults are preserved
+        assert tuning_config["useCombiner"] is True
+        assert tuning_config["type"] == "hadoop"
+
+        # Check dataSchema override
+        granularity_spec = druid_spec["dataSchema"]["granularitySpec"]
+        assert granularity_spec["queryGranularity"] == "HOUR"
+        # Verify existing defaults are preserved
+        assert granularity_spec["type"] == "uniform"
+        assert granularity_spec["segmentGranularity"] == "DAY"
+
+    @pytest.mark.asyncio
     async def test_materialize_cube_returns_metric_combiners(
         self,
         client_with_build_v3: AsyncClient,

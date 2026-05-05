@@ -3,6 +3,7 @@ Utility functions.
 """
 
 import asyncio
+import copy
 from contextlib import asynccontextmanager
 import json
 import logging
@@ -11,7 +12,7 @@ import re
 from functools import lru_cache
 from http import HTTPStatus
 
-from typing import AsyncIterator, List, Optional
+from typing import Any, AsyncIterator, Dict, List, Optional
 
 from dotenv import load_dotenv
 from fastapi import Depends
@@ -588,6 +589,41 @@ async def sync_user_groups(
 
     await session.commit()
     return group_names
+
+
+def deep_merge(base: Dict[str, Any], overrides: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Deep merge two dictionaries.
+
+    Values from `overrides` take precedence. Nested dictionaries are merged
+    recursively. Non-dict values in `overrides` replace values in `base`.
+
+    Args:
+        base: The base dictionary
+        overrides: Dictionary with values to merge/override
+
+    Returns:
+        A new dictionary with merged values (original dicts are not modified)
+
+    Example:
+        >>> base = {"a": 1, "b": {"c": 2, "d": 3}}
+        >>> overrides = {"b": {"c": 10, "e": 5}}
+        >>> deep_merge(base, overrides)
+        {'a': 1, 'b': {'c': 10, 'd': 3, 'e': 5}}
+    """
+    result = copy.deepcopy(base)
+
+    for key, override_value in overrides.items():
+        if (
+            key in result
+            and isinstance(result[key], dict)
+            and isinstance(override_value, dict)
+        ):
+            result[key] = deep_merge(result[key], override_value)
+        else:
+            result[key] = copy.deepcopy(override_value)
+
+    return result
 
 
 SEPARATOR = "."
