@@ -46,7 +46,7 @@ from datajunction_server.construction.build_v3.utils import (
     add_dimensions_from_metric_expressions,
 )
 from datajunction_server.database.partition import Partition
-from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.errors import DJError, DJInvalidInputException, ErrorCode
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.partition import PartitionType
 from datajunction_server.sql.parsing import ast
@@ -201,8 +201,6 @@ def apply_orderby_limit(
                 unknown.append(semantic_name)
 
         if unknown:
-            from datajunction_server.errors import DJError, ErrorCode
-
             available = sorted(semantic_to_output.keys())
             unique_unknown = list(dict.fromkeys(unknown))
             available_str = ", ".join(f"`{n}`" for n in available)

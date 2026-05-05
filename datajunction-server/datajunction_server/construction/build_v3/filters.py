@@ -86,7 +86,8 @@ def _raise_for_unresolved_filter_refs(
     All ref-level messages are joined with newlines so the user sees every
     bad reference at once rather than fixing them one round-trip at a time.
     """
-    # Local import to avoid the dimensions <-> filters cycle at import time.
+    # Local import: ``dimensions`` -> ``utils`` -> ``filters`` is an existing
+    # import chain, so importing ``dimensions`` at module top would cycle.
     from datajunction_server.construction.build_v3.dimensions import (
         _format_column_validation_error,
         parse_dimension_ref,

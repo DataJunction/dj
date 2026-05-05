@@ -23,6 +23,10 @@ from datajunction_server.construction.build_v3.cte import (
     replace_dimension_refs_in_ast,
     replace_metric_refs_in_ast,
 )
+from datajunction_server.construction.build_v3.dimensions import (
+    _format_column_validation_error,
+    parse_dimension_ref,
+)
 from datajunction_server.construction.build_v3.filters import (
     combine_filters,
     get_filter_column_references,
@@ -47,7 +51,7 @@ from datajunction_server.construction.build_v3.types import (
     GrainGroupSQL,
     MetricExprInfo,
 )
-from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.errors import DJError, DJInvalidInputException, ErrorCode
 from datajunction_server.models.decompose import Aggregability
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.parsing import ast
@@ -2176,12 +2180,6 @@ def generate_metrics_sql(
             parsed_metric_filters.append(filter_ast)
 
         if having_unknown:
-            from datajunction_server.construction.build_v3.dimensions import (
-                _format_column_validation_error,
-                parse_dimension_ref,
-            )
-            from datajunction_server.errors import DJError, ErrorCode
-
             unique = list(dict.fromkeys(having_unknown))
             errors: list[DJError] = []
             fallback_refs: list[str] = []
