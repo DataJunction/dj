@@ -330,9 +330,7 @@ def parse_and_resolve_filters(
         filter_strs: List of filter strings
         column_aliases: Map from dimension ref to alias
         cte_alias: Optional CTE alias to prefix column refs with
-        nodes: Optional ``ctx.nodes`` map. When provided, unresolved-ref errors
-            are escalated through ``_validate_column_on_node`` so callers get
-            actionable "Did you mean?" suggestions for typos.
+        nodes: Optional ``ctx.nodes`` map.
 
     Returns:
         Combined filter expression or None if no filters

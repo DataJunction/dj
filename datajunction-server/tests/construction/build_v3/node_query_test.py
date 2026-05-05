@@ -1182,8 +1182,37 @@ async def test_sql_orderby_unknown_column_raises(
             "limit": 2,
         },
     )
-    assert response.status_code == 422, response.json()
-    assert "default.nonexistent.column" in response.json()["message"]
+    expected_message = (
+        "ORDER BY references unknown column `default.nonexistent.column`. "
+        "Use one of the requested metric or dimension names: "
+        "`default.repair_orders_fact.discount`, "
+        "`default.repair_orders_fact.dispatch_delay`, "
+        "`default.repair_orders_fact.dispatched_date`, "
+        "`default.repair_orders_fact.dispatcher_id`, "
+        "`default.repair_orders_fact.hard_hat_id`, "
+        "`default.repair_orders_fact.municipality_id`, "
+        "`default.repair_orders_fact.order_date`, "
+        "`default.repair_orders_fact.price`, "
+        "`default.repair_orders_fact.quantity`, "
+        "`default.repair_orders_fact.repair_order_id`, "
+        "`default.repair_orders_fact.repair_type_id`, "
+        "`default.repair_orders_fact.required_date`, "
+        "`default.repair_orders_fact.time_to_dispatch`, "
+        "`default.repair_orders_fact.total_repair_cost`."
+    )
+    assert response.status_code == 422
+    assert response.json() == {
+        "message": expected_message,
+        "errors": [
+            {
+                "code": 208,
+                "message": expected_message,
+                "debug": None,
+                "context": "",
+            },
+        ],
+        "warnings": [],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1283,10 +1312,23 @@ async def test_sql_with_filter_on_nonexistent_column_on_local_node(
             "limit": 5,
         },
     )
-    assert response.status_code == 422, response.json()
-    message = response.json()["message"]
-    assert "bogus_col" in message
-    assert "default.repair_orders_fact" in message
+    expected_message = (
+        "Column `bogus_col` does not exist on node `default.repair_orders_fact` "
+        "(referenced as `default.repair_orders_fact.bogus_col`)."
+    )
+    assert response.status_code == 422
+    assert response.json() == {
+        "message": expected_message,
+        "errors": [
+            {
+                "code": 206,
+                "message": expected_message,
+                "debug": None,
+                "context": "",
+            },
+        ],
+        "warnings": [],
+    }
 
 
 @pytest.mark.asyncio
@@ -1306,7 +1348,20 @@ async def test_sql_with_filter_on_nonexistent_column_on_joined_dim(
             "limit": 3,
         },
     )
-    assert response.status_code == 422, response.json()
-    message = response.json()["message"]
-    assert "not_a_real_column" in message
-    assert "default.hard_hat" in message
+    expected_message = (
+        "Column `not_a_real_column` does not exist on node `default.hard_hat` "
+        "(referenced as `default.hard_hat.not_a_real_column`)."
+    )
+    assert response.status_code == 422
+    assert response.json() == {
+        "message": expected_message,
+        "errors": [
+            {
+                "code": 206,
+                "message": expected_message,
+                "debug": None,
+                "context": "",
+            },
+        ],
+        "warnings": [],
+    }

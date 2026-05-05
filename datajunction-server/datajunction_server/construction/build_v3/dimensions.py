@@ -199,9 +199,8 @@ def _format_column_validation_error(
     Return an error message string when ``column_name`` is not on ``node``,
     or ``None`` when the column is valid (or the node has no loaded columns).
 
-    This is the non-raising form of ``_validate_column_on_node``. Use it when
-    you want to batch multiple validation errors into a single exception
-    instead of raising on the first failure.
+    This batches multiple validation errors into a single exception instead
+    of raising on the first failure.
     """
     if not node.current or not node.current.columns:  # pragma: no cover
         return None
@@ -216,22 +215,6 @@ def _format_column_validation_error(
         f"Column `{column_name}` does not exist on node `{node.name}` "
         f"(referenced as `{original_ref}`).{suffix}"
     )
-
-
-def _validate_column_on_node(
-    node: Node,
-    column_name: str,
-    original_ref: str,
-) -> None:
-    """
-    Raise DJInvalidInputException if ``column_name`` is not a column on ``node``.
-
-    Catches typos and stale references early, before they leak into generated
-    SQL where they only surface as engine-level errors at execution time.
-    """
-    message = _format_column_validation_error(node, column_name, original_ref)
-    if message is not None:
-        raise DJInvalidInputException(message)
 
 
 def resolve_dimensions(

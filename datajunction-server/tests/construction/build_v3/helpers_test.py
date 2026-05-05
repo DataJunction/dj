@@ -20,7 +20,6 @@ from datajunction_server.construction.build_v3.decomposition import (
     get_native_grain,
 )
 from datajunction_server.construction.build_v3.dimensions import (
-    _validate_column_on_node,
     parse_dimension_ref,
 )
 from datajunction_server.construction.build_v3.filters import (
@@ -118,96 +117,6 @@ def _make_node_with_columns(name: str, columns: list[str]) -> MagicMock:
     node.name = name
     node.current = rev
     return node
-
-
-class TestValidateColumnOnNode:
-    """Tests for the ``_validate_column_on_node`` helper.
-
-    The helper is the gate that prevents typo'd dimension columns from
-    being silently woven into generated SQL and only failing at engine runtime.
-    """
-
-    def test_existing_column_passes(self):
-        """A column that exists on the node validates without raising."""
-        node = _make_node_with_columns(
-            "arc.main.season_market_r",
-            ["market_code", "season_title_id"],
-        )
-        # Should not raise
-        _validate_column_on_node(
-            node,
-            "market_code",
-            "arc.main.season_market_r.market_code",
-        )
-
-    def test_missing_column_raises(self):
-        """A column that does not exist on the node raises with details.
-
-        Regression guard for the ``season_market_r.dateint`` incident — that
-        column wasn't on the node, but DJ used to compile the bad ref into
-        the WHERE clause anyway.
-        """
-        node = _make_node_with_columns(
-            "arc.main.season_market_r",
-            ["market_code", "season_title_id"],
-        )
-        with pytest.raises(DJInvalidInputException) as exc_info:
-            _validate_column_on_node(
-                node,
-                "dateint",
-                "arc.main.season_market_r.dateint",
-            )
-        assert exc_info.value.message == (
-            "Column `dateint` does not exist on node `arc.main.season_market_r` "
-            "(referenced as `arc.main.season_market_r.dateint`)."
-        )
-
-    def test_missing_column_includes_did_you_mean(self):
-        """Close-spelled columns are surfaced as suggestions in the error."""
-        node = _make_node_with_columns(
-            "v3.customer",
-            ["customer_id", "customer_name", "address"],
-        )
-        with pytest.raises(DJInvalidInputException) as exc_info:
-            _validate_column_on_node(
-                node,
-                "custmer_name",  # typo
-                "v3.customer.custmer_name",
-            )
-        assert exc_info.value.message == (
-            "Column `custmer_name` does not exist on node `v3.customer` "
-            "(referenced as `v3.customer.custmer_name`). "
-            "Did you mean: customer_name, customer_id?"
-        )
-
-    def test_no_suggestions_when_nothing_close(self):
-        """When no available column resembles the bad ref, the message has no
-        ``Did you mean`` suffix — we don't want to surface noise.
-        """
-        node = _make_node_with_columns(
-            "v3.customer",
-            ["customer_id", "address"],
-        )
-        with pytest.raises(DJInvalidInputException) as exc_info:
-            _validate_column_on_node(
-                node,
-                "completely_unrelated",
-                "v3.customer.completely_unrelated",
-            )
-        assert exc_info.value.message == (
-            "Column `completely_unrelated` does not exist on node `v3.customer` "
-            "(referenced as `v3.customer.completely_unrelated`)."
-        )
-
-    def test_node_without_columns_skips_validation(self):
-        """A node with no loaded columns is skipped — validation can't make a
-        determination without the schema, and forcing an error here would
-        regress legitimate paths where columns aren't loaded."""
-        node = MagicMock()
-        node.name = "v3.empty"
-        node.current = None
-        # Should not raise
-        _validate_column_on_node(node, "anything", "v3.empty.anything")
 
 
 class TestMakeColumnRef:
@@ -735,8 +644,8 @@ class TestFilterHelpers:
     def test_resolve_filter_references_unknown_column_with_nodes_uses_validate_helper(
         self,
     ):
-        """When ``nodes`` is plumbed in, the unresolved-ref message escalates to
-        ``_validate_column_on_node`` so the user gets the rich
+        """When ``nodes`` is plumbed in, the unresolved-ref message escalates
+        to ``_format_column_validation_error`` so the user gets the rich
         "Column X does not exist on node Y" error with suggestions.
         """
         filter_ast = parse_filter(

@@ -3521,11 +3521,24 @@ class TestMetricsSQLOrderByLimit:
             },
         )
 
-        assert response.status_code == 422, response.json()
-        message = response.json()["message"]
-        assert "v3.nonexistent_column" in message
-        # The valid name should also be surfaced as a hint
-        assert "v3.total_revenue" in message
+        expected_message = (
+            "ORDER BY references unknown column `v3.nonexistent_column`. "
+            "Use one of the requested metric or dimension names: "
+            "`v3.order_details.status`, `v3.total_revenue`."
+        )
+        assert response.status_code == 422
+        assert response.json() == {
+            "message": expected_message,
+            "errors": [
+                {
+                    "code": 208,
+                    "message": expected_message,
+                    "debug": None,
+                    "context": "",
+                },
+            ],
+            "warnings": [],
+        }
 
     @pytest.mark.asyncio
     async def test_order_by_all_invalid_columns_raises(self, client_with_build_v3):
@@ -3543,8 +3556,24 @@ class TestMetricsSQLOrderByLimit:
             },
         )
 
-        assert response.status_code == 422, response.json()
-        assert "v3.nonexistent_column" in response.json()["message"]
+        expected_message = (
+            "ORDER BY references unknown column `v3.nonexistent_column`. "
+            "Use one of the requested metric or dimension names: "
+            "`v3.order_details.status`, `v3.total_revenue`."
+        )
+        assert response.status_code == 422
+        assert response.json() == {
+            "message": expected_message,
+            "errors": [
+                {
+                    "code": 208,
+                    "message": expected_message,
+                    "debug": None,
+                    "context": "",
+                },
+            ],
+            "warnings": [],
+        }
 
 
 class TestFilterOnlyDimensions:
