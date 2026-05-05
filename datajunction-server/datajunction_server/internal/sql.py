@@ -449,10 +449,18 @@ async def get_measures_query(
         parent_ast = rename_columns(parent_ast, parent_node.current, preaggregate)
 
         # Sort the selected columns into dimension vs measure columns and
-        # generate identifiers for them
+        # generate identifiers for them.
+        # The column identifier carries any role suffix
+        # (e.g. ``node.col[role]``) but ``dimensions_without_roles`` has
+        # the role stripped, so strip the column identifier the same way.
         for expr in parent_ast.select.projection:
             column_identifier = expr.alias_or_name.identifier(False)  # type: ignore
-            if from_amenable_name(column_identifier) in dimensions_without_roles:
+            identifier_path = from_amenable_name(column_identifier)
+            identifier_no_role = matcher.findall(identifier_path)[0][0]
+            if (
+                identifier_no_role in dimensions_without_roles
+                or identifier_path in dimensions
+            ):
                 dimensional_columns.append(expr)
                 expr.set_semantic_type(SemanticType.DIMENSION)  # type: ignore
             else:

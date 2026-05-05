@@ -139,15 +139,29 @@ class MeasuresMaterialization(BaseModel):
             for component in metric_components
             if not component.aggregation
         ]
+        # The cube column stores the role separately in ``dimension_column``
+        # as ``[role]``. Reconstruct the role-qualified form to match the v3
+        # measures-query ``semantic_entity`` (e.g. ``node.col[role]``).
+        partition_ref = (
+            f"{temporal_partition.name}{temporal_partition.dimension_column or ''}"
+        )
+        partition_matches = [
+            col.name
+            for col in measures_query.columns
+            if col.semantic_entity == partition_ref
+        ]
+        if not partition_matches:
+            raise DJInvalidInputException(
+                f"Could not find timestamp column for temporal partition "
+                f"`{partition_ref}` in measures query columns. "
+                f"Available semantic_entity values: "
+                f"{[c.semantic_entity for c in measures_query.columns]}",
+            )
         return MeasuresMaterialization(
             node=measures_query.node,
             grain=measures_query.grain,
             columns=measures_query.columns,
-            timestamp_column=[
-                col.name
-                for col in measures_query.columns
-                if col.semantic_entity == temporal_partition.name
-            ][0],
+            timestamp_column=partition_matches[0],
             timestamp_format=temporal_partition.partition.format,
             granularity=temporal_partition.partition.granularity,
             query=measures_query.sql,

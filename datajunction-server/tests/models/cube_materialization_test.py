@@ -1,11 +1,17 @@
 """Tests for cube materialization models."""
 
+from types import SimpleNamespace
+
 import pytest
 
+from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.cube_materialization import (
     DruidCubeV3Config,
+    MeasuresMaterialization,
     PreAggTableInfo,
 )
+from datajunction_server.models.node_type import NodeNameVersion
+from datajunction_server.models.partition import Granularity
 from datajunction_server.models.decompose import (
     AggregationRule,
     Aggregability,
@@ -198,3 +204,104 @@ class TestDruidCubeV3ConfigDruidCubeConfigCompatibility:
 
         assert config.urls == []
         assert config.workflow_urls == []
+
+
+class TestFromMeasuresQueryRoleResolution:
+    """``MeasuresMaterialization.from_measures_query`` must reconstruct the
+    role-qualified dimension reference from the cube column's ``name`` +
+    ``dimension_column`` so it can match the v3 measures query's
+    ``semantic_entity`` (which embeds the role).
+
+    Regression: cubes whose temporal partition uses a role-qualified dimension
+    raised ``IndexError`` because the comparison was a bare ``name`` equality.
+    """
+
+    @pytest.fixture
+    def measures_query(self):
+        """A v3-style measures query with a role-qualified date dimension."""
+        return SimpleNamespace(
+            node=NodeNameVersion(name="default.cube", version="v1.0"),
+            grain=["default_DOT_date_DOT_dateint_LBRACKET_reporting_date_RBRACKET"],
+            columns=[
+                ColumnMetadata(
+                    name="dateint",
+                    type="int",
+                    semantic_entity="default.date.dateint[reporting_date]",
+                    semantic_type="dimension",
+                ),
+                ColumnMetadata(
+                    name="amount_sum",
+                    type="double",
+                    semantic_entity="default.amount",
+                    semantic_type="metric",
+                ),
+            ],
+            metrics={
+                "default.total_amount": (
+                    [
+                        MetricComponent(
+                            name="amount_sum",
+                            expression="amount",
+                            aggregation="SUM",
+                            merge="SUM",
+                            rule=AggregationRule(type=Aggregability.FULL),
+                        ),
+                    ],
+                    "amount_sum",
+                ),
+            },
+            sql="SELECT 1",
+            spark_conf={},
+            upstream_tables=["default.facts"],
+        )
+
+    def test_role_qualified_partition_resolves(self, measures_query):
+        """Cube column with ``dimension_column='[reporting_date]'`` must
+        match the role-qualified ``semantic_entity`` in the measures query."""
+        # Mimics a database Column for a role-qualified temporal partition.
+        # Cube columns store the role separately in ``dimension_column``.
+        temporal_partition = SimpleNamespace(
+            name="default.date.dateint",
+            dimension_column="[reporting_date]",
+            partition=SimpleNamespace(format="yyyyMMdd", granularity=Granularity.DAY),
+        )
+
+        result = MeasuresMaterialization.from_measures_query(
+            measures_query,
+            temporal_partition,
+        )
+
+        assert result.timestamp_column == "dateint"
+        assert result.timestamp_format == "yyyyMMdd"
+        assert result.granularity == Granularity.DAY
+
+    def test_unqualified_partition_still_resolves(self, measures_query):
+        """A cube without a role on its temporal partition must still match."""
+        measures_query.columns[0].semantic_entity = "default.date.dateint"
+        temporal_partition = SimpleNamespace(
+            name="default.date.dateint",
+            dimension_column=None,
+            partition=SimpleNamespace(format="yyyyMMdd", granularity=Granularity.DAY),
+        )
+
+        result = MeasuresMaterialization.from_measures_query(
+            measures_query,
+            temporal_partition,
+        )
+
+        assert result.timestamp_column == "dateint"
+
+    def test_missing_partition_raises_clear_error(self, measures_query):
+        """If no measures column matches the partition, raise a clear error
+        instead of an opaque ``IndexError``."""
+        temporal_partition = SimpleNamespace(
+            name="default.unrelated.column",
+            dimension_column=None,
+            partition=SimpleNamespace(format="yyyyMMdd", granularity=Granularity.DAY),
+        )
+
+        with pytest.raises(DJInvalidInputException, match="Could not find timestamp"):
+            MeasuresMaterialization.from_measures_query(
+                measures_query,
+                temporal_partition,
+            )
