@@ -24,6 +24,7 @@ from datajunction_server.models.node import (
     MetricDirection,
     MetricUnit,
     NodeMode,
+    NodeStatus,
     NodeType,
 )
 from datajunction_server.utils import SEPARATOR
@@ -244,6 +245,10 @@ class NodeSpec(BaseModel):
     # Populated during export from source node DB parents to avoid re-parsing SQL
     # during the copy fast-path. None means "not populated; fall back to SQL parsing".
     _upstream_names: list[str] | None = PrivateAttr(default=None)
+    # Internal: source node status carried through the copy fast-path so a branch
+    # copy preserves VALID/INVALID instead of unconditionally marking nodes VALID.
+    # None means "not populated; fall back to NodeStatus.VALID".
+    _source_status: NodeStatus | None = PrivateAttr(default=None)
 
     model_config = ConfigDict(truncate_errors=False)
 

@@ -1036,6 +1036,10 @@ async def get_node_specs_for_export(
             ]
         else:
             spec._upstream_names = []
+        # Carry the source node's status through the copy fast-path so branch
+        # copies preserve VALID/INVALID instead of unconditionally going VALID.
+        if node.current:
+            spec._source_status = node.current.status
 
     # Build set of node suffixes in this namespace (for cube reference matching)
     # e.g., for "demo.feature_x.reports.revenue" with namespace "demo.feature_x",
