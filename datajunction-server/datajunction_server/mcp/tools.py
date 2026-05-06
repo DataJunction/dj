@@ -850,8 +850,9 @@ async def visualize_metrics(
             labels.append(d.strftime("%m/%d") if d is not None else str(x_values[i]))
         plt.xticks(positions, labels)
 
-    if len(metrics) > 1:
-        plt.legend()
+    # plotext renders the legend automatically when ``label=`` is passed
+    # to plot()/bar()/scatter() — no separate ``legend()`` call needed
+    # (and indeed it doesn't exist in plotext 5.x).
     plt.plot_size(100, 30)
     chart = plt.build()
     plt.clear_figure()

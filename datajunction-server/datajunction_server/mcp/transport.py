@@ -63,7 +63,9 @@ def mount_mcp(app: FastAPI, path: str = "/mcp") -> None:
         if started_via_lifespan or lazy_started:
             return
         async with lazy_lock:
-            if started_via_lifespan or lazy_started:
+            # Re-check inside the lock — defensive against concurrent first
+            # requests; only one task should run the manager start-up.
+            if started_via_lifespan or lazy_started:  # pragma: no cover
                 return
             stack = AsyncExitStack()
             await stack.enter_async_context(session_manager.run())
