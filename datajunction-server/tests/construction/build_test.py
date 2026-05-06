@@ -432,3 +432,20 @@ def test_build_materialized_cube_node():
         ),
         ctes=[],
     )
+
+
+def test_cube_query_builder_with_access_control_accepts_none():
+    """``CubeQueryBuilder.with_access_control(None)`` is a no-op for callers
+    that handle access control at a higher level (e.g. ``build_metric_nodes``
+    invoked without a checker). Without the None tolerance, the call would
+    raise ``AttributeError`` on ``None.add_nodes``."""
+    from datajunction_server.construction.build_v2 import CubeQueryBuilder
+
+    # No metric nodes / dependencies needed — only exercising the guard.
+    builder = CubeQueryBuilder.__new__(CubeQueryBuilder)
+    builder.metric_nodes = []  # type: ignore[attr-defined]
+    builder._access_checker = None  # type: ignore[attr-defined]
+
+    result = builder.with_access_control(None)
+    assert result is builder
+    assert builder._access_checker is None  # type: ignore[attr-defined]
