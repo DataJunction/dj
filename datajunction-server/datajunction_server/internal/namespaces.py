@@ -1469,8 +1469,16 @@ def _node_spec_to_yaml_dict(node_spec, include_all_columns=False) -> dict:
             if "attributes" in col and isinstance(col["attributes"], list):
                 col["attributes"] = sorted(col["attributes"])
 
-    # Remove empty lists/dicts for cleaner YAML
-    data = {k: v for k, v in data.items() if v or v == 0 or v is False}
+    # Remove empty lists/dicts for cleaner YAML — but keep fields the spec
+    # model marks required, otherwise the YAML won't round-trip through
+    # pydantic. ``CubeSpec.metrics`` is required (no default), so dropping
+    # ``metrics: []`` here breaks redeploys with "Field required".
+    required_keys: set[str] = set()
+    if data.get("node_type") == "cube":
+        required_keys = {"metrics", "dimensions"}
+    data = {
+        k: v for k, v in data.items() if v or v == 0 or v is False or k in required_keys
+    }
 
     # Clean up multiline strings by stripping trailing whitespace from each line
     # Use LiteralScalarString to force literal block style (|) for multiline queries
