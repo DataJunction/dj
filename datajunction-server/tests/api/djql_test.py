@@ -10,7 +10,11 @@ from tests.sql.utils import assert_query_strings_equal, compare_query_strings
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip(reason="Will move djsql to new sql build later")
+@pytest.mark.skip(
+    reason="v3's parse_dj_sql only allows ``FROM metrics`` queries — non-metrics "
+    "FROM clauses and subqueries wrapping metrics are no longer supported. "
+    "Revive if/when v3 djsql adds back these surfaces.",
+)
 async def test_get_djsql_data_only_nodes_query(
     module__client_with_roads: AsyncClient,
 ) -> None:
@@ -80,7 +84,11 @@ FROM default.hard_hat
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip(reason="Will move djsql to new sql build later")
+@pytest.mark.skip(
+    reason="v3's parse_dj_sql only allows ``FROM metrics`` queries — non-metrics "
+    "FROM clauses and subqueries wrapping metrics are no longer supported. "
+    "Revive if/when v3 djsql adds back these surfaces.",
+)
 async def test_get_djsql_data_only_nested_metrics(
     module__client_with_roads: AsyncClient,
 ) -> None:
@@ -192,38 +200,76 @@ async def test_get_djsql_data_only_multiple_metrics(
         params={"query": query},
     )
     assert response.status_code == 200, response.json()
-    data = response.json()["results"][0]["rows"]
+    body = response.json()["results"][0]
+    columns = body["columns"]
+    rows = body["rows"]
 
-    # v3 reorders projections (dimensions first, metrics second), so we
-    # compare on a city-keyed mapping with the metrics extracted by name
-    # rather than positional list equality.
-    columns = response.json()["results"][0]["columns"]
-    col_index = {col["name"]: idx for col in columns for idx, col in enumerate(columns)}
-
-    def _by_city(rows):
-        out = {}
-        for row in rows:
-            row_dict = {col["name"]: row[idx] for idx, col in enumerate(columns)}
-            out[row_dict["city"]] = (
-                row_dict["avg_repair_price"],
-                row_dict["total_cost"],
-                row_dict["country"],
-            )
-        return out
-
-    expected = {
-        "Jersey City": (54672.75, 218691.0, "USA"),
-        "Billerica": (76555.33333333333, 229666.0, "USA"),
-        "Southgate": (64190.6, 320953.0, "USA"),
-        "Phoenix": (65682.0, 131364.0, "USA"),
-        "Southampton": (54083.5, 216334.0, "USA"),
-        "Powder Springs": (65595.66666666667, 196787.0, "USA"),
-        "Middletown": (39301.5, 78603.0, "USA"),
-        "Muskogee": (70418.0, 70418.0, "USA"),
-        "Niagara Falls": (53374.0, 53374.0, "USA"),
+    # v3 may reorder projections (dimensions first, metrics second) and
+    # produce results in any order without an ORDER BY, so compare on a
+    # city-keyed mapping rather than positional list equality.
+    by_city = {
+        {col["name"]: value for col, value in zip(columns, row)}["city"]: {
+            col["name"]: value for col, value in zip(columns, row)
+        }
+        for row in rows
     }
-    assert _by_city(data) == expected
-    del col_index  # unused but kept for clarity above
+    expected = {
+        "Jersey City": {
+            "avg_repair_price": 54672.75,
+            "total_cost": 218691.0,
+            "country": "USA",
+            "city": "Jersey City",
+        },
+        "Billerica": {
+            "avg_repair_price": 76555.33333333333,
+            "total_cost": 229666.0,
+            "country": "USA",
+            "city": "Billerica",
+        },
+        "Southgate": {
+            "avg_repair_price": 64190.6,
+            "total_cost": 320953.0,
+            "country": "USA",
+            "city": "Southgate",
+        },
+        "Phoenix": {
+            "avg_repair_price": 65682.0,
+            "total_cost": 131364.0,
+            "country": "USA",
+            "city": "Phoenix",
+        },
+        "Southampton": {
+            "avg_repair_price": 54083.5,
+            "total_cost": 216334.0,
+            "country": "USA",
+            "city": "Southampton",
+        },
+        "Powder Springs": {
+            "avg_repair_price": 65595.66666666667,
+            "total_cost": 196787.0,
+            "country": "USA",
+            "city": "Powder Springs",
+        },
+        "Middletown": {
+            "avg_repair_price": 39301.5,
+            "total_cost": 78603.0,
+            "country": "USA",
+            "city": "Middletown",
+        },
+        "Muskogee": {
+            "avg_repair_price": 70418.0,
+            "total_cost": 70418.0,
+            "country": "USA",
+            "city": "Muskogee",
+        },
+        "Niagara Falls": {
+            "avg_repair_price": 53374.0,
+            "total_cost": 53374.0,
+            "country": "USA",
+            "city": "Niagara Falls",
+        },
+    }
+    assert by_city == expected
 
 
 @pytest.mark.asyncio
