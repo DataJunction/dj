@@ -29,6 +29,7 @@ from datajunction_server.construction.build_v3.filters import (
 )
 from datajunction_server.construction.build_v3.measures import (
     _add_table_prefixes_to_filter,
+    _resolve_dim_namespace_refs,
     collect_cte_nodes_and_needed_columns,
 )
 from datajunction_server.construction.build_v3.types import (
@@ -809,6 +810,65 @@ class TestAddTablePrefixesToFilter:
         )
         # Unknown column should be prefixed with main_alias
         assert "t1.status" in str(filter_ast)
+
+
+class TestResolveDimNamespaceRefs:
+    """Tests for ``_resolve_dim_namespace_refs`` — rewrites dim-namespaced
+    column refs to use the dim's joined table alias and returns the columns
+    that must be preserved in each dim's CTE projection."""
+
+    @staticmethod
+    def _expr(sql: str) -> ast.Expression:
+        return parse(f"SELECT {sql}").select.projection[0]
+
+    def test_rewrites_known_dim_and_collects_col(self):
+        expr = self._expr("v3.customer.tier")
+        cols = _resolve_dim_namespace_refs(
+            [("alias", expr)],
+            {"v3.customer": "t2"},
+        )
+        assert str(expr) == "t2.tier"
+        assert cols == {"v3.customer": {"tier"}}
+
+    def test_skips_unknown_namespace(self):
+        """Namespaces that don't match a joined dim are left unchanged and
+        not recorded."""
+        expr = self._expr("v3.fact.amount + v3.customer.threshold")
+        cols = _resolve_dim_namespace_refs(
+            [("alias", expr)],
+            {"v3.customer": "t2"},
+        )
+        rendered = str(expr)
+        assert "v3.fact.amount" in rendered
+        assert "t2.threshold" in rendered
+        assert cols == {"v3.customer": {"threshold"}}
+
+    def test_skips_bare_columns(self):
+        """Bare columns have no namespace, so they're not touched here —
+        the main-alias rewrite runs separately."""
+        expr = self._expr("SUM(amount)")
+        cols = _resolve_dim_namespace_refs(
+            [("alias", expr)],
+            {"v3.customer": "t2"},
+        )
+        assert str(expr) == "SUM(amount)"
+        assert cols == {}
+
+    def test_walks_nested_expression(self):
+        """The walk reaches into function args / CASE branches."""
+        expr = self._expr(
+            "SUM(CASE WHEN amount >= v3.customer.threshold "
+            "THEN v3.customer.tier ELSE 'x' END)",
+        )
+        cols = _resolve_dim_namespace_refs(
+            [("alias", expr)],
+            {"v3.customer": "t2"},
+        )
+        rendered = str(expr)
+        assert "v3.customer." not in rendered
+        assert "t2.threshold" in rendered
+        assert "t2.tier" in rendered
+        assert cols == {"v3.customer": {"threshold", "tier"}}
 
 
 class TestBuildComponentExpression:
