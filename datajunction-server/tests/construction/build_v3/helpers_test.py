@@ -1,5 +1,6 @@
 """Tests for build_v3 helper functions."""
 
+from typing import cast
 from unittest.mock import MagicMock
 
 import pytest
@@ -819,7 +820,7 @@ class TestResolveDimNamespaceRefs:
 
     @staticmethod
     def _expr(sql: str) -> ast.Expression:
-        return parse(f"SELECT {sql}").select.projection[0]
+        return cast(ast.Expression, parse(f"SELECT {sql}").select.projection[0])
 
     def test_rewrites_known_dim_and_collects_col(self):
         expr = self._expr("v3.customer.tier")
