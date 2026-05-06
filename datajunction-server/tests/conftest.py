@@ -171,6 +171,32 @@ def _init_cache() -> Generator[Any, Any, None]:
     FastAPICache.reset()
 
 
+@pytest.fixture(autouse=True)
+def _reset_sse_app_status() -> Generator[None, None, None]:
+    """
+    sse-starlette's ``AppStatus.should_exit_event`` is a module-global
+    ``anyio.Event`` lazily created the first time SSE listens for shutdown.
+    Once created it's bound to that specific event loop. pytest-asyncio
+    creates a fresh loop per test, so the next streaming test crashes with::
+
+        RuntimeError: <asyncio.locks.Event ...> is bound to a different event loop
+
+    Python 3.12 surfaces this strictly; 3.13's asyncio is more permissive.
+    Resetting the global before/after each test forces ``listen_for_exit_signal``
+    to create a fresh Event on the current loop.
+    """
+    try:
+        from sse_starlette.sse import AppStatus
+    except ImportError:  # pragma: no cover
+        yield
+        return
+    AppStatus.should_exit_event = None
+    AppStatus.should_exit = False
+    yield
+    AppStatus.should_exit_event = None
+    AppStatus.should_exit = False
+
+
 @pytest_asyncio.fixture
 def settings(
     mocker: MockerFixture,
