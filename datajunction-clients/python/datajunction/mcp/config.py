@@ -30,13 +30,13 @@ def _resolve_default_mcp_url() -> str:
     is unset.
 
     Pre-migration deployments configured the stdio CLI with ``DJ_API_URL``
-    (the base DJ API URL); the new CLI talks directly to ``/mcp``. To
-    avoid silently breaking those setups we read ``DJ_API_URL`` and
-    append the path.
+    (the base DJ API URL); the new CLI talks directly to ``/mcp``. We read
+    ``DJ_API_URL`` and append the path so existing setups don't silently
+    break.
+
+    Pydantic-settings reads ``DJ_MCP_URL`` via the field alias before this
+    factory fires, so we only need to handle the legacy + default cases.
     """
-    explicit = os.environ.get("DJ_MCP_URL")
-    if explicit:
-        return explicit
     legacy = os.environ.get("DJ_API_URL")
     if legacy:
         return legacy.rstrip("/") + "/mcp"
