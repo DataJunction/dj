@@ -4865,11 +4865,37 @@ class TestMetricExprReferencesDimColumn:
         assert resp.status_code == 200, resp.text
         metrics_sql = resp.json()["sql"]
 
-        # The dim node name must NOT appear as a literal column reference
-        # anywhere in the rendered SQL.
-        assert "mx.customer.threshold" not in metrics_sql, metrics_sql
-        # And the threshold column must be preserved in the dim CTE.
-        assert "threshold" in metrics_sql
+        assert_sql_equal(
+            metrics_sql,
+            """
+            WITH
+            mx_customer AS (
+                SELECT customer_id, tier, threshold
+                FROM default.mx.src_customer
+            ),
+            mx_fact AS (
+                SELECT customer_id, amount
+                FROM default.mx.src_fact
+            ),
+            fact_0 AS (
+                SELECT
+                    t2.tier,
+                    SUM(CASE WHEN t1.amount >= t2.threshold
+                        THEN t1.amount ELSE 0 END)
+                        amount_mx_DOT_customer_DOT_threshold_amount_sum_HASH
+                FROM mx_fact t1
+                LEFT OUTER JOIN mx_customer t2 ON t1.customer_id = t2.customer_id
+                GROUP BY t2.tier
+            )
+            SELECT
+                fact_0.tier AS tier,
+                SUM(fact_0.amount_mx_DOT_customer_DOT_threshold_amount_sum_HASH)
+                    AS qualifying_amount
+            FROM fact_0
+            GROUP BY fact_0.tier
+            """,
+            normalize_aliases=True,
+        )
 
 
 class TestSparkJoinHints:
