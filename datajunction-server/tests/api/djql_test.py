@@ -2,9 +2,14 @@
 Tests for the djsql API.
 """
 
+import json
+
 import pytest
 from httpx import AsyncClient
 
+from datajunction_server.models.query import QueryWithResults
+from datajunction_server.typing import QueryState
+from datajunction_server.utils import get_query_service_client
 from tests.construction.build_v3 import assert_sql_equal
 from tests.sql.utils import assert_query_strings_equal, compare_query_strings
 
@@ -216,55 +221,55 @@ async def test_get_djsql_data_only_multiple_metrics(
     expected = {
         "Jersey City": {
             "avg_repair_price": 54672.75,
-            "total_cost": 218691.0,
+            "total_repair_cost": 218691.0,
             "country": "USA",
             "city": "Jersey City",
         },
         "Billerica": {
             "avg_repair_price": 76555.33333333333,
-            "total_cost": 229666.0,
+            "total_repair_cost": 229666.0,
             "country": "USA",
             "city": "Billerica",
         },
         "Southgate": {
             "avg_repair_price": 64190.6,
-            "total_cost": 320953.0,
+            "total_repair_cost": 320953.0,
             "country": "USA",
             "city": "Southgate",
         },
         "Phoenix": {
             "avg_repair_price": 65682.0,
-            "total_cost": 131364.0,
+            "total_repair_cost": 131364.0,
             "country": "USA",
             "city": "Phoenix",
         },
         "Southampton": {
             "avg_repair_price": 54083.5,
-            "total_cost": 216334.0,
+            "total_repair_cost": 216334.0,
             "country": "USA",
             "city": "Southampton",
         },
         "Powder Springs": {
             "avg_repair_price": 65595.66666666667,
-            "total_cost": 196787.0,
+            "total_repair_cost": 196787.0,
             "country": "USA",
             "city": "Powder Springs",
         },
         "Middletown": {
             "avg_repair_price": 39301.5,
-            "total_cost": 78603.0,
+            "total_repair_cost": 78603.0,
             "country": "USA",
             "city": "Middletown",
         },
         "Muskogee": {
             "avg_repair_price": 70418.0,
-            "total_cost": 70418.0,
+            "total_repair_cost": 70418.0,
             "country": "USA",
             "city": "Muskogee",
         },
         "Niagara Falls": {
             "avg_repair_price": 53374.0,
-            "total_cost": 53374.0,
+            "total_repair_cost": 53374.0,
             "country": "USA",
             "city": "Niagara Falls",
         },
@@ -545,3 +550,84 @@ async def test_djsql_stream(
     assert response.json()["message"].startswith(
         "DJ SQL queries must SELECT FROM metrics",
     )
+
+
+@pytest.mark.asyncio
+async def test_djsql_stream_happy_path(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    /djsql/stream/ emits an initial RUNNING event followed by a final
+    FINISHED event when the warehouse query completes.
+
+    Mocks the qs_client's ``submit_query`` to return RUNNING and
+    ``get_query`` to return FINISHED on the first poll, so the SSE loop
+    exits after one iteration.
+    """
+    qs_client = module__client_with_roads.app.dependency_overrides[
+        get_query_service_client
+    ]()
+    original_submit = qs_client.submit_query
+    original_get = qs_client.get_query
+
+    query_id = "11111111-2222-3333-4444-555555555555"
+
+    async def running_submit(query_create, request_headers=None):
+        return QueryWithResults(
+            id=query_id,
+            submitted_query=query_create.submitted_query,
+            state=QueryState.RUNNING,
+            results=[],
+            errors=[],
+        )
+
+    finished_payload = QueryWithResults(
+        id=query_id,
+        submitted_query="SELECT 1",
+        state=QueryState.FINISHED,
+        results=[
+            {
+                "columns": [{"name": "n", "type": "int"}],
+                "rows": [[1]],
+                "sql": "SELECT 1",
+            },
+        ],
+        errors=[],
+    )
+
+    async def finished_get(query_id, request_headers=None):
+        return finished_payload
+
+    qs_client.submit_query = running_submit
+    qs_client.get_query = finished_get
+
+    try:
+        events = []
+        async with module__client_with_roads.stream(
+            "GET",
+            "/djsql/stream/",
+            params={
+                "query": (
+                    "SELECT default.num_repair_orders num_repair_orders, "
+                    "default.hard_hat.country FROM metrics "
+                    "GROUP BY default.hard_hat.country LIMIT 10"
+                ),
+            },
+            timeout=10.0,
+        ) as response:
+            assert response.status_code == 200
+            async for line in response.aiter_lines():
+                if line.startswith("data:"):
+                    events.append(json.loads(json.loads(line.removeprefix("data: "))))
+
+        # Two events: the initial RUNNING (from submit_query) and the
+        # terminal FINISHED (from the first poll).
+        assert len(events) == 2
+        assert events[0]["state"] == QueryState.RUNNING.value
+        assert events[0]["id"] == query_id
+        assert events[1]["state"] == QueryState.FINISHED.value
+        assert events[1]["id"] == query_id
+        assert events[1]["results"][0]["rows"] == [[1]]
+    finally:
+        qs_client.submit_query = original_submit
+        qs_client.get_query = original_get
