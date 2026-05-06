@@ -121,7 +121,6 @@ class TestQueryServiceClient:
             "GET",
             "/table/hive.test.pies/columns/",
             params=None,
-            headers=None,
         )
 
         await query_service_client.get_columns_for_table(
@@ -134,7 +133,6 @@ class TestQueryServiceClient:
             "GET",
             "/table/hive.test.pies/columns/",
             params={"engine": "spark", "engine_version": "2.4.4"},
-            headers=None,
         )
 
         # failed request with unknown reason
@@ -213,7 +211,6 @@ class TestQueryServiceClient:
         mock_request.assert_called_with(
             "POST",
             "/ddl/execute",
-            headers=None,
             json={
                 "submitted_query": "CREATE OR REPLACE VIEW foo SELECT 1 as num",
                 "catalog_name": "default",
@@ -259,7 +256,6 @@ class TestQueryServiceClient:
         mock_request.assert_called_with(
             "POST",
             "/ddl/execute",
-            headers=None,
             json={
                 "submitted_query": "CREATE OR REPLACE VIEW foo SELECT 1 as num",
                 "catalog_name": "default",
@@ -375,11 +371,15 @@ class TestQueryServiceClient:
         )
 
     @pytest.mark.asyncio
-    async def test_submit_query_merges_request_headers(
+    async def test_submit_query_ignores_request_headers(
         self,
         mocker: MockerFixture,
     ) -> None:
-        """When request_headers are passed, they merge with the default Accept header."""
+        """``request_headers`` is intentionally not forwarded to DJQS — it stays
+        on the API for caller compatibility, but only the static ``accept`` header
+        actually goes on the wire. This guards against accidentally forwarding
+        the FastAPI request's ``Accept-Encoding`` (e.g. ``zstd``) and getting
+        back a body httpx can't auto-decompress."""
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
@@ -414,13 +414,15 @@ class TestQueryServiceClient:
                 submitted_query="SELECT 1",
                 async_=False,
             ),
-            request_headers={"X-DJ-User": "alice", "accept": "application/xml"},
+            request_headers={
+                "X-DJ-User": "alice",
+                "Accept-Encoding": "zstd",
+            },
         )
-        # Caller's headers come through; the explicit ``accept`` default wins.
         mock_request.assert_called_with(
             "POST",
             "/queries/",
-            headers={"X-DJ-User": "alice", "accept": "application/json"},
+            headers={"accept": "application/json"},
             json=ANY,
         )
 
@@ -486,6 +488,31 @@ class TestQueryServiceClient:
         aclose_mock.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_init_accepts_default_headers_auth_and_transport(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """``QueryServiceClient.__init__`` exposes ``default_headers``,
+        ``auth``, and ``transport`` for subclasses (e.g. internal forks that
+        inject service-to-service auth via mTLS + a session-level token)."""
+        sentinel_transport = httpx.AsyncHTTPTransport()
+        sentinel_auth = httpx.BasicAuth("user", "pass")
+
+        client = QueryServiceClient(
+            uri=self.endpoint,
+            default_headers={"x-forwarded-authentication": "tok"},
+            auth=sentinel_auth,
+            transport=sentinel_transport,
+        )
+        async_client = client._get_async_client()
+
+        # The kwargs were threaded through to the underlying httpx.AsyncClient.
+        assert async_client.headers["x-forwarded-authentication"] == "tok"
+        assert async_client.auth is sentinel_auth
+        assert async_client._transport is sentinel_transport
+        assert str(async_client.base_url) == self.endpoint
+
+    @pytest.mark.asyncio
     async def test_query_service_client_get_query(
         self,
         mocker: MockerFixture,
@@ -535,7 +562,6 @@ class TestQueryServiceClient:
         mock_request.assert_called_with(
             "GET",
             "/queries/ef209eef-c31a-4089-aae6-833259a08e22/",
-            headers=None,
         )
 
     def test_query_service_client_materialize(self, mocker: MockerFixture) -> None:
@@ -1524,7 +1550,6 @@ class TestQueryServiceClient:
         mock_request.assert_called_once_with(
             "POST",
             "/tables/columns/",
-            headers=None,
             json=[
                 "catalog1.schema1.table1",
                 "catalog1.schema1.table2",

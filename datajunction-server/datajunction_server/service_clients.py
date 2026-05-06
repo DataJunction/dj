@@ -99,9 +99,36 @@ class QueryServiceClient:
 
     _RETRYABLE_STATUSES = frozenset({429, 500, 502, 503, 504})
 
-    def __init__(self, uri: str, retries: int = 0):
+    def __init__(
+        self,
+        uri: str,
+        retries: int = 0,
+        *,
+        default_headers: Optional[Dict[str, str]] = None,
+        auth: Optional["httpx.Auth"] = None,
+        transport: Optional["httpx.AsyncBaseTransport"] = None,
+    ):
+        """
+        Initialize a query service client.
+
+        Args:
+            uri: Base URI of the query service.
+            retries: Number of retries for retryable failures (429, 5xx).
+            default_headers: Headers attached to every async request — useful
+                for subclasses that need to inject service-to-service auth
+                headers (e.g. an SSO / mTLS token).
+            auth: Optional ``httpx.Auth`` flow applied to every async request.
+                Subclasses can pass a custom auth handler here.
+            transport: Optional ``httpx.AsyncBaseTransport`` override — e.g.
+                a transport that performs mTLS, service discovery, or
+                custom retries. If ``None``, a vanilla
+                ``httpx.AsyncHTTPTransport(retries=retries)`` is used.
+        """
         self.uri = uri
         self._retries = retries
+        self._default_headers = default_headers
+        self._auth = auth
+        self._transport = transport
         retry_strategy = Retry(
             total=retries,
             backoff_factor=1.5,
@@ -118,13 +145,27 @@ class QueryServiceClient:
         """
         Lazily build the AsyncClient on the running event loop. Avoids creating
         the client at __init__ time, when there may be no loop yet.
+
+        ``read``/``write``/``pool`` timeouts are intentionally ``None`` to match
+        the legacy ``requests.Session`` behavior — DJQS holds the connection
+        open for the duration of synchronous (``async_=False``) warehouse
+        queries, which can easily exceed any sensible default. ``connect`` is
+        still bounded so we fail fast when DJQS itself is unreachable.
+
+        Subclasses that need to customize auth / headers / transport should
+        prefer passing them to ``__init__`` rather than overriding this
+        method.
         """
         if self._async_client is None:
-            transport = httpx.AsyncHTTPTransport(retries=self._retries)
+            transport = self._transport or httpx.AsyncHTTPTransport(
+                retries=self._retries,
+            )
             self._async_client = httpx.AsyncClient(
                 base_url=self.uri,
                 transport=transport,
-                timeout=httpx.Timeout(30.0, connect=5.0),
+                timeout=httpx.Timeout(None, connect=5.0),
+                headers=self._default_headers,
+                auth=self._auth,
             )
         return self._async_client
 
@@ -173,11 +214,15 @@ class QueryServiceClient:
             if engine
             else None
         )
+        # ``request_headers`` is intentionally not forwarded to DJQS — the
+        # legacy sync client accepted the parameter but never sent it on, and
+        # forwarding the FastAPI request's full header set (e.g.
+        # ``Accept-Encoding: zstd``) can produce response bodies httpx can't
+        # auto-decompress.
         response = await self._arequest(
             "GET",
             f"/table/{catalog}.{schema}.{table}/columns/",
             params=params,
-            headers=request_headers,
         )
         if response.status_code not in (200, 201):
             if response.status_code == HTTPStatus.NOT_FOUND:
@@ -207,10 +252,11 @@ class QueryServiceClient:
         table_names = [
             f"{catalog}.{schema}.{table}" for catalog, schema, table in tables
         ]
+        # ``request_headers`` intentionally not forwarded — see
+        # ``get_columns_for_table`` for the reason.
         response = await self._arequest(
             "POST",
             "/tables/columns/",
-            headers=request_headers,
             json=table_names,
         )
         if response.status_code not in (200, 201):
@@ -254,10 +300,11 @@ class QueryServiceClient:
             "engine_name": query_create.engine_name,
             "engine_version": query_create.engine_version or "",
         }
+        # ``request_headers`` intentionally not forwarded — see
+        # ``get_columns_for_table`` for the reason.
         response = await self._arequest(
             "POST",
             "/ddl/execute",
-            headers=request_headers,
             json=payload,
         )
         if response.status_code not in (200, 201):
@@ -289,13 +336,12 @@ class QueryServiceClient:
         request_headers: Optional[Dict[str, str]] = None,
     ) -> QueryWithResults:
         """Submit a query to the query service."""
-        headers = {"accept": "application/json"}
-        if request_headers:
-            headers = {**request_headers, **headers}
+        # ``request_headers`` intentionally not forwarded — see
+        # ``get_columns_for_table`` for the reason.
         response = await self._arequest(
             "POST",
             "/queries/",
-            headers=headers,
+            headers={"accept": "application/json"},
             json=query_create.model_dump(),
         )
         if response.status_code not in (200, 201):
@@ -312,10 +358,11 @@ class QueryServiceClient:
     ) -> QueryWithResults:
         """Get a previously submitted query."""
         get_query_endpoint = f"/queries/{query_id}/"
+        # ``request_headers`` intentionally not forwarded — see
+        # ``get_columns_for_table`` for the reason.
         response = await self._arequest(
             "GET",
             get_query_endpoint,
-            headers=request_headers,
         )
         if response.status_code == 404:
             _logger.exception(

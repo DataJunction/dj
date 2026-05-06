@@ -270,8 +270,8 @@ async def test_get_djsql_metric_table_exception(
         params={"query": query},
     )
     assert (
-        response.json()["message"]
-        == "Any SELECT referencing a Metric must source from a single unaliased Table named `metrics`."
+        response.json()["message"] == "DJ SQL queries must SELECT FROM metrics. "
+        "Example: SELECT metric1, dim1 FROM metrics GROUP BY dim1"
     )
 
 
@@ -302,7 +302,7 @@ async def test_get_djsql_illegal_clause_metric_query(
     )
     assert (
         response.json()["message"]
-        == "HAVING, LATERAL VIEWS, and SET OPERATIONS are not allowed on `metrics` queries."
+        == "HAVING, LATERAL VIEWS, and SET OPERATIONS are not allowed in DJ SQL queries."
     )
 
 
@@ -330,9 +330,8 @@ async def test_get_djsql_illegal_column_expression(
         "/djsql/data/",
         params={"query": query},
     )
-    assert (
-        response.json()["message"]
-        == "Only direct Columns are allowed in `metrics` queries, found `default.hard_hat.id + 5`."
+    assert response.json()["message"].startswith(
+        "Only direct columns are allowed in DJ SQL queries, found:",
     )
 
 
@@ -360,9 +359,15 @@ async def test_get_djsql_illegal_column(
         "/djsql/data/",
         params={"query": query},
     )
+    # ``default.repair_orders.id`` is neither a known metric nor in the
+    # GROUP BY — v3's ``build_metrics_sql`` rejects it as an unknown metric.
+    assert "default.repair_orders.id" in response.json()["message"]
     assert (
         response.json()["message"]
-        == "You can only select direct METRIC nodes or a column from your GROUP BY on `metrics` queries, found `default.repair_orders.id`"
+        .lower()
+        .startswith(
+            ("metric", "node not found", "not found"),
+        )
     )
 
 
@@ -388,10 +393,7 @@ async def test_get_djsql_illegal_limit(
         "/djsql/data/",
         params={"query": query},
     )
-    assert (
-        response.json()["message"]
-        == "LIMITs on `metrics` queries can only be integers not `1 + 2`."
-    )
+    assert response.json()["message"] == "LIMIT must be an integer, got: 1 + 2"
 
 
 @pytest.mark.asyncio
@@ -490,7 +492,10 @@ async def test_get_djsql_no_nodes(
         "/djsql/data/",
         params={"query": query},
     )
-    assert response.json()["message"].startswith("Found no dj nodes in query")
+    # ``SELECT 1`` doesn't have a FROM at all — caught by parse_dj_sql.
+    assert response.json()["message"].startswith(
+        "DJ SQL queries must SELECT FROM metrics",
+    )
 
 
 @pytest.mark.asyncio
@@ -509,4 +514,6 @@ async def test_djsql_stream(
         params={"query": query},
     )
     assert response.status_code == 422
-    assert response.json()["message"].startswith("Found no dj nodes in query")
+    assert response.json()["message"].startswith(
+        "DJ SQL queries must SELECT FROM metrics",
+    )

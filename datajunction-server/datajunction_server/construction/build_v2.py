@@ -1300,11 +1300,19 @@ class CubeQueryBuilder:
 
     def with_access_control(
         self,
-        access_checker: AccessChecker,
+        access_checker: AccessChecker | None,
     ):
         """
         Set access control for the query builder.
+
+        ``access_checker`` may be ``None`` for callers that do their own
+        access check at a higher level instead of threading the checker
+        through every sub-build (``build_metric_nodes`` /
+        ``get_measures_query`` both default to ``None``). In that case this
+        is a no-op.
         """
+        if access_checker is None:
+            return self
         access_checker.add_nodes(self.metric_nodes, access.ResourceAction.READ)
         self._access_checker = access_checker
         return self
