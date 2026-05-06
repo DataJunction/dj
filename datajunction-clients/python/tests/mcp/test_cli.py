@@ -9,7 +9,39 @@ bridge runs. Actual tool behavior is tested in datajunction-server's
 
 from unittest.mock import AsyncMock, MagicMock
 
+import mcp.types as types
 import pytest
+from mcp.server import Server
+
+from datajunction.mcp import cli
+
+
+def test_dj_api_url_backwards_compat(monkeypatch) -> None:
+    """Pre-migration deployments set ``DJ_API_URL``; the new CLI honours
+    it and appends ``/mcp`` so existing setups don't silently break."""
+    from datajunction.mcp.config import get_mcp_settings
+
+    monkeypatch.delenv("DJ_MCP_URL", raising=False)
+    monkeypatch.setenv("DJ_API_URL", "https://dj.example.com")
+    assert get_mcp_settings().mcp_url == "https://dj.example.com/mcp"
+
+
+def test_dj_mcp_url_takes_precedence_over_dj_api_url(monkeypatch) -> None:
+    """If both are set, ``DJ_MCP_URL`` wins — no surprise when explicitly configured."""
+    from datajunction.mcp.config import get_mcp_settings
+
+    monkeypatch.setenv("DJ_MCP_URL", "https://override/mcp")
+    monkeypatch.setenv("DJ_API_URL", "https://legacy")
+    assert get_mcp_settings().mcp_url == "https://override/mcp"
+
+
+def test_default_mcp_url_when_neither_set(monkeypatch) -> None:
+    """No env vars → localhost default."""
+    from datajunction.mcp.config import get_mcp_settings
+
+    monkeypatch.delenv("DJ_MCP_URL", raising=False)
+    monkeypatch.delenv("DJ_API_URL", raising=False)
+    assert get_mcp_settings().mcp_url == "http://localhost:8000/mcp"
 
 
 @pytest.mark.asyncio
@@ -17,8 +49,6 @@ async def test_main_connects_with_bearer_token_when_set(monkeypatch):
     """When DJ_API_TOKEN is set, it's forwarded as an Authorization header."""
     monkeypatch.setenv("DJ_API_TOKEN", "test-token")
     monkeypatch.setenv("DJ_MCP_URL", "http://example.com/mcp")
-
-    from datajunction.mcp import cli
 
     captured: dict = {}
 
@@ -62,8 +92,6 @@ async def test_main_without_token_omits_auth_header(monkeypatch):
     monkeypatch.delenv("DJ_API_TOKEN", raising=False)
     monkeypatch.setenv("DJ_MCP_URL", "http://example.com/mcp")
 
-    from datajunction.mcp import cli
-
     captured: dict = {}
 
     class _FakeStreamCtx:
@@ -99,7 +127,6 @@ async def test_main_without_token_omits_auth_header(monkeypatch):
 
 def test_run_invokes_asyncio_run(monkeypatch):
     """``run()`` is the script entrypoint — it should drive ``main()`` via asyncio."""
-    from datajunction.mcp import cli
 
     invoked = {}
 
@@ -114,7 +141,6 @@ def test_run_invokes_asyncio_run(monkeypatch):
 
 def test_run_swallows_keyboard_interrupt(monkeypatch):
     """``Ctrl-C`` in the CLI should log and exit cleanly, not propagate."""
-    from datajunction.mcp import cli
 
     def fake_asyncio_run(coro):
         coro.close()
@@ -126,7 +152,6 @@ def test_run_swallows_keyboard_interrupt(monkeypatch):
 
 def test_run_logs_and_exits_on_unhandled_exception(monkeypatch):
     """Any other exception is logged and the process exits with code 1."""
-    from datajunction.mcp import cli
 
     def fake_asyncio_run(coro):
         coro.close()
@@ -151,8 +176,6 @@ def test_run_logs_and_exits_on_unhandled_exception(monkeypatch):
 @pytest.mark.asyncio
 async def test_proxy_list_tools_forwards_to_upstream():
     """``list_tools`` returns the upstream's tools verbatim, normalised to list."""
-    import mcp.types as types
-    from datajunction.mcp import cli
 
     upstream = MagicMock()
     upstream.list_tools = AsyncMock(
@@ -171,8 +194,6 @@ async def test_proxy_list_tools_forwards_to_upstream():
 @pytest.mark.asyncio
 async def test_proxy_call_tool_forwards_arguments():
     """``call_tool`` forwards (name, arguments) and returns the content list."""
-    import mcp.types as types
-    from datajunction.mcp import cli
 
     upstream = MagicMock()
     block = types.TextContent(type="text", text="ok")
@@ -186,7 +207,6 @@ async def test_proxy_call_tool_forwards_arguments():
 @pytest.mark.asyncio
 async def test_proxy_call_tool_normalises_none_arguments():
     """If ``arguments`` is None it's coerced to an empty dict before forwarding."""
-    from datajunction.mcp import cli
 
     upstream = MagicMock()
     upstream.call_tool = AsyncMock(return_value=MagicMock(content=()))
@@ -199,8 +219,6 @@ async def test_proxy_call_tool_normalises_none_arguments():
 @pytest.mark.asyncio
 async def test_proxy_list_resources_forwards_to_upstream():
     """``list_resources`` returns the upstream's resources verbatim."""
-    import mcp.types as types
-    from datajunction.mcp import cli
 
     upstream = MagicMock()
     res = types.Resource(uri="dj://x", name="x")
@@ -213,7 +231,6 @@ async def test_proxy_list_resources_forwards_to_upstream():
 @pytest.mark.asyncio
 async def test_proxy_read_resource_returns_first_text_block():
     """``read_resource`` surfaces the first ``text`` block in the upstream response."""
-    from datajunction.mcp import cli
 
     upstream = MagicMock()
     block_no_text = MagicMock(spec=[])  # no .text attribute
@@ -230,8 +247,6 @@ async def test_proxy_read_resource_returns_first_text_block():
 @pytest.mark.asyncio
 async def test_build_proxy_app_registers_all_four_handlers():
     """``_build_proxy_app`` returns a Server with handlers for every MCP method."""
-    from mcp.server import Server
-    from datajunction.mcp import cli
 
     upstream = MagicMock()
     app = cli._build_proxy_app(upstream)
@@ -246,7 +261,6 @@ async def test_build_proxy_app_registers_all_four_handlers():
 async def test_serve_drives_app_run_with_stdio_streams(monkeypatch):
     """``_serve`` opens stdio_server, builds the proxy app, runs it. Stub
     everything so we just verify the wiring."""
-    from datajunction.mcp import cli
 
     sentinel_app = MagicMock()
     sentinel_app.run = AsyncMock()

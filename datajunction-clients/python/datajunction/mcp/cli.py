@@ -47,7 +47,7 @@ async def _proxy_call_tool(
 ) -> list[types.ContentBlock]:
     """Forward ``tools/call`` to the upstream session.
 
-    ``result.content`` may be a tuple/list of content blocks; normalise to list.
+    ``result.content`` may be a tuple/list of content blocks; normalize to list.
     """
     result = await upstream.call_tool(name, arguments=arguments or {})
     return list(result.content)

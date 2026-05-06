@@ -10,7 +10,7 @@ These tests cover the proxy wiring:
 - env vars (`DJ_API_TOKEN`, `DJ_MCP_URL`) → upstream URL + Authorization header
 - `run()` invokes `asyncio.run(main())`
 
-End-to-end tool behaviour is covered server-side under
+End-to-end tool behavior is covered server-side under
 `datajunction-server/tests/dj_mcp/`. There's no per-tool coverage here
 because the CLI doesn't implement tools — it forwards every request to
 the hosted server.

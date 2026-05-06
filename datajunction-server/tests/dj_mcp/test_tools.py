@@ -1,87 +1,25 @@
 """
-Tests covering the remaining branches of the MCP server-side modules:
+Tests for ``datajunction_server.mcp.tools``.
 
-- ``context.get_mcp_session`` raises when called outside a request.
-- ``transport.mount_mcp`` registers the MCP route and integrates with FastAPI's
-  lifespan (covers the ``combined_lifespan`` path).
-- ``tools.visualize_metrics`` happy path with stubbed query results
-  (covers the rendering branches).
-- ``tools.get_metric_data`` happy path with rows.
-- ``tools._format_bytes`` for the various byte ranges.
+Covers every tool function in the MCP surface — input handling, formatting,
+the threshold-refusal guard, and integration with the underlying internal
+services (mocked at the seam). Real-data integration tests live in
+``test_list_namespaces.py``; this file uses stubs so it can exercise every
+branch deterministically.
 """
 
 from typing import Any
 from unittest.mock import MagicMock
 
-import httpx
 import pytest
 import pytest_asyncio
-from asgi_lifespan import LifespanManager
-from fastapi import FastAPI
-from httpx import ASGITransport
 
-from datajunction_server.mcp import context, tools, transport
+from datajunction_server.construction.build_v3.types import GeneratedSQL
+from datajunction_server.mcp import context, tools
+from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.node_type import NodeType as NodeTypeEnum
-
-
-# ---------------------------------------------------------------------------
-# context
-# ---------------------------------------------------------------------------
-
-
-def test_get_mcp_session_raises_outside_request() -> None:
-    """Tools call this from inside an MCP request handler. Outside that
-    context, the ContextVar is unset — must raise loudly."""
-    with pytest.raises(RuntimeError) as exc_info:
-        context.get_mcp_session()
-    assert str(exc_info.value) == (
-        "MCP session is not bound — get_mcp_session() can only be called "
-        "from inside an MCP tool handler running under mount_mcp."
-    )
-
-
-# ---------------------------------------------------------------------------
-# transport
-# ---------------------------------------------------------------------------
-
-
-@pytest_asyncio.fixture
-async def fastapi_app_with_mcp() -> FastAPI:
-    """A bare FastAPI app with mount_mcp wired in.
-
-    Using a fresh app (rather than the production one) keeps the test
-    independent of the rest of the configure_app pipeline.
-    """
-    app = FastAPI()
-    transport.mount_mcp(app)
-    return app
-
-
-def test_mount_mcp_adds_route(fastapi_app_with_mcp: FastAPI) -> None:
-    """The /mcp route is registered after mount."""
-    paths = {getattr(r, "path", None) for r in fastapi_app_with_mcp.router.routes}
-    assert "/mcp" in paths
-
-
-@pytest.mark.asyncio
-async def test_mount_mcp_lifespan_runs_combined_lifespan(
-    fastapi_app_with_mcp: FastAPI,
-) -> None:
-    """When FastAPI lifespan fires, the combined_lifespan path runs the
-    MCP session manager's task group instead of the lazy-start fallback.
-    """
-    async with LifespanManager(fastapi_app_with_mcp):
-        # Inside the lifespan: send a GET to /mcp/ to confirm the route
-        # is mounted and reachable. Streamable HTTP only accepts POST, so
-        # we expect a 405 Method Not Allowed (or 4xx) response from the
-        # MCP handler — the test only cares that lifespan ran cleanly.
-        async with httpx.AsyncClient(
-            transport=ASGITransport(app=fastapi_app_with_mcp),
-            base_url="http://test",
-            follow_redirects=True,
-        ) as client:
-            response = await client.get("/mcp/")
-        assert 400 <= response.status_code < 500
+from datajunction_server.models.sql import ScanEstimate
+from datajunction_server.sql.parsing.backends.antlr4 import parse
 
 
 # ---------------------------------------------------------------------------
@@ -156,8 +94,6 @@ async def test_get_metric_data_happy_path(
     rows = [["2024-01-01", 10], ["2024-01-02", 20]]
     fake_result = _stub_dataset(rows, ["date", "amount"])
 
-    from datajunction_server.models.sql import ScanEstimate
-
     fake_generated = MagicMock()
     fake_generated.scan_estimate = ScanEstimate(
         total_bytes=42_000_000,
@@ -199,8 +135,6 @@ async def test_get_metric_data_materialized_source_label(
 ) -> None:
     """When the cube hit is materialized, the source label says so."""
     fake_result = _stub_dataset([["x", 1]], ["dim", "amount"])
-
-    from datajunction_server.models.sql import ScanEstimate
 
     fake_generated = MagicMock()
     fake_generated.scan_estimate = ScanEstimate(
@@ -803,9 +737,6 @@ async def test_execute_metrics_query_no_query_service_configured(
 ) -> None:
     """Without a query service client, ``_execute_metrics_query`` raises
     a ValueError that the public tool surfaces as an error message."""
-    from datajunction_server.models.dialect import Dialect
-    from datajunction_server.models.sql import ScanEstimate
-    from datajunction_server.sql.parsing.backends.antlr4 import parse
 
     async def fake_resolve(*args, **kwargs):
         ctx = MagicMock()
@@ -820,8 +751,6 @@ async def test_execute_metrics_query_no_query_service_configured(
         return ctx
 
     async def fake_build(*args, **kwargs):
-        from datajunction_server.construction.build_v3.types import GeneratedSQL
-
         return GeneratedSQL(
             query=parse("SELECT 1"),
             columns=[],
@@ -1275,9 +1204,6 @@ async def test_execute_metrics_query_full_round_trip(
     """Cover lines 451-461: a stubbed query service receives the
     ``QueryCreate`` payload and returns rows; the columns get injected
     into the result block."""
-    from datajunction_server.models.dialect import Dialect
-    from datajunction_server.models.sql import ScanEstimate
-    from datajunction_server.sql.parsing.backends.antlr4 import parse
 
     submitted: list = []
 
@@ -1299,8 +1225,6 @@ async def test_execute_metrics_query_full_round_trip(
         return ctx
 
     async def fake_build(*args, **kwargs):
-        from datajunction_server.construction.build_v3.types import GeneratedSQL
-
         return GeneratedSQL(
             query=parse("SELECT 1"),
             columns=[],
@@ -1364,9 +1288,6 @@ async def test_execute_metrics_query_empty_results_skips_column_inject(
 ) -> None:
     """``submit_query`` returns a result with no root → column-injection
     branch (459) doesn't fire. Covers 459->461."""
-    from datajunction_server.models.dialect import Dialect
-    from datajunction_server.models.sql import ScanEstimate
-    from datajunction_server.sql.parsing.backends.antlr4 import parse
 
     class _EmptyResults:
         root: list = []
@@ -1391,8 +1312,6 @@ async def test_execute_metrics_query_empty_results_skips_column_inject(
         return ctx
 
     async def fake_build(*args, **kwargs):
-        from datajunction_server.construction.build_v3.types import GeneratedSQL
-
         return GeneratedSQL(
             query=parse("SELECT 1"),
             columns=[],
