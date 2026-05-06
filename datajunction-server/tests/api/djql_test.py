@@ -166,12 +166,12 @@ async def test_get_djsql_data_only_nested_metrics(
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip(reason="Will move djsql to new sql build later")
 async def test_get_djsql_data_only_multiple_metrics(
     module__client_with_roads: AsyncClient,
 ) -> None:
     """
-    Test djsql with metric subquery
+    /djsql/data/ correctly evaluates a query selecting multiple metrics
+    grouped by dimension columns.
     """
 
     query = """
@@ -191,57 +191,39 @@ async def test_get_djsql_data_only_multiple_metrics(
         "/djsql/data/",
         params={"query": query},
     )
+    assert response.status_code == 200, response.json()
     data = response.json()["results"][0]["rows"]
-    assert data == [
-        [54672.75, 218691.0, "USA", "Jersey City"],
-        [76555.33333333333, 229666.0, "USA", "Billerica"],
-        [64190.6, 320953.0, "USA", "Southgate"],
-        [65682.0, 131364.0, "USA", "Phoenix"],
-        [54083.5, 216334.0, "USA", "Southampton"],
-        [65595.66666666667, 196787.0, "USA", "Powder Springs"],
-        [39301.5, 78603.0, "USA", "Middletown"],
-        [70418.0, 70418.0, "USA", "Muskogee"],
-        [53374.0, 53374.0, "USA", "Niagara Falls"],
-    ]
-    query = response.json()["results"][0]["sql"]
-    expected_query = """WITH
-    metric_query_0 AS (SELECT  default_DOT_repair_orders_fact.default_DOT_avg_repair_price,
-        default_DOT_repair_orders_fact.default_DOT_total_repair_cost,
-        default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_country,
-        default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_city
-     FROM (SELECT  default_DOT_hard_hat.country default_DOT_hard_hat_DOT_country,
-        default_DOT_hard_hat.city default_DOT_hard_hat_DOT_city,
-        avg(default_DOT_repair_orders_fact.price) default_DOT_avg_repair_price,
-        sum(default_DOT_repair_orders_fact.total_repair_cost) default_DOT_total_repair_cost
-     FROM (SELECT  repair_orders.repair_order_id,
-        repair_orders.municipality_id,
-        repair_orders.hard_hat_id,
-        repair_orders.dispatcher_id,
-        repair_orders.order_date,
-        repair_orders.dispatched_date,
-        repair_orders.required_date,
-        repair_order_details.discount,
-        repair_order_details.price,
-        repair_order_details.quantity,
-        repair_order_details.repair_type_id,
-        repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
-        repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
-        repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
-     FROM roads.repair_orders AS repair_orders JOIN roads.repair_order_details AS repair_order_details ON repair_orders.repair_order_id = repair_order_details.repair_order_id)
-     AS default_DOT_repair_orders_fact LEFT JOIN (SELECT  default_DOT_hard_hats.hard_hat_id,
-        default_DOT_hard_hats.city,
-        default_DOT_hard_hats.state,
-        default_DOT_hard_hats.country
-     FROM roads.hard_hats AS default_DOT_hard_hats)
-     AS default_DOT_hard_hat ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
-     GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.city) AS default_DOT_repair_orders_fact)
 
-    SELECT  metric_query_0.default_DOT_avg_repair_price AS avg_repair_price,
-        metric_query_0.default_DOT_total_repair_cost AS total_cost,
-        metric_query_0.default_DOT_hard_hat_DOT_country,
-        metric_query_0.default_DOT_hard_hat_DOT_city
-     FROM metric_query_0"""
-    assert compare_query_strings(query, expected_query)
+    # v3 reorders projections (dimensions first, metrics second), so we
+    # compare on a city-keyed mapping with the metrics extracted by name
+    # rather than positional list equality.
+    columns = response.json()["results"][0]["columns"]
+    col_index = {col["name"]: idx for col in columns for idx, col in enumerate(columns)}
+
+    def _by_city(rows):
+        out = {}
+        for row in rows:
+            row_dict = {col["name"]: row[idx] for idx, col in enumerate(columns)}
+            out[row_dict["city"]] = (
+                row_dict["avg_repair_price"],
+                row_dict["total_cost"],
+                row_dict["country"],
+            )
+        return out
+
+    expected = {
+        "Jersey City": (54672.75, 218691.0, "USA"),
+        "Billerica": (76555.33333333333, 229666.0, "USA"),
+        "Southgate": (64190.6, 320953.0, "USA"),
+        "Phoenix": (65682.0, 131364.0, "USA"),
+        "Southampton": (54083.5, 216334.0, "USA"),
+        "Powder Springs": (65595.66666666667, 196787.0, "USA"),
+        "Middletown": (39301.5, 78603.0, "USA"),
+        "Muskogee": (70418.0, 70418.0, "USA"),
+        "Niagara Falls": (53374.0, 53374.0, "USA"),
+    }
+    assert _by_city(data) == expected
+    del col_index  # unused but kept for clarity above
 
 
 @pytest.mark.asyncio
