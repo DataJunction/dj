@@ -987,15 +987,21 @@ class DeploymentOrchestrator:
         external_dep_names = all_referenced - incoming_names
 
         if external_dep_names:
-            # Only catalog is needed from external deps: _create_node_revision uses it
-            # for catalog inference. Column type re-parsing is skipped for the copy
-            # fast-path (skip_type_reparsing=True in get_dependencies).
+            # Need: catalog (for catalog inference in _create_node_revision) and
+            # columns (with attributes) for the copy fast-path cube validation
+            # in _build_copy_cube_validation_data — that function is sync and
+            # would otherwise lazy-load columns, triggering MissingGreenlet.
             ext_nodes = await Node.get_by_names(
                 self.session,
                 list(external_dep_names),
                 options=[
                     selectinload(Node.current).options(
                         joinedload(NodeRevision.catalog),
+                        selectinload(NodeRevision.columns).options(
+                            joinedload(Column.attributes).joinedload(
+                                ColumnAttribute.attribute_type,
+                            ),
+                        ),
                     ),
                     selectinload(Node.tags),
                 ],
