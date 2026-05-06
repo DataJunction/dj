@@ -3601,6 +3601,96 @@ class TestCopyNodesToNamespace:
 
 
 @pytest.mark.asyncio
+async def test_branch_copy_preserves_invalid_source_status(
+    session,
+    client_with_service_setup: AsyncClient,
+):
+    """Branch creation copies INVALID source-node status into the branch.
+
+    Before the fix, the copy fast-path unconditionally set status=VALID, so
+    an INVALID source node would silently become VALID in the branch. This
+    test marks a transform as INVALID at the DB layer, branches the parent
+    namespace, and asserts the branched copy stays INVALID.
+    """
+    from sqlalchemy import select
+
+    from datajunction_server.database.node import Node
+    from datajunction_server.models.node import NodeStatus
+
+    client = client_with_service_setup
+    parent = "status_copy.main"
+    branch_full = "status_copy.feature_copy"
+
+    # Set up parent namespace with git config and one transform.
+    await client.post(f"/namespaces/{parent}")
+    await client.patch(
+        f"/namespaces/{parent}/git",
+        json={"github_repo_path": "myorg/myrepo", "git_branch": "main"},
+    )
+    response = await client.post(
+        "/nodes/source/",
+        json={
+            "name": f"{parent}.src",
+            "catalog": "default",
+            "schema_": "test",
+            "table": "src",
+            "columns": [{"name": "id", "type": "int"}],
+        },
+    )
+    assert response.status_code <= HTTPStatus.CREATED
+    response = await client.post(
+        "/nodes/transform/",
+        json={
+            "name": f"{parent}.t1",
+            "query": f"SELECT id FROM {parent}.src",
+        },
+    )
+    assert response.status_code <= HTTPStatus.CREATED
+
+    # Mark the transform as INVALID directly. Going through the API to
+    # reliably produce an INVALID node is fragile (validators tend to
+    # reject), and the orchestrator's bulk-validate fast path is what we're
+    # really testing.
+    src_node = (
+        await session.execute(select(Node).where(Node.name == f"{parent}.t1"))
+    ).scalar_one()
+    src_node.current.status = NodeStatus.INVALID
+    await session.commit()
+
+    # Branch creation triggers copy_nodes_to_namespace -> bulk fast path.
+    with patch(
+        "datajunction_server.api.branches.GitHubService",
+    ) as mock_github_class:
+        mock_github = MagicMock()
+        mock_github.create_branch = AsyncMock(
+            return_value={
+                "ref": "refs/heads/feature-copy",
+                "object": {"sha": "abc123"},
+            },
+        )
+        mock_github_class.return_value = mock_github
+        response = await client.post(
+            f"/namespaces/{parent}/branches",
+            json={"branch_name": "feature-copy"},
+        )
+    assert response.status_code == HTTPStatus.CREATED, response.json()
+
+    # The copied transform must keep INVALID status.
+    copied = (
+        await session.execute(select(Node).where(Node.name == f"{branch_full}.t1"))
+    ).scalar_one()
+    await session.refresh(copied, ["current"])
+    assert copied.current.status == NodeStatus.INVALID
+
+    # Sanity-check the source node is still untouched.
+    src_after = (
+        await session.execute(select(Node).where(Node.name == f"{parent}.src"))
+    ).scalar_one()
+    await session.refresh(src_after, ["current"])
+    assert src_after.current.status == NodeStatus.VALID
+
+
+@pytest.mark.asyncio
 async def test_branch_copy_validates_all_specs_match(
     session,
     client_with_service_setup: AsyncClient,

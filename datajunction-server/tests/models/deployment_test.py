@@ -431,6 +431,21 @@ def test_deployment_spec_propagates_namespace_to_links():
     )
 
 
+def test_cube_spec_metrics_and_dimensions_default_empty():
+    """A CubeSpec missing metrics/dimensions parses with empty defaults.
+
+    Both fields used to be required (and ``dimensions`` had a buggy
+    ``default_factory=dict``), so a YAML round-trip that dropped empty lists
+    would fail to re-parse. Now both default to ``[]`` so the deployment
+    proceeds and downstream cube validation can flag the cube as INVALID.
+    """
+    from datajunction_server.models.deployment import CubeSpec
+
+    cube = CubeSpec(namespace="test", name="empty_cube")
+    assert cube.metrics == []
+    assert cube.dimensions == []
+
+
 def test_cube_spec_eq_non_cube_spec():
     """CubeSpec.__eq__ returns False when compared to a non-CubeSpec."""
     from datajunction_server.models.deployment import CubeSpec
