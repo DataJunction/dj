@@ -4716,6 +4716,162 @@ class TestDimReferencingDimViaAlias:
         )
 
 
+class TestMetricExprReferencesDimColumn:
+    """
+    A metric expression may reference a column from a joined dimension node
+    using fully-qualified ``<dim_node>.<column>`` notation. The generated SQL
+    must:
+
+    1. Preserve that column in the dim's CTE projection (otherwise
+       filter_cte_projection drops it as unused).
+    2. Rewrite the namespace from the dim node name to the dim's joined table
+       alias (otherwise the renderer emits the literal node name, which is
+       not a valid table reference).
+    """
+
+    @pytest.mark.asyncio
+    async def test_dim_column_in_metric_expression(self, client_with_service_setup):
+        resp = await client_with_service_setup.post("/namespaces/mx/")
+        assert resp.status_code in (200, 201), resp.text
+
+        resp = await client_with_service_setup.post(
+            "/nodes/source/",
+            json={
+                "name": "mx.src_fact",
+                "catalog": "default",
+                "schema_": "mx",
+                "table": "src_fact",
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "customer_id", "type": "int"},
+                    {"name": "amount", "type": "double"},
+                ],
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        resp = await client_with_service_setup.post(
+            "/nodes/source/",
+            json={
+                "name": "mx.src_customer",
+                "catalog": "default",
+                "schema_": "mx",
+                "table": "src_customer",
+                "columns": [
+                    {"name": "customer_id", "type": "int"},
+                    {"name": "tier", "type": "string"},
+                    {"name": "threshold", "type": "double"},
+                ],
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        resp = await client_with_service_setup.post(
+            "/nodes/dimension/",
+            json={
+                "name": "mx.customer",
+                "mode": "published",
+                "primary_key": ["customer_id"],
+                "query": ("SELECT customer_id, tier, threshold FROM mx.src_customer"),
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        resp = await client_with_service_setup.post(
+            "/nodes/transform/",
+            json={
+                "name": "mx.fact",
+                "mode": "published",
+                "query": ("SELECT id, customer_id, amount FROM mx.src_fact"),
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        # Metric expression directly references mx.customer.threshold — a
+        # column on the joined dim node.
+        resp = await client_with_service_setup.post(
+            "/nodes/metric/",
+            json={
+                "name": "mx.qualifying_amount",
+                "mode": "published",
+                "query": (
+                    "SELECT SUM(CASE WHEN amount >= mx.customer.threshold "
+                    "THEN amount ELSE 0 END) FROM mx.fact"
+                ),
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        resp = await client_with_service_setup.post(
+            "/nodes/mx.fact/link",
+            json={
+                "dimension_node": "mx.customer",
+                "join_type": "left",
+                "join_on": "mx.fact.customer_id = mx.customer.customer_id",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        resp = await client_with_service_setup.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["mx.qualifying_amount"],
+                "dimensions": ["mx.customer.tier"],
+            },
+        )
+        assert resp.status_code == 200, resp.text
+
+        sql = resp.json()["grain_groups"][0]["sql"]
+
+        # mx_customer CTE must project ``threshold`` (referenced by the
+        # metric expression) in addition to ``tier`` (the requested dim) and
+        # ``customer_id`` (the join key). The metric expression's
+        # ``mx.customer.threshold`` must be rewritten to ``t2.threshold``.
+        assert_sql_equal(
+            sql,
+            """
+            WITH mx_customer AS (
+                SELECT customer_id, tier, threshold
+                FROM default.mx.src_customer
+            ),
+            mx_fact AS (
+                SELECT customer_id, amount
+                FROM default.mx.src_fact
+            )
+            SELECT
+                t2.tier,
+                SUM(CASE WHEN t1.amount >= t2.threshold
+                    THEN t1.amount ELSE 0 END)
+                    amount_mx_DOT_customer_DOT_threshold_amount_sum_HASH
+            FROM mx_fact t1
+            LEFT OUTER JOIN mx_customer t2 ON t1.customer_id = t2.customer_id
+            GROUP BY t2.tier
+            """,
+            normalize_aliases=True,
+        )
+
+        # /sql/metrics/v3 wraps the measures grain group and re-aggregates
+        # to produce the final metric. The same dim-namespace fix must apply:
+        # the inner grain-group CTE must reference ``t2.threshold`` (not
+        # ``mx.customer.threshold``) and ``mx_customer`` must still project
+        # ``threshold``.
+        resp = await client_with_service_setup.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["mx.qualifying_amount"],
+                "dimensions": ["mx.customer.tier"],
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        metrics_sql = resp.json()["sql"]
+
+        # The dim node name must NOT appear as a literal column reference
+        # anywhere in the rendered SQL.
+        assert "mx.customer.threshold" not in metrics_sql, metrics_sql
+        # And the threshold column must be preserved in the dim CTE.
+        assert "threshold" in metrics_sql
+
+
 class TestSparkJoinHints:
     """
     Tests for Spark SQL join hints emitted via spark_hints on DimensionLink.
