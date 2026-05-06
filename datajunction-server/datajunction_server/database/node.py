@@ -694,6 +694,14 @@ class Node(Base):
                     selectinload(NodeRevision.cube_elements).options(
                         selectinload(Column.node_revision).options(
                             noload(NodeRevision.created_by),
+                            # Eager-load .node here. ``cube_metrics()`` (called
+                            # via the ``cube_node_metrics`` hybrid_property) reads
+                            # ``node_revision.node``; without this, that touch
+                            # triggers a sync lazy-load inside an async request,
+                            # surfacing as ``MissingGreenlet`` on 3.11 when
+                            # fixture ordering leaves the cached NodeRevision
+                            # without ``.node`` loaded.
+                            selectinload(NodeRevision.node),
                         ),
                     ),
                     selectinload(NodeRevision.columns),
