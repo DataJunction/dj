@@ -92,6 +92,39 @@ def _rewrite_col_refs(expr: Any, table_alias: str) -> None:
             _rewrite_col_refs(child, table_alias)
 
 
+def _resolve_dim_namespace_refs(
+    metric_expressions: list[tuple[str, ast.Expression]],
+    dim_node_to_alias: dict[str, str],
+) -> dict[str, set[str]]:
+    """Resolve dim-namespaced column refs in metric expressions.
+
+    A metric expression may contain a fully-qualified column like
+    ``v3.customer.tier`` referring to a column on a dimension node that the
+    parent fact joins to. In one walk per expression, this function:
+
+    1. Rewrites the namespace from the dim node name to the dim's joined
+       table alias (so the renderer emits ``t2.tier`` instead of the literal
+       node name, which is not a valid table reference).
+    2. Returns ``{dim_node_name: {col, ...}}`` so the caller can keep those
+       columns in the dim's CTE projection (otherwise filter_cte_projection
+       drops them as unused).
+    """
+    dim_cols: dict[str, set[str]] = {}
+    for _, expr in metric_expressions:
+        for col in expr.find_all(ast.Column):
+            if not (col.name and col.name.namespace and col.name.namespace.name):
+                continue
+            ns = col.name.namespace.identifier(quotes=False)
+            if ns not in dim_node_to_alias:
+                continue
+            dim_cols.setdefault(ns, set()).add(col.name.name)
+            col.name = ast.Name(
+                col.name.name,
+                namespace=ast.Name(dim_node_to_alias[ns]),
+            )
+    return dim_cols
+
+
 # Mapping from type string to ColumnType instance
 # Used to convert stored type strings back to type objects for function inference
 _TYPE_STRING_MAP: dict[str, ct.ColumnType] = {
@@ -900,6 +933,16 @@ def build_select_ast(
             projection.append(ast.Alias(child=gc_expr, alias=ast.Name(gc_alias)))
             grain_col_refs.append(ast.Column(name=ast.Name(gc_alias)))
 
+    # Resolve dim-namespaced refs in metric expressions (e.g. ``v3.customer.tier``)
+    # to the dim's joined table alias, and remember which columns each dim
+    # CTE must keep. Done up-front so the rewrite is visible to both the
+    # projection loop below and CTE pruning.
+    dim_node_to_alias: dict[str, str] = {}
+    for (dim_node_name, role), alias in dim_aliases.items():
+        if dim_node_name not in dim_node_to_alias or not role:
+            dim_node_to_alias[dim_node_name] = alias
+    metric_dim_cols = _resolve_dim_namespace_refs(metric_expressions, dim_node_to_alias)
+
     # Add metric expressions
     for alias_name, expr in metric_expressions:
         clean_alias = ctx.alias_registry.register(alias_name)
@@ -914,7 +957,7 @@ def build_select_ast(
         ctx.filter_dimensions,
     )
 
-    # Collect all nodes that need CTEs and the minimal columns each must project
+    # Collect all nodes that need CTEs and the minimal columns each must project.
     nodes_for_ctes, needed_columns_by_node = collect_cte_nodes_and_needed_columns(
         ctx,
         parent_node,
@@ -922,6 +965,8 @@ def build_select_ast(
         grain_col_specs,
         metric_expressions,
     )
+    for dim_name, cols in metric_dim_cols.items():
+        needed_columns_by_node.setdefault(dim_name, set()).update(cols)
 
     temporal_filter_ast, injected_cte_filters = _build_temporal_pushdown(
         ctx,
