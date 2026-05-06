@@ -30,11 +30,14 @@ classifiers = [
 
 [project.optional-dependencies]
 pandas = ["pandas>=2.0.2"]
+# Optional dependencies for the dj-mcp stdio→HTTP proxy CLI. plotext was
+# previously needed for client-side rendering of `visualize_metrics`; that
+# logic now lives server-side in datajunction-server, so the client only
+# needs the MCP SDK + pydantic-settings to read env-var configuration.
 mcp = [
     "mcp>=1.0.0",
     "pydantic>=2.0",
     "pydantic-settings>=2.10.1",
-    "plotext>=5.2.8",
 ]
 
 [tool.hatch.version]
@@ -90,5 +93,5 @@ test = [
     "nbformat>=5.10.4",
     "sqlglot>=18.0.1",
     "pydantic-settings>=2.11.0",
-    "mcp>=1.0.0",  # For MCP tests
+    "mcp>=1.0.0",  # For dj-mcp proxy CLI tests
 ]

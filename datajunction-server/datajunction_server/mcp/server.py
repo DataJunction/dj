@@ -10,7 +10,7 @@ import logging
 import mcp.types as types
 from mcp.server import Server
 
-from datajunction.mcp import tools
+from datajunction_server.mcp import tools
 
 logger = logging.getLogger(__name__)
 
@@ -43,19 +43,24 @@ async def list_tools() -> list[types.Tool]:
             name="search_nodes",
             description=(
                 "Search for DataJunction nodes (metrics, dimensions, cubes, sources, transforms). "
-                "All filters are optional and combinable: name fragment, node type, namespace, tags, "
-                "status (valid/invalid), mode (published/draft), owner, and materialization. "
-                "TIP: Use 'namespace' to narrow searches to a domain. "
-                "Use 'statuses: [invalid]' to find broken nodes. "
-                "Use 'mode: draft' to see in-progress work on a branch. "
-                "Use 'has_materialization: true' to find cubes with materializations."
+                "`query` is fuzzy similarity search over node name, display name, and description — "
+                "use natural-language phrasing on the first try (e.g., 'customer service volume', "
+                "'daily revenue by region'). Do not retry with rephrased queries if you get 0 hits; "
+                "instead either drop `query` and pass only `namespace` to list everything in a "
+                "domain, or call `list_namespaces` first to find the relevant namespace. "
+                "Other filters are optional and combinable: node_type, namespace, tags, "
+                "status (valid/invalid), mode (published/draft), owner, and materialization."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Optional: Fragment of node name to search for (e.g., 'revenue', 'user'). Can be omitted when filtering by tag.",
+                        "description": (
+                            "Optional natural-language search phrase, ranked by trigram "
+                            "similarity against node name + display name + description. "
+                            "Skip when filtering only by namespace/tag/type."
+                        ),
                     },
                     "node_type": {
                         "type": "string",
@@ -95,10 +100,15 @@ async def list_tools() -> list[types.Tool]:
                     },
                     "limit": {
                         "type": "integer",
-                        "default": 100,
+                        "default": 25,
                         "minimum": 1,
                         "maximum": 1000,
-                        "description": "Maximum number of results to return (default: 100)",
+                        "description": (
+                            "Maximum number of results to return (default: 25). "
+                            "Each result is a few lines of context — call with a "
+                            "small limit first and follow up with `get_node_details` "
+                            "for the specific node(s) you need."
+                        ),
                     },
                     "prefer_main_branch": {
                         "type": "boolean",
@@ -347,12 +357,12 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name="visualize_metrics",
             description=(
-                "Query metrics and generate a text-based ASCII chart visualization. "
-                "Fetches data for the specified metrics and dimensions, then creates a terminal-friendly chart using plotext. "
-                "Perfect for CLI environments - renders directly in the terminal. "
-                "Supports line charts, bar charts, and scatter plots. "
-                "IMPORTANT: This tool REQUIRES a materialized cube and will refuse to run expensive ad-hoc queries. "
-                "Automatically switches to bar charts for categorical x-axis data."
+                "Render a text/ASCII chart of one or more metrics. "
+                "Suitable for terminal-shaped MCP clients (Claude Code, Claude "
+                "Desktop, Slack, terminal). For richer surfaces, fetch raw "
+                "rows via `get_metric_data` and render client-side. "
+                "Auto-switches to a bar chart when the x-axis is categorical. "
+                "Same scan-cost guardrails as `get_metric_data`."
             ),
             inputSchema={
                 "type": "object",
@@ -360,48 +370,42 @@ async def list_tools() -> list[types.Tool]:
                     "metrics": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "List of metric node names to visualize (e.g., ['finance.daily_revenue'])",
+                        "description": "List of metric node names to visualize.",
                     },
                     "dimensions": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "Optional: List of dimensions to group by (e.g., ['core.date', 'core.region']). First dimension is used for x-axis.",
+                        "description": "Optional dimensions to group by. The first one is used as the x-axis.",
                     },
                     "filters": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "Optional: SQL filter conditions (e.g., ['date >= \\'2024-01-01\\'', 'region = \\'US\\''])",
+                        "description": "Optional SQL filter conditions.",
                     },
                     "orderby": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": (
-                            "Optional: Columns to order by using FULL node names. "
-                            "CRITICAL: Must use complete node names, NOT short column names. "
-                            "For metrics: 'default.revenue DESC' or 'finance.daily_revenue ASC'. "
-                            "For dimensions: 'core.date DESC' or 'core.region ASC'. "
-                            "Examples: ['default.revenue DESC'], ['core.date ASC', 'default.revenue DESC']"
-                        ),
+                        "description": "Optional ORDER BY clauses using full semantic names.",
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "Optional: Maximum number of data points to visualize (default: 100)",
                         "default": 100,
+                        "description": "Maximum number of data points to plot (default: 100).",
                     },
                     "chart_type": {
                         "type": "string",
                         "enum": ["line", "bar", "scatter"],
-                        "description": "Type of chart to generate (default: line)",
                         "default": "line",
+                        "description": "Chart type. Auto-switches to bar for categorical x-axis.",
                     },
                     "title": {
                         "type": "string",
-                        "description": "Optional: Chart title (auto-generated if not provided)",
+                        "description": "Optional chart title (auto-generated if omitted).",
                     },
                     "y_min": {
                         "type": ["number", "null"],
-                        "description": "Optional: Minimum value for y-axis (default: null for auto-scale). Set to 0 to start at zero.",
                         "default": None,
+                        "description": "Optional minimum value for y-axis. Set to 0 to start at zero.",
                     },
                 },
                 "required": ["metrics"],
@@ -500,7 +504,7 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             )
 
         elif name == "visualize_metrics":
-            # This returns a list of content (text + image)
+            # Returns its own list[TextContent] with the rendered chart.
             return await tools.visualize_metrics(
                 metrics=arguments["metrics"],
                 dimensions=arguments.get("dimensions"),

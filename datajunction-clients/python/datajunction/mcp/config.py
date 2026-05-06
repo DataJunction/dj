@@ -1,27 +1,71 @@
 """
-Configuration for DataJunction MCP Server
+Configuration for the DataJunction MCP stdio→HTTP proxy CLI.
+
+The CLI connects to a hosted DJ ``/mcp`` endpoint over Streamable HTTP and
+re-exposes its tools to local stdio MCP clients (e.g. Claude Desktop).
+
+Settings are read from env on every ``get_mcp_settings()`` call (no caching),
+so override behavior is predictable in tests and shell-set values are picked
+up at startup.
+
+Resolution order for the upstream MCP URL:
+
+1. ``DJ_MCP_URL`` if set — full URL of the ``/mcp`` endpoint.
+2. ``DJ_API_URL`` if set — backwards-compatible fallback for users of the
+   pre-migration ``dj-mcp`` CLI. We append ``/mcp`` to it.
+3. ``http://localhost:8000/mcp`` — local-dev default.
 """
+
+from __future__ import annotations
 
 import os
 from typing import Optional
-from pydantic_settings import BaseSettings
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _resolve_default_mcp_url() -> str:
+    """Fall back to the legacy ``DJ_API_URL`` env var when ``DJ_MCP_URL``
+    is unset.
+
+    Pre-migration deployments configured the stdio CLI with ``DJ_API_URL``
+    (the base DJ API URL); the new CLI talks directly to ``/mcp``. We read
+    ``DJ_API_URL`` and append the path so existing setups don't silently
+    break.
+
+    Pydantic-settings reads ``DJ_MCP_URL`` via the field alias before this
+    factory fires, so we only need to handle the legacy + default cases.
+    """
+    legacy = os.environ.get("DJ_API_URL")
+    if legacy:
+        return legacy.rstrip("/") + "/mcp"
+    return "http://localhost:8000/mcp"
 
 
 class MCPSettings(BaseSettings):
-    """Settings for MCP server"""
+    """Settings for the dj-mcp stdio CLI."""
 
-    # DJ API connection
-    dj_api_url: str = os.getenv("DJ_API_URL", "http://localhost:8000")
-    dj_api_token: Optional[str] = os.getenv("DJ_API_TOKEN")
+    # Hosted DJ MCP endpoint. Override with ``DJ_MCP_URL``; ``DJ_API_URL``
+    # is accepted as a backwards-compatible fallback (see module docstring).
+    mcp_url: str = Field(
+        default_factory=_resolve_default_mcp_url,
+        alias="DJ_MCP_URL",
+    )
 
-    # Optional: Basic auth (if not using token)
-    dj_username: Optional[str] = os.getenv("DJ_USERNAME")
-    dj_password: Optional[str] = os.getenv("DJ_PASSWORD")
+    # Bearer token forwarded as Authorization on every upstream request.
+    # Use ``DJ_API_TOKEN`` to align with the rest of the DJ tooling.
+    dj_api_token: Optional[str] = Field(default=None, alias="DJ_API_TOKEN")
 
-    # Request timeout
-    request_timeout: int = 30
+    # Request timeout for upstream calls.
+    request_timeout: float = 30.0
+
+    model_config = SettingsConfigDict(
+        case_sensitive=False,
+        populate_by_name=True,
+    )
 
 
 def get_mcp_settings() -> MCPSettings:
-    """Get MCP settings singleton"""
+    """Return MCP settings. Re-reads env on every call."""
     return MCPSettings()

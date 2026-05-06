@@ -2,60 +2,60 @@
 Formatters to convert GraphQL responses into AI-friendly formats
 """
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
 def format_nodes_list(nodes: List[Dict[str, Any]]) -> str:
     """
-    Format a list of nodes for AI consumption with trust signals
+    Format a list of nodes for the search/discovery flow.
 
-    Args:
-        nodes: List of node objects from GraphQL
+    Optimised for context economy: only fields that help the model
+    *decide which node to inspect next*. Status, mode, and owners are
+    available via ``get_node_details`` and intentionally omitted here.
 
-    Returns:
-        Formatted string representation
+    Per node, emits at most three lines:
+      • <name> (<type>) [git: <repo> @ <branch>] — <displayName>
+        <description (single line, trimmed)>
+        tags: <tag1>, <tag2>
     """
     if not nodes:
         return "No nodes found."
 
-    result = [f"Found {len(nodes)} nodes:\n"]
+    lines = [f"Found {len(nodes)} nodes:", ""]
 
     for node in nodes:
-        current = node.get("current", {})
-        tags = node.get("tags", [])
-        git_info = node.get("gitInfo", {})
+        current = node.get("current") or {}
+        git_info = node.get("gitInfo") or {}
+        tags = node.get("tags") or []
 
-        # Format node name with git branch info if available
-        node_line = f"• {node['name']} ({node['type']})"
-        if git_info and git_info.get("branch"):
-            node_line += f" [git: {git_info['repo']} @ {git_info['branch']}]"
-        result.append(node_line)
-
+        head = f"• {node['name']} ({node['type']})"
+        if git_info.get("branch"):
+            repo = git_info.get("repo", "")
+            head += f" [git: {repo} @ {git_info['branch']}]"
         if current.get("displayName"):
-            result.append(f"  Display Name: {current['displayName']}")
+            head += f" — {current['displayName']}"
+        lines.append(head)
 
-        result.append(f"  Description: {current.get('description', 'No description')}")
-        result.append(f"  Status: {current.get('status', 'unknown')}")
-        result.append(f"  Mode: {current.get('mode', 'unknown')}")
+        description = (current.get("description") or "").strip()
+        if description:
+            # Single-line, soft-trimmed so a multi-paragraph description
+            # doesn't dominate the search response.
+            collapsed = " ".join(description.split())
+            if len(collapsed) > 160:
+                collapsed = collapsed[:160].rstrip() + "…"
+            lines.append(f"  {collapsed}")
 
         if tags:
-            tag_names = [t["name"] for t in tags]
-            result.append(f"  Tags: {', '.join(tag_names)}")
+            lines.append(f"  tags: {', '.join(t['name'] for t in tags)}")
 
-        if node.get("owners"):
-            owners = [
-                o.get("username", o.get("email", "unknown")) for o in node["owners"]
-            ]
-            result.append(f"  Owners: {', '.join(owners)}")
+        lines.append("")
 
-        result.append("")  # Blank line between nodes
-
-    return "\n".join(result)
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def format_node_details(
     node: Dict[str, Any],
-    dimensions: List[Dict[str, Any]] = None,
+    dimensions: Optional[List[Dict[str, Any]]] = None,
 ) -> str:
     """
     Format detailed node information for AI
@@ -67,17 +67,22 @@ def format_node_details(
     Returns:
         Formatted detailed description
     """
-    current = node.get("current", {})
-    result = [f"Node: {node['name']}", f"Type: {node['type']}", f"{'=' * 60}", ""]
+    current = node.get("current") or {}
+    result = [f"Node: {node['name']}", f"Type: {node['type']}", "=" * 60, ""]
 
-    # Basic info
+    # Basic info — emit each line only if it has real content. The model
+    # already has the name+type from the header; "Status: unknown" /
+    # "Mode: unknown" / "Description: No description" filler is pure noise.
     if current.get("displayName"):
         result.append(f"Display Name: {current['displayName']}")
-
-    result.append(f"Description: {current.get('description', 'No description')}")
-    result.append(f"Status: {current.get('status', 'unknown')}")
-    result.append(f"Mode: {current.get('mode', 'unknown')}")
-    result.append("")
+    if current.get("description"):
+        result.append(f"Description: {current['description']}")
+    if current.get("status"):
+        result.append(f"Status: {current['status']}")
+    if current.get("mode"):
+        result.append(f"Mode: {current['mode']}")
+    if result[-1] != "":
+        result.append("")
 
     # Metadata
     if node.get("tags"):
@@ -88,18 +93,20 @@ def format_node_details(
         owners = [o.get("username", o.get("email", "unknown")) for o in node["owners"]]
         result.append(f"Owners: {', '.join(owners)}")
 
-    result.append(f"Created: {node.get('createdAt', 'unknown')}")
-    result.append("")
+    if node.get("createdAt"):
+        result.append(f"Created: {node['createdAt']}")
+    if result[-1] != "":
+        result.append("")
 
     # Git repository info (indicates if namespace is repo-backed)
-    if node.get("gitInfo"):
-        git_info = node["gitInfo"]
+    git_info = node.get("gitInfo") or {}
+    if any(git_info.get(k) for k in ("repo", "branch", "defaultBranch")):
         result.append("Git Repository:")
-        if git_info.get("repo"):  # pragma: no branch
+        if git_info.get("repo"):
             result.append(f"  Repo: {git_info['repo']}")
-        if git_info.get("branch"):  # pragma: no branch
+        if git_info.get("branch"):
             result.append(f"  Branch: {git_info['branch']}")
-        if git_info.get("defaultBranch"):  # pragma: no branch
+        if git_info.get("defaultBranch"):
             result.append(f"  Default Branch: {git_info['defaultBranch']}")
         result.append(
             "  → This namespace is repo-backed (use git workflow for changes)",
@@ -203,87 +210,5 @@ def format_dimensions_compatibility(
     result.append(
         "\nYou can query these metrics together using the dimensions listed above.",
     )
-
-    return "\n".join(result)
-
-
-def format_sql_response(sql_results: List[Dict[str, Any]]) -> str:
-    """
-    Format SQL generation results
-
-    Args:
-        sql_results: List of GeneratedSQL objects from GraphQL
-
-    Returns:
-        Formatted SQL with metadata
-    """
-    if not sql_results:
-        return "No SQL generated."
-
-    result = []
-
-    for idx, sql_obj in enumerate(sql_results, 1):
-        if len(sql_results) > 1:
-            result.append(f"\n{'=' * 60}")
-            result.append(f"Query {idx} of {len(sql_results)}")
-            result.append(f"{'=' * 60}\n")
-
-        # Node info
-        node = sql_obj.get("node", {})
-        result.append(f"Source Node: {node.get('name', 'unknown')}")
-        result.append(f"Dialect: {sql_obj.get('dialect', 'unknown')}")
-        result.append("")
-
-        # SQL
-        result.append("Generated SQL:")
-        result.append("```sql")
-        result.append(sql_obj.get("sql", ""))
-        result.append("```")
-        result.append("")
-
-        # Columns
-        columns = sql_obj.get("columns", [])
-        if columns:
-            result.append(f"Output Columns ({len(columns)}):")
-            for col in columns:
-                result.append(
-                    f"  • {col.get('name', 'unknown')} ({col.get('type', 'unknown')})",
-                )
-            result.append("")
-
-        # Upstream tables
-        upstream = sql_obj.get("upstreamTables", [])
-        if upstream:
-            result.append(f"Upstream Tables: {', '.join(upstream)}")
-            result.append("")
-
-        # Errors/warnings
-        errors = sql_obj.get("errors", [])
-        if errors:
-            result.append("⚠️ Warnings:")
-            for error in errors:
-                result.append(f"  • {error.get('message', 'Unknown error')}")
-            result.append("")
-
-    return "\n".join(result)
-
-
-def format_error(error_message: str, context: str = None) -> str:
-    """
-    Format error message for AI
-
-    Args:
-        error_message: The error message
-        context: Optional context about what was being attempted
-
-    Returns:
-        Formatted error message
-    """
-    result = ["❌ Error occurred"]
-
-    if context:
-        result.append(f"Context: {context}")
-
-    result.append(f"Message: {error_message}")
 
     return "\n".join(result)
