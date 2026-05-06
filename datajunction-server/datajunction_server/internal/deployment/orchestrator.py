@@ -2209,7 +2209,7 @@ class DeploymentOrchestrator:
 
         return NodeValidationResult(
             spec=cube_spec,
-            status=NodeStatus.VALID,
+            status=cube_spec._source_status or NodeStatus.VALID,
             inferred_columns=cube_spec.rendered_columns,
             errors=[],
             dependencies=[],
@@ -2861,7 +2861,7 @@ class DeploymentOrchestrator:
                 validation_results = [
                     NodeValidationResult(
                         spec=spec,
-                        status=NodeStatus.VALID,
+                        status=spec._source_status or NodeStatus.VALID,
                         inferred_columns=spec.columns or [],
                         errors=[],
                         dependencies=node_graph.get(spec.rendered_name, []),

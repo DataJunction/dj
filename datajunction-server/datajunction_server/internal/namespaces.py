@@ -1027,8 +1027,10 @@ async def get_node_specs_for_export(
     )
     node_specs = [await node.to_spec(session) for node in nodes]
 
-    # Pre-populate upstream dependency names from DB parent relationships.
-    # This avoids re-parsing SQL during the copy fast-path.
+    # Pre-populate fields the copy fast-path needs but can't recompute:
+    # - ``_upstream_names`` from DB parents (avoids re-parsing SQL)
+    # - ``_source_status`` so a branch copy preserves VALID/INVALID instead
+    #   of unconditionally being marked VALID.
     for node, spec in zip(nodes, node_specs):
         if node.current and node.current.parents:
             spec._upstream_names = [
@@ -1036,6 +1038,10 @@ async def get_node_specs_for_export(
             ]
         else:
             spec._upstream_names = []
+        # node.current is always populated here — node.to_spec(session) above
+        # would have failed otherwise — but the access is paired with the
+        # spec write to keep the precondition local.
+        spec._source_status = node.current.status
 
     # Build set of node suffixes in this namespace (for cube reference matching)
     # e.g., for "demo.feature_x.reports.revenue" with namespace "demo.feature_x",

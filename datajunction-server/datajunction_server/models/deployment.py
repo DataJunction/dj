@@ -24,6 +24,7 @@ from datajunction_server.models.node import (
     MetricDirection,
     MetricUnit,
     NodeMode,
+    NodeStatus,
     NodeType,
 )
 from datajunction_server.utils import SEPARATOR
@@ -244,6 +245,10 @@ class NodeSpec(BaseModel):
     # Populated during export from source node DB parents to avoid re-parsing SQL
     # during the copy fast-path. None means "not populated; fall back to SQL parsing".
     _upstream_names: list[str] | None = PrivateAttr(default=None)
+    # Internal: source node status carried through the copy fast-path so a branch
+    # copy preserves VALID/INVALID instead of unconditionally marking nodes VALID.
+    # None means "not populated; fall back to NodeStatus.VALID".
+    _source_status: NodeStatus | None = PrivateAttr(default=None)
 
     model_config = ConfigDict(truncate_errors=False)
 
@@ -480,8 +485,12 @@ class CubeSpec(NodeSpec):
     """
 
     node_type: Literal[NodeType.CUBE] = NodeType.CUBE
-    metrics: list[str]
-    dimensions: list[str] = Field(default_factory=dict)
+    # Both default to empty so a malformed cube spec (e.g., one whose metrics
+    # were dropped during YAML round-trip, or a cube authored with zero
+    # metrics) still parses. Downstream validation flags the cube as INVALID
+    # rather than failing the whole deployment at pydantic-parse time.
+    metrics: list[str] = Field(default_factory=list)
+    dimensions: list[str] = Field(default_factory=list)
     filters: list[str] | None = None
     columns: list[ColumnSpec] | None = None
 
