@@ -110,3 +110,162 @@ def test_run_invokes_asyncio_run(monkeypatch):
     monkeypatch.setattr(cli.asyncio, "run", fake_asyncio_run)
     cli.run()
     assert invoked["called"]
+
+
+def test_run_swallows_keyboard_interrupt(monkeypatch):
+    """``Ctrl-C`` in the CLI should log and exit cleanly, not propagate."""
+    from datajunction.mcp import cli
+
+    def fake_asyncio_run(coro):
+        coro.close()
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli.asyncio, "run", fake_asyncio_run)
+    cli.run()  # must not raise
+
+
+def test_run_logs_and_exits_on_unhandled_exception(monkeypatch):
+    """Any other exception is logged and the process exits with code 1."""
+    from datajunction.mcp import cli
+
+    def fake_asyncio_run(coro):
+        coro.close()
+        raise RuntimeError("boom")
+
+    exits: list = []
+
+    def fake_exit(code):
+        exits.append(code)
+
+    monkeypatch.setattr(cli.asyncio, "run", fake_asyncio_run)
+    monkeypatch.setattr(cli.sys, "exit", fake_exit)
+    cli.run()
+    assert exits == [1]
+
+
+# ---------------------------------------------------------------------------
+# Proxy handlers — verify each MCP method forwards to the upstream session
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_proxy_list_tools_forwards_to_upstream():
+    """``list_tools`` returns the upstream's tools verbatim, normalised to list."""
+    import mcp.types as types
+    from datajunction.mcp import cli
+
+    upstream = MagicMock()
+    upstream.list_tools = AsyncMock(
+        return_value=MagicMock(
+            tools=(
+                types.Tool(name="foo", description="d", inputSchema={"type": "object"}),
+            ),
+        ),
+    )
+
+    out = await cli._proxy_list_tools(upstream)
+    assert [t.name for t in out] == ["foo"]
+    upstream.list_tools.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_proxy_call_tool_forwards_arguments():
+    """``call_tool`` forwards (name, arguments) and returns the content list."""
+    import mcp.types as types
+    from datajunction.mcp import cli
+
+    upstream = MagicMock()
+    block = types.TextContent(type="text", text="ok")
+    upstream.call_tool = AsyncMock(return_value=MagicMock(content=(block,)))
+
+    out = await cli._proxy_call_tool(upstream, "foo", {"k": "v"})
+    assert out == [block]
+    upstream.call_tool.assert_awaited_once_with("foo", arguments={"k": "v"})
+
+
+@pytest.mark.asyncio
+async def test_proxy_call_tool_normalises_none_arguments():
+    """If ``arguments`` is None it's coerced to an empty dict before forwarding."""
+    from datajunction.mcp import cli
+
+    upstream = MagicMock()
+    upstream.call_tool = AsyncMock(return_value=MagicMock(content=()))
+
+    out = await cli._proxy_call_tool(upstream, "foo", None)  # type: ignore[arg-type]
+    assert out == []
+    upstream.call_tool.assert_awaited_once_with("foo", arguments={})
+
+
+@pytest.mark.asyncio
+async def test_proxy_list_resources_forwards_to_upstream():
+    """``list_resources`` returns the upstream's resources verbatim."""
+    import mcp.types as types
+    from datajunction.mcp import cli
+
+    upstream = MagicMock()
+    res = types.Resource(uri="dj://x", name="x")
+    upstream.list_resources = AsyncMock(return_value=MagicMock(resources=(res,)))
+
+    out = await cli._proxy_list_resources(upstream)
+    assert out == [res]
+
+
+@pytest.mark.asyncio
+async def test_proxy_read_resource_returns_first_text_block():
+    """``read_resource`` surfaces the first ``text`` block in the upstream response."""
+    from datajunction.mcp import cli
+
+    upstream = MagicMock()
+    block_no_text = MagicMock(spec=[])  # no .text attribute
+    block_with_text = MagicMock()
+    block_with_text.text = "hello"
+    upstream.read_resource = AsyncMock(
+        return_value=MagicMock(contents=[block_no_text, block_with_text]),
+    )
+
+    out = await cli._proxy_read_resource(upstream, "dj://x")
+    assert out == "hello"
+
+
+@pytest.mark.asyncio
+async def test_build_proxy_app_registers_all_four_handlers():
+    """``_build_proxy_app`` returns a Server with handlers for every MCP method."""
+    from mcp.server import Server
+    from datajunction.mcp import cli
+
+    upstream = MagicMock()
+    app = cli._build_proxy_app(upstream)
+    assert isinstance(app, Server)
+    # The MCP SDK stores registered handlers in ``request_handlers`` keyed by
+    # the request type. We just need to confirm all four are wired.
+    handler_count = len(app.request_handlers)
+    assert handler_count >= 4
+
+
+@pytest.mark.asyncio
+async def test_serve_drives_app_run_with_stdio_streams(monkeypatch):
+    """``_serve`` opens stdio_server, builds the proxy app, runs it. Stub
+    everything so we just verify the wiring."""
+    from datajunction.mcp import cli
+
+    sentinel_app = MagicMock()
+    sentinel_app.run = AsyncMock()
+    sentinel_app.create_initialization_options = MagicMock(return_value="opts")
+
+    monkeypatch.setattr(cli, "_build_proxy_app", lambda upstream: sentinel_app)
+
+    class _StdioCtx:
+        async def __aenter__(self):
+            return ("read-stream", "write-stream")
+
+        async def __aexit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(cli, "stdio_server", lambda: _StdioCtx())
+
+    await cli._serve(MagicMock())
+    sentinel_app.run.assert_awaited_once_with(
+        "read-stream",
+        "write-stream",
+        "opts",
+    )

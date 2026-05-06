@@ -34,37 +34,64 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+async def _proxy_list_tools(upstream: ClientSession) -> list[types.Tool]:
+    """Forward ``tools/list`` to the upstream session."""
+    result = await upstream.list_tools()
+    return list(result.tools)
+
+
+async def _proxy_call_tool(
+    upstream: ClientSession,
+    name: str,
+    arguments: dict,
+) -> list[types.ContentBlock]:
+    """Forward ``tools/call`` to the upstream session.
+
+    ``result.content`` may be a tuple/list of content blocks; normalise to list.
+    """
+    result = await upstream.call_tool(name, arguments=arguments or {})
+    return list(result.content)
+
+
+async def _proxy_list_resources(upstream: ClientSession) -> list[types.Resource]:
+    """Forward ``resources/list`` to the upstream session."""
+    result = await upstream.list_resources()
+    return list(result.resources)
+
+
+async def _proxy_read_resource(upstream: ClientSession, uri: str) -> str:
+    """Forward ``resources/read`` and surface the first text payload.
+
+    The hosted DJ doesn't expose any resources today, but if it ever does
+    we return the first ``text`` content block.
+    """
+    result = await upstream.read_resource(uri)  # type: ignore[arg-type]
+    for block in result.contents:
+        text = getattr(block, "text", None)
+        if text is not None:
+            return text
+    return ""  # pragma: no cover
+
+
+def _build_proxy_app(upstream: ClientSession) -> Server:
+    """Create an MCP ``Server`` whose handlers all forward to ``upstream``.
+
+    Split out from ``_serve`` so the wiring is testable without spinning
+    up stdio.
+    """
+    app: Server = Server("datajunction")
+    app.list_tools()(lambda: _proxy_list_tools(upstream))
+    app.call_tool()(
+        lambda name, arguments: _proxy_call_tool(upstream, name, arguments),
+    )
+    app.list_resources()(lambda: _proxy_list_resources(upstream))
+    app.read_resource()(lambda uri: _proxy_read_resource(upstream, uri))
+    return app
+
+
 async def _serve(upstream: ClientSession) -> None:
     """Run a stdio MCP server that forwards every request to ``upstream``."""
-    app: Server = Server("datajunction")
-
-    @app.list_tools()
-    async def list_tools() -> list[types.Tool]:
-        result = await upstream.list_tools()
-        return list(result.tools)
-
-    @app.call_tool()
-    async def call_tool(name: str, arguments: dict) -> list[types.ContentBlock]:
-        result = await upstream.call_tool(name, arguments=arguments or {})
-        # ``result.content`` may be a tuple/list of content blocks; normalise.
-        return list(result.content)
-
-    @app.list_resources()
-    async def list_resources() -> list[types.Resource]:
-        result = await upstream.list_resources()
-        return list(result.resources)
-
-    @app.read_resource()
-    async def read_resource(uri: str) -> str:
-        result = await upstream.read_resource(uri)  # type: ignore[arg-type]
-        # The hosted DJ doesn't expose any resources today, but if it ever
-        # does, surface the first text/blob payload.
-        for block in result.contents:
-            text = getattr(block, "text", None)
-            if text is not None:
-                return text
-        return ""  # pragma: no cover
-
+    app = _build_proxy_app(upstream)
     async with stdio_server() as (read_stream, write_stream):
         await app.run(
             read_stream,
