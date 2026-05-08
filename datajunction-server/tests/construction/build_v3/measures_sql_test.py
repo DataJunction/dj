@@ -627,6 +627,161 @@ class TestDimensionJoins:
         )
 
 
+class TestMeasuresSQLSkipJoin:
+    """
+    Tests covering the dimension-join skip optimization for /sql/measures/v3/.
+
+    The optimization peels trailing hops off the join path when the requested
+    dimension column is foreign-key-aligned with a column on the previous node.
+    """
+
+    @pytest.fixture
+    async def setup_loyalty_status_chain(self, client_with_build_v3):
+        """
+        Adds an extra dimension `v3.loyalty_status` linked from `v3.customer`
+        on customer_id (the PK of both). Used to exercise multi-hop FK
+        skipping where the requested column flows through every link.
+
+        Defined locally so only the multi-hop tests pay the setup cost; the
+        global BUILD_V3 fixture is unaffected.
+        """
+        response = await client_with_build_v3.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_loyalty_status",
+                "description": "Per-customer loyalty membership tier and standing",
+                "columns": [
+                    {"name": "customer_id", "type": "int"},
+                    {"name": "tier", "type": "string"},
+                    {"name": "standing", "type": "string"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "loyalty_status",
+            },
+        )
+        assert response.status_code in (200, 201, 409)
+
+        response = await client_with_build_v3.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.loyalty_status",
+                "description": (
+                    "Customer loyalty status dimension keyed on customer_id"
+                ),
+                "query": (
+                    "SELECT customer_id, tier, standing FROM v3.src_loyalty_status"
+                ),
+                "primary_key": ["customer_id"],
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201, 409)
+
+        response = await client_with_build_v3.post(
+            "/nodes/v3.customer/link",
+            json={
+                "dimension_node": "v3.loyalty_status",
+                "join_type": "left",
+                "join_on": ("v3.customer.customer_id = v3.loyalty_status.customer_id"),
+                "join_cardinality": "one_to_one",
+            },
+        )
+        assert response.status_code in (200, 201, 409)
+
+    @pytest.mark.asyncio
+    async def test_skip_join_multi_hop_fk_chain(
+        self,
+        client_with_build_v3,
+        setup_loyalty_status_chain,
+    ):
+        """
+        Multi-hop full skip over /sql/measures/v3/.
+
+        Chain: v3.order_details -> v3.customer -> v3.loyalty_status. Both links
+        align customer_id (the PK of customer and of loyalty_status), so the
+        requested v3.loyalty_status.customer_id resolves directly to the fact's
+        customer_id column with no joins emitted.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.loyalty_status.customer_id"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        data = get_first_grain_group(response.json())
+
+        assert_sql_equal(
+            data["sql"],
+            """
+            WITH v3_order_details AS (
+                SELECT o.customer_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t1.customer_id, SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            GROUP BY t1.customer_id
+            """,
+        )
+
+    # Note: partial multi-hop skipping is exercised by tests in tests/api/sql_test.py
+    # (test_metric_with_joinable_dimension_partial_skip_multiple_hops). The roads
+    # schema there cleanly forces the multi-hop path, whereas the v3 fixture's
+    # multi-role v3.location dim makes the path finder ambiguous.
+
+    @pytest.mark.asyncio
+    async def test_skip_join_multi_hop_breaks_on_non_fk_column(
+        self,
+        client_with_build_v3,
+        setup_loyalty_status_chain,
+    ):
+        """
+        Negative case: requested terminal column is NOT FK-aligned with any
+        intermediate, so no joins are skipped.
+
+        v3.loyalty_status.tier is a non-key attribute. Walking the chain
+        backwards from loyalty_status.tier fails on the very first hop, so
+        both joins remain.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.loyalty_status.tier"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        data = get_first_grain_group(response.json())
+
+        assert_sql_equal(
+            data["sql"],
+            """
+            WITH v3_customer AS (
+                SELECT customer_id FROM default.v3.customers
+            ),
+            v3_loyalty_status AS (
+                SELECT customer_id, tier FROM default.v3.loyalty_status
+            ),
+            v3_order_details AS (
+                SELECT o.customer_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t3.tier, SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
+            LEFT OUTER JOIN v3_loyalty_status t3 ON t2.customer_id = t3.customer_id
+            GROUP BY t3.tier
+            """,
+        )
+
+
 class TestMeasuresSQLRoles:
     @pytest.mark.asyncio
     async def test_dimensions_with_multiple_roles_same_dimension(

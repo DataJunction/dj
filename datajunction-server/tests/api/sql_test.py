@@ -2094,11 +2094,20 @@ async def test_source_sql_joinable_dimension_and_filter(
 
 
 @pytest.mark.asyncio
-async def test_metric_with_joinable_dimension_multiple_hops(
+async def test_metric_with_joinable_dimension_partial_skip_multiple_hops(
     module__client_with_examples: AsyncClient,
 ):
     """
-    Verify metric SQL generation with joinable nth-order dimensions.
+    Verify partial join-skip on a multi-hop dimension path.
+
+    Path: default.repair_orders_fact -> default.hard_hat -> default.us_state.
+    The terminal join to default.us_state is skipped because the requested
+    column default.us_state.state_short is foreign-key-aligned with
+    default.hard_hat.state (the link's join_on is
+    `hard_hat.state = us_state.state_short`). The leading join to
+    default.hard_hat is preserved because hard_hat.state isn't on the parent
+    fact. See test_metric_with_joinable_dimension_multiple_hops_no_skip below
+    for the case where the requested column forces all joins to fire.
     """
     await verify_node_sql(
         custom_client=module__client_with_examples,
@@ -2117,16 +2126,11 @@ async def test_metric_with_joinable_dimension_multiple_hops(
         	repair_orders.hard_hat_id
          FROM default.roads.repair_orders repair_orders JOIN default.roads.repair_order_details repair_order_details ON repair_orders.repair_order_id = repair_order_details.repair_order_id
         ),
-        default_us_state AS (
-        SELECT  state_abbr AS state_short
-         FROM default.roads.us_states s
-        ),
         repair_orders_fact_0 AS (
-        SELECT  t3.state_short,
+        SELECT  t2.state state_short,
         	COUNT(t1.repair_order_id) repair_order_id_count_bd241964
          FROM default_repair_orders_fact t1 INNER JOIN default_hard_hat t2 ON t1.hard_hat_id = t2.hard_hat_id
-        INNER JOIN default_us_state t3 ON t2.state = t3.state_short
-         GROUP BY  t3.state_short
+         GROUP BY  t2.state
         )
 
         SELECT  repair_orders_fact_0.state_short AS state_short,
@@ -2164,6 +2168,79 @@ async def test_metric_with_joinable_dimension_multiple_hops(
             ["OK", 1],
             ["NY", 1],
         ],
+    )
+
+
+@pytest.mark.asyncio
+async def test_metric_with_joinable_dimension_multiple_hops_no_skip(
+    module__client_with_examples: AsyncClient,
+):
+    """
+    Verify metric SQL generation with multi-hop dimension joins when the
+    requested column does NOT permit a partial join-skip.
+
+    Path: default.repair_orders_fact -> default.hard_hat -> default.us_state.
+    Requesting default.us_state.state_region — a non-key attribute that is
+    not foreign-key-aligned with any column on the intermediate hard_hat
+    dim — forces both joins (hard_hat AND us_state) to fire. This is the
+    counterpart to test_metric_with_joinable_dimension_partial_skip_multiple_hops:
+    same path, different terminal column, no skipping.
+    """
+    await verify_node_sql(
+        custom_client=module__client_with_examples,
+        node_name="default.num_repair_orders",
+        dimensions=["default.us_state.state_region"],
+        filters=[],
+        expected_sql="""
+        WITH
+        default_hard_hat AS (
+        SELECT  hard_hat_id,
+        	state
+         FROM default.roads.hard_hats
+        ),
+        default_repair_orders_fact AS (
+        SELECT  repair_orders.repair_order_id,
+        	repair_orders.hard_hat_id
+         FROM default.roads.repair_orders repair_orders JOIN default.roads.repair_order_details repair_order_details ON repair_orders.repair_order_id = repair_order_details.repair_order_id
+        ),
+        default_us_state AS (
+        SELECT  state_abbr AS state_short,
+        	state_region
+         FROM default.roads.us_states s
+        ),
+        repair_orders_fact_0 AS (
+        SELECT  t3.state_region,
+        	COUNT(t1.repair_order_id) repair_order_id_count_bd241964
+         FROM default_repair_orders_fact t1 INNER JOIN default_hard_hat t2 ON t1.hard_hat_id = t2.hard_hat_id
+        INNER JOIN default_us_state t3 ON t2.state = t3.state_short
+         GROUP BY  t3.state_region
+        )
+
+        SELECT  repair_orders_fact_0.state_region AS state_region,
+        	SUM(repair_orders_fact_0.repair_order_id_count_bd241964) AS num_repair_orders
+         FROM repair_orders_fact_0
+         GROUP BY  repair_orders_fact_0.state_region
+
+        """,
+        expected_columns=[
+            {
+                "column": "state_region",
+                "name": "default_DOT_us_state_DOT_state_region",
+                "node": "default.us_state",
+                "semantic_entity": "default.us_state.state_region",
+                "semantic_type": "dimension",
+                "type": "int",
+            },
+            {
+                "column": "default_DOT_num_repair_orders",
+                "name": "default_DOT_num_repair_orders",
+                "node": "default.num_repair_orders",
+                "semantic_entity": "default.num_repair_orders.default_DOT_num_repair_orders",
+                "semantic_type": "metric",
+                "type": "bigint",
+            },
+        ],
+        expected_rows=None,
     )
 
 
