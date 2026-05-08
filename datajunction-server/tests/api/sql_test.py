@@ -2229,7 +2229,7 @@ async def test_metric_with_joinable_dimension_multiple_hops_no_skip(
                 "node": "default.us_state",
                 "semantic_entity": "default.us_state.state_region",
                 "semantic_type": "dimension",
-                "type": "string",
+                "type": "int",
             },
             {
                 "column": "default_DOT_num_repair_orders",

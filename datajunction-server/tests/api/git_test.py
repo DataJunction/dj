@@ -3654,6 +3654,7 @@ async def test_branch_copy_preserves_invalid_source_status(
     src_node = (
         await session.execute(select(Node).where(Node.name == f"{parent}.t1"))
     ).scalar_one()
+    await session.refresh(src_node, ["current"])
     src_node.current.status = NodeStatus.INVALID
     await session.commit()
 
