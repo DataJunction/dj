@@ -4623,6 +4623,61 @@ class TestMetricsSQLEdgeCases:
     - Derived metric referencing NONE-aggregability metric: clear error or correct fallback
     """
 
+    @pytest.fixture
+    async def setup_loyalty_status_chain(self, client_with_build_v3):
+        """
+        Adds an extra dimension `v3.loyalty_status` linked from `v3.customer`
+        on customer_id (the PK of both). Used to exercise multi-hop FK
+        elision where the requested column flows through every link.
+
+        Defined locally so only the multi-hop tests pay the setup cost; the
+        global BUILD_V3 fixture is unaffected.
+        """
+        response = await client_with_build_v3.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_loyalty_status",
+                "description": "Per-customer loyalty membership tier and standing",
+                "columns": [
+                    {"name": "customer_id", "type": "int"},
+                    {"name": "tier", "type": "string"},
+                    {"name": "standing", "type": "string"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "loyalty_status",
+            },
+        )
+        assert response.status_code in (200, 201, 409)
+
+        response = await client_with_build_v3.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.loyalty_status",
+                "description": (
+                    "Customer loyalty status dimension keyed on customer_id"
+                ),
+                "query": (
+                    "SELECT customer_id, tier, standing FROM v3.src_loyalty_status"
+                ),
+                "primary_key": ["customer_id"],
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201, 409)
+
+        response = await client_with_build_v3.post(
+            "/nodes/v3.customer/link",
+            json={
+                "dimension_node": "v3.loyalty_status",
+                "join_type": "left",
+                "join_on": ("v3.customer.customer_id = v3.loyalty_status.customer_id"),
+                "join_cardinality": "one_to_one",
+            },
+        )
+        assert response.status_code in (200, 201, 409)
+
     @pytest.mark.asyncio
     async def test_skip_join_filter_on_dimension_pk_as_fact_fk(
         self,
@@ -4676,6 +4731,7 @@ class TestMetricsSQLEdgeCases:
     async def test_skip_join_multi_hop_fk_chain(
         self,
         client_with_build_v3,
+        setup_loyalty_status_chain,
     ):
         """
         Verify multi-hop FK elision: when every link's FK alignment carries the
@@ -4732,6 +4788,7 @@ class TestMetricsSQLEdgeCases:
     async def test_skip_join_multi_hop_breaks_on_non_fk_column(
         self,
         client_with_build_v3,
+        setup_loyalty_status_chain,
     ):
         """
         Negative case for multi-hop elision: when the requested terminal column
@@ -4753,13 +4810,32 @@ class TestMetricsSQLEdgeCases:
         assert response.status_code == 200, response.json()
         result = response.json()
 
-        # Both intermediate dim CTEs/joins must appear
-        sql_lower = result["sql"].lower()
-        assert "v3_customer" in sql_lower or "v3.customer" in sql_lower, (
-            "Expected v3.customer to appear in SQL; got:\n" + result["sql"]
-        )
-        assert "v3_loyalty_status" in sql_lower or "v3.loyalty_status" in sql_lower, (
-            "Expected v3.loyalty_status to appear in SQL; got:\n" + result["sql"]
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH v3_customer AS (
+                SELECT customer_id FROM default.v3.customers
+            ),
+            v3_loyalty_status AS (
+                SELECT customer_id, tier FROM default.v3.loyalty_status
+            ),
+            v3_order_details AS (
+                SELECT o.customer_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+                SELECT t3.tier, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
+                LEFT OUTER JOIN v3_loyalty_status t3 ON t2.customer_id = t3.customer_id
+                GROUP BY t3.tier
+            )
+            SELECT order_details_0.tier AS tier,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.tier
+            """,
         )
 
     @pytest.mark.asyncio
@@ -4794,15 +4870,28 @@ class TestMetricsSQLEdgeCases:
         assert response.status_code == 200, response.json()
         result = response.json()
 
-        sql_lower = result["sql"].lower()
-        # Customer join is required (location_id lives on it)
-        assert "v3_customer" in sql_lower or "v3.customer" in sql_lower, (
-            "Expected v3.customer JOIN to appear; got:\n" + result["sql"]
-        )
-        # Location join should be elided since location_id is FK-aligned with
-        # the customer dim's location_id column.
-        assert "v3_location" not in sql_lower, (
-            "Expected v3.location JOIN to be elided; got:\n" + result["sql"]
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH v3_customer AS (
+                SELECT customer_id, location_id FROM default.v3.customers
+            ),
+            v3_order_details AS (
+                SELECT o.customer_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+                SELECT t2.location_id, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
+                GROUP BY t2.location_id
+            )
+            SELECT order_details_0.location_id AS location_id,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.location_id
+            """,
         )
 
     @pytest.mark.asyncio

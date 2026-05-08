@@ -3679,57 +3679,6 @@ BUILD_V3 = (  # type: ignore
             "mode": "published",
         },
     ),
-    # =========================================================================
-    # Multi-hop FK elision chain
-    # =========================================================================
-    # Tests that the join-skip optimization can elide more than one hop when the
-    # requested column is carried by FK alignment at every step of the path.
-    #
-    # Chain:
-    #   v3.order_details -> v3.customer -> v3.loyalty_status
-    # where customer.customer_id is the PK of customer AND v3.loyalty_status's
-    # PK is also customer_id, so requesting v3.loyalty_status.customer_id from a
-    # metric on v3.order_details should resolve to v3.order_details.customer_id
-    # without joining either dimension.
-    (
-        "/nodes/source/",
-        {
-            "name": "v3.src_loyalty_status",
-            "description": "Per-customer loyalty membership tier and standing",
-            "columns": [
-                {"name": "customer_id", "type": "int"},
-                {"name": "tier", "type": "string"},
-                {"name": "standing", "type": "string"},
-            ],
-            "mode": "published",
-            "catalog": "default",
-            "schema_": "v3",
-            "table": "loyalty_status",
-        },
-    ),
-    (
-        "/nodes/dimension/",
-        {
-            "name": "v3.loyalty_status",
-            "description": "Customer loyalty status dimension keyed on customer_id",
-            "query": (
-                "SELECT customer_id, tier, standing "
-                "FROM v3.src_loyalty_status"
-            ),
-            "primary_key": ["customer_id"],
-            "mode": "published",
-        },
-    ),
-    # customer -> loyalty_status (on customer_id, the PK of both)
-    (
-        "/nodes/v3.customer/link",
-        {
-            "dimension_node": "v3.loyalty_status",
-            "join_type": "left",
-            "join_on": "v3.customer.customer_id = v3.loyalty_status.customer_id",
-            "join_cardinality": "one_to_one",
-        },
-    ),
 )
 
 EXAMPLES = {  # type: ignore
