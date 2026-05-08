@@ -223,6 +223,25 @@
   margin-bottom: 16px !important;
 }
 
+.cube-builder div.DisplayNameInput.NodeCreationInput {
+  padding: 8px 0 !important;
+}
+
+.cube-builder .DisplayNameInput > input[type='text'],
+.cube-builder .FullNameInput > input[type='text'] {
+  height: 36px !important;
+  padding: 8px 12px !important;
+}
+
+.cube-builder div.DescriptionInput.NodeCreationInput {
+  padding: 12px 0 !important;
+}
+
+.cube-builder .DescriptionInput textarea {
+  min-height: 80px !important;
+  max-height: 200px !important;
+}
+
 .cube-builder .NodeCreationInput label,
 .cube-builder .CubeCreationInput label,
 .cube-builder .NamespaceInput label,
@@ -486,4 +505,13 @@
 /* Target the grid sizer inside Input that forces a minimum height */
 .cube-builder div[class*='Input'] [data-value] {
   height: 20px !important;
+}
+
+/* Restore natural height for react-select controls inside form field wrappers
+   (NamespaceInput, FullNameInput) — those are whole-control containers, not
+   react-select's internal Input div, so the 20px squeeze must not apply. */
+.cube-builder .NamespaceInput > div,
+.cube-builder .FullNameInput > div {
+  height: auto !important;
+  min-height: 36px !important;
 }
