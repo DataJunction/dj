@@ -2,6 +2,7 @@ import importlib.metadata
 import io
 from pathlib import Path
 import time
+import zipfile
 from unittest import mock
 import pytest
 from unittest.mock import MagicMock, patch
@@ -18,126 +19,46 @@ import yaml
 from rich.console import Console
 
 
-def test_clean_dict_removes_nones_and_empty():
-    dirty = {
-        "a": None,
-        "b": [],
-        "c": {},
-        "d": {"x": None, "y": {"z": []}, "k": "keep"},
-        "e": [1, 2],
-    }
-    cleaned = DeploymentService.clean_dict(dirty)
-    assert cleaned == {"d": {"k": "keep"}, "e": [1, 2]}
+def _make_zip(files: dict[str, str]) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        for name, content in files.items():
+            zf.writestr(name, content)
+    return buf.getvalue()
 
 
-def test_filter_node_for_export_removes_columns_without_customizations():
-    """Columns without meaningful customizations should be removed."""
-    node = {
-        "name": "test.node",
-        "query": "SELECT * FROM foo",
-        "columns": [
-            # Should be kept: has custom display_name
-            {"name": "user_id", "type": "INT", "display_name": "User ID"},
-            # Should be removed: display_name same as name
-            {"name": "created_at", "type": "TIMESTAMP", "display_name": "created_at"},
-            # Should be kept: has attributes
-            {"name": "id", "type": "BIGINT", "attributes": ["primary_key"]},
-            # Should be removed: no customizations
-            {"name": "plain_col", "type": "VARCHAR"},
-            # Should be kept: has description
-            {"name": "desc_col", "type": "TEXT", "description": "A useful column"},
-        ],
-    }
-
-    filtered = DeploymentService.filter_node_for_export(node)
-
-    # Only columns with customizations should remain
-    assert len(filtered["columns"]) == 3
-
-    # Type should be excluded from all columns
-    for col in filtered["columns"]:
-        assert "type" not in col
-
-    # Check correct columns were kept
-    col_names = [c["name"] for c in filtered["columns"]]
-    assert "user_id" in col_names
-    assert "id" in col_names
-    assert "desc_col" in col_names
-    assert "created_at" not in col_names
-    assert "plain_col" not in col_names
-
-
-def test_filter_node_for_export_removes_columns_key_when_empty():
-    """If no columns have customizations, the columns key should be removed."""
-    node = {
-        "name": "test.node",
-        "query": "SELECT * FROM foo",
-        "columns": [
-            {"name": "a", "type": "INT"},
-            {"name": "b", "type": "VARCHAR", "display_name": "b"},  # same as name
-        ],
-    }
-
-    filtered = DeploymentService.filter_node_for_export(node)
-
-    assert "columns" not in filtered
-
-
-def test_filter_node_for_export_always_removes_columns_for_cubes():
-    """Cube columns should always be removed - they're inferred from metrics/dimensions."""
-    node = {
-        "name": "test.cube",
-        "node_type": "cube",
-        "metrics": ["test.metric1", "test.metric2"],
-        "dimensions": ["test.dim1"],
-        "columns": [
-            {"name": "metric1", "type": "BIGINT"},
-            {"name": "dim1", "type": "VARCHAR", "display_name": "Dimension 1"},
-        ],
-    }
-
-    filtered = DeploymentService.filter_node_for_export(node)
-
-    # Columns should be removed regardless of customizations
-    assert "columns" not in filtered
-    # Other fields should remain
-    assert filtered["metrics"] == ["test.metric1", "test.metric2"]
-    assert filtered["dimensions"] == ["test.dim1"]
-
-
-def test_pull_writes_yaml_files(tmp_path):
-    # fake client returning a minimal deployment spec
+def test_pull_extracts_zip_from_server(tmp_path):
+    zip_bytes = _make_zip(
+        {
+            "dj.yaml": "namespace: foo.bar\n",
+            "foo/bar/baz.yaml": "name: foo.bar.baz\nquery: SELECT 1\n",
+        },
+    )
     client = MagicMock()
-    client._export_namespace_spec.return_value = {
-        "namespace": "foo.bar",
-        "nodes": [
-            {"name": "foo.bar.baz", "query": "SELECT 1"},
-            {"name": "foo.bar.qux", "query": "SELECT 2"},
-        ],
-    }
+    client._export_namespace_yaml_zip.return_value = zip_bytes
     svc = DeploymentService(client)
 
     svc.pull("foo.bar", tmp_path)
 
-    # project-level yaml
-    project_yaml = yaml.safe_load((tmp_path / "dj.yaml").read_text())
-    assert project_yaml["namespace"] == "foo.bar"
-
-    # node files
-    baz_file = tmp_path / "foo" / "bar" / "baz.yaml"
-    assert baz_file.exists()
-    assert yaml.safe_load(baz_file.read_text())["query"] == "SELECT 1"
-
-    qux_file = tmp_path / "foo" / "bar" / "qux.yaml"
-    assert qux_file.exists()
+    client._export_namespace_yaml_zip.assert_called_once_with("foo.bar", None)
+    assert yaml.safe_load((tmp_path / "dj.yaml").read_text())["namespace"] == "foo.bar"
+    assert (tmp_path / "foo" / "bar" / "baz.yaml").exists()
 
 
-def test_pull_raises_if_target_not_empty(tmp_path):
-    (tmp_path / "something.txt").write_text("not empty")
+def test_pull_uploads_existing_yaml_files(tmp_path):
+    (tmp_path / "old.yaml").write_text("name: ns.old\n")
+    updated_zip = _make_zip({"old.yaml": "name: ns.old\nquery: SELECT 2\n"})
     client = MagicMock()
+    client._export_namespace_yaml_zip.return_value = updated_zip
     svc = DeploymentService(client)
-    with pytest.raises(DJClientException):
-        svc.pull("ns", tmp_path)
+
+    svc.pull("ns", tmp_path)
+
+    _, call_kwargs = client._export_namespace_yaml_zip.call_args
+    existing_bytes = client._export_namespace_yaml_zip.call_args[0][1]
+    assert existing_bytes is not None
+    with zipfile.ZipFile(io.BytesIO(existing_bytes)) as zf:
+        assert "old.yaml" in zf.namelist()
 
 
 def test_print_results_success():

@@ -683,12 +683,28 @@ class DJClient:
         response = self._session.get(f"/namespaces/{namespace}/export/")
         return response.json()
 
-    def _export_namespace_spec(self, namespace):
+    def _export_namespace_yaml_zip(
+        self,
+        namespace: str,
+        existing_zip_bytes: Optional[bytes] = None,
+    ) -> bytes:
         """
-        Export a deployment spec for a namespace
+        Export a namespace as a ZIP of YAML files.
+
+        If `existing_zip_bytes` is provided, the server merges new content into
+        those files, preserving key ordering and comments. Otherwise it falls back
+        to the configured git branch or produces a fresh export.
         """
-        response = self._session.get(f"/namespaces/{namespace}/export/spec/")
-        return response.json()
+        files = (
+            {"existing_zip": ("existing.zip", existing_zip_bytes, "application/zip")}
+            if existing_zip_bytes is not None
+            else None
+        )
+        response = self._session.post(
+            f"/namespaces/{namespace}/export/yaml",
+            files=files,
+        )
+        return response.content
 
     #
     # Methods for Tags

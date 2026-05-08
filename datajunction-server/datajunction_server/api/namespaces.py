@@ -9,7 +9,7 @@ from http import HTTPStatus
 from typing import Callable, Dict, List, Optional
 
 import yaml
-from fastapi import Depends, Query, BackgroundTasks, Request, Response
+from fastapi import Depends, Query, BackgroundTasks, Request, Response, UploadFile, File
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy import or_, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,6 +29,10 @@ from datajunction_server.models.deployment import (
 )
 
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
+from datajunction_server.internal.git.yaml_export import (
+    fetch_existing_yaml_map,
+    generate_namespace_yaml_files,
+)
 from datajunction_server.internal.access.authorization import (
     AccessChecker,
     get_access_checker,
@@ -46,7 +50,6 @@ from datajunction_server.internal.namespaces import (
     get_sources_for_namespace,
     get_sources_for_namespaces_bulk,
     get_node_specs_for_export,
-    node_spec_to_yaml,
     detect_parent_cycle,
     resolve_git_config,
     validate_sibling_relationship,
@@ -503,13 +506,14 @@ async def export_namespace_spec(
     )
 
 
-@router.get(
+@router.post(
     "/namespaces/{namespace}/export/yaml",
     name="Export namespace as downloadable YAML ZIP",
     response_class=StreamingResponse,
 )
 async def export_namespace_yaml(
     namespace: str,
+    existing_zip: Optional[UploadFile] = File(None),
     *,
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
@@ -517,52 +521,76 @@ async def export_namespace_yaml(
     """
     Export a namespace as a downloadable ZIP file containing YAML files.
 
-    The ZIP structure matches the expected layout for `dj push`:
-    - dj.yaml (project manifest)
-    - <namespace>/<node>.yaml (one file per node)
-
-    This makes it easy to start managing nodes via Git/CI-CD.
+    If `existing_zip` is provided (a ZIP of the caller's current local YAML files),
+    the server merges new content into those files — preserving key ordering, inline
+    comments, and scalar styles. Otherwise it falls back to fetching the configured
+    git branch for the same merge, or produces a fresh export when no git is configured.
     """
     access_checker.add_namespace(namespace, ResourceAction.READ)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
-    # Get node specs with ${prefix} injection applied
-    node_specs = await get_node_specs_for_export(session, namespace)
+    github_repo_path, git_path, git_branch = await resolve_git_config(
+        session,
+        namespace,
+    )
 
-    # Create ZIP in memory
-    zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        # Add dj.yaml project manifest
-        project_manifest = {
-            "name": f"Project {namespace} (Exported)",
-            "description": f"Exported project for namespace {namespace}",
-            "namespace": namespace,
-        }
-
-        zf.writestr(
-            "dj.yaml",
-            yaml.dump(
-                project_manifest,
-                sort_keys=False,
-                default_flow_style=False,
-            ),
-        )
-
-        # Add each node as a YAML file
-        for node_spec in node_specs:
-            # Convert name to file path: foo.bar.baz -> foo/bar/baz.yaml
-            node_name = node_spec.name.replace("${prefix}", "").lstrip(".")
-            parts = node_name.split(".")
-            file_path = "/".join(parts) + ".yaml"
-
-            zf.writestr(
-                file_path,
-                node_spec_to_yaml(node_spec),
+    if existing_zip is not None:
+        # Merge with client-provided files. Re-add git_path prefix so keys match
+        # what _node_spec_to_file_path produces.
+        raw = await existing_zip.read()
+        existing_files_map: Dict[str, str] = {}
+        with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+            for name in zf.namelist():
+                if name.endswith(".yaml"):
+                    try:
+                        existing_files_map[name] = zf.read(name).decode("utf-8")
+                    except Exception:  # pragma: no cover
+                        pass
+        if git_path:
+            prefix = git_path.strip("/") + "/"
+            existing_files_map = {prefix + k: v for k, v in existing_files_map.items()}
+    else:
+        # Merge with existing files from the configured git branch, if available.
+        existing_files_map = {}
+        if github_repo_path and git_branch:
+            existing_files_map = await fetch_existing_yaml_map(
+                github_repo_path,
+                git_branch,
+                git_path,
             )
 
-    zip_buffer.seek(0)
+    files = await generate_namespace_yaml_files(
+        session,
+        namespace,
+        existing_files_map,
+        git_path,
+    )
 
-    # Return as downloadable ZIP
+    git_path_prefix = (git_path.strip("/") + "/") if git_path else ""
+    dj_yaml_key = f"{git_path.strip('/')}/dj.yaml" if git_path else "dj.yaml"
+    if dj_yaml_key in existing_files_map:
+        dj_yaml_content = existing_files_map[dj_yaml_key]
+    else:
+        dj_yaml_content = yaml.dump(
+            {
+                "name": f"Project {namespace} (Exported)",
+                "description": f"Exported project for namespace {namespace}",
+                "namespace": namespace,
+            },
+            sort_keys=False,
+            default_flow_style=False,
+        )
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("dj.yaml", dj_yaml_content)
+        for file_info in files:
+            zip_path = file_info["path"]
+            if git_path_prefix and zip_path.startswith(git_path_prefix):
+                zip_path = zip_path[len(git_path_prefix) :]
+            zf.writestr(zip_path, file_info["content"])
+
+    zip_buffer.seek(0)
     safe_namespace = namespace.replace(".", "_")
     return StreamingResponse(
         zip_buffer,

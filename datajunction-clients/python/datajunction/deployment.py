@@ -56,123 +56,49 @@ class DeploymentService:
         self.client = client
         self.console = console or Console()
 
-    @staticmethod
-    def clean_dict(d: dict) -> dict:
-        """
-        Recursively remove None, empty list, and empty dict values.
-        """
-        result = {}
-        for k, v in d.items():
-            if v is None:
-                continue
-            if isinstance(v, (list, dict)) and not v:
-                continue
-            if isinstance(v, dict):
-                nested = DeploymentService.clean_dict(v)
-                if nested:  # only include if not empty after cleaning
-                    result[k] = nested
-            else:
-                result[k] = v  # type: ignore
-        return result
-
-    @staticmethod
-    def filter_node_for_export(node: dict) -> dict:
-        """
-        Filter a node dict for export to YAML.
-
-        For columns:
-        - Cubes: columns are always excluded (they're inferred from metrics/dimensions)
-        - Other nodes: only includes columns with meaningful customizations
-          (display_name different from name, attributes, description, or partition).
-          Column types are excluded - let DJ infer them from the query/source.
-        """
-        result = DeploymentService.clean_dict(node)
-
-        # Cubes should never have columns in export - they're inferred from metrics/dimensions
-        if result.get("node_type") == "cube":
-            result.pop("columns", None)
-        # For other nodes, filter columns to only include meaningful customizations
-        elif "columns" in result and result["columns"]:
-            filtered_columns = []
-            for col in result["columns"]:
-                # Check for meaningful customizations
-                has_custom_display = col.get("display_name") and col.get(
-                    "display_name",
-                ) != col.get("name")
-                has_attributes = bool(col.get("attributes"))
-                has_description = bool(col.get("description"))
-                has_partition = bool(col.get("partition"))
-
-                if (
-                    has_custom_display
-                    or has_attributes
-                    or has_description
-                    or has_partition
-                ):
-                    # Include column but exclude type (let DJ infer)
-                    filtered_col = {
-                        k: v
-                        for k, v in col.items()
-                        if k != "type" and v  # Exclude type and empty values
-                    }
-                    filtered_columns.append(filtered_col)
-
-            if filtered_columns:
-                result["columns"] = filtered_columns
-            else:
-                # Remove columns entirely if none have customizations
-                del result["columns"]
-
-        return result
-
     def pull(
         self,
         namespace: str,
         target_path: Union[str, Path],
-        ignore_existing_files: bool = False,
     ):
         """
         Export a namespace to a local project.
-        """
-        path = Path(target_path)
-        if any(path.iterdir()) and not ignore_existing_files:
-            raise DJClientException("The target path must be empty")
-        deployment_spec = self.client._export_namespace_spec(namespace)
 
-        namespace = deployment_spec["namespace"]
-        nodes: list[dict[str, Any]] = deployment_spec.get("nodes", [])
+        Pulls the YAML files from the server's `/export/yaml` endpoint, which
+        runs every node through the same serializer (`node_spec_to_yaml`) used
+        by the UI sync-to-git flow. This way `dj pull` and a UI export produce
+        identical YAML for the same node state.
+
+        When the target directory already contains YAML files, they are uploaded
+        to the server so it can merge new content into them — preserving key
+        ordering, inline comments, and scalar styles. This means a `dj pull`
+        against an already-populated directory produces minimal diffs.
+        """
+        import io
+        import zipfile
+
         base_path = Path(target_path)
         base_path.mkdir(parents=True, exist_ok=True)
 
-        # Create a YAML for each node in the appropriate namespace folder
-        for node in nodes:
-            node_name = node["name"]
-            # Namespace folder is everything except the last part of the node
-            node_parts = node_name.replace("${prefix}", "").split(".")
-            node_namespace_path = base_path.joinpath(*node_parts[:-1])
-            node_namespace_path.mkdir(parents=True, exist_ok=True)
+        existing_zip_bytes = None
+        existing_yaml_files = list(base_path.rglob("*.yaml"))
+        if existing_yaml_files:
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                for yaml_file in existing_yaml_files:
+                    zf.writestr(
+                        str(yaml_file.relative_to(base_path)),
+                        yaml_file.read_bytes(),
+                    )
+            existing_zip_bytes = buf.getvalue()
 
-            # File name is the last part of the node
-            file_name = node_parts[-1] + ".yaml"
-            file_path = node_namespace_path / file_name
+        zip_bytes = self.client._export_namespace_yaml_zip(
+            namespace,
+            existing_zip_bytes,
+        )
 
-            # Write YAML for this node (filter columns for cleaner output)
-            with open(file_path, "w") as yaml_file:
-                yaml.dump(
-                    DeploymentService.filter_node_for_export(node),
-                    yaml_file,
-                    sort_keys=False,
-                )
-
-        # Write top-level dj.yaml with full deployment info
-        dj_yaml_path = base_path / "dj.yaml"
-        with open(dj_yaml_path, "w") as yaml_file:
-            project_spec = {
-                "name": f"Project {namespace} (Autogenerated)",
-                "description": f"This is an autogenerated project for namespace {namespace}",
-                "namespace": namespace,
-            }
-            yaml.safe_dump(project_spec, yaml_file, sort_keys=False)
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+            zf.extractall(base_path)
 
     def push(
         self,
