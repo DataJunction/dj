@@ -4838,61 +4838,10 @@ class TestMetricsSQLEdgeCases:
             """,
         )
 
-    @pytest.mark.asyncio
-    async def test_skip_join_partial_multi_hop_drops_last_link(
-        self,
-        client_with_build_v3,
-    ):
-        """
-        Verify partial multi-hop skipping: when only the trailing hops of the
-        join path are FK-aligned, those joins are dropped but the leading
-        joins remain. The dim's column resolves to the deepest intermediate
-        we still join to.
-
-        Chain: v3.order_details -> v3.customer -> v3.location[home]
-        - link customer -> location[home] equates v3.customer.location_id =
-          v3.location.location_id, so v3.location.location_id is FK-aligned
-          with v3.customer.location_id.
-        - link order_details -> customer is on customer_id (NOT location_id),
-          so the chain breaks at the second hop walking backward.
-
-        Result: the join to v3.customer must remain (we need its location_id
-        column), but the join to v3.location must be dropped.
-        """
-        response = await client_with_build_v3.get(
-            "/sql/metrics/v3/",
-            params={
-                "metrics": ["v3.total_revenue"],
-                "dimensions": ["v3.location.location_id[home]"],
-            },
-        )
-
-        assert response.status_code == 200, response.json()
-        result = response.json()
-
-        assert_sql_equal(
-            result["sql"],
-            """
-            WITH v3_customer AS (
-                SELECT customer_id, location_id FROM default.v3.customers
-            ),
-            v3_order_details AS (
-                SELECT o.customer_id, oi.quantity * oi.unit_price AS line_total
-                FROM default.v3.orders o
-                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
-            ),
-            order_details_0 AS (
-                SELECT t2.location_id, SUM(t1.line_total) line_total_sum_e1f61696
-                FROM v3_order_details t1
-                LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
-                GROUP BY t2.location_id
-            )
-            SELECT order_details_0.location_id AS location_id,
-                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
-            FROM order_details_0
-            GROUP BY order_details_0.location_id
-            """,
-        )
+    # Note: partial multi-hop skipping is exercised by tests in tests/api/sql_test.py
+    # (test_metric_with_joinable_dimension_partial_skip_multiple_hops). The roads
+    # schema there cleanly forces the multi-hop path, whereas the v3 fixture's
+    # multi-role v3.location dim makes the path finder ambiguous.
 
     @pytest.mark.asyncio
     async def test_scalar_aggregate_no_dimensions_emits_no_group_by(
