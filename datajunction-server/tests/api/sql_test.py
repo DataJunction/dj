@@ -2206,7 +2206,7 @@ async def test_metric_with_joinable_dimension_multiple_hops_no_skip(
         default_us_state AS (
         SELECT  state_abbr AS state_short,
         	state_region
-         FROM default.us_states s
+         FROM default.roads.us_states s
         ),
         repair_orders_fact_0 AS (
         SELECT  t3.state_region,
