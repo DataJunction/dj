@@ -4673,6 +4673,139 @@ class TestMetricsSQLEdgeCases:
         )
 
     @pytest.mark.asyncio
+    async def test_skip_join_multi_hop_fk_chain(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        Verify multi-hop FK elision: when every link's FK alignment carries the
+        requested column back to the parent, every join in the chain is skipped.
+
+        Chain: v3.order_details -> v3.customer -> v3.loyalty_status
+        Both customer and loyalty_status have customer_id as their PK, and the
+        intermediate link uses customer.customer_id as the FK target. Requesting
+        v3.loyalty_status.customer_id from a metric on v3.order_details should
+        elide both hops and resolve to v3.order_details.customer_id directly.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.loyalty_status.customer_id"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        # Sanity check: no join CTE for either intermediate dimension
+        sql_lower = result["sql"].lower()
+        assert "v3_customer" not in sql_lower, (
+            "Expected no join to v3.customer; got:\n" + result["sql"]
+        )
+        assert "v3_loyalty_status" not in sql_lower, (
+            "Expected no join to v3.loyalty_status; got:\n" + result["sql"]
+        )
+
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH v3_order_details AS (
+                SELECT o.customer_id,
+                       oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+                SELECT t1.customer_id, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                GROUP BY t1.customer_id
+            )
+            SELECT order_details_0.customer_id AS customer_id,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.customer_id
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_skip_join_multi_hop_breaks_on_non_fk_column(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        Negative case for multi-hop elision: when the requested terminal column
+        is NOT an FK target of an intermediate link, the optimization must fall
+        through and the joins must be emitted.
+
+        v3.loyalty_status.tier is a non-key attribute. Walking the chain
+        backwards from loyalty_status.tier fails on the customer->loyalty_status
+        link's foreign-key map, so both joins should fire.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.loyalty_status.tier"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        # Both intermediate dim CTEs/joins must appear
+        sql_lower = result["sql"].lower()
+        assert "v3_customer" in sql_lower or "v3.customer" in sql_lower, (
+            "Expected v3.customer to appear in SQL; got:\n" + result["sql"]
+        )
+        assert "v3_loyalty_status" in sql_lower or "v3.loyalty_status" in sql_lower, (
+            "Expected v3.loyalty_status to appear in SQL; got:\n" + result["sql"]
+        )
+
+    @pytest.mark.asyncio
+    async def test_skip_join_partial_multi_hop_drops_last_link(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        Verify partial multi-hop elision: when only the trailing hops of the
+        join path are FK-aligned, those joins are dropped but the leading
+        joins remain. The dim's column resolves to the deepest intermediate
+        we still join to.
+
+        Chain: v3.order_details -> v3.customer -> v3.location[home]
+        - link customer -> location[home] equates v3.customer.location_id =
+          v3.location.location_id, so v3.location.location_id is FK-aligned
+          with v3.customer.location_id.
+        - link order_details -> customer is on customer_id (NOT location_id),
+          so the chain breaks at the second hop walking backward.
+
+        Result: the join to v3.customer must remain (we need its location_id
+        column), but the join to v3.location must be dropped.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.location.location_id[home]"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        sql_lower = result["sql"].lower()
+        # Customer join is required (location_id lives on it)
+        assert "v3_customer" in sql_lower or "v3.customer" in sql_lower, (
+            "Expected v3.customer JOIN to appear; got:\n" + result["sql"]
+        )
+        # Location join should be elided since location_id is FK-aligned with
+        # the customer dim's location_id column.
+        assert "v3_location" not in sql_lower, (
+            "Expected v3.location JOIN to be elided; got:\n" + result["sql"]
+        )
+
+    @pytest.mark.asyncio
     async def test_scalar_aggregate_no_dimensions_emits_no_group_by(
         self,
         client_with_build_v3,
