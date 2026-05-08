@@ -198,17 +198,7 @@ def can_skip_join_for_dimension(
         ``parent_node`` (full elision); otherwise it lives on the dim at
         ``join_path.links[-num_hops_elided - 1].dimension`` (partial elision).
     """
-    log_prefix = (
-        f"[skip-join-debug] dim_ref={dim_ref.node_name}{SEPARATOR}"
-        f"{dim_ref.column_name} parent_node={parent_node.name}"
-    )
-
     if not join_path or not join_path.links:  # pragma: no cover
-        logger.info(
-            "%s — skipping optimization: empty join_path (links=%s)",
-            log_prefix,
-            None if not join_path else join_path.links,
-        )
         return False, None, 0
 
     # Peel off trailing hops as long as the FK alignment carries the requested
@@ -224,24 +214,8 @@ def can_skip_join_for_dimension(
         hops_elided += 1
 
     if hops_elided == 0:
-        logger.info(
-            "%s — skipping optimization: column %r is not an FK target of "
-            "the terminal link %s -> %s; available keys=%s",
-            log_prefix,
-            current_col_fqn,
-            join_path.links[-1].node_revision.name,
-            join_path.links[-1].dimension.name,
-            sorted(join_path.links[-1].foreign_keys_reversed.keys()),
-        )
         return False, None, 0
 
-    logger.info(
-        "%s — APPLYING optimization: eliding %d of %d hop(s); column lives at %r",
-        log_prefix,
-        hops_elided,
-        len(join_path.links),
-        current_col_fqn,
-    )
     return True, get_short_name(current_col_fqn), hops_elided
 
 
