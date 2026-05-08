@@ -2075,7 +2075,7 @@ class TestNodeCRUD:
         )
         data = response.json()
 
-        the_good_columns = module__query_service_client.get_columns_for_table(
+        the_good_columns = await module__query_service_client.get_columns_for_table(
             "default",
             "roads",
             "repair_orders",
@@ -2103,10 +2103,13 @@ class TestNodeCRUD:
         ]
 
         # Refresh it again, but this time no columns are found
+        async def _empty_columns_async(*args, **kwargs):
+            return []
+
         mocker.patch.object(
             module__query_service_client,
             "get_columns_for_table",
-            lambda *args: [],
+            _empty_columns_async,
         )
         response = await module__client_with_roads.post(
             "/nodes/default.repair_orders/refresh/",
@@ -2120,12 +2123,14 @@ class TestNodeCRUD:
 
         # Refresh it again, but this time the table is missing
         data = data_new
+
+        async def _missing_table_async(*args, **kwargs):
+            raise DJDoesNotExistException(message="Table not found: foo.bar.baz")
+
         mocker.patch.object(
             module__query_service_client,
             "get_columns_for_table",
-            lambda *args: (_ for _ in ()).throw(
-                DJDoesNotExistException(message="Table not found: foo.bar.baz"),
-            ),
+            _missing_table_async,
         )
         response = await module__client_with_roads.post(
             "/nodes/default.repair_orders/refresh/",
@@ -2151,10 +2156,14 @@ class TestNodeCRUD:
 
         # Refresh it again, back to normal state
         data = data_new
+
+        async def _good_columns_async(*args, **kwargs):
+            return the_good_columns
+
         mocker.patch.object(
             module__query_service_client,
             "get_columns_for_table",
-            lambda *args: the_good_columns,
+            _good_columns_async,
         )
         response = await module__client_with_roads.post(
             "/nodes/default.repair_orders/refresh/",

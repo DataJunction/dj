@@ -699,10 +699,30 @@ def query_service_client(
     ) -> List[Column]:
         return COLUMN_MAPPINGS[f"{catalog}.{schema}.{table}"]
 
+    async def mock_get_columns_for_table_async(
+        catalog: str,
+        schema: str,
+        table: str,
+        request_headers: Optional[Dict[str, str]] = None,
+        engine: Optional[Engine] = None,
+    ) -> List[Column]:
+        return mock_get_columns_for_table(
+            catalog,
+            schema,
+            table,
+            engine,
+            request_headers,
+        )
+
     mocker.patch.object(
         qs_client,
         "get_columns_for_table",
         mock_get_columns_for_table,
+    )
+    mocker.patch.object(
+        qs_client,
+        "get_columns_for_table",
+        mock_get_columns_for_table_async,
     )
 
     def mock_submit_query(
@@ -735,10 +755,21 @@ def query_service_client(
             errors=[],
         )
 
+    async def mock_submit_query_async(
+        query_create: QueryCreate,
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> QueryWithResults:
+        return mock_submit_query(query_create, request_headers)
+
     mocker.patch.object(
         qs_client,
         "submit_query",
         mock_submit_query,
+    )
+    mocker.patch.object(
+        qs_client,
+        "submit_query",
+        mock_submit_query_async,
     )
 
     def mock_create_view(
@@ -751,10 +782,22 @@ def query_service_client(
         duckdb_conn.sql(transpiled_sql)
         return f"View {view_name} created successfully."
 
+    async def mock_create_view_async(
+        view_name: str,
+        query_create: QueryCreate,
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> str:
+        return mock_create_view(view_name, query_create, request_headers)
+
     mocker.patch.object(
         qs_client,
         "create_view",
         mock_create_view,
+    )
+    mocker.patch.object(
+        qs_client,
+        "create_view",
+        mock_create_view_async,
     )
 
     def mock_get_query(
@@ -768,10 +811,21 @@ def query_service_client(
                 return response
         raise RuntimeError(f"No mocked query exists for id {query_id}")
 
+    async def mock_get_query_async(
+        query_id: str,
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> Collection[Collection[str]]:
+        return mock_get_query(query_id, request_headers)
+
     mocker.patch.object(
         qs_client,
         "get_query",
         mock_get_query,
+    )
+    mocker.patch.object(
+        qs_client,
+        "get_query",
+        mock_get_query_async,
     )
 
     mock_materialize = MagicMock()
@@ -2154,10 +2208,30 @@ def module__query_service_client(
     ) -> List[Column]:
         return COLUMN_MAPPINGS[f"{catalog}.{schema}.{table}"]
 
+    async def mock_get_columns_for_table_async(
+        catalog: str,
+        schema: str,
+        table: str,
+        request_headers: Optional[Dict[str, str]] = None,
+        engine: Optional[Engine] = None,
+    ) -> List[Column]:
+        return mock_get_columns_for_table(
+            catalog,
+            schema,
+            table,
+            engine,
+            request_headers,
+        )
+
     module_mocker.patch.object(
         qs_client,
         "get_columns_for_table",
         mock_get_columns_for_table,
+    )
+    module_mocker.patch.object(
+        qs_client,
+        "get_columns_for_table",
+        mock_get_columns_for_table_async,
     )
 
     def mock_submit_query(
@@ -2194,10 +2268,21 @@ def module__query_service_client(
             errors=[],
         )
 
+    async def mock_submit_query_async(
+        query_create: QueryCreate,
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> QueryWithResults:
+        return mock_submit_query(query_create, request_headers)
+
     module_mocker.patch.object(
         qs_client,
         "submit_query",
         mock_submit_query,
+    )
+    module_mocker.patch.object(
+        qs_client,
+        "submit_query",
+        mock_submit_query_async,
     )
 
     def mock_create_view(
@@ -2210,10 +2295,22 @@ def module__query_service_client(
         duckdb_conn.sql(transpiled_sql)
         return f"View {view_name} created successfully."
 
+    async def mock_create_view_async(
+        view_name: str,
+        query_create: QueryCreate,
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> str:
+        return mock_create_view(view_name, query_create, request_headers)
+
     module_mocker.patch.object(
         qs_client,
         "create_view",
         mock_create_view,
+    )
+    module_mocker.patch.object(
+        qs_client,
+        "create_view",
+        mock_create_view_async,
     )
 
     def mock_get_query(
@@ -2227,10 +2324,21 @@ def module__query_service_client(
                 return response
         raise RuntimeError(f"No mocked query exists for id {query_id}")
 
+    async def mock_get_query_async(
+        query_id: str,
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> Collection[Collection[str]]:
+        return mock_get_query(query_id, request_headers)
+
     module_mocker.patch.object(
         qs_client,
         "get_query",
         mock_get_query,
+    )
+    module_mocker.patch.object(
+        qs_client,
+        "get_query",
+        mock_get_query_async,
     )
 
     mock_materialize = MagicMock()

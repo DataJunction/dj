@@ -2,6 +2,7 @@
 Data related APIs.
 """
 
+import logging
 from typing import List, Optional
 
 from fastapi import Depends, Query, Request
@@ -9,14 +10,13 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
-from datajunction_server.api.helpers import build_sql_for_dj_query, query_event_stream
+from datajunction_server.api.helpers import query_event_stream
 from datajunction_server.construction.build_v3.builder import build_metrics_sql
+from datajunction_server.construction.build_v3.cube_matcher import (
+    resolve_dialect_and_engine_for_metrics,
+)
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
-from datajunction_server.internal.access.authorization import (
-    AccessChecker,
-    get_access_checker,
-)
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.service_clients import QueryServiceClient
@@ -28,6 +28,7 @@ from datajunction_server.utils import (
     get_settings,
 )
 
+_logger = logging.getLogger(__name__)
 settings = get_settings()
 router = SecureAPIRouter(tags=["DJSQL"])
 
@@ -181,6 +182,10 @@ async def get_sql_for_djsql(
         limit=limit,
         dialect=dialect_enum,
     )
+    _logger.info(
+        "[/djsql/] generated SQL via build_metrics_sql (v3 path) — sql=%s",
+        result.sql,
+    )
 
     return TranslatedDJSQL(
         sql=result.sql,
@@ -197,82 +202,142 @@ async def get_sql_for_djsql(
     )
 
 
+async def _build_djsql_query(
+    session: AsyncSession,
+    query: str,
+    use_materialized: bool,
+    engine_name: Optional[str],
+    engine_version: Optional[str],
+):
+    """
+    Shared SQL-build path for ``/djsql/data`` and ``/djsql/stream/``. Routes
+    through the v3 builder so that all four endpoints (``/djsql/``,
+    ``/djsql/data``, ``/djsql/stream/``, ``/data/``) emit identical SQL for
+    the same metrics + dimensions.
+    """
+    metrics, dimensions, filters, orderby, limit = parse_dj_sql(query)
+    execution_ctx = await resolve_dialect_and_engine_for_metrics(
+        session=session,
+        metrics=metrics,
+        dimensions=dimensions,
+        use_materialized=use_materialized,
+        engine_name=engine_name,
+        engine_version=engine_version,
+    )
+    generated_sql = await build_metrics_sql(
+        session=session,
+        metrics=metrics,
+        dimensions=dimensions,
+        filters=filters if filters else None,
+        orderby=orderby if orderby else None,
+        limit=limit,
+        dialect=execution_ctx.dialect,
+        use_materialized=use_materialized,
+    )
+    return generated_sql, execution_ctx
+
+
 @router.get("/djsql/data", response_model=QueryWithResults)
 async def get_data_for_djsql(
     query: str,
     async_: bool = False,
+    use_materialized: bool = Query(
+        default=True,
+        description="Whether to use materialized tables when available",
+    ),
     *,
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
-    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> QueryWithResults:
     """
-    Return data for a DJ SQL query
+    Return data for a DJ SQL query.
+
+    Uses the v3 SQL builder via ``parse_dj_sql`` + ``build_metrics_sql``,
+    matching ``/djsql/`` and ``/data/``.
     """
     request_headers = dict(request.headers)
-    translated_sql, engine, catalog = await build_sql_for_dj_query(
-        session,
-        query,
-        access_checker,
-        engine_name,
-        engine_version,
+    generated_sql, execution_ctx = await _build_djsql_query(
+        session=session,
+        query=query,
+        use_materialized=use_materialized,
+        engine_name=engine_name,
+        engine_version=engine_version,
+    )
+    _logger.info(
+        "[/djsql/data] engine=%s catalog=%s dialect=%s sql=%s",
+        execution_ctx.engine.name,
+        execution_ctx.catalog_name,
+        execution_ctx.dialect,
+        generated_sql.sql,
     )
 
     query_create = QueryCreate(
-        engine_name=engine.name,
-        catalog_name=catalog.name,
-        engine_version=engine.version,
-        submitted_query=translated_sql.sql,
+        engine_name=execution_ctx.engine.name,
+        catalog_name=execution_ctx.catalog_name,
+        engine_version=execution_ctx.engine.version,
+        submitted_query=generated_sql.sql,
         async_=async_,
     )
 
-    result = query_service_client.submit_query(
+    result = await query_service_client.submit_query(
         query_create,
         request_headers=request_headers,
     )
 
     # Inject column info if there are results
     if result.results.root:  # pragma: no cover
-        result.results.root[0].columns = translated_sql.columns or []
+        result.results.root[0].columns = generated_sql.columns or []
     return result
 
 
 @router.get("/djsql/stream/", response_model=QueryWithResults)
 async def get_data_stream_for_djsql(
     query: str,
+    use_materialized: bool = Query(
+        default=True,
+        description="Whether to use materialized tables when available",
+    ),
     *,
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
-    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> QueryWithResults:  # pragma: no cover
     """
-    Return data for a DJ SQL query using server side events
+    Return data for a DJ SQL query using server side events.
+
+    Uses the v3 SQL builder via ``parse_dj_sql`` + ``build_metrics_sql``,
+    matching ``/djsql/`` and ``/data/``.
     """
     request_headers = dict(request.headers)
-    translated_sql, engine, catalog = await build_sql_for_dj_query(
-        session,
-        query,
-        access_checker,
-        engine_name,
-        engine_version,
+    generated_sql, execution_ctx = await _build_djsql_query(
+        session=session,
+        query=query,
+        use_materialized=use_materialized,
+        engine_name=engine_name,
+        engine_version=engine_version,
+    )
+    _logger.info(
+        "[/djsql/stream/] engine=%s catalog=%s dialect=%s sql=%s",
+        execution_ctx.engine.name,
+        execution_ctx.catalog_name,
+        execution_ctx.dialect,
+        generated_sql.sql,
     )
 
     query_create = QueryCreate(
-        engine_name=engine.name,
-        catalog_name=catalog.name,
-        engine_version=engine.version,
-        submitted_query=translated_sql.sql,
+        engine_name=execution_ctx.engine.name,
+        catalog_name=execution_ctx.catalog_name,
+        engine_version=execution_ctx.engine.version,
+        submitted_query=generated_sql.sql,
         async_=True,
     )
 
-    # Submits the query, equivalent to calling POST /data/ directly
-    initial_query_info = query_service_client.submit_query(
+    initial_query_info = await query_service_client.submit_query(
         query_create,
         request_headers=request_headers,
     )
@@ -281,7 +346,7 @@ async def get_data_stream_for_djsql(
             query=initial_query_info,
             request_headers=request_headers,
             query_service_client=query_service_client,
-            columns=translated_sql.columns,  # type: ignore
+            columns=generated_sql.columns,  # type: ignore
             request=request,
         ),
     )

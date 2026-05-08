@@ -1,5 +1,6 @@
 """BigQuery query client using google-cloud-bigquery."""
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
@@ -144,7 +145,7 @@ class BigQueryClient(BaseQueryServiceClient):
 
         return self.project or fallback_catalog
 
-    def get_columns_for_table(
+    async def get_columns_for_table(
         self,
         catalog: str,
         schema: str,
@@ -155,60 +156,57 @@ class BigQueryClient(BaseQueryServiceClient):
         """
         Retrieve columns for a BigQuery table via INFORMATION_SCHEMA.
 
-        Args:
-            catalog: DJ catalog name (logical alias; used as fallback project ID)
-            schema: BigQuery dataset name
-            table: Table name
-            request_headers: Unused (kept for interface compatibility)
-            engine: Optional DJ engine whose URI overrides the default project
-
-        Returns:
-            List of Column objects
+        The google-cloud-bigquery client is sync, so we run the query in a
+        threadpool to avoid blocking the event loop.
         """
         project = self._get_project_from_engine(engine, catalog)
-        try:
-            client = self._get_client(project=project)
 
-            query = f"""
-                SELECT
-                    column_name,
-                    data_type,
-                    ordinal_position
-                FROM `{project}.{schema}.INFORMATION_SCHEMA.COLUMNS`
-                WHERE table_name = @table_name
-                ORDER BY ordinal_position
-            """
+        def _fetch() -> List[Column]:
+            try:
+                client = self._get_client(project=project)
 
-            job_config = QueryJobConfig(
-                query_parameters=[
-                    ScalarQueryParameter("table_name", "STRING", table),
-                ],
-            )
+                query = f"""
+                    SELECT
+                        column_name,
+                        data_type,
+                        ordinal_position
+                    FROM `{project}.{schema}.INFORMATION_SCHEMA.COLUMNS`
+                    WHERE table_name = @table_name
+                    ORDER BY ordinal_position
+                """
 
-            results = client.query(query, job_config=job_config).result()
-            rows = list(results)
-
-            if not rows:
-                raise DJDoesNotExistException(
-                    message=f"No columns found for table {project}.{schema}.{table}",
+                job_config = QueryJobConfig(
+                    query_parameters=[
+                        ScalarQueryParameter("table_name", "STRING", table),
+                    ],
                 )
 
-            return [
-                Column(
-                    name=row.column_name,
-                    type=self._map_bigquery_type_to_dj(row.data_type),
-                    order=row.ordinal_position - 1,
-                )
-                for row in rows
-            ]
+                results = client.query(query, job_config=job_config).result()
+                rows = list(results)
 
-        except DJDoesNotExistException:
-            raise
-        except Exception as e:
-            _logger.exception("Error retrieving columns from BigQuery")
-            raise DJQueryServiceClientException(
-                message=f"Error retrieving columns from BigQuery: {str(e)}",
-            ) from e
+                if not rows:
+                    raise DJDoesNotExistException(
+                        message=f"No columns found for table {project}.{schema}.{table}",
+                    )
+
+                return [
+                    Column(
+                        name=row.column_name,
+                        type=self._map_bigquery_type_to_dj(row.data_type),
+                        order=row.ordinal_position - 1,
+                    )
+                    for row in rows
+                ]
+
+            except DJDoesNotExistException:
+                raise
+            except Exception as e:
+                _logger.exception("Error retrieving columns from BigQuery")
+                raise DJQueryServiceClientException(
+                    message=f"Error retrieving columns from BigQuery: {str(e)}",
+                ) from e
+
+        return await asyncio.to_thread(_fetch)
 
     def _map_bigquery_type_to_dj(self, bq_type: str) -> ColumnType:
         """

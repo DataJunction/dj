@@ -152,14 +152,14 @@ async def create_cube_views(
         )
 
         # Helper to submit a single view DDL
-        def _submit_view(view_name: str, ddl: str, engine: str):
+        async def _submit_view(view_name: str, ddl: str, engine: str):
             _logger.info(
                 "[views] Submitting %s view DDL for cube %s: %s",
                 engine,
                 cube_name,
                 ddl[:200],
             )
-            query_service_client.create_view(
+            await query_service_client.create_view(
                 view_name=view_name,
                 query_create=QueryCreate(
                     engine_name=engine,
@@ -177,24 +177,24 @@ async def create_cube_views(
             )
 
         # Spark views
-        _submit_view(
+        await _submit_view(
             names.spark_versioned,
             f"CREATE OR REPLACE VIEW {names.spark_versioned} AS {spark_body}",
             engine_name or "SPARKSQL",
         )
-        _submit_view(
+        await _submit_view(
             names.spark_unversioned,
             f"CREATE OR REPLACE VIEW {names.spark_unversioned} AS SELECT * FROM {names.spark_versioned}",
             engine_name or "SPARKSQL",
         )
 
         # Trino views
-        _submit_view(
+        await _submit_view(
             names.trino_versioned,
             f"CREATE OR REPLACE VIEW {names.trino_versioned} AS {trino_body}",
             "TRINO_DIRECT",
         )
-        _submit_view(
+        await _submit_view(
             names.trino_unversioned,
             f"CREATE OR REPLACE VIEW {names.trino_unversioned} AS SELECT * FROM {names.trino_versioned}",
             "TRINO_DIRECT",

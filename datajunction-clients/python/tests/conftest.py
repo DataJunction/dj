@@ -192,14 +192,14 @@ def module__query_service_client(
     qs_client = QueryServiceClient(uri="query_service:8001")
     qs_client.query_state = QueryState.RUNNING  # type: ignore
 
-    def mock_get_columns_for_table(
+    async def mock_get_columns_for_table(
         catalog: str,
         schema: str,
         table: str,
-        engine: Optional[Engine] = None,  # pylint: disable=unused-argument
         request_headers: Optional[  # pylint: disable=unused-argument
             Dict[str, str]
         ] = None,
+        engine: Optional[Engine] = None,  # pylint: disable=unused-argument
     ) -> List[Column]:
         return COLUMN_MAPPINGS[f"{catalog}.{schema}.{table}"]
 
@@ -209,7 +209,7 @@ def module__query_service_client(
         mock_get_columns_for_table,
     )
 
-    def mock_submit_query(
+    async def mock_submit_query(
         query_create: QueryCreate,
         request_headers: Optional[  # pylint: disable=unused-argument
             Dict[str, str]
@@ -262,7 +262,7 @@ def module__query_service_client(
         mock_submit_query,
     )
 
-    def mock_create_view(
+    async def mock_create_view(
         view_name: str,
         query_create: QueryCreate,  # pylint: disable=unused-argument
         request_headers: Optional[  # pylint: disable=unused-argument

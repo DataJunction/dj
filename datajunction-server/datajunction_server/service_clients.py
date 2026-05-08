@@ -1,11 +1,13 @@
 """Clients for various configurable services."""
 
+import asyncio
 import logging
 from enum import Enum
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Dict, List, Optional, Union, Any
 from urllib.parse import urljoin
 
+import httpx
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3 import Retry
@@ -95,8 +97,38 @@ class QueryServiceClient:
     Client for the query service.
     """
 
-    def __init__(self, uri: str, retries: int = 0):
+    _RETRYABLE_STATUSES = frozenset({429, 500, 502, 503, 504})
+
+    def __init__(
+        self,
+        uri: str,
+        retries: int = 0,
+        *,
+        default_headers: Optional[Dict[str, str]] = None,
+        auth: Optional["httpx.Auth"] = None,
+        transport: Optional["httpx.AsyncBaseTransport"] = None,
+    ):
+        """
+        Initialize a query service client.
+
+        Args:
+            uri: Base URI of the query service.
+            retries: Number of retries for retryable failures (429, 5xx).
+            default_headers: Headers attached to every async request — useful
+                for subclasses that need to inject service-to-service auth
+                headers (e.g. an SSO / mTLS token).
+            auth: Optional ``httpx.Auth`` flow applied to every async request.
+                Subclasses can pass a custom auth handler here.
+            transport: Optional ``httpx.AsyncBaseTransport`` override — e.g.
+                a transport that performs mTLS, service discovery, or
+                custom retries. If ``None``, a vanilla
+                ``httpx.AsyncHTTPTransport(retries=retries)`` is used.
+        """
         self.uri = uri
+        self._retries = retries
+        self._default_headers = default_headers
+        self._auth = auth
+        self._transport = transport
         retry_strategy = Retry(
             total=retries,
             backoff_factor=1.5,
@@ -107,8 +139,68 @@ class QueryServiceClient:
             endpoint=self.uri,
             retry_strategy=retry_strategy,
         )
+        self._async_client: Optional[httpx.AsyncClient] = None
 
-    def get_columns_for_table(
+    def _get_async_client(self) -> httpx.AsyncClient:
+        """
+        Lazily build the AsyncClient on the running event loop. Avoids creating
+        the client at __init__ time, when there may be no loop yet.
+
+        ``read``/``write``/``pool`` timeouts are intentionally ``None`` to match
+        the legacy ``requests.Session`` behavior — DJQS holds the connection
+        open for the duration of synchronous (``async_=False``) warehouse
+        queries, which can easily exceed any sensible default. ``connect`` is
+        still bounded so we fail fast when DJQS itself is unreachable.
+
+        Subclasses that need to customize auth / headers / transport should
+        prefer passing them to ``__init__`` rather than overriding this
+        method.
+        """
+        if self._async_client is None:
+            transport = self._transport or httpx.AsyncHTTPTransport(
+                retries=self._retries,
+            )
+            self._async_client = httpx.AsyncClient(
+                base_url=self.uri,
+                transport=transport,
+                timeout=httpx.Timeout(None, connect=5.0),
+                headers=self._default_headers,
+                auth=self._auth,
+            )
+        return self._async_client
+
+    async def _arequest(
+        self,
+        method: str,
+        path: str,
+        *,
+        retryable_statuses: frozenset = _RETRYABLE_STATUSES,
+        **kwargs,
+    ) -> httpx.Response:
+        """
+        Issue an async HTTP request with status-code retries (429/5xx).
+
+        httpx's transport-level retries cover connect errors only; this wraps
+        the request to also retry on the same status codes the sync client
+        retries via urllib3 Retry.
+        """
+        client = self._get_async_client()
+        attempt = 0
+        while True:
+            response = await client.request(method, path, **kwargs)
+            if response.status_code in retryable_statuses and attempt < self._retries:
+                attempt += 1
+                await asyncio.sleep(1.5 * (2 ** (attempt - 1)))
+                continue
+            return response
+
+    async def aclose(self) -> None:
+        """Close the underlying async client. Safe to call multiple times."""
+        if self._async_client is not None:
+            await self._async_client.aclose()
+            self._async_client = None
+
+    async def get_columns_for_table(
         self,
         catalog: str,
         schema: str,
@@ -116,18 +208,21 @@ class QueryServiceClient:
         request_headers: Optional[Dict[str, str]] = None,
         engine: Optional["Engine"] = None,
     ) -> List[Column]:
-        """
-        Retrieves columns for a table.
-        """
-        response = self.requests_session.get(
-            f"/table/{catalog}.{schema}.{table}/columns/",
-            params={
-                "engine": engine.name,
-                "engine_version": engine.version,
-            }
+        """Retrieves columns for a table."""
+        params = (
+            {"engine": engine.name, "engine_version": engine.version}
             if engine
-            else {},
-            headers=self.requests_session.headers,
+            else None
+        )
+        # ``request_headers`` is intentionally not forwarded to DJQS — the
+        # legacy sync client accepted the parameter but never sent it on, and
+        # forwarding the FastAPI request's full header set (e.g.
+        # ``Accept-Encoding: zstd``) can produce response bodies httpx can't
+        # auto-decompress.
+        response = await self._arequest(
+            "GET",
+            f"/table/{catalog}.{schema}.{table}/columns/",
+            params=params,
         )
         if response.status_code not in (200, 201):
             if response.status_code == HTTPStatus.NOT_FOUND:
@@ -147,23 +242,21 @@ class QueryServiceClient:
             for idx, column in enumerate(table_columns)
         ]
 
-    def get_columns_for_tables_batch(
+    async def get_columns_for_tables_batch(
         self,
         tables: List[tuple[str, str, str]],
         request_headers: Optional[Dict[str, str]] = None,
         engine: Optional["Engine"] = None,
     ) -> Dict[tuple[str, str, str], List[Column]]:
-        """
-        Retrieves columns for multiple tables in a single batch request.
-        """
-        # Format tables as "catalog.schema.table" strings
+        """Retrieves columns for multiple tables in a single batch request."""
         table_names = [
             f"{catalog}.{schema}.{table}" for catalog, schema, table in tables
         ]
-
-        response = self.requests_session.post(
+        # ``request_headers`` intentionally not forwarded — see
+        # ``get_columns_for_table`` for the reason.
+        response = await self._arequest(
+            "POST",
             "/tables/columns/",
-            headers=self.requests_session.headers,
             json=table_names,
         )
         if response.status_code not in (200, 201):
@@ -172,27 +265,22 @@ class QueryServiceClient:
                 http_status_code=response.status_code,
             )
 
-        # Parse response and convert back to expected format
         result = {}
         tables_data = response.json()
-
         for catalog, schema, table in tables:
             table_name = f"{catalog}.{schema}.{table}"
             table_info = tables_data.get(table_name)
-
             if table_info and table_info.get("columns"):
                 result[(catalog, schema, table)] = [
                     Column(name=col["name"], type=ColumnType(col["type"]), order=idx)
                     for idx, col in enumerate(table_info["columns"])
                 ]
             else:
-                # Table not found or has no columns
                 _logger.warning(f"No columns returned for table {table_name}")
                 result[(catalog, schema, table)] = []
-
         return result
 
-    def create_view(
+    async def create_view(
         self,
         view_name: str,
         query_create: QueryCreate,
@@ -212,9 +300,11 @@ class QueryServiceClient:
             "engine_name": query_create.engine_name,
             "engine_version": query_create.engine_version or "",
         }
-        response = self.requests_session.post(
+        # ``request_headers`` intentionally not forwarded — see
+        # ``get_columns_for_table`` for the reason.
+        response = await self._arequest(
+            "POST",
             "/ddl/execute",
-            headers=self.requests_session.headers,
             json=payload,
         )
         if response.status_code not in (200, 201):
@@ -222,42 +312,36 @@ class QueryServiceClient:
                 message=f"Error response from query service: {response.text}",
                 http_status_code=response.status_code,
             )
-
         result = response.json()
         status = result.get("status", "UNKNOWN")
         message = result.get("message", "")
         errors = result.get("errors", [])
-
         _logger.info(
             "[create_view] DDL result for view '%s': status=%s message=%s",
             view_name,
             status,
             message,
         )
-
         if status != DDLStatus.SUCCESS:
             error_msg = "; ".join(str(e) for e in errors) if errors else message
             raise DJQueryServiceClientException(
                 message=f"View '{view_name}' creation failed: {error_msg}",
                 http_status_code=response.status_code,
             )
-
         return f"View '{view_name}' created successfully."
 
-    def submit_query(
+    async def submit_query(
         self,
         query_create: QueryCreate,
         request_headers: Optional[Dict[str, str]] = None,
     ) -> QueryWithResults:
-        """
-        Submit a query to the query service
-        """
-        response = self.requests_session.post(
+        """Submit a query to the query service."""
+        # ``request_headers`` intentionally not forwarded — see
+        # ``get_columns_for_table`` for the reason.
+        response = await self._arequest(
+            "POST",
             "/queries/",
-            headers={
-                **self.requests_session.headers,
-                "accept": "application/json",
-            },
+            headers={"accept": "application/json"},
             json=query_create.model_dump(),
         )
         if response.status_code not in (200, 201):
@@ -265,21 +349,20 @@ class QueryServiceClient:
                 message=f"Error response from query service: {response.text}",
                 http_status_code=response.status_code,
             )
-        query_info = response.json()
-        return QueryWithResults(**query_info)
+        return QueryWithResults(**response.json())
 
-    def get_query(
+    async def get_query(
         self,
         query_id: str,
         request_headers: Optional[Dict[str, str]] = None,
     ) -> QueryWithResults:
-        """
-        Get a previously submitted query
-        """
+        """Get a previously submitted query."""
         get_query_endpoint = f"/queries/{query_id}/"
-        response = self.requests_session.get(
+        # ``request_headers`` intentionally not forwarded — see
+        # ``get_columns_for_table`` for the reason.
+        response = await self._arequest(
+            "GET",
             get_query_endpoint,
-            headers=self.requests_session.headers,
         )
         if response.status_code == 404:
             _logger.exception(
@@ -295,13 +378,12 @@ class QueryServiceClient:
             raise DJQueryServiceClientException(
                 message=f"Error response from query service: {response.text}",
             )
-        query_info = response.json()
         _logger.info(
             "[DJQS] Retrieved query_id=%s with `GET %s`",
             query_id,
             get_query_endpoint,
         )
-        return QueryWithResults(**query_info)
+        return QueryWithResults(**response.json())
 
     def materialize(
         self,

@@ -3,7 +3,7 @@ Utilities used around construction
 """
 
 import time
-from typing import TYPE_CHECKING, Optional, Set, Union
+from typing import TYPE_CHECKING, Optional, Set
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +15,7 @@ from datajunction_server.errors import DJError, DJErrorException, ErrorCode
 from datajunction_server.models.node_type import NodeType
 
 if TYPE_CHECKING:
-    from datajunction_server.sql.parsing.ast import Column, Name
+    from datajunction_server.sql.parsing.ast import Name
 
 
 async def get_dj_node(
@@ -64,25 +64,6 @@ async def get_dj_node(
         )
         get_metrics_provider().counter("dj.compile.get_dj_node_count")
     return match.current if match and current else match
-
-
-async def try_get_dj_node(
-    session: AsyncSession,
-    name: Union[str, "Column"],
-    kinds: Optional[Set[NodeType]] = None,
-) -> Optional[Node]:
-    "wraps get dj node to return None if no node is found"
-    from datajunction_server.sql.parsing.ast import Column
-
-    if isinstance(name, Column):
-        if name.name.namespace is not None:  # pragma: no cover
-            name = name.name.namespace.identifier(False)  # pragma: no cover
-        else:  # pragma: no cover
-            return None  # pragma: no cover
-    try:
-        return await get_dj_node(session, name, kinds, current=False)
-    except DJErrorException:
-        return None
 
 
 def to_namespaced_name(name: str) -> "Name":

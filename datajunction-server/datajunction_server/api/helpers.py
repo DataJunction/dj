@@ -18,16 +18,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer, joinedload, selectinload
 from sqlalchemy.sql.operators import and_, is_
 
-from datajunction_server.internal.access.authorization import (
-    AccessChecker,
-    AccessDenialMode,
-)
 from datajunction_server.api.notifications import get_notifier
 from datajunction_server.construction.build import (
     validate_shared_dimensions,
 )
 from datajunction_server.construction.build_v2 import FullColumnName
-from datajunction_server.construction.dj_query import build_dj_query
 from datajunction_server.database.attributetype import AttributeType
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.column import Column
@@ -51,10 +46,8 @@ from datajunction_server.errors import (
 )
 from datajunction_server.internal.engines import get_engine
 from datajunction_server.internal.history import EntityType
-from datajunction_server.models import access
 from datajunction_server.models.attribute import RESERVED_ATTRIBUTE_NAMESPACE
 from datajunction_server.models.history import status_change_history
-from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.node import NodeStatus
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.materialization import (
@@ -759,7 +752,7 @@ async def query_event_stream(
             break
 
         # Check the current state of the query
-        query_next = query_service_client.get_query(  # type: ignore # pragma: no cover
+        query_next = await query_service_client.get_query(  # type: ignore # pragma: no cover
             query_id=query_id,
             request_headers=request_headers,
         )
@@ -791,63 +784,6 @@ async def query_event_stream(
 
             query = query_next
         await asyncio.sleep(stream_delay)  # pragma: no cover
-
-
-async def build_sql_for_dj_query(  # pragma: no cover
-    session: AsyncSession,
-    query: str,
-    access_checker: AccessChecker,
-    engine_name: Optional[str] = None,
-    engine_version: Optional[str] = None,
-) -> Tuple[TranslatedSQL, Engine, Catalog]:
-    """
-    Build SQL for multiple metrics. Used by /djsql endpoints
-    """
-
-    query_ast, dj_nodes = await build_dj_query(session, query)
-
-    for node in dj_nodes:  # pragma: no cover
-        access_checker.add_node(  # pragma: no cover
-            node.current,
-            access.ResourceAction.READ,
-        )
-
-    await access_checker.check(on_denied=AccessDenialMode.RAISE)  # pragma: no cover
-
-    leading_metric_node = dj_nodes[0]  # pragma: no cover
-    available_engines = (  # pragma: no cover
-        leading_metric_node.current.catalog.engines
-        if leading_metric_node.current.catalog
-        else []
-    )
-
-    # Check if selected engine is available
-    engine = (  # pragma: no cover
-        await get_engine(session, engine_name, engine_version)  # type: ignore
-        if engine_name
-        else available_engines[0]
-    )
-
-    if engine not in available_engines:  # pragma: no cover
-        raise DJInvalidInputException(  # pragma: no cover
-            f"The selected engine is not available for the node {leading_metric_node.name}. "
-            f"Available engines include: {', '.join(engine.name for engine in available_engines)}",
-        )
-
-    columns = [  # pragma: no cover
-        ColumnMetadata(name=col.alias_or_name.name, type=str(col.type))  # type: ignore
-        for col in query_ast.select.projection
-    ]
-
-    return (  # pragma: no cover
-        TranslatedSQL.create(
-            sql=str(query_ast),
-            columns=columns,
-            dialect=engine.dialect if engine else None,
-        ),
-        engine,
-        leading_metric_node.current.catalog,
-    )
 
 
 def assemble_column_metadata(

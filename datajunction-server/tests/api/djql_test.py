@@ -2,15 +2,24 @@
 Tests for the djsql API.
 """
 
+import json
+
 import pytest
 from httpx import AsyncClient
 
+from datajunction_server.models.query import QueryWithResults
+from datajunction_server.typing import QueryState
+from datajunction_server.utils import get_query_service_client
 from tests.construction.build_v3 import assert_sql_equal
 from tests.sql.utils import assert_query_strings_equal, compare_query_strings
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip(reason="Will move djsql to new sql build later")
+@pytest.mark.skip(
+    reason="v3's parse_dj_sql only allows ``FROM metrics`` queries — non-metrics "
+    "FROM clauses and subqueries wrapping metrics are no longer supported. "
+    "Revive if/when v3 djsql adds back these surfaces.",
+)
 async def test_get_djsql_data_only_nodes_query(
     module__client_with_roads: AsyncClient,
 ) -> None:
@@ -80,7 +89,11 @@ FROM default.hard_hat
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip(reason="Will move djsql to new sql build later")
+@pytest.mark.skip(
+    reason="v3's parse_dj_sql only allows ``FROM metrics`` queries — non-metrics "
+    "FROM clauses and subqueries wrapping metrics are no longer supported. "
+    "Revive if/when v3 djsql adds back these surfaces.",
+)
 async def test_get_djsql_data_only_nested_metrics(
     module__client_with_roads: AsyncClient,
 ) -> None:
@@ -166,12 +179,12 @@ async def test_get_djsql_data_only_nested_metrics(
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip(reason="Will move djsql to new sql build later")
 async def test_get_djsql_data_only_multiple_metrics(
     module__client_with_roads: AsyncClient,
 ) -> None:
     """
-    Test djsql with metric subquery
+    /djsql/data/ correctly evaluates a query selecting multiple metrics
+    grouped by dimension columns.
     """
 
     query = """
@@ -191,57 +204,77 @@ async def test_get_djsql_data_only_multiple_metrics(
         "/djsql/data/",
         params={"query": query},
     )
-    data = response.json()["results"][0]["rows"]
-    assert data == [
-        [54672.75, 218691.0, "USA", "Jersey City"],
-        [76555.33333333333, 229666.0, "USA", "Billerica"],
-        [64190.6, 320953.0, "USA", "Southgate"],
-        [65682.0, 131364.0, "USA", "Phoenix"],
-        [54083.5, 216334.0, "USA", "Southampton"],
-        [65595.66666666667, 196787.0, "USA", "Powder Springs"],
-        [39301.5, 78603.0, "USA", "Middletown"],
-        [70418.0, 70418.0, "USA", "Muskogee"],
-        [53374.0, 53374.0, "USA", "Niagara Falls"],
-    ]
-    query = response.json()["results"][0]["sql"]
-    expected_query = """WITH
-    metric_query_0 AS (SELECT  default_DOT_repair_orders_fact.default_DOT_avg_repair_price,
-        default_DOT_repair_orders_fact.default_DOT_total_repair_cost,
-        default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_country,
-        default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_city
-     FROM (SELECT  default_DOT_hard_hat.country default_DOT_hard_hat_DOT_country,
-        default_DOT_hard_hat.city default_DOT_hard_hat_DOT_city,
-        avg(default_DOT_repair_orders_fact.price) default_DOT_avg_repair_price,
-        sum(default_DOT_repair_orders_fact.total_repair_cost) default_DOT_total_repair_cost
-     FROM (SELECT  repair_orders.repair_order_id,
-        repair_orders.municipality_id,
-        repair_orders.hard_hat_id,
-        repair_orders.dispatcher_id,
-        repair_orders.order_date,
-        repair_orders.dispatched_date,
-        repair_orders.required_date,
-        repair_order_details.discount,
-        repair_order_details.price,
-        repair_order_details.quantity,
-        repair_order_details.repair_type_id,
-        repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
-        repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
-        repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
-     FROM roads.repair_orders AS repair_orders JOIN roads.repair_order_details AS repair_order_details ON repair_orders.repair_order_id = repair_order_details.repair_order_id)
-     AS default_DOT_repair_orders_fact LEFT JOIN (SELECT  default_DOT_hard_hats.hard_hat_id,
-        default_DOT_hard_hats.city,
-        default_DOT_hard_hats.state,
-        default_DOT_hard_hats.country
-     FROM roads.hard_hats AS default_DOT_hard_hats)
-     AS default_DOT_hard_hat ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
-     GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.city) AS default_DOT_repair_orders_fact)
+    assert response.status_code == 200, response.json()
+    body = response.json()["results"][0]
+    columns = body["columns"]
+    rows = body["rows"]
 
-    SELECT  metric_query_0.default_DOT_avg_repair_price AS avg_repair_price,
-        metric_query_0.default_DOT_total_repair_cost AS total_cost,
-        metric_query_0.default_DOT_hard_hat_DOT_country,
-        metric_query_0.default_DOT_hard_hat_DOT_city
-     FROM metric_query_0"""
-    assert compare_query_strings(query, expected_query)
+    # v3 may reorder projections (dimensions first, metrics second) and
+    # produce results in any order without an ORDER BY, so compare on a
+    # city-keyed mapping rather than positional list equality.
+    by_city = {
+        {col["name"]: value for col, value in zip(columns, row)}["city"]: {
+            col["name"]: value for col, value in zip(columns, row)
+        }
+        for row in rows
+    }
+    expected = {
+        "Jersey City": {
+            "avg_repair_price": 54672.75,
+            "total_repair_cost": 218691.0,
+            "country": "USA",
+            "city": "Jersey City",
+        },
+        "Billerica": {
+            "avg_repair_price": 76555.33333333333,
+            "total_repair_cost": 229666.0,
+            "country": "USA",
+            "city": "Billerica",
+        },
+        "Southgate": {
+            "avg_repair_price": 64190.6,
+            "total_repair_cost": 320953.0,
+            "country": "USA",
+            "city": "Southgate",
+        },
+        "Phoenix": {
+            "avg_repair_price": 65682.0,
+            "total_repair_cost": 131364.0,
+            "country": "USA",
+            "city": "Phoenix",
+        },
+        "Southampton": {
+            "avg_repair_price": 54083.5,
+            "total_repair_cost": 216334.0,
+            "country": "USA",
+            "city": "Southampton",
+        },
+        "Powder Springs": {
+            "avg_repair_price": 65595.66666666667,
+            "total_repair_cost": 196787.0,
+            "country": "USA",
+            "city": "Powder Springs",
+        },
+        "Middletown": {
+            "avg_repair_price": 39301.5,
+            "total_repair_cost": 78603.0,
+            "country": "USA",
+            "city": "Middletown",
+        },
+        "Muskogee": {
+            "avg_repair_price": 70418.0,
+            "total_repair_cost": 70418.0,
+            "country": "USA",
+            "city": "Muskogee",
+        },
+        "Niagara Falls": {
+            "avg_repair_price": 53374.0,
+            "total_repair_cost": 53374.0,
+            "country": "USA",
+            "city": "Niagara Falls",
+        },
+    }
+    assert by_city == expected
 
 
 @pytest.mark.asyncio
@@ -270,8 +303,8 @@ async def test_get_djsql_metric_table_exception(
         params={"query": query},
     )
     assert (
-        response.json()["message"]
-        == "Any SELECT referencing a Metric must source from a single unaliased Table named `metrics`."
+        response.json()["message"] == "DJ SQL queries must SELECT FROM metrics. "
+        "Example: SELECT metric1, dim1 FROM metrics GROUP BY dim1"
     )
 
 
@@ -302,7 +335,7 @@ async def test_get_djsql_illegal_clause_metric_query(
     )
     assert (
         response.json()["message"]
-        == "HAVING, LATERAL VIEWS, and SET OPERATIONS are not allowed on `metrics` queries."
+        == "HAVING, LATERAL VIEWS, and SET OPERATIONS are not allowed in DJ SQL queries."
     )
 
 
@@ -330,9 +363,8 @@ async def test_get_djsql_illegal_column_expression(
         "/djsql/data/",
         params={"query": query},
     )
-    assert (
-        response.json()["message"]
-        == "Only direct Columns are allowed in `metrics` queries, found `default.hard_hat.id + 5`."
+    assert response.json()["message"].startswith(
+        "Only direct columns are allowed in DJ SQL queries, found:",
     )
 
 
@@ -360,9 +392,15 @@ async def test_get_djsql_illegal_column(
         "/djsql/data/",
         params={"query": query},
     )
+    # ``default.repair_orders.id`` is neither a known metric nor in the
+    # GROUP BY — v3's ``build_metrics_sql`` rejects it as an unknown metric.
+    assert "default.repair_orders.id" in response.json()["message"]
     assert (
         response.json()["message"]
-        == "You can only select direct METRIC nodes or a column from your GROUP BY on `metrics` queries, found `default.repair_orders.id`"
+        .lower()
+        .startswith(
+            ("metric", "node not found", "not found"),
+        )
     )
 
 
@@ -388,10 +426,7 @@ async def test_get_djsql_illegal_limit(
         "/djsql/data/",
         params={"query": query},
     )
-    assert (
-        response.json()["message"]
-        == "LIMITs on `metrics` queries can only be integers not `1 + 2`."
-    )
+    assert response.json()["message"] == "LIMIT must be an integer, got: 1 + 2"
 
 
 @pytest.mark.asyncio
@@ -490,7 +525,10 @@ async def test_get_djsql_no_nodes(
         "/djsql/data/",
         params={"query": query},
     )
-    assert response.json()["message"].startswith("Found no dj nodes in query")
+    # ``SELECT 1`` doesn't have a FROM at all — caught by parse_dj_sql.
+    assert response.json()["message"].startswith(
+        "DJ SQL queries must SELECT FROM metrics",
+    )
 
 
 @pytest.mark.asyncio
@@ -509,4 +547,87 @@ async def test_djsql_stream(
         params={"query": query},
     )
     assert response.status_code == 422
-    assert response.json()["message"].startswith("Found no dj nodes in query")
+    assert response.json()["message"].startswith(
+        "DJ SQL queries must SELECT FROM metrics",
+    )
+
+
+@pytest.mark.asyncio
+async def test_djsql_stream_happy_path(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    /djsql/stream/ emits an initial RUNNING event followed by a final
+    FINISHED event when the warehouse query completes.
+
+    Mocks the qs_client's ``submit_query`` to return RUNNING and
+    ``get_query`` to return FINISHED on the first poll, so the SSE loop
+    exits after one iteration.
+    """
+    qs_client = module__client_with_roads.app.dependency_overrides[
+        get_query_service_client
+    ]()
+    original_submit = qs_client.submit_query
+    original_get = qs_client.get_query
+
+    query_id = "11111111-2222-3333-4444-555555555555"
+
+    async def running_submit(query_create, request_headers=None):
+        return QueryWithResults(
+            id=query_id,
+            submitted_query=query_create.submitted_query,
+            state=QueryState.RUNNING,
+            results=[],
+            errors=[],
+        )
+
+    finished_payload = QueryWithResults(
+        id=query_id,
+        submitted_query="SELECT 1",
+        state=QueryState.FINISHED,
+        results=[
+            {
+                "columns": [{"name": "n", "type": "int"}],
+                "rows": [[1]],
+                "sql": "SELECT 1",
+            },
+        ],
+        errors=[],
+    )
+
+    async def finished_get(query_id, request_headers=None):
+        return finished_payload
+
+    qs_client.submit_query = running_submit
+    qs_client.get_query = finished_get
+
+    try:
+        events = []
+        async with module__client_with_roads.stream(
+            "GET",
+            "/djsql/stream/",
+            params={
+                "query": (
+                    "SELECT default.num_repair_orders num_repair_orders, "
+                    "default.hard_hat.country FROM metrics "
+                    "GROUP BY default.hard_hat.country LIMIT 10"
+                ),
+            },
+            timeout=10.0,
+        ) as response:
+            assert response.status_code == 200
+            async for line in response.aiter_lines():
+                if line.startswith("data:"):
+                    events.append(json.loads(json.loads(line.removeprefix("data: "))))
+
+        # Two events: the initial RUNNING (from submit_query) and the
+        # terminal FINISHED (from the first poll).
+        assert len(events) == 2
+        assert events[0]["state"] == QueryState.RUNNING.value
+        assert events[0]["id"] == query_id
+        assert events[1]["state"] == QueryState.FINISHED.value
+        assert events[1]["id"] == query_id
+        assert events[1]["results"][0]["rows"] == [[1]]
+    finally:
+        qs_client.submit_query = original_submit
+        qs_client.get_query = original_get

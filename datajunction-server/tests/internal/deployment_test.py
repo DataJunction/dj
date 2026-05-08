@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 import random
 from typing import AsyncGenerator
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 import pytest_asyncio
 from datajunction_server.api.attributes import default_attribute_types
@@ -1970,12 +1970,14 @@ async def test_auto_register_sources_success(session: AsyncSession):
     from datajunction_server.sql.parsing.types import IntegerType, StringType
 
     mock_query_service = MagicMock()
-    mock_query_service.get_columns_for_tables_batch.return_value = {
-        ("testcatalog", "myschema", "mytable"): [
-            Column(name="id", type=IntegerType(), order=0),
-            Column(name="name", type=StringType(), order=1),
-        ],
-    }
+    mock_query_service.get_columns_for_tables_batch = AsyncMock(
+        return_value={
+            ("testcatalog", "myschema", "mytable"): [
+                Column(name="id", type=IntegerType(), order=0),
+                Column(name="name", type=StringType(), order=1),
+            ],
+        },
+    )
 
     # Create orchestrator and run deployment (auto-registration happens during plan creation)
     context = DeploymentContext(
@@ -2141,11 +2143,13 @@ async def test_auto_register_sources_backward_compat_with_source_prefix(
     from unittest.mock import MagicMock
 
     mock_query_service = MagicMock()
-    mock_query_service.get_columns_for_tables_batch.return_value = {
-        ("testcatalog", "myschema", "mytable"): [
-            Column(name="id", type=IntegerType(), order=0),
-        ],
-    }
+    mock_query_service.get_columns_for_tables_batch = AsyncMock(
+        return_value={
+            ("testcatalog", "myschema", "mytable"): [
+                Column(name="id", type=IntegerType(), order=0),
+            ],
+        },
+    )
 
     context = DeploymentContext(
         current_user=MagicMock(id=1, username="test"),
@@ -2218,12 +2222,14 @@ async def test_auto_register_sources_no_duplication(session: AsyncSession):
     from unittest.mock import MagicMock
 
     mock_query_service = MagicMock()
-    mock_query_service.get_columns_for_tables_batch.return_value = {
-        ("testcatalog", "myschema", "shared_table"): [
-            Column(name="id", type=IntegerType(), order=0),
-            Column(name="name", type=StringType(), order=1),
-        ],
-    }
+    mock_query_service.get_columns_for_tables_batch = AsyncMock(
+        return_value={
+            ("testcatalog", "myschema", "shared_table"): [
+                Column(name="id", type=IntegerType(), order=0),
+                Column(name="name", type=StringType(), order=1),
+            ],
+        },
+    )
 
     context = DeploymentContext(
         current_user=MagicMock(id=1, username="test"),

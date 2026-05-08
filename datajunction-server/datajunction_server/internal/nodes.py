@@ -3592,7 +3592,7 @@ async def refresh_source(
             submitted_query=current_revision.query,
             async_=False,
         )
-        query_service_client.create_view(
+        await query_service_client.create_view(
             view_name=current_revision.table,
             query_create=query_create,
             request_headers=request_headers,
@@ -3602,7 +3602,7 @@ async def refresh_source(
     # Get the latest columns for the source node's table from the query service
     new_columns = []
     try:
-        new_columns = query_service_client.get_columns_for_table(
+        new_columns = await query_service_client.get_columns_for_table(
             current_revision.catalog.name,
             current_revision.schema_,  # type: ignore
             current_revision.table,  # type: ignore

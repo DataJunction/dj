@@ -613,7 +613,7 @@ class DeploymentOrchestrator:
 
         try:
             columns_by_table = (
-                self.context.query_service_client.get_columns_for_tables_batch(
+                await self.context.query_service_client.get_columns_for_tables_batch(
                     tables=tables,
                     request_headers=request_headers,
                     engine=engine,

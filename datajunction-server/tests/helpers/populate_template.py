@@ -216,8 +216,31 @@ async def main():
                 errors=[],
             )
 
+        async def mock_get_columns_for_table_async(
+            catalog: str,
+            schema: str,
+            table: str,
+            request_headers: Optional[Dict[str, str]] = None,
+            engine: Optional[Engine] = None,
+        ) -> List[Column]:
+            return mock_get_columns_for_table(
+                catalog,
+                schema,
+                table,
+                engine,
+                request_headers,
+            )
+
+        async def mock_submit_query_async(
+            query_create: QueryCreate,
+            request_headers: Optional[Dict[str, str]] = None,
+        ) -> QueryWithResults:
+            return mock_submit_query(query_create, request_headers)
+
         qs_client.get_columns_for_table = mock_get_columns_for_table  # type: ignore
         qs_client.submit_query = mock_submit_query  # type: ignore
+        qs_client.get_columns_for_table = mock_get_columns_for_table_async  # type: ignore
+        qs_client.submit_query = mock_submit_query_async  # type: ignore
 
         # Override dependencies
         def get_session_override() -> AsyncSession:
