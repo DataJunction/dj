@@ -156,20 +156,20 @@ def can_skip_join_for_dimension(
     parent_node: Node,
 ) -> tuple[bool, Optional[str], int]:
     """
-    Check whether the trailing hops of a join path can be elided because the
+    Check whether the trailing hops of a join path can be skipped because the
     requested column is foreign-key-aligned with a column on a closer node.
 
     Walks backwards through the join path, threading the requested column
     through each link's `foreign_keys_reversed` mapping. As long as the lookup
-    succeeds, the corresponding join can be dropped: the column is already
+    succeeds, the corresponding join can be skipped: the column is already
     available on the previous node via FK alignment.
 
     Behaviors:
-    - **Full elision** (single-hop or multi-hop): every hop's FK chain succeeds
+    - **Full skip** (single-hop or multi-hop): every hop's FK chain succeeds
       back to the parent node. The requested column resolves to a local column
       on the fact; no joins needed.
-    - **Partial elision**: the chain breaks after some number of trailing hops.
-      We can drop those trailing hops; the column lives on the deepest dim we
+    - **Partial skip**: the chain breaks after some number of trailing hops.
+      We can skip those trailing hops; the column lives on the deepest dim we
       still join to. The caller emits a reduced join path.
 
     Examples:
@@ -178,13 +178,13 @@ def can_skip_join_for_dimension(
       (True, "customer_id", 1) and the caller observes 1 == len(links) → full.
     - Two-hop full: requesting v3.account.account_id where each link is on
       account_id and the fact has account_id directly. Returns (True,
-      "account_id", 2) and the caller treats it as full elision.
-    - Two-hop partial: fact -> allocation_day -> account, requesting
-      account.account_id. The link allocation_day -> account aligns
-      account.account_id with allocation_day.account_id, but the link
-      fact -> allocation_day does NOT carry that column further (it's keyed on
-      something else). Returns (True, "account_id", 1): drop only the last
-      hop; the column lives on allocation_day's CTE.
+      "account_id", 2) and the caller treats it as a full skip.
+    - Two-hop partial: order_details -> customer -> location[home], requesting
+      v3.location.location_id[home]. The link customer -> location[home]
+      aligns v3.location.location_id with v3.customer.location_id, but the
+      link order_details -> customer is keyed on customer_id and does not
+      carry location_id further. Returns (True, "location_id", 1): skip only
+      the last hop; the column lives on the customer CTE.
 
     Args:
         dim_ref: The parsed dimension reference
@@ -192,11 +192,11 @@ def can_skip_join_for_dimension(
         parent_node: The parent/fact node
 
     Returns:
-        ``(can_skip, local_column_short_name, num_hops_elided)``. When
+        ``(can_skip, local_column_short_name, num_hops_skipped)``. When
         ``can_skip`` is False, the other two values are ``None``/``0``.
-        When ``num_hops_elided == len(join_path.links)`` the column lives on
-        ``parent_node`` (full elision); otherwise it lives on the dim at
-        ``join_path.links[-num_hops_elided - 1].dimension`` (partial elision).
+        When ``num_hops_skipped == len(join_path.links)`` the column lives on
+        ``parent_node`` (full skip); otherwise it lives on the dim at
+        ``join_path.links[-num_hops_skipped - 1].dimension`` (partial skip).
     """
     if not join_path or not join_path.links:  # pragma: no cover
         return False, None, 0
@@ -205,18 +205,18 @@ def can_skip_join_for_dimension(
     # column to the previous node. Stop as soon as a hop's FK map doesn't
     # contain the column we currently need.
     current_col_fqn = f"{dim_ref.node_name}{SEPARATOR}{dim_ref.column_name}"
-    hops_elided = 0
+    hops_skipped = 0
     for link in reversed(join_path.links):
         prev_col_fqn = link.foreign_keys_reversed.get(current_col_fqn)
         if prev_col_fqn is None:
             break
         current_col_fqn = prev_col_fqn
-        hops_elided += 1
+        hops_skipped += 1
 
-    if hops_elided == 0:
+    if hops_skipped == 0:
         return False, None, 0
 
-    return True, get_short_name(current_col_fqn), hops_elided
+    return True, get_short_name(current_col_fqn), hops_skipped
 
 
 def _format_column_validation_error(
@@ -337,14 +337,14 @@ def resolve_dimensions(
                 continue
 
             # Optimization: when the requested column is FK-aligned with a
-            # column on a closer node, drop the trailing joins.
-            can_skip, local_col, hops_elided = can_skip_join_for_dimension(
+            # column on a closer node, skip the trailing joins.
+            can_skip, local_col, hops_skipped = can_skip_join_for_dimension(
                 dim_ref,
                 join_path,
                 parent_node,
             )
-            if can_skip and local_col and hops_elided == len(join_path.links):
-                # Full elision: column lives on the parent fact/transform.
+            if can_skip and local_col and hops_skipped == len(join_path.links):
+                # Full skip: column lives on the parent fact/transform.
                 # Filters referencing the dim resolve to the parent's local
                 # column.
                 ctx.skip_join_column_mapping[dim] = local_col
@@ -358,11 +358,11 @@ def resolve_dimensions(
                         is_local=True,
                     ),
                 )
-            elif can_skip and local_col and hops_elided > 0:
-                # Partial elision: keep only the leading links of the join
+            elif can_skip and local_col and hops_skipped > 0:
+                # Partial skip: keep only the leading links of the join
                 # path; the column lives on the dim we stop at. We rewrite the
                 # ResolvedDimension to point at that intermediate node.
-                kept_links = join_path.links[:-hops_elided]
+                kept_links = join_path.links[:-hops_skipped]
                 intermediate_dim = kept_links[-1].dimension
                 reduced_path = JoinPath(
                     links=kept_links,

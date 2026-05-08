@@ -629,7 +629,7 @@ class TestDimensionJoins:
 
 class TestMeasuresSQLSkipJoin:
     """
-    Tests covering the dimension-join elision optimization for /sql/measures/v3/.
+    Tests covering the dimension-join skip optimization for /sql/measures/v3/.
 
     The optimization peels trailing hops off the join path when the requested
     dimension column is foreign-key-aligned with a column on the previous node.
@@ -640,7 +640,7 @@ class TestMeasuresSQLSkipJoin:
         """
         Adds an extra dimension `v3.loyalty_status` linked from `v3.customer`
         on customer_id (the PK of both). Used to exercise multi-hop FK
-        elision where the requested column flows through every link.
+        skipping where the requested column flows through every link.
 
         Defined locally so only the multi-hop tests pay the setup cost; the
         global BUILD_V3 fixture is unaffected.
@@ -697,7 +697,7 @@ class TestMeasuresSQLSkipJoin:
         setup_loyalty_status_chain,
     ):
         """
-        Multi-hop full elision over /sql/measures/v3/.
+        Multi-hop full skip over /sql/measures/v3/.
 
         Chain: v3.order_details -> v3.customer -> v3.loyalty_status. Both links
         align customer_id (the PK of customer and of loyalty_status), so the
@@ -735,7 +735,7 @@ class TestMeasuresSQLSkipJoin:
         client_with_build_v3,
     ):
         """
-        Partial multi-hop elision over /sql/measures/v3/ — matches the user-
+        Partial multi-hop skip over /sql/measures/v3/ — matches the user-
         reported v2/v3 discrepancy where the join to the terminal dimension
         was being emitted unnecessarily.
 
@@ -747,7 +747,7 @@ class TestMeasuresSQLSkipJoin:
           the chain breaks walking the second hop backward.
 
         The join to v3.customer must remain (we need its location_id column);
-        the join to v3.location must be elided.
+        the join to v3.location must be skipped.
         """
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
@@ -786,7 +786,7 @@ class TestMeasuresSQLSkipJoin:
     ):
         """
         Negative case: requested terminal column is NOT FK-aligned with any
-        intermediate, so no joins are elided.
+        intermediate, so no joins are skipped.
 
         v3.loyalty_status.tier is a non-key attribute. Walking the chain
         backwards from loyalty_status.tier fails on the very first hop, so

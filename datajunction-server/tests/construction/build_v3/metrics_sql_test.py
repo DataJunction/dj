@@ -4628,7 +4628,7 @@ class TestMetricsSQLEdgeCases:
         """
         Adds an extra dimension `v3.loyalty_status` linked from `v3.customer`
         on customer_id (the PK of both). Used to exercise multi-hop FK
-        elision where the requested column flows through every link.
+        skipping where the requested column flows through every link.
 
         Defined locally so only the multi-hop tests pay the setup cost; the
         global BUILD_V3 fixture is unaffected.
@@ -4734,14 +4734,14 @@ class TestMetricsSQLEdgeCases:
         setup_loyalty_status_chain,
     ):
         """
-        Verify multi-hop FK elision: when every link's FK alignment carries the
+        Verify multi-hop FK skipping: when every link's FK alignment carries the
         requested column back to the parent, every join in the chain is skipped.
 
         Chain: v3.order_details -> v3.customer -> v3.loyalty_status
         Both customer and loyalty_status have customer_id as their PK, and the
         intermediate link uses customer.customer_id as the FK target. Requesting
         v3.loyalty_status.customer_id from a metric on v3.order_details should
-        elide both hops and resolve to v3.order_details.customer_id directly.
+        skip both hops and resolve to v3.order_details.customer_id directly.
         """
         response = await client_with_build_v3.get(
             "/sql/metrics/v3/",
@@ -4791,7 +4791,7 @@ class TestMetricsSQLEdgeCases:
         setup_loyalty_status_chain,
     ):
         """
-        Negative case for multi-hop elision: when the requested terminal column
+        Negative case for multi-hop skipping: when the requested terminal column
         is NOT an FK target of an intermediate link, the optimization must fall
         through and the joins must be emitted.
 
@@ -4844,7 +4844,7 @@ class TestMetricsSQLEdgeCases:
         client_with_build_v3,
     ):
         """
-        Verify partial multi-hop elision: when only the trailing hops of the
+        Verify partial multi-hop skipping: when only the trailing hops of the
         join path are FK-aligned, those joins are dropped but the leading
         joins remain. The dim's column resolves to the deepest intermediate
         we still join to.
