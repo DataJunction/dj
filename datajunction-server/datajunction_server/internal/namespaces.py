@@ -1115,6 +1115,22 @@ def _get_yaml_handler():
     return yaml_handler
 
 
+SQL_LIKE_KEYS = ("query", "join_on")
+
+
+def _strings_equivalent(key: str, old: str, new: str) -> bool:
+    """
+    Compare two string values for the purpose of "do we need to overwrite?".
+
+    For SQL-bearing keys (`query`, `join_on`), whitespace runs are normalized so
+    that hand-wrapped SQL is treated as equivalent to the single-line form the
+    server produces. For all other keys, only trailing whitespace is ignored.
+    """
+    if key in SQL_LIKE_KEYS:
+        return " ".join(old.split()) == " ".join(new.split())
+    return old.rstrip() == new.rstrip()
+
+
 def _merge_list_with_key(
     existing_list,
     new_list,
@@ -1163,6 +1179,16 @@ def _merge_list_with_key(
             seen_keys.add(key_value)
             if isinstance(existing_item, CommentedMap):
                 for k, v in new_item.items():
+                    # Skip overwrite when the existing string value is equivalent
+                    # to the new one — preserves comment/scalar style for SQL-like
+                    # values (e.g. hand-wrapped `join_on`).
+                    if (
+                        k in existing_item
+                        and isinstance(v, str)
+                        and isinstance(existing_item[k], str)
+                        and _strings_equivalent(k, existing_item[k], v)
+                    ):
+                        continue
                     existing_item[k] = v
                 for k in list(existing_item.keys()):
                     if k not in new_item:
@@ -1527,18 +1553,15 @@ def _merge_yaml_preserving_comments(existing, new_data, yaml_handler):
                 # ruamel.yaml scalar types (FoldedScalarString, LiteralScalarString)
                 # are preserved — this avoids re-wrapping folded descriptions at
                 # the current width setting when nothing actually changed.
-                # For `query`, normalize whitespace runs so that hand-wrapped SQL
-                # (with mid-statement newlines) is treated as equivalent to the
+                # For SQL-bearing keys (`query`, `join_on`), normalize whitespace
+                # runs so that hand-wrapped SQL is treated as equivalent to the
                 # single-line form the server produces.
-                if isinstance(new_value, str) and isinstance(old_value, str):
-                    if key == "query":
-                        same = " ".join(old_value.split()) == " ".join(
-                            new_value.split(),
-                        )
-                    else:
-                        same = old_value.rstrip() == new_value.rstrip()
-                    if same:
-                        continue  # keep old_value with its original scalar type
+                if (
+                    isinstance(new_value, str)
+                    and isinstance(old_value, str)
+                    and _strings_equivalent(key, old_value, new_value)
+                ):
+                    continue  # keep old_value with its original scalar type
                 result[key] = new_value
         else:
             # New key - just add it.

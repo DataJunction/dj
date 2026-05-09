@@ -2305,6 +2305,72 @@ class TestMergeHelpers:
         result = _merge_yaml_preserving_comments(existing, new_data, handler)
         assert result["query"] == "SELECT b FROM t"
 
+    def test_merge_yaml_replaces_description_when_only_whitespace_differs(self):
+        """Description (non-SQL key) is NOT whitespace-normalized — line breaks
+        in descriptions are meaningful, so a whitespace-only difference still
+        triggers a replace."""
+        from datajunction_server.internal.namespaces import _get_yaml_handler
+
+        handler = _get_yaml_handler()
+        existing = handler.load("name: foo\ndescription: Line one\n  Line two\n")
+        new_data = {"name": "foo", "description": "Line one Line two"}
+        result = _merge_yaml_preserving_comments(existing, new_data, handler)
+        assert result["description"] == "Line one Line two"
+
+    def test_merge_dimension_links_preserves_join_on_when_only_whitespace_differs(
+        self,
+    ):
+        """Hand-wrapped `join_on` inside dimension_links is preserved when only
+        whitespace differs from the server-generated single-line form."""
+        from ruamel.yaml.comments import CommentedMap, CommentedSeq
+
+        existing_item = CommentedMap()
+        existing_item["dimension_node"] = "dim"
+        existing_item["join_type"] = "left"
+        existing_item["join_on"] = "a.foo\n= b.foo"  # embedded newline
+        existing = CommentedSeq()
+        existing.append(existing_item)
+
+        new_list = [
+            {
+                "dimension_node": "dim",
+                "join_type": "left",
+                "join_on": "a.foo = b.foo",  # single line, same tokens
+            },
+        ]
+        result = _merge_list_with_key(
+            existing,
+            new_list,
+            match_key="dimension_node",
+            preserve_existing_order=True,
+        )
+        # Whitespace-only difference → existing string kept (still has the newline)
+        assert "\n" in result[0]["join_on"]
+
+    def test_merge_dimension_links_replaces_join_on_when_tokens_differ(self):
+        """Real changes to `join_on` (different columns) still trigger a replace."""
+        existing_yaml = (
+            "links:\n"
+            "  - dimension_node: dim\n"
+            "    join_type: left\n"
+            "    join_on: a.foo = b.foo\n"
+        )
+        existing = self._load_yaml(existing_yaml)["links"]
+        new_list = [
+            {
+                "dimension_node": "dim",
+                "join_type": "left",
+                "join_on": "a.bar = b.bar",
+            },
+        ]
+        result = _merge_list_with_key(
+            existing,
+            new_list,
+            match_key="dimension_node",
+            preserve_existing_order=True,
+        )
+        assert result[0]["join_on"] == "a.bar = b.bar"
+
     def test_merge_columns_cube_attributes_set_differs_overwrites(self):
         """Cube column with existing attributes whose set differs from the new set
         falls through to overwrite. Covers branch 1367->1387."""
