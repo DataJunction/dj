@@ -2248,6 +2248,76 @@ class TestMergeHelpers:
         # The owners/tags branch is exercised; key absence is fine
         assert "owners" not in result or isinstance(result["owners"], list)
 
+    def test_merge_list_skips_non_dict_in_new_list(self):
+        """new_list entries that aren't dicts (or lack match_key) skip the lookup
+        body — covers branch 1147->1146."""
+        existing_yaml = "items:\n  - name: foo\n"
+        existing = self._load_yaml(existing_yaml)["items"]
+        # New list with one non-dict and one dict-without-name; both should be skipped
+        new_list = ["just_a_string", {"no_name_here": True}, {"name": "foo"}]
+        result = _merge_list_with_key(existing, new_list)
+        kept_names = [c["name"] for c in result if isinstance(c, dict) and "name" in c]
+        assert kept_names == ["foo"]
+
+    def test_merge_list_preserves_ca_items_eol_comment(self):
+        """When the existing CommentedSeq has comments stored in ca.items[old_idx]
+        (rather than ca.comment), they get re-mapped onto the new index. Covers
+        lines 1244-1253."""
+        from ruamel.yaml.comments import CommentedMap, CommentedSeq
+        from ruamel.yaml.error import CommentMark
+        from ruamel.yaml.tokens import CommentToken
+
+        existing = CommentedSeq()
+        item = CommentedMap()
+        item["name"] = "alpha"
+        existing.append(item)
+        # ca is a property that auto-initializes on access; mutate items in place.
+        token = CommentToken("# eol\n", CommentMark(0))
+        existing.ca.items[0] = [None, token, None, None]
+
+        new_list = [{"name": "alpha", "type": "x"}]
+        result = _merge_list_with_key(existing, new_list)
+        # Comment should have been carried onto the result's ca.comment list
+        assert hasattr(result, "ca")
+        assert any(c is not None for c in (result.ca.comment or []))
+
+    def test_merge_yaml_preserves_query_when_only_whitespace_differs(self):
+        """SQL queries with the same tokens but different whitespace (hand-wrapped
+        vs single-line) are treated as equivalent — old scalar style is preserved."""
+        from datajunction_server.internal.namespaces import _get_yaml_handler
+
+        handler = _get_yaml_handler()
+        existing = handler.load(
+            "name: foo\n"
+            "query: |-\n"
+            "  SELECT SUM(x)\n"
+            "   FROM t\n",
+        )
+        new_data = {"name": "foo", "query": "SELECT SUM(x) FROM t"}
+        result = _merge_yaml_preserving_comments(existing, new_data, handler)
+        # Old multi-line literal value preserved (not replaced with single-line)
+        assert "\n" in result["query"]
+
+    def test_merge_yaml_replaces_query_when_tokens_differ(self):
+        """Query changes that aren't pure whitespace still trigger a replace."""
+        from datajunction_server.internal.namespaces import _get_yaml_handler
+
+        handler = _get_yaml_handler()
+        existing = handler.load("name: foo\nquery: SELECT a FROM t\n")
+        new_data = {"name": "foo", "query": "SELECT b FROM t"}
+        result = _merge_yaml_preserving_comments(existing, new_data, handler)
+        assert result["query"] == "SELECT b FROM t"
+
+    def test_merge_columns_cube_attributes_set_differs_overwrites(self):
+        """Cube column with existing attributes whose set differs from the new set
+        falls through to overwrite. Covers branch 1367->1387."""
+        existing_yaml = "columns:\n  - name: dim\n    attributes:\n      - dimension\n"
+        existing = self._load_yaml(existing_yaml)["columns"]
+        new_list = [{"name": "dim", "attributes": ["partition"]}]
+        result = _merge_columns_preserving_comments(existing, new_list, is_cube=True)
+        # Sets differed → new value wins
+        assert result[0]["attributes"] == ["partition"]
+
     def test_merge_yaml_filters_new_columns_block(self):
         """Adding a `columns` key to existing data filters trivial column entries."""
         existing_yaml = "name: foo\n"

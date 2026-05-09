@@ -1527,14 +1527,17 @@ def _merge_yaml_preserving_comments(existing, new_data, yaml_handler):
                 # ruamel.yaml scalar types (FoldedScalarString, LiteralScalarString)
                 # are preserved — this avoids re-wrapping folded descriptions at
                 # the current width setting when nothing actually changed.
-                if (
-                    isinstance(new_value, str)
-                    and isinstance(old_value, str)
-                    and old_value.rstrip() == new_value.rstrip()
-                ):
-                    pass  # keep old_value with its original scalar type
-                else:
-                    result[key] = new_value
+                # For `query`, normalize whitespace runs so that hand-wrapped SQL
+                # (with mid-statement newlines) is treated as equivalent to the
+                # single-line form the server produces.
+                if isinstance(new_value, str) and isinstance(old_value, str):
+                    if key == "query":
+                        same = " ".join(old_value.split()) == " ".join(new_value.split())
+                    else:
+                        same = old_value.rstrip() == new_value.rstrip()
+                    if same:
+                        continue  # keep old_value with its original scalar type
+                result[key] = new_value
         else:
             # New key - just add it.
             # For columns, filter out trivial entries (auto-display, no customizations)
@@ -1655,7 +1658,10 @@ def _node_spec_to_yaml_dict(node_spec, include_all_columns=False) -> dict:
                 col["attributes"] = sorted(col["attributes"])
 
     for list_key in ("owners", "tags"):
-        if list_key in data and isinstance(data[list_key], list):
+        if list_key in data and isinstance(  # pragma: no branch
+            data[list_key],
+            list,
+        ):
             data[list_key] = sorted(data[list_key])
 
     # Remove empty lists/dicts for cleaner YAML
