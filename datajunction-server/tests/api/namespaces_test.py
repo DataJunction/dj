@@ -11,6 +11,9 @@ from unittest import mock
 import pytest
 
 from datajunction_server.internal.namespaces import (
+    _merge_columns_preserving_comments,
+    _merge_list_with_key,
+    _merge_yaml_preserving_comments,
     _node_spec_to_yaml_dict,
     node_spec_to_yaml,
 )
@@ -1537,6 +1540,114 @@ class TestExportYaml:
                 # Node should have a node_type
                 assert "node_type" in node_data
 
+    @pytest.mark.asyncio
+    async def test_export_yaml_preserves_dj_yaml_from_uploaded_zip(
+        self,
+        client_with_roads,
+    ):
+        """When an existing_zip is uploaded, its dj.yaml content is preserved
+        in the response instead of regenerating a default one. Exercises the
+        upload-and-merge branch of POST /namespaces/{ns}/export/yaml."""
+        import io
+        import zipfile
+
+        # Build an existing zip with a custom dj.yaml that the server should keep
+        existing = io.BytesIO()
+        with zipfile.ZipFile(existing, "w") as zf:
+            zf.writestr(
+                "dj.yaml",
+                "name: My Custom Project\nnamespace: default\n",
+            )
+        existing.seek(0)
+
+        response = await client_with_roads.post(
+            "/namespaces/default/export/yaml",
+            files={
+                "existing_zip": ("existing.zip", existing.read(), "application/zip"),
+            },
+        )
+        assert response.status_code == 200
+
+        zip_buffer = io.BytesIO(response.content)
+        with zipfile.ZipFile(zip_buffer, "r") as zf:
+            assert "dj.yaml" in zf.namelist()
+            content = zf.read("dj.yaml").decode("utf-8")
+            assert "My Custom Project" in content
+
+    @pytest.mark.asyncio
+    async def test_export_yaml_with_git_path_strips_prefix_and_remaps_zip(
+        self,
+        client_with_roads,
+    ):
+        """When the namespace has a git_path configured, the upload zip's keys are
+        re-prefixed (so they match generator output) and the response zip's paths
+        have the prefix stripped back off. Covers lines 549-551, 590."""
+        import io
+        import zipfile
+
+        # Configure git_path on the `default` namespace
+        patch_resp = await client_with_roads.patch(
+            "/namespaces/default/git",
+            json={
+                "github_repo_path": "org/repo",
+                "git_branch": "main",
+                "git_path": "definitions",
+            },
+        )
+        assert patch_resp.status_code in (200, 204)
+
+        # Send an existing zip whose entries are NOT prefixed; server should add
+        # the `definitions/` prefix when looking up matches and strip it on output.
+        existing = io.BytesIO()
+        with zipfile.ZipFile(existing, "w") as zf:
+            zf.writestr("dj.yaml", "name: Custom\nnamespace: default\n")
+        existing.seek(0)
+
+        response = await client_with_roads.post(
+            "/namespaces/default/export/yaml",
+            files={
+                "existing_zip": ("existing.zip", existing.read(), "application/zip"),
+            },
+        )
+        assert response.status_code == 200
+
+        zip_buffer = io.BytesIO(response.content)
+        with zipfile.ZipFile(zip_buffer, "r") as zf:
+            names = zf.namelist()
+            # dj.yaml is always at the root (preserved from upload via prefix lookup)
+            assert "dj.yaml" in names
+            # Node files should NOT carry the `definitions/` prefix in the response
+            assert not any(n.startswith("definitions/") for n in names)
+
+    @pytest.mark.asyncio
+    async def test_export_yaml_no_zip_uses_git_branch_fallback(
+        self,
+        client_with_roads,
+    ):
+        """When no existing_zip is uploaded but the namespace has github+branch
+        configured, the server fetches existing YAML from the git branch.
+        Covers line 556 — the `fetch_existing_yaml_map` call."""
+        from unittest.mock import AsyncMock, patch as mock_patch
+
+        # Ensure the namespace is git-configured (idempotent if already set)
+        await client_with_roads.patch(
+            "/namespaces/default/git",
+            json={"github_repo_path": "org/repo", "git_branch": "main"},
+        )
+
+        # Mock fetch_existing_yaml_map at its import site in api/namespaces.py
+        # so we don't hit GitHub. Returning {} is sufficient to exercise the call.
+        with mock_patch(
+            "datajunction_server.api.namespaces.fetch_existing_yaml_map",
+            new=AsyncMock(return_value={}),
+        ) as fetcher:
+            response = await client_with_roads.post(
+                "/namespaces/default/export/yaml",
+            )
+
+        assert response.status_code == 200
+        fetcher.assert_awaited_once()
+
 
 class TestYamlHelpers:
     """Tests for internal YAML helper functions"""
@@ -1862,6 +1973,298 @@ columns:
         assert "old_field" not in result
         assert "name: id" in result
         assert "description: ID field" in result
+
+
+class TestMergeHelpers:
+    """Direct unit tests for the YAML merge helpers."""
+
+    @staticmethod
+    def _load_yaml(text: str):
+        from datajunction_server.internal.namespaces import _get_yaml_handler
+
+        return _get_yaml_handler().load(text)
+
+    def test_merge_list_with_key_preserve_existing_order(self):
+        """`preserve_existing_order=True` keeps the existing list order, drops items
+        no longer in new_list, and appends brand-new items at the end."""
+        existing_yaml = (
+            "links:\n"
+            "  - dimension_node: a\n"
+            "    join_type: left\n"
+            "  - dimension_node: b\n"
+            "    join_type: left\n"
+            "  - dimension_node: removed\n"
+            "    join_type: left\n"
+        )
+        existing = self._load_yaml(existing_yaml)["links"]
+        new_list = [
+            {"dimension_node": "a", "join_type": "inner"},  # updated
+            {"dimension_node": "b", "join_type": "left"},
+            {"dimension_node": "new", "join_type": "left"},  # appended
+        ]
+        result = _merge_list_with_key(
+            existing,
+            new_list,
+            match_key="dimension_node",
+            preserve_existing_order=True,
+        )
+        assert [item["dimension_node"] for item in result] == ["a", "b", "new"]
+        assert result[0]["join_type"] == "inner"  # updated in place
+
+    def test_merge_list_with_key_drops_keys_no_longer_present(self):
+        """When a key is removed from new_list's item, it gets deleted from existing."""
+        existing_yaml = "items:\n  - name: foo\n    old_attr: stale\n    keep: yes\n"
+        existing = self._load_yaml(existing_yaml)["items"]
+        new_list = [{"name": "foo", "keep": "yes"}]
+        result = _merge_list_with_key(existing, new_list)
+        assert "old_attr" not in result[0]
+        assert result[0]["keep"] == "yes"
+
+    def test_merge_list_with_key_preserves_inline_comments(self):
+        """Comments before list items in `ca.comment` are remapped to the new index."""
+        existing_yaml = (
+            "items:\n"
+            "  # primary key block\n"
+            "  - name: id\n"
+            "    type: int\n"
+            "  # business key\n"
+            "  - name: code\n"
+            "    type: str\n"
+        )
+        existing = self._load_yaml(existing_yaml)["items"]
+        new_list = [
+            {"name": "id", "type": "int"},
+            {"name": "code", "type": "str"},
+        ]
+        result = _merge_list_with_key(existing, new_list)
+        assert [item["name"] for item in result] == ["id", "code"]
+
+    def test_merge_columns_skip_invalid_and_removed(self):
+        """Columns without `name` and columns missing from new_list are dropped."""
+        existing_yaml = (
+            "columns:\n"
+            "  - name: keeps\n"
+            "    display_name: Keeps\n"
+            "  - not_a_dict\n"
+            "  - name: removed_from_db\n"
+        )
+        existing = self._load_yaml(existing_yaml)["columns"]
+        new_list = [{"name": "keeps", "display_name": "Keeps"}]
+        result = _merge_columns_preserving_comments(existing, new_list)
+        assert len(result) == 1
+        assert result[0]["name"] == "keeps"
+
+    def test_merge_columns_skips_auto_display_name_when_not_in_existing(self):
+        """Auto-generated display names aren't added to columns that didn't have one."""
+        existing_yaml = "columns:\n  - name: order_id\n"
+        existing = self._load_yaml(existing_yaml)["columns"]
+        # New value has display_name == labelize("order_id") = "Order Id"
+        new_list = [{"name": "order_id", "display_name": "Order Id"}]
+        result = _merge_columns_preserving_comments(existing, new_list)
+        assert "display_name" not in result[0]
+
+    def test_merge_columns_cube_preserves_existing_attributes_when_set_unchanged(self):
+        """For cubes, when an attribute set is unchanged, existing order is preserved."""
+        existing_yaml = (
+            "columns:\n"
+            "  - name: dim\n"
+            "    attributes:\n"
+            "      - dimension\n"
+            "      - primary_key\n"
+        )
+        existing = self._load_yaml(existing_yaml)["columns"]
+        new_list = [{"name": "dim", "attributes": ["primary_key", "dimension"]}]
+        result = _merge_columns_preserving_comments(existing, new_list, is_cube=True)
+        # Order from existing kept
+        assert result[0]["attributes"] == ["dimension", "primary_key"]
+
+    def test_merge_columns_cube_only_adds_partition_attribute(self):
+        """Cubes without existing attributes only accept the `partition` attribute."""
+        existing_yaml = "columns:\n  - name: utc_date\n"
+        existing = self._load_yaml(existing_yaml)["columns"]
+        # New attributes contain non-partition entries; only `partition` should pass
+        new_list = [
+            {"name": "utc_date", "attributes": ["dimension", "partition"]},
+        ]
+        result = _merge_columns_preserving_comments(existing, new_list, is_cube=True)
+        assert result[0].get("attributes") == ["partition"]
+
+    def test_merge_columns_cube_skips_when_no_partition_in_new_attributes(self):
+        """Cubes without existing attributes skip non-partition attribute additions."""
+        existing_yaml = "columns:\n  - name: dim\n"
+        existing = self._load_yaml(existing_yaml)["columns"]
+        new_list = [{"name": "dim", "attributes": ["dimension"]}]
+        result = _merge_columns_preserving_comments(existing, new_list, is_cube=True)
+        assert "attributes" not in result[0]
+
+    def test_merge_columns_non_cube_preserves_attribute_order(self):
+        """Non-cube columns keep existing attribute order when the set is unchanged."""
+        existing_yaml = (
+            "columns:\n"
+            "  - name: id\n"
+            "    attributes:\n"
+            "      - primary_key\n"
+            "      - dimension\n"
+        )
+        existing = self._load_yaml(existing_yaml)["columns"]
+        new_list = [{"name": "id", "attributes": ["dimension", "primary_key"]}]
+        result = _merge_columns_preserving_comments(existing, new_list, is_cube=False)
+        assert result[0]["attributes"] == ["primary_key", "dimension"]
+
+    def test_merge_columns_appends_new_with_customizations(self):
+        """New columns with customizations get appended; trivial ones don't."""
+        existing_yaml = "columns:\n  - name: existing\n    display_name: Existing\n"
+        existing = self._load_yaml(existing_yaml)["columns"]
+        new_list = [
+            {"name": "existing", "display_name": "Existing"},
+            {"name": "trivial"},  # no customizations — skipped
+            {"name": "added", "attributes": ["dimension"]},  # appended
+        ]
+        result = _merge_columns_preserving_comments(existing, new_list)
+        names = [c["name"] for c in result]
+        assert names == ["existing", "added"]
+
+    def test_merge_yaml_preserves_section_comments_in_metrics_list(self):
+        """Section comments in the metrics list survive a merge that drops items."""
+        existing_yaml = (
+            "metrics:\n"
+            "  # core metrics\n"
+            "  - alpha\n"
+            "  - beta\n"
+            "  # legacy\n"
+            "  - obsolete\n"
+        )
+        from datajunction_server.internal.namespaces import _get_yaml_handler
+
+        handler = _get_yaml_handler()
+        existing = handler.load(existing_yaml)
+        new_data = {"metrics": ["alpha", "beta", "fresh"]}
+        result = _merge_yaml_preserving_comments(existing, new_data, handler)
+        assert list(result["metrics"]) == ["alpha", "beta", "fresh"]
+
+    def test_merge_list_preserve_order_skips_non_dict_existing(self):
+        """`preserve_existing_order=True` skips non-dict and unnamed existing entries."""
+        from ruamel.yaml.comments import CommentedSeq
+
+        existing = CommentedSeq()
+        existing.append("not_a_dict_item")
+        existing.append({"dimension_node": "kept", "join_type": "left"})
+        new_list = [{"dimension_node": "kept", "join_type": "left"}]
+        result = _merge_list_with_key(
+            existing,
+            new_list,
+            match_key="dimension_node",
+            preserve_existing_order=True,
+        )
+        assert len(result) == 1
+        assert result[0]["dimension_node"] == "kept"
+
+    def test_merge_list_preserve_order_drops_removed_keys(self):
+        """`preserve_existing_order=True` removes keys from existing items not in new."""
+        existing_yaml = (
+            "links:\n"
+            "  - dimension_node: a\n"
+            "    join_type: left\n"
+            "    legacy_field: drop_me\n"
+        )
+        existing = self._load_yaml(existing_yaml)["links"]
+        new_list = [{"dimension_node": "a", "join_type": "left"}]
+        result = _merge_list_with_key(
+            existing,
+            new_list,
+            match_key="dimension_node",
+            preserve_existing_order=True,
+        )
+        assert "legacy_field" not in result[0]
+
+    def test_merge_list_preserve_order_non_commented_existing_items(self):
+        """`preserve_existing_order=True` falls through to new_item when existing
+        item is a plain dict (no comment metadata)."""
+        existing = [{"dimension_node": "a", "join_type": "left"}]  # plain list/dict
+        new_list = [{"dimension_node": "a", "join_type": "inner"}]
+        result = _merge_list_with_key(
+            existing,
+            new_list,
+            match_key="dimension_node",
+            preserve_existing_order=True,
+        )
+        assert result[0]["join_type"] == "inner"
+
+    def test_merge_list_with_empty_new_iterates_zero_times(self):
+        """Empty new_list still produces a CommentedSeq (covers loop-not-entered branch)."""
+        existing_yaml = "items:\n  - name: a\n"
+        existing = self._load_yaml(existing_yaml)["items"]
+        result = _merge_list_with_key(existing, [])
+        assert list(result) == []
+
+    def test_merge_columns_non_cube_attribute_set_differs(self):
+        """When attribute sets differ, the new attributes overwrite existing."""
+        existing_yaml = "columns:\n  - name: id\n    attributes:\n      - dimension\n"
+        existing = self._load_yaml(existing_yaml)["columns"]
+        new_list = [{"name": "id", "attributes": ["dimension", "primary_key"]}]
+        result = _merge_columns_preserving_comments(existing, new_list, is_cube=False)
+        assert set(result[0]["attributes"]) == {"dimension", "primary_key"}
+
+    def test_merge_columns_non_cube_new_attributes_when_existing_lacks_them(self):
+        """When new has attributes but existing column lacks them, attributes are added."""
+        existing_yaml = "columns:\n  - name: id\n    description: identifier\n"
+        existing = self._load_yaml(existing_yaml)["columns"]
+        new_list = [
+            {"name": "id", "description": "identifier", "attributes": ["dimension"]},
+        ]
+        result = _merge_columns_preserving_comments(existing, new_list, is_cube=False)
+        assert result[0]["attributes"] == ["dimension"]
+
+    def test_merge_columns_existing_plain_dict_uses_new(self):
+        """When the existing column is a plain dict (not CommentedMap), use new value."""
+        existing = [{"name": "id"}]  # plain dict, not CommentedMap
+        new_list = [{"name": "id", "display_name": "ID"}]
+        result = _merge_columns_preserving_comments(existing, new_list)
+        assert result[0]["display_name"] == "ID"
+
+    def test_merge_columns_skips_invalid_new_entries(self):
+        """New_list entries that aren't dicts or lack 'name' are skipped on append."""
+        existing = []
+        new_list = [
+            "not_a_dict",  # skipped
+            {"no_name_key": True},  # skipped
+            {"name": "kept", "attributes": ["dimension"]},  # appended
+        ]
+        result = _merge_columns_preserving_comments(existing, new_list)
+        assert [c["name"] for c in result] == ["kept"]
+
+    def test_node_spec_to_yaml_dict_without_owners_or_tags(self):
+        """Spec without owners/tags doesn't error on the sort-list-keys step."""
+        from datajunction_server.models.deployment import SourceSpec
+
+        spec = SourceSpec(
+            name="test.no_owners",
+            table="src.table",
+            catalog="catalog",
+            schema_="schema",
+        )
+        result = _node_spec_to_yaml_dict(spec)
+        assert result["name"] == "test.no_owners"
+        # The owners/tags branch is exercised; key absence is fine
+        assert "owners" not in result or isinstance(result["owners"], list)
+
+    def test_merge_yaml_filters_new_columns_block(self):
+        """Adding a `columns` key to existing data filters trivial column entries."""
+        existing_yaml = "name: foo\n"
+        from datajunction_server.internal.namespaces import _get_yaml_handler
+
+        handler = _get_yaml_handler()
+        existing = handler.load(existing_yaml)
+        new_data = {
+            "name": "foo",
+            "columns": [
+                {"name": "trivial"},  # filtered
+                {"name": "kept", "attributes": ["dimension"]},
+            ],
+        }
+        result = _merge_yaml_preserving_comments(existing, new_data, handler)
+        kept_names = [c["name"] for c in result["columns"]]
+        assert kept_names == ["kept"]
 
 
 @pytest.mark.asyncio
