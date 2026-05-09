@@ -817,15 +817,20 @@ async def test_druid_cube_incremental(
     actual_node = mat.measures_materializations[0].node
     assert actual_node.name == "default.repair_orders_fact"
     assert actual_node.display_name == "Repair Orders Fact"
-    # v3 emits clean SQL aliases (``order_date``) instead of v2's munged
-    # ``default_DOT_repair_orders_fact_DOT_order_date`` form, and sorts grain
-    # columns deterministically.
-    expected_dim_grain = ["company_name", "local_region", "order_date", "state"]
+    # v3 uses full semantic names (node_DOT_column form) for dimension columns,
+    # sorted alphabetically by the short alias.
+    expected_dim_grain = [
+        "default_DOT_dispatcher_DOT_company_name",
+        "default_DOT_municipality_dim_DOT_local_region",
+        "default_DOT_repair_orders_fact_DOT_order_date",
+        "default_DOT_hard_hat_DOT_state",
+    ]
+    # dimensions follows the original cube column order (not alphabetical)
     expected_dimensions_in_order = [
-        "order_date",
-        "state",
-        "company_name",
-        "local_region",
+        "default_DOT_repair_orders_fact_DOT_order_date",
+        "default_DOT_hard_hat_DOT_state",
+        "default_DOT_dispatcher_DOT_company_name",
+        "default_DOT_municipality_dim_DOT_local_region",
     ]
     assert mat.measures_materializations[0].grain == expected_dim_grain
     assert mat.measures_materializations[0].dimensions == expected_dimensions_in_order
@@ -854,20 +859,26 @@ async def test_druid_cube_incremental(
     # instead. Both are usable downstream — assert structurally.
     columns_by_name = {c.name: c for c in mat.measures_materializations[0].columns}
     assert set(columns_by_name) == {
-        "order_date",
-        "state",
-        "company_name",
-        "local_region",
+        "default_DOT_repair_orders_fact_DOT_order_date",
+        "default_DOT_hard_hat_DOT_state",
+        "default_DOT_dispatcher_DOT_company_name",
+        "default_DOT_municipality_dim_DOT_local_region",
         "repair_order_id_count_bd241964",
         "total_repair_cost_sum_67874507",
     }
     assert (
-        columns_by_name["order_date"].semantic_entity
+        columns_by_name["default_DOT_repair_orders_fact_DOT_order_date"].semantic_entity
         == "default.repair_orders_fact.order_date"
     )
-    assert columns_by_name["order_date"].semantic_type == "dimension"
+    assert (
+        columns_by_name["default_DOT_repair_orders_fact_DOT_order_date"].semantic_type
+        == "dimension"
+    )
     assert columns_by_name["repair_order_id_count_bd241964"].semantic_type == "measure"
-    assert mat.measures_materializations[0].timestamp_column == "order_date"
+    assert (
+        mat.measures_materializations[0].timestamp_column
+        == "default_DOT_repair_orders_fact_DOT_order_date"
+    )
     assert mat.measures_materializations[0].timestamp_format == "yyyyMMdd"
     assert mat.measures_materializations[0].granularity == Granularity.DAY
     assert mat.measures_materializations[0].spark_conf is None
@@ -898,7 +909,10 @@ async def test_druid_cube_incremental(
         expected_components,
         key=lambda m: m.name,
     )
-    assert mat.combiners[0].timestamp_column == "order_date"
+    assert (
+        mat.combiners[0].timestamp_column
+        == "default_DOT_repair_orders_fact_DOT_order_date"
+    )
     assert mat.combiners[0].timestamp_format == "yyyyMMdd"
     assert mat.combiners[0].granularity == Granularity.DAY
     assert mat.combiners[0].upstream_tables[0].startswith("default_repair_orders_fact")
@@ -935,7 +949,7 @@ async def test_druid_cube_full(
     assert response.status_code in (200, 201), response.json()
     assert "Successfully updated materialization config" in response.json()["message"]
 
-    _, kwargs = module__query_service_client.materialize_cube.call_args_list[0]  # type: ignore
+    _, kwargs = module__query_service_client.materialize_cube.call_args_list[-1]  # type: ignore
     mat = kwargs["materialization_input"]
     assert mat.job == "DruidCubeMaterializationJob"
     measures_query = mat.measures_materializations[0].query
