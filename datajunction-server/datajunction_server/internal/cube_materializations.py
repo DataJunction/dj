@@ -183,16 +183,12 @@ def _v3_col_to_model_column(col) -> ColumnMetadata:
         if v3_type in ("metric", "metric_component", "metric_input")
         else v3_type
     )
-    # Dimension columns use the full semantic name (dots → _DOT_) as their output
-    # name, matching the v2 shape that MeasuresMaterialization.from_measures_query
-    # expects. Measure columns use their hashed short name unchanged.
-    name = (
-        semantic_entity.replace(".", "_DOT_")
-        if semantic_type == "dimension" and semantic_entity
-        else col.name
-    )
+    # v3's ``col.name`` is already the SQL alias in the generated query.
+    # Downstream ``MeasuresMaterialization.from_measures_query`` matches partition
+    # columns by ``semantic_entity`` (not by ``name``), so we just pass the v3
+    # alias through unchanged for both dims and measures.
     return ColumnMetadata(
-        name=name,
+        name=col.name,
         type=col.type,
         column=column_name,
         node=node_name,
@@ -316,12 +312,7 @@ async def _v3_grain_group_to_measures_query(
             )
         else:
             columns.append(col)
-    # Build lookup from v3's short alias → full _DOT_ name so the grain list
-    # matches what MeasuresMaterialization.from_measures_query expects.
-    alias_to_name = {
-        orig.name: converted.name for orig, converted in zip(gg.columns, columns)
-    }
-    grain = [alias_to_name.get(g, g) for g in gg.grain]
+    grain = list(gg.grain)
     return SimpleNamespace(
         node=NodeNameVersion(
             name=rev.name,

@@ -26,13 +26,11 @@ def _make_col(semantic_name, semantic_type="dimension", name="col", type_="str")
 class TestV3ColToModelColumn:
     def test_no_separator_in_semantic_name(self):
         """Line 177->180 False: semantic_name has no dot → column/node stay None."""
-        col = _make_col("nodot", semantic_type="dimension")
+        col = _make_col("nodot", semantic_type="dimension", name="nodot_alias")
         result = _v3_col_to_model_column(col)
         assert result.column is None
         assert result.node is None
-        assert (
-            result.name == "nodot"
-        )  # no dot → uses semantic_entity.replace(".", "_DOT_") == "nodot"
+        assert result.name == "nodot_alias"
 
     def test_empty_semantic_name(self):
         """Line 177->180 False: empty semantic_name → column/node stay None."""
@@ -40,15 +38,20 @@ class TestV3ColToModelColumn:
         result = _v3_col_to_model_column(col)
         assert result.column is None
         assert result.node is None
-        assert result.name == "m_hash"  # measure path → col.name
+        assert result.name == "m_hash"
 
     def test_dotted_dimension(self):
-        """Dotted semantic_name → column/node extracted correctly."""
-        col = _make_col("default.hard_hat.city", semantic_type="dimension")
+        """Dotted semantic_name → column/node extracted; name stays the v3 alias."""
+        col = _make_col(
+            "default.hard_hat.city",
+            semantic_type="dimension",
+            name="city",
+        )
         result = _v3_col_to_model_column(col)
         assert result.column == "city"
         assert result.node == "default.hard_hat"
-        assert result.name == "default_DOT_hard_hat_DOT_city"
+        assert result.name == "city"
+        assert result.semantic_entity == "default.hard_hat.city"
 
     def test_metric_type_collapses_to_measure(self):
         """metric/metric_component/metric_input semantic types map to 'measure'."""
@@ -61,6 +64,22 @@ class TestV3ColToModelColumn:
             result = _v3_col_to_model_column(col)
             assert result.semantic_type == "measure"
             assert result.name == "count_hash"
+
+    def test_role_qualified_dimension_passes_through_cleanly(self):
+        """Role-qualified semantic name (``foo.dateint[role]``) keeps the v3 alias.
+
+        The brackets only live in ``semantic_entity``; ``name`` is the SQL alias
+        from v3 and must not contain bracket characters.
+        """
+        col = _make_col(
+            "default.dim.dateint[event_date]",
+            semantic_type="dimension",
+            name="dateint",
+        )
+        result = _v3_col_to_model_column(col)
+        assert result.name == "dateint"
+        assert "[" not in result.name and "]" not in result.name
+        assert result.semantic_entity == "default.dim.dateint[event_date]"
 
 
 def _make_node(name, node_type, current=None):
