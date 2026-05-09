@@ -127,12 +127,13 @@ class MeasuresMaterialization(BaseModel):
         """
         Builds a MeasuresMaterialization object from a measures query.
         """
-        metric_components = list(
+        metric_components = sorted(
             {
                 component.name: component
                 for metric, (components, combiner) in measures_query.metrics.items()
                 for component in components
             }.values(),
+            key=lambda c: c.name,
         )
         dimensional_metric_components = [
             component.name

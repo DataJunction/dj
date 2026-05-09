@@ -183,8 +183,16 @@ def _v3_col_to_model_column(col) -> ColumnMetadata:
         if v3_type in ("metric", "metric_component", "metric_input")
         else v3_type
     )
+    # Dimension columns use the full semantic name (dots → _DOT_) as their output
+    # name, matching the v2 shape that MeasuresMaterialization.from_measures_query
+    # expects. Measure columns use their hashed short name unchanged.
+    name = (
+        semantic_entity.replace(".", "_DOT_")
+        if semantic_type == "dimension" and semantic_entity
+        else col.name
+    )
     return ColumnMetadata(
-        name=col.name,
+        name=name,
         type=col.type,
         column=column_name,
         node=node_name,
@@ -283,20 +291,49 @@ async def _v3_grain_group_to_measures_query(
         # ``derived_expression`` field both rely on that shape. v3 exposes the
         # full query AST separately on ``derived_ast``; stringify it so the
         # downstream parser-based extraction stays happy.
-        metrics[metric_name] = (info.components, str(info.derived_ast))
+        metrics[metric_name] = (
+            info.components,
+            " ".join(str(info.derived_ast).split()),
+        )
 
+    columns_raw = [_v3_col_to_model_column(c) for c in gg.columns]
+    # For measure columns v3's semantic_name is "namespace.metric:component" which
+    # gives the wrong node/column when split on ".". Normalize them to the v2 shape
+    # so downstream consumers see "parent_fact_node.component_name".
+    parent_node_name = gg.parent_name
+    columns = []
+    for col in columns_raw:
+        if col.semantic_type == "measure":
+            columns.append(
+                ColumnMetadata(
+                    name=col.name,
+                    type=col.type,
+                    column=col.name,
+                    node=parent_node_name,
+                    semantic_entity=f"{parent_node_name}.{col.name}",
+                    semantic_type=col.semantic_type,
+                ),
+            )
+        else:
+            columns.append(col)
+    # Build lookup from v3's short alias → full _DOT_ name so the grain list
+    # matches what MeasuresMaterialization.from_measures_query expects.
+    alias_to_name = {
+        orig.name: converted.name for orig, converted in zip(gg.columns, columns)
+    }
+    grain = [alias_to_name.get(g, g) for g in gg.grain]
     return SimpleNamespace(
         node=NodeNameVersion(
             name=rev.name,
             version=rev.version,
             display_name=rev.display_name,
         ),
-        grain=list(gg.grain),
-        columns=[_v3_col_to_model_column(c) for c in gg.columns],
+        grain=grain,
+        columns=columns,
         metrics=metrics,
         sql=gg.sql,
         spark_conf=None,
-        upstream_tables=upstream_tables,
+        upstream_tables=sorted(upstream_tables),
     )
 
 
@@ -329,15 +366,18 @@ async def build_cube_materialization(
         dialect=Dialect.SPARK,
         use_materialized=True,
     )
-    measures_queries = [
-        await _v3_grain_group_to_measures_query(
-            session,
-            gg,
-            result.ctx,
-            result.decomposed_metrics,
-        )
-        for gg in result.grain_groups
-    ]
+    measures_queries = sorted(
+        [
+            await _v3_grain_group_to_measures_query(
+                session,
+                gg,
+                result.ctx,
+                result.decomposed_metrics,
+            )
+            for gg in result.grain_groups
+        ],
+        key=lambda q: (-len(q.metrics), q.node.name),
+    )
     query_grains = {
         k: [q.node.name for q in queries]
         for k, queries in itertools.groupby(
