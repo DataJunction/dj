@@ -1532,7 +1532,9 @@ def _merge_yaml_preserving_comments(existing, new_data, yaml_handler):
                 # single-line form the server produces.
                 if isinstance(new_value, str) and isinstance(old_value, str):
                     if key == "query":
-                        same = " ".join(old_value.split()) == " ".join(new_value.split())
+                        same = " ".join(old_value.split()) == " ".join(
+                            new_value.split(),
+                        )
                     else:
                         same = old_value.rstrip() == new_value.rstrip()
                     if same:

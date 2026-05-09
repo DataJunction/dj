@@ -2288,10 +2288,7 @@ class TestMergeHelpers:
 
         handler = _get_yaml_handler()
         existing = handler.load(
-            "name: foo\n"
-            "query: |-\n"
-            "  SELECT SUM(x)\n"
-            "   FROM t\n",
+            "name: foo\nquery: |-\n  SELECT SUM(x)\n   FROM t\n",
         )
         new_data = {"name": "foo", "query": "SELECT SUM(x) FROM t"}
         result = _merge_yaml_preserving_comments(existing, new_data, handler)
