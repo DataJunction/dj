@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 from datajunction_server.construction.build_v3.cte import (
     collect_node_ctes,
     extract_dimension_node,
+    inject_filter_into_select,
     strip_role_suffix,
 )
 from datajunction_server.construction.build_v3.decomposition import (
@@ -32,6 +33,7 @@ from datajunction_server.construction.build_v3.utils import (
     extract_columns_from_expression,
     extract_columns_referenced_from_node,
     get_column_type,
+    get_cte_name,
     get_short_name,
     make_column_ref,
     make_name,
@@ -39,6 +41,7 @@ from datajunction_server.construction.build_v3.utils import (
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.construction.build_v3.materialization import (
     get_table_reference_parts_with_materialization,
+    should_use_materialized_table,
 )
 from datajunction_server.construction.build_v3.types import (
     BuildContext,
@@ -558,15 +561,18 @@ def _build_temporal_pushdown(
     parent_node: Node,
     main_alias: str,
 ) -> tuple[Optional[ast.Expression], dict[str, ast.Expression]]:
-    """Build temporal filter and attempt to push it into the upstream date-spine CTE.
+    """Build temporal filter and push it into the most upstream applicable CTE.
 
-    If a temporal partition filter can be pushed into the upstream CTE that
-    drives the date spine, it is removed from the outer query (returns None
-    for the filter AST) and placed in the injected_cte_filters dict instead.
+    Tries the date-spine upstream first (so the filter applies before any
+    expensive join); falls back to the parent node's own CTE when no
+    upstream date-spine source can be located. The filter is never applied
+    to the outer query's WHERE — that would silently turn any OUTER JOIN
+    inside the parent body into an INNER JOIN by dropping NULL-fill rows.
 
     Returns:
         (temporal_filter_ast, injected_cte_filters) where temporal_filter_ast
-        is None if the filter was successfully pushed down.
+        is always None when the filter was successfully built (it is fully
+        delegated to a CTE injection).
     """
     temporal_filter_ast, fk_col_name = build_temporal_filter(
         ctx,
@@ -581,11 +587,11 @@ def _build_temporal_pushdown(
             parent_node,
             fk_col_name,
         )
-        if upstream_node:
-            unaliased_filter_ast, _ = build_temporal_filter(ctx, parent_node, None)
-            if unaliased_filter_ast:  # pragma: no branch
-                injected_cte_filters[upstream_node.name] = unaliased_filter_ast
-                temporal_filter_ast = None
+        target_node_name = upstream_node.name if upstream_node else parent_node.name
+        unaliased_filter_ast, _ = build_temporal_filter(ctx, parent_node, None)
+        if unaliased_filter_ast:  # pragma: no branch
+            injected_cte_filters[target_node_name] = unaliased_filter_ast
+            temporal_filter_ast = None
 
     return temporal_filter_ast, injected_cte_filters
 
@@ -664,16 +670,334 @@ def build_outer_where(
     return where_clause
 
 
+def _apply_outer_where_atoms(
+    select: ast.Select,
+    where_clause: Optional[ast.Expression],
+    main_alias: str,
+    parent_pushdown_active: bool = False,
+) -> None:
+    """Apply each AND atom of ``where_clause`` to ``select.where``.
+
+    Three categories of atoms:
+
+    - **Parent-alias atoms** (``main_alias.col`` only) when
+      ``parent_pushdown_active`` is True — DROPPED from outer WHERE.
+      The same predicate has already been pushed into the parent CTE's
+      WHERE, so the outer-level copy is redundant *and* unsafe (it
+      would defeat downstream RIGHT/FULL OUTER joins to dims).
+
+    - **Parent-alias atoms** when parent pushdown wasn't applied (e.g.
+      parent is materialized or has a set-op body that blocks
+      pushdown) — routed through :func:`inject_filter_into_select` as
+      the safety backstop.
+
+    - **Dim-alias atoms** (and unqualified atoms) — ANDed into the outer
+      WHERE.  These rely on the standard dim-filter narrowing
+      semantics.  Note: under a downstream RIGHT/FULL OUTER JOIN this
+      can silently defeat that join — the wrapper-CTE absorption step
+      runs earlier to handle the unsafe cases.
+    """
+    if where_clause is None:
+        return
+    from datajunction_server.construction.build_v3.cte import (
+        _filter_namespaces,
+        _split_and_atoms,
+    )
+
+    for atom in _split_and_atoms(where_clause):
+        ns = _filter_namespaces(atom)
+        is_parent_only = bool(ns) and ns.issubset({main_alias})
+        if is_parent_only and parent_pushdown_active:
+            continue
+        if is_parent_only:
+            inject_filter_into_select(select, atom)
+        elif select.where:
+            select.where = ast.BinaryOp.And(select.where, atom)
+        else:
+            select.where = atom
+
+
+def _col_table_name(col: ast.Column) -> Optional[str]:
+    """Return the table-qualifier short name for a column, or None.
+
+    Handles both qualification styles:
+    - ``_table`` (set by :func:`make_column_ref`) — projection / GROUP BY.
+    - ``name.namespace`` (set by ``_add_table_prefixes_to_filter``) —
+      filter atoms.
+    """
+    tbl = col._table
+    if tbl is not None:
+        tname = getattr(tbl, "name", None)
+        if tname is None:  # pragma: no cover
+            return None
+        return tname.name if hasattr(tname, "name") else str(tname)
+    if col.name and col.name.namespace:
+        ns = col.name.namespace
+        return ns.name if hasattr(ns, "name") else str(ns)
+    return None  # pragma: no cover
+
+
+def _set_col_table_alias(col: ast.Column, new_alias: str) -> None:
+    """Rewrite the table-qualifier on a column to ``new_alias``,
+    matching the qualification style already on the column.
+    """
+    if col._table is not None and getattr(col._table, "name", None) is not None:
+        col._table.name = ast.Name(new_alias)  # type: ignore[union-attr]
+    elif col.name and col.name.namespace:  # pragma: no branch
+        col.name = ast.Name(col.name.name, namespace=ast.Name(new_alias))
+
+
+def _absorb_filtered_joins_for_outer_safety(
+    select: ast.Select,
+    where_clause: Optional[ast.Expression],
+    main_alias: str,
+    dim_aliases: dict[tuple[str, Optional[str]], str],
+    parent_cte_name: str,
+    group_by: list[ast.Expression],
+) -> tuple[Optional[ast.Expression], Optional[tuple[str, ast.Query]]]:
+    """Absorb LEFT/INNER joins whose dim-alias filter would defeat a
+    downstream RIGHT/FULL OUTER JOIN into a subquery on the parent
+    side.
+
+    Why this is needed: applying a WHERE on a non-preserved-side dim
+    alias *after* a downstream OUTER JOIN preserving the dim side
+    drops the preserved null-fill rows.  The fix is to apply the dim
+    filter *before* the OUTER JOIN — by absorbing the LEFT/INNER join
+    plus its WHERE into a subquery that the OUTER JOIN's preserved
+    side reaches via a clean ``RIGHT/FULL OUTER JOIN <wrapper>``
+    pattern.
+
+    Builds a filtered CTE named ``<parent_cte_name>_filtered`` that
+    contains the parent + absorbed LEFT/INNER joins with the absorbed
+    WHERE applied inside.  The outer FROM is rewritten to read from
+    that CTE (still aliased as ``main_alias``).  Rewrites references
+    to absorbed aliases (in projection, GROUP BY, remaining join ONs,
+    remaining WHERE atoms) so they point at ``main_alias``.
+
+    Returns ``(updated_where_clause, new_cte_or_None)``.  The caller is
+    responsible for appending ``new_cte`` (if non-None) to the CTE
+    list attached to the final query.
+    """
+    if where_clause is None or not select.from_ or not select.from_.relations:
+        return where_clause, None
+
+    relation = select.from_.relations[0]
+    extensions = relation.extensions
+    if not extensions:
+        return where_clause, None
+
+    # Find the first RIGHT/FULL OUTER join — only then is absorption needed.
+    right_full_idx: Optional[int] = None
+    for i, jn in enumerate(extensions):
+        jt = (jn.join_type or "").upper().strip()
+        if "RIGHT" in jt or "FULL" in jt:
+            right_full_idx = i
+            break
+    if right_full_idx is None:
+        return where_clause, None
+
+    from datajunction_server.construction.build_v3.cte import (
+        _filter_namespaces,
+        _get_relation_side_id,
+        _split_and_atoms,
+    )
+
+    atoms = _split_and_atoms(where_clause)
+    atoms_by_alias: dict[str, list[ast.Expression]] = {}
+    other_atoms: list[ast.Expression] = []
+    for atom in atoms:
+        ns = _filter_namespaces(atom)
+        if len(ns) == 1 and main_alias not in ns:
+            atoms_by_alias.setdefault(next(iter(ns)), []).append(atom)
+        else:
+            other_atoms.append(atom)
+
+    # Scan EVERY LEFT/INNER join in the chain (not just those before the
+    # first RIGHT/FULL OUTER).  Once a RIGHT/FULL OUTER is in the chain,
+    # *any* LEFT/INNER-joined dim's filter in outer WHERE would silently
+    # null-drop preserved-side rows from the OUTER JOIN.  Consolidating all
+    # filtered fact-side LEFT/INNER joins into the wrapper CTE applies the
+    # filters before the OUTER JOIN can reach them.
+    to_absorb_idx: list[int] = []
+    absorbed_aliases: set[str] = set()
+    for i in range(len(extensions)):
+        jn = extensions[i]
+        jt = (jn.join_type or "").upper().strip()
+        if "RIGHT" in jt or "FULL" in jt:
+            continue
+        side_alias = _get_relation_side_id(jn.right)
+        if side_alias and side_alias in atoms_by_alias:
+            to_absorb_idx.append(i)
+            absorbed_aliases.add(side_alias)
+
+    if not absorbed_aliases:
+        return where_clause, None
+
+    absorbed_joins = [extensions[i] for i in to_absorb_idx]
+    kept_joins = [
+        extensions[i] for i in range(len(extensions)) if i not in to_absorb_idx
+    ]
+
+    # Collect absorbed-dim columns referenced outside the wrapper
+    # (projection, kept joins' ON clauses, other atoms) so the wrapper
+    # exposes them.
+    absorbed_cols: dict[str, set[str]] = {a: set() for a in absorbed_aliases}
+
+    def _collect(node: ast.Node) -> None:
+        for col in node.find_all(ast.Column):
+            tname_str = _col_table_name(col)
+            if tname_str is not None and tname_str in absorbed_aliases:
+                absorbed_cols[tname_str].add(col.name.name)
+
+    for proj_item in select.projection:
+        _collect(proj_item)
+    for kj in kept_joins:
+        if kj.criteria and kj.criteria.on:  # pragma: no branch
+            _collect(kj.criteria.on)
+    for atom in other_atoms:
+        _collect(atom)
+
+    # Build wrapper projection: parent.* + each absorbed col.
+    wrapper_proj: list[Any] = [
+        ast.Column(name=ast.Name("*"), _table=ast.Table(ast.Name(main_alias))),
+    ]
+    for alias in absorbed_aliases:
+        for col_name in sorted(absorbed_cols[alias]):
+            wrapper_proj.append(make_column_ref(col_name, alias))
+
+    # WHERE for wrapper = AND of all absorbed atoms.
+    absorbed_atoms: list[ast.Expression] = []
+    for alias in absorbed_aliases:
+        absorbed_atoms.extend(atoms_by_alias[alias])
+    wrapper_where: Optional[ast.Expression] = None
+    for atom in absorbed_atoms:
+        wrapper_where = (
+            atom if wrapper_where is None else ast.BinaryOp.And(wrapper_where, atom)
+        )
+
+    wrapper_select = ast.Select(
+        projection=wrapper_proj,
+        from_=ast.From(
+            relations=[
+                ast.Relation(primary=relation.primary, extensions=absorbed_joins),
+            ],
+        ),
+        where=wrapper_where,
+    )
+    wrapper_query = ast.Query(select=wrapper_select)
+    filtered_cte_name = f"{parent_cte_name}_filtered"
+
+    # Outer FROM now reads from the filtered CTE, still aliased as main_alias.
+    relation.primary = cast(
+        ast.Expression,
+        ast.Alias(
+            child=ast.Table(ast.Name(filtered_cte_name)),
+            alias=ast.Name(main_alias),
+        ),
+    )
+    relation.extensions = kept_joins
+
+    # Rewrite references to absorbed aliases → main_alias in everything
+    # outside the wrapper.
+    def _rewrite(node: ast.Node) -> None:
+        for col in node.find_all(ast.Column):
+            tname_str = _col_table_name(col)
+            if tname_str is not None and tname_str in absorbed_aliases:
+                _set_col_table_alias(col, main_alias)
+
+    for proj_item in select.projection:
+        _rewrite(proj_item)
+    for kj in kept_joins:
+        if kj.criteria and kj.criteria.on:  # pragma: no branch
+            _rewrite(kj.criteria.on)
+    for atom in other_atoms:
+        _rewrite(atom)
+    for gb_item in group_by:
+        _rewrite(gb_item)
+
+    # Remap dim_aliases so downstream lookups (e.g. _build_group_by)
+    # find main_alias instead of an absorbed dim alias.
+    for key in list(dim_aliases.keys()):
+        if dim_aliases[key] in absorbed_aliases:
+            dim_aliases[key] = main_alias
+
+    # Rebuild where_clause from remaining atoms:
+    # - Compound/cross-namespace atoms (already in ``other_atoms``).
+    # - Single-dim atoms whose alias was NOT absorbed (typically the
+    #   preserved RIGHT/FULL OUTER side, where outer-WHERE filtering
+    #   safely narrows the preserved row set).
+    remaining_atoms: list[ast.Expression] = list(other_atoms)
+    for alias, atoms_for_alias in atoms_by_alias.items():
+        if alias not in absorbed_aliases:
+            remaining_atoms.extend(atoms_for_alias)
+
+    new_where: Optional[ast.Expression] = None
+    for atom in remaining_atoms:
+        new_where = atom if new_where is None else ast.BinaryOp.And(new_where, atom)
+    return new_where, (filtered_cte_name, wrapper_query)
+
+
+def _coalesce_partner_for_full_skipped_fk(
+    resolved_dim: ResolvedDimension,
+    resolved_dimensions: list[ResolvedDimension],
+    dim_aliases: dict[tuple[str, Optional[str]], str],
+    parent_node_name: str,
+) -> Optional[ast.Column]:
+    """Find a joined dim whose first link is FK-aligned with the fact FK
+    column we just full-skip-resolved, and return a column reference to
+    that dim's equivalent column.
+
+    Two dims sharing the same fact FK both carry an equivalent value via
+    each link's ``foreign_keys_reversed``.  When the requested dim was
+    fully skipped (its own CTE isn't joined) but another joined dim
+    shares the FK, the joined dim's PK is the correct COALESCE partner
+    for the fact FK under any OUTER JOIN that preserves the dim side.
+
+    Returns ``None`` when no co-joined sibling carries the FK.
+    """
+    if resolved_dim.pre_skip_join_path is None:
+        return None
+
+    parent_fk_fqn = f"{parent_node_name}{SEPARATOR}{resolved_dim.column_name}"
+
+    for other in resolved_dimensions:
+        if other.original_ref == resolved_dim.original_ref:
+            continue
+        if not other.join_path or not other.join_path.links:  # pragma: no cover
+            continue
+        first_link = other.join_path.links[0]
+        # foreign_keys_reversed: {dim_pk_fqn -> fact_fk_fqn}
+        for dim_pk_fqn, fact_fk_fqn in first_link.foreign_keys_reversed.items():
+            if fact_fk_fqn != parent_fk_fqn:
+                continue
+            dim_short = dim_pk_fqn.rsplit(SEPARATOR, 1)[-1]
+            dim_node_name = first_link.dimension.name
+            role = first_link.role or ""
+            alias = dim_aliases.get(
+                (dim_node_name, role),
+            ) or dim_aliases.get((dim_node_name, None))
+            if alias is not None:  # pragma: no branch
+                return make_column_ref(dim_short, alias)
+    return None
+
+
 def build_dimension_col_expr(
     resolved_dim: ResolvedDimension,
     main_alias: str,
     dim_aliases: dict[tuple[str, Optional[str]], str],
     clean_alias: str,
+    ctx: Optional[BuildContext] = None,
+    resolved_dimensions: Optional[list[ResolvedDimension]] = None,
+    parent_node_name: Optional[str] = None,
 ) -> Any:
     """Build a SELECT expression for a single resolved dimension.
 
     Returns a column reference, optionally wrapped in COALESCE (when the
-    dimension link has a ``default_value``) and aliased.
+    dimension link has a ``default_value``, or when the FK column was
+    substituted for a dim PK via the full-skip optimization but the dim
+    CTE is still joined for other columns — in which case ``t1.fk`` may
+    be NULL under a downstream OUTER JOIN preserving the dim side, and
+    we COALESCE in the dim PK so the projected value matches the dim).
     """
     table_alias = get_dimension_table_alias(resolved_dim, main_alias, dim_aliases)
     col_ref = make_column_ref(resolved_dim.column_name, table_alias)
@@ -687,6 +1011,30 @@ def build_dimension_col_expr(
         coalesce_func = ast.Function(
             ast.Name("COALESCE"),
             args=[col_ref, ast.String(f"'{default_value}'")],
+        )
+        col_expr = coalesce_func.set_alias(ast.Name(clean_alias))
+        col_expr.set_as(True)
+        return col_expr
+
+    # Full-skip + co-joined-dim COALESCE.  When the original ref pointed
+    # at a non-local dim node but the FK was substituted in via the
+    # full-skip optimization, walk the original (pre-skip) join path to
+    # find any intermediate dim that's still joined, and COALESCE its
+    # FK-aligned column into the projection.  Under OUTER JOINs that
+    # preserve the dim side, ``t1.fk`` is NULL where unmatched and the
+    # co-joined dim's column has the value.
+    coalesce_extra: Optional[ast.Column] = None
+    if resolved_dimensions is not None and parent_node_name is not None:
+        coalesce_extra = _coalesce_partner_for_full_skipped_fk(
+            resolved_dim,
+            resolved_dimensions,
+            dim_aliases,
+            parent_node_name,
+        )
+    if coalesce_extra is not None:
+        coalesce_func = ast.Function(
+            ast.Name("COALESCE"),
+            args=[col_ref, coalesce_extra],
         )
         col_expr = coalesce_func.set_alias(ast.Name(clean_alias))
         col_expr.set_as(True)
@@ -721,12 +1069,18 @@ def _build_group_by(
     grain_col_specs: list[tuple[ast.Expression, str]],
     projected_dim_col_names: set[str],
     filter_dimensions: set[str],
+    parent_node_name: Optional[str] = None,
 ) -> list[ast.Expression]:
     """Build the GROUP BY clause from dimensions and grain columns.
 
     Dimensions marked as filter-only are excluded.  Grain columns that are
     simple identifiers already present as a dimension are also skipped to
     avoid duplicates.
+
+    When a dimension's projection is wrapped in COALESCE (full-skip with
+    a co-joined sibling dim — see :func:`build_dimension_col_expr`), the
+    GROUP BY expression mirrors the COALESCE so rows aren't bucketed by
+    the NULL-side alone.
     """
     group_by: list[ast.Expression] = []
 
@@ -734,7 +1088,24 @@ def _build_group_by(
         if resolved_dim.original_ref in filter_dimensions:
             continue
         table_alias = get_dimension_table_alias(resolved_dim, main_alias, dim_aliases)
-        group_by.append(make_column_ref(resolved_dim.column_name, table_alias))
+        col_ref = make_column_ref(resolved_dim.column_name, table_alias)
+        coalesce_extra: Optional[ast.Column] = None
+        if parent_node_name is not None:  # pragma: no branch
+            coalesce_extra = _coalesce_partner_for_full_skipped_fk(
+                resolved_dim,
+                resolved_dimensions,
+                dim_aliases,
+                parent_node_name,
+            )
+        if coalesce_extra is not None:
+            group_by.append(
+                ast.Function(
+                    ast.Name("COALESCE"),
+                    args=[col_ref, coalesce_extra],
+                ),
+            )
+        else:
+            group_by.append(col_ref)
 
     for gc_expr, gc_alias in grain_col_specs:
         if isinstance(gc_expr, ast.Column):
@@ -903,6 +1274,9 @@ def build_select_ast(
             main_alias,
             dim_aliases,
             clean_alias,
+            ctx=ctx,
+            resolved_dimensions=resolved_dimensions,
+            parent_node_name=parent_node.name,
         )
         projection.append(col_expr)
 
@@ -955,6 +1329,7 @@ def build_select_ast(
         grain_col_specs,
         projected_dim_col_names,
         ctx.filter_dimensions,
+        parent_node_name=parent_node.name,
     )
 
     # Collect all nodes that need CTEs and the minimal columns each must project.
@@ -1030,23 +1405,54 @@ def build_select_ast(
         else None,
     )
 
-    # Combine user filters with temporal filter
-    if temporal_filter_ast:
-        if where_clause:
-            where_clause = ast.BinaryOp.And(where_clause, temporal_filter_ast)
-        else:
-            where_clause = temporal_filter_ast
-
-    # Build SELECT
-    # For non-decomposable metrics, skip GROUP BY to pass through raw rows
+    # Build SELECT.
+    # For non-decomposable metrics, skip GROUP BY to pass through raw rows.
     effective_group_by = [] if skip_aggregation else (group_by if group_by else [])
     select = ast.Select(
         projection=projection,
         from_=from_clause,
-        where=where_clause,
         group_by=effective_group_by,
         hints=spark_hints if spark_hints else None,
     )
+
+    # Apply outer WHERE atoms.  Parent-alias atoms are dropped from outer
+    # WHERE when the parent CTE pushdown is active (filter is already in
+    # the parent CTE; the outer copy is redundant and would defeat
+    # downstream OUTER joins).  Dim-alias atoms continue to land in
+    # outer WHERE for standard dim-filter semantics.  See
+    # ``_apply_outer_where_atoms`` for the full rule.
+    parent_pushdown_active = bool(all_filters) and not should_use_materialized_table(
+        ctx,
+        parent_node,
+    )
+    # Absorb LEFT/INNER-joined dims whose filter would defeat a
+    # downstream RIGHT/FULL OUTER JOIN into a filtered CTE on the
+    # parent side.  Mutates ``select.from_`` (re-pointing the parent
+    # FROM at the new CTE), rewrites references to absorbed aliases,
+    # remaps ``dim_aliases``, and removes the absorbed atoms from
+    # ``where_clause``.  Returns a new CTE to append to the query.
+    where_clause, filtered_cte = _absorb_filtered_joins_for_outer_safety(
+        select=select,
+        where_clause=where_clause,
+        main_alias=main_alias,
+        dim_aliases=dim_aliases,
+        parent_cte_name=get_cte_name(parent_node.name),
+        group_by=effective_group_by,
+    )
+    if filtered_cte is not None:
+        ctes.append(filtered_cte)
+    _apply_outer_where_atoms(
+        select,
+        where_clause,
+        main_alias,
+        parent_pushdown_active=parent_pushdown_active,
+    )
+    if temporal_filter_ast is not None:  # pragma: no cover
+        # ``_build_temporal_pushdown`` always pushes the filter into a
+        # CTE and returns ``None``, so this branch is currently dead.
+        # Kept as a safety backstop in case the pushdown logic changes
+        # in the future.
+        inject_filter_into_select(select, temporal_filter_ast)
 
     # Build Query with CTEs
     query = ast.Query(select=select)

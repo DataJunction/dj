@@ -576,7 +576,7 @@ default_users AS (
   WHERE  registration_country = 'NZ'
 ),
 events_0 AS (
-  SELECT  t1.user_id user_id_user_windowed,
+  SELECT  COALESCE(t1.user_id, t2.user_id) AS user_id_user_windowed,
     t2.snapshot_date snapshot_date_user_windowed,
     t2.registration_country registration_country_user_windowed,
     SUM(t1.elapsed_secs) elapsed_secs_sum_88a2603f
@@ -585,7 +585,7 @@ events_0 AS (
     AND t1.event_start_date BETWEEN t2.snapshot_date
     AND CAST(DATE_ADD(CAST(t2.snapshot_date AS DATE), 10) AS INT)
   WHERE  t2.registration_country = 'NZ'
-  GROUP BY  t1.user_id, t2.snapshot_date, t2.registration_country
+  GROUP BY  COALESCE(t1.user_id, t2.user_id), t2.snapshot_date, t2.registration_country
 )
 SELECT  events_0.user_id_user_windowed AS user_id_user_windowed,
   events_0.snapshot_date_user_windowed AS snapshot_date_user_windowed,
@@ -619,14 +619,14 @@ GROUP BY  events_0.user_id_user_windowed,
       FROM default.examples.users
     ),
     events_0 AS (
-      SELECT  t1.user_id user_id_user_direct,
-        t1.event_start_date snapshot_date_user_direct,
+      SELECT  COALESCE(t1.user_id, t2.user_id) AS user_id_user_direct,
+        COALESCE(t1.event_start_date, t2.snapshot_date) AS snapshot_date_user_direct,
         t2.registration_country registration_country_user_direct,
         SUM(t1.elapsed_secs) elapsed_secs_sum_88a2603f
       FROM default_events t1
       LEFT OUTER JOIN default_users t2 ON t1.user_id = t2.user_id
         AND t1.event_start_date = t2.snapshot_date
-      GROUP BY  t1.user_id, t1.event_start_date, t2.registration_country
+      GROUP BY  COALESCE(t1.user_id, t2.user_id), COALESCE(t1.event_start_date, t2.snapshot_date), t2.registration_country
     )
     SELECT  events_0.user_id_user_direct AS user_id_user_direct,
       events_0.snapshot_date_user_direct AS snapshot_date_user_direct,
@@ -676,7 +676,7 @@ default_users AS (
 ),
 events_0 AS (
   SELECT  t3.name name_registration_country,
-    t1.event_start_date snapshot_date_user_direct,
+    COALESCE(t1.event_start_date, t2.snapshot_date) AS snapshot_date_user_direct,
     t2.registration_country registration_country_user_direct,
     SUM(t1.elapsed_secs) elapsed_secs_sum_88a2603f
   FROM default_events t1
@@ -684,7 +684,7 @@ events_0 AS (
     AND t1.event_start_date = t2.snapshot_date
   INNER JOIN default_countries t3 ON t2.registration_country = t3.country_code
   WHERE  t3.name = 'NZ'
-  GROUP BY  t3.name, t1.event_start_date, t2.registration_country
+  GROUP BY  t3.name, COALESCE(t1.event_start_date, t2.snapshot_date), t2.registration_country
 )
 SELECT  events_0.name_registration_country AS name_registration_country,
   events_0.snapshot_date_user_direct AS snapshot_date_user_direct,

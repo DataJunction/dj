@@ -1692,7 +1692,6 @@ class TestCombinedMeasuresSQLEndpoint:
             )
             SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
-            WHERE t1.status = 'active'
             GROUP BY t1.status
             """,
         )

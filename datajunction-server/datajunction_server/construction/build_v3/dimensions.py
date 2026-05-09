@@ -356,6 +356,7 @@ def resolve_dimensions(
                         role=dim_ref.role,
                         join_path=None,
                         is_local=True,
+                        pre_skip_join_path=join_path,
                     ),
                 )
             elif can_skip and local_col and hops_skipped > 0:
