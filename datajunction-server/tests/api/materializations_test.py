@@ -602,6 +602,34 @@ WHERE repair_orders.order_date = DJ_LOGICAL_TIMESTAMP()""",
         "druid_measures_cube.incremental.druid_spec.json",
     )
 
+    # Restore repair_orders_fact to its original SQL so later tests are not affected
+    restore_response = await client_with_repairs_cube.patch(
+        "/nodes/default.repair_orders_fact",
+        json={
+            "query": """SELECT
+  repair_orders.repair_order_id,
+  repair_orders.municipality_id,
+  repair_orders.hard_hat_id,
+  repair_orders.dispatcher_id,
+  repair_orders.order_date,
+  repair_orders.dispatched_date,
+  repair_orders.required_date,
+  repair_order_details.discount,
+  repair_order_details.price,
+  repair_order_details.quantity,
+  repair_order_details.repair_type_id,
+  repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
+  repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
+  repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
+FROM
+  default.repair_orders repair_orders
+JOIN
+  default.repair_order_details repair_order_details
+ON repair_orders.repair_order_id = repair_order_details.repair_order_id""",
+        },
+    )
+    assert restore_response.status_code in (200, 201)
+
 
 @pytest.mark.asyncio
 @pytest.mark.skip(reason="The test is unstable depending on run order")
