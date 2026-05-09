@@ -1480,7 +1480,7 @@ class TestExportYaml:
         import zipfile
         import io
 
-        response = await client_with_roads.get("/namespaces/default/export/yaml")
+        response = await client_with_roads.post("/namespaces/default/export/yaml")
         assert response.status_code == 200
 
         # Check content type is ZIP
@@ -1517,7 +1517,7 @@ class TestExportYaml:
         import io
         import yaml
 
-        response = await client_with_roads.get("/namespaces/default/export/yaml")
+        response = await client_with_roads.post("/namespaces/default/export/yaml")
         assert response.status_code == 200
 
         zip_buffer = io.BytesIO(response.content)
