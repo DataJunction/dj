@@ -1551,13 +1551,16 @@ class TestExportYaml:
         import io
         import zipfile
 
-        # Build an existing zip with a custom dj.yaml that the server should keep
+        # Build an existing zip with a custom dj.yaml that the server should keep,
+        # plus a non-YAML file the server must skip (covers the branch where
+        # `name.endswith(".yaml")` is False).
         existing = io.BytesIO()
         with zipfile.ZipFile(existing, "w") as zf:
             zf.writestr(
                 "dj.yaml",
                 "name: My Custom Project\nnamespace: default\n",
             )
+            zf.writestr("README.md", "# not yaml — should be ignored\n")
         existing.seek(0)
 
         response = await client_with_roads.post(
