@@ -8,28 +8,19 @@ import os
 import re
 import textwrap
 from datetime import datetime, timezone
-from typing import Callable, Dict, List, Optional, Tuple
-
-from sqlalchemy import or_, select, delete, func
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, selectinload
 from io import StringIO
+from typing import Callable, Dict, List, Optional, Tuple, cast
 
 from ruamel.yaml import YAML
-from ruamel.yaml.comments import CommentedSeq
-from ruamel.yaml.comments import CommentedMap
-from ruamel.yaml.comments import Comment
+from ruamel.yaml.comments import Comment, CommentedMap, CommentedSeq
+from sqlalchemy import delete, func, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload, selectinload
 from yamlfix import fix_code
 from yamlfix.model import YamlfixConfig, YamlNodeStyle
 
-from datajunction_server.database.deployment import Deployment
-from datajunction_server.models.deployment import (
-    DeploymentSourceType,
-    GitDeploymentSource,
-    LocalDeploymentSource,
-    NamespaceSourcesResponse,
-)
 from datajunction_server.api.helpers import get_node_namespace
+from datajunction_server.database.deployment import Deployment
 from datajunction_server.database.history import History
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import Column, Node, NodeRevision
@@ -39,14 +30,21 @@ from datajunction_server.errors import (
     DJDoesNotExistException,
     DJInvalidInputException,
 )
-from datajunction_server.models.namespace import (
-    ImpactedNode,
-    HardDeleteResponse,
-    ImpactedNodes,
-)
 from datajunction_server.internal.history import ActivityType, EntityType
-from datajunction_server.internal.nodes import (
-    get_single_cube_revision_metadata,
+from datajunction_server.internal.nodes import get_single_cube_revision_metadata
+from datajunction_server.models.deployment import (
+    CubeSpec,
+    DeploymentSourceType,
+    GitDeploymentSource,
+    LocalDeploymentSource,
+    NamespaceSourcesResponse,
+    NodeSpec,
+)
+from datajunction_server.models.dimensionlink import LinkType
+from datajunction_server.models.namespace import (
+    HardDeleteResponse,
+    ImpactedNode,
+    ImpactedNodes,
 )
 from datajunction_server.models.node import NodeMinimumDetail
 from datajunction_server.models.node_type import NodeType
@@ -56,23 +54,6 @@ from datajunction_server.sql.dag import (
     topological_sort,
 )
 from datajunction_server.typing import UTCDatetime
-from datajunction_server.utils import SEPARATOR
-
-import logging
-from typing import Callable, Dict, List, Optional, cast
-
-from sqlalchemy.ext.asyncio import AsyncSession
-from datajunction_server.database.namespace import NodeNamespace
-from datajunction_server.database.node import Node
-from datajunction_server.database.user import User
-from datajunction_server.models.deployment import (
-    CubeSpec,
-    NamespaceSourcesResponse,
-    NodeSpec,
-)
-from datajunction_server.models.dimensionlink import LinkType
-from datajunction_server.models.node import NodeMinimumDetail
-from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import SEPARATOR
 
 logger = logging.getLogger(__name__)
@@ -538,7 +519,7 @@ def _attributes_config(column: Column):
     """
     non_pk_attributes = _non_primary_key_attributes(column)
     if non_pk_attributes:
-        return {"attributes": _non_primary_key_attributes(column)}
+        return {"attributes": non_pk_attributes}
     return {}
 
 
@@ -675,7 +656,9 @@ def _metric_project_config(node: Node, namespace_requested: str) -> Dict:
         ),
         "unit": (
             node.current.metric_metadata.unit.name.lower()
-            if node.current.metric_metadata and node.current.metric_metadata.unit
+            if node.current.metric_metadata
+            and node.current.metric_metadata.unit
+            and node.current.metric_metadata.unit.name.lower() != "unknown"
             else None
         ),
         "significant_digits": (
@@ -1132,7 +1115,28 @@ def _get_yaml_handler():
     return yaml_handler
 
 
-def _merge_list_with_key(existing_list, new_list, match_key="name"):
+SQL_LIKE_KEYS = ("query", "join_on")
+
+
+def _strings_equivalent(key: str, old: str, new: str) -> bool:
+    """
+    Compare two string values for the purpose of "do we need to overwrite?".
+
+    For SQL-bearing keys (`query`, `join_on`), whitespace runs are normalized so
+    that hand-wrapped SQL is treated as equivalent to the single-line form the
+    server produces. For all other keys, only trailing whitespace is ignored.
+    """
+    if key in SQL_LIKE_KEYS:
+        return " ".join(old.split()) == " ".join(new.split())
+    return old.rstrip() == new.rstrip()
+
+
+def _merge_list_with_key(
+    existing_list,
+    new_list,
+    match_key="name",
+    preserve_existing_order=False,
+):
     """
     Merge a list of dicts by matching on a key (e.g., 'name').
 
@@ -1152,6 +1156,51 @@ def _merge_list_with_key(existing_list, new_list, match_key="name"):
     for idx, item in enumerate(existing_list):
         if isinstance(item, dict) and match_key in item:  # pragma: no branch
             existing_by_key[item[match_key]] = (idx, item)
+
+    # Build a lookup of new items by key so we can merge them into existing ones
+    new_by_key = {}
+    for item in new_list:
+        if isinstance(item, dict) and match_key in item:
+            new_by_key[item[match_key]] = item
+
+    # When preserve_existing_order is True, iterate in existing_list order and append
+    # only new items at the end (used for dimension_links so the YAML author's ordering
+    # is not clobbered by a server-side reorder).
+    if preserve_existing_order:
+        result = CommentedSeq()
+        seen_keys = set()
+        for existing_item in existing_list:
+            if not isinstance(existing_item, dict) or match_key not in existing_item:
+                continue
+            key_value = existing_item[match_key]
+            if key_value not in new_by_key:
+                continue  # removed from DB — drop it
+            new_item = new_by_key[key_value]
+            seen_keys.add(key_value)
+            if isinstance(existing_item, CommentedMap):
+                for k, v in new_item.items():
+                    # Skip overwrite when the existing string value is equivalent
+                    # to the new one — preserves comment/scalar style for SQL-like
+                    # values (e.g. hand-wrapped `join_on`).
+                    if (
+                        k in existing_item
+                        and isinstance(v, str)
+                        and isinstance(existing_item[k], str)
+                        and _strings_equivalent(k, existing_item[k], v)
+                    ):
+                        continue
+                    existing_item[k] = v
+                for k in list(existing_item.keys()):
+                    if k not in new_item:
+                        del existing_item[k]
+                result.append(existing_item)
+            else:
+                result.append(new_item)
+        # Append brand-new items (not in existing) at the end
+        for item in new_list:
+            if isinstance(item, dict) and item.get(match_key) not in seen_keys:
+                result.append(item)
+        return result
 
     # Build result list in the order of new_list
     result = CommentedSeq()
@@ -1261,6 +1310,133 @@ def _merge_list_with_key(existing_list, new_list, match_key="name"):
     return result
 
 
+def _has_column_customizations(col: dict) -> bool:
+    """Return True if a column dict has content worth storing in YAML.
+
+    A column with only an auto-generated display_name (labelize of the name)
+    and nothing else carries no information — DJ derives it anyway.
+    """
+    from datajunction_server.models.base import labelize
+
+    col_name = col.get("name", "")
+    display_name = col.get("display_name")
+    default_display = labelize(col_name.split(".")[-1]) if col_name else None
+    has_custom_display = bool(
+        display_name and display_name != col_name and display_name != default_display,
+    )
+    has_attributes = bool(col.get("attributes"))
+    has_description = bool(col.get("description"))
+    has_partition = bool(col.get("partition")) or "partition" in col.get(
+        "attributes",
+        [],
+    )
+    return has_custom_display or has_attributes or has_description or has_partition
+
+
+def _merge_columns_preserving_comments(existing_list, new_list, is_cube=False):
+    """Merge column lists while preserving inline comments and authoring intent.
+
+    Rules:
+    - Existing YAML columns are always kept (and updated from DB).
+    - Columns removed from the DB are dropped.
+    - New DB columns are only added if they have real customizations
+      (not just an auto-generated display_name).
+    """
+    new_by_name = {
+        c["name"]: c for c in new_list if isinstance(c, dict) and "name" in c
+    }
+    existing_names = {
+        c["name"] for c in existing_list if isinstance(c, dict) and "name" in c
+    }
+
+    from datajunction_server.models.base import labelize
+
+    result = CommentedSeq()
+    # Track old index → new index for comment remapping
+    has_seq_ca = isinstance(existing_list, CommentedSeq) and hasattr(
+        existing_list,
+        "ca",
+    )
+    has_seq_items = has_seq_ca and getattr(existing_list.ca, "items", None)
+    old_idx_to_new_idx: dict = {}
+
+    for old_idx, existing_col in enumerate(existing_list):
+        if not isinstance(existing_col, dict) or "name" not in existing_col:
+            continue
+        col_name = existing_col["name"]
+        if col_name not in new_by_name:
+            continue  # genuinely removed from DB
+        new_col = new_by_name[col_name]
+        new_idx = len(result)
+        old_idx_to_new_idx[old_idx] = new_idx
+        if isinstance(existing_col, CommentedMap):
+            default_display = labelize(col_name.split(".")[-1]) if col_name else None
+            for k, v in new_col.items():
+                if k == "display_name":
+                    # Skip auto-generated display names — don't add noise to
+                    # existing columns that didn't have a display_name before.
+                    is_auto = v == col_name or v == default_display
+                    if is_auto and k not in existing_col:
+                        continue
+                if k == "attributes":
+                    if is_cube:
+                        if k in existing_col:
+                            # Column already has attributes in the existing file —
+                            # preserve them; use set-unchanged logic so we don't
+                            # reorder or remove what the author intentionally set.
+                            existing_attrs = (
+                                set(existing_col[k])
+                                if isinstance(existing_col[k], list)
+                                else set()
+                            )
+                            new_attrs = set(v) if isinstance(v, list) else set()
+                            if existing_attrs == new_attrs:
+                                continue
+                        else:
+                            # Column has no attributes yet — only add "partition";
+                            # temporal and primary_key are already expressed by
+                            # time_dimension and the top-level primary_key field.
+                            partition_attrs = [a for a in (v or []) if a == "partition"]
+                            if not partition_attrs:
+                                continue
+                            v = partition_attrs
+                    elif k in existing_col:
+                        # Preserve existing attribute order when the set is unchanged
+                        existing_attrs = (
+                            set(existing_col[k])
+                            if isinstance(existing_col[k], list)
+                            else set()
+                        )
+                        new_attrs = set(v) if isinstance(v, list) else set()
+                        if existing_attrs == new_attrs:
+                            continue
+                existing_col[k] = v
+            for k in list(existing_col.keys()):
+                if k not in new_col:
+                    del existing_col[k]
+            result.append(existing_col)
+        else:
+            result.append(new_col)
+
+    # Copy per-item comments (e.g. "# Primary key" before a list entry) from
+    # the existing sequence to the result, remapping indices as items are dropped.
+    if has_seq_items:
+        for old_idx, new_idx in old_idx_to_new_idx.items():
+            if old_idx in existing_list.ca.items:
+                result.ca.items[new_idx] = existing_list.ca.items[old_idx]
+
+    # Append new columns only when they carry real customizations
+    for new_col in new_list:
+        if not isinstance(new_col, dict) or "name" not in new_col:
+            continue
+        if new_col["name"] in existing_names:
+            continue
+        if _has_column_customizations(new_col):
+            result.append(new_col)
+
+    return result
+
+
 def _merge_yaml_preserving_comments(existing, new_data, yaml_handler):
     """
     Merge new data into existing YAML structure while preserving comments.
@@ -1318,10 +1494,10 @@ def _merge_yaml_preserving_comments(existing, new_data, yaml_handler):
                 ):
                     # Determine match key based on list type
                     if key == "columns" and "name" in new_value[0]:
-                        result[key] = _merge_list_with_key(
+                        result[key] = _merge_columns_preserving_comments(
                             old_value,
                             new_value,
-                            match_key="name",
+                            is_cube=new_data.get("node_type") == "cube",
                         )
                     elif (
                         key == "dimension_links" and "dimension_node" in new_value[0]
@@ -1330,28 +1506,89 @@ def _merge_yaml_preserving_comments(existing, new_data, yaml_handler):
                             old_value,
                             new_value,
                             match_key="dimension_node",
+                            preserve_existing_order=True,
                         )
                     else:  # pragma: no cover
                         # Fallback: replace entirely
                         result[key] = new_value  # pragma: no cover
-                elif key in ("metrics", "dimensions"):
-                    # For cube metrics/dimensions, preserve order from existing YAML
-                    # Only include items that are in the new list (in case some were removed)
+                elif key in ("metrics", "dimensions", "owners", "tags"):
+                    # Preserve existing YAML order and inline comments.
+                    # Build a CommentedSeq so ruamel.yaml keeps "# Section" comments
+                    # that appear before individual items in the existing file.
                     new_value_set = set(new_value)
-                    preserved_order = [v for v in old_value if v in new_value_set]
-                    # Add any new items that weren't in the old list
-                    result[key] = preserved_order + [
-                        v for v in new_value if v not in preserved_order
-                    ]
+                    seq = CommentedSeq()
+
+                    has_ca = isinstance(old_value, CommentedSeq) and hasattr(
+                        old_value,
+                        "ca",
+                    )
+                    has_items = has_ca and getattr(old_value.ca, "items", None)
+
+                    old_idx_to_new_idx = {}
+                    for old_idx, item in enumerate(old_value):
+                        if item not in new_value_set:
+                            continue
+                        old_idx_to_new_idx[old_idx] = len(seq)
+                        seq.append(item)
+
+                    # Copy per-item comment entries (pre-item comments like "# Section")
+                    if has_items:
+                        for old_idx, new_idx in old_idx_to_new_idx.items():
+                            if old_idx in old_value.ca.items:
+                                seq.ca.items[new_idx] = old_value.ca.items[old_idx]
+
+                    # Append brand-new items from the server at the end
+                    seen = set(seq)
+                    for item in new_value:
+                        if item not in seen:
+                            seq.append(item)
+
+                    result[key] = seq
                 else:  # pragma: no cover
                     # Other lists: replace entirely
                     result[key] = new_value  # pragma: no cover
             else:
-                # Simple value or type mismatch: replace
+                # Simple value or type mismatch: replace.
+                # For strings, keep old_value when content is unchanged so that
+                # ruamel.yaml scalar types (FoldedScalarString, LiteralScalarString)
+                # are preserved — this avoids re-wrapping folded descriptions at
+                # the current width setting when nothing actually changed.
+                # For SQL-bearing keys (`query`, `join_on`), normalize whitespace
+                # runs so that hand-wrapped SQL is treated as equivalent to the
+                # single-line form the server produces.
+                if (
+                    isinstance(new_value, str)
+                    and isinstance(old_value, str)
+                    and _strings_equivalent(key, old_value, new_value)
+                ):
+                    continue  # keep old_value with its original scalar type
                 result[key] = new_value
         else:
-            # New key - just add it
-            result[key] = new_value
+            # New key - just add it.
+            # For columns, filter out trivial entries (auto-display, no customizations)
+            # so fresh-export nodes don't accumulate noise columns.
+            if (
+                key == "columns"
+                and isinstance(new_value, list)
+                and new_value
+                and isinstance(new_value[0], dict)
+            ):
+                is_cube = new_data.get("node_type") == "cube"
+                filtered = [
+                    c
+                    for c in new_value
+                    if isinstance(c, dict)
+                    and (
+                        _has_column_customizations(c)
+                        if not is_cube
+                        else bool(c.get("partition"))
+                        or "partition" in c.get("attributes", [])
+                    )
+                ]
+                if filtered:
+                    result[key] = filtered
+            else:
+                result[key] = new_value
 
     return result
 
@@ -1387,8 +1624,6 @@ def _node_spec_to_yaml_dict(node_spec, include_all_columns=False) -> dict:
     # Special case for cubes: ALWAYS only export columns with partitions
     # For other nodes: respect include_all_columns flag to preserve comments
     if "columns" in data and data["columns"] is not None:
-        from datajunction_server.models.base import labelize
-
         is_cube = data.get("node_type") == "cube"
 
         # Cubes: always filter to only partitions (even when preserving comments)
@@ -1399,33 +1634,14 @@ def _node_spec_to_yaml_dict(node_spec, include_all_columns=False) -> dict:
             filtered_columns = []
 
             for col in data["columns"]:
-                # Check for meaningful customizations
-                # For display_name, check if it's different from both the full name AND the default
-                col_name = col.get("name", "")
-                display_name = col.get("display_name")
-                default_display = (
-                    labelize(col_name.split(".")[-1]) if col_name else None
-                )
-                has_custom_display = (
-                    display_name
-                    and display_name != col_name
-                    and display_name != default_display
-                )
-                has_attributes = bool(col.get("attributes"))
-                has_description = bool(col.get("description"))
-                has_partition = bool(col.get("partition"))
-
                 # For cubes: only include columns with partitions
-                # For other nodes: include columns with any customization
+                # For other nodes: include columns with any meaningful customization
                 if is_cube:
-                    should_include = has_partition
+                    should_include = bool(
+                        col.get("partition"),
+                    ) or "partition" in col.get("attributes", [])
                 else:
-                    should_include = (
-                        has_custom_display
-                        or has_attributes
-                        or has_description
-                        or has_partition
-                    )
+                    should_include = _has_column_customizations(col)
 
                 if should_include:
                     # Include column but exclude type and order (let DJ infer)
@@ -1461,24 +1677,26 @@ def _node_spec_to_yaml_dict(node_spec, include_all_columns=False) -> dict:
         # If columns is explicitly None, remove it
         del data["columns"]
 
-    # Sort list fields for deterministic output
-    if "owners" in data and isinstance(data["owners"], list):  # pragma: no branch
-        data["owners"] = sorted(data["owners"])
-    if "tags" in data and isinstance(data["tags"], list):  # pragma: no branch
-        data["tags"] = sorted(data["tags"])
     if "columns" in data and isinstance(data["columns"], list):
         for col in data["columns"]:
             if "attributes" in col and isinstance(col["attributes"], list):
                 col["attributes"] = sorted(col["attributes"])
+
+    for list_key in ("owners", "tags"):
+        if list_key in data and isinstance(  # pragma: no branch
+            data[list_key],
+            list,
+        ):
+            data[list_key] = sorted(data[list_key])
 
     # Remove empty lists/dicts for cleaner YAML
     data = {k: v for k, v in data.items() if v or v == 0 or v is False}
 
     # Clean up multiline strings by stripping trailing whitespace from each line
     # Use LiteralScalarString to force literal block style (|) for multiline queries
-    if "query" in data and data["query"]:
-        from ruamel.yaml.scalarstring import LiteralScalarString
+    from ruamel.yaml.scalarstring import LiteralScalarString
 
+    if "query" in data and data["query"]:
         cleaned_query = "\n".join(line.rstrip() for line in data["query"].split("\n"))
         # Strip leading/trailing newlines and dedent to remove common leading whitespace
         # (prevents ruamel.yaml from emitting |4- instead of |-)
@@ -1489,10 +1707,19 @@ def _node_spec_to_yaml_dict(node_spec, include_all_columns=False) -> dict:
         else:
             data["query"] = cleaned_query
 
+    # Use literal block style for multi-line descriptions so they round-trip
+    # cleanly. Without this, ruamel.yaml/yamlfix folds them into double-quoted
+    # strings with `\u2014` and other unicode escapes, which is hard to read
+    # and causes noisy diffs.
+    if "description" in data and isinstance(data["description"], str):
+        desc = data["description"].rstrip()
+        if "\n" in desc:
+            data["description"] = LiteralScalarString(desc)
+        else:
+            data["description"] = desc
+
     # Also clean join_on in dimension_links
     if "dimension_links" in data:
-        from ruamel.yaml.scalarstring import LiteralScalarString
-
         for link in data["dimension_links"]:
             if "join_on" in link and link["join_on"]:
                 cleaned_join = "\n".join(
@@ -1523,12 +1750,13 @@ def node_spec_to_yaml(node_spec, existing_yaml: str | None = None) -> str:
     Returns:
         Formatted YAML string with comments preserved (if existing_yaml provided)
     """
-    # When merging with existing YAML, include all columns (even without customizations)
-    # so we can match and preserve comments on them
-    include_all_columns = existing_yaml is not None
+    # Include all columns only when merging with existing YAML — we need the
+    # full column list so _merge_columns_preserving_comments can update existing
+    # entries. For fresh dumps (no existing_yaml) we filter trivial columns so
+    # the output doesn't accumulate noise.
     yaml_dict = _node_spec_to_yaml_dict(
         node_spec,
-        include_all_columns=include_all_columns,
+        include_all_columns=bool(existing_yaml),
     )
     yaml_handler = _get_yaml_handler()
 

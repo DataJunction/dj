@@ -533,9 +533,9 @@ class Node(Base):
         # Metric-specific
         if self.type == NodeType.METRIC:
             extra_kwargs.update(
-                required_dimensions=[
+                required_dimensions=sorted(
                     col.name for col in self.current.required_dimensions
-                ],
+                ),
                 direction=self.current.metric_metadata.direction
                 if self.current.metric_metadata
                 else None,

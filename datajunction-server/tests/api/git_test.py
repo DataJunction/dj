@@ -1958,15 +1958,16 @@ class TestGitSync:
 
         with (
             patch(
-                "datajunction_server.api.git_sync.GitHubService",
-            ) as mock_github_class,
+                "datajunction_server.internal.git.yaml_export.GitHubService",
+            ) as mock_fetch_github_class,
             patch(
-                "datajunction_server.api.git_sync.node_spec_to_yaml",
+                "datajunction_server.api.git_sync.GitHubService",
+            ) as mock_commit_github_class,
+            patch(
+                "datajunction_server.internal.git.yaml_export.node_spec_to_yaml",
             ) as mock_node_spec_to_yaml,
         ):
             mock_github = MagicMock()
-            # Mock download_archive to return tarball with existing YAML files
-            # Create tarball with some existing files
             mock_github.download_archive = AsyncMock(
                 return_value=create_mock_tarball(
                     {
@@ -1980,7 +1981,8 @@ class TestGitSync:
                     "html_url": "https://github.com/myorg/myrepo/commit/batch",
                 },
             )
-            mock_github_class.return_value = mock_github
+            mock_fetch_github_class.return_value = mock_github
+            mock_commit_github_class.return_value = mock_github
             mock_node_spec_to_yaml.return_value = "updated: yaml content"
 
             response = await client_with_roads.post(
@@ -2051,9 +2053,14 @@ class TestGitSync:
             },
         )
 
-        with patch(
-            "datajunction_server.api.git_sync.GitHubService",
-        ) as mock_github_class:
+        with (
+            patch(
+                "datajunction_server.internal.git.yaml_export.GitHubService",
+            ) as mock_fetch_github_class,
+            patch(
+                "datajunction_server.api.git_sync.GitHubService",
+            ) as mock_commit_github_class,
+        ):
             mock_github = MagicMock()
 
             # Existing YAML with slightly different query formatting
@@ -2097,8 +2104,14 @@ columns:
                     },
                 ),
             )
-            mock_github.commit_files = AsyncMock()
-            mock_github_class.return_value = mock_github
+            mock_github.commit_files = AsyncMock(
+                return_value={
+                    "sha": "abc123",
+                    "html_url": "https://github.com/myorg/myrepo/commit/abc123",
+                },
+            )
+            mock_fetch_github_class.return_value = mock_github
+            mock_commit_github_class.return_value = mock_github
 
             response = await client.post(
                 "/namespaces/sync_test/sync-to-git",
@@ -3651,8 +3664,14 @@ async def test_branch_copy_preserves_invalid_source_status(
     # reliably produce an INVALID node is fragile (validators tend to
     # reject), and the orchestrator's bulk-validate fast path is what we're
     # really testing.
+    from sqlalchemy.orm import selectinload
+
     src_node = (
-        await session.execute(select(Node).where(Node.name == f"{parent}.t1"))
+        await session.execute(
+            select(Node)
+            .where(Node.name == f"{parent}.t1")
+            .options(selectinload(Node.current)),
+        )
     ).scalar_one()
     await session.refresh(src_node, ["current"])
     src_node.current.status = NodeStatus.INVALID

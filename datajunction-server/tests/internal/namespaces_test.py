@@ -309,8 +309,8 @@ dimensions:
 class TestNodeSpecToYaml:
     """Tests for node_spec_to_yaml formatting and determinism"""
 
-    def test_owners_are_sorted(self):
-        """owners list is sorted alphabetically regardless of input order"""
+    def test_owners_are_sorted_on_fresh_dump(self):
+        """owners are sorted alphabetically when there is no existing YAML to merge"""
         spec = MetricSpec(
             name="ns.metrics.revenue",
             node_type=NodeType.METRIC,
@@ -328,8 +328,29 @@ class TestNodeSpecToYaml:
             "query: SELECT SUM(rev) FROM ns.transforms.t",
         ]
 
-    def test_tags_are_sorted(self):
-        """tags list is sorted alphabetically regardless of input order"""
+    def test_owners_preserve_order_on_merge(self):
+        """owners preserve existing file order when merging with existing YAML"""
+        existing_yaml = (
+            "name: ns.metrics.revenue\n"
+            "node_type: metric\n"
+            "owners:\n"
+            "  - zara@netflix.com\n"
+            "  - alice@netflix.com\n"
+            "mode: published\n"
+            "query: SELECT SUM(rev) FROM ns.transforms.t\n"
+        )
+        spec = MetricSpec(
+            name="ns.metrics.revenue",
+            node_type=NodeType.METRIC,
+            owners=["alice@netflix.com", "zara@netflix.com"],
+            query="SELECT SUM(rev) FROM ns.transforms.t",
+        )
+        result = node_spec_to_yaml(spec, existing_yaml=existing_yaml)
+        owners_lines = [line for line in result.splitlines() if "@netflix.com" in line]
+        assert owners_lines == ["  - zara@netflix.com", "  - alice@netflix.com"]
+
+    def test_tags_are_sorted_on_fresh_dump(self):
+        """tags are sorted alphabetically when there is no existing YAML to merge"""
         spec = MetricSpec(
             name="ns.metrics.revenue",
             node_type=NodeType.METRIC,
@@ -346,6 +367,27 @@ class TestNodeSpecToYaml:
             "mode: published",
             "query: SELECT SUM(rev) FROM ns.transforms.t",
         ]
+
+    def test_tags_preserve_order_on_merge(self):
+        """tags preserve existing file order when merging with existing YAML"""
+        existing_yaml = (
+            "name: ns.metrics.revenue\n"
+            "node_type: metric\n"
+            "tags:\n"
+            "  - ratio_metric\n"
+            "  - core\n"
+            "mode: published\n"
+            "query: SELECT SUM(rev) FROM ns.transforms.t\n"
+        )
+        spec = MetricSpec(
+            name="ns.metrics.revenue",
+            node_type=NodeType.METRIC,
+            tags=["core", "ratio_metric"],
+            query="SELECT SUM(rev) FROM ns.transforms.t",
+        )
+        result = node_spec_to_yaml(spec, existing_yaml=existing_yaml)
+        tag_lines = [line for line in result.splitlines() if "  - " in line]
+        assert tag_lines == ["  - ratio_metric", "  - core"]
 
     def test_column_attributes_are_sorted(self):
         """column attributes are sorted alphabetically regardless of input order"""

@@ -35,10 +35,13 @@ from datajunction_server.internal.deployment.orchestrator import DeploymentOrche
 from datajunction_server.internal.deployment.utils import DeploymentContext
 from datajunction_server.internal.git import GitHubService
 from datajunction_server.internal.git.github_service import GitHubServiceError
+from datajunction_server.internal.git.yaml_export import (
+    fetch_existing_yaml_map,
+    generate_namespace_yaml_files,
+)
 from pydantic import TypeAdapter
 
 from datajunction_server.internal.namespaces import (
-    get_node_specs_for_export,
     inject_prefixes,
     node_spec_to_yaml,
     resolve_git_config,
@@ -111,6 +114,7 @@ class SyncToGitRequest(BaseModel):
     """Request to sync node(s) to git."""
 
     commit_message: Optional[str] = None  # Auto-generate if not provided
+    force: bool = False  # If True, write every node regardless of semantic equivalence
 
 
 class SyncResult(BaseModel):
@@ -416,7 +420,6 @@ async def sync_namespace_to_git(
     access_checker.add_namespace(namespace, ResourceAction.WRITE)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
-    # Resolve git config (may be inherited from parent)
     github_repo_path, git_path, git_branch = await resolve_git_config(
         session,
         namespace,
@@ -432,117 +435,63 @@ async def sync_namespace_to_git(
             message=f"Namespace '{namespace}' does not have a git branch configured.",
         )
 
-    # Get all node specs with ${prefix} injection (same as export)
-    node_specs = await get_node_specs_for_export(session, namespace)
+    # Fetch existing YAML from the repo so the serializer can preserve comments
+    # and key ordering in files that already exist in the branch.
+    existing_files_map = await fetch_existing_yaml_map(
+        github_repo_path,
+        git_branch,
+        git_path,
+    )
 
-    if not node_specs:
+    files = await generate_namespace_yaml_files(
+        session,
+        namespace,
+        existing_files_map,
+        git_path,
+    )
+
+    if not files:
         raise DJInvalidInputException(
             message=f"Namespace '{namespace}' has no nodes to sync.",
         )
 
-    # Prepare YAML content for each node
+    # Filter out unchanged files (semantic comparison), unless force=True
     files_to_commit: List[dict] = []
+    skipped_unchanged = 0
+    for file_info in files:
+        existing_yaml = file_info["existing_yaml"]
+        node_spec: NodeUnion = file_info["node_spec"]
+        if (
+            not request.force
+            and existing_yaml is not None
+            and _specs_are_equivalent(existing_yaml, node_spec)
+        ):
+            skipped_unchanged += 1
+            continue
+        files_to_commit.append(
+            {
+                "path": file_info["path"],
+                "content": file_info["content"],
+                "node_name": file_info["node_name"],
+            },
+        )
+        _logger.info(
+            "Preparing file for git sync: %s (spec name: %s)",
+            file_info["path"],
+            file_info["node_name"],
+        )
+
+    if skipped_unchanged > 0:
+        _logger.info(
+            "Skipped %d unchanged files for namespace '%s'",
+            skipped_unchanged,
+            namespace,
+        )
+
     results: List[SyncResult] = []
 
     try:
         github = GitHubService()
-
-        # Download entire repo archive once (much faster than N get_file calls)
-        _logger.info(
-            "Downloading archive for %s branch '%s'",
-            github_repo_path,
-            git_branch,
-        )
-        archive_bytes = await github.download_archive(
-            repo_path=github_repo_path,
-            branch=git_branch,
-            format="tarball",
-        )
-
-        # Extract archive to temp directory
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:gz") as tar:
-                tar.extractall(tmpdir)
-
-            # Find the extracted repo directory (GitHub adds a prefix like "owner-repo-sha")
-            extracted_dirs = list(Path(tmpdir).iterdir())
-            if not extracted_dirs:
-                raise GitHubServiceError(  # pragma: no cover
-                    message="Failed to extract archive - no directories found",
-                )
-            repo_dir = extracted_dirs[0]
-
-            # Build a map of existing files for quick lookup
-            existing_files_map = {}
-            if git_path:
-                git_path_stripped = git_path.strip("/")
-                files_dir = repo_dir / git_path_stripped
-            else:
-                files_dir = repo_dir
-
-            if files_dir.exists():
-                for yaml_file in files_dir.rglob("*.yaml"):
-                    rel_path = yaml_file.relative_to(repo_dir)
-                    existing_files_map[str(rel_path)] = yaml_file
-
-            # Process each node spec
-            skipped_unchanged = 0
-            for node_spec in node_specs:
-                # The spec name has ${prefix} injected (e.g., "${prefix}orders")
-                # Strip ${prefix} to get the short name for file path
-                spec_name = node_spec.name
-                if spec_name.startswith("${prefix}"):
-                    short_name = spec_name[len("${prefix}") :]
-                else:
-                    short_name = spec_name  # pragma: no cover
-
-                # File path uses short name (no namespace prefix, no ${prefix})
-                # e.g., "orders" -> "nodes/orders.yaml" (with git_path="nodes")
-                parts = short_name.split(".")
-                file_path = "/".join(parts) + ".yaml"
-                if git_path:
-                    git_path_stripped = git_path.strip("/")
-                    file_path = f"{git_path_stripped}/{file_path}"
-
-                # Try to read existing YAML content from extracted archive
-                existing_yaml = None
-                if file_path in existing_files_map:
-                    try:
-                        existing_yaml = existing_files_map[file_path].read_text()
-                    except Exception:  # pragma: no cover
-                        # File couldn't be read - that's ok
-                        pass
-
-                # Only include files that have actually changed (semantic comparison)
-                if existing_yaml is not None and _specs_are_equivalent(
-                    existing_yaml,
-                    node_spec,
-                ):
-                    skipped_unchanged += 1
-                    continue
-
-                # Convert to YAML using the export format (with ${prefix})
-                yaml_content = node_spec_to_yaml(node_spec, existing_yaml=existing_yaml)
-
-                files_to_commit.append(
-                    {
-                        "path": file_path,
-                        "content": yaml_content,
-                        "node_name": spec_name,
-                    },
-                )
-                _logger.info(
-                    "Preparing file for git sync: %s (spec name: %s)",
-                    file_path,
-                    spec_name,
-                )
-
-            if skipped_unchanged > 0:
-                _logger.info(
-                    "Skipped %d unchanged files for namespace '%s'",
-                    skipped_unchanged,
-                    namespace,
-                )
 
         # If no files have changed, return early without making a commit
         if not files_to_commit:
