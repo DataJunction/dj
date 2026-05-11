@@ -215,17 +215,21 @@ def module__query_service_client(
             Dict[str, str]
         ] = None,
     ) -> QueryWithResults:
-        normalized_query = (
-            query_create.submitted_query.strip()
-            .replace('"', "")
-            .replace("\n", "")
-            .replace(" ", "")
-        )
-        # Strip LIMIT clause for matching (allows queries with/without LIMIT to match)
-        normalized_query = re.sub(r"LIMIT\d+$", "", normalized_query)
+        def _normalize(s: str) -> str:
+            out = (
+                s.strip()
+                .replace('"', "")
+                .replace("\n", "")
+                .replace("\t", "")
+                .replace(" ", "")
+            )
+            return re.sub(r"LIMIT\d+$", "", out)
 
-        if normalized_query in QUERY_DATA_MAPPINGS:
-            results = QUERY_DATA_MAPPINGS[normalized_query]
+        normalized_query = _normalize(query_create.submitted_query)
+
+        normalized_mappings = {_normalize(k): v for k, v in QUERY_DATA_MAPPINGS.items()}
+        if normalized_query in normalized_mappings:
+            results = normalized_mappings[normalized_query]
         else:
             # SQL-agnostic fallback: return a generic successful result.
             # Client tests should not depend on the exact SQL generated — they
