@@ -1702,7 +1702,7 @@ def test_combine_filter_conditions():
                 ),
             ),
         )
-        == "abc = 'one' AND def = 'two'"
+        == "abc = 'one'\nAND def = 'two'"
     )
     assert (
         str(
@@ -1719,7 +1719,7 @@ def test_combine_filter_conditions():
                 ),
             ),
         )
-        == "abc = 'one' AND def = 'two'"
+        == "abc = 'one'\nAND def = 'two'"
     )
 
 
