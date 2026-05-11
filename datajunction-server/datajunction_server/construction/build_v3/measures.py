@@ -747,6 +747,42 @@ def _set_col_table_alias(col: ast.Column, new_alias: str) -> None:
         col.name = ast.Name(col.name.name, namespace=ast.Name(new_alias))
 
 
+def _and_atoms(atoms: list[ast.Expression]) -> Optional[ast.Expression]:
+    """Fold a list of atoms into a left-associative AND, or ``None``
+    for an empty list."""
+    result: Optional[ast.Expression] = None
+    for atom in atoms:
+        result = atom if result is None else ast.BinaryOp.And(result, atom)
+    return result
+
+
+def _maybe_coalesce_with_sibling(
+    col_ref: ast.Column,
+    resolved_dim: ResolvedDimension,
+    resolved_dimensions: Optional[list[ResolvedDimension]],
+    dim_aliases: dict[tuple[str, Optional[str]], str],
+    parent_node_name: Optional[str],
+) -> ast.Expression:
+    """Return ``COALESCE(col_ref, sibling_col)`` when the dim was
+    full-skipped to a parent FK and another joined dim shares the same
+    FK alignment; otherwise return ``col_ref`` unchanged.
+
+    Used by both the projection and GROUP BY builders so they stay in
+    lockstep (the GROUP BY must mirror the projection's COALESCE).
+    """
+    if resolved_dimensions is None or parent_node_name is None:
+        return col_ref
+    partner = _coalesce_partner_for_full_skipped_fk(
+        resolved_dim,
+        resolved_dimensions,
+        dim_aliases,
+        parent_node_name,
+    )
+    if partner is None:
+        return col_ref
+    return ast.Function(ast.Name("COALESCE"), args=[col_ref, partner])
+
+
 def _absorb_filtered_joins_for_outer_safety(
     select: ast.Select,
     where_clause: Optional[ast.Expression],
@@ -786,16 +822,6 @@ def _absorb_filtered_joins_for_outer_safety(
     if not extensions:
         return where_clause, None
 
-    # Find the first RIGHT/FULL OUTER join — only then is absorption needed.
-    right_full_idx: Optional[int] = None
-    for i, jn in enumerate(extensions):
-        jt = (jn.join_type or "").upper().strip()
-        if "RIGHT" in jt or "FULL" in jt:
-            right_full_idx = i
-            break
-    if right_full_idx is None:
-        return where_clause, None
-
     from datajunction_server.construction.build_v3.cte import (
         _filter_namespaces,
         _get_relation_side_id,
@@ -812,50 +838,53 @@ def _absorb_filtered_joins_for_outer_safety(
         else:
             other_atoms.append(atom)
 
-    # Scan EVERY LEFT/INNER join in the chain (not just those before the
-    # first RIGHT/FULL OUTER).  Once a RIGHT/FULL OUTER is in the chain,
-    # *any* LEFT/INNER-joined dim's filter in outer WHERE would silently
-    # null-drop preserved-side rows from the OUTER JOIN.  Consolidating all
-    # filtered fact-side LEFT/INNER joins into the wrapper CTE applies the
-    # filters before the OUTER JOIN can reach them.
+    # Single pass over join chain: track whether any RIGHT/FULL OUTER is
+    # present (gate) and which LEFT/INNER joins have defeating filters
+    # (candidates).  Absorption only commits when both conditions hold —
+    # otherwise pure-LEFT-chain narrowing semantics are preserved.
+    has_right_full = False
     to_absorb_idx: list[int] = []
     absorbed_aliases: set[str] = set()
-    for i in range(len(extensions)):
-        jn = extensions[i]
+    for i, jn in enumerate(extensions):
         jt = (jn.join_type or "").upper().strip()
         if "RIGHT" in jt or "FULL" in jt:
+            has_right_full = True
             continue
         side_alias = _get_relation_side_id(jn.right)
         if side_alias and side_alias in atoms_by_alias:
             to_absorb_idx.append(i)
             absorbed_aliases.add(side_alias)
 
-    if not absorbed_aliases:
+    if not has_right_full or not absorbed_aliases:
         return where_clause, None
 
+    absorb_set = set(to_absorb_idx)
     absorbed_joins = [extensions[i] for i in to_absorb_idx]
-    kept_joins = [
-        extensions[i] for i in range(len(extensions)) if i not in to_absorb_idx
-    ]
+    kept_joins = [j for i, j in enumerate(extensions) if i not in absorb_set]
 
-    # Collect absorbed-dim columns referenced outside the wrapper
-    # (projection, kept joins' ON clauses, other atoms) so the wrapper
-    # exposes them.
+    # Single pass over outer-scope nodes: record column names referenced
+    # from absorbed aliases (for the wrapper projection) AND rewrite the
+    # alias qualifier in place to point at ``main_alias``.  The wrapper
+    # captures ``relation.primary`` and ``absorbed_joins`` by reference
+    # before we mutate them below, so doing both in one pass is safe.
     absorbed_cols: dict[str, set[str]] = {a: set() for a in absorbed_aliases}
 
-    def _collect(node: ast.Node) -> None:
+    def _process(node: ast.Node) -> None:
         for col in node.find_all(ast.Column):
             tname_str = _col_table_name(col)
             if tname_str is not None and tname_str in absorbed_aliases:
                 absorbed_cols[tname_str].add(col.name.name)
+                _set_col_table_alias(col, main_alias)
 
     for proj_item in select.projection:
-        _collect(proj_item)
+        _process(proj_item)
     for kj in kept_joins:
         if kj.criteria and kj.criteria.on:  # pragma: no branch
-            _collect(kj.criteria.on)
+            _process(kj.criteria.on)
     for atom in other_atoms:
-        _collect(atom)
+        _process(atom)
+    for gb_item in group_by:
+        _process(gb_item)
 
     # Build wrapper projection: parent.* + each absorbed col.
     wrapper_proj: list[Any] = [
@@ -865,15 +894,9 @@ def _absorb_filtered_joins_for_outer_safety(
         for col_name in sorted(absorbed_cols[alias]):
             wrapper_proj.append(make_column_ref(col_name, alias))
 
-    # WHERE for wrapper = AND of all absorbed atoms.
     absorbed_atoms: list[ast.Expression] = []
     for alias in absorbed_aliases:
         absorbed_atoms.extend(atoms_by_alias[alias])
-    wrapper_where: Optional[ast.Expression] = None
-    for atom in absorbed_atoms:
-        wrapper_where = (
-            atom if wrapper_where is None else ast.BinaryOp.And(wrapper_where, atom)
-        )
 
     wrapper_select = ast.Select(
         projection=wrapper_proj,
@@ -882,7 +905,7 @@ def _absorb_filtered_joins_for_outer_safety(
                 ast.Relation(primary=relation.primary, extensions=absorbed_joins),
             ],
         ),
-        where=wrapper_where,
+        where=_and_atoms(absorbed_atoms),
     )
     wrapper_query = ast.Query(select=wrapper_select)
     filtered_cte_name = f"{parent_cte_name}_filtered"
@@ -897,44 +920,20 @@ def _absorb_filtered_joins_for_outer_safety(
     )
     relation.extensions = kept_joins
 
-    # Rewrite references to absorbed aliases → main_alias in everything
-    # outside the wrapper.
-    def _rewrite(node: ast.Node) -> None:
-        for col in node.find_all(ast.Column):
-            tname_str = _col_table_name(col)
-            if tname_str is not None and tname_str in absorbed_aliases:
-                _set_col_table_alias(col, main_alias)
-
-    for proj_item in select.projection:
-        _rewrite(proj_item)
-    for kj in kept_joins:
-        if kj.criteria and kj.criteria.on:  # pragma: no branch
-            _rewrite(kj.criteria.on)
-    for atom in other_atoms:
-        _rewrite(atom)
-    for gb_item in group_by:
-        _rewrite(gb_item)
-
     # Remap dim_aliases so downstream lookups (e.g. _build_group_by)
     # find main_alias instead of an absorbed dim alias.
     for key in list(dim_aliases.keys()):
         if dim_aliases[key] in absorbed_aliases:
             dim_aliases[key] = main_alias
 
-    # Rebuild where_clause from remaining atoms:
-    # - Compound/cross-namespace atoms (already in ``other_atoms``).
-    # - Single-dim atoms whose alias was NOT absorbed (typically the
-    #   preserved RIGHT/FULL OUTER side, where outer-WHERE filtering
-    #   safely narrows the preserved row set).
+    # Remaining outer-WHERE atoms: compound/cross-namespace atoms +
+    # single-dim atoms whose alias wasn't absorbed (typically the
+    # preserved RIGHT/FULL OUTER side).
     remaining_atoms: list[ast.Expression] = list(other_atoms)
     for alias, atoms_for_alias in atoms_by_alias.items():
         if alias not in absorbed_aliases:
             remaining_atoms.extend(atoms_for_alias)
-
-    new_where: Optional[ast.Expression] = None
-    for atom in remaining_atoms:
-        new_where = atom if new_where is None else ast.BinaryOp.And(new_where, atom)
-    return new_where, (filtered_cte_name, wrapper_query)
+    return _and_atoms(remaining_atoms), (filtered_cte_name, wrapper_query)
 
 
 def _coalesce_partner_for_full_skipped_fk(
@@ -1016,29 +1015,21 @@ def build_dimension_col_expr(
         col_expr.set_as(True)
         return col_expr
 
-    # Full-skip + co-joined-dim COALESCE.  When the original ref pointed
-    # at a non-local dim node but the FK was substituted in via the
-    # full-skip optimization, walk the original (pre-skip) join path to
-    # find any intermediate dim that's still joined, and COALESCE its
-    # FK-aligned column into the projection.  Under OUTER JOINs that
-    # preserve the dim side, ``t1.fk`` is NULL where unmatched and the
-    # co-joined dim's column has the value.
-    coalesce_extra: Optional[ast.Column] = None
-    if resolved_dimensions is not None and parent_node_name is not None:
-        coalesce_extra = _coalesce_partner_for_full_skipped_fk(
-            resolved_dim,
-            resolved_dimensions,
-            dim_aliases,
-            parent_node_name,
-        )
-    if coalesce_extra is not None:
-        coalesce_func = ast.Function(
-            ast.Name("COALESCE"),
-            args=[col_ref, coalesce_extra],
-        )
-        col_expr = coalesce_func.set_alias(ast.Name(clean_alias))
-        col_expr.set_as(True)
-        return col_expr
+    # Full-skip + co-joined-dim COALESCE.  When the FK was substituted
+    # in via full-skip but a sibling dim shares the same alignment,
+    # wrap the projection so OUTER JOINs that preserve the sibling
+    # don't surface NULL where the sibling has the value.
+    expr = _maybe_coalesce_with_sibling(
+        col_ref,
+        resolved_dim,
+        resolved_dimensions,
+        dim_aliases,
+        parent_node_name,
+    )
+    if expr is not col_ref:
+        aliased = expr.set_alias(ast.Name(clean_alias))
+        aliased.set_as(True)
+        return aliased
 
     if clean_alias != resolved_dim.column_name:
         col_ref.alias = ast.Name(clean_alias)
@@ -1089,23 +1080,15 @@ def _build_group_by(
             continue
         table_alias = get_dimension_table_alias(resolved_dim, main_alias, dim_aliases)
         col_ref = make_column_ref(resolved_dim.column_name, table_alias)
-        coalesce_extra: Optional[ast.Column] = None
-        if parent_node_name is not None:  # pragma: no branch
-            coalesce_extra = _coalesce_partner_for_full_skipped_fk(
+        group_by.append(
+            _maybe_coalesce_with_sibling(
+                col_ref,
                 resolved_dim,
                 resolved_dimensions,
                 dim_aliases,
                 parent_node_name,
-            )
-        if coalesce_extra is not None:
-            group_by.append(
-                ast.Function(
-                    ast.Name("COALESCE"),
-                    args=[col_ref, coalesce_extra],
-                ),
-            )
-        else:
-            group_by.append(col_ref)
+            ),
+        )
 
     for gc_expr, gc_alias in grain_col_specs:
         if isinstance(gc_expr, ast.Column):
