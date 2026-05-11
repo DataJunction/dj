@@ -1154,6 +1154,14 @@ class MetricComponentExtractor:
         return template.replace("{}", str(args[0]))
 
     def _short_hash(self, expression: str, query_ast: ast.Query) -> str:
-        """Generate a short hash for the given expression."""
-        signature = expression + str(query_ast.select.from_)
+        """Generate a short hash for the given expression.
+
+        ``str(query_ast.select.from_)`` is whitespace-normalized so cosmetic
+        changes to AST string rendering (pretty-printing) don't perturb hashes
+        and rename every derived measure. ``expression`` is passed through
+        unchanged to preserve hash compatibility for expressions that already
+        contain newlines (e.g. CASE, IF).
+        """
+        from_str = " ".join(str(query_ast.select.from_).split())
+        signature = expression + from_str
         return hashlib.md5(signature.encode("utf-8")).hexdigest()[:8]

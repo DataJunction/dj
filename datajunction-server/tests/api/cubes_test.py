@@ -2741,8 +2741,8 @@ async def test_get_unmaterialized_cube_dimensions_values(
         },
     )
     results = response.json()
-    assert "SELECT  default_DOT_hard_hat_DOT_city" in results["sql"]
-    assert "GROUP BY  default_DOT_hard_hat_DOT_city" in results["sql"]
+    assert "SELECT\n  default_DOT_hard_hat_DOT_city" in results["sql"]
+    assert "GROUP BY\n  default_DOT_hard_hat_DOT_city" in results["sql"]
 
     # Get data for single dimension
     response = await client_with_repairs_cube.get(
@@ -2781,8 +2781,8 @@ async def test_get_unmaterialized_cube_dimensions_values(
         },
     )
     results = response.json()
-    assert "SELECT  default_DOT_hard_hat_DOT_city,\n\tCOUNT(*)" in results["sql"]
-    assert "GROUP BY  default_DOT_hard_hat_DOT_city" in results["sql"]
+    assert "SELECT\n  default_DOT_hard_hat_DOT_city,\n  COUNT(*)" in results["sql"]
+    assert "GROUP BY\n  default_DOT_hard_hat_DOT_city" in results["sql"]
     assert "ORDER BY 2 DESC" in results["sql"]
 
     # Get data for single dimension with counts
@@ -2999,8 +2999,8 @@ async def test_cube_materialization_metadata(
     ]
     assert results["metrics"] == [
         {
-            "derived_expression": "SELECT  CAST(SUM(discount_sum_30b84e6c) AS DOUBLE) / "
-            "SUM(count_c8e42e74) AS default_DOT_discounted_orders_rate  FROM "
+            "derived_expression": "SELECT CAST(SUM(discount_sum_30b84e6c) AS DOUBLE) / "
+            "SUM(count_c8e42e74) AS default_DOT_discounted_orders_rate FROM "
             "default.repair_orders_fact",
             "metric_expression": "CAST(SUM(discount_sum_30b84e6c) AS DOUBLE) / "
             "SUM(count_c8e42e74)",
@@ -3029,7 +3029,7 @@ async def test_cube_materialization_metadata(
             ],
         },
         {
-            "derived_expression": "SELECT  SUM(repair_order_id_count_bd241964)  FROM "
+            "derived_expression": "SELECT SUM(repair_order_id_count_bd241964) FROM "
             "default.repair_orders_fact",
             "metric_expression": "SUM(repair_order_id_count_bd241964)",
             "metric": {
@@ -3049,7 +3049,7 @@ async def test_cube_materialization_metadata(
             ],
         },
         {
-            "derived_expression": "SELECT  SUM(price_sum_935e7117) / SUM(price_count_935e7117)  FROM "
+            "derived_expression": "SELECT SUM(price_sum_935e7117) / SUM(price_count_935e7117) FROM "
             "default.repair_orders_fact",
             "metric_expression": "SUM(price_sum_935e7117) / SUM(price_count_935e7117)",
             "metric": {
@@ -3077,7 +3077,7 @@ async def test_cube_materialization_metadata(
             ],
         },
         {
-            "derived_expression": "SELECT  SUM(total_repair_cost_sum_67874507)  FROM "
+            "derived_expression": "SELECT SUM(total_repair_cost_sum_67874507) FROM "
             "default.repair_orders_fact",
             "metric_expression": "SUM(total_repair_cost_sum_67874507)",
             "metric": {
@@ -3097,7 +3097,7 @@ async def test_cube_materialization_metadata(
             ],
         },
         {
-            "derived_expression": "SELECT  SUM(price_discount_sum_e4ba5456)  FROM "
+            "derived_expression": "SELECT SUM(price_discount_sum_e4ba5456) FROM "
             "default.repair_orders_fact",
             "metric_expression": "SUM(price_discount_sum_e4ba5456)",
             "metric": {
@@ -3117,8 +3117,8 @@ async def test_cube_materialization_metadata(
             ],
         },
         {
-            "derived_expression": "SELECT  SUM(price_sum_252381cf) + SUM(price_sum_252381cf) AS "
-            "default_DOT_double_total_repair_cost  FROM "
+            "derived_expression": "SELECT SUM(price_sum_252381cf) + SUM(price_sum_252381cf) AS "
+            "default_DOT_double_total_repair_cost FROM "
             "default.repair_order_details",
             "metric_expression": "SUM(price_sum_252381cf) + SUM(price_sum_252381cf)",
             "metric": {
