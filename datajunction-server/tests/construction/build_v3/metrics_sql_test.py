@@ -990,7 +990,6 @@ class TestMetricsSQLDerived:
             order_details_0 AS (
                 SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
                 FROM v3_order_details t1
-                WHERE t1.status = 'completed'
                 GROUP BY t1.status
             )
             SELECT order_details_0.status AS status,
@@ -1030,7 +1029,6 @@ class TestMetricsSQLDerived:
             order_details_0 AS (
                 SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
                 FROM v3_order_details t1
-                WHERE t1.status IN ('active', 'completed')
                 GROUP BY t1.status
             )
             SELECT order_details_0.status AS status,
@@ -1070,7 +1068,6 @@ class TestMetricsSQLDerived:
             order_details_0 AS (
                 SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
                 FROM v3_order_details t1
-                WHERE t1.status != 'cancelled'
                 GROUP BY t1.status
             )
             SELECT order_details_0.status AS status,
@@ -1110,7 +1107,6 @@ class TestMetricsSQLDerived:
             order_details_0 AS (
                 SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
                 FROM v3_order_details t1
-                WHERE t1.status LIKE 'act%'
                 GROUP BY t1.status
             )
             SELECT order_details_0.status AS status,
@@ -1159,7 +1155,7 @@ class TestMetricsSQLDerived:
                 SELECT t1.status, t2.category, SUM(t1.line_total) line_total_sum_e1f61696
                 FROM v3_order_details t1
                 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
-                WHERE t1.status = 'active' AND t2.category = 'Electronics'
+                WHERE t2.category = 'Electronics'
                 GROUP BY t1.status, t2.category
             )
             SELECT order_details_0.status AS status,
@@ -2352,14 +2348,14 @@ class TestMetricsSQLNestedDerived:
             ),
             order_details_0 AS (
               SELECT
-                t1.order_date date_id_order,
+                COALESCE(t1.order_date, t3.date_id) AS date_id_order,
                 t2.category,
                 t3.week,
                 SUM(t1.line_total) line_total_sum_e1f61696
               FROM v3_order_details t1
               LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
               LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
-              GROUP BY t1.order_date, t2.category, t3.week
+              GROUP BY COALESCE(t1.order_date, t3.date_id), t2.category, t3.week
             ),
             base_metrics AS (
               SELECT
@@ -2444,7 +2440,7 @@ class TestMetricsSQLNestedDerived:
             ),
             order_details_0 AS (
               SELECT
-                t1.order_date date_id_order,
+                COALESCE(t1.order_date, t3.date_id) AS date_id_order,
                 t2.category,
                 t3.month,
                 t3.week,
@@ -2452,7 +2448,7 @@ class TestMetricsSQLNestedDerived:
               FROM v3_order_details t1
               LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
               LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
-              GROUP BY t1.order_date, t2.category, t3.month, t3.week
+              GROUP BY COALESCE(t1.order_date, t3.date_id), t2.category, t3.month, t3.week
             ),
             base_metrics AS (
               SELECT
@@ -2566,7 +2562,7 @@ class TestMetricsSQLNestedDerived:
             ),
             order_details_0 AS (
               SELECT
-                t1.order_date date_id_order,
+                COALESCE(t1.order_date, t3.date_id) AS date_id_order,
                 t2.category,
                 t3.week,
                 t1.order_id,
@@ -2574,7 +2570,7 @@ class TestMetricsSQLNestedDerived:
               FROM v3_order_details t1
               LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
               LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
-              GROUP BY t1.order_date, t2.category, t3.week, t1.order_id
+              GROUP BY COALESCE(t1.order_date, t3.date_id), t2.category, t3.week, t1.order_id
             ),
             base_metrics AS (
               SELECT
@@ -2905,22 +2901,22 @@ class TestMetricsSQLCrossFactWindow:
             FROM default.v3.page_views
             ),
             order_details_0 AS (
-            SELECT  t1.order_date date_id,
+            SELECT  COALESCE(t1.order_date, t3.date_id) AS date_id,
                 t2.category,
                 t3.week,
                 t1.order_id
             FROM v3_order_details t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
-            GROUP BY  t1.order_date, t2.category, t3.week, t1.order_id
+            GROUP BY  COALESCE(t1.order_date, t3.date_id), t2.category, t3.week, t1.order_id
             ),
             page_views_enriched_0 AS (
-            SELECT  t1.page_date date_id,
+            SELECT  COALESCE(t1.page_date, t3.date_id) AS date_id,
                 t2.category,
                 t3.week,
                 t1.customer_id
             FROM v3_page_views_enriched t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             LEFT OUTER JOIN v3_date t3 ON t1.page_date = t3.date_id
-            GROUP BY  t1.page_date, t2.category, t3.week, t1.customer_id
+            GROUP BY  COALESCE(t1.page_date, t3.date_id), t2.category, t3.week, t1.customer_id
             ),
             base_metrics AS (
             SELECT  COALESCE(order_details_0.date_id, page_views_enriched_0.date_id) AS date_id,
@@ -3013,24 +3009,24 @@ class TestMetricsSQLCrossFactWindow:
             FROM default.v3.page_views
             ),
             order_details_0 AS (
-            SELECT  t1.order_date date_id,
+            SELECT  COALESCE(t1.order_date, t3.date_id) AS date_id,
                 t2.category,
                 t3.week,
                 t1.order_id,
                 SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
-            GROUP BY  t1.order_date, t2.category, t3.week, t1.order_id
+            GROUP BY  COALESCE(t1.order_date, t3.date_id), t2.category, t3.week, t1.order_id
             ),
             page_views_enriched_0 AS (
-            SELECT  t1.page_date date_id,
+            SELECT  COALESCE(t1.page_date, t3.date_id) AS date_id,
                 t2.category,
                 t3.week,
                 t1.session_id,
                 COUNT(t1.view_id) view_id_count_f41e2db4
             FROM v3_page_views_enriched t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             LEFT OUTER JOIN v3_date t3 ON t1.page_date = t3.date_id
-            GROUP BY  t1.page_date, t2.category, t3.week, t1.session_id
+            GROUP BY  COALESCE(t1.page_date, t3.date_id), t2.category, t3.week, t1.session_id
             ),
             base_metrics AS (
             SELECT  COALESCE(order_details_0.date_id, page_views_enriched_0.date_id) AS date_id,
@@ -3128,22 +3124,22 @@ class TestMetricsSQLCrossFactWindow:
             FROM default.v3.page_views
             ),
             order_details_0 AS (
-            SELECT  t1.order_date date_id,
+            SELECT  COALESCE(t1.order_date, t3.date_id) AS date_id,
                 t2.category,
                 t3.week,
                 t1.order_id
             FROM v3_order_details t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
-            GROUP BY  t1.order_date, t2.category, t3.week, t1.order_id
+            GROUP BY  COALESCE(t1.order_date, t3.date_id), t2.category, t3.week, t1.order_id
             ),
             page_views_enriched_0 AS (
-            SELECT  t1.page_date date_id,
+            SELECT  COALESCE(t1.page_date, t3.date_id) AS date_id,
                 t2.category,
                 t3.week,
                 t1.customer_id
             FROM v3_page_views_enriched t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             LEFT OUTER JOIN v3_date t3 ON t1.page_date = t3.date_id
-            GROUP BY  t1.page_date, t2.category, t3.week, t1.customer_id
+            GROUP BY  COALESCE(t1.page_date, t3.date_id), t2.category, t3.week, t1.customer_id
             ),
             base_metrics AS (
             SELECT  COALESCE(order_details_0.date_id, page_views_enriched_0.date_id) AS date_id,
@@ -3648,7 +3644,6 @@ class TestFilterOnlyDimensions:
             order_details_0 AS (
                 SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
                 FROM v3_order_details t1
-                WHERE t1.status = 'completed'
                 GROUP BY t1.status
             )
             SELECT order_details_0.status AS status,
@@ -4717,7 +4712,6 @@ class TestMetricsSQLEdgeCases:
             order_details_0 AS (
                 SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
                 FROM v3_order_details t1
-                WHERE t1.customer_id = 42
                 GROUP BY t1.status
             )
             SELECT order_details_0.status AS status,

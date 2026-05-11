@@ -379,7 +379,6 @@ class TestDJSQLFilterOnlyDimensions:
             order_details_0 AS (
                 SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
                 FROM v3_order_details t1
-                WHERE t1.status = 'completed'
                 GROUP BY t1.status
             )
             SELECT order_details_0.status AS status,

@@ -1592,7 +1592,7 @@ async def test_metric_with_node_level_and_nth_order_filters(
         SELECT  t2.state,
         	COUNT(t1.repair_order_id) repair_order_id_count_bd241964
          FROM default_repair_orders_fact t1 INNER JOIN default_hard_hat t2 ON t1.hard_hat_id = t2.hard_hat_id
-         WHERE  t1.dispatcher_id = 1 OR t1.dispatcher_id IS NOT NULL AND t2.state = 'AZ'
+         WHERE  t2.state = 'AZ'
          GROUP BY  t2.state
         )
 
@@ -1690,7 +1690,7 @@ async def test_metric_with_nth_order_dimensions_filters(
          FROM default_repair_orders_fact t1 INNER JOIN default_hard_hat t2 ON t1.hard_hat_id = t2.hard_hat_id
         INNER JOIN default_dispatcher t3 ON t1.dispatcher_id = t3.dispatcher_id
         INNER JOIN default_municipality_dim t4 ON t1.municipality_id = t4.municipality_id
-         WHERE  t1.dispatcher_id = 1 AND t2.state != 'AZ' AND t3.phone = '4082021022' AND t1.order_date >= '2020-01-01'
+         WHERE  t2.state != 'AZ' AND t3.phone = '4082021022'
          GROUP BY  t2.city, t2.last_name, t3.company_name, t4.local_region
         )
 

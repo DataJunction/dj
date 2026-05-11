@@ -51,7 +51,6 @@ class TestFilterPushdownToParentCTE:
               SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
             LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
-            WHERE t1.order_date >= 20240101
             GROUP BY t2.category
             """,
         )
@@ -146,7 +145,7 @@ class TestFilterPushdownMultiple:
               SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
             LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
-            WHERE t1.order_date >= 20240101 AND t2.category = 'Electronics'
+            WHERE t2.category = 'Electronics'
             GROUP BY t2.category
             """,
         )
@@ -193,7 +192,6 @@ class TestFilterPushdownMultiple:
               SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
             LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
-            WHERE t1.order_date >= 20240101 AND t1.status = 'completed'
             GROUP BY t2.category
             """,
         )
@@ -245,7 +243,6 @@ class TestFilterPushdownMultiRef:
               SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
             LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
-            WHERE t1.order_date >= 20240101 OR t1.status = 'completed'
             GROUP BY t2.category
             """,
         )
@@ -364,7 +361,6 @@ class TestFilterPushdownEdgeCases:
             SELECT t1.status,
               SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
-            WHERE t1.status = 'completed'
             GROUP BY t1.status
             """,
         )

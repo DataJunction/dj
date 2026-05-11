@@ -369,6 +369,13 @@ class ResolvedDimension:
         JoinPath
     ]  # Join path from fact to this dimension (None if local)
     is_local: bool  # True if dimension is on the fact table itself
+    # The full original join path before any full-skip optimization.  Used by
+    # the projection layer to find intermediate joined dims whose columns are
+    # FK-aligned with the requested column — those columns can be COALESCEd
+    # in so the projected value survives OUTER joins that null-fill the FK
+    # side.  ``None`` when no skipping occurred (the regular ``join_path`` is
+    # authoritative).
+    pre_skip_join_path: Optional[JoinPath] = None
 
 
 @dataclass

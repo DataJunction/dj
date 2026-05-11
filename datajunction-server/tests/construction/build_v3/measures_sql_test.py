@@ -2585,7 +2585,6 @@ class TestMeasuresSQLFilters:
             )
             SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
-            WHERE t1.status = 'completed'
             GROUP BY t1.status
             """,
         )
@@ -2661,7 +2660,7 @@ class TestMeasuresSQLFilters:
             SELECT t1.status, t2.category, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
             LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
-            WHERE t1.status = 'completed' AND t2.category = 'Electronics'
+            WHERE t2.category = 'Electronics'
             GROUP BY t1.status, t2.category
             """,
         )
@@ -2727,7 +2726,6 @@ class TestMeasuresSQLFilters:
             )
             SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
-            WHERE t1.status IN ('completed', 'pending')
             GROUP BY t1.status
             """,
         )
@@ -2875,7 +2873,9 @@ class TestTemporalFilters:
             include_temporal_filters=True,
         )
 
-        # Should have DJ_LOGICAL_TIMESTAMP in the SQL for exact partition match
+        # Should have DJ_LOGICAL_TIMESTAMP in the SQL for exact partition match.
+        # Pushed into the parent CTE's WHERE so it applies before any internal
+        # join, not after — protecting any OUTER JOIN inside parent body.
         assert_sql_equal(
             result.grain_groups[0].sql,
             """
@@ -2883,10 +2883,10 @@ class TestTemporalFilters:
                 SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+                WHERE order_date = CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
             )
             SELECT t1.order_date date_id, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
-            WHERE t1.order_date = CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
             GROUP BY t1.order_date
             """,
         )
@@ -2913,7 +2913,7 @@ class TestTemporalFilters:
             lookback_window="3 DAY",
         )
 
-        # Should have BETWEEN for lookback window
+        # Should have BETWEEN for lookback window — pushed into parent CTE.
         assert_sql_equal(
             result.grain_groups[0].sql,
             """
@@ -2921,11 +2921,11 @@ class TestTemporalFilters:
                 SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+                WHERE order_date BETWEEN CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP) - INTERVAL '3' DAY, 'yyyyMMdd') AS INT)
+                                     AND CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
             )
             SELECT t1.order_date date_id, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
-            WHERE t1.order_date BETWEEN CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP) - INTERVAL '3' DAY, 'yyyyMMdd') AS INT)
-                                    AND CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
             GROUP BY t1.order_date
             """,
         )
@@ -2985,8 +2985,11 @@ class TestTemporalFilters:
             include_temporal_filters=True,
         )
 
-        # Should have AND between temporal and user filters
-        # The filter on v3.date.date_id is rewritten to use the parent's FK column (order_date)
+        # Both user filter and temporal filter are pushed into the parent CTE's
+        # WHERE — combined via AND.  Temporal goes in first (via the
+        # injected_filters path), then the user filter is appended via the
+        # generic pushdown path; the user-filter form uses the FK alias
+        # (`o.order_date`) while the temporal form uses the bare column.
         assert_sql_equal(
             result.grain_groups[0].sql,
             """
@@ -2994,29 +2997,31 @@ class TestTemporalFilters:
                 SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
-                WHERE o.order_date > 20200101
+                WHERE order_date = CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
+                  AND o.order_date > 20200101
             )
             SELECT t1.order_date date_id, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
-            WHERE t1.order_date > 20200101 AND t1.order_date = CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
             GROUP BY t1.order_date
             """,
         )
 
     @pytest.mark.asyncio
-    async def test_temporal_filter_fallback_when_parent_reads_from_source(
+    async def test_temporal_filter_falls_back_to_parent_cte(
         self,
         session,
         client_with_build_v3,
         setup_temporal_partition,
     ):
         """
-        Regression: when the parent node's primary FROM table is a source node
-        (not a transform), find_upstream_temporal_source_node returns None and
-        the filter falls back to the outer grain-group WHERE.
+        When the parent node's primary FROM table is a source node (not a
+        transform), find_upstream_temporal_source_node returns None.  The
+        filter then falls back to the parent node's own CTE — never to the
+        outer grain-group WHERE, since that would silently turn an OUTER JOIN
+        inside the parent body into an INNER JOIN.
 
         v3.order_details reads directly from default.v3.orders (a source), so
-        no pushdown occurs and the WHERE lands on the outer query.
+        no upstream pushdown — the temporal predicate lands in the parent CTE.
         """
         result = await build_measures_sql(
             session=session,
@@ -3032,10 +3037,10 @@ class TestTemporalFilters:
                 SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+                WHERE order_date = CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
             )
             SELECT t1.order_date date_id, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
-            WHERE t1.order_date = CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
             GROUP BY t1.order_date
             """,
         )
@@ -3119,7 +3124,7 @@ class TestCubeBasedTemporalFiltering:
         assert response.status_code == 200
         data = response.json()
 
-        # Should have temporal filter in the SQL
+        # Temporal filter pushed into the parent CTE's WHERE.
         assert_sql_equal(
             data["grain_groups"][0]["sql"],
             """
@@ -3127,12 +3132,12 @@ class TestCubeBasedTemporalFiltering:
                 SELECT o.order_date, oi.quantity, oi.quantity * oi.unit_price AS line_total
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+                WHERE order_date = CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
             )
             SELECT t1.order_date date_id,
                    SUM(t1.line_total) line_total_sum_e1f61696,
                    SUM(t1.quantity) quantity_sum_06b64d2e
             FROM v3_order_details t1
-            WHERE t1.order_date = CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
             GROUP BY t1.order_date
             """,
         )
@@ -3150,7 +3155,7 @@ class TestCubeBasedTemporalFiltering:
         assert response.status_code == 200
         data = response.json()
 
-        # Should have temporal filter in the SQL
+        # Temporal filter pushed into the parent CTE's WHERE.
         assert_sql_equal(
             data["grain_groups"][0]["sql"],
             """
@@ -3162,6 +3167,7 @@ class TestCubeBasedTemporalFiltering:
                 oi.quantity * oi.unit_price AS line_total
               FROM default.v3.orders o
               JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+              WHERE order_date = CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
             )
             SELECT
               t1.order_date date_id,
@@ -3169,7 +3175,6 @@ class TestCubeBasedTemporalFiltering:
               SUM(t1.line_total) line_total_sum_e1f61696,
               SUM(t1.quantity) quantity_sum_06b64d2e
             FROM v3_order_details t1
-            WHERE  t1.order_date = CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
             GROUP BY  t1.order_date, t1.order_id
             """,
         )
@@ -3188,7 +3193,7 @@ class TestCubeBasedTemporalFiltering:
         assert response.status_code == 200
         data = response.json()
 
-        # Should have BETWEEN filter for lookback
+        # BETWEEN filter for lookback — pushed into parent CTE.
         assert_sql_equal(
             data["grain_groups"][0]["sql"],
             """
@@ -3196,12 +3201,12 @@ class TestCubeBasedTemporalFiltering:
                 SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+                WHERE order_date BETWEEN CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP) - INTERVAL '7' DAY, 'yyyyMMdd') AS INT)
+                                     AND CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
             )
             SELECT t1.order_date date_id,
                    SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
-            WHERE t1.order_date BETWEEN CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP) - INTERVAL '7' DAY, 'yyyyMMdd') AS INT)
-                                    AND CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
             GROUP BY t1.order_date
             """,
         )
@@ -3416,19 +3421,22 @@ class TestTemporalFilterPushdown:
         )
 
     @pytest.mark.asyncio
-    async def test_no_pushdown_when_upstream_lacks_fk_column(
+    async def test_no_upstream_pushdown_falls_back_to_parent_cte(
         self,
         session,
         client_with_build_v3,
     ):
         """
-        When the primary FROM of the parent node is a non-source transform that does NOT expose
-        the FK column (date_id), pushdown finds no match and returns None. The filter falls
-        back to the outer WHERE.
+        When the primary FROM of the parent node is a non-source transform that
+        does NOT expose the FK column (date_id), upstream pushdown finds no
+        match. The filter then falls back to the parent's own CTE — never to
+        the outer grain-group WHERE, which would be unsafe in the presence of
+        OUTER JOINs inside the parent body.
 
-        v3.order_details is a non-source transform but its columns don't include
-        date_id (only order_date), so find_upstream_temporal_source_node returns
-        None and the filter lands on the outer query instead.
+        v3.orders_by_date is a non-source transform but its columns don't
+        include date_id directly via the underlying source — so
+        find_upstream_temporal_source_node returns None and the filter lands
+        on the parent CTE.
         """
         # Transform that reads from v3.order_details (non-source, no date_id column)
         # but exposes date_id by aliasing order_date
@@ -3492,7 +3500,9 @@ class TestTemporalFilterPushdown:
         )
         sql = result.grain_groups[0].sql
 
-        # Filter must be on the outer WHERE (no upstream CTE to push into)
+        # Filter lands in the parent CTE (v3_orders_by_date), not the outer
+        # WHERE — outer WHERE would be unsafe if the parent body had any
+        # OUTER JOIN.
         assert_sql_equal(
             sql,
             """
@@ -3516,27 +3526,28 @@ class TestTemporalFilterPushdown:
                 order_date AS date_id,
                 COUNT(order_id) AS order_cnt
               FROM v3_order_details
+              WHERE date_id = CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
               GROUP BY  order_date
             )
             SELECT
               t1.date_id,
               SUM(t1.order_cnt) order_cnt_sum_e668c538
             FROM v3_orders_by_date t1
-            WHERE  t1.date_id = CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
             GROUP BY  t1.date_id
             """,
         )
 
     @pytest.mark.asyncio
-    async def test_no_pushdown_when_parent_query_has_no_from(
+    async def test_parent_query_no_from_falls_back_to_parent_cte(
         self,
         session,
         client_with_build_v3,
     ):
         """
-        Line 854: when the parent node's query has no FROM clause,
+        When the parent node's query has no FROM clause,
         find_upstream_temporal_source_node returns None at the from_ check
-        and the filter falls back to the outer WHERE.
+        and the filter falls back to the parent's own CTE — not the outer
+        grain-group WHERE.
         """
         response = await client_with_build_v3.post(
             "/nodes/transform/",
@@ -3597,7 +3608,8 @@ class TestTemporalFilterPushdown:
             include_temporal_filters=True,
         )
         sql = result.grain_groups[0].sql
-        # Filter must land on outer WHERE (no FROM to push into)
+        # Filter lands in the parent CTE (no FROM means no inner-side hazard;
+        # AND-into-WHERE on the parent's own SELECT is safe).
         assert_sql_equal(
             sql,
             """
@@ -3605,12 +3617,12 @@ class TestTemporalFilterPushdown:
               SELECT
                 CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT) AS date_id,
                 1 AS cnt
+              WHERE date_id = CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
             )
             SELECT
               t1.date_id,
               SUM(t1.cnt) cnt_sum_293e7033
             FROM v3_constant_date t1
-            WHERE  t1.date_id = CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
             GROUP BY  t1.date_id
             """,
         )
@@ -4231,7 +4243,6 @@ class TestFilterOnlyDimensions:
             )
             SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
-            WHERE t1.status = 'completed'
             GROUP BY t1.status
             """,
         )
@@ -5291,6 +5302,886 @@ class TestSparkJoinHints:
             SELECT t1.status, SUM(t1.line_total) line_total_sum_HASH
             FROM v3_order_details t1
             GROUP BY t1.status
+            """,
+            normalize_aliases=True,
+        )
+
+
+class TestOuterJoinFilterSafety:
+    """Filters must not silently turn OUTER JOINs into INNER JOINs.
+
+    The bug: when a parent transform's body contains an OUTER JOIN and a
+    filter resolves to the non-preserved side, applying the filter in WHERE
+    drops the NULL fill-in rows the OUTER JOIN was meant to preserve.
+
+    The fix: route such filters through the inner-side relation as a wrapping
+    subquery — both for filters pushed into the parent CTE itself, and for
+    parent-alias atoms that would otherwise land on the outer query's WHERE
+    after a build-time RIGHT/FULL OUTER JOIN to a dim.
+    """
+
+    @pytest.fixture
+    async def setup_right_outer_join_parent(self, client_with_build_v3):
+        """A transform whose body has ``orders RIGHT OUTER JOIN dates``.
+
+        ``orders o`` is the non-preserved (left) side; ``dates d`` is the
+        preserved (right) side.  Filters on ``o.*`` columns post-join would
+        eliminate dates rows that have no matching order — the failure mode
+        we want to verify the builder avoids.
+        """
+        response = await client_with_build_v3.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.dates_with_orders",
+                "display_name": "Dates with Orders",
+                "description": "All dates, joined to orders that fall on them.",
+                "mode": "published",
+                "query": """
+                    SELECT
+                        d.date_id,
+                        o.order_id,
+                        o.customer_id,
+                        o.status,
+                        o.order_date
+                    FROM v3.src_orders o
+                    RIGHT OUTER JOIN v3.src_dates d ON o.order_date = d.date_id
+                """,
+                "columns": [
+                    {
+                        "name": "date_id",
+                        "type": "int",
+                        "attributes": [{"attribute_type": {"name": "primary_key"}}],
+                    },
+                    {"name": "order_id", "type": "int"},
+                    {"name": "customer_id", "type": "int"},
+                    {"name": "status", "type": "string"},
+                    {"name": "order_date", "type": "int"},
+                ],
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.dates_with_orders_count",
+                "display_name": "Order Count via Dates",
+                "mode": "published",
+                "query": "SELECT COUNT(order_id) FROM v3.dates_with_orders",
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+
+    @pytest.mark.asyncio
+    async def test_local_filter_on_non_preserved_side_wraps_inside_parent_cte(
+        self,
+        client_with_build_v3,
+        setup_right_outer_join_parent,
+    ):
+        """A filter on ``status`` (a column from the non-preserved ``o`` side)
+        must be applied INSIDE the orders subquery — before the RIGHT OUTER
+        JOIN — not in the CTE body's WHERE.  Verifies the inner-side wrapping
+        path inside ``_inject_filter_into_where``.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.dates_with_orders_count"],
+                "dimensions": ["v3.dates_with_orders.date_id"],
+                "filters": ["v3.dates_with_orders.status = 'completed'"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        assert_sql_equal(
+            sql,
+            """
+            WITH v3_dates_with_orders AS (
+                SELECT
+                    d.date_id,
+                    o.order_id,
+                    o.status
+                FROM (SELECT * FROM default.v3.orders o WHERE o.status = 'completed') o
+                RIGHT OUTER JOIN default.v3.dates d ON o.order_date = d.date_id
+            )
+            SELECT
+                t1.date_id,
+                COUNT(t1.order_id) order_id_count_HASH
+            FROM v3_dates_with_orders t1
+            GROUP BY t1.date_id
+            """,
+            normalize_aliases=True,
+        )
+
+    @pytest.mark.asyncio
+    async def test_filter_on_preserved_side_lands_in_cte_where(
+        self,
+        client_with_build_v3,
+        setup_right_outer_join_parent,
+    ):
+        """A filter on ``date_id`` (the preserved ``d`` side) is safe as a
+        plain CTE WHERE — pushdown into the dates subquery is unnecessary.
+        Verifies the classifier doesn't over-trigger on preserved-side filters.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.dates_with_orders_count"],
+                "dimensions": ["v3.dates_with_orders.date_id"],
+                "filters": ["v3.dates_with_orders.date_id >= 20240101"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        assert_sql_equal(
+            sql,
+            """
+            WITH v3_dates_with_orders AS (
+                SELECT
+                    d.date_id,
+                    o.order_id
+                FROM default.v3.orders o
+                RIGHT OUTER JOIN default.v3.dates d ON o.order_date = d.date_id
+                WHERE d.date_id >= 20240101
+            )
+            SELECT
+                t1.date_id,
+                COUNT(t1.order_id) order_id_count_HASH
+            FROM v3_dates_with_orders t1
+            GROUP BY t1.date_id
+            """,
+            normalize_aliases=True,
+        )
+
+
+class TestWrapperCTEAbsorption:
+    """When a LEFT/INNER-joined dim's filter would silently defeat a
+    downstream RIGHT/FULL OUTER JOIN, the LEFT/INNER join + filter are
+    absorbed into a ``<parent>_filtered`` CTE so the filter applies
+    *before* the OUTER JOIN reaches the preserved side.
+
+    Also covers the COALESCE projection/GROUP BY for full-skipped FKs
+    whose dim is fully skipped but a co-joined sibling dim carries the
+    same FK alignment.
+    """
+
+    @pytest.fixture
+    async def setup_right_outer_dim(self, client_with_build_v3):
+        """Add a ``v3.allocation`` dim RIGHT-OUTER-linked to
+        ``v3.order_details``.  The RIGHT-OUTER link is the trigger for
+        wrapper-CTE absorption when any LEFT-joined dim has a filter.
+        """
+        r = await client_with_build_v3.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_allocations",
+                "description": "Customer marketing allocations",
+                "columns": [
+                    {"name": "customer_id", "type": "int"},
+                    {"name": "campaign", "type": "string"},
+                    {"name": "allocated_date", "type": "int"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "allocations",
+            },
+        )
+        assert r.status_code in (200, 201), r.text
+
+        r = await client_with_build_v3.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.allocation",
+                "description": "Allocations dimension",
+                "query": (
+                    "SELECT customer_id, campaign, allocated_date "
+                    "FROM v3.src_allocations"
+                ),
+                "mode": "published",
+                "primary_key": ["customer_id", "allocated_date"],
+            },
+        )
+        assert r.status_code in (200, 201), r.text
+
+        r = await client_with_build_v3.post(
+            "/nodes/v3.order_details/link/",
+            json={
+                "dimension_node": "v3.allocation",
+                "join_type": "right",
+                "join_on": (
+                    "v3.order_details.customer_id = v3.allocation.customer_id "
+                    "AND v3.order_details.order_date = v3.allocation.allocated_date"
+                ),
+            },
+        )
+        assert r.status_code in (200, 201), r.text
+
+    @pytest.mark.asyncio
+    async def test_left_filter_before_right_join_absorbed_into_filtered_cte(
+        self,
+        client_with_build_v3,
+        setup_right_outer_dim,
+    ):
+        """LEFT-joined dim with filter + RIGHT-joined dim → absorbed
+        into ``v3_order_details_filtered`` CTE; outer WHERE empty."""
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": [
+                    "v3.product.category",
+                    "v3.allocation.campaign",
+                ],
+                "filters": ["v3.product.category = 'Electronics'"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        assert_sql_equal(
+            sql,
+            """
+            WITH
+            v3_allocation AS (
+                SELECT customer_id, campaign, allocated_date
+                FROM default.v3.allocations
+            ),
+            v3_order_details AS (
+                SELECT
+                    o.customer_id,
+                    o.order_date,
+                    oi.product_id,
+                    oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+                WHERE category = 'Electronics'
+            ),
+            v3_order_details_filtered AS (
+                SELECT *, t2.category
+                FROM v3_order_details t1
+                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                WHERE t2.category = 'Electronics'
+            )
+            SELECT t1.category, t3.campaign,
+                SUM(t1.line_total) line_total_sum_HASH
+            FROM v3_order_details_filtered t1
+            RIGHT OUTER JOIN v3_allocation t3
+                ON t1.customer_id = t3.customer_id
+                AND t1.order_date = t3.allocated_date
+            GROUP BY t1.category, t3.campaign
+            """,
+            normalize_aliases=True,
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_right_join_no_absorption(
+        self,
+        client_with_build_v3,
+    ):
+        """No RIGHT/FULL OUTER → no wrapper CTE built."""
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.product.category"],
+                "filters": ["v3.product.category = 'Electronics'"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        assert_sql_equal(
+            sql,
+            """
+            WITH
+            v3_order_details AS (
+                SELECT oi.product_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+                WHERE category = 'Electronics'
+            )
+            SELECT t2.category, SUM(t1.line_total) line_total_sum_HASH
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+            WHERE t2.category = 'Electronics'
+            GROUP BY t2.category
+            """,
+            normalize_aliases=True,
+        )
+
+    @pytest.mark.asyncio
+    async def test_unfiltered_left_join_not_absorbed(
+        self,
+        client_with_build_v3,
+        setup_right_outer_dim,
+    ):
+        """LEFT-joined dim without a filter is left alone."""
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": [
+                    "v3.product.category",
+                    "v3.allocation.campaign",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        assert_sql_equal(
+            sql,
+            """
+            WITH
+            v3_allocation AS (
+                SELECT customer_id, campaign, allocated_date
+                FROM default.v3.allocations
+            ),
+            v3_order_details AS (
+                SELECT
+                    o.customer_id,
+                    o.order_date,
+                    oi.product_id,
+                    oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+            )
+            SELECT t2.category, t3.campaign, SUM(t1.line_total) line_total_sum_HASH
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+            RIGHT OUTER JOIN v3_allocation t3
+                ON t1.customer_id = t3.customer_id
+                AND t1.order_date = t3.allocated_date
+            GROUP BY t2.category, t3.campaign
+            """,
+            normalize_aliases=True,
+        )
+
+    @pytest.mark.asyncio
+    async def test_coalesce_for_full_skipped_fk_with_co_joined_sibling(
+        self,
+        client_with_build_v3,
+    ):
+        """When ``v3.customer.customer_id`` is full-skipped to
+        ``t1.customer_id`` and ``v3.customer`` is also joined for
+        another column (``name``), the projection becomes
+        ``COALESCE(t1.customer_id, t_customer.customer_id)`` and the
+        GROUP BY mirrors it.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": [
+                    "v3.customer.customer_id",
+                    "v3.customer.name",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        assert_sql_equal(
+            sql,
+            """
+            WITH
+            v3_customer AS (
+                SELECT customer_id, name FROM default.v3.customers
+            ),
+            v3_order_details AS (
+                SELECT o.customer_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT
+                COALESCE(t1.customer_id, t2.customer_id) AS customer_id,
+                t2.name,
+                SUM(t1.line_total) line_total_sum_HASH
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
+            GROUP BY COALESCE(t1.customer_id, t2.customer_id), t2.name
+            """,
+            normalize_aliases=True,
+        )
+
+    @pytest.fixture
+    async def setup_full_outer_dim(self, client_with_build_v3):
+        """Same as ``setup_right_outer_dim`` but FULL OUTER instead of
+        RIGHT OUTER — exercises the FULL-OUTER-trigger branch of the
+        absorber."""
+        r = await client_with_build_v3.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_allocations_full",
+                "columns": [
+                    {"name": "customer_id", "type": "int"},
+                    {"name": "campaign", "type": "string"},
+                    {"name": "allocated_date", "type": "int"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "allocations",
+            },
+        )
+        assert r.status_code in (200, 201), r.text
+        r = await client_with_build_v3.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.allocation_full",
+                "query": (
+                    "SELECT customer_id, campaign, allocated_date "
+                    "FROM v3.src_allocations_full"
+                ),
+                "mode": "published",
+                "primary_key": ["customer_id", "allocated_date"],
+            },
+        )
+        assert r.status_code in (200, 201), r.text
+        r = await client_with_build_v3.post(
+            "/nodes/v3.order_details/link/",
+            json={
+                "dimension_node": "v3.allocation_full",
+                "join_type": "full",
+                "join_on": (
+                    "v3.order_details.customer_id = v3.allocation_full.customer_id "
+                    "AND v3.order_details.order_date = v3.allocation_full.allocated_date"
+                ),
+            },
+        )
+        assert r.status_code in (200, 201), r.text
+
+    @pytest.mark.asyncio
+    async def test_full_outer_also_triggers_absorption(
+        self,
+        client_with_build_v3,
+        setup_full_outer_dim,
+    ):
+        """A FULL OUTER JOIN preserves both sides — same defeat risk
+        as RIGHT OUTER, so absorption fires here too."""
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": [
+                    "v3.product.category",
+                    "v3.allocation_full.campaign",
+                ],
+                "filters": ["v3.product.category = 'Electronics'"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        assert "v3_order_details_filtered" in sql
+        assert "FULL OUTER JOIN v3_allocation_full" in sql
+
+    @pytest.mark.asyncio
+    async def test_compound_atom_not_absorbed(
+        self,
+        client_with_build_v3,
+        setup_right_outer_dim,
+    ):
+        """A compound atom referencing both the parent and an absorbed
+        dim alias stays in the outer WHERE — the absorber only picks
+        single-alias atoms."""
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": [
+                    "v3.product.category",
+                    "v3.allocation.campaign",
+                ],
+                "filters": [
+                    "v3.order_details.order_id > v3.product.product_id",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        # No wrapper CTE built — compound atom isn't a single-alias
+        # filter the absorber knows how to handle.
+        assert "v3_order_details_filtered" not in sql
+
+    @pytest.mark.asyncio
+    async def test_post_right_left_filter_also_absorbed(
+        self,
+        client_with_build_v3,
+        setup_right_outer_dim,
+    ):
+        """A filter on a LEFT-joined dim that's positioned *after* the
+        RIGHT/FULL OUTER also gets absorbed into the wrapper CTE.  The
+        absorber consolidates every filtered fact-side LEFT/INNER join
+        regardless of where it appears relative to the RIGHT JOIN, so
+        the wrapper applies the filter before the OUTER JOIN reaches
+        the preserved side — preventing the post-RIGHT LEFT JOIN from
+        being defeated by the outer WHERE.
+        """
+        # Make v3.product a post-RIGHT LEFT-joined dim by listing it
+        # AFTER the RIGHT-joined allocation dim.  DJ joins dims in
+        # request order, so this ordering produces:
+        #   member_download t1
+        #   RIGHT JOIN allocation t_a
+        #   LEFT JOIN product t_p           <- positioned AFTER the RIGHT
+        # With the broadened absorber, the filter on v3.product.category
+        # is still absorbed into v3_order_details_filtered.
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": [
+                    "v3.allocation.campaign",
+                    "v3.product.category",
+                ],
+                "filters": ["v3.product.category = 'Electronics'"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        # The filtered product LEFT JOIN should be absorbed even though
+        # it sits after the RIGHT JOIN to allocation in request order.
+        assert "v3_order_details_filtered" in sql
+        # No outer WHERE on the absorbed dim alias — it's now inside
+        # the wrapper.  References to the dim's column should resolve
+        # through the wrapper's alias (t1), not a separate dim alias.
+        assert "WHERE t2.category" not in sql
+
+    @pytest.mark.asyncio
+    async def test_pre_and_post_right_filters_both_absorbed(
+        self,
+        client_with_build_v3,
+        setup_right_outer_dim,
+    ):
+        """Filters on two LEFT-joined dims — one before and one after
+        the RIGHT JOIN — both get absorbed into a single wrapper CTE.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": [
+                    "v3.product.category",  # pre-RIGHT LEFT
+                    "v3.allocation.campaign",  # RIGHT
+                    "v3.customer.name",  # post-RIGHT LEFT
+                ],
+                "filters": [
+                    "v3.product.category = 'Electronics'",
+                    "v3.customer.name = 'Alice'",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        # Both filters are absorbed into one wrapper CTE.
+        assert "v3_order_details_filtered" in sql
+        # Both filter predicates should be applied inside the wrapper.
+        wrapper_section = sql.split("v3_order_details_filtered AS (")[1].split(
+            ")",
+            1,
+        )[0]
+        assert "category = 'Electronics'" in wrapper_section
+        assert "name = 'Alice'" in wrapper_section
+
+    @pytest.mark.asyncio
+    async def test_preserved_side_filter_remains_in_outer_where(
+        self,
+        client_with_build_v3,
+        setup_right_outer_dim,
+    ):
+        """A filter on the RIGHT/FULL OUTER preserved side stays in the
+        outer WHERE (not absorbed) — filtering a preserved side just
+        narrows it without defeating anything.  Together with a
+        LEFT-joined-dim filter (absorbed), this verifies the absorber
+        leaves preserved-side single-dim atoms alone instead of
+        silently dropping them.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": [
+                    "v3.product.category",
+                    "v3.allocation.campaign",
+                ],
+                "filters": [
+                    "v3.product.category = 'Electronics'",
+                    "v3.allocation.campaign = 'spring'",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        # Product filter absorbed.
+        assert "v3_order_details_filtered" in sql
+        # Allocation (preserved RIGHT side) filter STAYS in outer WHERE
+        # — it wasn't silently dropped.
+        outer_section = sql.split("v3_order_details_filtered AS (")[1]
+        outer_section = outer_section.split(")")[-1]  # after the last )
+        assert "campaign" in outer_section
+
+    @pytest.mark.asyncio
+    async def test_compound_atom_alongside_absorbed_dim(
+        self,
+        client_with_build_v3,
+        setup_right_outer_dim,
+    ):
+        """A compound (cross-namespace) atom plus a single-dim atom on
+        a LEFT-joined dim: the single-dim atom is absorbed into the
+        wrapper CTE, and the compound atom rides through ``other_atoms``
+        — exercising the iteration over ``other_atoms`` in both the
+        column-collection and alias-rewrite loops.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": [
+                    "v3.product.category",
+                    "v3.allocation.campaign",
+                ],
+                "filters": [
+                    "v3.product.category = 'Electronics'",
+                    # Cross-namespace compound: absorbed dim (product) vs
+                    # RIGHT-preserved dim (allocation).  Single non-AND
+                    # atom, so it lands in ``other_atoms`` and exercises
+                    # both the column-collection and alias-rewrite loops
+                    # over ``other_atoms``.
+                    "v3.product.category != v3.allocation.campaign",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        assert_sql_equal(
+            sql,
+            """
+            WITH
+            v3_allocation AS (
+                SELECT customer_id, campaign, allocated_date
+                FROM default.v3.allocations
+            ),
+            v3_order_details AS (
+                SELECT
+                    o.customer_id,
+                    o.order_date,
+                    oi.product_id,
+                    oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+                WHERE category = 'Electronics'
+            ),
+            v3_order_details_filtered AS (
+                SELECT *, t2.category
+                FROM v3_order_details t1
+                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                WHERE t2.category = 'Electronics'
+            )
+            SELECT t1.category, t3.campaign,
+                SUM(t1.line_total) line_total_sum_HASH
+            FROM v3_order_details_filtered t1
+            RIGHT OUTER JOIN v3_allocation t3
+                ON t1.customer_id = t3.customer_id
+                AND t1.order_date = t3.allocated_date
+            WHERE t1.category != t3.campaign
+            GROUP BY t1.category, t3.campaign
+            """,
+            normalize_aliases=True,
+        )
+
+
+class TestMeasuresMaterializedParentFilter:
+    """Filters on a materialized parent's local columns are routed
+    through ``inject_filter_into_select`` instead of being dropped.
+
+    With materialization, no parent CTE is built, so the safety
+    backstop in ``_apply_outer_where_atoms`` must keep the filter
+    visible at the outer level.
+    """
+
+    @pytest.mark.asyncio
+    async def test_local_filter_on_materialized_parent_kept_in_outer(
+        self,
+        client_with_build_v3,
+    ):
+        """Add availability to ``v3.order_details`` so it's materialized,
+        then request a metric on it with a local-column filter.  The
+        filter must survive into the outer SQL (via the safety
+        backstop), even though no parent CTE exists to push it into.
+        """
+        response = await client_with_build_v3.post(
+            "/data/v3.order_details/availability/",
+            json={
+                "catalog": "analytics",
+                "schema_": "warehouse",
+                "table": "order_details_materialized_pa",
+                "valid_through_ts": 9999999999,
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+                "filters": ["v3.order_details.status = 'completed'"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        assert_sql_equal(
+            sql,
+            """
+            SELECT t1.status, SUM(t1.line_total) line_total_sum_HASH
+            FROM analytics.warehouse.order_details_materialized_pa t1
+            WHERE t1.status = 'completed'
+            GROUP BY t1.status
+            """,
+            normalize_aliases=True,
+        )
+
+
+class TestMultiHopInnerDefeatsLeft:
+    """Multi-hop dim chains can produce ``LEFT JOIN dim1 INNER JOIN dim2 ON
+    dim1.X = dim2.Y`` shapes when ``dim1`` is reached via a LEFT link from
+    the fact and ``dim1`` has its own INNER link to ``dim2``.
+
+    The downstream INNER's predicate references ``dim1`` (a non-preserved
+    alias).  For fact rows where ``dim1`` doesn't match, ``dim1.X`` is NULL
+    → the INNER predicate is NULL → the row is dropped.  This silently
+    converts the upstream LEFT JOIN into an effective INNER JOIN.
+
+    This is a real hazard in multi-hop dim graphs (common pattern: a
+    fact LEFT-links to a "main" dim, that dim INNER-links to a lookup
+    dim, and a user requests a column from the lookup).  The fix
+    requires the absorber or classifier to recognize that an INNER's
+    cross-dim predicate undoes upstream preservation.
+    """
+
+    @pytest.fixture
+    async def setup_multi_hop_chain(self, client_with_build_v3):
+        """Build a chain: ``v3.order_details`` LEFT-linked to ``v3.product``,
+        ``v3.product`` INNER-linked to a new ``v3.product_lookup`` dim.
+        Requesting a column from ``v3.product_lookup`` forces the chain.
+        """
+        # New lookup dim source + dim
+        r = await client_with_build_v3.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_product_lookup",
+                "columns": [
+                    {"name": "category", "type": "string"},
+                    {"name": "category_group", "type": "string"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "product_lookup",
+            },
+        )
+        assert r.status_code in (200, 201), r.text
+
+        r = await client_with_build_v3.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.product_lookup",
+                "description": "Product category lookup",
+                "query": "SELECT category, category_group FROM v3.src_product_lookup",
+                "mode": "published",
+                "primary_key": ["category"],
+            },
+        )
+        assert r.status_code in (200, 201), r.text
+
+        # v3.product INNER-links to v3.product_lookup on its `category`
+        # column.  The link's join_on is cross-dim:
+        #   v3.product.category = v3.product_lookup.category
+        # so when chained downstream of the LEFT link from order_details,
+        # the INNER's predicate references the LEFT-joined dim's column.
+        r = await client_with_build_v3.post(
+            "/nodes/v3.product/link/",
+            json={
+                "dimension_node": "v3.product_lookup",
+                "join_type": "inner",
+                "join_on": ("v3.product.category = v3.product_lookup.category"),
+            },
+        )
+        assert r.status_code in (200, 201), r.text
+
+    @pytest.mark.asyncio
+    async def test_inner_link_downstream_of_left_defeats_left(
+        self,
+        client_with_build_v3,
+        setup_multi_hop_chain,
+    ):
+        """Demonstrates the bug: chain ``order_details LEFT product INNER
+        product_lookup`` generates SQL where the INNER's predicate
+        references the LEFT-joined ``product`` alias, silently dropping
+        fact rows that have no matching product.
+
+        Asserts the current (buggy) shape via ``assert_sql_equal``.
+        Marked ``xfail`` until the classifier propagates non-preserved
+        through cross-dim INNER predicates (or the absorber broadens
+        scope to consolidate multi-hop chains).
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": [
+                    "v3.product_lookup.category_group",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        # Current behavior (the documented bug): the chain emits
+        # ``... LEFT OUTER JOIN v3_product t2 ... INNER JOIN v3_product_lookup t3
+        # ON t2.category = t3.category``.  The INNER's predicate
+        # references the LEFT-joined ``t2`` alias — for fact rows where
+        # ``t2`` doesn't match, ``t2.category`` is NULL and the INNER
+        # silently drops them, defeating the upstream LEFT.
+        #
+        # A correctness fix would either flip the downstream INNER to
+        # LEFT or wrap the LEFT+INNER pair so the NULL fact rows from
+        # the LEFT JOIN survive.  Until then this asserts the buggy
+        # shape so the test fails the day the fix lands and we can
+        # update the expected output.
+        assert_sql_equal(
+            sql,
+            """
+            WITH
+            v3_order_details AS (
+                SELECT oi.product_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+            ),
+            v3_product_lookup AS (
+                SELECT category, category_group
+                FROM default.v3.product_lookup
+            )
+            SELECT t3.category_group, SUM(t1.line_total) line_total_sum_HASH
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+            INNER JOIN v3_product_lookup t3 ON t2.category = t3.category
+            GROUP BY t3.category_group
             """,
             normalize_aliases=True,
         )

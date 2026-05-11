@@ -4,6 +4,7 @@ import pytest
 
 from datajunction_server.construction.build_v3.cte import (
     _build_cte_projection_map,
+    _inject_filter_into_where,
     _rewrite_filter_for_cte,
     get_column_full_name,
     inject_partition_by_into_windows,
@@ -12,6 +13,8 @@ from datajunction_server.construction.build_v3.cte import (
 )
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
+
+from . import assert_sql_equal
 
 
 class TestGetColumnFullName:
@@ -405,6 +408,45 @@ class TestBuildCteProjectionMap:
             "bare_col": "t.bare_col",
         }
 
+    def test_cast_around_column_is_passthrough(self):
+        """``CAST(col AS T) AS col`` maps the alias to the unwrapped column,
+        not None.  CAST is value-equivalent for equality/IN/range filters
+        against literals of the cast target type, so filters can safely
+        push into the CTE referring to the underlying column.
+
+        This covers the LATERAL-VIEW-EXPLODE'd column pattern where the
+        modeler CASTs the exploded value for type normalization
+        (``CAST(max_observation_end AS INT) AS max_observation_end``).
+        """
+        query = parse(
+            "SELECT CAST(max_observation_end AS INT) AS max_observation_end FROM t",
+        )
+        assert _build_cte_projection_map(query) == {
+            "max_observation_end": "max_observation_end",
+        }
+
+    def test_cast_around_qualified_column_preserves_qualifier(self):
+        """``CAST(t.col AS T) AS alias`` unwraps to ``t.col``, retaining the
+        table qualifier in the WHERE-safe form."""
+        query = parse(
+            "SELECT CAST(t.placed_on AS DATE) AS order_date FROM src t",
+        )
+        assert _build_cte_projection_map(query) == {
+            "order_date": "t.placed_on",
+        }
+
+    def test_cast_around_non_column_marks_unsafe(self):
+        """``CAST`` around a non-column expression (e.g.
+        ``CAST(SUM(x) AS BIGINT) AS total``) is still unsafe — only
+        column-arg CASTs are passthroughs.
+        """
+        query = parse(
+            "SELECT CAST(SUM(x) AS BIGINT) AS total FROM t",
+        )
+        assert _build_cte_projection_map(query) == {
+            "total": None,
+        }
+
 
 class TestRewriteFilterForCte:
     """Tests for _rewrite_filter_for_cte."""
@@ -607,3 +649,271 @@ class TestPushdownEdgeCases:
             cte_query=cte_query,
         )
         assert str(rewritten) == "o.placed_on > 0"
+
+
+def _normalize_sql(sql: str) -> str:
+    """Collapse whitespace for stable equality on emitted SQL."""
+    return " ".join(sql.split())
+
+
+class TestInjectFilterIntoWhereOuterJoinSafe:
+    """`_inject_filter_into_where` must not turn OUTER JOINs into INNER JOINs.
+
+    Filters whose columns resolve entirely to the non-preserved side of an
+    OUTER JOIN are wrapped around that inner-side relation as a subquery,
+    not ANDed into the surrounding WHERE.
+    """
+
+    def test_right_join_filter_on_left_wraps_left_side(self):
+        """`orders RIGHT JOIN customers` with filter on `orders.placed_on`
+        must wrap the orders relation, not WHERE the post-join row set.
+        """
+        query = parse(
+            "SELECT * FROM orders RIGHT JOIN customers "
+            "ON orders.customer_id = customers.id",
+        )
+        filt = parse("SELECT 1 WHERE orders.placed_on BETWEEN 1 AND 2").select.where
+        _inject_filter_into_where(query, filt)
+        assert query.select.where is None
+        assert_sql_equal(
+            str(query),
+            """
+            SELECT * FROM (
+                SELECT * FROM orders WHERE orders.placed_on BETWEEN 1 AND 2
+            ) orders
+            RIGHT JOIN customers ON orders.customer_id = customers.id
+            """,
+        )
+
+    def test_left_join_filter_on_right_wraps_right_side(self):
+        """`users LEFT JOIN logins` with filter on `logins.success` must wrap
+        the logins relation.
+        """
+        query = parse(
+            "SELECT * FROM users LEFT JOIN logins ON users.id = logins.user_id",
+        )
+        filt = parse("SELECT 1 WHERE logins.success = 1").select.where
+        _inject_filter_into_where(query, filt)
+        assert query.select.where is None
+        assert_sql_equal(
+            str(query),
+            """
+            SELECT * FROM users
+            LEFT JOIN (
+                SELECT * FROM logins WHERE logins.success = 1
+            ) logins ON users.id = logins.user_id
+            """,
+        )
+
+    def test_full_outer_join_filter_on_left_wraps_left_side(self):
+        """`stocks FULL OUTER JOIN sales` makes both sides non-preserved.
+        A filter on `stocks.sku` wraps the stocks relation.
+        """
+        query = parse(
+            "SELECT * FROM stocks FULL OUTER JOIN sales ON stocks.sku = sales.sku",
+        )
+        filt = parse("SELECT 1 WHERE stocks.sku > 0").select.where
+        _inject_filter_into_where(query, filt)
+        assert query.select.where is None
+        assert_sql_equal(
+            str(query),
+            """
+            SELECT * FROM (
+                SELECT * FROM stocks WHERE stocks.sku > 0
+            ) stocks
+            FULL OUTER JOIN sales ON stocks.sku = sales.sku
+            """,
+        )
+
+    def test_full_outer_join_filter_on_right_wraps_right_side(self):
+        """Symmetric case: filter on `sales.qty` wraps the sales relation."""
+        query = parse(
+            "SELECT * FROM stocks FULL OUTER JOIN sales ON stocks.sku = sales.sku",
+        )
+        filt = parse("SELECT 1 WHERE sales.qty > 0").select.where
+        _inject_filter_into_where(query, filt)
+        assert query.select.where is None
+        assert_sql_equal(
+            str(query),
+            """
+            SELECT * FROM stocks
+            FULL OUTER JOIN (
+                SELECT * FROM sales WHERE sales.qty > 0
+            ) sales ON stocks.sku = sales.sku
+            """,
+        )
+
+    def test_inner_join_filter_lands_in_where(self):
+        """INNER JOIN has no preserved/non-preserved asymmetry — WHERE is safe."""
+        query = parse(
+            "SELECT * FROM authors INNER JOIN books ON authors.id = books.author_id",
+        )
+        filt = parse("SELECT 1 WHERE authors.age > 0").select.where
+        _inject_filter_into_where(query, filt)
+        assert query.select.where is not None
+        assert_sql_equal(
+            str(query),
+            """
+            SELECT * FROM authors
+            INNER JOIN books ON authors.id = books.author_id
+            WHERE authors.age > 0
+            """,
+        )
+
+    def test_filter_on_preserved_side_lands_in_where(self):
+        """Filter on the preserved side of a LEFT JOIN is safe in WHERE — it
+        just narrows the preserved row set, which is the user's intent.
+        """
+        query = parse(
+            "SELECT * FROM orders LEFT JOIN refunds ON orders.id = refunds.order_id",
+        )
+        filt = parse("SELECT 1 WHERE orders.region = 'US'").select.where
+        _inject_filter_into_where(query, filt)
+        assert query.select.where is not None
+        assert_sql_equal(
+            str(query),
+            """
+            SELECT * FROM orders
+            LEFT JOIN refunds ON orders.id = refunds.order_id
+            WHERE orders.region = 'US'
+            """,
+        )
+
+    def test_filter_spanning_two_non_preserved_sides_falls_through_to_where(self):
+        """A filter that touches columns from two distinct non-preserved sides
+        can't be wrapped on a single relation — single-side wrapping wouldn't
+        preserve the cross-side semantics.  Falls through to WHERE.
+
+        ``a LEFT JOIN b LEFT JOIN c`` makes both ``b`` and ``c`` non-preserved
+        against a post-WHERE filter; a predicate touching ``b.x AND c.y``
+        spans both, so the classifier returns ``None`` and the filter lands
+        in WHERE — covering the ``len(targets) != 1`` branch.
+        """
+        query = parse(
+            "SELECT * FROM a LEFT JOIN b ON a.id = b.a_id LEFT JOIN c ON a.id = c.a_id",
+        )
+        # The AND-tree split routes each atom independently, so combine the
+        # cross-side references into one atom (a non-AND op) to exercise the
+        # multi-namespace classification path.
+        single_atom = parse(
+            "SELECT 1 WHERE COALESCE(b.x, 0) + COALESCE(c.y, 0) > 0",
+        ).select.where
+        _inject_filter_into_where(query, single_atom)
+        assert query.select.where is not None
+        assert_sql_equal(
+            str(query),
+            """
+            SELECT * FROM a
+            LEFT JOIN b ON a.id = b.a_id
+            LEFT JOIN c ON a.id = c.a_id
+            WHERE COALESCE(b.x, 0) + COALESCE(c.y, 0) > 0
+            """,
+        )
+
+    def test_filter_spanning_both_sides_splits_via_and_atoms(self):
+        """A top-level AND between a non-preserved-side atom and a
+        preserved-side atom splits via the AND-atom router: the
+        non-preserved atom wraps its side; the preserved atom lands in
+        the outer WHERE.  Together they replicate the original AND
+        semantics without defeating the OUTER JOIN.
+        """
+        query = parse(
+            "SELECT * FROM orders RIGHT JOIN customers "
+            "ON orders.customer_id = customers.id",
+        )
+        filt = parse(
+            "SELECT 1 WHERE orders.placed_on > 1 AND customers.tier = 'A'",
+        ).select.where
+        _inject_filter_into_where(query, filt)
+        assert_sql_equal(
+            str(query),
+            """
+            SELECT * FROM (
+                SELECT * FROM orders WHERE orders.placed_on > 1
+            ) orders
+            RIGHT JOIN customers ON orders.customer_id = customers.id
+            WHERE customers.tier = 'A'
+            """,
+        )
+
+    def test_no_join_lands_in_where(self):
+        """Single-table FROM has nothing to wrap — WHERE is the only landing spot."""
+        query = parse("SELECT * FROM orders")
+        filt = parse("SELECT 1 WHERE orders.placed_on > 0").select.where
+        _inject_filter_into_where(query, filt)
+        assert query.select.where is not None
+        assert_sql_equal(
+            str(query),
+            "SELECT * FROM orders WHERE orders.placed_on > 0",
+        )
+
+    def test_unqualified_filter_falls_through_to_where(self):
+        """Without a namespace on the column ref we can't determine which side
+        the filter belongs to; default to WHERE so behavior is unchanged from
+        the pre-fix code path.
+        """
+        query = parse(
+            "SELECT * FROM orders RIGHT JOIN customers "
+            "ON orders.customer_id = customers.id",
+        )
+        filt = parse("SELECT 1 WHERE placed_on > 0").select.where
+        _inject_filter_into_where(query, filt)
+        assert query.select.where is not None
+        assert_sql_equal(
+            str(query),
+            """
+            SELECT * FROM orders
+            RIGHT JOIN customers ON orders.customer_id = customers.id
+            WHERE placed_on > 0
+            """,
+        )
+
+    def test_filter_existing_where_is_preserved(self):
+        """When wrapping happens the original WHERE on the outer query is
+        untouched (no double-application).
+        """
+        query = parse(
+            "SELECT * FROM orders RIGHT JOIN customers "
+            "ON orders.customer_id = customers.id "
+            "WHERE customers.tier = 'A'",
+        )
+        filt = parse("SELECT 1 WHERE orders.placed_on > 0").select.where
+        _inject_filter_into_where(query, filt)
+        assert_sql_equal(
+            str(query),
+            """
+            SELECT * FROM (
+                SELECT * FROM orders WHERE orders.placed_on > 0
+            ) orders
+            RIGHT JOIN customers ON orders.customer_id = customers.id
+            WHERE customers.tier = 'A'
+            """,
+        )
+
+    def test_consecutive_filters_flatten_into_single_wrap(self):
+        """Two filters on the same non-preserved side flatten into a single
+        wrap — the second call detects the existing wrap and ANDs into its
+        WHERE rather than nesting another subquery layer.
+        """
+        query = parse(
+            "SELECT * FROM orders RIGHT JOIN customers "
+            "ON orders.customer_id = customers.id",
+        )
+        _inject_filter_into_where(
+            query,
+            parse("SELECT 1 WHERE orders.placed_on > 0").select.where,
+        )
+        _inject_filter_into_where(
+            query,
+            parse("SELECT 1 WHERE orders.region = 'US'").select.where,
+        )
+        assert_sql_equal(
+            str(query),
+            """
+            SELECT * FROM (
+                SELECT * FROM orders
+                WHERE orders.placed_on > 0 AND orders.region = 'US'
+            ) orders
+            RIGHT JOIN customers ON orders.customer_id = customers.id
+            """,
+        )
