@@ -127,12 +127,13 @@ class MeasuresMaterialization(BaseModel):
         """
         Builds a MeasuresMaterialization object from a measures query.
         """
-        metric_components = list(
+        metric_components = sorted(
             {
                 component.name: component
                 for metric, (components, combiner) in measures_query.metrics.items()
                 for component in components
             }.values(),
+            key=lambda c: c.name,
         )
         dimensional_metric_components = [
             component.name
@@ -345,7 +346,11 @@ class CombineMaterialization(BaseModel):
                 " on this cube or it cannot be materialized to Druid.",
             )
 
-        druid_datasource_name = f"dj__{self.output_table_name}"
+        from datajunction_server.utils import get_settings  # noqa: PLC0415
+
+        druid_datasource_name = (
+            f"{get_settings().druid_datasource_prefix}{self.output_table_name}"
+        )
 
         # if there are categorical partitions, we can additionally include one of them
         # in the partitionDimension field under partitionsSpec

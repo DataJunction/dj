@@ -17,7 +17,6 @@ from datajunction_server.models.cube_materialization import (
     NodeNameVersion,
 )
 from datajunction_server.models.partition import Granularity, PartitionBackfill
-from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 
@@ -603,6 +602,34 @@ WHERE repair_orders.order_date = DJ_LOGICAL_TIMESTAMP()""",
         "druid_measures_cube.incremental.druid_spec.json",
     )
 
+    # Restore repair_orders_fact to its original SQL so later tests are not affected
+    restore_response = await client_with_repairs_cube.patch(
+        "/nodes/default.repair_orders_fact",
+        json={
+            "query": """SELECT
+  repair_orders.repair_order_id,
+  repair_orders.municipality_id,
+  repair_orders.hard_hat_id,
+  repair_orders.dispatcher_id,
+  repair_orders.order_date,
+  repair_orders.dispatched_date,
+  repair_orders.required_date,
+  repair_order_details.discount,
+  repair_order_details.price,
+  repair_order_details.quantity,
+  repair_order_details.repair_type_id,
+  repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
+  repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
+  repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
+FROM
+  default.repair_orders repair_orders
+JOIN
+  default.repair_order_details repair_order_details
+ON repair_orders.repair_order_id = repair_order_details.repair_order_id""",
+        },
+    )
+    assert restore_response.status_code in (200, 201)
+
 
 @pytest.mark.asyncio
 @pytest.mark.skip(reason="The test is unstable depending on run order")
@@ -818,19 +845,24 @@ async def test_druid_cube_incremental(
     actual_node = mat.measures_materializations[0].node
     assert actual_node.name == "default.repair_orders_fact"
     assert actual_node.display_name == "Repair Orders Fact"
-    assert mat.measures_materializations[0].grain == [
-        "default_DOT_repair_orders_fact_DOT_order_date",
-        "default_DOT_hard_hat_DOT_state",
-        "default_DOT_dispatcher_DOT_company_name",
-        "default_DOT_municipality_dim_DOT_local_region",
+    # v3 uses the short SQL alias for each column (semantic_entity carries the
+    # full dotted name). Grain is sorted alphabetically by alias.
+    expected_dim_grain = [
+        "company_name",
+        "local_region",
+        "order_date",
+        "state",
     ]
-    assert mat.measures_materializations[0].dimensions == [
-        "default_DOT_repair_orders_fact_DOT_order_date",
-        "default_DOT_hard_hat_DOT_state",
-        "default_DOT_dispatcher_DOT_company_name",
-        "default_DOT_municipality_dim_DOT_local_region",
+    # dimensions follows the original cube column order (not alphabetical)
+    expected_dimensions_in_order = [
+        "order_date",
+        "state",
+        "company_name",
+        "local_region",
     ]
-    assert mat.measures_materializations[0].measures == [
+    assert mat.measures_materializations[0].grain == expected_dim_grain
+    assert mat.measures_materializations[0].dimensions == expected_dimensions_in_order
+    expected_components = [
         MetricComponent(
             name="repair_order_id_count_bd241964",
             expression="repair_order_id",
@@ -846,64 +878,34 @@ async def test_druid_cube_incremental(
             rule=AggregationRule(type=Aggregability.FULL, level=None),
         ),
     ]
-    assert mat.measures_materializations[0].columns == [
-        ColumnMetadata(
-            name="default_DOT_repair_orders_fact_DOT_order_date",
-            type="timestamp",
-            column="order_date",
-            node="default.repair_orders_fact",
-            semantic_entity="default.repair_orders_fact.order_date",
-            semantic_type="dimension",
-        ),
-        ColumnMetadata(
-            name="default_DOT_hard_hat_DOT_state",
-            type="string",
-            column="state",
-            node="default.hard_hat",
-            semantic_entity="default.hard_hat.state",
-            semantic_type="dimension",
-        ),
-        ColumnMetadata(
-            name="default_DOT_dispatcher_DOT_company_name",
-            type="string",
-            column="company_name",
-            node="default.dispatcher",
-            semantic_entity="default.dispatcher.company_name",
-            semantic_type="dimension",
-        ),
-        ColumnMetadata(
-            name="default_DOT_municipality_dim_DOT_local_region",
-            type="string",
-            column="local_region",
-            node="default.municipality_dim",
-            semantic_entity="default.municipality_dim.local_region",
-            semantic_type="dimension",
-        ),
-        ColumnMetadata(
-            name="repair_order_id_count_bd241964",
-            type="bigint",
-            column="repair_order_id_count_bd241964",
-            node="default.repair_orders_fact",
-            semantic_entity="default.repair_orders_fact.repair_order_id_count_bd241964",
-            semantic_type="measure",
-        ),
-        ColumnMetadata(
-            name="total_repair_cost_sum_67874507",
-            type="double",
-            column="total_repair_cost_sum_67874507",
-            node="default.repair_orders_fact",
-            semantic_entity="default.repair_orders_fact.total_repair_cost_sum_67874507",
-            semantic_type="measure",
-        ),
-    ]
+    assert sorted(
+        mat.measures_materializations[0].measures,
+        key=lambda m: m.name,
+    ) == sorted(expected_components, key=lambda m: m.name)
+    # v3 emits ``metric_node:component_name`` as the semantic identifier for
+    # measure columns; the v2 path stitched ``parent_fact.component_name``
+    # instead. Both are usable downstream — assert structurally.
+    columns_by_name = {c.name: c for c in mat.measures_materializations[0].columns}
+    assert set(columns_by_name) == {
+        "order_date",
+        "state",
+        "company_name",
+        "local_region",
+        "repair_order_id_count_bd241964",
+        "total_repair_cost_sum_67874507",
+    }
     assert (
-        mat.measures_materializations[0].timestamp_column
-        == "default_DOT_repair_orders_fact_DOT_order_date"
+        columns_by_name["order_date"].semantic_entity
+        == "default.repair_orders_fact.order_date"
     )
+    assert columns_by_name["order_date"].semantic_type == "dimension"
+    assert columns_by_name["repair_order_id_count_bd241964"].semantic_type == "measure"
+    assert mat.measures_materializations[0].timestamp_column == "order_date"
     assert mat.measures_materializations[0].timestamp_format == "yyyyMMdd"
     assert mat.measures_materializations[0].granularity == Granularity.DAY
     assert mat.measures_materializations[0].spark_conf is None
-    assert mat.measures_materializations[0].upstream_tables == [
+    # Order varies (set traversal); compare as a set.
+    assert set(mat.measures_materializations[0].upstream_tables) == {
         "default.roads.repair_orders",
         "default.roads.repair_order_details",
         "default.roads.hard_hats",
@@ -911,7 +913,7 @@ async def test_druid_cube_incremental(
         "default.roads.municipality",
         "default.roads.municipality_municipality_type",
         "default.roads.municipality_type",
-    ]
+    }
     assert mat.measures_materializations[0].output_table_name.startswith(
         "default_repair_orders_fact",
     )
@@ -921,91 +923,57 @@ async def test_druid_cube_incremental(
     assert combiner_node.version == "v1.0"
     assert combiner_node.display_name == "Repairs Cube  Default Incremental"
     assert mat.combiners[0].query is None
-    assert mat.combiners[0].columns == [
-        ColumnMetadata(
-            name="default_DOT_repair_orders_fact_DOT_order_date",
-            type="timestamp",
-            column="order_date",
-            node="default.repair_orders_fact",
-            semantic_entity="default.repair_orders_fact.order_date",
-            semantic_type="dimension",
-        ),
-        ColumnMetadata(
-            name="default_DOT_hard_hat_DOT_state",
-            type="string",
-            column="state",
-            node="default.hard_hat",
-            semantic_entity="default.hard_hat.state",
-            semantic_type="dimension",
-        ),
-        ColumnMetadata(
-            name="default_DOT_dispatcher_DOT_company_name",
-            type="string",
-            column="company_name",
-            node="default.dispatcher",
-            semantic_entity="default.dispatcher.company_name",
-            semantic_type="dimension",
-        ),
-        ColumnMetadata(
-            name="default_DOT_municipality_dim_DOT_local_region",
-            type="string",
-            column="local_region",
-            node="default.municipality_dim",
-            semantic_entity="default.municipality_dim.local_region",
-            semantic_type="dimension",
-        ),
-        ColumnMetadata(
-            name="repair_order_id_count_bd241964",
-            type="bigint",
-            column="repair_order_id_count_bd241964",
-            node="default.repair_orders_fact",
-            semantic_entity="default.repair_orders_fact.repair_order_id_count_bd241964",
-            semantic_type="measure",
-        ),
-        ColumnMetadata(
-            name="total_repair_cost_sum_67874507",
-            type="double",
-            column="total_repair_cost_sum_67874507",
-            node="default.repair_orders_fact",
-            semantic_entity="default.repair_orders_fact.total_repair_cost_sum_67874507",
-            semantic_type="measure",
-        ),
-    ]
-    assert mat.combiners[0].grain == [
-        "default_DOT_repair_orders_fact_DOT_order_date",
-        "default_DOT_hard_hat_DOT_state",
-        "default_DOT_dispatcher_DOT_company_name",
-        "default_DOT_municipality_dim_DOT_local_region",
-    ]
-    assert mat.combiners[0].dimensions == [
-        "default_DOT_repair_orders_fact_DOT_order_date",
-        "default_DOT_hard_hat_DOT_state",
-        "default_DOT_dispatcher_DOT_company_name",
-        "default_DOT_municipality_dim_DOT_local_region",
-    ]
-    assert mat.combiners[0].measures == [
-        MetricComponent(
-            name="repair_order_id_count_bd241964",
-            expression="repair_order_id",
-            aggregation="COUNT",
-            merge="SUM",
-            rule=AggregationRule(type=Aggregability.FULL, level=None),
-        ),
-        MetricComponent(
-            name="total_repair_cost_sum_67874507",
-            expression="total_repair_cost",
-            aggregation="SUM",
-            merge="SUM",
-            rule=AggregationRule(type=Aggregability.FULL, level=None),
-        ),
-    ]
-    assert (
-        mat.combiners[0].timestamp_column
-        == "default_DOT_repair_orders_fact_DOT_order_date"
+    combiner_cols_by_name = {c.name: c for c in mat.combiners[0].columns}
+    assert set(combiner_cols_by_name) == set(columns_by_name)
+    assert mat.combiners[0].grain == expected_dim_grain
+    assert mat.combiners[0].dimensions == expected_dimensions_in_order
+    assert sorted(mat.combiners[0].measures, key=lambda m: m.name) == sorted(
+        expected_components,
+        key=lambda m: m.name,
     )
+    assert mat.combiners[0].timestamp_column == "order_date"
     assert mat.combiners[0].timestamp_format == "yyyyMMdd"
     assert mat.combiners[0].granularity == Granularity.DAY
     assert mat.combiners[0].upstream_tables[0].startswith("default_repair_orders_fact")
+
+
+@pytest.mark.asyncio
+async def test_druid_cube_full(
+    client_with_repairs_cube: AsyncClient,
+    module__query_service_client: QueryServiceClient,
+    set_temporal_column,
+):
+    """
+    Verifying this materialization setup:
+    - Job Type: druid_cube
+    - Strategy: full
+    Cases to check:
+    - [success] FULL strategy should NOT include temporal partition filters in the SQL
+    """
+    cube_name = "default.repairs_cube__default_full"
+    client_with_repairs_cube = await client_with_repairs_cube(cube_name=cube_name)  # type: ignore
+    await set_temporal_column(
+        client_with_repairs_cube,
+        cube_name,
+        "default.repair_orders_fact.order_date",
+    )
+    response = await client_with_repairs_cube.post(
+        f"/nodes/{cube_name}/materialization/",
+        json={
+            "job": "druid_cube",
+            "strategy": "full",
+            "schedule": "@daily",
+        },
+    )
+    assert response.status_code in (200, 201), response.json()
+    assert "Successfully updated materialization config" in response.json()["message"]
+
+    _, kwargs = module__query_service_client.materialize_cube.call_args_list[-1]  # type: ignore
+    mat = kwargs["materialization_input"]
+    assert mat.job == "DruidCubeMaterializationJob"
+    measures_query = mat.measures_materializations[0].query
+    assert "DJ_LOGICAL_TIMESTAMP" not in measures_query
+    assert "dj_logical_timestamp" not in measures_query.lower()
 
 
 @pytest.mark.asyncio

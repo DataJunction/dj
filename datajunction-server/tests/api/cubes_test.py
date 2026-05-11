@@ -2999,8 +2999,8 @@ async def test_cube_materialization_metadata(
     ]
     assert results["metrics"] == [
         {
-            "derived_expression": "SELECT  CAST(SUM(discount_sum_30b84e6c) AS DOUBLE) / "
-            "SUM(count_c8e42e74) AS default_DOT_discounted_orders_rate  FROM "
+            "derived_expression": "SELECT CAST(SUM(discount_sum_30b84e6c) AS DOUBLE) / "
+            "SUM(count_c8e42e74) AS default_DOT_discounted_orders_rate FROM "
             "default.repair_orders_fact",
             "metric_expression": "CAST(SUM(discount_sum_30b84e6c) AS DOUBLE) / "
             "SUM(count_c8e42e74)",
@@ -3029,7 +3029,7 @@ async def test_cube_materialization_metadata(
             ],
         },
         {
-            "derived_expression": "SELECT  SUM(repair_order_id_count_bd241964)  FROM "
+            "derived_expression": "SELECT SUM(repair_order_id_count_bd241964) FROM "
             "default.repair_orders_fact",
             "metric_expression": "SUM(repair_order_id_count_bd241964)",
             "metric": {
@@ -3049,7 +3049,7 @@ async def test_cube_materialization_metadata(
             ],
         },
         {
-            "derived_expression": "SELECT  SUM(price_sum_935e7117) / SUM(price_count_935e7117)  FROM "
+            "derived_expression": "SELECT SUM(price_sum_935e7117) / SUM(price_count_935e7117) FROM "
             "default.repair_orders_fact",
             "metric_expression": "SUM(price_sum_935e7117) / SUM(price_count_935e7117)",
             "metric": {
@@ -3077,7 +3077,7 @@ async def test_cube_materialization_metadata(
             ],
         },
         {
-            "derived_expression": "SELECT  SUM(total_repair_cost_sum_67874507)  FROM "
+            "derived_expression": "SELECT SUM(total_repair_cost_sum_67874507) FROM "
             "default.repair_orders_fact",
             "metric_expression": "SUM(total_repair_cost_sum_67874507)",
             "metric": {
@@ -3097,7 +3097,7 @@ async def test_cube_materialization_metadata(
             ],
         },
         {
-            "derived_expression": "SELECT  SUM(price_discount_sum_e4ba5456)  FROM "
+            "derived_expression": "SELECT SUM(price_discount_sum_e4ba5456) FROM "
             "default.repair_orders_fact",
             "metric_expression": "SUM(price_discount_sum_e4ba5456)",
             "metric": {
@@ -3117,8 +3117,8 @@ async def test_cube_materialization_metadata(
             ],
         },
         {
-            "derived_expression": "SELECT  SUM(price_sum_252381cf) + SUM(price_sum_252381cf) AS "
-            "default_DOT_double_total_repair_cost  FROM "
+            "derived_expression": "SELECT SUM(price_sum_252381cf) + SUM(price_sum_252381cf) AS "
+            "default_DOT_double_total_repair_cost FROM "
             "default.repair_order_details",
             "metric_expression": "SUM(price_sum_252381cf) + SUM(price_sum_252381cf)",
             "metric": {
@@ -3143,7 +3143,7 @@ async def test_cube_materialization_metadata(
             "columns": [
                 {
                     "column": "country",
-                    "name": "default_DOT_hard_hat_DOT_country",
+                    "name": "country",
                     "node": "default.hard_hat",
                     "semantic_entity": "default.hard_hat.country",
                     "semantic_type": "dimension",
@@ -3151,7 +3151,7 @@ async def test_cube_materialization_metadata(
                 },
                 {
                     "column": "postal_code",
-                    "name": "default_DOT_hard_hat_DOT_postal_code",
+                    "name": "postal_code",
                     "node": "default.hard_hat",
                     "semantic_entity": "default.hard_hat.postal_code",
                     "semantic_type": "dimension",
@@ -3159,7 +3159,7 @@ async def test_cube_materialization_metadata(
                 },
                 {
                     "column": "city",
-                    "name": "default_DOT_hard_hat_DOT_city",
+                    "name": "city",
                     "node": "default.hard_hat",
                     "semantic_entity": "default.hard_hat.city",
                     "semantic_type": "dimension",
@@ -3167,7 +3167,7 @@ async def test_cube_materialization_metadata(
                 },
                 {
                     "column": "hire_date",
-                    "name": "default_DOT_hard_hat_DOT_hire_date",
+                    "name": "hire_date",
                     "node": "default.hard_hat",
                     "semantic_entity": "default.hard_hat.hire_date",
                     "semantic_type": "dimension",
@@ -3175,7 +3175,7 @@ async def test_cube_materialization_metadata(
                 },
                 {
                     "column": "state",
-                    "name": "default_DOT_hard_hat_DOT_state",
+                    "name": "state",
                     "node": "default.hard_hat",
                     "semantic_entity": "default.hard_hat.state",
                     "semantic_type": "dimension",
@@ -3183,7 +3183,7 @@ async def test_cube_materialization_metadata(
                 },
                 {
                     "column": "company_name",
-                    "name": "default_DOT_dispatcher_DOT_company_name",
+                    "name": "company_name",
                     "node": "default.dispatcher",
                     "semantic_entity": "default.dispatcher.company_name",
                     "semantic_type": "dimension",
@@ -3191,7 +3191,7 @@ async def test_cube_materialization_metadata(
                 },
                 {
                     "column": "local_region",
-                    "name": "default_DOT_municipality_dim_DOT_local_region",
+                    "name": "local_region",
                     "node": "default.municipality_dim",
                     "semantic_entity": "default.municipality_dim.local_region",
                     "semantic_type": "dimension",
@@ -3203,7 +3203,7 @@ async def test_cube_materialization_metadata(
                     "node": "default.repair_orders_fact",
                     "semantic_entity": "default.repair_orders_fact.discount_sum_30b84e6c",
                     "semantic_type": "measure",
-                    "type": "bigint",
+                    "type": "double",
                 },
                 {
                     "column": "count_c8e42e74",
@@ -3255,36 +3255,25 @@ async def test_cube_materialization_metadata(
                 },
             ],
             "dimensions": [
-                "default_DOT_hard_hat_DOT_country",
-                "default_DOT_hard_hat_DOT_postal_code",
-                "default_DOT_hard_hat_DOT_city",
-                "default_DOT_hard_hat_DOT_hire_date",
-                "default_DOT_hard_hat_DOT_state",
-                "default_DOT_dispatcher_DOT_company_name",
-                "default_DOT_municipality_dim_DOT_local_region",
+                "country",
+                "postal_code",
+                "city",
+                "hire_date",
+                "state",
+                "company_name",
+                "local_region",
             ],
             "grain": [
-                "default_DOT_hard_hat_DOT_country",
-                "default_DOT_hard_hat_DOT_postal_code",
-                "default_DOT_hard_hat_DOT_city",
-                "default_DOT_hard_hat_DOT_hire_date",
-                "default_DOT_hard_hat_DOT_state",
-                "default_DOT_dispatcher_DOT_company_name",
-                "default_DOT_municipality_dim_DOT_local_region",
+                "city",
+                "company_name",
+                "country",
+                "hire_date",
+                "local_region",
+                "postal_code",
+                "state",
             ],
             "granularity": "day",
             "measures": [
-                {
-                    "aggregation": "SUM",
-                    "expression": "if(discount > 0.0, 1, 0)",
-                    "grain_alias": None,
-                    "merge": "SUM",
-                    "name": "discount_sum_30b84e6c",
-                    "rule": {
-                        "level": None,
-                        "type": "full",
-                    },
-                },
                 {
                     "aggregation": "COUNT",
                     "expression": "*",
@@ -3297,11 +3286,11 @@ async def test_cube_materialization_metadata(
                     },
                 },
                 {
-                    "aggregation": "COUNT",
-                    "expression": "repair_order_id",
+                    "aggregation": "SUM",
+                    "expression": "if(discount > 0.0, 1, 0)",
                     "grain_alias": None,
                     "merge": "SUM",
-                    "name": "repair_order_id_count_bd241964",
+                    "name": "discount_sum_30b84e6c",
                     "rule": {
                         "level": None,
                         "type": "full",
@@ -3320,10 +3309,32 @@ async def test_cube_materialization_metadata(
                 },
                 {
                     "aggregation": "SUM",
+                    "expression": "price * discount",
+                    "grain_alias": None,
+                    "merge": "SUM",
+                    "name": "price_discount_sum_e4ba5456",
+                    "rule": {
+                        "level": None,
+                        "type": "full",
+                    },
+                },
+                {
+                    "aggregation": "SUM",
                     "expression": "price",
                     "grain_alias": None,
                     "merge": "SUM",
                     "name": "price_sum_935e7117",
+                    "rule": {
+                        "level": None,
+                        "type": "full",
+                    },
+                },
+                {
+                    "aggregation": "COUNT",
+                    "expression": "repair_order_id",
+                    "grain_alias": None,
+                    "merge": "SUM",
+                    "name": "repair_order_id_count_bd241964",
                     "rule": {
                         "level": None,
                         "type": "full",
@@ -3340,17 +3351,6 @@ async def test_cube_materialization_metadata(
                         "type": "full",
                     },
                 },
-                {
-                    "aggregation": "SUM",
-                    "expression": "price * discount",
-                    "grain_alias": None,
-                    "merge": "SUM",
-                    "name": "price_discount_sum_e4ba5456",
-                    "rule": {
-                        "level": None,
-                        "type": "full",
-                    },
-                },
             ],
             "node": {
                 "name": "default.repair_orders_fact",
@@ -3360,23 +3360,23 @@ async def test_cube_materialization_metadata(
             "output_table_name": mock.ANY,
             "query": mock.ANY,
             "spark_conf": None,
-            "timestamp_column": "default_DOT_hard_hat_DOT_hire_date",
+            "timestamp_column": "hire_date",
             "timestamp_format": "yyyyMMdd",
             "upstream_tables": [
-                "default.roads.repair_orders",
-                "default.roads.repair_order_details",
-                "default.roads.hard_hats",
                 "default.roads.dispatchers",
+                "default.roads.hard_hats",
                 "default.roads.municipality",
                 "default.roads.municipality_municipality_type",
                 "default.roads.municipality_type",
+                "default.roads.repair_order_details",
+                "default.roads.repair_orders",
             ],
         },
         {
             "columns": [
                 {
                     "column": "country",
-                    "name": "default_DOT_hard_hat_DOT_country",
+                    "name": "country",
                     "node": "default.hard_hat",
                     "semantic_entity": "default.hard_hat.country",
                     "semantic_type": "dimension",
@@ -3384,7 +3384,7 @@ async def test_cube_materialization_metadata(
                 },
                 {
                     "column": "postal_code",
-                    "name": "default_DOT_hard_hat_DOT_postal_code",
+                    "name": "postal_code",
                     "node": "default.hard_hat",
                     "semantic_entity": "default.hard_hat.postal_code",
                     "semantic_type": "dimension",
@@ -3392,7 +3392,7 @@ async def test_cube_materialization_metadata(
                 },
                 {
                     "column": "city",
-                    "name": "default_DOT_hard_hat_DOT_city",
+                    "name": "city",
                     "node": "default.hard_hat",
                     "semantic_entity": "default.hard_hat.city",
                     "semantic_type": "dimension",
@@ -3400,7 +3400,7 @@ async def test_cube_materialization_metadata(
                 },
                 {
                     "column": "hire_date",
-                    "name": "default_DOT_hard_hat_DOT_hire_date",
+                    "name": "hire_date",
                     "node": "default.hard_hat",
                     "semantic_entity": "default.hard_hat.hire_date",
                     "semantic_type": "dimension",
@@ -3408,7 +3408,7 @@ async def test_cube_materialization_metadata(
                 },
                 {
                     "column": "state",
-                    "name": "default_DOT_hard_hat_DOT_state",
+                    "name": "state",
                     "node": "default.hard_hat",
                     "semantic_entity": "default.hard_hat.state",
                     "semantic_type": "dimension",
@@ -3416,7 +3416,7 @@ async def test_cube_materialization_metadata(
                 },
                 {
                     "column": "company_name",
-                    "name": "default_DOT_dispatcher_DOT_company_name",
+                    "name": "company_name",
                     "node": "default.dispatcher",
                     "semantic_entity": "default.dispatcher.company_name",
                     "semantic_type": "dimension",
@@ -3424,7 +3424,7 @@ async def test_cube_materialization_metadata(
                 },
                 {
                     "column": "local_region",
-                    "name": "default_DOT_municipality_dim_DOT_local_region",
+                    "name": "local_region",
                     "node": "default.municipality_dim",
                     "semantic_entity": "default.municipality_dim.local_region",
                     "semantic_type": "dimension",
@@ -3440,22 +3440,22 @@ async def test_cube_materialization_metadata(
                 },
             ],
             "dimensions": [
-                "default_DOT_hard_hat_DOT_country",
-                "default_DOT_hard_hat_DOT_postal_code",
-                "default_DOT_hard_hat_DOT_city",
-                "default_DOT_hard_hat_DOT_hire_date",
-                "default_DOT_hard_hat_DOT_state",
-                "default_DOT_dispatcher_DOT_company_name",
-                "default_DOT_municipality_dim_DOT_local_region",
+                "country",
+                "postal_code",
+                "city",
+                "hire_date",
+                "state",
+                "company_name",
+                "local_region",
             ],
             "grain": [
-                "default_DOT_hard_hat_DOT_country",
-                "default_DOT_hard_hat_DOT_postal_code",
-                "default_DOT_hard_hat_DOT_city",
-                "default_DOT_hard_hat_DOT_hire_date",
-                "default_DOT_hard_hat_DOT_state",
-                "default_DOT_dispatcher_DOT_company_name",
-                "default_DOT_municipality_dim_DOT_local_region",
+                "city",
+                "company_name",
+                "country",
+                "hire_date",
+                "local_region",
+                "postal_code",
+                "state",
             ],
             "granularity": "day",
             "measures": [
@@ -3476,113 +3476,77 @@ async def test_cube_materialization_metadata(
                 "version": mock.ANY,
                 "display_name": "default.roads.repair_order_details",
             },
-            "output_table_name": "default_repair_order_details_v1_2_b94093b6088c190e",
+            "output_table_name": "default_repair_order_details_v1_2_89dc71bdf1b527c5",
             "query": mock.ANY,
             "spark_conf": None,
-            "timestamp_column": "default_DOT_hard_hat_DOT_hire_date",
+            "timestamp_column": "hire_date",
             "timestamp_format": "yyyyMMdd",
             "upstream_tables": [
-                "default.roads.repair_order_details",
-                "default.roads.repair_orders",
-                "default.roads.hard_hats",
                 "default.roads.dispatchers",
+                "default.roads.hard_hats",
                 "default.roads.municipality",
                 "default.roads.municipality_municipality_type",
                 "default.roads.municipality_type",
+                "default.roads.repair_order_details",
             ],
         },
     ]
     measures_sql = """
-    WITH default_DOT_repair_orders_fact AS (
+    WITH default_dispatcher AS (
+      SELECT dispatcher_id, company_name
+      FROM default.roads.dispatchers
+    ),
+    default_hard_hat AS (
+      SELECT hard_hat_id, hire_date, city, state, postal_code, country
+      FROM default.roads.hard_hats
+      WHERE state = 'AZ'
+        AND hire_date = CAST(DATE_FORMAT(CAST(${dj_logical_timestamp} AS TIMESTAMP), 'yyyyMMdd') AS TIMESTAMP)
+    ),
+    default_municipality_dim AS (
+      SELECT m.municipality_id AS municipality_id, local_region
+      FROM default.roads.municipality AS m
+      LEFT JOIN default.roads.municipality_municipality_type AS mmt
+        ON m.municipality_id = mmt.municipality_id
+      LEFT JOIN default.roads.municipality_type AS mt
+        ON mmt.municipality_type_id = mt.municipality_type_desc
+    ),
+    default_repair_orders_fact AS (
       SELECT
         repair_orders.repair_order_id,
         repair_orders.municipality_id,
         repair_orders.hard_hat_id,
         repair_orders.dispatcher_id,
-        repair_orders.order_date,
-        repair_orders.dispatched_date,
-        repair_orders.required_date,
         repair_order_details.discount,
         repair_order_details.price,
-        repair_order_details.quantity,
-        repair_order_details.repair_type_id,
-        repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
-        repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
-        repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
-      FROM roads.repair_orders AS repair_orders JOIN roads.repair_order_details AS repair_order_details ON repair_orders.repair_order_id = repair_order_details.repair_order_id
-    ),
-    default_DOT_hard_hat AS (
-      SELECT
-        default_DOT_hard_hats.hard_hat_id,
-        default_DOT_hard_hats.last_name,
-        default_DOT_hard_hats.first_name,
-        default_DOT_hard_hats.title,
-        default_DOT_hard_hats.birth_date,
-        default_DOT_hard_hats.hire_date,
-        default_DOT_hard_hats.address,
-        default_DOT_hard_hats.city,
-        default_DOT_hard_hats.state,
-        default_DOT_hard_hats.postal_code,
-        default_DOT_hard_hats.country,
-        default_DOT_hard_hats.manager,
-        default_DOT_hard_hats.contractor_id
-      FROM roads.hard_hats AS default_DOT_hard_hats
-      WHERE  default_DOT_hard_hats.state = 'AZ' AND default_DOT_hard_hats.hire_date = CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS TIMESTAMP)
-    ),
-    default_DOT_dispatcher AS (
-      SELECT
-        default_DOT_dispatchers.dispatcher_id,
-        default_DOT_dispatchers.company_name,
-        default_DOT_dispatchers.phone
-      FROM roads.dispatchers AS default_DOT_dispatchers
-    ),
-    default_DOT_municipality_dim AS (
-      SELECT
-        m.municipality_id AS municipality_id,
-        m.contact_name,
-        m.contact_title,
-        m.local_region,
-        m.state_id,
-        mmt.municipality_type_id AS municipality_type_id,
-        mt.municipality_type_desc AS municipality_type_desc
-      FROM roads.municipality AS m LEFT JOIN roads.municipality_municipality_type AS mmt ON m.municipality_id = mmt.municipality_id
-      LEFT JOIN roads.municipality_type AS mt ON mmt.municipality_type_id = mt.municipality_type_desc
-    ),
-    default_DOT_repair_orders_fact_built AS (
-      SELECT
-        default_DOT_repair_orders_fact.repair_order_id,
-        default_DOT_repair_orders_fact.discount,
-        default_DOT_repair_orders_fact.price,
-        default_DOT_repair_orders_fact.total_repair_cost,
-        default_DOT_hard_hat.country default_DOT_hard_hat_DOT_country,
-        default_DOT_hard_hat.postal_code default_DOT_hard_hat_DOT_postal_code,
-        default_DOT_hard_hat.city default_DOT_hard_hat_DOT_city,
-        default_DOT_hard_hat.hire_date default_DOT_hard_hat_DOT_hire_date,
-        default_DOT_hard_hat.state default_DOT_hard_hat_DOT_state,
-        default_DOT_dispatcher.company_name default_DOT_dispatcher_DOT_company_name,
-        default_DOT_municipality_dim.local_region default_DOT_municipality_dim_DOT_local_region
-      FROM default_DOT_repair_orders_fact INNER JOIN default_DOT_hard_hat ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
-      INNER JOIN default_DOT_dispatcher ON default_DOT_repair_orders_fact.dispatcher_id = default_DOT_dispatcher.dispatcher_id
-      INNER JOIN default_DOT_municipality_dim ON default_DOT_repair_orders_fact.municipality_id = default_DOT_municipality_dim.municipality_id
-      WHERE  default_DOT_hard_hat.state = 'AZ' AND default_DOT_hard_hat.hire_date = CAST(DATE_FORMAT(CAST(${dj_logical_timestamp} AS TIMESTAMP), 'yyyyMMdd') AS TIMESTAMP)
+        repair_order_details.price * repair_order_details.quantity AS total_repair_cost
+      FROM default.roads.repair_orders repair_orders
+      JOIN default.roads.repair_order_details repair_order_details
+        ON repair_orders.repair_order_id = repair_order_details.repair_order_id
     )
 
-    SELECT  default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_country,
-      default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_postal_code,
-      default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_city,
-      default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_hire_date,
-      default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_state,
-      default_DOT_repair_orders_fact_built.default_DOT_dispatcher_DOT_company_name,
-      default_DOT_repair_orders_fact_built.default_DOT_municipality_dim_DOT_local_region,
-      SUM(if(discount > 0.0, 1, 0)) AS discount_sum_30b84e6c,
-      COUNT(*) AS count_c8e42e74,
-      COUNT(repair_order_id) AS repair_order_id_count_bd241964,
-      COUNT(price) AS price_count_935e7117,
-      SUM(price) AS price_sum_935e7117,
-      SUM(total_repair_cost) AS total_repair_cost_sum_67874507,
-      SUM(price * discount) AS price_discount_sum_e4ba5456
-    FROM default_DOT_repair_orders_fact_built
-    GROUP BY  default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_country, default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_postal_code, default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_city, default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_hire_date, default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_state, default_DOT_repair_orders_fact_built.default_DOT_dispatcher_DOT_company_name, default_DOT_repair_orders_fact_built.default_DOT_municipality_dim_DOT_local_region
+    SELECT
+      t2.country,
+      t2.postal_code,
+      t2.city,
+      t2.hire_date,
+      t2.state,
+      t3.company_name,
+      t4.local_region,
+      SUM(if(t1.discount > 0.0, 1, 0)) discount_sum_30b84e6c,
+      COUNT(*) count_c8e42e74,
+      COUNT(t1.repair_order_id) repair_order_id_count_bd241964,
+      COUNT(t1.price) price_count_935e7117,
+      SUM(t1.price) price_sum_935e7117,
+      SUM(t1.total_repair_cost) total_repair_cost_sum_67874507,
+      SUM(t1.price * t1.discount) price_discount_sum_e4ba5456
+    FROM default_repair_orders_fact t1
+    INNER JOIN default_hard_hat t2 ON t1.hard_hat_id = t2.hard_hat_id
+    INNER JOIN default_dispatcher t3 ON t1.dispatcher_id = t3.dispatcher_id
+    INNER JOIN default_municipality_dim t4 ON t1.municipality_id = t4.municipality_id
+    WHERE t2.state = 'AZ'
+      AND t2.hire_date = CAST(DATE_FORMAT(CAST(${dj_logical_timestamp} AS TIMESTAMP), 'yyyyMMdd') AS TIMESTAMP)
+    GROUP BY t2.country, t2.postal_code, t2.city, t2.hire_date, t2.state,
+             t3.company_name, t4.local_region
     """
     assert str(
         parse(
@@ -3610,23 +3574,7 @@ async def test_cube_materialization_metadata(
             "query": mock.ANY,
             "columns": [
                 {
-                    "name": "default_DOT_hard_hat_DOT_country",
-                    "type": "string",
-                    "column": "country",
-                    "node": "default.hard_hat",
-                    "semantic_entity": "default.hard_hat.country",
-                    "semantic_type": "dimension",
-                },
-                {
-                    "name": "default_DOT_hard_hat_DOT_postal_code",
-                    "type": "string",
-                    "column": "postal_code",
-                    "node": "default.hard_hat",
-                    "semantic_entity": "default.hard_hat.postal_code",
-                    "semantic_type": "dimension",
-                },
-                {
-                    "name": "default_DOT_hard_hat_DOT_city",
+                    "name": "city",
                     "type": "string",
                     "column": "city",
                     "node": "default.hard_hat",
@@ -3634,23 +3582,7 @@ async def test_cube_materialization_metadata(
                     "semantic_type": "dimension",
                 },
                 {
-                    "name": "default_DOT_hard_hat_DOT_hire_date",
-                    "type": "timestamp",
-                    "column": "hire_date",
-                    "node": "default.hard_hat",
-                    "semantic_entity": "default.hard_hat.hire_date",
-                    "semantic_type": "dimension",
-                },
-                {
-                    "name": "default_DOT_hard_hat_DOT_state",
-                    "type": "string",
-                    "column": "state",
-                    "node": "default.hard_hat",
-                    "semantic_entity": "default.hard_hat.state",
-                    "semantic_type": "dimension",
-                },
-                {
-                    "name": "default_DOT_dispatcher_DOT_company_name",
+                    "name": "company_name",
                     "type": "string",
                     "column": "company_name",
                     "node": "default.dispatcher",
@@ -3658,7 +3590,23 @@ async def test_cube_materialization_metadata(
                     "semantic_type": "dimension",
                 },
                 {
-                    "name": "default_DOT_municipality_dim_DOT_local_region",
+                    "name": "country",
+                    "type": "string",
+                    "column": "country",
+                    "node": "default.hard_hat",
+                    "semantic_entity": "default.hard_hat.country",
+                    "semantic_type": "dimension",
+                },
+                {
+                    "name": "hire_date",
+                    "type": "timestamp",
+                    "column": "hire_date",
+                    "node": "default.hard_hat",
+                    "semantic_entity": "default.hard_hat.hire_date",
+                    "semantic_type": "dimension",
+                },
+                {
+                    "name": "local_region",
                     "type": "string",
                     "column": "local_region",
                     "node": "default.municipality_dim",
@@ -3666,12 +3614,20 @@ async def test_cube_materialization_metadata(
                     "semantic_type": "dimension",
                 },
                 {
-                    "name": "discount_sum_30b84e6c",
-                    "type": "bigint",
-                    "column": "discount_sum_30b84e6c",
-                    "node": "default.repair_orders_fact",
-                    "semantic_entity": "default.repair_orders_fact.discount_sum_30b84e6c",
-                    "semantic_type": "measure",
+                    "name": "postal_code",
+                    "type": "string",
+                    "column": "postal_code",
+                    "node": "default.hard_hat",
+                    "semantic_entity": "default.hard_hat.postal_code",
+                    "semantic_type": "dimension",
+                },
+                {
+                    "name": "state",
+                    "type": "string",
+                    "column": "state",
+                    "node": "default.hard_hat",
+                    "semantic_entity": "default.hard_hat.state",
+                    "semantic_type": "dimension",
                 },
                 {
                     "name": "count_c8e42e74",
@@ -3682,11 +3638,11 @@ async def test_cube_materialization_metadata(
                     "semantic_type": "measure",
                 },
                 {
-                    "name": "repair_order_id_count_bd241964",
-                    "type": "bigint",
-                    "column": "repair_order_id_count_bd241964",
+                    "name": "discount_sum_30b84e6c",
+                    "type": "double",
+                    "column": "discount_sum_30b84e6c",
                     "node": "default.repair_orders_fact",
-                    "semantic_entity": "default.repair_orders_fact.repair_order_id_count_bd241964",
+                    "semantic_entity": "default.repair_orders_fact.discount_sum_30b84e6c",
                     "semantic_type": "measure",
                 },
                 {
@@ -3698,6 +3654,14 @@ async def test_cube_materialization_metadata(
                     "semantic_type": "measure",
                 },
                 {
+                    "name": "price_discount_sum_e4ba5456",
+                    "type": "double",
+                    "column": "price_discount_sum_e4ba5456",
+                    "node": "default.repair_orders_fact",
+                    "semantic_entity": "default.repair_orders_fact.price_discount_sum_e4ba5456",
+                    "semantic_type": "measure",
+                },
+                {
                     "name": "price_sum_935e7117",
                     "type": "double",
                     "column": "price_sum_935e7117",
@@ -3706,19 +3670,19 @@ async def test_cube_materialization_metadata(
                     "semantic_type": "measure",
                 },
                 {
+                    "name": "repair_order_id_count_bd241964",
+                    "type": "bigint",
+                    "column": "repair_order_id_count_bd241964",
+                    "node": "default.repair_orders_fact",
+                    "semantic_entity": "default.repair_orders_fact.repair_order_id_count_bd241964",
+                    "semantic_type": "measure",
+                },
+                {
                     "name": "total_repair_cost_sum_67874507",
                     "type": "double",
                     "column": "total_repair_cost_sum_67874507",
                     "node": "default.repair_orders_fact",
                     "semantic_entity": "default.repair_orders_fact.total_repair_cost_sum_67874507",
-                    "semantic_type": "measure",
-                },
-                {
-                    "name": "price_discount_sum_e4ba5456",
-                    "type": "double",
-                    "column": "price_discount_sum_e4ba5456",
-                    "node": "default.repair_orders_fact",
-                    "semantic_entity": "default.repair_orders_fact.price_discount_sum_e4ba5456",
                     "semantic_type": "measure",
                 },
                 {
@@ -3731,32 +3695,24 @@ async def test_cube_materialization_metadata(
                 },
             ],
             "grain": [
-                "default_DOT_hard_hat_DOT_country",
-                "default_DOT_hard_hat_DOT_postal_code",
-                "default_DOT_hard_hat_DOT_city",
-                "default_DOT_hard_hat_DOT_hire_date",
-                "default_DOT_hard_hat_DOT_state",
-                "default_DOT_dispatcher_DOT_company_name",
-                "default_DOT_municipality_dim_DOT_local_region",
+                "city",
+                "company_name",
+                "country",
+                "hire_date",
+                "local_region",
+                "postal_code",
+                "state",
             ],
             "dimensions": [
-                "default_DOT_hard_hat_DOT_country",
-                "default_DOT_hard_hat_DOT_postal_code",
-                "default_DOT_hard_hat_DOT_city",
-                "default_DOT_hard_hat_DOT_hire_date",
-                "default_DOT_hard_hat_DOT_state",
-                "default_DOT_dispatcher_DOT_company_name",
-                "default_DOT_municipality_dim_DOT_local_region",
+                "city",
+                "company_name",
+                "country",
+                "hire_date",
+                "local_region",
+                "postal_code",
+                "state",
             ],
             "measures": [
-                {
-                    "name": "discount_sum_30b84e6c",
-                    "expression": "if(discount > 0.0, 1, 0)",
-                    "grain_alias": None,
-                    "aggregation": "SUM",
-                    "merge": "SUM",
-                    "rule": {"type": "full", "level": None},
-                },
                 {
                     "name": "count_c8e42e74",
                     "expression": "*",
@@ -3766,10 +3722,10 @@ async def test_cube_materialization_metadata(
                     "rule": {"type": "full", "level": None},
                 },
                 {
-                    "name": "repair_order_id_count_bd241964",
-                    "expression": "repair_order_id",
+                    "name": "discount_sum_30b84e6c",
+                    "expression": "if(discount > 0.0, 1, 0)",
                     "grain_alias": None,
-                    "aggregation": "COUNT",
+                    "aggregation": "SUM",
                     "merge": "SUM",
                     "rule": {"type": "full", "level": None},
                 },
@@ -3782,6 +3738,14 @@ async def test_cube_materialization_metadata(
                     "rule": {"type": "full", "level": None},
                 },
                 {
+                    "name": "price_discount_sum_e4ba5456",
+                    "expression": "price * discount",
+                    "grain_alias": None,
+                    "aggregation": "SUM",
+                    "merge": "SUM",
+                    "rule": {"type": "full", "level": None},
+                },
+                {
                     "name": "price_sum_935e7117",
                     "expression": "price",
                     "grain_alias": None,
@@ -3790,16 +3754,16 @@ async def test_cube_materialization_metadata(
                     "rule": {"type": "full", "level": None},
                 },
                 {
-                    "name": "total_repair_cost_sum_67874507",
-                    "expression": "total_repair_cost",
+                    "name": "repair_order_id_count_bd241964",
+                    "expression": "repair_order_id",
                     "grain_alias": None,
-                    "aggregation": "SUM",
+                    "aggregation": "COUNT",
                     "merge": "SUM",
                     "rule": {"type": "full", "level": None},
                 },
                 {
-                    "name": "price_discount_sum_e4ba5456",
-                    "expression": "price * discount",
+                    "name": "total_repair_cost_sum_67874507",
+                    "expression": "total_repair_cost",
                     "grain_alias": None,
                     "aggregation": "SUM",
                     "merge": "SUM",
@@ -3814,48 +3778,43 @@ async def test_cube_materialization_metadata(
                     "rule": {"type": "full", "level": None},
                 },
             ],
-            "timestamp_column": "default_DOT_hard_hat_DOT_hire_date",
+            "timestamp_column": "hire_date",
             "timestamp_format": "yyyyMMdd",
             "granularity": "day",
             "upstream_tables": [],
             "druid_spec": {
                 "dataSchema": {
-                    "dataSource": "dj__default_example_repairs_cube_v1_0_fdc5182835060cb1",
+                    "dataSource": mock.ANY,
                     "parser": {
                         "parseSpec": {
                             "format": "parquet",
                             "dimensionsSpec": {
                                 "dimensions": [
-                                    "default_DOT_dispatcher_DOT_company_name",
-                                    "default_DOT_hard_hat_DOT_city",
-                                    "default_DOT_hard_hat_DOT_country",
-                                    "default_DOT_hard_hat_DOT_hire_date",
-                                    "default_DOT_hard_hat_DOT_postal_code",
-                                    "default_DOT_hard_hat_DOT_state",
-                                    "default_DOT_municipality_dim_DOT_local_region",
+                                    "city",
+                                    "company_name",
+                                    "country",
+                                    "hire_date",
+                                    "local_region",
+                                    "postal_code",
+                                    "state",
                                 ],
                             },
                             "timestampSpec": {
-                                "column": "default_DOT_hard_hat_DOT_hire_date",
+                                "column": "hire_date",
                                 "format": "yyyyMMdd",
                             },
                         },
                     },
                     "metricsSpec": [
                         {
-                            "fieldName": "discount_sum_30b84e6c",
-                            "name": "discount_sum_30b84e6c",
-                            "type": "longSum",
-                        },
-                        {
                             "fieldName": "count_c8e42e74",
                             "name": "count_c8e42e74",
                             "type": "longSum",
                         },
                         {
-                            "fieldName": "repair_order_id_count_bd241964",
-                            "name": "repair_order_id_count_bd241964",
-                            "type": "longSum",
+                            "fieldName": "discount_sum_30b84e6c",
+                            "name": "discount_sum_30b84e6c",
+                            "type": "doubleSum",
                         },
                         {
                             "fieldName": "price_count_935e7117",
@@ -3863,18 +3822,23 @@ async def test_cube_materialization_metadata(
                             "type": "longSum",
                         },
                         {
+                            "fieldName": "price_discount_sum_e4ba5456",
+                            "name": "price_discount_sum_e4ba5456",
+                            "type": "doubleSum",
+                        },
+                        {
                             "fieldName": "price_sum_935e7117",
                             "name": "price_sum_935e7117",
                             "type": "doubleSum",
                         },
                         {
-                            "fieldName": "total_repair_cost_sum_67874507",
-                            "name": "total_repair_cost_sum_67874507",
-                            "type": "doubleSum",
+                            "fieldName": "repair_order_id_count_bd241964",
+                            "name": "repair_order_id_count_bd241964",
+                            "type": "longSum",
                         },
                         {
-                            "fieldName": "price_discount_sum_e4ba5456",
-                            "name": "price_discount_sum_e4ba5456",
+                            "fieldName": "total_repair_cost_sum_67874507",
+                            "name": "total_repair_cost_sum_67874507",
                             "type": "doubleSum",
                         },
                         {
@@ -3898,7 +3862,7 @@ async def test_cube_materialization_metadata(
                     "type": "hadoop",
                 },
             },
-            "output_table_name": "default_example_repairs_cube_v1_0_fdc5182835060cb1",
+            "output_table_name": mock.ANY,
         },
     ]
 
