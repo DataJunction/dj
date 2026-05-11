@@ -163,6 +163,12 @@ class Settings(BaseSettings):  # pragma: no cover
     #   $dj_logical_timestamp
     dj_logical_timestamp_format: Optional[str] = "${dj_logical_timestamp}"
 
+    # Prefix applied to Druid datasource names built by ``build_druid_spec``.
+    # All DJ envs share a single Druid cluster; the prefix env-tags datasources
+    # so test/prod cubes with the same definition don't collide. Default is the
+    # prod value; set ``DRUID_DATASOURCE_PREFIX=dj_test__`` in the test deploy.
+    druid_datasource_prefix: str = "dj__"
+
     # DJ UI host, used for OAuth redirection
     frontend_host: Optional[str] = "http://localhost:3000"
 
