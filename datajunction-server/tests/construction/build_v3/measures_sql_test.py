@@ -6052,3 +6052,138 @@ class TestMeasuresMaterializedParentFilter:
             """,
             normalize_aliases=True,
         )
+
+
+class TestMultiHopInnerDefeatsLeft:
+    """Multi-hop dim chains can produce ``LEFT JOIN dim1 INNER JOIN dim2 ON
+    dim1.X = dim2.Y`` shapes when ``dim1`` is reached via a LEFT link from
+    the fact and ``dim1`` has its own INNER link to ``dim2``.
+
+    The downstream INNER's predicate references ``dim1`` (a non-preserved
+    alias).  For fact rows where ``dim1`` doesn't match, ``dim1.X`` is NULL
+    → the INNER predicate is NULL → the row is dropped.  This silently
+    converts the upstream LEFT JOIN into an effective INNER JOIN.
+
+    This is a real hazard in multi-hop dim graphs (common pattern: a
+    fact LEFT-links to a "main" dim, that dim INNER-links to a lookup
+    dim, and a user requests a column from the lookup).  The fix
+    requires the absorber or classifier to recognize that an INNER's
+    cross-dim predicate undoes upstream preservation.
+    """
+
+    @pytest.fixture
+    async def setup_multi_hop_chain(self, client_with_build_v3):
+        """Build a chain: ``v3.order_details`` LEFT-linked to ``v3.product``,
+        ``v3.product`` INNER-linked to a new ``v3.product_lookup`` dim.
+        Requesting a column from ``v3.product_lookup`` forces the chain.
+        """
+        # New lookup dim source + dim
+        r = await client_with_build_v3.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_product_lookup",
+                "columns": [
+                    {"name": "category", "type": "string"},
+                    {"name": "category_group", "type": "string"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "product_lookup",
+            },
+        )
+        assert r.status_code in (200, 201), r.text
+
+        r = await client_with_build_v3.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.product_lookup",
+                "description": "Product category lookup",
+                "query": "SELECT category, category_group FROM v3.src_product_lookup",
+                "mode": "published",
+                "primary_key": ["category"],
+            },
+        )
+        assert r.status_code in (200, 201), r.text
+
+        # v3.product INNER-links to v3.product_lookup on its `category`
+        # column.  The link's join_on is cross-dim:
+        #   v3.product.category = v3.product_lookup.category
+        # so when chained downstream of the LEFT link from order_details,
+        # the INNER's predicate references the LEFT-joined dim's column.
+        r = await client_with_build_v3.post(
+            "/nodes/v3.product/link/",
+            json={
+                "dimension_node": "v3.product_lookup",
+                "join_type": "inner",
+                "join_on": (
+                    "v3.product.category = v3.product_lookup.category"
+                ),
+            },
+        )
+        assert r.status_code in (200, 201), r.text
+
+    @pytest.mark.asyncio
+    async def test_inner_link_downstream_of_left_defeats_left(
+        self,
+        client_with_build_v3,
+        setup_multi_hop_chain,
+    ):
+        """Demonstrates the bug: chain ``order_details LEFT product INNER
+        product_lookup`` generates SQL where the INNER's predicate
+        references the LEFT-joined ``product`` alias, silently dropping
+        fact rows that have no matching product.
+
+        Asserts the current (buggy) shape via ``assert_sql_equal``.
+        Marked ``xfail`` until the classifier propagates non-preserved
+        through cross-dim INNER predicates (or the absorber broadens
+        scope to consolidate multi-hop chains).
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": [
+                    "v3.product_lookup.category_group",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        # Current behavior (the documented bug): the chain emits
+        # ``... LEFT OUTER JOIN v3_product t2 ... INNER JOIN v3_product_lookup t3
+        # ON t2.category = t3.category``.  The INNER's predicate
+        # references the LEFT-joined ``t2`` alias — for fact rows where
+        # ``t2`` doesn't match, ``t2.category`` is NULL and the INNER
+        # silently drops them, defeating the upstream LEFT.
+        #
+        # A correctness fix would either flip the downstream INNER to
+        # LEFT or wrap the LEFT+INNER pair so the NULL fact rows from
+        # the LEFT JOIN survive.  Until then this asserts the buggy
+        # shape so the test fails the day the fix lands and we can
+        # update the expected output.
+        assert_sql_equal(
+            sql,
+            """
+            WITH
+            v3_order_details AS (
+                SELECT oi.product_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+            ),
+            v3_product_lookup AS (
+                SELECT category, category_group
+                FROM default.v3.product_lookup
+            )
+            SELECT t3.category_group, SUM(t1.line_total) line_total_sum_HASH
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+            INNER JOIN v3_product_lookup t3 ON t2.category = t3.category
+            GROUP BY t3.category_group
+            """,
+            normalize_aliases=True,
+        )

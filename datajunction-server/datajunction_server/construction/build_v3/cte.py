@@ -937,13 +937,18 @@ def _classify_outer_join_target(
     relation: ast.Relation,
     filter_namespaces: set[str],
 ) -> Optional[ast.Expression]:
-    """Return the relation-side expression that should host a filter as a wrapped
+    """
+    Return the relation-side expression that should host a filter as a wrapped
     subquery, or ``None`` when WHERE injection is safe.
 
-    A filter applied in WHERE after an OUTER JOIN silently turns it into an
-    INNER JOIN whenever the filter touches a non-preserved side: the NULL
-    fill-in rows from the JOIN evaluate the predicate to NULL → false and get
-    dropped. This walks the relation's joins, tracks which side identifiers
+    This function walks the join chain and classifies each side, asking the
+    question: "Does this join introduce NULL-fill on either side?"
+    - LEFT OUTER: yes, on the right, so right side is non-preserved
+    - RIGHT OUTER: yes, on the left, so left side is non-preserved
+    - FULL OUTER: yes, on both sides, so both sides are non-preserved
+    - INNER JOIN: no, both sides are preserved
+
+    This walks the relation's joins, tracks which side identifiers
     are non-preserved, and returns the target expression to wrap when all of
     the filter's namespace references resolve to a single non-preserved side.
     """
