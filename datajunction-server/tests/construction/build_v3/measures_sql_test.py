@@ -6116,9 +6116,7 @@ class TestMultiHopInnerDefeatsLeft:
             json={
                 "dimension_node": "v3.product_lookup",
                 "join_type": "inner",
-                "join_on": (
-                    "v3.product.category = v3.product_lookup.category"
-                ),
+                "join_on": ("v3.product.category = v3.product_lookup.category"),
             },
         )
         assert r.status_code in (200, 201), r.text
