@@ -527,6 +527,22 @@ The `is_cross_fact_window` flag on GrainGroupSQL controls this routing.
 
 ---
 
+## Column Semantic Types
+
+Every column in generated SQL is tagged with a `semantic_type` (see `ColumnMetadata` in `build_v3/types.py`). This tag tells downstream consumers (combiners, the metrics phase, cube matching) how to treat the column. Five values are used in practice:
+
+| `semantic_type` | Meaning | Emitted by |
+|---|---|---|
+| `dimension` | Grouping or filter column — what you slice by (e.g. `customer.name`, `order_date`). Appears in GROUP BY and in the final output. | Measures phase (grain group dims) and metrics phase (final SELECT) |
+| `measure` | Pre-aggregated value coming from a `measure`-type node. Legacy v2 concept; rarely emitted by v3. | v2 build path |
+| `metric` | Fully-aggregated, user-facing metric value in the final result (e.g. `total_revenue`). | Metrics phase final SELECT |
+| `metric_component` | A piece of a decomposed metric that has been **pre-aggregated for its grain group's phase** but still needs a final combine (e.g. `SUM(x) AS sum_x` and `COUNT(x) AS count_x` for an `AVG`). Produced by `MetricComponentExtractor`. | Measures phase, when `aggregability` is `FULL` or `LIMITED` |
+| `metric_input` | A **raw, un-aggregated** column feeding a metric whose grain group can't aggregate at the CTE level. Aggregation is deferred to the outer metrics SQL. | Measures phase, when `aggregability == NONE` |
+
+Note: the `SemanticType` enum in `datajunction_server/models/column.py` only contains `measure`, `metric`, `dimension`, and `timestamp` — `metric_component` and `metric_input` are v3-internal string literals not yet promoted to the enum.
+
+The key distinction between `metric_component` and `metric_input`: both feed metrics, but a `metric_component` is already aggregated at its CTE (so the final SELECT just combines them), while a `metric_input` is a raw passthrough whose aggregation happens in the outer metrics SQL. See `build_v3/measures.py` (the `Aggregability.NONE` branch around the `ColumnMetadata` construction).
+
 ## Code References
 
 The SQL generation logic lives in `datajunction_server/construction/build_v3/`:
