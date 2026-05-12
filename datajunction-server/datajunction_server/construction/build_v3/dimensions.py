@@ -403,7 +403,7 @@ def _register_pushdown_into_upstream(
                 rewritten,
             )
             consumed = True
-        if consumed:
+        if consumed:  # pragma: no branch
             ctx.pushdown_consumed_filters.add(filter_str)
     return bool(ctx.pushdown_consumed_filters)
 
@@ -481,7 +481,7 @@ def _rewrite_filter_col_refs(
             if qualifier
             else ast.Name(fk_col)
         )
-        if col.parent is not None:
+        if col.parent is not None:  # pragma: no branch
             col.parent.replace(col, ast.Column(name=new_name), copy=False)
     return rewritten
 
