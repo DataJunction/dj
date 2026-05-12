@@ -5928,6 +5928,165 @@ class TestUpstreamFilterOnlyPushdown:
         )
 
     @pytest.mark.asyncio
+    async def test_layer_2_filter_only_interacts_with_wrapper_cte_absorption(
+        self,
+        module__client_with_build_v3,
+    ):
+        """Layer 2 (upstream FK passthrough) resolves a filter-only dim
+        to the parent's local column. When that local column lives on the
+        non-preserved side of a downstream RIGHT OUTER JOIN at the
+        grain-group level, the wrapper-CTE absorber (#2) wraps the parent
+        into ``<parent>_filtered`` so the filter applies before the
+        RIGHT OUTER reaches the preserved side. Verifies that #1 (the
+        per-CTE absorber) and #2 (the wrapper-CTE absorber) compose
+        cleanly for filter-only refs.
+        """
+        client = module__client_with_build_v3
+
+        await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_allocations_absorb",
+                "description": "Customer marketing allocations",
+                "columns": [
+                    {"name": "customer_id", "type": "int"},
+                    {"name": "campaign", "type": "string"},
+                    {"name": "allocated_date", "type": "int"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "allocations_absorb",
+            },
+        )
+        await client.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.allocation_absorb",
+                "description": "Allocations dimension",
+                "query": (
+                    "SELECT customer_id, campaign, allocated_date "
+                    "FROM v3.src_allocations_absorb"
+                ),
+                "mode": "published",
+                "primary_key": ["customer_id", "allocated_date"],
+            },
+        )
+
+        # Wrapper transform — no direct dim link to v3.product. A filter
+        # on v3.product must resolve via Layer 2 upstream FK passthrough.
+        await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.order_details_absorb_wrapper",
+                "description": "wrapper for absorber interaction test",
+                "query": (
+                    "SELECT order_id, line_number, customer_id, order_date, "
+                    "product_id, quantity, unit_price, "
+                    "quantity * unit_price AS line_total "
+                    "FROM v3.order_details"
+                ),
+                "mode": "published",
+                "primary_key": ["order_id", "line_number"],
+            },
+        )
+        # Wrapper RIGHT-OUTER-joins v3.allocation_absorb — wrapper becomes
+        # the non-preserved side at the grain-group level. Filtering on
+        # wrapper.product_id in the outer WHERE would defeat the RIGHT
+        # OUTER unless wrapper-CTE absorption fires.
+        await client.post(
+            "/nodes/v3.order_details_absorb_wrapper/link/",
+            json={
+                "dimension_node": "v3.allocation_absorb",
+                "join_type": "right",
+                "join_on": (
+                    "v3.order_details_absorb_wrapper.customer_id = "
+                    "v3.allocation_absorb.customer_id AND "
+                    "v3.order_details_absorb_wrapper.order_date = "
+                    "v3.allocation_absorb.allocated_date"
+                ),
+            },
+        )
+        await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.absorb_wrapper_total_revenue",
+                "description": "Total revenue from absorb wrapper",
+                "query": (
+                    "SELECT SUM(line_total) FROM v3.order_details_absorb_wrapper"
+                ),
+                "mode": "published",
+            },
+        )
+
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.absorb_wrapper_total_revenue"],
+                "dimensions": ["v3.allocation_absorb.campaign"],
+                # Filter-only on a dim whose link lives only on an upstream
+                # of the wrapper (v3.order_details has the link to v3.product).
+                "filters": ["v3.product.product_id = 7"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        # Surprising-but-correct: wrapper-CTE absorption (#2) does NOT
+        # fire here. The filter never reaches outer WHERE — per-CTE
+        # pushdown lands it in the wrapper CTE and propagates to
+        # v3_order_details. With the wrapper already pre-filtered, the
+        # RIGHT OUTER JOIN to v3.allocation_absorb operates on the
+        # narrowed wrapper rows but still preserves all allocation rows
+        # (RIGHT OUTER semantics). Allocations without a matching
+        # filtered wrapper row appear with NULL metric.
+        assert_sql_equal(
+            sql,
+            """
+            WITH
+            v3_allocation_absorb AS (
+                SELECT customer_id, campaign, allocated_date
+                FROM default.v3.allocations_absorb
+            ),
+            v3_order_details AS (
+                SELECT
+                    o.order_id,
+                    oi.line_number,
+                    o.customer_id,
+                    o.order_date,
+                    o.from_location_id,
+                    o.to_location_id,
+                    o.status,
+                    oi.product_id,
+                    oi.quantity,
+                    oi.unit_price,
+                    oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+                WHERE oi.product_id = 7
+            ),
+            v3_order_details_absorb_wrapper AS (
+                SELECT
+                    customer_id,
+                    order_date,
+                    product_id,
+                    quantity * unit_price AS line_total
+                FROM v3_order_details
+                WHERE product_id = 7
+            )
+            SELECT
+                t2.campaign,
+                SUM(t1.line_total) line_total_sum_HASH
+            FROM v3_order_details_absorb_wrapper t1
+            RIGHT OUTER JOIN v3_allocation_absorb t2
+                ON t1.customer_id = t2.customer_id
+                AND t1.order_date = t2.allocated_date
+            GROUP BY t2.campaign
+            """,
+            normalize_aliases=True,
+        )
+
+    @pytest.mark.asyncio
     async def test_unreachable_dim_raises_clear_error(
         self,
         module__client_with_build_v3,
