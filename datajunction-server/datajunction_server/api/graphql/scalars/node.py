@@ -196,6 +196,7 @@ class NodeRevision:
             Column(  # type: ignore
                 name=col.name,
                 display_name=col.display_name,
+                description=col.description,
                 type=col.type,
                 attributes=col.attributes,
                 dimension=(
