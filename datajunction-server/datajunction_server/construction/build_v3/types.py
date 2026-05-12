@@ -112,6 +112,10 @@ class BuildContext:
     # re-apply them (the dim ref is unreachable from the fact).
     pushdown_consumed_filters: set[str] = field(default_factory=set)
 
+    # Dim refs handled via upstream pushdown — caller skips emitting a
+    # ResolvedDimension for these and skips the unreachable-dim error.
+    pushdown_resolved_dims: set[str] = field(default_factory=set)
+
     def next_table_alias(self, base_name: str) -> str:
         """Generate a unique table alias."""
         self._table_alias_counter += 1

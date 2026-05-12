@@ -917,3 +917,52 @@ class TestInjectFilterIntoWhereOuterJoinSafe:
             RIGHT JOIN customers ON orders.customer_id = customers.id
             """,
         )
+
+    def test_existing_subquery_target_merges_filter_into_inner_where(self):
+        """When the OUTER JOIN's non-preserved side is already a subquery
+        (from projection pruning in the user's transform, an explicit inline
+        subquery, etc.), AND the filter atom into that subquery's WHERE
+        instead of wrapping a second layer. The OUTER JOIN's NULL-fill
+        semantics are preserved because the filter still runs before the
+        join.
+        """
+        query = parse(
+            "SELECT * FROM users LEFT JOIN "
+            "(SELECT user_id, success FROM logins) l "
+            "ON users.id = l.user_id",
+        )
+        filt = parse("SELECT 1 WHERE l.success = 1").select.where
+        _inject_filter_into_where(query, filt)
+        assert query.select.where is None
+        assert_sql_equal(
+            str(query),
+            """
+            SELECT * FROM users
+            LEFT JOIN (
+                SELECT user_id, success FROM logins WHERE l.success = 1
+            ) l ON users.id = l.user_id
+            """,
+        )
+
+    def test_existing_subquery_with_where_ands_into_inner_where(self):
+        """When the inline subquery already has its own WHERE, the injected
+        filter is ANDed into it rather than wrapping or replacing.
+        """
+        query = parse(
+            "SELECT * FROM users LEFT JOIN "
+            "(SELECT user_id, success FROM logins WHERE country = 'US') l "
+            "ON users.id = l.user_id",
+        )
+        filt = parse("SELECT 1 WHERE l.success = 1").select.where
+        _inject_filter_into_where(query, filt)
+        assert query.select.where is None
+        assert_sql_equal(
+            str(query),
+            """
+            SELECT * FROM users
+            LEFT JOIN (
+                SELECT user_id, success FROM logins
+                WHERE country = 'US' AND l.success = 1
+            ) l ON users.id = l.user_id
+            """,
+        )
