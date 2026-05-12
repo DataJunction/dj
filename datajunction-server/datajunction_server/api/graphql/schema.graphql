@@ -54,6 +54,7 @@ type Collection {
 type Column {
   name: String!
   displayName: String
+  description: String
   type: String!
   attributes: [Attribute!]!
   dimension: NodeName
