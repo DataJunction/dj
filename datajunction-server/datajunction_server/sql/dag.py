@@ -325,6 +325,7 @@ async def get_dimension_attributes(
             session,
             node_name,
             options=[joinedload(Node.current)],
+            raise_if_not_exists=True,
         ),
     )
     if node.type == NodeType.METRIC:
