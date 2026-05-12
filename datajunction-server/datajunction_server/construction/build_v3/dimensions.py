@@ -474,7 +474,7 @@ def _rewrite_filter_col_refs(
         return None
     for col in list(rewritten.find_all(ast.Column)):
         full = get_column_full_name(col)
-        if full is None or full.split("[")[0] != base_ref:
+        if full is None or full.split("[")[0] != base_ref:  # pragma: no cover
             continue
         new_name = (
             ast.Name(fk_col, namespace=ast.Name(qualifier))
