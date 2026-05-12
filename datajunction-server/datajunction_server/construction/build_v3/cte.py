@@ -1037,22 +1037,21 @@ def _try_push_filter_into_outer_join_side(
         target = _classify_outer_join_target(relation, namespaces)
         if target is None:
             continue
-        # If the target is already an outer-join-safety wrap from a previous
-        # call, AND the new atom into its inner WHERE rather than nesting
-        # another wrap layer.  The inner FROM preserves the original alias,
-        # so column refs qualified by that alias resolve correctly inside.
-        if isinstance(target, ast.Query) and getattr(
-            target,
-            "_outer_join_filter_wrap",
-            False,
+        # If the target is already a Query (whether from a previous
+        # outer-join-safety wrap or from projection pruning / a user-written
+        # subquery), AND the new atom into its inner WHERE rather than
+        # nesting another wrap layer.  The inner FROM preserves the original
+        # alias, so column refs qualified by that alias resolve correctly
+        # inside.
+        if isinstance(target, ast.Query) and isinstance(
+            target.select,
+            ast.Select,
         ):
             inner_select = cast(ast.Select, target.select)
-            # The wrap was created with a non-None WHERE; the cast keeps mypy
-            # happy without a runtime branch.
-            existing_where = cast(ast.Expression, inner_select.where)
-            inner_select.where = ast.BinaryOp.And(
-                existing_where,
-                deepcopy(filter_expr),
+            inner_select.where = (
+                ast.BinaryOp.And(inner_select.where, deepcopy(filter_expr))
+                if inner_select.where is not None
+                else deepcopy(filter_expr)
             )
             return True
         wrapped = _wrap_relation_side_with_filter(target, filter_expr)

@@ -7,7 +7,7 @@ from __future__ import annotations
 import difflib
 from http import HTTPStatus
 import logging
-from typing import Optional, cast
+from typing import Callable, Optional, cast
 
 from datajunction_server.construction.build_v3.utils import (
     get_short_name,
@@ -29,7 +29,7 @@ from datajunction_server.construction.build_v3.types import (
     ResolvedDimension,
 )
 from datajunction_server.database.dimensionlink import DimensionLink
-from datajunction_server.database.node import Node
+from datajunction_server.database.node import Node, NodeType
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.utils import SEPARATOR
@@ -246,6 +246,246 @@ def _format_column_validation_error(
     )
 
 
+def _resolve_filter_only_dim(
+    ctx: BuildContext,
+    parent_node: Node,
+    dim_ref: DimensionRef,
+    original_ref: str,
+) -> Optional[str]:
+    """
+    Resolve a filter-only dim ref via the parent's upstream lineage in a
+    single BFS walk over ``ctx.parent_map``. Returns one of:
+
+    - A column name on ``parent_node`` if the dim is resolvable there:
+      either via a column-level ``dimension``/``dimension_column`` annotation
+      on the parent, or via an upstream's FK link whose FK column survives
+      unchanged on the parent's projection. Caller treats this as a
+      full-skip (no join, filter lands on the parent CTE).
+
+    - ``None`` if no local match. In that case, when at least one upstream's
+      dim link aligns the requested column to an FK column, this function
+      also *registers* a pushdown filter into the deepest reachable CTE
+      (the linked transform, or the immediate transform child of a linked
+      source) and marks the originating filter string consumed in
+      ``ctx.pushdown_consumed_filters``. Caller emits no
+      ``ResolvedDimension`` for the dim and skips the unreachable-dim
+      error.
+
+    Performance notes:
+    - One BFS over the parent_map. No AST traversal of unrelated nodes.
+    - Parsed queries are only inspected for nodes we actually need to
+      inject into (linked transform, or a direct child of a linked source).
+      ``ctx.get_parsed_query`` is cached.
+    """
+    if not parent_node.current or not parent_node.current.columns:
+        return None  # pragma: no cover
+    parent_cols = {col.name for col in parent_node.current.columns}
+    target_fqn = f"{dim_ref.node_name}{SEPARATOR}{dim_ref.column_name}"
+
+    # Cheap parent-side check: column annotation pointing at this dim col.
+    # In practice the simple-dimension-link API also creates a dim link, so
+    # `find_join_path` resolves first and this branch only fires when the
+    # annotation exists without a corresponding link (e.g., partial state
+    # from a non-API deserialize).
+    for col in parent_node.current.columns:
+        if col.dimension is None or col.dimension.name != dim_ref.node_name:
+            continue
+        if (
+            col.dimension_column or col.name
+        ) == dim_ref.column_name:  # pragma: no cover
+            return col.name
+
+    # Single BFS up parent_map; track both passthrough hits and pushdown
+    # candidates. Each upstream node is visited at most once.
+    visited: set[str] = {parent_node.name}
+    queue: list[str] = list(ctx.parent_map.get(parent_node.name, []))
+    pushdown_candidates: list[tuple[Node, str]] = []  # (linked_node, fk_col)
+    while queue:
+        up_name = queue.pop(0)
+        if up_name in visited:
+            continue  # pragma: no cover
+        visited.add(up_name)
+        up_node = ctx.nodes.get(up_name)
+        if up_node and up_node.current:  # pragma: no branch
+            for link in up_node.current.dimension_links:
+                if link.dimension.name != dim_ref.node_name:
+                    continue
+                fk_fqn = link.foreign_keys_reversed.get(target_fqn)
+                if fk_fqn is None:  # pragma: no cover
+                    continue
+                fk_col = get_short_name(fk_fqn)
+                if fk_col in parent_cols:
+                    # Upstream FK passthrough: filter resolves on the
+                    # parent directly. No pushdown needed.
+                    return fk_col
+                pushdown_candidates.append((up_node, fk_col))
+        queue.extend(ctx.parent_map.get(up_name, []))
+
+    if pushdown_candidates and _register_pushdown_into_upstream(
+        ctx,
+        original_ref,
+        pushdown_candidates,
+    ):
+        ctx.pushdown_resolved_dims.add(original_ref)
+    return None
+
+
+def _register_pushdown_into_upstream(
+    ctx: BuildContext,
+    original_ref: str,
+    candidates: list[tuple[Node, str]],
+) -> bool:
+    """
+    Push each user filter referencing ``original_ref`` into the deepest
+    reachable CTE for every (linked_node, fk_col) candidate. Consumed
+    filter strings are recorded in ``ctx.pushdown_consumed_filters``.
+
+    For a linked SOURCE (no CTE of its own), the target CTE is the
+    immediate child transform that selects from it; the FK column is
+    aliased using that child's alias for the source. For a linked
+    transform, the filter goes into that transform's own CTE on the bare
+    FK column.
+    """
+    from datajunction_server.construction.build_v3.filters import parse_filter
+    from datajunction_server.construction.build_v3.cte import get_column_full_name
+
+    # Find filter strings that reference this dim ref. Parse each once.
+    base_ref = original_ref.split("[")[0]
+    matching: list[str] = []
+    for filter_str in ctx.dimension_filters:
+        if filter_str in ctx.pushdown_consumed_filters:  # pragma: no cover
+            continue
+        try:
+            f_ast = parse_filter(filter_str)
+        except Exception:  # pragma: no cover
+            continue
+        for col in f_ast.find_all(ast.Column):
+            full = get_column_full_name(col)
+            if full and full.split("[")[0] == base_ref:
+                matching.append(filter_str)
+                break
+    if not matching:
+        return False  # pragma: no cover
+
+    # Build a children-of map lazily, only for sources we actually need.
+    children_cache: dict[str, list[str]] = {}
+
+    def children_of(node_name: str) -> list[str]:
+        cached = children_cache.get(node_name)
+        if cached is not None:
+            return cached
+        result = [
+            child for child, parents in ctx.parent_map.items() if node_name in parents
+        ]
+        children_cache[node_name] = result
+        return result
+
+    for filter_str in matching:
+        consumed = False
+        for linked_node, fk_col in candidates:  # pragma: no branch
+            target_name, qualifier = _resolve_pushdown_target(
+                ctx,
+                linked_node,
+                fk_col,
+                children_of,
+            )
+            if target_name is None:
+                continue  # pragma: no cover
+            rewritten = _rewrite_filter_col_refs(
+                filter_str,
+                base_ref,
+                fk_col,
+                qualifier,
+            )
+            if rewritten is None:
+                continue  # pragma: no cover
+            ctx.upstream_pushdown_filters.setdefault(target_name, []).append(
+                rewritten,
+            )
+            consumed = True
+        if consumed:  # pragma: no branch
+            ctx.pushdown_consumed_filters.add(filter_str)
+    return bool(ctx.pushdown_consumed_filters)
+
+
+def _resolve_pushdown_target(
+    ctx: BuildContext,
+    linked_node: Node,
+    fk_col: str,
+    children_of: Callable[[str], list[str]],
+) -> tuple[Optional[str], Optional[str]]:
+    """
+    Return ``(target_cte_name, qualifier)`` for filter injection.
+
+    Transform with the link → inject into its own CTE, no qualifier.
+    Source with the link → inject into a child transform's CTE, qualified
+    with the alias that child uses for the source.
+    """
+    if linked_node.type != NodeType.SOURCE:
+        return linked_node.name, None
+    for child_name in children_of(linked_node.name):  # pragma: no branch
+        child = ctx.nodes.get(child_name)
+        if (
+            child is None
+            or child.type == NodeType.SOURCE
+            or not child.current
+            or not child.current.query
+        ):
+            continue  # pragma: no cover
+        try:
+            child_query = ctx.get_parsed_query(child)
+        except Exception:  # pragma: no cover
+            continue
+        select = child_query.select if hasattr(child_query, "select") else None
+        if select is None or select.from_ is None:
+            continue  # pragma: no cover
+        for tbl in select.from_.find_all(ast.Table):  # pragma: no branch
+            try:
+                tbl_name = tbl.name.identifier(quotes=False)
+            except Exception:  # pragma: no cover
+                continue
+            if tbl_name == linked_node.name:  # pragma: no branch
+                alias = (
+                    tbl.alias.name
+                    if tbl.alias
+                    else linked_node.name.split(SEPARATOR)[-1]
+                )
+                return child.name, alias
+    return None, None  # pragma: no cover
+
+
+def _rewrite_filter_col_refs(
+    filter_str: str,
+    base_ref: str,
+    fk_col: str,
+    qualifier: Optional[str],
+) -> Optional[ast.Expression]:
+    """
+    Parse ``filter_str`` and replace every column ref matching ``base_ref``
+    (a dim FQN sans role) with ``[qualifier.]fk_col``. Returns the
+    rewritten AST or ``None`` on parse failure.
+    """
+    from datajunction_server.construction.build_v3.filters import parse_filter
+    from datajunction_server.construction.build_v3.cte import get_column_full_name
+
+    try:
+        rewritten = parse_filter(filter_str)
+    except Exception:  # pragma: no cover
+        return None
+    for col in list(rewritten.find_all(ast.Column)):  # pragma: no branch
+        full = get_column_full_name(col)
+        if full is None or full.split("[")[0] != base_ref:  # pragma: no cover
+            continue
+        new_name = (
+            ast.Name(fk_col, namespace=ast.Name(qualifier))
+            if qualifier
+            else ast.Name(fk_col)
+        )
+        if col.parent is not None:  # pragma: no branch
+            col.parent.replace(col, ast.Column(name=new_name), copy=False)
+    return rewritten
+
+
 def resolve_dimensions(
     ctx: BuildContext,
     parent_node: Node,
@@ -319,7 +559,33 @@ def resolve_dimensions(
 
             # Validate that we found a join path
             if not join_path:
-                raise DJException(  # pragma: no cover
+                # Upstream filter-only resolution: the fact may not link to
+                # this dim, but an upstream of the fact might — and if the
+                # upstream's FK is preserved on the parent's projection, the
+                # filter can be pushed down without any join.
+                if dim in ctx.filter_dimensions:
+                    upstream_col = _resolve_filter_only_dim(
+                        ctx,
+                        parent_node,
+                        dim_ref,
+                        dim,
+                    )
+                    if upstream_col is not None:
+                        ctx.skip_join_column_mapping[dim] = upstream_col
+                        resolved.append(
+                            ResolvedDimension(
+                                original_ref=dim,
+                                node_name=parent_node.name,
+                                column_name=upstream_col,
+                                role=dim_ref.role,
+                                join_path=None,
+                                is_local=True,
+                            ),
+                        )
+                        continue
+                    if dim in ctx.pushdown_resolved_dims:
+                        continue
+                raise DJException(
                     http_status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
                     message=f"Cannot find join path from {parent_node.name} to dimension {dim_ref.node_name}. "
                     f"Please create a dimension link between these nodes.",

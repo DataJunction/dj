@@ -1332,6 +1332,28 @@ def build_select_ast(
         main_alias,
     )
 
+    # Merge in upstream-link filter pushdowns (registered when a filter-only
+    # dim is reachable only via an upstream's dim link). Multiple filters per
+    # target node are ANDed together; if temporal pushdown already targeted
+    # the same node, AND them together too.
+    for tgt_name, exprs in ctx.upstream_pushdown_filters.items():
+        if not exprs:
+            continue  # pragma: no cover
+        combined = exprs[0]
+        for extra in exprs[1:]:
+            combined = ast.BinaryOp.And(combined, extra)
+        # Temporal pushdown landing on the same node as an upstream-link
+        # pushdown is a rare overlap (typically temporal targets a
+        # date-spine source, while upstream-link pushdowns target a
+        # transform that references a different source).
+        if tgt_name in injected_cte_filters:  # pragma: no cover
+            injected_cte_filters[tgt_name] = ast.BinaryOp.And(
+                injected_cte_filters[tgt_name],
+                combined,
+            )
+        else:
+            injected_cte_filters[tgt_name] = combined
+
     # Build FROM clause with main table (use materialized table if available)
     table_parts, _ = get_table_reference_parts_with_materialization(ctx, parent_node)
     table_name = make_name(SEPARATOR.join(table_parts))
@@ -1351,7 +1373,10 @@ def build_select_ast(
 
     from_clause = ast.From(relations=[relation])
 
-    all_filters = list(filters or [])
+    # Filters fully handled via upstream-link pushdown are excluded from
+    # outer WHERE / per-CTE pushdown — they're already injected into the
+    # appropriate upstream CTE.
+    all_filters = [f for f in (filters or []) if f not in ctx.pushdown_consumed_filters]
 
     # Build outer WHERE clause from filters
     where_clause: Optional[ast.Expression] = None

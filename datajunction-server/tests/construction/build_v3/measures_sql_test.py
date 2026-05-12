@@ -5454,6 +5454,700 @@ class TestOuterJoinFilterSafety:
         )
 
 
+class TestUpstreamFilterOnlyPushdown:
+    """A filter on a dim that has no direct link from the parent node, but
+    DOES have a link from an upstream node, gets pushed down as a filter on
+    the parent's local FK column — matching v2's filter-only behavior."""
+
+    @pytest.mark.asyncio
+    async def test_filter_on_dim_linked_only_on_upstream(
+        self,
+        module__client_with_build_v3,
+    ):
+        """v3.order_details has a link to v3.product on product_id. A wrapper
+        transform that selects FROM v3.order_details has no links of its own.
+        Filtering on v3.product.product_id should resolve to the wrapper's
+        product_id column via upstream link traversal."""
+        client = module__client_with_build_v3
+
+        await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.order_details_wrapper_filter_only",
+                "description": "wrapper without dim links",
+                "query": (
+                    "SELECT order_id, line_number, product_id, quantity, "
+                    "unit_price, quantity * unit_price AS line_total "
+                    "FROM v3.order_details"
+                ),
+                "mode": "published",
+                "primary_key": ["order_id", "line_number"],
+            },
+        )
+        await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.wrapper_filter_only_total_revenue",
+                "description": "Total revenue from wrapper",
+                "query": (
+                    "SELECT SUM(line_total) FROM v3.order_details_wrapper_filter_only"
+                ),
+                "mode": "published",
+            },
+        )
+
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.wrapper_filter_only_total_revenue"],
+                "dimensions": [
+                    "v3.order_details_wrapper_filter_only.order_id",
+                ],
+                "filters": ["v3.product.product_id = 7"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        data = get_first_grain_group(response.json())
+
+        assert_sql_equal(
+            data["sql"],
+            """
+            WITH
+            v3_order_details AS (
+                SELECT
+                    o.order_id,
+                    oi.line_number,
+                    o.customer_id,
+                    o.order_date,
+                    o.from_location_id,
+                    o.to_location_id,
+                    o.status,
+                    oi.product_id,
+                    oi.quantity,
+                    oi.unit_price,
+                    oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+                WHERE oi.product_id = 7
+            ),
+            v3_order_details_wrapper_filter_only AS (
+                SELECT
+                    order_id,
+                    product_id,
+                    quantity * unit_price AS line_total
+                FROM v3_order_details
+                WHERE product_id = 7
+            )
+            SELECT
+                t1.order_id,
+                SUM(t1.line_total) line_total_sum_HASH
+            FROM v3_order_details_wrapper_filter_only t1
+            GROUP BY t1.order_id
+            """,
+            normalize_aliases=True,
+        )
+
+    @pytest.mark.asyncio
+    async def test_pushdown_into_upstream_source_when_fk_col_not_on_parent(
+        self,
+        module__client_with_build_v3,
+    ):
+        """A filter-only dim whose FK column lives on an upstream SOURCE
+        and is NOT projected up to the parent transform must be pushed
+        into the child transform's CTE, qualified by the source's alias.
+        Exercises ``_resolve_pushdown_target`` for the SOURCE branch and
+        ``_rewrite_filter_col_refs`` with a qualifier.
+        """
+        client = module__client_with_build_v3
+
+        await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_audit_dates",
+                "description": "audit dates",
+                "columns": [{"name": "dateint", "type": "int"}],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "audit_dates",
+            },
+        )
+        await client.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.audit_date_dim",
+                "description": "Audit date dim",
+                "query": "SELECT dateint FROM v3.src_audit_dates",
+                "mode": "published",
+                "primary_key": ["dateint"],
+            },
+        )
+        await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_audit_log",
+                "description": "Account audit events",
+                "columns": [
+                    {"name": "audit_id", "type": "int"},
+                    {"name": "audit_date", "type": "int"},
+                    {"name": "account_id", "type": "int"},
+                    {"name": "event_type", "type": "string"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "audit_log",
+            },
+        )
+        await client.post(
+            "/nodes/v3.src_audit_log/link",
+            json={
+                "dimension_node": "v3.audit_date_dim",
+                "join_type": "inner",
+                "join_on": ("v3.src_audit_log.audit_date = v3.audit_date_dim.dateint"),
+            },
+        )
+        await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.account_events",
+                "description": "Event counts per account",
+                "query": (
+                    "SELECT account_id, event_type, COUNT(*) AS event_count "
+                    "FROM v3.src_audit_log a "
+                    "GROUP BY account_id, event_type"
+                ),
+                "mode": "published",
+                "primary_key": ["account_id", "event_type"],
+            },
+        )
+        await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.total_event_count",
+                "description": "Total events",
+                "query": "SELECT SUM(event_count) FROM v3.account_events",
+                "mode": "published",
+            },
+        )
+
+        # Two separate filter strings on the same filter-only dim — each
+        # registers an independent pushdown entry on the same target CTE,
+        # exercising the AND-combine branch in build_grain_group_sql.
+        # Also include an unrelated filter on a parent column so the
+        # pushdown loop sees filter strings that DON'T reference the
+        # target dim (covers branch fall-through in the dim-match scan).
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_event_count"],
+                "dimensions": ["v3.account_events.event_type"],
+                "filters": [
+                    "v3.audit_date_dim.dateint >= 20260101",
+                    "v3.audit_date_dim.dateint <= 20260131",
+                    "v3.account_events.event_type = 'login'",
+                ],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        assert_sql_equal(
+            sql,
+            """
+            WITH v3_account_events AS (
+                SELECT
+                    account_id,
+                    event_type,
+                    COUNT(*) AS event_count
+                FROM default.v3.audit_log a
+                WHERE
+                    a.audit_date >= 20260101
+                    AND a.audit_date <= 20260131
+                    AND event_type = 'login'
+                GROUP BY account_id, event_type
+            )
+            SELECT
+                t1.event_type,
+                SUM(t1.event_count) event_count_sum_HASH
+            FROM v3_account_events t1
+            GROUP BY t1.event_type
+            """,
+            normalize_aliases=True,
+        )
+
+    @pytest.mark.asyncio
+    async def test_filter_only_via_parent_column_annotation(
+        self,
+        module__client_with_build_v3,
+    ):
+        """A column-level ``dimension``/``dimension_column`` annotation on
+        the parent's projection is the cheapest resolution path — no BFS,
+        no pushdown. Filter lands on the parent's local column.
+        Exercises the layer-1 annotation match in
+        ``_resolve_filter_only_dim``.
+        """
+        client = module__client_with_build_v3
+
+        await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_status_codes",
+                "description": "status code dim source",
+                "columns": [
+                    {"name": "status_code", "type": "string"},
+                    {"name": "status_label", "type": "string"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "status_codes",
+            },
+        )
+        await client.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.status_dim",
+                "description": "status dim",
+                "query": ("SELECT status_code, status_label FROM v3.src_status_codes"),
+                "mode": "published",
+                "primary_key": ["status_code"],
+            },
+        )
+        await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_status_log",
+                "description": "status log source",
+                "columns": [
+                    {"name": "log_id", "type": "int"},
+                    {"name": "raw_status", "type": "string"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "status_log",
+            },
+        )
+        await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.status_events",
+                "description": "events by status",
+                "query": (
+                    "SELECT log_id, raw_status AS event_status FROM v3.src_status_log"
+                ),
+                "mode": "published",
+                "primary_key": ["log_id"],
+            },
+        )
+        # Annotate event_status on the parent with
+        # dimension=v3.status_dim, dimension_column=status_code.
+        await client.post(
+            "/nodes/v3.status_events/columns/event_status/",
+            params={
+                "dimension": "v3.status_dim",
+                "dimension_column": "status_code",
+            },
+        )
+        await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.event_count_by_status",
+                "description": "count of status events",
+                "query": "SELECT COUNT(log_id) FROM v3.status_events",
+                "mode": "published",
+            },
+        )
+
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.event_count_by_status"],
+                "dimensions": ["v3.status_events.log_id"],
+                "filters": ["v3.status_dim.status_code = 'OPEN'"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        assert_sql_equal(
+            sql,
+            """
+            WITH v3_status_events AS (
+                SELECT log_id, raw_status AS event_status
+                FROM default.v3.status_log
+                WHERE raw_status = 'OPEN'
+            )
+            SELECT
+                t1.log_id,
+                COUNT(t1.log_id) log_id_count_HASH
+            FROM v3_status_events t1
+            GROUP BY t1.log_id
+            """,
+            normalize_aliases=True,
+        )
+
+    @pytest.mark.asyncio
+    async def test_pushdown_into_upstream_transform_unaliased(
+        self,
+        module__client_with_build_v3,
+    ):
+        """A filter-only dim whose link lives on a TRANSFORM upstream (not
+        a SOURCE) and whose FK column is NOT projected onto the parent
+        gets pushed into the linked transform's own CTE — unaliased,
+        because we know the FK column name on that CTE directly.
+        Exercises ``_resolve_pushdown_target``'s TRANSFORM branch.
+        """
+        client = module__client_with_build_v3
+
+        await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_session_events",
+                "description": "raw session events",
+                "columns": [
+                    {"name": "session_id", "type": "int"},
+                    {"name": "event_date", "type": "int"},
+                    {"name": "duration_sec", "type": "int"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "session_events",
+            },
+        )
+        await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_event_date",
+                "description": "event date dim source",
+                "columns": [{"name": "dateint", "type": "int"}],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "event_dates",
+            },
+        )
+        await client.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.event_date_dim",
+                "description": "event date dim",
+                "query": "SELECT dateint FROM v3.src_event_date",
+                "mode": "published",
+                "primary_key": ["dateint"],
+            },
+        )
+        # Transform projecting event_date — the link will live HERE
+        # (transform, not source).
+        await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.session_durations",
+                "description": "per-session duration",
+                "query": (
+                    "SELECT session_id, event_date, "
+                    "SUM(duration_sec) AS total_duration "
+                    "FROM v3.src_session_events "
+                    "GROUP BY session_id, event_date"
+                ),
+                "mode": "published",
+                "primary_key": ["session_id", "event_date"],
+            },
+        )
+        await client.post(
+            "/nodes/v3.session_durations/link",
+            json={
+                "dimension_node": "v3.event_date_dim",
+                "join_type": "inner",
+                "join_on": (
+                    "v3.session_durations.event_date = v3.event_date_dim.dateint"
+                ),
+            },
+        )
+        # Downstream wrapper that aggregates away event_date — the FK col
+        # is no longer on the parent's projection.
+        await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.session_totals",
+                "description": "totals across all dates",
+                "query": (
+                    "SELECT session_id, SUM(total_duration) AS lifetime_duration "
+                    "FROM v3.session_durations "
+                    "GROUP BY session_id"
+                ),
+                "mode": "published",
+                "primary_key": ["session_id"],
+            },
+        )
+        await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.total_lifetime_duration",
+                "description": "Sum lifetime duration",
+                "query": ("SELECT SUM(lifetime_duration) FROM v3.session_totals"),
+                "mode": "published",
+            },
+        )
+
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_lifetime_duration"],
+                "dimensions": ["v3.session_totals.session_id"],
+                "filters": ["v3.event_date_dim.dateint = 20260101"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        assert_sql_equal(
+            sql,
+            """
+            WITH v3_session_durations AS (
+                SELECT
+                    session_id,
+                    event_date,
+                    SUM(duration_sec) AS total_duration
+                FROM default.v3.session_events
+                WHERE event_date = 20260101
+                GROUP BY session_id, event_date
+            ),
+            v3_session_totals AS (
+                SELECT
+                    session_id,
+                    SUM(total_duration) AS lifetime_duration
+                FROM v3_session_durations
+                GROUP BY session_id
+            )
+            SELECT
+                t1.session_id,
+                SUM(t1.lifetime_duration) lifetime_duration_sum_HASH
+            FROM v3_session_totals t1
+            GROUP BY t1.session_id
+            """,
+            normalize_aliases=True,
+        )
+
+    @pytest.mark.asyncio
+    async def test_layer_2_filter_only_interacts_with_wrapper_cte_absorption(
+        self,
+        module__client_with_build_v3,
+    ):
+        """Layer 2 (upstream FK passthrough) resolves a filter-only dim
+        to the parent's local column. When that local column lives on the
+        non-preserved side of a downstream RIGHT OUTER JOIN at the
+        grain-group level, the wrapper-CTE absorber (#2) wraps the parent
+        into ``<parent>_filtered`` so the filter applies before the
+        RIGHT OUTER reaches the preserved side. Verifies that #1 (the
+        per-CTE absorber) and #2 (the wrapper-CTE absorber) compose
+        cleanly for filter-only refs.
+        """
+        client = module__client_with_build_v3
+
+        await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_allocations_absorb",
+                "description": "Customer marketing allocations",
+                "columns": [
+                    {"name": "customer_id", "type": "int"},
+                    {"name": "campaign", "type": "string"},
+                    {"name": "allocated_date", "type": "int"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "allocations_absorb",
+            },
+        )
+        await client.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.allocation_absorb",
+                "description": "Allocations dimension",
+                "query": (
+                    "SELECT customer_id, campaign, allocated_date "
+                    "FROM v3.src_allocations_absorb"
+                ),
+                "mode": "published",
+                "primary_key": ["customer_id", "allocated_date"],
+            },
+        )
+
+        # Wrapper transform — no direct dim link to v3.product. A filter
+        # on v3.product must resolve via Layer 2 upstream FK passthrough.
+        await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.order_details_absorb_wrapper",
+                "description": "wrapper for absorber interaction test",
+                "query": (
+                    "SELECT order_id, line_number, customer_id, order_date, "
+                    "product_id, quantity, unit_price, "
+                    "quantity * unit_price AS line_total "
+                    "FROM v3.order_details"
+                ),
+                "mode": "published",
+                "primary_key": ["order_id", "line_number"],
+            },
+        )
+        # Wrapper RIGHT-OUTER-joins v3.allocation_absorb — wrapper becomes
+        # the non-preserved side at the grain-group level. Filtering on
+        # wrapper.product_id in the outer WHERE would defeat the RIGHT
+        # OUTER unless wrapper-CTE absorption fires.
+        await client.post(
+            "/nodes/v3.order_details_absorb_wrapper/link/",
+            json={
+                "dimension_node": "v3.allocation_absorb",
+                "join_type": "right",
+                "join_on": (
+                    "v3.order_details_absorb_wrapper.customer_id = "
+                    "v3.allocation_absorb.customer_id AND "
+                    "v3.order_details_absorb_wrapper.order_date = "
+                    "v3.allocation_absorb.allocated_date"
+                ),
+            },
+        )
+        await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.absorb_wrapper_total_revenue",
+                "description": "Total revenue from absorb wrapper",
+                "query": (
+                    "SELECT SUM(line_total) FROM v3.order_details_absorb_wrapper"
+                ),
+                "mode": "published",
+            },
+        )
+
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.absorb_wrapper_total_revenue"],
+                "dimensions": ["v3.allocation_absorb.campaign"],
+                # Filter-only on a dim whose link lives only on an upstream
+                # of the wrapper (v3.order_details has the link to v3.product).
+                "filters": ["v3.product.product_id = 7"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        # Surprising-but-correct: wrapper-CTE absorption (#2) does NOT
+        # fire here. The filter never reaches outer WHERE — per-CTE
+        # pushdown lands it in the wrapper CTE and propagates to
+        # v3_order_details. With the wrapper already pre-filtered, the
+        # RIGHT OUTER JOIN to v3.allocation_absorb operates on the
+        # narrowed wrapper rows but still preserves all allocation rows
+        # (RIGHT OUTER semantics). Allocations without a matching
+        # filtered wrapper row appear with NULL metric.
+        assert_sql_equal(
+            sql,
+            """
+            WITH
+            v3_allocation_absorb AS (
+                SELECT customer_id, campaign, allocated_date
+                FROM default.v3.allocations_absorb
+            ),
+            v3_order_details AS (
+                SELECT
+                    o.order_id,
+                    oi.line_number,
+                    o.customer_id,
+                    o.order_date,
+                    o.from_location_id,
+                    o.to_location_id,
+                    o.status,
+                    oi.product_id,
+                    oi.quantity,
+                    oi.unit_price,
+                    oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+                WHERE oi.product_id = 7
+            ),
+            v3_order_details_absorb_wrapper AS (
+                SELECT
+                    customer_id,
+                    order_date,
+                    product_id,
+                    quantity * unit_price AS line_total
+                FROM v3_order_details
+                WHERE product_id = 7
+            )
+            SELECT
+                t2.campaign,
+                SUM(t1.line_total) line_total_sum_HASH
+            FROM v3_order_details_absorb_wrapper t1
+            RIGHT OUTER JOIN v3_allocation_absorb t2
+                ON t1.customer_id = t2.customer_id
+                AND t1.order_date = t2.allocated_date
+            GROUP BY t2.campaign
+            """,
+            normalize_aliases=True,
+        )
+
+    @pytest.mark.asyncio
+    async def test_unreachable_dim_raises_clear_error(
+        self,
+        module__client_with_build_v3,
+    ):
+        """A filter referencing a dim with no link anywhere in the
+        parent's upstream lineage raises a ``Cannot find join path`` error
+        rather than silently dropping the filter. Exercises the raise
+        in ``resolve_dimensions``.
+        """
+        client = module__client_with_build_v3
+        # Case A: filter-only dim, fully unreachable → enters the
+        # filter-only branch but pushdown registers nothing → raises.
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+                "filters": ["v3.totally_unlinked_dim.some_col = 1"],
+            },
+        )
+        assert response.status_code == 422
+        assert response.json() == {
+            "message": (
+                "Cannot find join path from v3.order_details to "
+                "dimension v3.totally_unlinked_dim. Please create a "
+                "dimension link between these nodes."
+            ),
+            "errors": [],
+            "warnings": [],
+        }
+
+        # Case B: GROUP BY on an unlinked dim → skips the filter-only
+        # branch entirely (dim not in filter_dimensions) → raises.
+        # Exercises the False-branch on `if dim in ctx.filter_dimensions`.
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": [
+                    "v3.order_details.status",
+                    "v3.totally_unlinked_dim.some_col",
+                ],
+            },
+        )
+        assert response.status_code == 422
+        assert response.json() == {
+            "message": (
+                "Cannot find join path from v3.order_details to "
+                "dimension v3.totally_unlinked_dim. Please create a "
+                "dimension link between these nodes."
+            ),
+            "errors": [],
+            "warnings": [],
+        }
+
+
 class TestWrapperCTEAbsorption:
     """When a LEFT/INNER-joined dim's filter would silently defeat a
     downstream RIGHT/FULL OUTER JOIN, the LEFT/INNER join + filter are
