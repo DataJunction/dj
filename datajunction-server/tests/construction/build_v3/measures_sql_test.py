@@ -5635,6 +5635,9 @@ class TestUpstreamFilterOnlyPushdown:
         # Two separate filter strings on the same filter-only dim — each
         # registers an independent pushdown entry on the same target CTE,
         # exercising the AND-combine branch in build_grain_group_sql.
+        # Also include an unrelated filter on a parent column so the
+        # pushdown loop sees filter strings that DON'T reference the
+        # target dim (covers branch fall-through in the dim-match scan).
         response = await client.get(
             "/sql/measures/v3/",
             params={
@@ -5643,6 +5646,7 @@ class TestUpstreamFilterOnlyPushdown:
                 "filters": [
                     "v3.audit_date_dim.dateint >= 20260101",
                     "v3.audit_date_dim.dateint <= 20260131",
+                    "v3.account_events.event_type = 'login'",
                 ],
             },
         )
@@ -5661,6 +5665,7 @@ class TestUpstreamFilterOnlyPushdown:
                 WHERE
                     a.audit_date >= 20260101
                     AND a.audit_date <= 20260131
+                    AND event_type = 'login'
                 GROUP BY account_id, event_type
             )
             SELECT
@@ -6097,6 +6102,8 @@ class TestUpstreamFilterOnlyPushdown:
         in ``resolve_dimensions``.
         """
         client = module__client_with_build_v3
+        # Case A: filter-only dim, fully unreachable → enters the
+        # filter-only branch but pushdown registers nothing → raises.
         response = await client.get(
             "/sql/measures/v3/",
             params={
@@ -6105,7 +6112,40 @@ class TestUpstreamFilterOnlyPushdown:
                 "filters": ["v3.totally_unlinked_dim.some_col = 1"],
             },
         )
-        assert response.status_code == 422, response.text
+        assert response.status_code == 422
+        assert response.json() == {
+            "message": (
+                "Cannot find join path from v3.order_details to "
+                "dimension v3.totally_unlinked_dim. Please create a "
+                "dimension link between these nodes."
+            ),
+            "errors": [],
+            "warnings": [],
+        }
+
+        # Case B: GROUP BY on an unlinked dim → skips the filter-only
+        # branch entirely (dim not in filter_dimensions) → raises.
+        # Exercises the False-branch on `if dim in ctx.filter_dimensions`.
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": [
+                    "v3.order_details.status",
+                    "v3.totally_unlinked_dim.some_col",
+                ],
+            },
+        )
+        assert response.status_code == 422
+        assert response.json() == {
+            "message": (
+                "Cannot find join path from v3.order_details to "
+                "dimension v3.totally_unlinked_dim. Please create a "
+                "dimension link between these nodes."
+            ),
+            "errors": [],
+            "warnings": [],
+        }
 
 
 class TestWrapperCTEAbsorption:
