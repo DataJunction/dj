@@ -1156,8 +1156,9 @@ export function NamespacePage() {
                     const blob = await response.blob();
                     const url = URL.createObjectURL(blob);
                     const link = document.createElement('a');
+                    const safeName = namespace.replace(/\./g, '_');
                     link.href = url;
-                    link.download = `${namespace.replace(/\./g, '_')}_export.zip`;
+                    link.download = `${safeName}_export.zip`;
                     document.body.appendChild(link);
                     link.click();
                     document.body.removeChild(link);

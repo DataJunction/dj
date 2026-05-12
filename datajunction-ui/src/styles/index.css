@@ -568,6 +568,47 @@ tbody th {
   background-color: #ccf7e525;
   color: #00b368;
   margin: 0.25rem;
+  font-size: 0.85rem;
+  text-transform: none;
+  padding: 0.35em 0.6em;
+}
+.partition_value code {
+  font-size: 0.9em;
+  color: inherit;
+  background: none;
+  padding: 0;
+}
+.partition-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: #334155;
+  text-transform: none;
+  letter-spacing: 0;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.partition-cell__icon {
+  color: #00794a;
+  flex-shrink: 0;
+}
+.partition-cell__type {
+  font-weight: 600;
+  color: #1e293b;
+}
+.partition-cell__dash {
+  color: #cbd5e1;
+}
+.partition-cell__details {
+  color: #64748b;
+}
+.partition-cell__details code {
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+  font-size: 0.92em;
+  background: none;
+  padding: 0;
+  color: #475569;
 }
 
 .partition_value_highlight {
@@ -1094,6 +1135,87 @@ pre {
 
 .dropdown-content a div:hover {
   background-color: #f3eeff !important;
+}
+
+.partition-popover {
+  min-width: 260px;
+}
+.partition-popover .popover-header {
+  margin: -4px 0 14px 0;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #f1f5f9;
+}
+.partition-popover .popover-title {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #94a3b8;
+  margin-bottom: 2px;
+}
+.partition-popover .popover-subtitle {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #1e293b;
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+}
+.partition-popover label {
+  display: block;
+  text-transform: none;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 4px;
+  letter-spacing: 0.02em;
+}
+.partition-popover select,
+.partition-popover input[type='text'] {
+  width: 100%;
+  background-color: #fff;
+  border: 1px solid #d4d4d8;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 0.875rem;
+  font-family: inherit;
+  box-shadow: none;
+  box-sizing: border-box;
+}
+.partition-popover select:focus,
+.partition-popover input[type='text']:focus {
+  outline: none;
+  border-color: #5d2f86;
+}
+.partition-popover .field-group {
+  margin-bottom: 12px;
+}
+.partition-popover .button-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 16px;
+  padding-top: 8px;
+  border-top: 1px solid #f1f5f9;
+}
+.partition-popover .button-row .add_node {
+  margin: 0 !important;
+  padding: 6px 14px !important;
+  font-size: 0.875rem !important;
+  border-radius: 6px !important;
+}
+.partition-popover .remove-link {
+  background: none !important;
+  border: none;
+  color: #b91c1c;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 4px 6px !important;
+  text-transform: none;
+  border-radius: 4px;
+}
+.partition-popover .remove-link:hover {
+  background-color: #fef2f2 !important;
+  color: #991b1b;
 }
 
 .add_node {

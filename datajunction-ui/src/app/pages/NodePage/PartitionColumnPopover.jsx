@@ -2,9 +2,8 @@ import { useContext, useEffect, useRef, useState } from 'react';
 import * as React from 'react';
 import DJClientContext from '../../providers/djclient';
 import { Field, Form, Formik } from 'formik';
-import { FormikSelect } from '../AddEditNodePage/FormikSelect';
 import EditIcon from '../../icons/EditIcon';
-import { displayMessageAfterSubmit, labelize } from '../../../utils/form';
+import { displayMessageAfterSubmit } from '../../../utils/form';
 
 export default function PartitionColumnPopover({ column, node, onSubmit }) {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
@@ -43,7 +42,17 @@ export default function PartitionColumnPopover({ column, node, onSubmit }) {
       });
     }
     onSubmit();
-    // window.location.reload();
+  };
+
+  const removePartition = async setStatus => {
+    const response = await djClient.removePartition(node.name, column.name);
+    if (response.status === 200 || response.status === 201) {
+      setStatus({ success: 'Partition removed' });
+      onSubmit();
+      setPopoverAnchor(false);
+    } else {
+      setStatus({ failure: `${response.json.message}` });
+    }
   };
 
   return (
@@ -59,7 +68,7 @@ export default function PartitionColumnPopover({ column, node, onSubmit }) {
         <EditIcon />
       </button>
       <div
-        className="popover"
+        className="popover partition-popover"
         role="dialog"
         aria-label="client-code"
         style={{ display: popoverAnchor === false ? 'none' : 'block' }}
@@ -69,17 +78,23 @@ export default function PartitionColumnPopover({ column, node, onSubmit }) {
           initialValues={{
             column: column.name,
             node: node.name,
-            partition_type: '',
-            format: 'yyyyMMdd',
-            granularity: 'day',
+            partition_type: column.partition?.type_ ?? '',
+            format: column.partition?.format ?? 'yyyyMMdd',
+            granularity: column.partition?.granularity ?? 'day',
           }}
           onSubmit={savePartition}
         >
-          {function Render({ values, isSubmitting, status, setFieldValue }) {
+          {function Render({ values, isSubmitting, status, setStatus }) {
             return (
               <Form>
+                <div className="popover-header">
+                  <div className="popover-title">Partition column</div>
+                  <div className="popover-subtitle">
+                    {popoverAnchor ? column.name : null}
+                  </div>
+                </div>
                 {displayMessageAfterSubmit(status)}
-                <span data-testid="edit-partition">
+                <div className="field-group" data-testid="edit-partition">
                   <label htmlFor="partitionType">Partition Type</label>
                   <Field
                     as="select"
@@ -91,7 +106,7 @@ export default function PartitionColumnPopover({ column, node, onSubmit }) {
                     <option value="temporal">Temporal</option>
                     <option value="categorical">Categorical</option>
                   </Field>
-                </span>
+                </div>
                 <input
                   hidden={true}
                   name="column"
@@ -104,70 +119,60 @@ export default function PartitionColumnPopover({ column, node, onSubmit }) {
                   value={node.name}
                   readOnly={true}
                 />
-                <br />
-                <br />
                 {values.partition_type === 'temporal' ? (
                   <>
-                    <label htmlFor="partitionFormat">Partition Format</label>
-                    <Field
-                      type="text"
-                      name="format"
-                      id="partitionFormat"
-                      placeholder="Optional temporal partition format (ex: yyyyMMdd)"
-                    />
-                    <br />
-                    <br />
-                    <label htmlFor="partitionGranularity">
-                      Partition Granularity
-                    </label>
-                    <Field
-                      as="select"
-                      name="granularity"
-                      id="partitionGranularity"
-                      placeholder="Granularity"
-                    >
-                      <option value="day">Day</option>
-                      <option value="hour">Hour</option>
-                    </Field>
+                    <div className="field-group">
+                      <label htmlFor="partitionFormat">Partition Format</label>
+                      <Field
+                        type="text"
+                        name="format"
+                        id="partitionFormat"
+                        placeholder="e.g. yyyyMMdd"
+                      />
+                    </div>
+                    <div className="field-group">
+                      <label htmlFor="partitionGranularity">
+                        Partition Granularity
+                      </label>
+                      <Field
+                        as="select"
+                        name="granularity"
+                        id="partitionGranularity"
+                        placeholder="Granularity"
+                      >
+                        <option value="day">Day</option>
+                        <option value="hour">Hour</option>
+                      </Field>
+                    </div>
                   </>
-                ) : (
-                  ''
-                )}
-                <button
-                  className="add_node"
-                  type="submit"
-                  aria-label="SaveEditColumn"
-                  aria-hidden="false"
-                >
-                  Save
-                </button>
-                <button
-                  className="delete_button"
-                  type="button"
-                  aria-label="RemovePartition"
-                  aria-hidden="false"
-                  onClick={() => {
-                    setFieldValue('partition_type', '');
-                    setFieldValue('format', '');
-                    setFieldValue('granularity', '');
-                    savePartition(
-                      {
-                        node: node.name,
-                        column: column.name,
-                        partition_type: '',
-                        format: '',
-                        granularity: '',
-                      },
-                      { setSubmitting: () => {}, setStatus: s => {} },
-                    );
-                  }}
+                ) : null}
+                <div
+                  className="button-row"
                   style={{
-                    marginLeft: '10px',
-                    backgroundColor: '#dc3545',
+                    justifyContent: column.partition
+                      ? 'space-between'
+                      : 'flex-end',
                   }}
                 >
-                  Remove Partition
-                </button>
+                  {column.partition ? (
+                    <button
+                      className="remove-link"
+                      type="button"
+                      aria-label="RemovePartition"
+                      onClick={() => removePartition(setStatus)}
+                    >
+                      Remove partition
+                    </button>
+                  ) : null}
+                  <button
+                    className="add_node"
+                    type="submit"
+                    aria-label="SaveEditColumn"
+                    aria-hidden="false"
+                  >
+                    Save
+                  </button>
+                </div>
               </Form>
             );
           }}
