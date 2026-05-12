@@ -100,6 +100,18 @@ class BuildContext:
     # Example: "dimensions.time.date.dateint" -> "utc_date"
     skip_join_column_mapping: dict[str, str] = field(default_factory=dict)
 
+    # Filters to inject into specific upstream CTEs to support v2's filter_only
+    # behavior for dim refs whose only link lives on an upstream of the fact.
+    # Keyed by node name; multiple filters per node are ANDed at injection time.
+    upstream_pushdown_filters: dict[str, list["ast.Expression"]] = field(
+        default_factory=dict,
+    )
+
+    # Filter strings that have been fully handled via upstream pushdown — these
+    # are removed from `dimension_filters` so the outer WHERE doesn't try to
+    # re-apply them (the dim ref is unreachable from the fact).
+    pushdown_consumed_filters: set[str] = field(default_factory=set)
+
     def next_table_alias(self, base_name: str) -> str:
         """Generate a unique table alias."""
         self._table_alias_counter += 1

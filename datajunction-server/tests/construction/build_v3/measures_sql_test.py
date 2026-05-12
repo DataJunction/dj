@@ -5454,6 +5454,101 @@ class TestOuterJoinFilterSafety:
         )
 
 
+class TestUpstreamFilterOnlyPushdown:
+    """A filter on a dim that has no direct link from the parent node, but
+    DOES have a link from an upstream node, gets pushed down as a filter on
+    the parent's local FK column — matching v2's filter-only behavior."""
+
+    @pytest.mark.asyncio
+    async def test_filter_on_dim_linked_only_on_upstream(
+        self,
+        module__client_with_build_v3,
+    ):
+        """v3.order_details has a link to v3.product on product_id. A wrapper
+        transform that selects FROM v3.order_details has no links of its own.
+        Filtering on v3.product.product_id should resolve to the wrapper's
+        product_id column via upstream link traversal."""
+        client = module__client_with_build_v3
+
+        await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.order_details_wrapper_filter_only",
+                "description": "wrapper without dim links",
+                "query": (
+                    "SELECT order_id, line_number, product_id, quantity, "
+                    "unit_price, quantity * unit_price AS line_total "
+                    "FROM v3.order_details"
+                ),
+                "mode": "published",
+                "primary_key": ["order_id", "line_number"],
+            },
+        )
+        await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.wrapper_filter_only_total_revenue",
+                "description": "Total revenue from wrapper",
+                "query": (
+                    "SELECT SUM(line_total) FROM v3.order_details_wrapper_filter_only"
+                ),
+                "mode": "published",
+            },
+        )
+
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.wrapper_filter_only_total_revenue"],
+                "dimensions": [
+                    "v3.order_details_wrapper_filter_only.order_id",
+                ],
+                "filters": ["v3.product.product_id = 7"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        data = get_first_grain_group(response.json())
+
+        assert_sql_equal(
+            data["sql"],
+            """
+            WITH
+            v3_order_details AS (
+                SELECT
+                    o.order_id,
+                    oi.line_number,
+                    o.customer_id,
+                    o.order_date,
+                    o.from_location_id,
+                    o.to_location_id,
+                    o.status,
+                    oi.product_id,
+                    oi.quantity,
+                    oi.unit_price,
+                    oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+                WHERE oi.product_id = 7
+            ),
+            v3_order_details_wrapper_filter_only AS (
+                SELECT
+                    order_id,
+                    product_id,
+                    quantity * unit_price AS line_total
+                FROM v3_order_details
+                WHERE product_id = 7
+            )
+            SELECT
+                t1.order_id,
+                SUM(t1.line_total) line_total_sum_HASH
+            FROM v3_order_details_wrapper_filter_only t1
+            GROUP BY t1.order_id
+            """,
+            normalize_aliases=True,
+        )
+
+
 class TestWrapperCTEAbsorption:
     """When a LEFT/INNER-joined dim's filter would silently defeat a
     downstream RIGHT/FULL OUTER JOIN, the LEFT/INNER join + filter are
