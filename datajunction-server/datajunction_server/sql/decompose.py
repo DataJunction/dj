@@ -1156,12 +1156,13 @@ class MetricComponentExtractor:
     def _short_hash(self, expression: str, query_ast: ast.Query) -> str:
         """Generate a short hash for the given expression.
 
-        ``str(query_ast.select.from_)`` is whitespace-normalized so cosmetic
-        changes to AST string rendering (pretty-printing) don't perturb hashes
-        and rename every derived measure. ``expression`` is passed through
-        unchanged to preserve hash compatibility for expressions that already
-        contain newlines (e.g. CASE, IF).
+        Both the expression and the FROM clause are whitespace-normalized so
+        cosmetic changes to AST string rendering (pretty-printing, indentation,
+        newlines around AND/OR conjuncts) don't perturb hashes and silently
+        rename every derived measure. Component names are durable identifiers
+        for materialized columns, so the hash must be invariant to formatting.
         """
+        expression_normalized = " ".join(expression.split())
         from_str = " ".join(str(query_ast.select.from_).split())
-        signature = expression + from_str
+        signature = expression_normalized + from_str
         return hashlib.md5(signature.encode("utf-8")).hexdigest()[:8]
