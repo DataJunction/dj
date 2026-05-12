@@ -177,7 +177,7 @@ async def test_versioning_filters(module__session, module__client_with_roads):
     )
     assert (
         versioned_filters[0]
-        == f"default.hard_hat.state@{hard_hat.current_version} = 'CA'\nOR default.hard_hat.state@{hard_hat.current_version} = 'AB'"
+        == f"default.hard_hat.state@{hard_hat.current_version} = 'CA' OR default.hard_hat.state@{hard_hat.current_version} = 'AB'"
     )
     assert (
         versioned_filters[1]

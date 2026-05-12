@@ -2741,8 +2741,8 @@ async def test_get_unmaterialized_cube_dimensions_values(
         },
     )
     results = response.json()
-    assert "SELECT\n  default_DOT_hard_hat_DOT_city" in results["sql"]
-    assert "GROUP BY\n  default_DOT_hard_hat_DOT_city" in results["sql"]
+    assert "SELECT  default_DOT_hard_hat_DOT_city" in results["sql"]
+    assert "GROUP BY  default_DOT_hard_hat_DOT_city" in results["sql"]
 
     # Get data for single dimension
     response = await client_with_repairs_cube.get(
@@ -2781,8 +2781,8 @@ async def test_get_unmaterialized_cube_dimensions_values(
         },
     )
     results = response.json()
-    assert "SELECT\n  default_DOT_hard_hat_DOT_city,\n  COUNT(*)" in results["sql"]
-    assert "GROUP BY\n  default_DOT_hard_hat_DOT_city" in results["sql"]
+    assert "SELECT  default_DOT_hard_hat_DOT_city,\n\tCOUNT(*)" in results["sql"]
+    assert "GROUP BY  default_DOT_hard_hat_DOT_city" in results["sql"]
     assert "ORDER BY 2 DESC" in results["sql"]
 
     # Get data for single dimension with counts
