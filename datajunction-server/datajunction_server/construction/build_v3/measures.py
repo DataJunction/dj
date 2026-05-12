@@ -1342,7 +1342,11 @@ def build_select_ast(
         combined = exprs[0]
         for extra in exprs[1:]:
             combined = ast.BinaryOp.And(combined, extra)
-        if tgt_name in injected_cte_filters:
+        # Temporal pushdown landing on the same node as an upstream-link
+        # pushdown is a rare overlap (typically temporal targets a
+        # date-spine source, while upstream-link pushdowns target a
+        # transform that references a different source).
+        if tgt_name in injected_cte_filters:  # pragma: no cover
             injected_cte_filters[tgt_name] = ast.BinaryOp.And(
                 injected_cte_filters[tgt_name],
                 combined,

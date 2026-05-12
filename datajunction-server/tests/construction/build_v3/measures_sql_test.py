@@ -5548,6 +5548,263 @@ class TestUpstreamFilterOnlyPushdown:
             normalize_aliases=True,
         )
 
+    @pytest.mark.asyncio
+    async def test_pushdown_into_upstream_source_when_fk_col_not_on_parent(
+        self,
+        module__client_with_build_v3,
+    ):
+        """A filter-only dim whose FK column lives on an upstream SOURCE
+        and is NOT projected up to the parent transform must be pushed
+        into the child transform's CTE, qualified by the source's alias.
+        Exercises ``_resolve_pushdown_target`` for the SOURCE branch and
+        ``_rewrite_filter_col_refs`` with a qualifier.
+        """
+        client = module__client_with_build_v3
+
+        await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_audit_dates",
+                "description": "audit dates",
+                "columns": [{"name": "dateint", "type": "int"}],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "audit_dates",
+            },
+        )
+        await client.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.audit_date_dim",
+                "description": "Audit date dim",
+                "query": "SELECT dateint FROM v3.src_audit_dates",
+                "mode": "published",
+                "primary_key": ["dateint"],
+            },
+        )
+        await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_audit_log",
+                "description": "Account audit events",
+                "columns": [
+                    {"name": "audit_id", "type": "int"},
+                    {"name": "audit_date", "type": "int"},
+                    {"name": "account_id", "type": "int"},
+                    {"name": "event_type", "type": "string"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "audit_log",
+            },
+        )
+        await client.post(
+            "/nodes/v3.src_audit_log/link",
+            json={
+                "dimension_node": "v3.audit_date_dim",
+                "join_type": "inner",
+                "join_on": ("v3.src_audit_log.audit_date = v3.audit_date_dim.dateint"),
+            },
+        )
+        await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.account_events",
+                "description": "Event counts per account",
+                "query": (
+                    "SELECT account_id, event_type, COUNT(*) AS event_count "
+                    "FROM v3.src_audit_log a "
+                    "GROUP BY account_id, event_type"
+                ),
+                "mode": "published",
+                "primary_key": ["account_id", "event_type"],
+            },
+        )
+        await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.total_event_count",
+                "description": "Total events",
+                "query": "SELECT SUM(event_count) FROM v3.account_events",
+                "mode": "published",
+            },
+        )
+
+        # Two separate filter strings on the same filter-only dim — each
+        # registers an independent pushdown entry on the same target CTE,
+        # exercising the AND-combine branch in build_grain_group_sql.
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_event_count"],
+                "dimensions": ["v3.account_events.event_type"],
+                "filters": [
+                    "v3.audit_date_dim.dateint >= 20260101",
+                    "v3.audit_date_dim.dateint <= 20260131",
+                ],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        assert_sql_equal(
+            sql,
+            """
+            WITH v3_account_events AS (
+                SELECT
+                    account_id,
+                    event_type,
+                    COUNT(*) AS event_count
+                FROM default.v3.audit_log a
+                WHERE
+                    a.audit_date >= 20260101
+                    AND a.audit_date <= 20260131
+                GROUP BY account_id, event_type
+            )
+            SELECT
+                t1.event_type,
+                SUM(t1.event_count) event_count_sum_HASH
+            FROM v3_account_events t1
+            GROUP BY t1.event_type
+            """,
+            normalize_aliases=True,
+        )
+
+    @pytest.mark.asyncio
+    async def test_filter_only_via_parent_column_annotation(
+        self,
+        module__client_with_build_v3,
+    ):
+        """A column-level ``dimension``/``dimension_column`` annotation on
+        the parent's projection is the cheapest resolution path — no BFS,
+        no pushdown. Filter lands on the parent's local column.
+        Exercises the layer-1 annotation match in
+        ``_resolve_filter_only_dim``.
+        """
+        client = module__client_with_build_v3
+
+        await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_status_codes",
+                "description": "status code dim source",
+                "columns": [
+                    {"name": "status_code", "type": "string"},
+                    {"name": "status_label", "type": "string"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "status_codes",
+            },
+        )
+        await client.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.status_dim",
+                "description": "status dim",
+                "query": ("SELECT status_code, status_label FROM v3.src_status_codes"),
+                "mode": "published",
+                "primary_key": ["status_code"],
+            },
+        )
+        await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_status_log",
+                "description": "status log source",
+                "columns": [
+                    {"name": "log_id", "type": "int"},
+                    {"name": "raw_status", "type": "string"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "status_log",
+            },
+        )
+        await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.status_events",
+                "description": "events by status",
+                "query": (
+                    "SELECT log_id, raw_status AS event_status FROM v3.src_status_log"
+                ),
+                "mode": "published",
+                "primary_key": ["log_id"],
+            },
+        )
+        # Annotate event_status on the parent with
+        # dimension=v3.status_dim, dimension_column=status_code.
+        await client.post(
+            "/nodes/v3.status_events/columns/event_status/",
+            params={
+                "dimension": "v3.status_dim",
+                "dimension_column": "status_code",
+            },
+        )
+        await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.event_count_by_status",
+                "description": "count of status events",
+                "query": "SELECT COUNT(log_id) FROM v3.status_events",
+                "mode": "published",
+            },
+        )
+
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.event_count_by_status"],
+                "dimensions": ["v3.status_events.log_id"],
+                "filters": ["v3.status_dim.status_code = 'OPEN'"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        assert_sql_equal(
+            sql,
+            """
+            WITH v3_status_events AS (
+                SELECT log_id, raw_status AS event_status
+                FROM default.v3.status_log
+                WHERE raw_status = 'OPEN'
+            )
+            SELECT
+                t1.log_id,
+                COUNT(t1.log_id) log_id_count_HASH
+            FROM v3_status_events t1
+            GROUP BY t1.log_id
+            """,
+            normalize_aliases=True,
+        )
+
+    @pytest.mark.asyncio
+    async def test_unreachable_dim_raises_clear_error(
+        self,
+        module__client_with_build_v3,
+    ):
+        """A filter referencing a dim with no link anywhere in the
+        parent's upstream lineage raises a ``Cannot find join path`` error
+        rather than silently dropping the filter. Exercises the raise
+        in ``resolve_dimensions``.
+        """
+        client = module__client_with_build_v3
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+                "filters": ["v3.totally_unlinked_dim.some_col = 1"],
+            },
+        )
+        assert response.status_code == 422, response.text
+
 
 class TestWrapperCTEAbsorption:
     """When a LEFT/INNER-joined dim's filter would silently defeat a

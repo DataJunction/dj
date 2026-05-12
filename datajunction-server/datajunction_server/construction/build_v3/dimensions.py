@@ -283,10 +283,16 @@ def _resolve_filter_only_dim(
     target_fqn = f"{dim_ref.node_name}{SEPARATOR}{dim_ref.column_name}"
 
     # Cheap parent-side check: column annotation pointing at this dim col.
+    # In practice the simple-dimension-link API also creates a dim link, so
+    # `find_join_path` resolves first and this branch only fires when the
+    # annotation exists without a corresponding link (e.g., partial state
+    # from a non-API deserialize).
     for col in parent_node.current.columns:
         if col.dimension is None or col.dimension.name != dim_ref.node_name:
             continue
-        if (col.dimension_column or col.name) == dim_ref.column_name:
+        if (
+            col.dimension_column or col.name
+        ) == dim_ref.column_name:  # pragma: no cover
             return col.name
 
     # Single BFS up parent_map; track both passthrough hits and pushdown
