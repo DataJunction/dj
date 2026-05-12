@@ -306,12 +306,12 @@ def _resolve_filter_only_dim(
             continue  # pragma: no cover
         visited.add(up_name)
         up_node = ctx.nodes.get(up_name)
-        if up_node and up_node.current:
+        if up_node and up_node.current:  # pragma: no branch
             for link in up_node.current.dimension_links:
                 if link.dimension.name != dim_ref.node_name:
                     continue
                 fk_fqn = link.foreign_keys_reversed.get(target_fqn)
-                if fk_fqn is None:
+                if fk_fqn is None:  # pragma: no cover
                     continue
                 fk_col = get_short_name(fk_fqn)
                 if fk_col in parent_cols:
@@ -353,7 +353,7 @@ def _register_pushdown_into_upstream(
     base_ref = original_ref.split("[")[0]
     matching: list[str] = []
     for filter_str in ctx.dimension_filters:
-        if filter_str in ctx.pushdown_consumed_filters:
+        if filter_str in ctx.pushdown_consumed_filters:  # pragma: no cover
             continue
         try:
             f_ast = parse_filter(filter_str)

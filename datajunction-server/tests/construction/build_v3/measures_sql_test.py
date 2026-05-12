@@ -5785,6 +5785,149 @@ class TestUpstreamFilterOnlyPushdown:
         )
 
     @pytest.mark.asyncio
+    async def test_pushdown_into_upstream_transform_unaliased(
+        self,
+        module__client_with_build_v3,
+    ):
+        """A filter-only dim whose link lives on a TRANSFORM upstream (not
+        a SOURCE) and whose FK column is NOT projected onto the parent
+        gets pushed into the linked transform's own CTE — unaliased,
+        because we know the FK column name on that CTE directly.
+        Exercises ``_resolve_pushdown_target``'s TRANSFORM branch.
+        """
+        client = module__client_with_build_v3
+
+        await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_session_events",
+                "description": "raw session events",
+                "columns": [
+                    {"name": "session_id", "type": "int"},
+                    {"name": "event_date", "type": "int"},
+                    {"name": "duration_sec", "type": "int"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "session_events",
+            },
+        )
+        await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_event_date",
+                "description": "event date dim source",
+                "columns": [{"name": "dateint", "type": "int"}],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "event_dates",
+            },
+        )
+        await client.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.event_date_dim",
+                "description": "event date dim",
+                "query": "SELECT dateint FROM v3.src_event_date",
+                "mode": "published",
+                "primary_key": ["dateint"],
+            },
+        )
+        # Transform projecting event_date — the link will live HERE
+        # (transform, not source).
+        await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.session_durations",
+                "description": "per-session duration",
+                "query": (
+                    "SELECT session_id, event_date, "
+                    "SUM(duration_sec) AS total_duration "
+                    "FROM v3.src_session_events "
+                    "GROUP BY session_id, event_date"
+                ),
+                "mode": "published",
+                "primary_key": ["session_id", "event_date"],
+            },
+        )
+        await client.post(
+            "/nodes/v3.session_durations/link",
+            json={
+                "dimension_node": "v3.event_date_dim",
+                "join_type": "inner",
+                "join_on": (
+                    "v3.session_durations.event_date = v3.event_date_dim.dateint"
+                ),
+            },
+        )
+        # Downstream wrapper that aggregates away event_date — the FK col
+        # is no longer on the parent's projection.
+        await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.session_totals",
+                "description": "totals across all dates",
+                "query": (
+                    "SELECT session_id, SUM(total_duration) AS lifetime_duration "
+                    "FROM v3.session_durations "
+                    "GROUP BY session_id"
+                ),
+                "mode": "published",
+                "primary_key": ["session_id"],
+            },
+        )
+        await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.total_lifetime_duration",
+                "description": "Sum lifetime duration",
+                "query": ("SELECT SUM(lifetime_duration) FROM v3.session_totals"),
+                "mode": "published",
+            },
+        )
+
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_lifetime_duration"],
+                "dimensions": ["v3.session_totals.session_id"],
+                "filters": ["v3.event_date_dim.dateint = 20260101"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        assert_sql_equal(
+            sql,
+            """
+            WITH v3_session_durations AS (
+                SELECT
+                    session_id,
+                    event_date,
+                    SUM(duration_sec) AS total_duration
+                FROM default.v3.session_events
+                WHERE event_date = 20260101
+                GROUP BY session_id, event_date
+            ),
+            v3_session_totals AS (
+                SELECT
+                    session_id,
+                    SUM(total_duration) AS lifetime_duration
+                FROM v3_session_durations
+                GROUP BY session_id
+            )
+            SELECT
+                t1.session_id,
+                SUM(t1.lifetime_duration) lifetime_duration_sum_HASH
+            FROM v3_session_totals t1
+            GROUP BY t1.session_id
+            """,
+            normalize_aliases=True,
+        )
+
+    @pytest.mark.asyncio
     async def test_unreachable_dim_raises_clear_error(
         self,
         module__client_with_build_v3,
