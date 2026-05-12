@@ -16,7 +16,11 @@ const cronstrue = require('cronstrue');
  * For non-cube nodes, the parent component (index.jsx) renders
  * NodePreAggregationsTab instead.
  */
-export default function NodeMaterializationTab({ node, djClient }) {
+export default function NodeMaterializationTab({
+  node,
+  djClient,
+  readOnly = false,
+}) {
   const [rawMaterializations, setRawMaterializations] = useState([]);
   const [selectedRevisionTab, setSelectedRevisionTab] = useState(null);
   const [showInactive, setShowInactive] = useState(false);
@@ -179,7 +183,7 @@ export default function NodeMaterializationTab({ node, djClient }) {
                 Show Inactive
               </label>
             )}
-            {node && <AddMaterializationPopover node={node} />}
+            {node && !readOnly && <AddMaterializationPopover node={node} />}
           </div>
         </div>
       );
@@ -282,6 +286,7 @@ export default function NodeMaterializationTab({ node, djClient }) {
             Show Inactive
           </label>
           {node &&
+            !readOnly &&
             (hasLatestVersionMaterialization ? (
               <button
                 className="edit_button"
@@ -322,11 +327,13 @@ export default function NodeMaterializationTab({ node, djClient }) {
                 .join(' ')}
             </div>
             <div className="td">
-              <NodeMaterializationDelete
-                nodeName={node.name}
-                materializationName={materialization.name}
-                nodeVersion={selectedRevisionTab}
-              />
+              {!readOnly && (
+                <NodeMaterializationDelete
+                  nodeName={node.name}
+                  materializationName={materialization.name}
+                  nodeVersion={selectedRevisionTab}
+                />
+              )}
             </div>
             <div className="td">
               <span className={`badge cron`}>{materialization.schedule}</span>
@@ -397,13 +404,15 @@ export default function NodeMaterializationTab({ node, djClient }) {
                   </summary>
                   {materialization.strategy === 'incremental_time' ? (
                     <ul>
-                      <li>
-                        <AddBackfillPopover
-                          node={node}
-                          materialization={materialization}
-                          onSubmit={fetchData}
-                        />
-                      </li>
+                      {!readOnly && (
+                        <li>
+                          <AddBackfillPopover
+                            node={node}
+                            materialization={materialization}
+                            onSubmit={fetchData}
+                          />
+                        </li>
+                      )}
                       {materialization.backfills.map(backfill => (
                         <li className="backfill">
                           <div className="partitionLink">

@@ -683,17 +683,28 @@ async def get_namespace_git_config(
 
     node_namespace = await get_node_namespace(session, namespace)
 
-    # Resolve the effective git config (including inherited values)
-    resolved_repo, resolved_path, resolved_branch = await resolve_git_config(
-        session,
-        namespace,
-    )
+    # Resolve the effective git config (including inherited values). Use the
+    # rich resolver so we also get a cascaded ``git_only`` — a lock on any
+    # ancestor (typically the default-branch namespace like ``ads.main``)
+    # must propagate down to its subnamespaces (``ads.main.metrics`` etc.)
+    # or the UI's read-only badge / edit-button gating fires off the wrong
+    # value.
+    git_info = await get_git_info_for_namespace(session, namespace)
+    if git_info:
+        return NamespaceGitConfig(
+            github_repo_path=git_info["repo"],
+            git_path=git_info["path"],
+            git_branch=git_info["branch"],
+            default_branch=node_namespace.default_branch,
+            parent_namespace=node_namespace.parent_namespace,
+            git_only=git_info["git_only"],
+            branch_namespace=git_info["branch_namespace"],
+        )
 
     return NamespaceGitConfig(
-        # Return resolved values (effective configuration)
-        github_repo_path=resolved_repo,
-        git_path=resolved_path,
-        git_branch=resolved_branch,
+        github_repo_path=None,
+        git_path=None,
+        git_branch=None,
         default_branch=node_namespace.default_branch,
         parent_namespace=node_namespace.parent_namespace,
         git_only=node_namespace.git_only,

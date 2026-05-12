@@ -270,6 +270,14 @@ def resolve_git_info_from_map(
 
     branch = branch_ns.git_branch if branch_ns else None
     default_branch = config_ns.default_branch
+    # Effective git_only cascades: any ancestor (or the namespace itself)
+    # with git_only=True locks all descendants. Without this the UI would
+    # treat a child namespace as editable when its parent is locked,
+    # while the backend's check_namespace_not_git_only correctly rejects
+    # the mutation — desynced UX.
+    effective_git_only = any(
+        ns_map[n].git_only for n in ancestor_names if ns_map.get(n)
+    )
     return {
         "repo": config_ns.github_repo_path,
         "branch": branch,
@@ -280,7 +288,15 @@ def resolve_git_info_from_map(
             or (default_branch is not None and branch == default_branch)
         ),
         "parent_namespace": branch_ns.parent_namespace if branch_ns else None,
-        "git_only": config_ns.git_only,
+        "git_only": effective_git_only,
+        # Name of the branch namespace this lookup resolves through. Equals
+        # ``namespace`` when called against the branch itself, or the
+        # ancestor branch namespace when called against a descendant. The UI
+        # uses this to show branch-scoped controls (Git Settings, Sync to
+        # Git, Create PR) on every page under the branch, while still being
+        # able to distinguish "this IS the branch" from "this is INSIDE the
+        # branch."
+        "branch_namespace": branch_ns.namespace if branch_ns else None,
     }
 
 
