@@ -6185,6 +6185,65 @@ async def test_set_column_partition(client_with_roads: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_remove_column_partition(client_with_roads: AsyncClient):
+    """
+    Test removing partition configuration from a node column.
+    """
+    # Set a temporal partition on hire_date
+    response = await client_with_roads.post(
+        "/nodes/default.hard_hat/columns/hire_date/partition",
+        json={
+            "type_": "temporal",
+            "granularity": "day",
+            "format": "yyyyMMdd",
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["partition"] == {
+        "expression": None,
+        "format": "yyyyMMdd",
+        "type_": "temporal",
+        "granularity": "day",
+    }
+
+    # Remove the partition
+    response = await client_with_roads.delete(
+        "/nodes/default.hard_hat/columns/hire_date/partition",
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["name"] == "hire_date"
+    assert body["partition"] is None
+
+    # Removing again is a no-op (idempotent)
+    response = await client_with_roads.delete(
+        "/nodes/default.hard_hat/columns/hire_date/partition",
+    )
+    assert response.status_code == 200
+    assert response.json()["partition"] is None
+
+    # Removing partition from a column that never had one is also a no-op
+    response = await client_with_roads.delete(
+        "/nodes/default.hard_hat/columns/state/partition",
+    )
+    assert response.status_code == 200
+    assert response.json()["partition"] is None
+
+    # Delete event is recorded in history
+    response = await client_with_roads.get(
+        "/history/?node=default.hard_hat",
+    )
+    assert response.status_code == 200
+    partition_deletes = [
+        event
+        for event in response.json()
+        if event["entity_type"] == "partition" and event["activity_type"] == "delete"
+    ]
+    assert len(partition_deletes) >= 1
+    assert partition_deletes[0]["details"] == {"column": "hire_date"}
+
+
+@pytest.mark.asyncio
 async def test_delete_recreate_for_all_nodes(client_with_roads: AsyncClient):
     """
     Test deleting and recreating for all node types
