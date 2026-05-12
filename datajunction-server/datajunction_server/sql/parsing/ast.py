@@ -189,10 +189,6 @@ class CompileContext:
 TNode = TypeVar("TNode", bound="Node")
 
 
-# Indentation unit used by ``Node.format`` and its overrides for pretty-printing.
-INDENT = "  "
-
-
 class Node(ABC):
     """Base class for all DJ AST nodes.
 
@@ -567,16 +563,6 @@ class Node(ABC):
         """
         Get the string of a node
         """
-
-    def format(self, indent: int = 0) -> str:
-        """
-        Pretty-printed rendering of this node at the given indentation level.
-
-        Default implementation defers to ``__str__``; structural nodes
-        (``Query``, ``Select``, ``From``, ``Relation``, ``Join``, ``BinaryOp``)
-        override this to emit newlines and indentation.
-        """
-        return str(self)
 
     async def compile(self, ctx: CompileContext):
         """
@@ -1981,46 +1967,12 @@ class BinaryOp(Operation):
         )
 
     def __str__(self) -> str:
-        return self.format(0)
-
-    def _resolve_operands(self) -> Tuple[Expression, Expression]:
         left, right = self.left, self.right
         if self.use_alias_as_name:
             if isinstance(self.right, Column) and self.right.alias:
                 right = self.right.copy().use_alias_as_name()
             if isinstance(self.left, Column) and self.left.alias:
                 left = self.left.copy().use_alias_as_name()
-        return left, right
-
-    def _flatten_logical(
-        self,
-        op: "BinaryOpKind",
-    ) -> List[Expression]:
-        """
-        Flatten a left-leaning chain of the same logical op (AND/OR) into a list
-        of leaf conjuncts/disjuncts.
-        """
-        out: List[Expression] = []
-        left, right = self._resolve_operands()
-        if isinstance(left, BinaryOp) and left.op == op and not left.parenthesized:
-            out.extend(left._flatten_logical(op))
-        else:
-            out.append(left)
-        if isinstance(right, BinaryOp) and right.op == op and not right.parenthesized:
-            out.extend(right._flatten_logical(op))
-        else:
-            out.append(right)
-        return out
-
-    def format(self, indent: int = 0) -> str:
-        # Flatten AND/OR chains across one line per conjunct at the current indent.
-        if self.op in (BinaryOpKind.And, BinaryOpKind.Or) and not self.parenthesized:
-            pad = INDENT * indent
-            parts = self._flatten_logical(self.op)
-            joiner = f"\n{pad}{self.op.value} "
-            return joiner.join(p.format(indent) for p in parts)
-
-        left, right = self._resolve_operands()
 
         # For Druid dialect, convert division to SAFE_DIVIDE to avoid
         # runtime division-by-zero errors (Druid's NULLIF doesn't always
@@ -2776,9 +2728,6 @@ class Join(Node):
     natural: bool = False
 
     def __str__(self) -> str:
-        return self.format(0)
-
-    def format(self, indent: int = 0) -> str:
         parts = []
         if self.natural:
             parts.append("NATURAL")
@@ -2787,14 +2736,9 @@ class Join(Node):
         parts.append("JOIN")
         if self.lateral:
             parts.append("LATERAL")
-        right = (
-            self.right.format(indent)
-            if isinstance(self.right, Node)
-            else str(self.right)
-        )
-        parts.append(right)
+        parts.append(str(self.right))
         if self.criteria:
-            parts.append(str(self.criteria))
+            parts.append(f"{self.criteria}")
         return " ".join(parts)
 
 
@@ -2937,19 +2881,11 @@ class Relation(Node):
     extensions: List[Join] = field(default_factory=list)
 
     def __str__(self) -> str:
-        return self.format(0)
-
-    def format(self, indent: int = 0) -> str:
-        pad = INDENT * indent
-        primary = (
-            self.primary.format(indent)
-            if isinstance(self.primary, Node)
-            else str(self.primary)
-        )
-        if not self.extensions:
-            return primary
-        ext_lines = "\n".join(f"{pad}{ext.format(indent)}" for ext in self.extensions)
-        return f"{primary}\n{ext_lines}"
+        if self.extensions:
+            extensions = " " + "\n".join([str(ext) for ext in self.extensions])
+        else:
+            extensions = ""
+        return f"{self.primary}{extensions}"
 
 
 @dataclass(eq=False)
@@ -2961,14 +2897,10 @@ class From(Node):
     relations: List[Relation] = field(default_factory=list)
 
     def __str__(self) -> str:
-        return self.format(0)
+        parts = ["FROM "]
+        parts += ",\n".join([str(r) for r in self.relations])
 
-    def format(self, indent: int = 0) -> str:
-        pad = INDENT * indent
-        # First relation sits on the FROM line; subsequent relations (implicit
-        # cross joins, rare) line up under it at the FROM indent.
-        rels = [r.format(indent) for r in self.relations]
-        return f"{pad}FROM {(',' + chr(10) + pad + INDENT).join(rels)}"
+        return "".join(parts)
 
     @classmethod
     def Table(cls, table_name: str):
@@ -3190,48 +3122,30 @@ class Select(SelectExpression):
     """
 
     def __str__(self) -> str:
-        return self.format(0)
-
-    def format(self, indent: int = 0) -> str:
-        pad = INDENT * indent
-        inner = INDENT * (indent + 1)
-        lines: List[str] = []
-
-        select_hdr = "SELECT"
+        parts = ["SELECT "]
         if self.hints:
-            select_hdr += f" /*+ {', '.join(str(hint) for hint in self.hints)} */"
+            parts.append(f"/*+ {', '.join(str(hint) for hint in self.hints)} */\n")
         if self.quantifier:
-            select_hdr += f" {self.quantifier}"
-        lines.append(f"{pad}{select_hdr}")
-
-        proj = [f"{inner}{exp.format(indent + 1)}" for exp in self.projection]
-        lines.append(",\n".join(proj))
-
+            parts.append(f"{self.quantifier}\n")
+        parts.append(",\n\t".join(str(exp) for exp in self.projection))
         if self.from_ is not None:
-            lines.append(self.from_.format(indent))
-
+            parts.extend(("\n", str(self.from_), "\n"))
         for view in self.lateral_views:
-            lines.append(f"{pad}{view}")
-
+            parts.append(f"\n{view}")
         if self.where is not None:
-            lines.append(f"{pad}WHERE")
-            lines.append(f"{inner}{self.where.format(indent + 1)}")
-
+            parts.extend(("WHERE ", str(self.where), "\n"))
         if self.group_by:
-            gb = ",\n".join(f"{inner}{exp.format(indent + 1)}" for exp in self.group_by)
-            lines.append(f"{pad}GROUP BY\n{gb}")
-
+            parts.extend(("GROUP BY ", ", ".join(str(exp) for exp in self.group_by)))
         if self.having is not None:
-            lines.append(f"{pad}HAVING\n{inner}{self.having.format(indent + 1)}")
-
-        select = "\n".join(lines)
+            parts.extend(("HAVING ", str(self.having), "\n"))
+        select = " ".join(parts).strip()
         if self.parenthesized:
             select = f"({select})"
         if self.set_op:
             select += f"\n{self.set_op}"
 
-        if self.organization and (self.organization.order or self.organization.sort):
-            select += f"\n{str(self.organization).rstrip()}"
+        if self.organization:
+            select += f"\n{self.organization}"
         if self.limit:
             select += f"\nLIMIT {self.limit}"
 
@@ -3540,35 +3454,21 @@ class Query(TableExpression, UnNamed):
         return self
 
     def __str__(self) -> str:
-        return self.format(0)
-
-    def format(self, indent: int = 0) -> str:
-        pad = INDENT * indent
         is_cte = self.parent is not None and self.parent_key == "ctes"
+        ctes = ",\n".join(str(cte) for cte in self.ctes)
+        if ctes:
+            ctes += "\n\n"
+        with_ = f"WITH\n{ctes}" if ctes else ""
 
-        # Render the query body (optional WITH + SELECT) at the depth where its
-        # contents should sit. For parenthesized queries that's indent+1; the
-        # outer parens themselves are placed at ``indent``.
-        body_indent = indent + 1 if self.parenthesized else indent
-        body_pad = INDENT * body_indent
-
-        select_body = self.select.format(body_indent)
-        if self.ctes:
-            cte_blocks = [cte.format(body_indent) for cte in self.ctes]
-            body = f"{body_pad}WITH\n" + ",\n".join(cte_blocks) + "\n" + select_body
-        else:
-            body = select_body
-
+        parts = [f"{with_}{self.select}\n"]
+        query = "".join(parts)
+        newline = "\n" if is_cte else ""
         if self.parenthesized:
-            query = f"(\n{body}\n{pad})"
-        else:
-            query = body
-
+            query = f"({newline}{query.strip()}{newline})"
         if self.alias:
             as_ = " AS " if self.as_ else " "
             if is_cte:
-                # Each CTE renders as ``<pad><alias> AS (\n<body>\n<pad>)``.
-                query = f"{pad}{self.alias}{as_}{query.lstrip()}"
+                query = f"{self.alias}{as_}{query}"
             else:
                 query = f"{query}{as_}{self.alias}"
         return query

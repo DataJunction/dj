@@ -530,7 +530,7 @@ class TestRewriteFilterForCte:
             cte_query=cte_query,
         )
         assert str(rewritten) == (
-            "fact.orders.order_date_extended > 0\nOR o.placed_on < 1"
+            "fact.orders.order_date_extended > 0 OR o.placed_on < 1"
         )
 
 
@@ -559,7 +559,7 @@ class TestPushdownEdgeCases:
             cte_output_cols={"order_date", "state"},
             cte_query=cte_query,
         )
-        assert str(rewritten) == ("o.placed_on >= 20260101\nOR o.status = 'OPEN'")
+        assert str(rewritten) == ("o.placed_on >= 20260101 OR o.status = 'OPEN'")
 
     def test_multiple_dim_refs_crossing_ctes_skip_entirely(self):
         """If an OR-combined predicate references a column this CTE doesn't
