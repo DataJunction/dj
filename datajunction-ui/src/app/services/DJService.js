@@ -1999,6 +1999,16 @@ export const DataJunctionAPI = {
     );
     return { status: response.status, json: await response.json() };
   },
+  removePartition: async function (nodeName, columnName) {
+    const response = await fetch(
+      `${DJ_URL}/nodes/${nodeName}/columns/${columnName}/partition`,
+      {
+        method: 'DELETE',
+        credentials: 'include',
+      },
+    );
+    return { status: response.status, json: await response.json() };
+  },
   materialize: async function (nodeName, jobType, strategy, schedule, config) {
     const response = await fetch(
       `${DJ_URL}/nodes/${nodeName}/materialization`,

@@ -1143,21 +1143,38 @@ export function NamespacePage() {
                 namespace={namespace}
                 onGitConfigLoaded={setGitConfig}
               >
-                <a
-                  href={`${getDJUrl()}/namespaces/${namespace}/export/yaml`}
-                  download
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const response = await fetch(
+                      `${getDJUrl()}/namespaces/${namespace}/export/yaml`,
+                      { method: 'POST', credentials: 'include' },
+                    );
+                    if (!response.ok) {
+                      return;
+                    }
+                    const blob = await response.blob();
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    const safeName = namespace.replace(/\./g, '_');
+                    link.href = url;
+                    link.download = `${safeName}_export.zip`;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    URL.revokeObjectURL(url);
+                  }}
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: '4px',
-                    // padding: '6px 12px',
                     fontSize: '13px',
                     fontWeight: '500',
                     color: '#475569',
-                    // backgroundColor: '#f8fafc',
-                    // border: '1px solid #e2e8f0',
+                    background: 'none',
+                    border: 'none',
+                    padding: 0,
                     borderRadius: '6px',
-                    textDecoration: 'none',
                     cursor: 'pointer',
                     transition: 'all 0.15s ease',
                     margin: '0.5em 0px 0px 1em',
@@ -1184,7 +1201,7 @@ export function NamespacePage() {
                     <polyline points="7 10 12 15 17 10"></polyline>
                     <line x1="12" y1="15" x2="12" y2="3"></line>
                   </svg>
-                </a>
+                </button>
                 {showEditControls && <AddNodeDropdown namespace={namespace} />}
               </NamespaceHeader>
 
