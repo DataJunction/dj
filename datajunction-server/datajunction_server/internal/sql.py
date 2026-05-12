@@ -515,7 +515,7 @@ async def get_measures_query(
                 metrics={
                     metric.name: (
                         metric_components[metric.name][0],
-                        str(metric_components[metric.name][1]).replace("\n", "")
+                        " ".join(str(metric_components[metric.name][1]).split())
                         if preaggregate
                         else metric.query,
                     )
