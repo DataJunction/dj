@@ -796,6 +796,33 @@ async def test_unsupported_aggregation_function(session: AsyncSession, create_me
 
 
 @pytest.mark.asyncio
+async def test_count_if_hash_invariant_to_formatting(
+    session: AsyncSession,
+    create_metric,
+):
+    """
+    Component hashes must be stable across cosmetic AST rendering changes.
+
+    A previous regression (pretty-printing PR) caused ``str(arg)`` of a
+    BinaryOp containing AND/OR to emit newlines between conjuncts, which
+    silently renamed every ``count_if`` measure with a multi-conjunct
+    condition. Component names are durable identifiers for materialized
+    columns, so the same metric query must always produce the same hash —
+    even if the same logical condition is parsed from differently-formatted
+    SQL text.
+    """
+    single_line = await create_metric(
+        "SELECT COUNT_IF(a = 1 AND b = 2 AND c = 3) FROM parent_node",
+    )
+    multi_line = await create_metric(
+        "SELECT COUNT_IF(\n  a = 1\n  AND b = 2\n  AND c = 3\n) FROM parent_node",
+    )
+    one, _ = await MetricComponentExtractor(single_line.id).extract(session)
+    two, _ = await MetricComponentExtractor(multi_line.id).extract(session)
+    assert [c.name for c in one] == [c.name for c in two]
+
+
+@pytest.mark.asyncio
 async def test_count_if(session: AsyncSession, create_metric):
     """
     Test decomposition for count_if.
