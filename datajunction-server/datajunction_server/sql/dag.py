@@ -319,11 +319,14 @@ async def get_dimension_attributes(
     """
     Get all dimension attributes for a given node.
     """
-    node = await Node.get_by_name(
-        session,
-        node_name,
-        options=[joinedload(Node.current)],
-        raise_if_not_exists=True,
+    node = cast(
+        Node,
+        await Node.get_by_name(
+            session,
+            node_name,
+            options=[joinedload(Node.current)],
+            raise_if_not_exists=True,
+        ),
     )
     if node.type == NodeType.METRIC:
         # For metrics, check if it's a base metric (parent is non-metric) or
