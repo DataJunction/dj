@@ -1693,6 +1693,56 @@ async def set_column_partition(
     return column
 
 
+@router.delete(
+    "/nodes/{node_name}/columns/{column_name}/partition",
+    response_model=ColumnOutput,
+    name="Remove Partition From Node Column",
+)
+async def remove_column_partition(
+    node_name: str,
+    column_name: str,
+    *,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    save_history: Callable = Depends(get_save_history),
+    access_checker: AccessChecker = Depends(get_access_checker),
+) -> ColumnOutput:
+    """
+    Remove the partition configuration from a node column.
+    """
+    access_checker.add_request_by_node_name(node_name, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
+    node = await Node.get_by_name(
+        session,
+        node_name,
+        options=[
+            joinedload(Node.current).options(
+                *NodeRevision.default_load_options(),
+                joinedload(NodeRevision.cube_elements),
+            ),
+        ],
+    )
+    column = get_node_column(node, column_name)  # type: ignore
+    if column.partition:
+        await session.delete(column.partition)
+        column.partition = None
+        session.add(column)
+        await save_history(
+            event=History(
+                entity_type=EntityType.PARTITION,
+                node=node_name,
+                activity_type=ActivityType.DELETE,
+                details={"column": column_name},
+                user=current_user.username,
+            ),
+            session=session,
+        )
+        await session.commit()
+        await session.refresh(column)
+    return column
+
+
 @router.post(
     "/nodes/{node_name}/copy",
     response_model=DAGNodeOutput,
