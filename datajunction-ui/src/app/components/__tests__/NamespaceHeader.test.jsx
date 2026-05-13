@@ -590,6 +590,7 @@ describe('<NamespaceHeader />', () => {
           git_path: 'nodes/',
           git_only: false,
           parent_namespace: 'test.main',
+          branch_namespace: 'test.feature',
         })
         .mockResolvedValueOnce({
           github_repo_path: 'test/repo',
@@ -672,6 +673,7 @@ describe('<NamespaceHeader />', () => {
           git_path: 'nodes/',
           git_only: false,
           parent_namespace: 'test.main',
+          branch_namespace: 'test.feature',
         })
         .mockResolvedValueOnce({
           github_repo_path: 'test/repo',
@@ -830,6 +832,7 @@ describe('<NamespaceHeader />', () => {
           git_path: 'nodes/',
           git_only: false,
           parent_namespace: 'test.main',
+          branch_namespace: 'test.feature',
         })
         .mockResolvedValueOnce({
           github_repo_path: 'test/repo',
@@ -893,6 +896,7 @@ describe('<NamespaceHeader />', () => {
         git_path: 'nodes/',
         git_only: false,
         parent_namespace: 'test.main',
+        branch_namespace: 'test.feature',
       }),
       getPullRequest: jest.fn().mockResolvedValue({
         pr_number: 42,
@@ -932,6 +936,7 @@ describe('<NamespaceHeader />', () => {
           git_path: 'nodes/',
           git_only: false,
           parent_namespace: 'test.main',
+          branch_namespace: 'test.feature',
         })
         .mockResolvedValueOnce({
           github_repo_path: 'test/repo',
@@ -1019,6 +1024,7 @@ describe('<NamespaceHeader />', () => {
           git_path: 'nodes/',
           git_only: false,
           parent_namespace: 'test.main',
+          branch_namespace: 'test.feature',
         })
         .mockResolvedValueOnce({
           github_repo_path: 'test/repo',
@@ -1087,6 +1093,7 @@ describe('<NamespaceHeader />', () => {
           git_path: 'nodes/',
           git_only: false,
           parent_namespace: 'test.main',
+          branch_namespace: 'test.feature',
         })
         .mockResolvedValueOnce({
           github_repo_path: 'test/repo',
@@ -1142,6 +1149,7 @@ describe('<NamespaceHeader />', () => {
           git_path: 'nodes/',
           git_only: false,
           parent_namespace: 'test.main',
+          branch_namespace: 'test.feature',
         })
         .mockRejectedValueOnce(new Error('Parent not found')),
       getPullRequest: jest.fn().mockResolvedValue(null),
@@ -1184,6 +1192,7 @@ describe('<NamespaceHeader />', () => {
           git_path: 'nodes/',
           git_only: false,
           parent_namespace: 'test.main',
+          branch_namespace: 'test.feature',
         })
         .mockResolvedValueOnce({
           github_repo_path: 'test/repo',
@@ -1339,6 +1348,7 @@ describe('<NamespaceHeader />', () => {
           git_path: 'nodes/',
           git_only: false,
           parent_namespace: 'test.main',
+          branch_namespace: 'test.feature',
         })
         .mockResolvedValueOnce({
           github_repo_path: 'test/repo',

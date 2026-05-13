@@ -131,6 +131,7 @@ def test_deployment_spec():
             "github_repo_path": "some/repo",
             "parent_namespace": None,
             "default_branch": None,
+            "branch_namespace": None,
         },
         "namespace": "test_deployment",
         "nodes": [

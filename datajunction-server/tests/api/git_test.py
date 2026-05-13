@@ -318,6 +318,7 @@ class TestNamespaceGitConfig:
             "github_repo_path": "myorg/monorepo",
             "parent_namespace": None,
             "default_branch": None,
+            "branch_namespace": None,
         }
 
     @pytest.mark.asyncio
@@ -354,6 +355,7 @@ class TestNamespaceGitConfig:
             "github_repo_path": "myorg/repo",
             "parent_namespace": None,
             "default_branch": None,
+            "branch_namespace": None,
         }
 
 

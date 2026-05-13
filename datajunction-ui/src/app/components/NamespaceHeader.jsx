@@ -76,19 +76,18 @@ export default function NamespaceHeader({
           }
 
           // If this namespace is inside a branch (or IS the branch), fetch
-          // parent/branches/PR. ``branch_namespace`` is set both when this
-          // namespace IS the branch and when it's a descendant of one, so
-          // subnamespaces get the same data.
-          if (config?.branch_namespace) {
+          // parent/branches/PR.
+          const branchNs = config?.branch_namespace;
+          if (branchNs) {
             // The branch namespace itself carries the parent_namespace FK to
             // the git root. If this is a subnamespace, fetch the branch's
             // config to get that FK; otherwise the current config already
             // has it.
             const branchConfig =
-              config.branch_namespace === namespace
+              branchNs === namespace
                 ? config
                 : await djClient
-                    .getNamespaceGitConfig(config.branch_namespace)
+                    .getNamespaceGitConfig(branchNs)
                     .catch(() => null);
             const gitRootNs = branchConfig?.parent_namespace;
 
@@ -117,7 +116,7 @@ export default function NamespaceHeader({
             // which subnamespace page the user is on.
             setPrLoading(true);
             try {
-              const pr = await djClient.getPullRequest(config.branch_namespace);
+              const pr = await djClient.getPullRequest(branchNs);
               setExistingPR(pr);
             } catch (e) {
               // No PR or error - that's fine
@@ -167,13 +166,14 @@ export default function NamespaceHeader({
     (gitConfig?.parent_namespace && gitConfig?.git_branch);
   // ``branch_namespace`` is the branch this namespace belongs to (equals the
   // namespace when called against the branch itself, the ancestor branch when
-  // called against a descendant). isBranchNamespace = "this IS the branch"
-  // (used for the breadcrumb branch switcher); isInBranch = "this lives under
-  // a branch" (used to show branch-scoped git controls on subnamespaces too).
-  const isBranchNamespace =
-    !!gitConfig?.branch_namespace && gitConfig.branch_namespace === namespace;
-  const isInBranch = !!gitConfig?.branch_namespace;
-  const branchScopeNamespace = gitConfig?.branch_namespace || namespace;
+  // called against a descendant).
+  // isBranchNamespace = "this IS the branch" (used for the breadcrumb branch
+  // switcher); isInBranch = "this lives under a branch" (used to show
+  // branch-scoped git controls on subnamespaces too).
+  const branchNamespace = gitConfig?.branch_namespace || null;
+  const isBranchNamespace = branchNamespace === namespace;
+  const isInBranch = !!branchNamespace;
+  const branchScopeNamespace = branchNamespace || namespace;
   const isGitRoot = gitConfig?.github_repo_path && !gitConfig?.parent_namespace;
   const canCreateBranches = isGitRoot && gitConfig?.default_branch;
 
