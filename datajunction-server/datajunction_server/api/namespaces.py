@@ -683,31 +683,21 @@ async def get_namespace_git_config(
 
     node_namespace = await get_node_namespace(session, namespace)
 
-    # Resolve the effective git config (including inherited values). Use the
-    # rich resolver so we also get a cascaded ``git_only`` — a lock on any
-    # ancestor (typically the default-branch namespace like ``ads.main``)
-    # must propagate down to its subnamespaces (``ads.main.metrics`` etc.)
-    # or the UI's read-only badge / edit-button gating fires off the wrong
-    # value.
-    git_info = await get_git_info_for_namespace(session, namespace)
-    if git_info:
-        return NamespaceGitConfig(
-            github_repo_path=git_info["repo"],
-            git_path=git_info["path"],
-            git_branch=git_info["branch"],
-            default_branch=node_namespace.default_branch,
-            parent_namespace=node_namespace.parent_namespace,
-            git_only=git_info["git_only"],
-            branch_namespace=git_info["branch_namespace"],
-        )
-
+    # Resolve the effective git config (including inherited values). The
+    # rich resolver also cascades ``git_only`` — a lock on any ancestor
+    # must propagate down to its subnamespaces or the UI's read-only badge
+    # / edit-button gating fires off the wrong value. When no git context
+    # is found (no git root in the ancestor chain), git_info is None and
+    # we fall back to this namespace's own ``git_only`` flag.
+    git_info = await get_git_info_for_namespace(session, namespace) or {}
     return NamespaceGitConfig(
-        github_repo_path=None,
-        git_path=None,
-        git_branch=None,
+        github_repo_path=git_info.get("repo"),
+        git_path=git_info.get("path"),
+        git_branch=git_info.get("branch"),
         default_branch=node_namespace.default_branch,
         parent_namespace=node_namespace.parent_namespace,
-        git_only=node_namespace.git_only,
+        git_only=git_info.get("git_only", node_namespace.git_only),
+        branch_namespace=git_info.get("branch_namespace"),
     )
 
 

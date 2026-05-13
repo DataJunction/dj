@@ -196,27 +196,33 @@ export default function NamespaceHeader({
     return await djClient.createBranch(namespace, branchName);
   };
 
+  // Sync/PR operations always target the whole branch namespace, even
+  // when invoked from a subnamespace page.
   const handleSyncToGit = async commitMessage => {
-    // Sync/PR operations always target the whole branch namespace, even
-    // when invoked from a subnamespace page.
     return await djClient.syncNamespaceToGit(
-      gitConfig?.branch_namespace || namespace,
+      branchScopeNamespace,
       commitMessage,
     );
   };
 
   const handleCreatePR = async (title, body, onProgress) => {
-    const targetNs = gitConfig?.branch_namespace || namespace;
     // First sync changes to git using PR title as commit message
     if (onProgress) onProgress('syncing');
-    const syncResult = await djClient.syncNamespaceToGit(targetNs, title);
+    const syncResult = await djClient.syncNamespaceToGit(
+      branchScopeNamespace,
+      title,
+    );
     if (syncResult?._error) {
       return syncResult;
     }
 
     // Then create the PR
     if (onProgress) onProgress('creating');
-    const result = await djClient.createPullRequest(targetNs, title, body);
+    const result = await djClient.createPullRequest(
+      branchScopeNamespace,
+      title,
+      body,
+    );
     if (result && !result._error) {
       setExistingPR(result);
     }

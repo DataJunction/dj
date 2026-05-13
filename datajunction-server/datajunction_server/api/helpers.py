@@ -114,17 +114,21 @@ async def check_namespace_not_git_only(
     """
     parts = namespace.split(".")
     candidates = [".".join(parts[: i + 1]) for i in range(len(parts))]
-    statement = select(NodeNamespace).where(NodeNamespace.namespace.in_(candidates))
-    matches = {ns.namespace: ns for ns in (await session.execute(statement)).scalars()}
+    matches = (
+        (
+            await session.execute(
+                select(NodeNamespace).where(NodeNamespace.namespace.in_(candidates)),
+            )
+        )
+        .scalars()
+        .all()
+    )
 
     # Walk deepest-first so the most specific locked ancestor (the one the
     # user can most usefully act on) wins the error message. ``is_git_root``
     # only applies to the namespace itself — its branch children are
     # intentionally editable — so don't propagate that flag up the chain.
-    for candidate in reversed(candidates):
-        ns = matches.get(candidate)
-        if ns is None:
-            continue
+    for ns in sorted(matches, key=lambda n: len(n.namespace), reverse=True):
         is_self = ns.namespace == namespace
         is_git_root = (
             is_self and ns.github_repo_path is not None and ns.git_branch is None
