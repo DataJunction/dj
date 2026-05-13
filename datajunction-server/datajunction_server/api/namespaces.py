@@ -683,20 +683,21 @@ async def get_namespace_git_config(
 
     node_namespace = await get_node_namespace(session, namespace)
 
-    # Resolve the effective git config (including inherited values)
-    resolved_repo, resolved_path, resolved_branch = await resolve_git_config(
-        session,
-        namespace,
-    )
-
+    # Resolve the effective git config (including inherited values). The
+    # rich resolver also cascades ``git_only`` — a lock on any ancestor
+    # must propagate down to its subnamespaces or the UI's read-only badge
+    # / edit-button gating fires off the wrong value. When no git context
+    # is found (no git root in the ancestor chain), git_info is None and
+    # we fall back to this namespace's own ``git_only`` flag.
+    git_info = await get_git_info_for_namespace(session, namespace) or {}
     return NamespaceGitConfig(
-        # Return resolved values (effective configuration)
-        github_repo_path=resolved_repo,
-        git_path=resolved_path,
-        git_branch=resolved_branch,
+        github_repo_path=git_info.get("repo"),
+        git_path=git_info.get("path"),
+        git_branch=git_info.get("branch"),
         default_branch=node_namespace.default_branch,
         parent_namespace=node_namespace.parent_namespace,
-        git_only=node_namespace.git_only,
+        git_only=git_info.get("git_only", node_namespace.git_only),
+        branch_namespace=git_info.get("branch_namespace"),
     )
 
 

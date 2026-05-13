@@ -75,30 +75,48 @@ export default function NamespaceHeader({
             onGitConfigLoaded(config);
           }
 
-          // If this is a branch namespace, fetch parent's git config, branches, and check for existing PR
-          if (config?.parent_namespace) {
-            try {
-              const parentConfig = await djClient.getNamespaceGitConfig(
-                config.parent_namespace,
-              );
-              setParentGitConfig(parentConfig);
-            } catch (e) {
-              console.error('Failed to fetch parent git config:', e);
+          // If this namespace is inside a branch (or IS the branch), fetch
+          // parent/branches/PR.
+          const branchNs = config?.branch_namespace;
+          if (branchNs) {
+            // The branch namespace itself carries the parent_namespace FK to
+            // the git root. If this is a subnamespace, fetch the branch's
+            // config to get that FK; otherwise the current config already
+            // has it.
+            const branchConfig =
+              branchNs === namespace
+                ? config
+                : await djClient
+                    .getNamespaceGitConfig(branchNs)
+                    .catch(() => null);
+            const gitRootNs = branchConfig?.parent_namespace;
+
+            if (gitRootNs) {
+              try {
+                const parentConfig = await djClient.getNamespaceGitConfig(
+                  gitRootNs,
+                );
+                setParentGitConfig(parentConfig);
+              } catch (e) {
+                console.error('Failed to fetch parent git config:', e);
+              }
+
+              try {
+                const branchList = await djClient.getNamespaceBranches(
+                  gitRootNs,
+                );
+                setBranches(branchList || []);
+              } catch (e) {
+                console.error('Failed to fetch branches:', e);
+              }
             }
 
-            try {
-              const branchList = await djClient.getNamespaceBranches(
-                config.parent_namespace,
-              );
-              setBranches(branchList || []);
-            } catch (e) {
-              console.error('Failed to fetch branches:', e);
-            }
-
-            // Check for existing PR
+            // Check for existing PR scoped to the branch, not the current
+            // (sub)namespace — a branch has at most one PR regardless of
+            // which subnamespace page the user is on.
             setPrLoading(true);
             try {
-              const pr = await djClient.getPullRequest(namespace);
+              const pr = await djClient.getPullRequest(branchNs);
               setExistingPR(pr);
             } catch (e) {
               // No PR or error - that's fine
@@ -146,7 +164,16 @@ export default function NamespaceHeader({
   const hasGitConfig =
     gitConfig?.github_repo_path ||
     (gitConfig?.parent_namespace && gitConfig?.git_branch);
-  const isBranchNamespace = !!gitConfig?.parent_namespace;
+  // ``branch_namespace`` is the branch this namespace belongs to (equals the
+  // namespace when called against the branch itself, the ancestor branch when
+  // called against a descendant).
+  // isBranchNamespace = "this IS the branch" (used for the breadcrumb branch
+  // switcher); isInBranch = "this lives under a branch" (used to show
+  // branch-scoped git controls on subnamespaces too).
+  const branchNamespace = gitConfig?.branch_namespace || null;
+  const isBranchNamespace = branchNamespace === namespace;
+  const isInBranch = !!branchNamespace;
+  const branchScopeNamespace = branchNamespace || namespace;
   const isGitRoot = gitConfig?.github_repo_path && !gitConfig?.parent_namespace;
   const canCreateBranches = isGitRoot && gitConfig?.default_branch;
 
@@ -169,21 +196,33 @@ export default function NamespaceHeader({
     return await djClient.createBranch(namespace, branchName);
   };
 
+  // Sync/PR operations always target the whole branch namespace, even
+  // when invoked from a subnamespace page.
   const handleSyncToGit = async commitMessage => {
-    return await djClient.syncNamespaceToGit(namespace, commitMessage);
+    return await djClient.syncNamespaceToGit(
+      branchScopeNamespace,
+      commitMessage,
+    );
   };
 
   const handleCreatePR = async (title, body, onProgress) => {
     // First sync changes to git using PR title as commit message
     if (onProgress) onProgress('syncing');
-    const syncResult = await djClient.syncNamespaceToGit(namespace, title);
+    const syncResult = await djClient.syncNamespaceToGit(
+      branchScopeNamespace,
+      title,
+    );
     if (syncResult?._error) {
       return syncResult;
     }
 
     // Then create the PR
     if (onProgress) onProgress('creating');
-    const result = await djClient.createPullRequest(namespace, title, body);
+    const result = await djClient.createPullRequest(
+      branchScopeNamespace,
+      title,
+      body,
+    );
     if (result && !result._error) {
       setExistingPR(result);
     }
@@ -827,8 +866,11 @@ export default function NamespaceHeader({
 
         {/* Right side: git actions + children */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {/* Git controls for non-branch namespaces */}
-          {namespace && !isBranchNamespace && !gitConfigLoading && (
+          {/* Git controls for namespaces not inside a branch (git roots,
+              orphan namespaces). Subnamespaces under a branch fall through
+              to the branch-scoped block below so we don't render two sets
+              of buttons. */}
+          {namespace && !isInBranch && !gitConfigLoading && (
             <>
               <button
                 style={buttonStyle}
@@ -878,8 +920,8 @@ export default function NamespaceHeader({
             </>
           )}
 
-          {/* Git controls for branch namespaces */}
-          {isBranchNamespace && hasGitConfig && (
+          {/* Git controls for branch namespaces (and subnamespaces under them) */}
+          {isInBranch && hasGitConfig && (
             <>
               <button
                 style={buttonStyle}
@@ -1063,7 +1105,7 @@ export default function NamespaceHeader({
           isOpen={showSyncToGit}
           onClose={() => setShowSyncToGit(false)}
           onSync={handleSyncToGit}
-          namespace={namespace}
+          namespace={branchScopeNamespace}
           gitBranch={gitConfig?.git_branch}
           repoPath={gitConfig?.github_repo_path}
         />
@@ -1072,7 +1114,7 @@ export default function NamespaceHeader({
           isOpen={showCreatePR}
           onClose={() => setShowCreatePR(false)}
           onCreate={handleCreatePR}
-          namespace={namespace}
+          namespace={branchScopeNamespace}
           gitBranch={gitConfig?.git_branch}
           parentBranch={
             parentGitConfig?.git_branch || parentGitConfig?.default_branch

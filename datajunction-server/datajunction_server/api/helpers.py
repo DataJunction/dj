@@ -93,31 +93,56 @@ async def check_namespace_not_git_only(
     namespace: str,
 ) -> None:
     """
-    Check that a namespace is not git-managed. If it is, raise an error.
-    Used to prevent direct node mutations (create/update/delete) on git-managed namespaces.
+    Check that a namespace (or any of its ancestors) is not git-managed.
 
-    Blocks mutations when:
-    - The namespace has git_only=True (explicitly locked branch namespace), OR
-    - The namespace is a git root (has github_repo_path set directly)
+    The check cascades up the dotted namespace hierarchy so that locking
+    ``foo.main`` also locks ``foo.main.metrics``, ``foo.main.dimensions``,
+    etc. Without that, a flagged parent is trivially bypassable by mutating
+    in a child namespace.
 
-    Branch namespaces (children of a git root) are intentionally allowed — edits
-    there are valid and get synced back to the git repo.
+    Blocks mutations when any ancestor (or the namespace itself):
+    - Has ``git_only=True`` (explicitly locked), OR
+    - Is a git root (``github_repo_path`` set and ``git_branch`` null).
+
+    Branch namespaces (children of a git root with a non-null ``git_branch``)
+    are intentionally allowed — edits there are valid and get synced back to
+    the git repo, so they don't trip this check.
+
+    Implementation: namespace names contain their parent path (``a.b.c``),
+    so we materialize every prefix and fire a single ``IN`` query. One round
+    trip regardless of hierarchy depth.
     """
-    node_namespace = await get_node_namespace(
-        session,
-        namespace,
-        raise_if_not_exists=False,
-    )
-    is_git_root = (
-        node_namespace is not None
-        and node_namespace.github_repo_path is not None
-        and node_namespace.git_branch is None
-    )
-    if node_namespace and (node_namespace.git_only or is_git_root):
-        raise DJInvalidInputException(
-            message=f"Namespace '{namespace}' is git-managed. "
-            "Node changes must be deployed from git via the /deployments API.",
+    parts = namespace.split(".")
+    candidates = [".".join(parts[: i + 1]) for i in range(len(parts))]
+    matches = (
+        (
+            await session.execute(
+                select(NodeNamespace).where(NodeNamespace.namespace.in_(candidates)),
+            )
         )
+        .scalars()
+        .all()
+    )
+
+    # Walk deepest-first so the most specific locked ancestor (the one the
+    # user can most usefully act on) wins the error message. ``is_git_root``
+    # only applies to the namespace itself — its branch children are
+    # intentionally editable — so don't propagate that flag up the chain.
+    for ns in sorted(matches, key=lambda n: len(n.namespace), reverse=True):
+        is_self = ns.namespace == namespace
+        is_git_root = (
+            is_self and ns.github_repo_path is not None and ns.git_branch is None
+        )
+        if ns.git_only or is_git_root:
+            scope_msg = (
+                f"'{namespace}'"
+                if is_self
+                else f"'{namespace}' (locked via ancestor '{ns.namespace}')"
+            )
+            raise DJInvalidInputException(
+                message=f"Namespace {scope_msg} is git-managed. "
+                "Node changes must be deployed from git via the /deployments API.",
+            )
 
 
 async def get_node_by_name(

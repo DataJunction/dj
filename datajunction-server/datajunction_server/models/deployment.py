@@ -676,6 +676,11 @@ class NamespaceGitConfig(BaseModel):
     default_branch: str | None = None  # Default branch for git roots (e.g., "main")
     parent_namespace: str | None = None  # Links branch namespaces to parent
     git_only: bool | None = None  # If True, UI edits blocked; must edit via git
+    # Name of the branch namespace this namespace lives under (equals the
+    # namespace itself when it IS the branch). Lets the UI show branch
+    # controls (Git Settings / Sync to Git / Create PR) on subnamespaces
+    # too, scoped to the branch.
+    branch_namespace: str | None = None
 
 
 class DeploymentSpec(BaseModel):
