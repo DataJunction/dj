@@ -21,7 +21,8 @@ query: |-
     CAST(json_extract_path_text(D.spec, 'source', 'repository') AS STRING) AS repository,
     CAST(json_extract_path_text(D.spec, 'source', 'branch') AS STRING) AS branch,
     CAST(json_extract_path_text(D.spec, 'source', 'commit_sha') AS STRING) AS commit_sha,
-    CAST(json_extract_path_text(D.spec, 'source', 'ci_system') AS STRING) AS ci_system
+    CAST(json_extract_path_text(D.spec, 'source', 'ci_system') AS STRING) AS ci_system,
+    CAST(EXTRACT(EPOCH FROM (D.updated_at - D.created_at)) AS double) AS duration_seconds
   FROM source.dj_metadata.public.deployments D
 columns:
 - name: uuid
@@ -52,6 +53,10 @@ columns:
   - hidden
 - name: ci_system
   display_name: CI System
+- name: duration_seconds
+  display_name: Duration (seconds)
+  attributes:
+  - hidden
 - name: created_at_date
   display_name: Created At (Day)
 - name: created_at_week

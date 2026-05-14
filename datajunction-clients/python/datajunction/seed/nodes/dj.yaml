@@ -20,6 +20,7 @@ build:
   - number_of_namespaces
   - number_of_materializations
   - number_of_deployments
+  - median_deployment_duration_seconds
   - distinct_node_authors
   - distinct_node_editors
   - median_revisions_per_node
