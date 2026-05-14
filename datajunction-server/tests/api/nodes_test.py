@@ -1126,6 +1126,7 @@ class TestNodeCRUD:
             {
                 "name": "testdld.us_users.age",
                 "node_display_name": "Us Users",
+                "column_display_name": "Age",
                 "node_name": "testdld.us_users",
                 "path": ["testdld.messages"],
                 "type": "int",
@@ -1135,6 +1136,7 @@ class TestNodeCRUD:
             {
                 "name": "testdld.us_users.country",
                 "node_display_name": "Us Users",
+                "column_display_name": "Country",
                 "node_name": "testdld.us_users",
                 "path": ["testdld.messages"],
                 "type": "string",
@@ -1144,6 +1146,7 @@ class TestNodeCRUD:
             {
                 "name": "testdld.us_users.created_at",
                 "node_display_name": "Us Users",
+                "column_display_name": "Created At",
                 "node_name": "testdld.us_users",
                 "path": ["testdld.messages"],
                 "type": "timestamp",
@@ -1153,6 +1156,7 @@ class TestNodeCRUD:
             {
                 "name": "testdld.us_users.full_name",
                 "node_display_name": "Us Users",
+                "column_display_name": "Full Name",
                 "node_name": "testdld.us_users",
                 "path": ["testdld.messages"],
                 "type": "string",
@@ -1162,6 +1166,7 @@ class TestNodeCRUD:
             {
                 "name": "testdld.us_users.gender",
                 "node_display_name": "Us Users",
+                "column_display_name": "Gender",
                 "node_name": "testdld.us_users",
                 "path": ["testdld.messages"],
                 "type": "string",
@@ -1171,6 +1176,7 @@ class TestNodeCRUD:
             {
                 "name": "testdld.us_users.id",
                 "node_display_name": "Us Users",
+                "column_display_name": "Id",
                 "node_name": "testdld.us_users",
                 "path": ["testdld.messages"],
                 "type": "int",
@@ -1180,6 +1186,7 @@ class TestNodeCRUD:
             {
                 "name": "testdld.us_users.post_processing_timestamp",
                 "node_display_name": "Us Users",
+                "column_display_name": "Post Processing Timestamp",
                 "node_name": "testdld.us_users",
                 "path": ["testdld.messages"],
                 "type": "timestamp",
@@ -1189,6 +1196,7 @@ class TestNodeCRUD:
             {
                 "name": "testdld.us_users.preferred_language",
                 "node_display_name": "Us Users",
+                "column_display_name": "Preferred Language",
                 "node_name": "testdld.us_users",
                 "path": ["testdld.messages"],
                 "type": "string",
@@ -1198,6 +1206,7 @@ class TestNodeCRUD:
             {
                 "name": "testdld.us_users.secret_number",
                 "node_display_name": "Us Users",
+                "column_display_name": "Secret Number",
                 "node_name": "testdld.us_users",
                 "path": ["testdld.messages"],
                 "type": "float",
@@ -1242,6 +1251,7 @@ class TestNodeCRUD:
             {
                 "name": "testdld.us_users.age",
                 "node_display_name": "Us Users",
+                "column_display_name": "Age",
                 "node_name": "testdld.us_users",
                 "path": ["testdld.messages"],
                 "type": "int",
@@ -1251,6 +1261,7 @@ class TestNodeCRUD:
             {
                 "name": "testdld.us_users.country",
                 "node_display_name": "Us Users",
+                "column_display_name": "Country",
                 "node_name": "testdld.us_users",
                 "path": ["testdld.messages"],
                 "type": "string",
@@ -1260,6 +1271,7 @@ class TestNodeCRUD:
             {
                 "name": "testdld.us_users.created_at",
                 "node_display_name": "Us Users",
+                "column_display_name": "Created At",
                 "node_name": "testdld.us_users",
                 "path": ["testdld.messages"],
                 "type": "timestamp",
@@ -1269,6 +1281,7 @@ class TestNodeCRUD:
             {
                 "name": "testdld.us_users.full_name",
                 "node_display_name": "Us Users",
+                "column_display_name": "Full Name",
                 "node_name": "testdld.us_users",
                 "path": ["testdld.messages"],
                 "type": "string",
@@ -1278,6 +1291,7 @@ class TestNodeCRUD:
             {
                 "name": "testdld.us_users.gender",
                 "node_display_name": "Us Users",
+                "column_display_name": "Gender",
                 "node_name": "testdld.us_users",
                 "path": ["testdld.messages"],
                 "type": "string",
@@ -1287,6 +1301,7 @@ class TestNodeCRUD:
             {
                 "name": "testdld.us_users.id",
                 "node_display_name": "Us Users",
+                "column_display_name": "Id",
                 "node_name": "testdld.us_users",
                 "path": ["testdld.messages"],
                 "type": "int",
@@ -1296,6 +1311,7 @@ class TestNodeCRUD:
             {
                 "name": "testdld.us_users.post_processing_timestamp",
                 "node_display_name": "Us Users",
+                "column_display_name": "Post Processing Timestamp",
                 "node_name": "testdld.us_users",
                 "path": ["testdld.messages"],
                 "type": "timestamp",
@@ -1305,6 +1321,7 @@ class TestNodeCRUD:
             {
                 "name": "testdld.us_users.preferred_language",
                 "node_display_name": "Us Users",
+                "column_display_name": "Preferred Language",
                 "node_name": "testdld.us_users",
                 "path": ["testdld.messages"],
                 "type": "string",
@@ -1314,6 +1331,7 @@ class TestNodeCRUD:
             {
                 "name": "testdld.us_users.secret_number",
                 "node_display_name": "Us Users",
+                "column_display_name": "Secret Number",
                 "node_name": "testdld.us_users",
                 "path": ["testdld.messages"],
                 "type": "float",
@@ -5867,6 +5885,7 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
                 "filter_only": False,
                 "name": "default.regional_level_agg.order_day",
                 "node_display_name": "Regional Level Agg",
+                "column_display_name": "Order Day",
                 "node_name": "default.regional_level_agg",
                 "path": [],
                 "type": "int",
@@ -5876,6 +5895,7 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
                 "filter_only": False,
                 "name": "default.regional_level_agg.order_month",
                 "node_display_name": "Regional Level Agg",
+                "column_display_name": "Order Month",
                 "node_name": "default.regional_level_agg",
                 "path": [],
                 "type": "int",
@@ -5885,6 +5905,7 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
                 "filter_only": False,
                 "name": "default.regional_level_agg.order_year",
                 "node_display_name": "Regional Level Agg",
+                "column_display_name": "Order Year",
                 "node_name": "default.regional_level_agg",
                 "path": [],
                 "type": "int",
@@ -5894,6 +5915,7 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
                 "filter_only": False,
                 "name": "default.regional_level_agg.state_name",
                 "node_display_name": "Regional Level Agg",
+                "column_display_name": "State Name",
                 "node_name": "default.regional_level_agg",
                 "path": [],
                 "type": "string",
@@ -5903,6 +5925,7 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
                 "filter_only": False,
                 "name": "default.regional_level_agg.us_region_id",
                 "node_display_name": "Regional Level Agg",
+                "column_display_name": "Us Region Id",
                 "node_name": "default.regional_level_agg",
                 "path": [],
                 "type": "int",
@@ -5912,6 +5935,7 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
                 "filter_only": True,
                 "name": "default.repair_order.repair_order_id",
                 "node_display_name": "Repair Order",
+                "column_display_name": "Repair Order Id",
                 "node_name": "default.repair_order",
                 "path": ["default.repair_orders"],
                 "type": "int",
@@ -5921,6 +5945,7 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
                 "filter_only": True,
                 "name": "default.dispatcher.dispatcher_id",
                 "node_display_name": "Dispatcher",
+                "column_display_name": "Dispatcher Id",
                 "node_name": "default.dispatcher",
                 "path": ["default.repair_orders"],
                 "type": "int",
@@ -5930,6 +5955,7 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
                 "filter_only": True,
                 "name": "default.repair_order.repair_order_id",
                 "node_display_name": "Repair Order",
+                "column_display_name": "Repair Order Id",
                 "node_name": "default.repair_order",
                 "path": ["default.repair_order_details"],
                 "type": "int",
@@ -5939,6 +5965,7 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
                 "filter_only": True,
                 "name": "default.contractor.contractor_id",
                 "node_display_name": "Contractor",
+                "column_display_name": "Contractor Id",
                 "node_name": "default.contractor",
                 "path": ["default.repair_type"],
                 "type": "int",
@@ -5948,6 +5975,7 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
                 "filter_only": True,
                 "name": "default.us_state.state_short",
                 "node_display_name": "Us State",
+                "column_display_name": "State Short",
                 "node_name": "default.us_state",
                 "path": [
                     "default.contractors",

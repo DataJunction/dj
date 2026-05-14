@@ -23,6 +23,7 @@ expected_dimensions = [
         "name": "default.dispatcher.company_name",
         "node_name": "default.dispatcher",
         "node_display_name": "Dispatcher",
+        "column_display_name": "Company Name",
         "filter_only": False,
         "type": "string",
         "path": ["default.repair_orders_fact"],
@@ -32,6 +33,7 @@ expected_dimensions = [
         "name": "default.dispatcher.dispatcher_id",
         "node_name": "default.dispatcher",
         "node_display_name": "Dispatcher",
+        "column_display_name": "Dispatcher Id",
         "filter_only": False,
         "type": "int",
         "path": ["default.repair_orders_fact"],
@@ -41,6 +43,7 @@ expected_dimensions = [
         "name": "default.dispatcher.phone",
         "node_name": "default.dispatcher",
         "node_display_name": "Dispatcher",
+        "column_display_name": "Phone",
         "filter_only": False,
         "type": "string",
         "path": ["default.repair_orders_fact"],
@@ -50,6 +53,7 @@ expected_dimensions = [
         "name": "default.hard_hat.address",
         "node_name": "default.hard_hat",
         "node_display_name": "Hard Hat",
+        "column_display_name": "Address",
         "filter_only": False,
         "type": "string",
         "path": ["default.repair_orders_fact"],
@@ -59,6 +63,7 @@ expected_dimensions = [
         "name": "default.hard_hat.birth_date",
         "node_name": "default.hard_hat",
         "node_display_name": "Hard Hat",
+        "column_display_name": "Birth Date",
         "filter_only": False,
         "type": "timestamp",
         "path": ["default.repair_orders_fact"],
@@ -68,6 +73,7 @@ expected_dimensions = [
         "name": "default.hard_hat.city",
         "node_name": "default.hard_hat",
         "node_display_name": "Hard Hat",
+        "column_display_name": "City",
         "filter_only": False,
         "type": "string",
         "path": ["default.repair_orders_fact"],
@@ -77,6 +83,7 @@ expected_dimensions = [
         "name": "default.hard_hat.contractor_id",
         "node_name": "default.hard_hat",
         "node_display_name": "Hard Hat",
+        "column_display_name": "Contractor Id",
         "filter_only": False,
         "type": "int",
         "path": ["default.repair_orders_fact"],
@@ -86,6 +93,7 @@ expected_dimensions = [
         "name": "default.hard_hat.country",
         "node_name": "default.hard_hat",
         "node_display_name": "Hard Hat",
+        "column_display_name": "Country",
         "filter_only": False,
         "type": "string",
         "path": ["default.repair_orders_fact"],
@@ -95,6 +103,7 @@ expected_dimensions = [
         "name": "default.hard_hat.first_name",
         "node_name": "default.hard_hat",
         "node_display_name": "Hard Hat",
+        "column_display_name": "First Name",
         "filter_only": False,
         "type": "string",
         "path": ["default.repair_orders_fact"],
@@ -104,6 +113,7 @@ expected_dimensions = [
         "name": "default.hard_hat.hard_hat_id",
         "node_name": "default.hard_hat",
         "node_display_name": "Hard Hat",
+        "column_display_name": "Hard Hat Id",
         "filter_only": False,
         "type": "int",
         "path": ["default.repair_orders_fact"],
@@ -113,6 +123,7 @@ expected_dimensions = [
         "name": "default.hard_hat.hire_date",
         "node_name": "default.hard_hat",
         "node_display_name": "Hard Hat",
+        "column_display_name": "Hire Date",
         "filter_only": False,
         "type": "timestamp",
         "path": ["default.repair_orders_fact"],
@@ -122,6 +133,7 @@ expected_dimensions = [
         "name": "default.hard_hat.last_name",
         "node_name": "default.hard_hat",
         "node_display_name": "Hard Hat",
+        "column_display_name": "Last Name",
         "filter_only": False,
         "type": "string",
         "path": ["default.repair_orders_fact"],
@@ -131,6 +143,7 @@ expected_dimensions = [
         "name": "default.hard_hat.manager",
         "node_name": "default.hard_hat",
         "node_display_name": "Hard Hat",
+        "column_display_name": "Manager",
         "filter_only": False,
         "type": "int",
         "path": ["default.repair_orders_fact"],
@@ -140,6 +153,7 @@ expected_dimensions = [
         "name": "default.hard_hat.postal_code",
         "node_name": "default.hard_hat",
         "node_display_name": "Hard Hat",
+        "column_display_name": "Postal Code",
         "filter_only": False,
         "type": "string",
         "path": ["default.repair_orders_fact"],
@@ -149,6 +163,7 @@ expected_dimensions = [
         "name": "default.hard_hat.state",
         "node_name": "default.hard_hat",
         "node_display_name": "Hard Hat",
+        "column_display_name": "State",
         "filter_only": False,
         "type": "string",
         "path": ["default.repair_orders_fact"],
@@ -158,6 +173,7 @@ expected_dimensions = [
         "name": "default.hard_hat.title",
         "node_name": "default.hard_hat",
         "node_display_name": "Hard Hat",
+        "column_display_name": "Title",
         "filter_only": False,
         "type": "string",
         "path": ["default.repair_orders_fact"],
@@ -167,6 +183,7 @@ expected_dimensions = [
         "name": "default.hard_hat_to_delete.address",
         "node_name": "default.hard_hat_to_delete",
         "node_display_name": "Hard Hat To Delete",
+        "column_display_name": "Address",
         "filter_only": False,
         "type": "string",
         "path": ["default.repair_orders_fact"],
@@ -176,6 +193,7 @@ expected_dimensions = [
         "name": "default.hard_hat_to_delete.birth_date",
         "node_name": "default.hard_hat_to_delete",
         "node_display_name": "Hard Hat To Delete",
+        "column_display_name": "Birth Date",
         "filter_only": False,
         "type": "timestamp",
         "path": ["default.repair_orders_fact"],
@@ -185,6 +203,7 @@ expected_dimensions = [
         "name": "default.hard_hat_to_delete.city",
         "node_name": "default.hard_hat_to_delete",
         "node_display_name": "Hard Hat To Delete",
+        "column_display_name": "City",
         "filter_only": False,
         "type": "string",
         "path": ["default.repair_orders_fact"],
@@ -194,6 +213,7 @@ expected_dimensions = [
         "name": "default.hard_hat_to_delete.contractor_id",
         "node_name": "default.hard_hat_to_delete",
         "node_display_name": "Hard Hat To Delete",
+        "column_display_name": "Contractor Id",
         "filter_only": False,
         "type": "int",
         "path": ["default.repair_orders_fact"],
@@ -203,6 +223,7 @@ expected_dimensions = [
         "name": "default.hard_hat_to_delete.country",
         "node_name": "default.hard_hat_to_delete",
         "node_display_name": "Hard Hat To Delete",
+        "column_display_name": "Country",
         "filter_only": False,
         "type": "string",
         "path": ["default.repair_orders_fact"],
@@ -212,6 +233,7 @@ expected_dimensions = [
         "name": "default.hard_hat_to_delete.first_name",
         "node_name": "default.hard_hat_to_delete",
         "node_display_name": "Hard Hat To Delete",
+        "column_display_name": "First Name",
         "filter_only": False,
         "type": "string",
         "path": ["default.repair_orders_fact"],
@@ -221,6 +243,7 @@ expected_dimensions = [
         "name": "default.hard_hat_to_delete.hard_hat_id",
         "node_name": "default.hard_hat_to_delete",
         "node_display_name": "Hard Hat To Delete",
+        "column_display_name": "Hard Hat Id",
         "filter_only": False,
         "type": "int",
         "path": ["default.repair_orders_fact"],
@@ -230,6 +253,7 @@ expected_dimensions = [
         "name": "default.hard_hat_to_delete.hire_date",
         "node_name": "default.hard_hat_to_delete",
         "node_display_name": "Hard Hat To Delete",
+        "column_display_name": "Hire Date",
         "filter_only": False,
         "type": "timestamp",
         "path": ["default.repair_orders_fact"],
@@ -239,6 +263,7 @@ expected_dimensions = [
         "name": "default.hard_hat_to_delete.last_name",
         "node_name": "default.hard_hat_to_delete",
         "node_display_name": "Hard Hat To Delete",
+        "column_display_name": "Last Name",
         "filter_only": False,
         "type": "string",
         "path": ["default.repair_orders_fact"],
@@ -248,6 +273,7 @@ expected_dimensions = [
         "name": "default.hard_hat_to_delete.manager",
         "node_name": "default.hard_hat_to_delete",
         "node_display_name": "Hard Hat To Delete",
+        "column_display_name": "Manager",
         "filter_only": False,
         "type": "int",
         "path": ["default.repair_orders_fact"],
@@ -257,6 +283,7 @@ expected_dimensions = [
         "name": "default.hard_hat_to_delete.postal_code",
         "node_name": "default.hard_hat_to_delete",
         "node_display_name": "Hard Hat To Delete",
+        "column_display_name": "Postal Code",
         "filter_only": False,
         "type": "string",
         "path": ["default.repair_orders_fact"],
@@ -266,6 +293,7 @@ expected_dimensions = [
         "name": "default.hard_hat_to_delete.state",
         "node_name": "default.hard_hat_to_delete",
         "node_display_name": "Hard Hat To Delete",
+        "column_display_name": "State",
         "filter_only": False,
         "type": "string",
         "path": ["default.repair_orders_fact"],
@@ -275,6 +303,7 @@ expected_dimensions = [
         "name": "default.hard_hat_to_delete.title",
         "node_name": "default.hard_hat_to_delete",
         "node_display_name": "Hard Hat To Delete",
+        "column_display_name": "Title",
         "filter_only": False,
         "type": "string",
         "path": ["default.repair_orders_fact"],
@@ -284,6 +313,7 @@ expected_dimensions = [
         "name": "default.municipality_dim.contact_name",
         "node_name": "default.municipality_dim",
         "node_display_name": "Municipality Dim",
+        "column_display_name": "Contact Name",
         "filter_only": False,
         "type": "string",
         "path": ["default.repair_orders_fact"],
@@ -293,6 +323,7 @@ expected_dimensions = [
         "name": "default.municipality_dim.contact_title",
         "node_name": "default.municipality_dim",
         "node_display_name": "Municipality Dim",
+        "column_display_name": "Contact Title",
         "filter_only": False,
         "type": "string",
         "path": ["default.repair_orders_fact"],
@@ -302,6 +333,7 @@ expected_dimensions = [
         "name": "default.municipality_dim.local_region",
         "node_name": "default.municipality_dim",
         "node_display_name": "Municipality Dim",
+        "column_display_name": "Local Region",
         "filter_only": False,
         "type": "string",
         "path": ["default.repair_orders_fact"],
@@ -311,6 +343,7 @@ expected_dimensions = [
         "name": "default.municipality_dim.municipality_id",
         "node_name": "default.municipality_dim",
         "node_display_name": "Municipality Dim",
+        "column_display_name": "Municipality Id",
         "filter_only": False,
         "type": "string",
         "path": ["default.repair_orders_fact"],
@@ -320,6 +353,7 @@ expected_dimensions = [
         "name": "default.municipality_dim.municipality_type_desc",
         "node_name": "default.municipality_dim",
         "node_display_name": "Municipality Dim",
+        "column_display_name": "Municipality Type Desc",
         "filter_only": False,
         "type": "string",
         "path": ["default.repair_orders_fact"],
@@ -329,6 +363,7 @@ expected_dimensions = [
         "name": "default.municipality_dim.municipality_type_id",
         "node_name": "default.municipality_dim",
         "node_display_name": "Municipality Dim",
+        "column_display_name": "Municipality Type Id",
         "filter_only": False,
         "type": "string",
         "path": ["default.repair_orders_fact"],
@@ -338,6 +373,7 @@ expected_dimensions = [
         "name": "default.municipality_dim.state_id",
         "node_name": "default.municipality_dim",
         "node_display_name": "Municipality Dim",
+        "column_display_name": "State Id",
         "filter_only": False,
         "type": "int",
         "path": ["default.repair_orders_fact"],
@@ -347,6 +383,7 @@ expected_dimensions = [
         "name": "default.us_state.state_id",
         "node_name": "default.us_state",
         "node_display_name": "Us State",
+        "column_display_name": "State Id",
         "filter_only": False,
         "type": "int",
         "path": ["default.repair_orders_fact", "default.hard_hat"],
@@ -356,6 +393,7 @@ expected_dimensions = [
         "name": "default.us_state.state_name",
         "node_name": "default.us_state",
         "node_display_name": "Us State",
+        "column_display_name": "State Name",
         "filter_only": False,
         "type": "string",
         "path": ["default.repair_orders_fact", "default.hard_hat"],
@@ -365,6 +403,7 @@ expected_dimensions = [
         "name": "default.us_state.state_region",
         "node_name": "default.us_state",
         "node_display_name": "Us State",
+        "column_display_name": "State Region",
         "filter_only": False,
         "type": "int",
         "path": ["default.repair_orders_fact", "default.hard_hat"],
@@ -374,6 +413,7 @@ expected_dimensions = [
         "name": "default.us_state.state_short",
         "node_name": "default.us_state",
         "node_display_name": "Us State",
+        "column_display_name": "State Short",
         "filter_only": False,
         "type": "string",
         "path": ["default.repair_orders_fact", "default.hard_hat"],
@@ -556,6 +596,7 @@ async def test_read_metric(
             "filter_only": False,
             "name": "parent.ds",
             "node_display_name": "Parent",
+            "column_display_name": "Ds",
             "node_name": "parent",
             "path": [],
             "type": "string",
@@ -565,6 +606,7 @@ async def test_read_metric(
             "filter_only": False,
             "name": "parent.foo",
             "node_display_name": "Parent",
+            "column_display_name": "Foo",
             "node_name": "parent",
             "path": [],
             "type": "float",
@@ -574,6 +616,7 @@ async def test_read_metric(
             "filter_only": False,
             "name": "parent.user_id",
             "node_display_name": "Parent",
+            "column_display_name": "User Id",
             "node_name": "parent",
             "path": [],
             "type": "int",
@@ -748,6 +791,7 @@ async def test_get_multi_link_dimensions(
         {
             "name": "default.date_dim.dateint[birth_country->formation_date]",
             "node_display_name": "Date Dim",
+            "column_display_name": "Dateint",
             "node_name": "default.date_dim",
             "path": [
                 "default.user_dim.birth_country",
@@ -760,6 +804,7 @@ async def test_get_multi_link_dimensions(
         {
             "name": "default.date_dim.dateint[birth_country->last_election_date]",
             "node_display_name": "Date Dim",
+            "column_display_name": "Dateint",
             "node_name": "default.date_dim",
             "path": [
                 "default.user_dim.birth_country",
@@ -772,6 +817,7 @@ async def test_get_multi_link_dimensions(
         {
             "name": "default.date_dim.dateint[residence_country->formation_date]",
             "node_display_name": "Date Dim",
+            "column_display_name": "Dateint",
             "node_name": "default.date_dim",
             "path": [
                 "default.user_dim.residence_country",
@@ -784,6 +830,7 @@ async def test_get_multi_link_dimensions(
         {
             "name": "default.date_dim.dateint[residence_country->last_election_date]",
             "node_display_name": "Date Dim",
+            "column_display_name": "Dateint",
             "node_name": "default.date_dim",
             "path": [
                 "default.user_dim.residence_country",
@@ -796,6 +843,7 @@ async def test_get_multi_link_dimensions(
         {
             "name": "default.date_dim.day[birth_country->formation_date]",
             "node_display_name": "Date Dim",
+            "column_display_name": "Day",
             "node_name": "default.date_dim",
             "path": [
                 "default.user_dim.birth_country",
@@ -808,6 +856,7 @@ async def test_get_multi_link_dimensions(
         {
             "name": "default.date_dim.day[birth_country->last_election_date]",
             "node_display_name": "Date Dim",
+            "column_display_name": "Day",
             "node_name": "default.date_dim",
             "path": [
                 "default.user_dim.birth_country",
@@ -820,6 +869,7 @@ async def test_get_multi_link_dimensions(
         {
             "name": "default.date_dim.day[residence_country->formation_date]",
             "node_display_name": "Date Dim",
+            "column_display_name": "Day",
             "node_name": "default.date_dim",
             "path": [
                 "default.user_dim.residence_country",
@@ -832,6 +882,7 @@ async def test_get_multi_link_dimensions(
         {
             "name": "default.date_dim.day[residence_country->last_election_date]",
             "node_display_name": "Date Dim",
+            "column_display_name": "Day",
             "node_name": "default.date_dim",
             "path": [
                 "default.user_dim.residence_country",
@@ -844,6 +895,7 @@ async def test_get_multi_link_dimensions(
         {
             "name": "default.date_dim.month[birth_country->formation_date]",
             "node_display_name": "Date Dim",
+            "column_display_name": "Month",
             "node_name": "default.date_dim",
             "path": [
                 "default.user_dim.birth_country",
@@ -856,6 +908,7 @@ async def test_get_multi_link_dimensions(
         {
             "name": "default.date_dim.month[birth_country->last_election_date]",
             "node_display_name": "Date Dim",
+            "column_display_name": "Month",
             "node_name": "default.date_dim",
             "path": [
                 "default.user_dim.birth_country",
@@ -868,6 +921,7 @@ async def test_get_multi_link_dimensions(
         {
             "name": "default.date_dim.month[residence_country->formation_date]",
             "node_display_name": "Date Dim",
+            "column_display_name": "Month",
             "node_name": "default.date_dim",
             "path": [
                 "default.user_dim.residence_country",
@@ -880,6 +934,7 @@ async def test_get_multi_link_dimensions(
         {
             "name": "default.date_dim.month[residence_country->last_election_date]",
             "node_display_name": "Date Dim",
+            "column_display_name": "Month",
             "node_name": "default.date_dim",
             "path": [
                 "default.user_dim.residence_country",
@@ -892,6 +947,7 @@ async def test_get_multi_link_dimensions(
         {
             "name": "default.date_dim.year[birth_country->formation_date]",
             "node_display_name": "Date Dim",
+            "column_display_name": "Year",
             "node_name": "default.date_dim",
             "path": [
                 "default.user_dim.birth_country",
@@ -904,6 +960,7 @@ async def test_get_multi_link_dimensions(
         {
             "name": "default.date_dim.year[birth_country->last_election_date]",
             "node_display_name": "Date Dim",
+            "column_display_name": "Year",
             "node_name": "default.date_dim",
             "path": [
                 "default.user_dim.birth_country",
@@ -916,6 +973,7 @@ async def test_get_multi_link_dimensions(
         {
             "name": "default.date_dim.year[residence_country->formation_date]",
             "node_display_name": "Date Dim",
+            "column_display_name": "Year",
             "node_name": "default.date_dim",
             "path": [
                 "default.user_dim.residence_country",
@@ -928,6 +986,7 @@ async def test_get_multi_link_dimensions(
         {
             "name": "default.date_dim.year[residence_country->last_election_date]",
             "node_display_name": "Date Dim",
+            "column_display_name": "Year",
             "node_name": "default.date_dim",
             "path": [
                 "default.user_dim.residence_country",
@@ -940,6 +999,7 @@ async def test_get_multi_link_dimensions(
         {
             "name": "default.special_country_dim.country_code[birth_country]",
             "node_display_name": "Special Country Dim",
+            "column_display_name": "Country Code",
             "node_name": "default.special_country_dim",
             "path": ["default.user_dim.birth_country"],
             "type": "string",
@@ -949,6 +1009,7 @@ async def test_get_multi_link_dimensions(
         {
             "name": "default.special_country_dim.country_code[residence_country]",
             "node_display_name": "Special Country Dim",
+            "column_display_name": "Country Code",
             "node_name": "default.special_country_dim",
             "path": ["default.user_dim.residence_country"],
             "type": "string",
@@ -958,6 +1019,7 @@ async def test_get_multi_link_dimensions(
         {
             "name": "default.special_country_dim.formation_date[birth_country]",
             "node_display_name": "Special Country Dim",
+            "column_display_name": "Formation Date",
             "node_name": "default.special_country_dim",
             "path": ["default.user_dim.birth_country"],
             "type": "int",
@@ -967,6 +1029,7 @@ async def test_get_multi_link_dimensions(
         {
             "name": "default.special_country_dim.formation_date[residence_country]",
             "node_display_name": "Special Country Dim",
+            "column_display_name": "Formation Date",
             "node_name": "default.special_country_dim",
             "path": ["default.user_dim.residence_country"],
             "type": "int",
@@ -976,6 +1039,7 @@ async def test_get_multi_link_dimensions(
         {
             "name": "default.special_country_dim.last_election_date[birth_country]",
             "node_display_name": "Special Country Dim",
+            "column_display_name": "Last Election Date",
             "node_name": "default.special_country_dim",
             "path": ["default.user_dim.birth_country"],
             "type": "int",
@@ -985,6 +1049,7 @@ async def test_get_multi_link_dimensions(
         {
             "name": "default.special_country_dim.last_election_date[residence_country]",
             "node_display_name": "Special Country Dim",
+            "column_display_name": "Last Election Date",
             "node_name": "default.special_country_dim",
             "path": ["default.user_dim.residence_country"],
             "type": "int",
@@ -994,6 +1059,7 @@ async def test_get_multi_link_dimensions(
         {
             "name": "default.special_country_dim.name[birth_country]",
             "node_display_name": "Special Country Dim",
+            "column_display_name": "Name",
             "node_name": "default.special_country_dim",
             "path": ["default.user_dim.birth_country"],
             "type": "string",
@@ -1003,6 +1069,7 @@ async def test_get_multi_link_dimensions(
         {
             "name": "default.special_country_dim.name[residence_country]",
             "node_display_name": "Special Country Dim",
+            "column_display_name": "Name",
             "node_name": "default.special_country_dim",
             "path": ["default.user_dim.residence_country"],
             "type": "string",
@@ -1012,6 +1079,7 @@ async def test_get_multi_link_dimensions(
         {
             "name": "default.user_dim.age",
             "node_display_name": "User Dim",
+            "column_display_name": "Age",
             "node_name": "default.user_dim",
             "path": [],
             "type": "int",
@@ -1021,6 +1089,7 @@ async def test_get_multi_link_dimensions(
         {
             "name": "default.user_dim.birth_country",
             "node_display_name": "User Dim",
+            "column_display_name": "Birth Country",
             "node_name": "default.user_dim",
             "path": [],
             "type": "string",
@@ -1031,6 +1100,7 @@ async def test_get_multi_link_dimensions(
             "filter_only": False,
             "name": "default.user_dim.birth_date",
             "node_display_name": "User Dim",
+            "column_display_name": "Birth Date",
             "node_name": "default.user_dim",
             "path": [],
             "properties": [],
@@ -1039,6 +1109,7 @@ async def test_get_multi_link_dimensions(
         {
             "name": "default.user_dim.residence_country",
             "node_display_name": "User Dim",
+            "column_display_name": "Residence Country",
             "node_name": "default.user_dim",
             "path": [],
             "type": "string",
@@ -1048,6 +1119,7 @@ async def test_get_multi_link_dimensions(
         {
             "name": "default.user_dim.user_id",
             "node_display_name": "User Dim",
+            "column_display_name": "User Id",
             "node_name": "default.user_dim",
             "path": [],
             "type": "int",

@@ -3648,6 +3648,7 @@ async def test_filter_on_source_nodes(
         {
             "name": "default.events_agg.user_id",
             "node_display_name": "Events Agg",
+            "column_display_name": "User Id",
             "node_name": "default.events_agg",
             "path": [],
             "type": "int",
@@ -3657,6 +3658,7 @@ async def test_filter_on_source_nodes(
         {
             "name": "default.event_date.dateint",
             "node_display_name": "Event Date",
+            "column_display_name": "Dateint",
             "node_name": "default.event_date",
             "path": ["default.events"],
             "type": "int",
