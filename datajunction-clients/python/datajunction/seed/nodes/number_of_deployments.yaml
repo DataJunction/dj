@@ -1,0 +1,19 @@
+name: ${prefix}number_of_deployments
+node_type: metric
+display_name: Number of Deployments
+description: Total count of deployment records.
+query: |-
+  SELECT COUNT(uuid)
+   FROM ${prefix}deployment
+tags: []
+custom_metadata:
+  group: Activity
+  subgroup: Deployments
+  suggested_compare_by:
+  - system.dj.deployment.status
+required_dimensions: []
+direction: null
+unit: null
+significant_digits: null
+min_decimal_exponent: null
+max_decimal_exponent: null

@@ -1,0 +1,64 @@
+name: ${prefix}repo
+node_type: dimension
+display_name: Repo
+description: |-
+  One row per distinct GitHub repository tracked by DJ, keyed by
+  ``github_repo_path`` (e.g. ``corp/ads-dj``). Each repo has a single
+  "container" namespace (the parent that holds the ``github_repo_path``)
+  and a conventional trunk namespace at ``<container>.<default_branch>``.
+query: |-
+  WITH repo_containers AS (
+    SELECT
+      NN.namespace AS container,
+      NN.github_repo_path,
+      NN.default_branch,
+      NN.git_path,
+      NN.git_only,
+      NN.namespace || '.' || NN.default_branch AS trunk_namespace
+    FROM source.dj_metadata.public.nodenamespace NN
+    WHERE NN.parent_namespace IS NULL
+      AND NN.github_repo_path IS NOT NULL
+  ),
+  branch_counts AS (
+    -- Count of branch namespaces (parent set, git_branch set) per container.
+    SELECT
+      NN.parent_namespace AS container,
+      COUNT(*) AS branch_count
+    FROM source.dj_metadata.public.nodenamespace NN
+    WHERE NN.parent_namespace IS NOT NULL
+      AND NN.git_branch IS NOT NULL
+    GROUP BY NN.parent_namespace
+  )
+  SELECT
+    RC.github_repo_path AS repository,
+    RC.container        AS repo_container,
+    RC.trunk_namespace  AS trunk_namespace,
+    RC.default_branch   AS default_branch,
+    RC.git_path         AS git_path,
+    RC.git_only         AS git_only,
+    COALESCE(BC.branch_count, 0) AS branch_count
+  FROM repo_containers RC
+  LEFT JOIN branch_counts BC ON BC.container = RC.container
+columns:
+- name: repository
+  display_name: Repository
+- name: repo_container
+  display_name: Repo Container
+- name: trunk_namespace
+  display_name: Trunk Namespace
+- name: default_branch
+  display_name: Default Branch
+- name: git_path
+  display_name: Git Path
+- name: git_only
+  display_name: Git-Only
+- name: branch_count
+  display_name: Branch Count
+primary_key:
+- repository
+dimension_links:
+- type: join
+  dimension_node: ${prefix}namespace
+  join_type: left
+  join_on: ${prefix}repo.repo_container = ${prefix}namespace.name
+tags: []

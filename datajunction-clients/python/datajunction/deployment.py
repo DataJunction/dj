@@ -136,9 +136,11 @@ class DeploymentService:
             branch=source.get("branch") or branch,
         )
 
-        if branch:
-            # Use base_namespace from dj.yaml as parent, whether --namespace was
-            # passed explicitly or derived automatically
+        # Skip git config when the deployment namespace equals the project's
+        # base namespace — no branch derivation happened, and setting parent
+        # to the same namespace would error ("a namespace cannot be its own
+        # parent"). This is the typical bootstrap / explicit-namespace case.
+        if branch and deployment_spec["namespace"] != base_namespace:
             parent_namespace = base_namespace or None
             try:
                 self.client._set_namespace_git_config(
@@ -389,10 +391,32 @@ class DeploymentService:
         nodes = []
         warnings = []
         nodes_dir = Path(base_dir)
+        # Skip dirs that may carry stray YAMLs but aren't part of the project
+        # (vendored deps, build artifacts, dot-dirs).
+        skip_dir_names = {
+            "venv",
+            ".venv",
+            "node_modules",
+            "site-packages",
+            "__pycache__",
+            ".git",
+            "build",
+            "dist",
+            ".tox",
+        }
         for path in nodes_dir.rglob("*.yaml"):
             if path.name == "dj.yaml":
                 continue
+            parents = path.relative_to(nodes_dir).parts[:-1]
+            if any(
+                part in skip_dir_names or part.startswith(".") for part in parents
+            ):
+                continue
             node_dict = DeploymentService.read_yaml_file(path)
+            if not isinstance(node_dict, dict):
+                # Not a node definition — stray YAML (e.g. a list-typed file
+                # from a vendored package); skip rather than crash.
+                continue
 
             # Check filename matches node name
             node_name = node_dict.get("name", "")
@@ -439,8 +463,10 @@ class DeploymentService:
             seen_names[node_name] = node
         nodes = list(seen_names.values())
 
+        # Accept either `namespace:` (new) or `prefix:` (legacy seed format) in dj.yaml
         deployment_spec = {
-            "namespace": project_metadata.get("namespace", ""),  # fallback to empty
+            "namespace": project_metadata.get("namespace")
+            or project_metadata.get("prefix", ""),
             "nodes": nodes,
             "tags": project_metadata.get("tags", []),
         }

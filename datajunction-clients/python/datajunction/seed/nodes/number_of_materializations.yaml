@@ -1,0 +1,23 @@
+name: ${prefix}number_of_materializations
+node_type: metric
+display_name: Number of Materializations
+description: |-
+  Count of materialization configurations across all nodes. A single node can
+  have multiple materializations (e.g. one Druid, one Iceberg). Slice by
+  ``materialization.strategy`` to see incremental vs full refresh, or by
+  ``nodes.type`` to see which entity types are most-materialized.
+query: |-
+  SELECT COUNT(id)
+   FROM ${prefix}materialization
+tags: []
+custom_metadata:
+  group: Catalog
+  subgroup: Counts
+  suggested_compare_by:
+  - system.dj.materialization.strategy
+required_dimensions: []
+direction: null
+unit: null
+significant_digits: null
+min_decimal_exponent: null
+max_decimal_exponent: null

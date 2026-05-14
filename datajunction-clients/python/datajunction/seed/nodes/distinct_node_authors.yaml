@@ -1,0 +1,20 @@
+name: ${prefix}distinct_node_authors
+node_type: metric
+display_name: Distinct Node Authors
+description: |-
+  Count of distinct users who originally created nodes. When sliced by
+  ``created_at_day`` / ``created_at_week`` etc., gives daily / weekly /
+  monthly active authors.
+query: |-
+  SELECT COUNT(DISTINCT created_by_id)
+   FROM ${prefix}nodes
+tags: []
+custom_metadata:
+  group: Activity
+  subgroup: Authors & Edits
+required_dimensions: []
+direction: null
+unit: null
+significant_digits: null
+min_decimal_exponent: null
+max_decimal_exponent: null

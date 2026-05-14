@@ -1,3 +1,5 @@
+name: ${prefix}date
+node_type: dimension
 display_name: Date
 description: ''
 query: 'SELECT 1 AS dateint '

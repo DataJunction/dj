@@ -1,0 +1,21 @@
+name: ${prefix}number_of_unused_dimensions
+node_type: metric
+display_name: Number of Unused Dimensions
+description: |-
+  Count of active dimension nodes that are not linked to by any other node
+  and are not referenced by any cube. Candidates for retirement.
+query: |-
+  SELECT SUM(IF(is_unused_dimension = true AND is_active = true, 1, 0))
+   FROM ${prefix}nodes
+tags: []
+custom_metadata:
+  group: Quality
+  subgroup: Hygiene
+  suggested_compare_by:
+  - system.dj.namespace.top_level
+required_dimensions: []
+direction: lower_is_better
+unit: null
+significant_digits: null
+min_decimal_exponent: null
+max_decimal_exponent: null

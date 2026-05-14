@@ -1,0 +1,24 @@
+name: ${prefix}number_of_branches
+node_type: metric
+display_name: Number of Branches
+description: |-
+  Count of distinct git branches across all repos. Each branch is a single
+  namespace under a repo container whose ``git_branch`` is set — sub-
+  namespaces (e.g. ``ads.feature-x.cubes``) do NOT inflate this count.
+
+  Slice by ``repo.repository`` to see branches per repo.
+query: |-
+  SELECT SUM(branch_count)
+   FROM ${prefix}repo
+tags: []
+custom_metadata:
+  group: Catalog
+  subgroup: Repo
+  suggested_compare_by:
+  - system.dj.repo.repository
+required_dimensions: []
+direction: null
+unit: null
+significant_digits: null
+min_decimal_exponent: null
+max_decimal_exponent: null

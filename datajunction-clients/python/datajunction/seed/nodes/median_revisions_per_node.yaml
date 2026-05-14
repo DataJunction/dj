@@ -1,0 +1,21 @@
+name: ${prefix}median_revisions_per_node
+node_type: metric
+display_name: Median Revisions per Node
+description: |-
+  Median number of revisions across nodes. Slice by ``nodes.type`` to see
+  which entity types churn the most.
+query: |-
+  SELECT MEDIAN(revision_count)
+   FROM ${prefix}nodes
+tags: []
+custom_metadata:
+  group: Quality
+  subgroup: Lineage Shape
+  suggested_compare_by:
+  - system.dj.node_type.type
+required_dimensions: []
+direction: null
+unit: null
+significant_digits: 2
+min_decimal_exponent: null
+max_decimal_exponent: null

@@ -1,0 +1,23 @@
+name: ${prefix}median_dimension_indegree
+node_type: metric
+display_name: Median Dimension Indegree
+description: |-
+  Median number of distinct upstream nodes that link TO each dimension node
+  via their current revision. Higher = more reused dimensions. Computed only
+  over dimension nodes — non-dimension types are excluded so they don't
+  drag the median to zero.
+query: |-
+  SELECT MEDIAN(IF(type = 'DIMENSION', dim_indegree, NULL))
+   FROM ${prefix}nodes
+tags: []
+custom_metadata:
+  group: Quality
+  subgroup: Lineage Shape
+  suggested_compare_by:
+  - system.dj.namespace.top_level
+required_dimensions: []
+direction: higher_is_better
+unit: null
+significant_digits: 2
+min_decimal_exponent: null
+max_decimal_exponent: null

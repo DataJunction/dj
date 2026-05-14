@@ -1,0 +1,22 @@
+name: ${prefix}median_downstream_count
+node_type: metric
+display_name: Median Downstream Count
+description: |-
+  Median number of distinct downstream nodes per node (current revisions only).
+  Useful for understanding fanout — high values mean many consumers depend on
+  the typical node.
+query: |-
+  SELECT MEDIAN(child_count)
+   FROM ${prefix}nodes
+tags: []
+custom_metadata:
+  group: Quality
+  subgroup: Lineage Shape
+  suggested_compare_by:
+  - system.dj.node_type.type
+required_dimensions: []
+direction: null
+unit: null
+significant_digits: 2
+min_decimal_exponent: null
+max_decimal_exponent: null

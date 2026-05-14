@@ -1,3 +1,5 @@
+name: ${prefix}is_active
+node_type: dimension
 display_name: Is Active
 description: ''
 query: |-
@@ -8,7 +10,10 @@ query: |-
       (true, 'Active'),
       (false, 'Deactivated')
   AS t (active_id, active_status);
-columns: []
+columns:
+- name: active_id
+  attributes:
+  - hidden
 primary_key:
 - active_id
 dimension_links: []

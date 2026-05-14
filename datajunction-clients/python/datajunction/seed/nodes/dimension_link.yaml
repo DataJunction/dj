@@ -1,3 +1,5 @@
+name: ${prefix}dimension_link
+node_type: dimension
 display_name: Dimension Link
 description: ''
 query: |-
@@ -6,7 +8,16 @@ query: |-
     dimension_id,
     node_revision_id
   FROM source.dj_metadata.public.dimensionlink
-columns: []
+columns:
+- name: id
+  attributes:
+  - hidden
+- name: dimension_id
+  attributes:
+  - hidden
+- name: node_revision_id
+  attributes:
+  - hidden
 primary_key:
 - id
 dimension_links:

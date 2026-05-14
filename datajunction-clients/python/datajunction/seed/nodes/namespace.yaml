@@ -1,0 +1,148 @@
+name: ${prefix}namespace
+node_type: dimension
+display_name: Namespace
+description: |-
+  One row per distinct DJ namespace. Repo-related attributes are derived by
+  walking the nodenamespace tree:
+
+  - ``repo_container`` is the longest-prefix namespace that holds a
+    ``github_repo_path`` (the "repo container", e.g. ``ads``).
+  - ``branch_namespace`` is the longest-prefix namespace under that
+    container that has its own ``git_branch`` set.
+  - ``trunk_namespace`` is conventionally ``repo_container.default_branch``
+    (e.g. ``ads.main``).
+query: |-
+  WITH ns AS (
+    -- Every distinct namespace that DJ knows about: every namespace
+    -- containing a node, plus every nodenamespace row (so container /
+    -- empty namespaces like ``customer_service`` are still represented).
+    SELECT DISTINCT namespace
+    FROM source.dj_metadata.public.node
+    WHERE namespace IS NOT NULL
+    UNION
+    SELECT namespace
+    FROM source.dj_metadata.public.nodenamespace
+  ),
+  deployed_ns AS (
+    SELECT DISTINCT namespace
+    FROM source.dj_metadata.public.deployments
+  ),
+  repo_containers AS (
+    SELECT
+      NN.namespace AS container,
+      NN.github_repo_path,
+      NN.default_branch,
+      NN.git_only,
+      NN.namespace || '.' || NN.default_branch AS trunk_namespace
+    FROM source.dj_metadata.public.nodenamespace NN
+    WHERE NN.parent_namespace IS NULL
+      AND NN.github_repo_path IS NOT NULL
+  ),
+  branch_rows AS (
+    SELECT
+      NN.namespace AS branch_namespace,
+      NN.parent_namespace,
+      NN.git_branch
+    FROM source.dj_metadata.public.nodenamespace NN
+    WHERE NN.parent_namespace IS NOT NULL
+      AND NN.git_branch IS NOT NULL
+  ),
+  ns_repo_match AS (
+    SELECT
+      ns.namespace,
+      rc.container,
+      rc.github_repo_path,
+      rc.default_branch,
+      rc.git_only,
+      rc.trunk_namespace,
+      ROW_NUMBER() OVER (
+        PARTITION BY ns.namespace ORDER BY LENGTH(rc.container) DESC
+      ) AS rn
+    FROM ns
+    JOIN repo_containers rc
+      ON ns.namespace = rc.container OR ns.namespace LIKE rc.container || '.%'
+  ),
+  ns_repo AS (
+    SELECT namespace, container, github_repo_path, default_branch, git_only,
+           trunk_namespace
+    FROM ns_repo_match
+    WHERE rn = 1
+  ),
+  ns_branch_match AS (
+    SELECT
+      ns.namespace,
+      br.branch_namespace,
+      br.git_branch,
+      ROW_NUMBER() OVER (
+        PARTITION BY ns.namespace ORDER BY LENGTH(br.branch_namespace) DESC
+      ) AS rn
+    FROM ns
+    JOIN branch_rows br
+      ON ns.namespace = br.branch_namespace
+      OR ns.namespace LIKE br.branch_namespace || '.%'
+  ),
+  ns_branch AS (
+    SELECT namespace, branch_namespace, git_branch
+    FROM ns_branch_match
+    WHERE rn = 1
+  )
+  SELECT
+    ns.namespace                                                AS name,
+    CASE WHEN deployed_ns.namespace IS NOT NULL
+         THEN true ELSE false END                               AS has_deployments,
+    CAST(SPLIT_PART(ns.namespace, '.', 1) AS STRING)            AS top_level,
+    CAST(LENGTH(ns.namespace) - LENGTH(REPLACE(ns.namespace, '.', '')) + 1 AS integer) AS depth,
+    ns_repo.github_repo_path                                    AS github_repo_path,
+    ns_repo.container                                           AS repo_container,
+    ns_repo.trunk_namespace                                     AS trunk_namespace,
+    COALESCE(ns_branch.git_branch, ns_repo.default_branch)      AS git_branch,
+    CASE WHEN ns_repo.github_repo_path IS NOT NULL
+         THEN true ELSE false END                               AS is_repo_backed,
+    CASE WHEN ns.namespace = ns_repo.container
+         THEN true ELSE false END                               AS is_repo_container,
+    CASE WHEN ns.namespace = ns_repo.trunk_namespace
+         THEN true ELSE false END                               AS is_trunk_namespace,
+    CASE
+      WHEN ns_branch.branch_namespace IS NOT NULL
+        AND ns_branch.branch_namespace != ns_repo.trunk_namespace
+      THEN true ELSE false
+    END                                                         AS is_branch_namespace
+  FROM ns
+  LEFT JOIN deployed_ns ON ns.namespace = deployed_ns.namespace
+  LEFT JOIN ns_repo ON ns.namespace = ns_repo.namespace
+  LEFT JOIN ns_branch ON ns.namespace = ns_branch.namespace
+columns:
+- name: name
+  display_name: Namespace
+- name: top_level
+  display_name: Top-level Namespace
+- name: depth
+  display_name: Namespace Depth
+- name: has_deployments
+  display_name: Has Deployments
+- name: github_repo_path
+  display_name: Repository
+  attributes:
+  - hidden
+- name: repo_container
+  display_name: Repo Container
+- name: trunk_namespace
+  display_name: Trunk Namespace
+- name: git_branch
+  display_name: Git Branch
+- name: is_repo_backed
+  display_name: Is Repo-Backed
+- name: is_repo_container
+  display_name: Is Repo Container
+- name: is_trunk_namespace
+  display_name: Is Trunk Namespace
+- name: is_branch_namespace
+  display_name: Is Branch Namespace
+primary_key:
+- name
+dimension_links:
+- type: join
+  dimension_node: ${prefix}repo
+  join_type: left
+  join_on: ${prefix}namespace.github_repo_path = ${prefix}repo.repository
+tags: []
