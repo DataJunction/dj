@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import cast
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload, defer, load_only, noload
 
@@ -612,13 +612,21 @@ class DeploymentOrchestrator:
         engine = _catalog.engines[0] if _catalog.engines else None
 
         try:
-            columns_by_table = (
-                await self.context.query_service_client.get_columns_for_tables_batch(
+            # The system catalog points at the DJ metadata Postgres — the same
+            # DB the server is already connected to. The query service often
+            # can't reach that engine (or isn't configured for it), so reflect
+            # the table directly via SQLAlchemy instead of going over the QSC.
+            if catalog_name == settings.seed_setup.system_catalog_name:
+                columns_by_table = await _reflect_columns_via_sqlalchemy(
+                    self.session,
+                    tables,
+                )
+            else:
+                columns_by_table = await self.context.query_service_client.get_columns_for_tables_batch(
                     tables=tables,
                     request_headers=request_headers,
                     engine=engine,
                 )
-            )
 
             for (catalog, schema, table), columns in columns_by_table.items():
                 if not columns:
@@ -3559,3 +3567,81 @@ def column_changed(desired_col: ColumnSpec, col: Column | None) -> bool:
     ):
         return True
     return False
+
+
+def _sqlalchemy_to_dj_type(sa_type) -> str:
+    """
+    Best-effort mapping of a SQLAlchemy column type to the string form the
+    DJ type parser understands. Falls back to "string" for unknown types.
+    """
+    name = type(sa_type).__name__.lower()
+    mapping = {
+        "biginteger": "bigint",
+        "integer": "int",
+        "smallinteger": "int",
+        "numeric": "double",
+        "float": "double",
+        "double": "double",
+        "boolean": "boolean",
+        "datetime": "timestamp",
+        "date": "date",
+        "time": "string",
+        "interval": "string",
+        "uuid": "string",
+        "json": "string",
+        "jsonb": "string",
+        "text": "string",
+        "varchar": "string",
+        "string": "string",
+        "char": "string",
+        "enum": "string",
+        "array": "string",
+    }
+    for key, dj_type in mapping.items():
+        if key in name:
+            return dj_type
+    return "string"
+
+
+async def _reflect_columns_via_sqlalchemy(
+    session: AsyncSession,
+    tables: list[tuple[str, str, str]],
+) -> dict[tuple[str, str, str], list]:
+    """
+    Reflect column metadata for the given (catalog, schema, table) tuples
+    directly through the active SQLAlchemy connection. Used for the system
+    catalog where the underlying engine is the same DJ metadata DB the
+    server is already attached to, so we don't need the query service.
+    """
+    from datajunction_server.service_clients import Column as _Column
+    from datajunction_server.sql.parsing.types import ColumnType
+
+    result: dict[tuple[str, str, str], list] = {}
+    conn = await session.connection()
+
+    def _reflect(sync_conn, schema_, table_):
+        inspector = sa_inspect(sync_conn)
+        return inspector.get_columns(table_, schema=schema_)
+
+    for catalog, schema_, table_ in tables:
+        try:
+            cols = await conn.run_sync(_reflect, schema_, table_)
+        except Exception as exc:  # pragma: no cover
+            logger.warning(
+                "SQLAlchemy reflection failed for %s.%s.%s: %s",
+                catalog,
+                schema_,
+                table_,
+                exc,
+            )
+            result[(catalog, schema_, table_)] = []
+            continue
+        result[(catalog, schema_, table_)] = [
+            _Column(
+                name=col["name"],
+                type=ColumnType(_sqlalchemy_to_dj_type(col["type"])),
+                order=idx,
+            )
+            for idx, col in enumerate(cols)
+        ]
+    return result

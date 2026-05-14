@@ -6,8 +6,9 @@ import logging
 from fastapi import BackgroundTasks, Depends, Query, Request
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
-from datajunction_server.models.system import DimensionStats, RowOutput
+from datajunction_server.models.system import DimensionStats, SystemMetricData
 from datajunction_server.sql.dag import (
     get_cubes_using_dimensions,
     get_dimension_dag_indegree,
@@ -38,14 +39,24 @@ async def list_system_metrics(
     session: AsyncSession = Depends(get_session),
 ):
     """
-    Returns a list of DJ system metrics (available as metric nodes in DJ).
+    Returns the DJ system metrics (available as metric nodes in DJ),
+    each as ``{name, display_name}``.
     """
     metrics = await Node.find_by(
         session=session,
         namespace=settings.seed_setup.system_namespace,
         node_types=[NodeType.METRIC],
+        options=[joinedload(Node.current)],
     )
-    return [m.name for m in metrics]
+    return [
+        {
+            "name": m.name,
+            "display_name": (m.current.display_name if m.current else None) or m.name,
+            "description": (m.current.description if m.current else None) or "",
+            "custom_metadata": (m.current.custom_metadata if m.current else None) or {},
+        }
+        for m in metrics
+    ]
 
 
 @router.get("/system/data/{metric_name}")
@@ -60,7 +71,7 @@ async def get_data_for_system_metric(
     background_tasks: BackgroundTasks,
     cache: Cache = Depends(get_cache),
     request: Request,
-) -> list[list[RowOutput]]:
+) -> SystemMetricData:
     """
     This is not a generic data for metrics endpoint, but rather a specific endpoint for
     system overview metrics that are automatically defined by DJ, such as the number of nodes.
@@ -95,20 +106,15 @@ async def get_data_for_system_metric(
         f"{settings.seed_setup.system_catalog_name}.",
         "",
     )
-    results = await session.execute(text(sql_to_run))
-    output = [
-        [
-            RowOutput(
-                value=value,
-                col=col.semantic_entity
-                if col.semantic_type == "dimension"
-                else col.node,
-            )
-            for value, col in zip(row, translated_sql.columns)  # type: ignore
-        ]
-        for row in results
+    columns = [
+        col.semantic_entity if col.semantic_type == "dimension" else col.node
+        for col in translated_sql.columns  # type: ignore
     ]
-    return output
+    results = await session.execute(text(sql_to_run))
+    return SystemMetricData(
+        columns=columns,
+        rows=[list(row) for row in results],
+    )
 
 
 @router.get("/system/dimensions", response_model=list[DimensionStats])
