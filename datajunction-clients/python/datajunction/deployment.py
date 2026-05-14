@@ -408,9 +408,7 @@ class DeploymentService:
             if path.name == "dj.yaml":
                 continue
             parents = path.relative_to(nodes_dir).parts[:-1]
-            if any(
-                part in skip_dir_names or part.startswith(".") for part in parents
-            ):
+            if any(part in skip_dir_names or part.startswith(".") for part in parents):
                 continue
             node_dict = DeploymentService.read_yaml_file(path)
             if not isinstance(node_dict, dict):
