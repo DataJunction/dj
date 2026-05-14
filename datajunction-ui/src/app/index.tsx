@@ -10,6 +10,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { NamespacePage } from './pages/NamespacePage/Loadable';
 import { MyWorkspacePage } from './pages/MyWorkspacePage/Loadable';
 import { OverviewPage } from './pages/OverviewPage/Loadable';
+import { SystemMetricsExplorerPage } from './pages/SystemMetricsExplorerPage/Loadable';
 import { SettingsPage } from './pages/SettingsPage/Loadable';
 import { NotificationsPage } from './pages/NotificationsPage/Loadable';
 import { NodePage } from './pages/NodePage/Loadable';
@@ -152,6 +153,11 @@ export function App() {
                           path="overview"
                           key="overview"
                           element={<OverviewPage />}
+                        />
+                        <Route
+                          path="overview/explore"
+                          key="overview-explore"
+                          element={<SystemMetricsExplorerPage />}
                         />
                         <Route
                           path="workspace"
