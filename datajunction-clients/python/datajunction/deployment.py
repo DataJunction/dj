@@ -136,11 +136,15 @@ class DeploymentService:
             branch=source.get("branch") or branch,
         )
 
-        # Skip git config when the deployment namespace equals the project's
-        # base namespace — no branch derivation happened, and setting parent
-        # to the same namespace would error ("a namespace cannot be its own
-        # parent"). This is the typical bootstrap / explicit-namespace case.
-        if branch and deployment_spec["namespace"] != base_namespace:
+        # Apply git config in the normal push flow. Skip only when the
+        # caller passed an explicit ``namespace`` equal to the project's
+        # base namespace — that's the bootstrap / system-seed case where
+        # we'd otherwise set parent to the same namespace and error with
+        # "a namespace cannot be its own parent".
+        skip_git_config = (
+            namespace is not None and deployment_spec["namespace"] == base_namespace
+        )
+        if branch and not skip_git_config:
             parent_namespace = base_namespace or None
             try:
                 self.client._set_namespace_git_config(
