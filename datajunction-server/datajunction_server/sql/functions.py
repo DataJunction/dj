@@ -3474,6 +3474,8 @@ class Median(Function):
     median(expr) - Returns the median of the values in the group.
     """
 
+    is_aggregation = True
+
 
 @Median.register  # type: ignore
 def infer_type(arg: ct.NumberType) -> ct.ColumnType:
