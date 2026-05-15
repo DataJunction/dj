@@ -298,7 +298,7 @@ export const DataJunctionAPI = {
     const metricIdx = columns.indexOf(metric);
     return rows.map(row => ({
       name:
-        dimIdx >= 0 && row[dimIdx] !== undefined
+        dimIdx >= 0 && row[dimIdx] !== undefined && row[dimIdx] !== null
           ? String(row[dimIdx])
           : 'unknown',
       value: metricIdx >= 0 ? row[metricIdx] ?? 0 : 0,

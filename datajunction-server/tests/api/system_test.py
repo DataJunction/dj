@@ -86,10 +86,16 @@ async def module__client_with_system(
 async def test_system_metrics(module__client_with_system: AsyncClient) -> None:
     """
     Test ``GET /system/metrics``.
+
+    Returns a list of ``{name, display_name, description, custom_metadata}``
+    objects for each metric under ``system.dj``.
     """
     response = await module__client_with_system.get("/system/metrics")
     data = response.json()
-    assert data == ["system.dj.number_of_nodes"]
+    assert len(data) == 1
+    assert data[0]["name"] == "system.dj.number_of_nodes"
+    assert data[0]["display_name"] == "Number of Nodes"
+    assert "custom_metadata" in data[0]
 
 
 @pytest.mark.asyncio
@@ -98,6 +104,9 @@ async def test_system_metric_data_no_dimensions(
 ) -> None:
     """
     Test ``GET /system/data`` without dimensions.
+
+    Returns a ``{columns, rows}`` payload aligned with the ``/data`` endpoint
+    convention.
     """
     response = await module__client_with_system.get(
         "/system/data/system.dj.number_of_nodes",
@@ -107,13 +116,13 @@ async def test_system_metric_data_no_dimensions(
         },
     )
     data = response.json()
-    assert len(data) == 1
-    assert len(data[0]) == 1
-    assert data[0][0]["col"] == "system.dj.number_of_nodes"
+    assert data["columns"] == ["system.dj.number_of_nodes"]
+    assert len(data["rows"]) == 1
+    assert len(data["rows"][0]) == 1
     # With all examples loaded, there will be more nodes than just roads.
     # v3 wraps the metric in ``SUM(COUNT(...))``; Postgres returns ``numeric``
     # for ``SUM(bigint)``, which pydantic serializes as a JSON string.
-    assert int(data[0][0]["value"]) >= 42
+    assert int(data["rows"][0][0]) >= 42
 
 
 @pytest.mark.asyncio
@@ -131,36 +140,28 @@ async def test_system_metric_data_with_dimensions(
         },
     )
     data = response.json()
+    columns = data["columns"]
+    rows = data["rows"]
+    type_idx = columns.index("system.dj.node_type.type")
+    count_idx = columns.index("system.dj.number_of_nodes")
 
-    # Should have results for each node type
-    type_values = {
-        row[0]["value"] for row in data if row[0]["col"] == "system.dj.node_type.type"
-    }
+    type_values = {row[type_idx] for row in rows}
     assert "dimension" in type_values
     assert "metric" in type_values
     assert "source" in type_values
     assert "transform" in type_values
 
     # Each row should have counts >= the roads-only values
-    for row in data:
-        type_col = next(
-            (c for c in row if c["col"] == "system.dj.node_type.type"),
-            None,
-        )
-        count_col = next(
-            (c for c in row if c["col"] == "system.dj.number_of_nodes"),
-            None,
-        )
-        if type_col and count_col:
-            count_val = int(count_col["value"])  # ``SUM(bigint)`` returns numeric in pg
-            if type_col["value"] == "dimension":
-                assert count_val >= 13
-            elif type_col["value"] == "metric":
-                assert count_val >= 11
-            elif type_col["value"] == "source":
-                assert count_val >= 15
-            elif type_col["value"] == "transform":
-                assert count_val >= 3
+    for row in rows:
+        count_val = int(row[count_idx])  # SUM(bigint) returns numeric in pg
+        if row[type_idx] == "dimension":
+            assert count_val >= 13
+        elif row[type_idx] == "metric":
+            assert count_val >= 11
+        elif row[type_idx] == "source":
+            assert count_val >= 15
+        elif row[type_idx] == "transform":
+            assert count_val >= 3
 
 
 @pytest.mark.asyncio

@@ -4013,6 +4013,8 @@ class TestNodeColumnsAttributes:
             "/nodes/basic.dimension.users/dimensions",
         )
         column_attributes = {col["name"]: col["properties"] for col in response.json()}
+        # ``hidden`` columns are filtered out of the dimension-attributes
+        # response — that's the whole point of the attribute.
         assert column_attributes == {
             "basic.dimension.users.age": [],
             "basic.dimension.users.country": [],
@@ -4022,7 +4024,6 @@ class TestNodeColumnsAttributes:
             "basic.dimension.users.id": ["primary_key"],
             "basic.dimension.users.post_processing_timestamp": [],
             "basic.dimension.users.preferred_language": [],
-            "basic.dimension.users.secret_number": ["hidden"],
         }
 
     @pytest.mark.asyncio

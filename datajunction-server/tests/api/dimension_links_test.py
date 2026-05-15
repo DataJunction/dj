@@ -981,6 +981,7 @@ async def test_measures_sql_with_reference_dimension_links(
             "filter_only": False,
             "name": "default.users.registration_country",
             "node_display_name": "Users",
+            "column_display_name": "Registration Country",
             "node_name": "default.users",
             "path": [
                 "default.events.user_registration_country",

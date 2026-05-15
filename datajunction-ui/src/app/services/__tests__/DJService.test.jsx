@@ -1238,58 +1238,16 @@ describe('DataJunctionAPI', () => {
 
   it('calls node_counts_by_type correctly', async () => {
     fetch.mockResponseOnce(
-      JSON.stringify([
-        [
-          {
-            value: 'cube',
-            col: 'system.dj.node_type.type',
-          },
-          {
-            value: 226,
-            col: 'system.dj.number_of_nodes',
-          },
+      JSON.stringify({
+        columns: ['system.dj.node_type.type', 'system.dj.number_of_nodes'],
+        rows: [
+          ['cube', 226],
+          ['dimension', 241],
+          ['metric', 2853],
+          ['source', 540],
+          ['transform', 663],
         ],
-        [
-          {
-            value: 'dimension',
-            col: 'system.dj.node_type.type',
-          },
-          {
-            value: 241,
-            col: 'system.dj.number_of_nodes',
-          },
-        ],
-        [
-          {
-            value: 'metric',
-            col: 'system.dj.node_type.type',
-          },
-          {
-            value: 2853,
-            col: 'system.dj.number_of_nodes',
-          },
-        ],
-        [
-          {
-            value: 'source',
-            col: 'system.dj.node_type.type',
-          },
-          {
-            value: 540,
-            col: 'system.dj.number_of_nodes',
-          },
-        ],
-        [
-          {
-            value: 'transform',
-            col: 'system.dj.node_type.type',
-          },
-          {
-            value: 663,
-            col: 'system.dj.number_of_nodes',
-          },
-        ],
-      ]),
+      }),
     );
     const results = await DataJunctionAPI.system.node_counts_by_type();
     expect(fetch).toHaveBeenCalledWith(
@@ -1309,28 +1267,13 @@ describe('DataJunctionAPI', () => {
 
   it('calls node_counts_by_active correctly', async () => {
     fetch.mockResponseOnce(
-      JSON.stringify([
-        [
-          {
-            value: false,
-            col: 'system.dj.is_active.active_id',
-          },
-          {
-            value: 3136,
-            col: 'system.dj.number_of_nodes',
-          },
+      JSON.stringify({
+        columns: ['system.dj.is_active.active_id', 'system.dj.number_of_nodes'],
+        rows: [
+          [false, 3136],
+          [true, 4523],
         ],
-        [
-          {
-            value: true,
-            col: 'system.dj.is_active.active_id',
-          },
-          {
-            value: 4523,
-            col: 'system.dj.number_of_nodes',
-          },
-        ],
-      ]),
+      }),
     );
     const results = await DataJunctionAPI.system.node_counts_by_active();
     expect(fetch).toHaveBeenCalledWith(
@@ -1347,28 +1290,13 @@ describe('DataJunctionAPI', () => {
 
   it('calls node_counts_by_status correctly', async () => {
     fetch.mockResponseOnce(
-      JSON.stringify([
-        [
-          {
-            value: 'VALID',
-            col: 'system.dj.nodes.status',
-          },
-          {
-            value: 4333,
-            col: 'system.dj.number_of_nodes',
-          },
+      JSON.stringify({
+        columns: ['system.dj.nodes.status', 'system.dj.number_of_nodes'],
+        rows: [
+          ['VALID', 4333],
+          ['INVALID', 190],
         ],
-        [
-          {
-            value: 'INVALID',
-            col: 'system.dj.nodes.status',
-          },
-          {
-            value: 190,
-            col: 'system.dj.number_of_nodes',
-          },
-        ],
-      ]),
+      }),
     );
     const results = await DataJunctionAPI.system.node_counts_by_status();
     expect(fetch).toHaveBeenCalledWith(
@@ -1385,58 +1313,19 @@ describe('DataJunctionAPI', () => {
 
   it('calls nodes_without_description correctly', async () => {
     fetch.mockResponseOnce(
-      JSON.stringify([
-        [
-          {
-            value: 'cube',
-            col: 'system.dj.node_type.type',
-          },
-          {
-            value: 0.1,
-            col: 'system.dj.node_without_description',
-          },
+      JSON.stringify({
+        columns: [
+          'system.dj.node_type.type',
+          'system.dj.node_without_description',
         ],
-        [
-          {
-            value: 'dimension',
-            col: 'system.dj.node_type.type',
-          },
-          {
-            value: 0.2,
-            col: 'system.dj.node_without_description',
-          },
+        rows: [
+          ['cube', 0.1],
+          ['dimension', 0.2],
+          ['metric', 0.3],
+          ['source', 0.4],
+          ['transform', 0.5],
         ],
-        [
-          {
-            value: 'metric',
-            col: 'system.dj.node_type.type',
-          },
-          {
-            value: 0.3,
-            col: 'system.dj.node_without_description',
-          },
-        ],
-        [
-          {
-            value: 'source',
-            col: 'system.dj.node_type.type',
-          },
-          {
-            value: 0.4,
-            col: 'system.dj.node_without_description',
-          },
-        ],
-        [
-          {
-            value: 'transform',
-            col: 'system.dj.node_type.type',
-          },
-          {
-            value: 0.5,
-            col: 'system.dj.node_without_description',
-          },
-        ],
-      ]),
+      }),
     );
     const results = await DataJunctionAPI.system.nodes_without_description();
     expect(fetch).toHaveBeenCalledWith(
@@ -1455,78 +1344,20 @@ describe('DataJunctionAPI', () => {
   });
   it('calls node_trends correctly', async () => {
     fetch.mockResponseOnce(
-      JSON.stringify([
-        [
-          {
-            value: 20250630,
-            col: 'system.dj.nodes.created_at_week',
-          },
-          {
-            value: 'metric',
-            col: 'system.dj.node_type.type',
-          },
-          {
-            value: 42,
-            col: 'system.dj.number_of_nodes',
-          },
+      JSON.stringify({
+        columns: [
+          'system.dj.nodes.created_at_week',
+          'system.dj.node_type.type',
+          'system.dj.number_of_nodes',
         ],
-        [
-          {
-            value: 20250707,
-            col: 'system.dj.nodes.created_at_week',
-          },
-          {
-            value: 'dimension',
-            col: 'system.dj.node_type.type',
-          },
-          {
-            value: 21,
-            col: 'system.dj.number_of_nodes',
-          },
+        rows: [
+          [20250630, 'metric', 42],
+          [20250707, 'dimension', 21],
+          [20250707, 'metric', 9],
+          [20250714, 'metric', 3],
+          [20250714, 'dimension', 7],
         ],
-        [
-          {
-            value: 20250707,
-            col: 'system.dj.nodes.created_at_week',
-          },
-          {
-            value: 'metric',
-            col: 'system.dj.node_type.type',
-          },
-          {
-            value: 9,
-            col: 'system.dj.number_of_nodes',
-          },
-        ],
-        [
-          {
-            value: 20250714,
-            col: 'system.dj.nodes.created_at_week',
-          },
-          {
-            value: 'metric',
-            col: 'system.dj.node_type.type',
-          },
-          {
-            value: 3,
-            col: 'system.dj.number_of_nodes',
-          },
-        ],
-        [
-          {
-            value: 20250714,
-            col: 'system.dj.nodes.created_at_week',
-          },
-          {
-            value: 'dimension',
-            col: 'system.dj.node_type.type',
-          },
-          {
-            value: 7,
-            col: 'system.dj.number_of_nodes',
-          },
-        ],
-      ]),
+      }),
     );
     const results = await DataJunctionAPI.system.node_trends();
     expect(fetch).toHaveBeenCalledWith(
@@ -1544,38 +1375,17 @@ describe('DataJunctionAPI', () => {
 
   it('calls materialization_counts_by_type correctly', async () => {
     fetch.mockResponseOnce(
-      JSON.stringify([
-        [
-          {
-            value: 'cube',
-            col: 'system.dj.node_type.type',
-          },
-          {
-            value: 76,
-            col: 'system.dj.number_of_materializations',
-          },
+      JSON.stringify({
+        columns: [
+          'system.dj.node_type.type',
+          'system.dj.number_of_materializations',
         ],
-        [
-          {
-            value: 'dimension',
-            col: 'system.dj.node_type.type',
-          },
-          {
-            value: 3,
-            col: 'system.dj.number_of_materializations',
-          },
+        rows: [
+          ['cube', 76],
+          ['dimension', 3],
+          ['transform', 9],
         ],
-        [
-          {
-            value: 'transform',
-            col: 'system.dj.node_type.type',
-          },
-          {
-            value: 9,
-            col: 'system.dj.number_of_materializations',
-          },
-        ],
-      ]),
+      }),
     );
     const results =
       await DataJunctionAPI.system.materialization_counts_by_type();
@@ -1886,12 +1696,10 @@ describe('DataJunctionAPI', () => {
   // Test system metrics APIs
   it('calls system.node_counts_by_active correctly', async () => {
     fetch.mockResponseOnce(
-      JSON.stringify([
-        [
-          { col: 'system.dj.is_active.active_id', value: true },
-          { col: 'system.dj.number_of_nodes', value: 100 },
-        ],
-      ]),
+      JSON.stringify({
+        columns: ['system.dj.is_active.active_id', 'system.dj.number_of_nodes'],
+        rows: [[true, 100]],
+      }),
     );
 
     const result = await DataJunctionAPI.system.node_counts_by_active();
@@ -1900,12 +1708,10 @@ describe('DataJunctionAPI', () => {
 
   it('calls system.node_counts_by_type correctly', async () => {
     fetch.mockResponseOnce(
-      JSON.stringify([
-        [
-          { col: 'system.dj.node_type.type', value: 'metric' },
-          { col: 'system.dj.number_of_nodes', value: 50 },
-        ],
-      ]),
+      JSON.stringify({
+        columns: ['system.dj.node_type.type', 'system.dj.number_of_nodes'],
+        rows: [['metric', 50]],
+      }),
     );
 
     const result = await DataJunctionAPI.system.node_counts_by_type();
@@ -1914,12 +1720,10 @@ describe('DataJunctionAPI', () => {
 
   it('calls system.node_counts_by_status correctly', async () => {
     fetch.mockResponseOnce(
-      JSON.stringify([
-        [
-          { col: 'system.dj.nodes.status', value: 'valid' },
-          { col: 'system.dj.number_of_nodes', value: 80 },
-        ],
-      ]),
+      JSON.stringify({
+        columns: ['system.dj.nodes.status', 'system.dj.number_of_nodes'],
+        rows: [['valid', 80]],
+      }),
     );
 
     const result = await DataJunctionAPI.system.node_counts_by_status();
@@ -1928,12 +1732,13 @@ describe('DataJunctionAPI', () => {
 
   it('calls system.nodes_without_description correctly', async () => {
     fetch.mockResponseOnce(
-      JSON.stringify([
-        [
-          { col: 'system.dj.node_type.type', value: 'transform' },
-          { col: 'system.dj.node_without_description', value: 10 },
+      JSON.stringify({
+        columns: [
+          'system.dj.node_type.type',
+          'system.dj.node_without_description',
         ],
-      ]),
+        rows: [['transform', 10]],
+      }),
     );
 
     const result = await DataJunctionAPI.system.nodes_without_description();
@@ -1942,12 +1747,13 @@ describe('DataJunctionAPI', () => {
 
   it('calls system.materialization_counts_by_type correctly', async () => {
     fetch.mockResponseOnce(
-      JSON.stringify([
-        [
-          { col: 'system.dj.node_type.type', value: 'cube' },
-          { col: 'system.dj.number_of_materializations', value: 5 },
+      JSON.stringify({
+        columns: [
+          'system.dj.node_type.type',
+          'system.dj.number_of_materializations',
         ],
-      ]),
+        rows: [['cube', 5]],
+      }),
     );
 
     const result =
@@ -1968,13 +1774,14 @@ describe('DataJunctionAPI', () => {
 
   it('calls system.node_trends correctly', async () => {
     fetch.mockResponseOnce(
-      JSON.stringify([
-        [
-          { col: 'system.dj.nodes.created_at_week', value: 20240101 },
-          { col: 'system.dj.node_type.type', value: 'metric' },
-          { col: 'system.dj.number_of_nodes', value: 10 },
+      JSON.stringify({
+        columns: [
+          'system.dj.nodes.created_at_week',
+          'system.dj.node_type.type',
+          'system.dj.number_of_nodes',
         ],
-      ]),
+        rows: [[20240101, 'metric', 10]],
+      }),
     );
 
     const result = await DataJunctionAPI.system.node_trends();
@@ -1986,12 +1793,10 @@ describe('DataJunctionAPI', () => {
   // Test querySystemMetricSingleDimension edge cases
   it('handles missing values in querySystemMetricSingleDimension', async () => {
     fetch.mockResponseOnce(
-      JSON.stringify([
-        [
-          { col: 'some_dimension', value: null },
-          { col: 'some_metric', value: undefined },
-        ],
-      ]),
+      JSON.stringify({
+        columns: ['some_dimension', 'some_metric'],
+        rows: [[null, null]],
+      }),
     );
 
     const result = await DataJunctionAPI.querySystemMetricSingleDimension({
