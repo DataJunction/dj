@@ -3233,3 +3233,58 @@ async def test_delete_non_default_git_branch_namespace_allowed(
     )
     assert response.status_code == 200
     assert "deactivated" in response.json()["message"]
+
+
+@pytest.mark.asyncio
+async def test_hard_delete_namespace_with_sibling_parent_ref(
+    module__client_with_all_examples: AsyncClient,
+) -> None:
+    """
+    Hard deleting a namespace that is referenced as ``parent_namespace`` by
+    a sibling (whose own name doesn't start with the deleted namespace) must
+    nullify the dangling reference rather than tripping the self-referential
+    FK constraint.
+    """
+    root = "siblingref.root"
+    branch_a = "siblingref.feature_a"
+    branch_b = "siblingref.feature_b"
+
+    # Git root with default branch
+    await module__client_with_all_examples.post(f"/namespaces/{root}/")
+    await module__client_with_all_examples.patch(
+        f"/namespaces/{root}/git",
+        json={"github_repo_path": "corp/siblingref", "default_branch": "main"},
+    )
+
+    # Two sibling branches that both point to feature_a as parent_namespace
+    # (simulates a branch created from another branch — feature_b's parent
+    # is feature_a, but feature_b's name is not a child of feature_a).
+    await module__client_with_all_examples.post(f"/namespaces/{branch_a}/")
+    await module__client_with_all_examples.patch(
+        f"/namespaces/{branch_a}/git",
+        json={"parent_namespace": root, "git_branch": "feature-a"},
+    )
+    await module__client_with_all_examples.post(f"/namespaces/{branch_b}/")
+    await module__client_with_all_examples.patch(
+        f"/namespaces/{branch_b}/git",
+        json={"parent_namespace": branch_a, "git_branch": "feature-b"},
+    )
+
+    # Hard delete feature_a — feature_b references it as parent.
+    response = await module__client_with_all_examples.delete(
+        f"/namespaces/{branch_a}/hard/?cascade=true",
+    )
+    assert response.status_code == 200
+    assert response.json()["impact"]["deleted_namespaces"] == [branch_a]
+
+    # feature_b survives with its parent_namespace nullified.
+    list_response = await module__client_with_all_examples.get("/namespaces/")
+    namespaces = {ns["namespace"]: ns for ns in list_response.json()}
+    assert branch_a not in namespaces
+    assert branch_b in namespaces
+
+    config_response = await module__client_with_all_examples.get(
+        f"/namespaces/{branch_b}/git",
+    )
+    assert config_response.status_code == 200
+    assert config_response.json()["parent_namespace"] is None
