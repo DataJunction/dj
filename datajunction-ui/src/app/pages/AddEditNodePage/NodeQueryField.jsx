@@ -7,10 +7,25 @@ import { ErrorMessage, Field, useFormikContext } from 'formik';
 import CodeMirror from '@uiw/react-codemirror';
 import { langs } from '@uiw/codemirror-extensions-langs';
 
+// Matches catalog.schema.table (3-part dot-separated identifiers, backtick-quoted or plain)
+// Instantiated fresh per call to avoid /g lastIndex state issues
+const CATALOG_TABLE_PATTERN =
+  /`?([a-zA-Z_][a-zA-Z0-9_]*)`?\.`?([a-zA-Z_][a-zA-Z0-9_]*)`?\.`?([a-zA-Z_][a-zA-Z0-9_]*)`?/;
+
 export const NodeQueryField = ({ djClient, value }) => {
   const [schema, setSchema] = React.useState([]);
   const formik = useFormikContext();
   const sqlExt = langs.sql({ schema: schema });
+  const autoRegisterTimer = React.useRef(null);
+  const registeredTables = React.useRef(new Set());
+  // useRef so the onChange closure always sees the latest catalog list
+  const knownCatalogsRef = React.useRef([]);
+
+  React.useEffect(() => {
+    djClient.catalogs().then(catalogs => {
+      knownCatalogsRef.current = catalogs.map(c => c.name.toLowerCase());
+    });
+  }, [djClient]);
 
   const initialAutocomplete = async context => {
     // Based on the parsed prefix, we load node names with that prefix
@@ -42,6 +57,44 @@ export const NodeQueryField = ({ djClient, value }) => {
         const nodeDetails = await djClient.node(nodeName);
         schema[nodeName] = nodeDetails.columns.map(col => col.name);
         setSchema(schema);
+      }
+    }
+
+    // Auto-register any catalog-qualified tables typed in the SQL
+    if (knownCatalogsRef.current.length > 0) {
+      clearTimeout(autoRegisterTimer.current);
+      autoRegisterTimer.current = setTimeout(
+        () => autoRegisterCatalogTables(value),
+        600,
+      );
+    }
+  };
+
+  const autoRegisterCatalogTables = async sql => {
+    const re = new RegExp(CATALOG_TABLE_PATTERN.source, 'g');
+    const matches = [];
+    let m;
+    while ((m = re.exec(sql)) !== null) {
+      matches.push(m);
+    }
+    for (const [, catalog, tableSchema, table] of matches) {
+      const key = `${catalog}.${tableSchema}.${table}`;
+      if (!knownCatalogsRef.current.includes(catalog.toLowerCase())) continue;
+      if (registeredTables.current.has(key)) continue;
+      registeredTables.current.add(key);
+
+      const { status, json } = await djClient.registerTable(
+        catalog,
+        tableSchema,
+        table,
+        '',
+      );
+      if (status === 200 || status === 201) {
+        const nodeName = json.name;
+        if (schema[nodeName] === undefined) {
+          schema[nodeName] = [];
+          setSchema({ ...schema });
+        }
       }
     }
   };

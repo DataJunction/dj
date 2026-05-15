@@ -838,17 +838,25 @@ export const DataJunctionAPI = {
     return { status: response.status, json: await response.json() };
   },
 
-  registerTable: async function (catalog, schema, table) {
-    const response = await fetch(
+  registerTable: async function (
+    catalog,
+    schema,
+    table,
+    sourceNodeNamespace = undefined,
+  ) {
+    const url = new URL(
       `${DJ_URL}/register/table/${catalog}/${schema}/${table}`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-      },
     );
+    if (sourceNodeNamespace !== undefined) {
+      url.searchParams.set('source_node_namespace', sourceNodeNamespace);
+    }
+    const response = await fetch(url.toString(), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+    });
     return { status: response.status, json: await response.json() };
   },
 
