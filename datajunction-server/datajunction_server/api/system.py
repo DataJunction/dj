@@ -95,6 +95,7 @@ async def get_data_for_system_metric(
             filters=filters,
             orderby=orderby,
             limit=limit,
+            engine_name=settings.seed_setup.system_engine_name,
         ),
     )
     # The /system/data endpoint executes the SQL directly against the DJ
