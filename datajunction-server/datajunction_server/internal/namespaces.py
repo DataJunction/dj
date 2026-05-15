@@ -13,7 +13,7 @@ from typing import Callable, Dict, List, Optional, Tuple, cast
 
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import Comment, CommentedMap, CommentedSeq
-from sqlalchemy import bindparam, delete, func, or_, select, text
+from sqlalchemy import bindparam, delete, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 from yamlfix import fix_code
@@ -558,6 +558,19 @@ async def hard_delete_namespace(
     # atomic.
     namespaces = await list_namespaces_in_hierarchy(session, namespace)
     deleted_namespaces = [ns.namespace for ns in namespaces]
+
+    # Nullify ``parent_namespace`` on any namespaces that reference one of
+    # the to-be-deleted namespaces — e.g., sibling branches whose name
+    # doesn't start with ``namespace`` but that point to it as parent.
+    # Without this the namespace delete trips the self-FK.
+    if deleted_namespaces:
+        await session.execute(
+            update(NodeNamespace)
+            .where(NodeNamespace.parent_namespace.in_(deleted_namespaces))
+            .where(~NodeNamespace.namespace.in_(deleted_namespaces))
+            .values(parent_namespace=None),
+        )
+
     for _namespace in namespaces:
         impacts[_namespace.namespace] = {
             "type": "namespace",

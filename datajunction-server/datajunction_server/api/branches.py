@@ -10,15 +10,15 @@ import logging
 import time
 from datetime import datetime
 from http import HTTPStatus
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 from fastapi import Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from datajunction_server.api.helpers import get_node_namespace
+from datajunction_server.api.helpers import get_node_namespace, get_save_history
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User
@@ -35,6 +35,7 @@ from datajunction_server.internal.access.authorization import (
 from datajunction_server.internal.git.github_service import GitHubService
 from datajunction_server.internal.git.github_service import GitHubServiceError
 from datajunction_server.internal.namespaces import (
+    hard_delete_namespace,
     resolve_git_config,
     validate_sibling_relationship,
 )
@@ -595,6 +596,7 @@ async def delete_branch(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     access_checker: AccessChecker = Depends(get_access_checker),
+    save_history: Callable = Depends(get_save_history),
 ) -> JSONResponse:
     """
     Delete a branch namespace.
@@ -658,46 +660,14 @@ async def delete_branch(
                 _logger.warning("Failed to delete git branch: %s", e)
                 # Don't fail the request - the branch might already be deleted
 
-    # Delete all nodes in the branch namespace
-    from datajunction_server.database.node import Node
-
-    nodes_query = select(Node).where(
-        or_(
-            Node.namespace == branch_namespace,
-            Node.namespace.like(f"{branch_namespace}.%"),
-        ),
+    impact = await hard_delete_namespace(
+        session=session,
+        namespace=branch_namespace,
+        current_user=current_user,
+        save_history=save_history,
+        cascade=True,
     )
-    result = await session.execute(nodes_query)
-    nodes_to_delete = result.scalars().all()
-    nodes_deleted = len(nodes_to_delete)
-
-    for node in nodes_to_delete:
-        await session.delete(node)
-
-    # Delete child namespaces before the branch namespace itself to satisfy
-    # the self-referential FK constraint (fk_nodenamespace_parent).
-    # This covers sub-namespaces created during deployment (e.g., project.branch.metrics).
-    child_ns_query = select(NodeNamespace).where(
-        NodeNamespace.namespace.like(f"{branch_namespace}.%"),
-    )
-    child_result = await session.execute(child_ns_query)
-    for child_ns in child_result.scalars().all():
-        await session.delete(child_ns)
-
-    # Nullify parent_namespace on any remaining namespaces that reference this one
-    # (e.g., sibling branches created from this namespace as a git root). This
-    # handles the case where the referencing namespace name doesn't start with
-    # branch_namespace and so wasn't caught by the LIKE query above.
-    await session.execute(
-        update(NodeNamespace)
-        .where(NodeNamespace.parent_namespace == branch_namespace)
-        .values(parent_namespace=None),
-    )
-
-    # Delete the namespace record last
-    await session.delete(branch_ns)
-
-    await session.commit()
+    nodes_deleted = len(impact.deleted_nodes)
 
     _logger.info(
         "Deleted branch namespace '%s' (parent: '%s', nodes: %d, git_branch: %s)",
