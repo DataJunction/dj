@@ -1278,6 +1278,7 @@ class NodeRevision(
     __tablename__ = "noderevision"
     __table_args__ = (
         UniqueConstraint("version", "node_id"),
+        Index("ix_noderevision_node_id", "node_id"),
         Index(
             "ix_noderevision_display_name",
             "display_name",
