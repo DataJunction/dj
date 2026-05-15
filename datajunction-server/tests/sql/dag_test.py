@@ -2655,8 +2655,13 @@ async def test_get_dimensions_dag_filters_hidden_columns(
     hidden_attr = AttributeType(
         namespace="system",
         name=ColumnAttributes.HIDDEN.value,
+        description="hidden columns are not exposed",
     )
-    dim_attr = AttributeType(namespace="system", name="dimension")
+    dim_attr = AttributeType(
+        namespace="system",
+        name="dimension",
+        description="a dimension attribute",
+    )
     session.add_all([hidden_attr, dim_attr])
     await session.flush()
 
