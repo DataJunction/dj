@@ -2770,6 +2770,7 @@ async def test_get_dimensions_filters_hidden_reference_link_columns(
     hidden_attr = AttributeType(
         namespace="system",
         name=ColumnAttributes.HIDDEN.value,
+        description="hidden columns are not exposed",
     )
     session.add(hidden_attr)
     await session.flush()
