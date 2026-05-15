@@ -2650,20 +2650,21 @@ async def test_get_dimensions_dag_filters_hidden_columns(
     )
     from datajunction_server.models.attribute import ColumnAttributes
 
-    # Make sure a 'hidden' attribute type exists and a 'dimension' one too
-    # (so local columns become eligible dim-attrs in the first place).
-    hidden_attr = AttributeType(
-        namespace="system",
-        name=ColumnAttributes.HIDDEN.value,
-        description="hidden columns are not exposed",
-    )
-    dim_attr = AttributeType(
-        namespace="system",
-        name="dimension",
-        description="a dimension attribute",
-    )
-    session.add_all([hidden_attr, dim_attr])
-    await session.flush()
+    # Attribute types are seeded at startup; reuse them.
+    from sqlalchemy import select as _select
+
+    hidden_attr = (
+        await session.execute(
+            _select(AttributeType).where(
+                AttributeType.name == ColumnAttributes.HIDDEN.value,
+            ),
+        )
+    ).scalar_one()
+    dim_attr = (
+        await session.execute(
+            _select(AttributeType).where(AttributeType.name == "dimension"),
+        )
+    ).scalar_one()
 
     dim_ref = Node(
         name="hidden_dim.B",
@@ -2767,13 +2768,15 @@ async def test_get_dimensions_filters_hidden_reference_link_columns(
     )
     from datajunction_server.models.attribute import ColumnAttributes
 
-    hidden_attr = AttributeType(
-        namespace="system",
-        name=ColumnAttributes.HIDDEN.value,
-        description="hidden columns are not exposed",
-    )
-    session.add(hidden_attr)
-    await session.flush()
+    from sqlalchemy import select as _select
+
+    hidden_attr = (
+        await session.execute(
+            _select(AttributeType).where(
+                AttributeType.name == ColumnAttributes.HIDDEN.value,
+            ),
+        )
+    ).scalar_one()
 
     dim_ref = Node(
         name="refhidden.D",

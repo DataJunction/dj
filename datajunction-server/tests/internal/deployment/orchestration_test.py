@@ -2600,3 +2600,76 @@ class TestSqlalchemyHelpers:
             [("dj_metadata", "public", "no_such_table_xyz")],
         )
         assert result[("dj_metadata", "public", "no_such_table_xyz")] == []
+
+
+@pytest.mark.asyncio
+async def test_auto_register_sources_uses_sqlalchemy_for_system_catalog(
+    session,
+    current_user: User,
+):
+    """
+    When the auto-register target is the system catalog, the orchestrator
+    reflects via SQLAlchemy rather than the query service. Covers the
+    system-catalog branch in ``_auto_register_sources``.
+    """
+    from datajunction_server.utils import get_settings
+
+    settings = get_settings()
+    system_catalog_name = settings.seed_setup.system_catalog_name
+
+    # The system catalog is seeded by ``seed_default_catalogs`` at app
+    # startup; if the test session hasn't been initialised that way, add it.
+    existing = (
+        await session.execute(
+            select(Catalog).where(Catalog.name == system_catalog_name),
+        )
+    ).scalar_one_or_none()
+    if existing is None:
+        session.add(Catalog(name=system_catalog_name))
+        await session.commit()
+
+    # Query service client must exist (the branch is gated on it), but we
+    # never hit its methods — the system-catalog branch reflects directly.
+    mock_query_client = Mock()
+    mock_query_client.get_columns_for_tables_batch = AsyncMock(
+        side_effect=AssertionError(
+            "Should not call query service for system catalog",
+        ),
+    )
+
+    context = DeploymentContext(
+        current_user=current_user,
+        request=Mock(headers={}),
+        query_service_client=mock_query_client,
+        background_tasks=Mock(),
+        cache=Mock(),
+    )
+
+    deployment_spec = DeploymentSpec(
+        namespace="test_sys",
+        nodes=[],
+        auto_register_sources=True,
+    )
+
+    orchestrator = DeploymentOrchestrator(
+        deployment_id="test-system-deployment",
+        deployment_spec=deployment_spec,
+        session=session,
+        context=context,
+    )
+
+    # ``node`` is a well-known table in the DJ metadata DB; SQLAlchemy can
+    # introspect it directly via the session.
+    result = await orchestrator._auto_register_sources(
+        [f"{system_catalog_name}.public.node"],
+    )
+
+    assert len(result) == 1
+    spec = result[0]
+    assert spec.name == f"{system_catalog_name}.public.node"
+    assert spec.catalog == system_catalog_name
+    col_names = {c.name for c in (spec.columns or [])}
+    # ``node`` always has these columns.
+    assert {"id", "name"} <= col_names
+    # The query service must NOT have been called.
+    mock_query_client.get_columns_for_tables_batch.assert_not_called()
