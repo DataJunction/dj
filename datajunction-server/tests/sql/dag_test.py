@@ -2635,15 +2635,15 @@ async def test_get_dimensions_dag_duplicate_disc_key_skipped(
 
 
 @pytest.mark.asyncio
-async def test_get_dimensions_dag_filters_hidden_columns(
+async def test_get_dimensions_dag_surfaces_hidden_columns(
     session: AsyncSession,
     current_user: User,
 ) -> None:
     """
-    Columns marked with the ``hidden`` attribute are excluded from
-    dimension-attribute output. Exercises the SQL-batched filter paths in
-    ``get_dimension_attributes`` for both graph-dimension columns and
-    starting-node-local columns.
+    Columns marked with the ``hidden`` attribute are still returned by
+    dimension discovery; the attribute is surfaced via ``properties`` so
+    UIs can filter on their end. Server-side query/validation paths must
+    continue to see hidden columns.
     """
     from datajunction_server.database.attributetype import (
         AttributeType,
@@ -2744,24 +2744,27 @@ async def test_get_dimensions_dag_filters_hidden_columns(
     await session.commit()
 
     dims = await get_dimensions_dag(session, fact_rev)
-    names = {d.name for d in dims}
-    # Graph-side hidden column is excluded.
-    assert "hidden_dim.B.visible_col" in names
-    assert "hidden_dim.B.secret_col" not in names
-    # Local-side hidden column is excluded; visible one survives.
-    assert "hidden_dim.fact.visible_local" in names
-    assert "hidden_dim.fact.secret_local" not in names
+    by_name = {d.name: d for d in dims}
+    # Graph-side hidden column still surfaces; its `hidden` attribute is
+    # exposed via `properties` for the UI to filter on.
+    assert "hidden_dim.B.visible_col" in by_name
+    assert "hidden_dim.B.secret_col" in by_name
+    assert "hidden" in (by_name["hidden_dim.B.secret_col"].properties or [])
+    # Local-side hidden column likewise surfaces with the attribute.
+    assert "hidden_dim.fact.visible_local" in by_name
+    assert "hidden_dim.fact.secret_local" in by_name
+    assert "hidden" in (by_name["hidden_dim.fact.secret_local"].properties or [])
 
 
 @pytest.mark.asyncio
-async def test_get_dimensions_filters_hidden_reference_link_columns(
+async def test_get_dimensions_surfaces_hidden_reference_link_columns(
     session: AsyncSession,
     current_user: User,
 ) -> None:
     """
     Reference-style dimension links (``col.dimension_id`` + ``col.dimension_column``)
-    skip the target column when it carries the ``hidden`` attribute. Covers
-    the ``_maybe_link_to_dim`` early-return branch in ``dag.py``.
+    still surface the target column even when it carries the ``hidden``
+    attribute — the attribute is a UI-only hint, not a server-side filter.
     """
     from datajunction_server.database.attributetype import (
         AttributeType,
@@ -2855,8 +2858,11 @@ async def test_get_dimensions_filters_hidden_reference_link_columns(
     await session.commit()
 
     dims = await get_dimensions(session, child_ref)
-    # The reference link to the hidden column must not surface.
-    assert not any(d.name.startswith("refhidden.D.secret_col") for d in dims)
+    # The reference link to the hidden column still surfaces with the
+    # `hidden` attribute carried through `properties`.
+    matching = [d for d in dims if d.name.startswith("refhidden.D.secret_col")]
+    assert matching, "reference link to hidden column should still surface"
+    assert all("hidden" in (d.properties or []) for d in matching)
 
 
 @pytest.mark.asyncio
@@ -2926,13 +2932,14 @@ async def test_build_reference_link_returns_attribute(
 
 
 @pytest.mark.asyncio
-async def test_build_reference_link_skips_hidden_target_column(
+async def test_build_reference_link_surfaces_hidden_target_column(
     session: AsyncSession,
     current_user: User,
 ) -> None:
     """
-    When the target dim column is marked ``hidden``, ``build_reference_link``
-    returns None. Covers the early-return at dag.py:303.
+    ``build_reference_link`` still returns a result when the target dim
+    column is marked ``hidden``; the attribute flows through ``properties``
+    so the UI can decide whether to display it.
     """
     from datajunction_server.database.attributetype import (
         AttributeType,
@@ -3008,4 +3015,5 @@ async def test_build_reference_link_skips_hidden_target_column(
         src_col,
         path=["reflink_hidden.A.d_secret"],
     )
-    assert result is None
+    assert result is not None
+    assert "hidden" in (result.properties or [])

@@ -644,7 +644,6 @@ dependencies = [
 [package.optional-dependencies]
 mcp = [
     { name = "mcp" },
-    { name = "plotext" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
 ]
@@ -681,7 +680,6 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.0.0" },
     { name = "pandas", marker = "extra == 'pandas'", specifier = ">=2.0.2" },
-    { name = "plotext", marker = "extra == 'mcp'", specifier = ">=5.2.8" },
     { name = "pydantic", marker = "extra == 'mcp'", specifier = ">=2.0" },
     { name = "pydantic-settings", marker = "extra == 'mcp'", specifier = ">=2.10.1" },
     { name = "pytest-xdist", specifier = ">=3.5.0" },
@@ -854,11 +852,12 @@ dependencies = [
     { name = "google-auth-oauthlib" },
     { name = "httpx" },
     { name = "jinja2" },
-    { name = "line-profiler" },
+    { name = "mcp" },
     { name = "msgpack" },
     { name = "nbformat" },
     { name = "opentelemetry-instrumentation-fastapi" },
     { name = "passlib" },
+    { name = "plotext" },
     { name = "psycopg" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -888,9 +887,6 @@ all = [
 bigquery = [
     { name = "google-cloud-bigquery" },
     { name = "sqlglot" },
-]
-mcp = [
-    { name = "mcp" },
 ]
 snowflake = [
     { name = "snowflake-connector-python" },
@@ -943,12 +939,12 @@ requires-dist = [
     { name = "google-cloud-bigquery", marker = "extra == 'bigquery'", specifier = ">=3.0.0" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "jinja2", specifier = ">=3.1.4" },
-    { name = "line-profiler", specifier = ">=4.0.3" },
-    { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.0.0" },
+    { name = "mcp", specifier = ">=1.0.0" },
     { name = "msgpack", specifier = ">=1.0.5,<2.0.0" },
     { name = "nbformat", specifier = ">=5.10.4" },
     { name = "opentelemetry-instrumentation-fastapi", specifier = ">=0.48b0" },
     { name = "passlib", specifier = ">=1.7.4" },
+    { name = "plotext", specifier = ">=5.2.8" },
     { name = "psycopg", specifier = ">=3.1.16" },
     { name = "pydantic", specifier = ">=2.0,<2.11" },
     { name = "pydantic-settings", specifier = ">=2.10.1" },
@@ -974,7 +970,7 @@ requires-dist = [
     { name = "yamlfix", specifier = ">=1.16.0" },
     { name = "yarl", specifier = ">=1.8.2,<2.0.0" },
 ]
-provides-extras = ["all", "bigquery", "mcp", "snowflake", "transpilation", "uvicorn"]
+provides-extras = ["all", "bigquery", "snowflake", "transpilation", "uvicorn"]
 
 [package.metadata.requires-dev]
 test = [
@@ -1677,35 +1673,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/b6/a5/607e533ed6c83ae1a696969b8e1c137dfebd5759a2e9682e26ff1b97740b/kombu-5.6.2.tar.gz", hash = "sha256:8060497058066c6f5aed7c26d7cd0d3b574990b09de842a8c5aaed0b92cc5a55", size = 472594, upload-time = "2025-12-29T20:30:07.779Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/fb/0f/834427d8c03ff1d7e867d3db3d176470c64871753252b21b4f4897d1fa45/kombu-5.6.2-py3-none-any.whl", hash = "sha256:efcfc559da324d41d61ca311b0c64965ea35b4c55cc04ee36e55386145dace93", size = 214219, upload-time = "2025-12-29T20:30:05.74Z" },
-]
-
-[[package]]
-name = "line-profiler"
-version = "5.0.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/bf/2a/498665a424404a560b2c6b3a3ea8b4304dbe493ccc3d01a6866c7a38890e/line_profiler-5.0.1.tar.gz", hash = "sha256:3e56c5eee51aa8b82a09d8a35ab19f4100ee45d70eb676c2c58deedcc06c34b1", size = 406557, upload-time = "2026-02-07T05:06:49.814Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/f9/55/0a74021f3ecfe71be86b3263f98890a28902ed0715a841507ac2eb0316db/line_profiler-5.0.1-cp311-cp311-macosx_10_9_universal2.whl", hash = "sha256:8103e12337802850af69ad74fa2d540cb24b35905cab5d093e4d5a88f89d7305", size = 656106, upload-time = "2026-02-07T05:05:56.919Z" },
-    { url = "https://files.pythonhosted.org/packages/a1/e4/63b961fe4ce9cd9b05a4710858b32c537ad8364ed84ec52b1a463733b8b9/line_profiler-5.0.1-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:029abeda3bedf2205fd9e9f9d35b38d369cc33d5581d875aa27c80b03facd95e", size = 513554, upload-time = "2026-02-07T05:05:59.044Z" },
-    { url = "https://files.pythonhosted.org/packages/a5/2b/0c15fe6ae98340a8315f76a289720b3db7cfd2b43581f07771b39ac59a69/line_profiler-5.0.1-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:fc5e42b471316fe55fb52f3dd048a359652d3715e302707a4342844ade009166", size = 502698, upload-time = "2026-02-07T05:06:00.11Z" },
-    { url = "https://files.pythonhosted.org/packages/1e/9c/2b0ede405364e23a5ec45100a6c053db40afff36b17d2778541e16766cae/line_profiler-5.0.1-cp311-cp311-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:e5fe36bf67e5114b56956017cbdb3e14851afa047aee06a6249c7e4524985d30", size = 1546113, upload-time = "2026-02-07T05:06:01.144Z" },
-    { url = "https://files.pythonhosted.org/packages/8e/c8/80bd62dd8fd4d594cb9bc12f40ade5222c5e18a7073f2003091d53ee264a/line_profiler-5.0.1-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:daab2aa2a1c67e7706ab43e13b544eb7c0e2321d7a0646e0380745361e2477ce", size = 2570825, upload-time = "2026-02-07T05:06:02.782Z" },
-    { url = "https://files.pythonhosted.org/packages/20/75/87a0b452a42783848a82ca67a390f920a5844ef0db092f9029cc42933a72/line_profiler-5.0.1-cp311-cp311-win_amd64.whl", hash = "sha256:1a717a5eed30311982b8e707eda30384c5532ccbd557d57e40a1dbc5588667c3", size = 486002, upload-time = "2026-02-07T05:06:04.085Z" },
-    { url = "https://files.pythonhosted.org/packages/54/79/0bf2de84d3680318bf85f3375fe0c296c6d4b1ed02dcad686fa09ced8df1/line_profiler-5.0.1-cp311-cp311-win_arm64.whl", hash = "sha256:6d4b626c948be1d7742ea2314261eccfc4b9f7dfb2adae8ece4409776a9e2511", size = 470516, upload-time = "2026-02-07T05:06:05.227Z" },
-    { url = "https://files.pythonhosted.org/packages/fa/8e/bd5b0cc87203ff280cf01ef65b263472983adad5a0f710cf191e292fc3df/line_profiler-5.0.1-cp312-cp312-macosx_10_13_universal2.whl", hash = "sha256:b9b58a4d805ea11a0ea18c75a21b9d3bc1bb69d1f7d9282625386b8b47689b3b", size = 652481, upload-time = "2026-02-07T05:06:06.329Z" },
-    { url = "https://files.pythonhosted.org/packages/a0/26/01d65c99809cdec0566c3f86b4cefec6ba558b261f75dac0b856a1570d7e/line_profiler-5.0.1-cp312-cp312-macosx_10_13_x86_64.whl", hash = "sha256:a5401dfe1dcd6f01d0f35feff02c96ebd73d2e45058e39ba935e822bde33f191", size = 511256, upload-time = "2026-02-07T05:06:07.847Z" },
-    { url = "https://files.pythonhosted.org/packages/1e/4d/5862629dc59f8154eae76ac0ea2a69c0d11b0b79483957f3c1c6a1af9896/line_profiler-5.0.1-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:a3350cfe27fa71082ac3d773d905b5cff7584a7923a36ea894a4619c0eb40116", size = 501428, upload-time = "2026-02-07T05:06:08.889Z" },
-    { url = "https://files.pythonhosted.org/packages/81/1d/adda8aff5cc3e1d8687a128593a562fbf28d650513674aa773381068ce95/line_profiler-5.0.1-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:348f34f54d68dcb249124d6b6275cbfcaea33920aecdb2f7d536d395abbaeda7", size = 1489869, upload-time = "2026-02-07T05:06:10.034Z" },
-    { url = "https://files.pythonhosted.org/packages/96/6e/a5f92fb2451982ea49dd1bbc1b4a308aaeda81320583b3593731bc8654e8/line_profiler-5.0.1-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:4344e66d853824be0f0fa5d99ba6014cb093334e178fac942870bc4a4dd4c146", size = 2501328, upload-time = "2026-02-07T05:06:12.101Z" },
-    { url = "https://files.pythonhosted.org/packages/5f/79/cd66262b78a9f1e6ccd7452f331237c3489fb93191f95fe0b9c4cdac4733/line_profiler-5.0.1-cp312-cp312-win_amd64.whl", hash = "sha256:87d2295feaa5ac933e672d1c5ac5b83e2a1f7ebce25d290f81a7aabb1d46ac1f", size = 484346, upload-time = "2026-02-07T05:06:13.847Z" },
-    { url = "https://files.pythonhosted.org/packages/cb/ba/ec80db0e0b2a46832127f5de5cd6d059d60aeb0daf2a2eddd7a05ff092da/line_profiler-5.0.1-cp312-cp312-win_arm64.whl", hash = "sha256:d3c93c975c1ccbc77db82579e9ec65897d783d53c3456cd2a8a582cae7cb5b81", size = 467828, upload-time = "2026-02-07T05:06:14.896Z" },
-    { url = "https://files.pythonhosted.org/packages/35/83/23b24ceb224f89725c2baa0be1b889ea9eec84b4ec3835c8f7ff62abf918/line_profiler-5.0.1-cp313-cp313-macosx_10_13_universal2.whl", hash = "sha256:6100734916900f6c0ee5ba1cae05e7860c53aac4cd7a016faefd50092be22a14", size = 648194, upload-time = "2026-02-07T05:06:16.59Z" },
-    { url = "https://files.pythonhosted.org/packages/8e/ec/6e71a59baf77b95c38ac07dc6e622f46674a526ea9dbd348ac310c24b358/line_profiler-5.0.1-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:ef083f93bbb8cd8e7fa49b07e09245195a9be47755e7e353fb526aee9d983427", size = 509348, upload-time = "2026-02-07T05:06:18.195Z" },
-    { url = "https://files.pythonhosted.org/packages/46/29/ce75d7e9c07e72ffa513424881d0509a559a21a433f462fb197604a0e4ce/line_profiler-5.0.1-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:0b74a89eba20a20222bf6220e017244849cb675125a0e9e7ade5411af3d6c246", size = 499198, upload-time = "2026-02-07T05:06:19.72Z" },
-    { url = "https://files.pythonhosted.org/packages/90/ae/3bccce627f42151b2bd7389ef1304b9255e38d6c79ae23fbd8c33600ea45/line_profiler-5.0.1-cp313-cp313-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:6f8a74fb63ff4cb1358fa9378daa853396f5868d5c81cad88d17b1f48a761f04", size = 1488964, upload-time = "2026-02-07T05:06:20.86Z" },
-    { url = "https://files.pythonhosted.org/packages/ff/24/0940490a9be8e19ed097da03463547c5a7e066b8612e208e005fd440c3e2/line_profiler-5.0.1-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:7460781af7e8754850c5dc8b6f1d0133d48aa3a24723cfe9d445dd27d42a798d", size = 2500824, upload-time = "2026-02-07T05:06:22.19Z" },
-    { url = "https://files.pythonhosted.org/packages/3e/53/f73fc9515d3919c9733b88fc9d51b81dba50d74da9e8f357a72ed5c503b7/line_profiler-5.0.1-cp313-cp313-win_amd64.whl", hash = "sha256:20174e74b142d13ccb8836ebabfa1ca4e2cde4d0961f3ee078a3cc64f2832bd6", size = 484852, upload-time = "2026-02-07T05:06:23.467Z" },
-    { url = "https://files.pythonhosted.org/packages/44/c5/2cdf45c274410632c15a28075ccc865e13b2dd5ae3b11a25313cf8e0d8af/line_profiler-5.0.1-cp313-cp313-win_arm64.whl", hash = "sha256:39ed06465de1dc1eccf1df7dcd90aa100af3f55472ef25fa6c8bd228d8d5f819", size = 467511, upload-time = "2026-02-07T05:06:24.588Z" },
 ]
 
 [[package]]
