@@ -6,11 +6,7 @@ import React from 'react';
 import { ErrorMessage, Field, useFormikContext } from 'formik';
 import CodeMirror from '@uiw/react-codemirror';
 import { langs } from '@uiw/codemirror-extensions-langs';
-
-// Matches catalog.schema.table (3-part dot-separated identifiers, backtick-quoted or plain)
-// Instantiated fresh per call to avoid /g lastIndex state issues
-const CATALOG_TABLE_PATTERN =
-  /`?([a-zA-Z_][a-zA-Z0-9_]*)`?\.`?([a-zA-Z_][a-zA-Z0-9_]*)`?\.`?([a-zA-Z_][a-zA-Z0-9_]*)`?/;
+import { extractCatalogTables } from './catalogTables';
 
 export const NodeQueryField = ({ djClient, value }) => {
   const [schema, setSchema] = React.useState([]);
@@ -71,15 +67,9 @@ export const NodeQueryField = ({ djClient, value }) => {
   };
 
   const autoRegisterCatalogTables = async sql => {
-    const re = new RegExp(CATALOG_TABLE_PATTERN.source, 'g');
-    const matches = [];
-    let m;
-    while ((m = re.exec(sql)) !== null) {
-      matches.push(m);
-    }
-    for (const [, catalog, tableSchema, table] of matches) {
+    const tables = extractCatalogTables(sql, knownCatalogsRef.current);
+    for (const [catalog, tableSchema, table] of tables) {
       const key = `${catalog}.${tableSchema}.${table}`;
-      if (!knownCatalogsRef.current.includes(catalog.toLowerCase())) continue;
       if (registeredTables.current.has(key)) continue;
       registeredTables.current.add(key);
 
