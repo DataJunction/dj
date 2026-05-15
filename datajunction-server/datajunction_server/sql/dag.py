@@ -299,8 +299,6 @@ async def build_reference_link(
         (dc for dc in dim_cols if dc.name == col.dimension_column),
         None,
     ):
-        if ColumnAttributes.HIDDEN.value in dim_col.attribute_names():
-            return None
         return DimensionAttributeOutput(
             name=f"{col.dimension.name}.{col.dimension_column}"
             + (f"[{'->'.join(role)}]" if role else ""),
@@ -420,7 +418,6 @@ async def get_dimension_attributes(
         )
         for dim, path, role in dimension_nodes_and_paths
         for col in dim.current.columns
-        if ColumnAttributes.HIDDEN.value not in col.attribute_names()
     ]
 
     # Build all local dimension attributes from the original node
@@ -435,7 +432,6 @@ async def get_dimension_attributes(
             path=[],
         )
         for col in node.current.columns
-        if ColumnAttributes.HIDDEN.value not in col.attribute_names()
     ]
     local_dimensions = [
         dim
@@ -802,8 +798,6 @@ async def _get_dimensions_dag_bfs(
             [],
         ):
             attr_list = attribute_types.split(",") if attribute_types else []
-            if ColumnAttributes.HIDDEN.value in attr_list:
-                continue
             results.append(
                 DimensionAttributeOutput(
                     name=f"{node_name}.{col_name}{role_suffix}",
@@ -820,8 +814,6 @@ async def _get_dimensions_dag_bfs(
     # or if the starting node itself is a dimension
     for col_name, col_type, attribute_types, col_display_name in local_columns:
         attr_list = attribute_types.split(",") if attribute_types else []
-        if ColumnAttributes.HIDDEN.value in attr_list:
-            continue
         is_dim_attr = (
             ColumnAttributes.DIMENSION.value in attr_list
             or ColumnAttributes.PRIMARY_KEY.value in attr_list
@@ -974,8 +966,6 @@ async def get_filter_only_dimensions(
                         ].attribute_names(),
                     )
                     for dim in link.foreign_keys.values()
-                    if ColumnAttributes.HIDDEN.value
-                    not in column_mapping[dim.split(SEPARATOR)[-1]].attribute_names()
                 ],
             )
     return filter_only_dimensions
