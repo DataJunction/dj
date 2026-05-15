@@ -23,12 +23,7 @@ from datajunction_server.api.helpers import get_node_namespace
 from datajunction_server.database.deployment import Deployment
 from datajunction_server.database.history import History
 from datajunction_server.database.namespace import NodeNamespace
-from datajunction_server.database.dimensionlink import DimensionLink
-from datajunction_server.database.node import (
-    Column,
-    Node,
-    NodeRevision,
-)
+from datajunction_server.database.node import Column, Node, NodeRevision
 from datajunction_server.database.user import User
 from datajunction_server.errors import (
     DJActionNotAllowedException,
@@ -471,40 +466,59 @@ async def hard_delete_namespace(
             impacted_downstreams[child_name] = [node_id_to_name[pid] for pid in ordered]
 
     if dimension_ids:
-        column_links_q = (
-            select(Column.dimension_id, Node.name)
-            .select_from(Column)
-            .join(NodeRevision, NodeRevision.id == Column.node_revision_id)
-            .join(
-                Node,
-                (Node.id == NodeRevision.node_id)
-                & (Node.current_version == NodeRevision.version),
-            )
-            .where(Column.dimension_id.in_(dimension_ids))
-            .where(~Node.id.in_(node_ids))
-            .distinct()
+        # Walk the dimension graph upstream: any dimension D' whose current
+        # revision has a column or dimension link pointing at a deleted
+        # dimension D (transitively) means consumers of D' lose a path that
+        # leads to D. We propagate the original deleted-dim attribution
+        # through the recursive expansion, then find non-deleted consumers
+        # of any dimension in the expanded set.
+        link_rows = await session.execute(
+            text(
+                """
+                WITH RECURSIVE
+                edges(node_revision_id, dimension_id) AS (
+                    SELECT node_revision_id, dimension_id
+                    FROM "column"
+                    WHERE dimension_id IS NOT NULL
+                  UNION ALL
+                    SELECT node_revision_id, dimension_id
+                    FROM dimensionlink
+                ),
+                dim_graph(deleted_dim_id, reachable_dim_id) AS (
+                    SELECT id, id FROM node WHERE id IN :deleted_dim_ids
+                  UNION
+                    SELECT dg.deleted_dim_id, n.id
+                    FROM dim_graph dg
+                    JOIN edges e ON e.dimension_id = dg.reachable_dim_id
+                    JOIN noderevision nr ON nr.id = e.node_revision_id
+                    JOIN node n
+                      ON n.id = nr.node_id
+                     AND n.current_version = nr.version
+                    WHERE n.type = 'DIMENSION'
+                      AND n.deactivated_at IS NULL
+                )
+                SELECT DISTINCT dg.deleted_dim_id, consumer.name
+                FROM dim_graph dg
+                JOIN edges e ON e.dimension_id = dg.reachable_dim_id
+                JOIN noderevision nr ON nr.id = e.node_revision_id
+                JOIN node consumer
+                  ON consumer.id = nr.node_id
+                 AND consumer.current_version = nr.version
+                WHERE consumer.deactivated_at IS NULL
+                  AND consumer.id NOT IN :deleted_node_ids
+                """,
+            ).bindparams(
+                bindparam("deleted_dim_ids", expanding=True),
+                bindparam("deleted_node_ids", expanding=True),
+            ),
+            {"deleted_dim_ids": dimension_ids, "deleted_node_ids": node_ids},
         )
-        dim_links_q = (
-            select(DimensionLink.dimension_id, Node.name)
-            .select_from(DimensionLink)
-            .join(NodeRevision, NodeRevision.id == DimensionLink.node_revision_id)
-            .join(
-                Node,
-                (Node.id == NodeRevision.node_id)
-                & (Node.current_version == NodeRevision.version),
-            )
-            .where(DimensionLink.dimension_id.in_(dimension_ids))
-            .where(~Node.id.in_(node_ids))
-            .distinct()
-        )
-        seen_link_pairs: set = set()
-        for query in (column_links_q, dim_links_q):
-            for dim_id, consumer_name in (await session.execute(query)).all():
-                pair = (consumer_name, dim_id)
-                if pair in seen_link_pairs:
-                    continue
-                seen_link_pairs.add(pair)
-                impacted_links[consumer_name].append(node_id_to_name[dim_id])
+        link_pairs: Dict[str, List[int]] = defaultdict(list)
+        for dim_id, consumer_name in link_rows.all():
+            link_pairs[consumer_name].append(dim_id)
+        for consumer_name, dim_ids in link_pairs.items():
+            ordered = sorted(set(dim_ids), key=lambda d: node_id_to_name[d])
+            impacted_links[consumer_name] = [node_id_to_name[d] for d in ordered]
 
     # Stage history events on the session without committing — the whole
     # hard-delete operation (history + node deletes + namespace deletes)
