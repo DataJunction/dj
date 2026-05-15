@@ -6,6 +6,7 @@ from sqlalchemy import (
     BigInteger,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     String,
     JSON,
@@ -84,6 +85,9 @@ class FrozenMeasure(Base):
     """
 
     __tablename__ = "frozen_measures"
+    __table_args__ = (
+        Index("ix_frozen_measures_upstream_revision_id", "upstream_revision_id"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger(), primary_key=True)
 
@@ -217,6 +221,16 @@ class NodeRevisionFrozenMeasure(Base):
     """
 
     __tablename__ = "node_revision_frozen_measures"
+    __table_args__ = (
+        Index(
+            "ix_node_revision_frozen_measures_node_revision_id",
+            "node_revision_id",
+        ),
+        Index(
+            "ix_node_revision_frozen_measures_frozen_measure_id",
+            "frozen_measure_id",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger(), primary_key=True)
     node_revision_id: Mapped[int] = mapped_column(

@@ -43,6 +43,7 @@ class Materialization(Base):
             "node_revision_id",
             name="name_node_revision_uniq",
         ),
+        sa.Index("ix_materialization_node_revision_id", "node_revision_id"),
     )
 
     id: Mapped[int] = mapped_column(

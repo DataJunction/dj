@@ -2,7 +2,7 @@
 
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
-from sqlalchemy import BigInteger, ForeignKey, Integer, String
+from sqlalchemy import BigInteger, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from datajunction_server.database.attributetype import ColumnAttribute
@@ -27,6 +27,10 @@ class Column(Base):  # type: ignore
     """
 
     __tablename__ = "column"
+    __table_args__ = (
+        Index("ix_column_dimension_id", "dimension_id"),
+        Index("ix_column_partition_id", "partition_id"),
+    )
 
     id: Mapped[int] = mapped_column(
         BigInteger().with_variant(Integer, "sqlite"),

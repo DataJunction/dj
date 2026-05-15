@@ -8,6 +8,7 @@ from sqlalchemy import (
     BigInteger,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     JSON,
@@ -294,7 +295,10 @@ class HierarchyLevel(Base):  # type: ignore
     """
 
     __tablename__ = "hierarchy_levels"
-    __table_args__ = (UniqueConstraint("hierarchy_id", "name"),)
+    __table_args__ = (
+        UniqueConstraint("hierarchy_id", "name"),
+        Index("ix_hierarchy_levels_dimension_node_id", "dimension_node_id"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger(), primary_key=True)
 
