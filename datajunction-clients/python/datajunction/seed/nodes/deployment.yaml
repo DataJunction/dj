@@ -9,7 +9,7 @@ query: |-
   SELECT
     D.uuid,
     D.namespace,
-    CAST(D.status AS STRING) AS status,
+    CAST(D.status AS VARCHAR) AS status,
     D.created_by_id,
     D.created_at,
     D.updated_at,
@@ -17,11 +17,11 @@ query: |-
     CAST(TO_CHAR(CAST(DATE_TRUNC('week', D.created_at) AS date), 'YYYYMMDD') AS integer) AS created_at_week,
     CAST(TO_CHAR(CAST(D.updated_at AS date), 'YYYYMMDD') AS integer) AS updated_at_date,
     CAST(TO_CHAR(CAST(DATE_TRUNC('week', D.updated_at) AS date), 'YYYYMMDD') AS integer) AS updated_at_week,
-    CAST(json_extract_path_text(D.spec, 'source', 'type') AS STRING) AS source_type,
-    CAST(json_extract_path_text(D.spec, 'source', 'repository') AS STRING) AS repository,
-    CAST(json_extract_path_text(D.spec, 'source', 'branch') AS STRING) AS branch,
-    CAST(json_extract_path_text(D.spec, 'source', 'commit_sha') AS STRING) AS commit_sha,
-    CAST(json_extract_path_text(D.spec, 'source', 'ci_system') AS STRING) AS ci_system,
+    CAST(json_extract_path_text(D.spec, 'source', 'type') AS VARCHAR) AS source_type,
+    CAST(json_extract_path_text(D.spec, 'source', 'repository') AS VARCHAR) AS repository,
+    CAST(json_extract_path_text(D.spec, 'source', 'branch') AS VARCHAR) AS branch,
+    CAST(json_extract_path_text(D.spec, 'source', 'commit_sha') AS VARCHAR) AS commit_sha,
+    CAST(json_extract_path_text(D.spec, 'source', 'ci_system') AS VARCHAR) AS ci_system,
     CAST(EXTRACT(EPOCH FROM (D.updated_at - D.created_at)) AS double) AS duration_seconds
   FROM source.dj_metadata.public.deployments D
 columns:
