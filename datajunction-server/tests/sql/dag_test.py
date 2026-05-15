@@ -2631,3 +2631,219 @@ async def test_get_dimensions_dag_duplicate_disc_key_skipped(
     assert len(dim_c_attrs) == 1, (
         f"Expected exactly 1 entry for duppath.dim_c, got {len(dim_c_attrs)}"
     )
+
+
+@pytest.mark.asyncio
+async def test_get_dimensions_dag_filters_hidden_columns(
+    session: AsyncSession,
+    current_user: User,
+) -> None:
+    """
+    Columns marked with the ``hidden`` attribute are excluded from
+    dimension-attribute output. Exercises the SQL-batched filter paths in
+    ``get_dimension_attributes`` for both graph-dimension columns and
+    starting-node-local columns.
+    """
+    from datajunction_server.database.attributetype import (
+        AttributeType,
+        ColumnAttribute,
+    )
+    from datajunction_server.models.attribute import ColumnAttributes
+
+    # Make sure a 'hidden' attribute type exists and a 'dimension' one too
+    # (so local columns become eligible dim-attrs in the first place).
+    hidden_attr = AttributeType(
+        namespace="system",
+        name=ColumnAttributes.HIDDEN.value,
+    )
+    dim_attr = AttributeType(namespace="system", name="dimension")
+    session.add_all([hidden_attr, dim_attr])
+    await session.flush()
+
+    dim_ref = Node(
+        name="hidden_dim.B",
+        type=NodeType.DIMENSION,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    dim_rev = NodeRevision(
+        node=dim_ref,
+        name=dim_ref.name,
+        type=dim_ref.type,
+        display_name="hidden_dim.B",
+        version="1",
+        columns=[
+            Column(name="id", type=IntegerType(), order=0),
+            Column(name="visible_col", type=StringType(), order=1),
+            Column(
+                name="secret_col",
+                type=StringType(),
+                order=2,
+                attributes=[ColumnAttribute(attribute_type=hidden_attr)],
+            ),
+        ],
+        created_by_id=current_user.id,
+    )
+    dim_ref.current = dim_rev
+    session.add(dim_rev)
+    session.add(dim_ref)
+
+    fact_ref = Node(
+        name="hidden_dim.fact",
+        type=NodeType.TRANSFORM,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    fact_rev = NodeRevision(
+        node=fact_ref,
+        name=fact_ref.name,
+        type=fact_ref.type,
+        display_name="hidden_dim.fact",
+        version="1",
+        columns=[
+            Column(name="fact_id", type=IntegerType(), order=0),
+            # A local dim-attr column on the fact itself — the SQL-batched
+            # path's "local columns" branch filters hidden ones here.
+            Column(
+                name="visible_local",
+                type=StringType(),
+                order=1,
+                attributes=[ColumnAttribute(attribute_type=dim_attr)],
+            ),
+            Column(
+                name="secret_local",
+                type=StringType(),
+                order=2,
+                attributes=[
+                    ColumnAttribute(attribute_type=dim_attr),
+                    ColumnAttribute(attribute_type=hidden_attr),
+                ],
+            ),
+        ],
+        created_by_id=current_user.id,
+    )
+    fact_ref.current = fact_rev
+    session.add(fact_rev)
+    session.add(fact_ref)
+    await session.flush()
+
+    session.add(
+        DimensionLink(
+            dimension_id=dim_ref.id,
+            node_revision_id=fact_rev.id,
+            join_sql="hidden_dim.fact.fact_id = hidden_dim.B.id",
+        ),
+    )
+    await session.commit()
+
+    dims = await get_dimensions_dag(session, fact_rev)
+    names = {d.name for d in dims}
+    # Graph-side hidden column is excluded.
+    assert "hidden_dim.B.visible_col" in names
+    assert "hidden_dim.B.secret_col" not in names
+    # Local-side hidden column is excluded; visible one survives.
+    assert "hidden_dim.fact.visible_local" in names
+    assert "hidden_dim.fact.secret_local" not in names
+
+
+@pytest.mark.asyncio
+async def test_get_dimensions_filters_hidden_reference_link_columns(
+    session: AsyncSession,
+    current_user: User,
+) -> None:
+    """
+    Reference-style dimension links (``col.dimension_id`` + ``col.dimension_column``)
+    skip the target column when it carries the ``hidden`` attribute. Covers
+    the ``_maybe_link_to_dim`` early-return branch in ``dag.py``.
+    """
+    from datajunction_server.database.attributetype import (
+        AttributeType,
+        ColumnAttribute,
+    )
+    from datajunction_server.models.attribute import ColumnAttributes
+
+    hidden_attr = AttributeType(
+        namespace="system",
+        name=ColumnAttributes.HIDDEN.value,
+    )
+    session.add(hidden_attr)
+    await session.flush()
+
+    dim_ref = Node(
+        name="refhidden.D",
+        type=NodeType.DIMENSION,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    dim_rev = NodeRevision(
+        node=dim_ref,
+        name=dim_ref.name,
+        type=dim_ref.type,
+        display_name="refhidden.D",
+        version="1",
+        columns=[
+            Column(
+                name="secret_col",
+                type=StringType(),
+                order=0,
+                attributes=[ColumnAttribute(attribute_type=hidden_attr)],
+            ),
+        ],
+        created_by_id=current_user.id,
+    )
+    dim_ref.current = dim_rev
+    session.add(dim_rev)
+    session.add(dim_ref)
+
+    parent_ref = Node(
+        name="refhidden.A",
+        type=NodeType.SOURCE,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    parent = NodeRevision(
+        node=parent_ref,
+        name=parent_ref.name,
+        type=parent_ref.type,
+        display_name="refhidden.A",
+        version="1",
+        columns=[
+            # Reference link to the dim's hidden column.
+            Column(
+                name="d_secret",
+                type=StringType(),
+                order=0,
+                dimension=dim_ref,
+                dimension_column="secret_col",
+            ),
+        ],
+        created_by_id=current_user.id,
+    )
+    parent_ref.current = parent
+    session.add(parent)
+    session.add(parent_ref)
+
+    child_ref = Node(
+        name="refhidden.C",
+        type=NodeType.METRIC,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    child = NodeRevision(
+        node=child_ref,
+        name=child_ref.name,
+        display_name="refhidden.C",
+        version="1",
+        query="SELECT COUNT(*) FROM refhidden.A",
+        parents=[parent_ref],
+        type=NodeType.METRIC,
+        created_by_id=current_user.id,
+    )
+    child_ref.current = child
+    session.add(child)
+    session.add(child_ref)
+    await session.commit()
+
+    dims = await get_dimensions(session, child_ref)
+    # The reference link to the hidden column must not surface.
+    assert not any(d.name.startswith("refhidden.D.secret_col") for d in dims)

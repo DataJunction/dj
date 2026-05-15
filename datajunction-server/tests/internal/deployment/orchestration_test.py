@@ -2500,3 +2500,103 @@ class TestCreateOrUpdateDimensionJoinLink:
         assert activity == ActivityType.UPDATE
         assert result_link is existing_link
         assert existing_link.join_sql == "t.new_date = default.date_dim.dateint"
+
+
+class TestSqlalchemyHelpers:
+    """Coverage for the SQLAlchemy reflection helpers added for the system catalog."""
+
+    def test_sqlalchemy_to_dj_type_known_types(self):
+        """Each SQLAlchemy type maps to the expected DJ type string."""
+        from sqlalchemy import (
+            BigInteger,
+            Boolean,
+            Date,
+            DateTime,
+            Float,
+            Integer,
+            Interval,
+            JSON,
+            Numeric,
+            SmallInteger,
+            String,
+            Text,
+            Time,
+        )
+        from sqlalchemy.dialects.postgresql import JSONB, UUID, ARRAY
+
+        from datajunction_server.internal.deployment.orchestrator import (
+            _sqlalchemy_to_dj_type,
+        )
+
+        cases = [
+            (BigInteger(), "bigint"),
+            (Integer(), "int"),
+            (SmallInteger(), "int"),
+            (Numeric(), "double"),
+            (Float(), "double"),
+            (Boolean(), "boolean"),
+            (DateTime(), "timestamp"),
+            (Date(), "date"),
+            (Time(), "string"),
+            (Interval(), "string"),
+            (UUID(), "string"),
+            (JSON(), "string"),
+            (JSONB(), "string"),
+            (Text(), "string"),
+            (String(), "string"),
+            (ARRAY(Integer()), "string"),
+        ]
+        for sa_type, expected in cases:
+            assert _sqlalchemy_to_dj_type(sa_type) == expected, sa_type
+
+    def test_sqlalchemy_to_dj_type_unknown_defaults_to_string(self):
+        """Anything we don't recognize falls back to ``string``."""
+        from datajunction_server.internal.deployment.orchestrator import (
+            _sqlalchemy_to_dj_type,
+        )
+
+        class WeirdType:
+            pass
+
+        assert _sqlalchemy_to_dj_type(WeirdType()) == "string"
+
+    @pytest.mark.asyncio
+    async def test_reflect_columns_via_sqlalchemy_against_live_session(
+        self,
+        module__session,
+    ):
+        """
+        Smoke-test ``_reflect_columns_via_sqlalchemy`` against the live test
+        session. We point it at a known DJ metadata table (``node``) and
+        verify it returns a non-empty list of Column objects with names.
+        """
+        from datajunction_server.internal.deployment.orchestrator import (
+            _reflect_columns_via_sqlalchemy,
+        )
+
+        result = await _reflect_columns_via_sqlalchemy(
+            module__session,
+            [("dj_metadata", "public", "node")],
+        )
+        cols = result[("dj_metadata", "public", "node")]
+        assert len(cols) > 0
+        col_names = {c.name for c in cols}
+        # ``node`` always has these regardless of schema drift.
+        assert "id" in col_names
+        assert "name" in col_names
+
+    @pytest.mark.asyncio
+    async def test_reflect_columns_via_sqlalchemy_handles_missing_table(
+        self,
+        module__session,
+    ):
+        """Reflection for a non-existent table returns an empty list (no raise)."""
+        from datajunction_server.internal.deployment.orchestrator import (
+            _reflect_columns_via_sqlalchemy,
+        )
+
+        result = await _reflect_columns_via_sqlalchemy(
+            module__session,
+            [("dj_metadata", "public", "no_such_table_xyz")],
+        )
+        assert result[("dj_metadata", "public", "no_such_table_xyz")] == []
