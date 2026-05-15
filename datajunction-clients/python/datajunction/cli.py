@@ -14,7 +14,7 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 
-from datajunction import DJBuilder, Project
+from datajunction import DJBuilder
 from datajunction.deployment import DeploymentService
 from datajunction.exceptions import DJClientException, DJDeploymentFailure
 
@@ -1846,6 +1846,7 @@ model: inherit
         """
         tables = [
             "node",
+            "nodenamespace",
             "noderevision",
             "users",
             "materialization",
@@ -1854,6 +1855,7 @@ model: inherit
             "backfill",
             "collection",
             "dimensionlink",
+            "deployments",
         ]
         for table in tables:
             try:
@@ -1869,19 +1871,27 @@ model: inherit
                     )
         logger.info("Finished registering DJ system metadata tables")
 
-        logger.info("Loading DJ system nodes...")
+        logger.info("Pushing DJ system nodes...")
         script_dir = Path(__file__).resolve().parent
         project_dir = script_dir / "seed" / type
-        project = Project.load(str(project_dir))
-        logger.info("Finished loading DJ system nodes.")
+        # Read the project's declared prefix and pass it explicitly so the
+        # push flow doesn't apply git-branch namespace derivation to the
+        # bootstrap nodes (they always belong to the canonical system namespace).
+        project_yaml_path = project_dir / "dj.yaml"
+        project_meta: dict = {}
+        if project_yaml_path.exists():  # pragma: no branch
+            import yaml as _yaml
 
-        logger.info("Compiling DJ system nodes...")
-        compiled_project = project.compile()
-        logger.info("Finished compiling DJ system nodes.")
-
-        logger.info("Deploying DJ system nodes...")
-        compiled_project.deploy(client=self.builder_client)
-        logger.info("Finished deploying DJ system nodes.")
+            with open(project_yaml_path, encoding="utf-8") as fh:
+                project_meta = _yaml.safe_load(fh) or {}
+        system_namespace = project_meta.get("namespace") or project_meta.get(
+            "prefix",
+        )
+        self.deployment_service.push(
+            str(project_dir),
+            namespace=system_namespace,
+        )
+        logger.info("Finished pushing DJ system nodes.")
 
 
 def main(builder_client: DJBuilder | None = None):

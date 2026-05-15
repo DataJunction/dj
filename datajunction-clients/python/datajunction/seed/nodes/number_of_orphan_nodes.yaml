@@ -1,0 +1,23 @@
+name: ${prefix}number_of_orphan_nodes
+node_type: metric
+display_name: Number of Orphan Nodes
+description: |-
+  Count of active nodes that have no downstream consumers (child_count = 0).
+  Useful for spotting unused metrics/dimensions/cubes that may be safe to
+  retire. Slice by ``nodes.type`` to see "orphan metrics", "orphan dimensions",
+  etc., or by ``namespace.top_level`` to spot which areas have the most.
+query: |-
+  SELECT SUM(IF(is_orphan = true AND is_active = true, 1, 0))
+   FROM ${prefix}nodes
+tags: []
+custom_metadata:
+  group: Quality
+  subgroup: Hygiene
+  suggested_compare_by:
+  - system.dj.node_type.type
+required_dimensions: []
+direction: lower_is_better
+unit: null
+significant_digits: null
+min_decimal_exponent: null
+max_decimal_exponent: null

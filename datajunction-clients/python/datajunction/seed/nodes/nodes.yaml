@@ -1,0 +1,232 @@
+name: ${prefix}nodes
+node_type: dimension
+display_name: Nodes
+description: ''
+query: |-
+  WITH rev_counts AS (
+    SELECT
+      node_id,
+      COUNT(*) AS revision_count
+    FROM source.dj_metadata.public.noderevision
+    GROUP BY node_id
+  ),
+  parent_counts AS (
+    SELECT
+      NR.node_id AS node_id,
+      COUNT(DISTINCT NRL.parent_id) AS parent_count
+    FROM source.dj_metadata.public.noderelationship NRL
+    JOIN source.dj_metadata.public.noderevision NR
+      ON NR.id = NRL.child_id
+    JOIN source.dj_metadata.public.node CN
+      ON CN.id = NR.node_id AND CN.current_version = NR.version
+    GROUP BY NR.node_id
+  ),
+  child_counts AS (
+    SELECT
+      NRL.parent_id AS node_id,
+      COUNT(DISTINCT D.node_id) AS child_count
+    FROM source.dj_metadata.public.noderelationship NRL
+    JOIN source.dj_metadata.public.noderevision D
+      ON D.id = NRL.child_id
+    JOIN source.dj_metadata.public.node DN
+      ON DN.id = D.node_id AND DN.current_version = D.version
+    GROUP BY NRL.parent_id
+  ),
+  dim_link_counts AS (
+    SELECT
+      NR.node_id AS node_id,
+      COUNT(DL.id) AS dim_link_count
+    FROM source.dj_metadata.public.dimensionlink DL
+    JOIN source.dj_metadata.public.noderevision NR
+      ON NR.id = DL.node_revision_id
+    JOIN source.dj_metadata.public.node DN
+      ON DN.id = NR.node_id AND DN.current_version = NR.version
+    GROUP BY NR.node_id
+  ),
+  dim_indegree AS (
+    -- For dimension nodes: how many distinct upstream nodes link TO this dim
+    -- via their current revision.
+    SELECT
+      DL.dimension_id AS node_id,
+      COUNT(DISTINCT NR.node_id) AS indegree
+    FROM source.dj_metadata.public.dimensionlink DL
+    JOIN source.dj_metadata.public.noderevision NR
+      ON NR.id = DL.node_revision_id
+    JOIN source.dj_metadata.public.node UN
+      ON UN.id = NR.node_id AND UN.current_version = NR.version
+    GROUP BY DL.dimension_id
+  ),
+  dim_cube_usage AS (
+    -- For dimension nodes: how many distinct cubes reference a column of
+    -- this dimension via their current revision.
+    SELECT
+      DNR.node_id AS node_id,
+      COUNT(DISTINCT CR.cube_id) AS cube_count
+    FROM source.dj_metadata.public.cube CR
+    JOIN source.dj_metadata.public.column C
+      ON C.id = CR.cube_element_id
+    JOIN source.dj_metadata.public.noderevision DNR
+      ON DNR.id = C.node_revision_id
+    JOIN source.dj_metadata.public.node DN
+      ON DN.id = DNR.node_id AND DN.current_version = DNR.version
+     AND CAST(DN.type AS STRING) = 'DIMENSION'
+    GROUP BY DNR.node_id
+  )
+  SELECT
+    N.id,
+    N.name,
+    NR.display_name,
+    CAST(N.type AS STRING) AS type,
+    N.namespace,
+    N.created_by_id,
+    N.created_at,
+    CAST(TO_CHAR(CAST(N.created_at AS date), 'YYYYMMDD') AS integer) AS created_at_date,
+    CAST(TO_CHAR(CAST(DATE_TRUNC('week', N.created_at) AS date), 'YYYYMMDD') AS integer) AS created_at_week,
+    N.current_version,
+    CASE WHEN N.deactivated_at IS NULL THEN true ELSE false END AS is_active,
+    CAST(NR.status AS STRING) AS status,
+    CAST(NR.mode AS STRING) AS mode,
+    NR.description,
+    NR.id AS current_revision_id,
+    CASE
+      WHEN NR.description IS NULL OR NR.description = '' THEN false
+      ELSE true
+    END AS has_description,
+    CASE WHEN OWNED.node_id IS NOT NULL THEN true ELSE false END AS has_owner,
+    CASE WHEN TAGGED.node_id IS NOT NULL THEN true ELSE false END AS has_tags,
+    COALESCE(RC.revision_count, 0) AS revision_count,
+    COALESCE(PC.parent_count, 0) AS parent_count,
+    COALESCE(CC.child_count, 0) AS child_count,
+    COALESCE(DLC.dim_link_count, 0) AS dim_link_count,
+    COALESCE(DI.indegree, 0) AS dim_indegree,
+    COALESCE(DCU.cube_count, 0) AS dim_cube_count,
+    CASE WHEN COALESCE(CC.child_count, 0) = 0 THEN true ELSE false END AS is_orphan,
+    CASE WHEN COALESCE(PC.parent_count, 0) = 0 THEN true ELSE false END AS is_root,
+    CASE WHEN COALESCE(RC.revision_count, 0) > 1 THEN true ELSE false END AS is_iterated,
+    CASE
+      WHEN CAST(N.type AS STRING) = 'DIMENSION'
+        AND COALESCE(DI.indegree, 0) = 0
+        AND COALESCE(DCU.cube_count, 0) = 0
+      THEN true ELSE false
+    END AS is_unused_dimension
+  FROM source.dj_metadata.public.node N
+  JOIN source.dj_metadata.public.noderevision NR
+    ON NR.node_id = N.id AND NR.version = N.current_version
+  LEFT JOIN (
+    SELECT DISTINCT node_id
+    FROM source.dj_metadata.public.node_owners
+  ) OWNED ON OWNED.node_id = N.id
+  LEFT JOIN (
+    SELECT DISTINCT node_id
+    FROM source.dj_metadata.public.tagnoderelationship
+  ) TAGGED ON TAGGED.node_id = N.id
+  LEFT JOIN rev_counts RC ON RC.node_id = N.id
+  LEFT JOIN parent_counts PC ON PC.node_id = N.id
+  LEFT JOIN child_counts CC ON CC.node_id = N.id
+  LEFT JOIN dim_link_counts DLC ON DLC.node_id = N.id
+  LEFT JOIN dim_indegree DI ON DI.node_id = N.id
+  LEFT JOIN dim_cube_usage DCU ON DCU.node_id = N.id
+columns:
+- name: id
+  attributes:
+  - hidden
+- name: created_by_id
+  attributes:
+  - hidden
+- name: current_revision_id
+  attributes:
+  - hidden
+- name: current_version
+  attributes:
+  - hidden
+- name: created_at
+  attributes:
+  - hidden
+- name: description
+  attributes:
+  - hidden
+- name: display_name
+  display_name: Display Name
+  attributes:
+  - hidden
+- name: name
+  display_name: Name
+  attributes:
+  - hidden
+- name: type
+  display_name: Type
+- name: namespace
+  display_name: Namespace
+- name: is_active
+  display_name: Is Active
+- name: status
+  display_name: Status
+- name: mode
+  display_name: Mode
+- name: has_description
+  display_name: Has Description
+- name: has_owner
+  display_name: Has Owner
+- name: has_tags
+  display_name: Has Tags
+- name: revision_count
+  display_name: Revision Count
+  attributes:
+  - hidden
+- name: parent_count
+  display_name: Upstream Count
+  attributes:
+  - hidden
+- name: child_count
+  display_name: Downstream Count
+  attributes:
+  - hidden
+- name: dim_link_count
+  display_name: Dimension Link Count
+  attributes:
+  - hidden
+- name: dim_indegree
+  display_name: Dimension Indegree
+  attributes:
+  - hidden
+- name: dim_cube_count
+  display_name: Cubes Using This Dimension
+  attributes:
+  - hidden
+- name: is_unused_dimension
+  display_name: Is Unused Dimension
+- name: is_orphan
+  display_name: Is Orphan
+- name: is_root
+  display_name: Is Root
+- name: is_iterated
+  display_name: Is Iterated
+- name: created_at_date
+  display_name: Created At (Day)
+- name: created_at_week
+  display_name: Created At (Week)
+primary_key:
+- id
+dimension_links:
+- type: join
+  dimension_node: ${prefix}user
+  join_type: left
+  join_on: ${prefix}nodes.created_by_id = ${prefix}user.id
+- type: join
+  dimension_node: ${prefix}date
+  join_type: left
+  join_on: ${prefix}nodes.created_at_date = ${prefix}date.dateint
+  role: created_at
+- type: join
+  dimension_node: ${prefix}is_active
+  join_type: left
+  join_on: ${prefix}nodes.is_active = ${prefix}is_active.active_id
+- type: join
+  dimension_node: ${prefix}node_type
+  join_type: left
+  join_on: ${prefix}nodes.type = ${prefix}node_type.type_upper
+- type: join
+  dimension_node: ${prefix}namespace
+  join_type: left
+  join_on: ${prefix}nodes.namespace = ${prefix}namespace.name
+tags: []

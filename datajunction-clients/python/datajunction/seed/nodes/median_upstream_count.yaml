@@ -1,0 +1,22 @@
+name: ${prefix}median_upstream_count
+node_type: metric
+display_name: Median Upstream Count
+description: |-
+  Median number of direct upstream parents across nodes (current revisions
+  only). Sliced by ``nodes.type``, surfaces how interconnected each entity
+  type tends to be.
+query: |-
+  SELECT MEDIAN(parent_count)
+   FROM ${prefix}nodes
+tags: []
+custom_metadata:
+  group: Quality
+  subgroup: Lineage Shape
+  suggested_compare_by:
+  - system.dj.node_type.type
+required_dimensions: []
+direction: null
+unit: null
+significant_digits: 2
+min_decimal_exponent: null
+max_decimal_exponent: null

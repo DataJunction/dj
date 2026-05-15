@@ -1516,3 +1516,28 @@ def test_collect_nodes_warns_on_duplicate_names(tmp_path):
     assert len(spec["nodes"]) == 1
     # Should have a duplicate warning
     assert any("Duplicate node" in w for w in warnings)
+
+
+def test_collect_nodes_skips_vendored_dirs_and_list_yamls(tmp_path):
+    """
+    ``_collect_nodes_from_dir`` defensively skips vendored dirs (venv,
+    site-packages, __pycache__, .git, etc.) and YAML files whose top-level
+    isn't a dict (e.g. lists from random vendored packages).
+    """
+    (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "foo"}))
+    # A real node — should be collected.
+    (tmp_path / "bar.yaml").write_text(
+        yaml.safe_dump({"name": "foo.bar", "query": "SELECT 1"}),
+    )
+    # A YAML file inside a venv subtree — should be skipped (line 415).
+    venv_dir = tmp_path / "venv" / "lib" / "python3.13" / "site-packages" / "pkg"
+    venv_dir.mkdir(parents=True)
+    (venv_dir / "stray.yaml").write_text(yaml.safe_dump({"name": "should.not.appear"}))
+    # A list-typed YAML at the project root — should be skipped (line 421).
+    (tmp_path / "list.yaml").write_text(yaml.safe_dump([{"foo": 1}, {"foo": 2}]))
+
+    svc = DeploymentService(MagicMock())
+    spec, warnings = svc._reconstruct_deployment_spec(tmp_path)
+
+    node_names = [n.get("name") for n in spec["nodes"]]
+    assert node_names == ["foo.bar"]  # only the legitimate node survived

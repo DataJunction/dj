@@ -106,19 +106,32 @@ def test_push_full(
 
 def test_seed():
     """
-    Test `dj seed`
+    Test `dj seed` — registers source tables and pushes the seed project
+    through the DeploymentService.push path.
     """
     builder_client = mock.MagicMock()
+    # The push flow polls deploy → check_deployment until status is
+    # ``success``/``failed``; return a deterministic success response so
+    # the loop exits immediately rather than timing out.
+    builder_client.deploy.return_value = {
+        "uuid": "test-uuid",
+        "status": "success",
+        "results": [],
+    }
+    builder_client.check_deployment.return_value = {
+        "uuid": "test-uuid",
+        "status": "success",
+        "results": [],
+    }
 
     test_args = ["dj", "seed"]
     with patch.object(sys, "argv", test_args):
         main(builder_client=builder_client)
 
     func_names = [mock_call[0] for mock_call in builder_client.mock_calls]
+    # Sources still get registered, deployment is run via deploy + poll.
     assert "register_table" in func_names
-    assert "create_dimension" in func_names
-    assert "create_metric" in func_names
-    assert "dimension().link_complex_dimension" in func_names
+    assert "deploy" in func_names
 
 
 def test_help(builder_client: DJBuilder):  # pylint: disable=redefined-outer-name

@@ -288,20 +288,21 @@ export const DataJunctionAPI = {
     filters = [],
     orderby = [],
   }) {
-    const results = await DataJunctionAPI.querySystemMetric({
+    const { columns, rows } = await DataJunctionAPI.querySystemMetric({
       metric: metric,
       dimensions: [dimension],
       filters: filters,
       orderby: orderby,
     });
-    return results.map(row => {
-      return {
-        name:
-          row.find(entry => entry.col === dimension)?.value?.toString() ??
-          'unknown',
-        value: row.find(entry => entry.col === metric)?.value ?? 0,
-      };
-    });
+    const dimIdx = columns.indexOf(dimension);
+    const metricIdx = columns.indexOf(metric);
+    return rows.map(row => ({
+      name:
+        dimIdx >= 0 && row[dimIdx] !== undefined && row[dimIdx] !== null
+          ? String(row[dimIdx])
+          : 'unknown',
+      value: metricIdx >= 0 ? row[metricIdx] ?? 0 : 0,
+    }));
   },
 
   system: {
@@ -336,35 +337,28 @@ export const DataJunctionAPI = {
       });
     },
     node_trends: async function () {
-      const results = await (
+      const { columns, rows } = await (
         await fetch(
           `${DJ_URL}/system/data/system.dj.number_of_nodes?dimensions=system.dj.nodes.created_at_week&dimensions=system.dj.node_type.type&filters=system.dj.nodes.created_at_week>=20240101&orderby=system.dj.nodes.created_at_week`,
           { credentials: 'include' },
         )
       ).json();
+      const dateIdx = columns.indexOf('system.dj.nodes.created_at_week');
+      const typeIdx = columns.indexOf('system.dj.node_type.type');
+      const countIdx = columns.indexOf('system.dj.number_of_nodes');
       const byDateint = {};
-      results.forEach(row => {
-        const dateint = row.find(
-          r => r.col === 'system.dj.nodes.created_at_week',
-        )?.value;
-        const nodeType = row.find(
-          r => r.col === 'system.dj.node_type.type',
-        )?.value;
-        const count = row.find(
-          r => r.col === 'system.dj.number_of_nodes',
-        )?.value;
-        if (!byDateint[dateint]) {
-          byDateint[dateint] = { date: dateint };
-        }
+      rows.forEach(row => {
+        const dateint = row[dateIdx];
+        const nodeType = row[typeIdx];
+        const count = row[countIdx];
+        if (!byDateint[dateint]) byDateint[dateint] = { date: dateint };
         byDateint[dateint][nodeType] =
           (byDateint[dateint][nodeType] || 0) + count;
       });
-      return Object.entries(byDateint).map(([dateint, data]) => {
-        return {
-          date: dateint,
-          ...data,
-        };
-      });
+      return Object.entries(byDateint).map(([dateint, data]) => ({
+        date: dateint,
+        ...data,
+      }));
     },
     materialization_counts_by_type: async function () {
       return DataJunctionAPI.querySystemMetricSingleDimension({
@@ -378,6 +372,14 @@ export const DataJunctionAPI = {
     dimensions: async function () {
       return await (
         await fetch(`${DJ_URL}/system/dimensions`, {
+          credentials: 'include',
+        })
+      ).json();
+    },
+
+    list: async function () {
+      return await (
+        await fetch(`${DJ_URL}/system/metrics`, {
           credentials: 'include',
         })
       ).json();

@@ -1,0 +1,60 @@
+name: ${prefix}node_revision
+node_type: dimension
+display_name: Node Revision
+description: |-
+  One row per node revision. ``created_by_id`` is the user who authored that
+  revision (i.e. the editor for revisions other than v1.0). Useful for
+  trending edit activity by week/day and identifying which users are
+  iterating on which nodes.
+query: |-
+  SELECT
+    NR.id,
+    NR.node_id,
+    NR.name,
+    NR.display_name,
+    NR.version,
+    CAST(NR.status AS STRING) AS status,
+    CAST(NR.mode AS STRING) AS mode,
+    NR.created_by_id,
+    NR.updated_at,
+    CAST(TO_CHAR(CAST(NR.updated_at AS date), 'YYYYMMDD') AS integer) AS updated_at_date,
+    CAST(TO_CHAR(CAST(DATE_TRUNC('week', NR.updated_at) AS date), 'YYYYMMDD') AS integer) AS updated_at_week
+  FROM source.dj_metadata.public.noderevision NR
+columns:
+- name: id
+  attributes:
+  - hidden
+- name: node_id
+  attributes:
+  - hidden
+- name: created_by_id
+  attributes:
+  - hidden
+- name: updated_at
+  attributes:
+  - hidden
+- name: name
+  display_name: Node Name
+  attributes:
+  - hidden
+- name: display_name
+  display_name: Node Display Name
+  attributes:
+  - hidden
+primary_key:
+- id
+dimension_links:
+- type: join
+  dimension_node: ${prefix}user
+  join_type: left
+  join_on: ${prefix}node_revision.created_by_id = ${prefix}user.id
+- type: join
+  dimension_node: ${prefix}date
+  join_type: left
+  join_on: ${prefix}node_revision.updated_at_date = ${prefix}date.dateint
+  role: updated_at
+- type: join
+  dimension_node: ${prefix}nodes
+  join_type: left
+  join_on: ${prefix}node_revision.node_id = ${prefix}nodes.id
+tags: []

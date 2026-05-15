@@ -1,0 +1,23 @@
+name: ${prefix}median_deployment_duration_seconds
+node_type: metric
+display_name: Median Deployment Duration (seconds)
+description: |-
+  Median elapsed time from ``created_at`` to ``updated_at`` per deployment.
+  Slice by ``deployment.status`` to compare successful vs failed deploys,
+  by ``deployment.source_type`` to compare git vs local, or by
+  ``deployment.created_at_week`` to trend over time.
+query: |-
+  SELECT MEDIAN(duration_seconds)
+   FROM ${prefix}deployment
+tags: []
+custom_metadata:
+  group: Activity
+  subgroup: Deployments
+  suggested_compare_by:
+  - system.dj.deployment.status
+required_dimensions: []
+direction: lower_is_better
+unit: null
+significant_digits: 2
+min_decimal_exponent: null
+max_decimal_exponent: null

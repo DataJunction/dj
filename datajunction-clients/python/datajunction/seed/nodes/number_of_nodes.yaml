@@ -1,0 +1,23 @@
+name: ${prefix}number_of_nodes
+node_type: metric
+display_name: Number of Nodes
+description: |-
+  Total count of DJ nodes — sources, transforms, dimensions, metrics, and cubes
+  — including deactivated ones. Slice by ``nodes.type`` for counts per kind,
+  ``nodes.is_active`` to separate live from retired, or
+  ``nodes.namespace.top_level`` to roll up by area.
+query: |-
+  SELECT COUNT(id)
+   FROM ${prefix}nodes
+tags: []
+custom_metadata:
+  group: Catalog
+  subgroup: Counts
+  suggested_compare_by:
+  - system.dj.node_type.type
+required_dimensions: []
+direction: null
+unit: null
+significant_digits: null
+min_decimal_exponent: null
+max_decimal_exponent: null

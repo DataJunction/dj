@@ -299,11 +299,14 @@ async def build_reference_link(
         (dc for dc in dim_cols if dc.name == col.dimension_column),
         None,
     ):
+        if ColumnAttributes.HIDDEN.value in dim_col.attribute_names():
+            return None
         return DimensionAttributeOutput(
             name=f"{col.dimension.name}.{col.dimension_column}"
             + (f"[{'->'.join(role)}]" if role else ""),
             node_name=col.dimension.name,
             node_display_name=col.dimension.current.display_name,
+            column_display_name=dim_col.display_name,
             properties=dim_col.attribute_names(),
             type=str(col.type),
             path=path,
@@ -324,7 +327,15 @@ async def get_dimension_attributes(
         await Node.get_by_name(
             session,
             node_name,
-            options=[joinedload(Node.current)],
+            options=[
+                joinedload(Node.current).options(
+                    selectinload(NodeRevision.columns).options(
+                        selectinload(Column.attributes).joinedload(
+                            ColumnAttribute.attribute_type,
+                        ),
+                    ),
+                ),
+            ],
             raise_if_not_exists=True,
         ),
     )
@@ -402,12 +413,14 @@ async def get_dimension_attributes(
             name=f"{dim.name}.{col.name}" + (f"[{'->'.join(role)}]" if role else ""),
             node_name=dim.name,
             node_display_name=dim.current.display_name,
+            column_display_name=col.display_name,
             properties=col.attribute_names(),
             type=str(col.type),
             path=[node_name] + [dimensions_map[int(node_id)].name for node_id in path],
         )
         for dim, path, role in dimension_nodes_and_paths
         for col in dim.current.columns
+        if ColumnAttributes.HIDDEN.value not in col.attribute_names()
     ]
 
     # Build all local dimension attributes from the original node
@@ -416,11 +429,13 @@ async def get_dimension_attributes(
             name=f"{node.name}.{col.name}",
             node_name=node.name,
             node_display_name=node.current.display_name,
+            column_display_name=col.display_name,
             properties=col.attribute_names(),
             type=str(col.type),
             path=[],
         )
         for col in node.current.columns
+        if ColumnAttributes.HIDDEN.value not in col.attribute_names()
     ]
     local_dimensions = [
         dim
@@ -711,8 +726,8 @@ async def _get_dimensions_dag_bfs(
     # -------------------------------------------------------------------------
     agg_fn = "group_concat(at.name, ',')" if is_sqlite else "string_agg(at.name, ',')"
 
-    dim_columns: dict[str, list[tuple[str, str, str | None]]] = {}
-    # Maps node_name -> list of (col_name, col_type, attribute_types_csv)
+    dim_columns: dict[str, list[tuple[str, str, str | None, str | None]]] = {}
+    # Maps node_name -> list of (col_name, col_type, attribute_types_csv, col_display_name)
     dim_display_names: dict[str, str] = {}
 
     discovered_names = list({name for (name, _) in discovered.values()})
@@ -722,6 +737,7 @@ async def _get_dimensions_dag_bfs(
                 n.name          AS node_name,
                 nr.display_name AS node_display_name,
                 c.name          AS col_name,
+                c.display_name  AS col_display_name,
                 CAST(c.type AS TEXT) AS col_type,
                 {agg_fn}        AS attribute_types
             FROM node n
@@ -731,7 +747,7 @@ async def _get_dimensions_dag_bfs(
             LEFT JOIN columnattribute ca ON ca.column_id = c.id
             LEFT JOIN attributetype at ON at.id = ca.attribute_type_id
             WHERE n.name IN :dim_names
-            GROUP BY n.name, nr.display_name, c.name, c.type
+            GROUP BY n.name, nr.display_name, c.name, c.display_name, c.type
         """).bindparams(bindparam("dim_names", expanding=True))
 
         dim_col_result = await session.execute(
@@ -740,7 +756,7 @@ async def _get_dimensions_dag_bfs(
         )
         for row in dim_col_result.fetchall():
             dim_columns.setdefault(row.node_name, []).append(
-                (row.col_name, row.col_type, row.attribute_types),
+                (row.col_name, row.col_type, row.attribute_types, row.col_display_name),
             )
             dim_display_names[row.node_name] = row.node_display_name
 
@@ -750,6 +766,7 @@ async def _get_dimensions_dag_bfs(
             nr.name         AS node_name,
             nr.display_name AS node_display_name,
             c.name          AS col_name,
+            c.display_name  AS col_display_name,
             CAST(c.type AS TEXT) AS col_type,
             {agg_fn}        AS attribute_types
         FROM noderevision nr
@@ -757,17 +774,19 @@ async def _get_dimensions_dag_bfs(
         LEFT JOIN columnattribute ca ON ca.column_id = c.id
         LEFT JOIN attributetype at ON at.id = ca.attribute_type_id
         WHERE nr.id = :node_revision_id
-        GROUP BY nr.name, nr.display_name, c.name, c.type
+        GROUP BY nr.name, nr.display_name, c.name, c.display_name, c.type
     """)
     local_col_result = await session.execute(
         local_col_query,
         {"node_revision_id": node_revision.id},
     )
     local_node_display_name = node_revision.name
-    local_columns: list[tuple[str, str, str | None]] = []
+    local_columns: list[tuple[str, str, str | None, str | None]] = []
     for row in local_col_result.fetchall():
         local_node_display_name = row.node_display_name
-        local_columns.append((row.col_name, row.col_type, row.attribute_types))
+        local_columns.append(
+            (row.col_name, row.col_type, row.attribute_types, row.col_display_name),
+        )
 
     # -------------------------------------------------------------------------
     # Phase D – build DimensionAttributeOutput objects
@@ -778,13 +797,19 @@ async def _get_dimensions_dag_bfs(
     for (_, role_path), (node_name, path_edges) in discovered.items():
         role_suffix = f"[{role_path}]" if role_path else ""
         node_display_name = dim_display_names.get(node_name, node_name)
-        for col_name, col_type, attribute_types in dim_columns.get(node_name, []):
+        for col_name, col_type, attribute_types, col_display_name in dim_columns.get(
+            node_name,
+            [],
+        ):
             attr_list = attribute_types.split(",") if attribute_types else []
+            if ColumnAttributes.HIDDEN.value in attr_list:
+                continue
             results.append(
                 DimensionAttributeOutput(
                     name=f"{node_name}.{col_name}{role_suffix}",
                     node_name=node_name,
                     node_display_name=node_display_name,
+                    column_display_name=col_display_name,
                     properties=attr_list,
                     type=col_type,
                     path=list(path_edges),
@@ -793,8 +818,10 @@ async def _get_dimensions_dag_bfs(
 
     # Local columns on starting node: only include if tagged dimension or primary_key,
     # or if the starting node itself is a dimension
-    for col_name, col_type, attribute_types in local_columns:
+    for col_name, col_type, attribute_types, col_display_name in local_columns:
         attr_list = attribute_types.split(",") if attribute_types else []
+        if ColumnAttributes.HIDDEN.value in attr_list:
+            continue
         is_dim_attr = (
             ColumnAttributes.DIMENSION.value in attr_list
             or ColumnAttributes.PRIMARY_KEY.value in attr_list
@@ -805,6 +832,7 @@ async def _get_dimensions_dag_bfs(
                     name=f"{node_revision.name}.{col_name}",
                     node_name=node_revision.name,
                     node_display_name=local_node_display_name,
+                    column_display_name=col_display_name,
                     properties=attr_list,
                     type=col_type,
                     path=[],
@@ -935,6 +963,9 @@ async def get_filter_only_dimensions(
                         name=dim,
                         node_name=link.dimension.name,
                         node_display_name=link.dimension.current.display_name,
+                        column_display_name=column_mapping[
+                            dim.split(SEPARATOR)[-1]
+                        ].display_name,
                         type=str(column_mapping[dim.split(SEPARATOR)[-1]].type),
                         path=[upstream.name],
                         filter_only=True,
@@ -943,6 +974,8 @@ async def get_filter_only_dimensions(
                         ].attribute_names(),
                     )
                     for dim in link.foreign_keys.values()
+                    if ColumnAttributes.HIDDEN.value
+                    not in column_mapping[dim.split(SEPARATOR)[-1]].attribute_names()
                 ],
             )
     return filter_only_dimensions

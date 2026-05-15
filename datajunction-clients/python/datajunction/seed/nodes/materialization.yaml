@@ -1,3 +1,5 @@
+name: ${prefix}materialization
+node_type: dimension
 display_name: Materialization
 description: ''
 query: |-
@@ -9,7 +11,25 @@ query: |-
     M.strategy,
     M.schedule
   FROM source.dj_metadata.public.materialization M
-columns: []
+columns:
+- name: id
+  attributes:
+  - hidden
+- name: node_revision_id
+  attributes:
+  - hidden
+- name: name
+  display_name: Materialization Name
+  attributes:
+  - hidden
+- name: job
+  display_name: Orchestrator Job
+  attributes:
+  - hidden
+- name: strategy
+  display_name: Strategy
+- name: schedule
+  display_name: Schedule
 primary_key:
 - id
 dimension_links:

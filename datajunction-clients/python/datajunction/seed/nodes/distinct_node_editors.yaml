@@ -1,0 +1,20 @@
+name: ${prefix}distinct_node_editors
+node_type: metric
+display_name: Distinct Node Editors
+description: |-
+  Count of distinct users who authored a node revision. Slice by
+  ``created_at_day`` / ``created_at_week`` to get daily / weekly / monthly
+  active editors (people iterating on nodes, not just first-time creators).
+query: |-
+  SELECT COUNT(DISTINCT created_by_id)
+   FROM ${prefix}node_revision
+tags: []
+custom_metadata:
+  group: Activity
+  subgroup: Authors & Edits
+required_dimensions: []
+direction: null
+unit: null
+significant_digits: null
+min_decimal_exponent: null
+max_decimal_exponent: null

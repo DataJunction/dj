@@ -765,6 +765,7 @@ class DimensionAttributeOutput(BaseModel):
     name: str
     node_name: str | None
     node_display_name: str | None
+    column_display_name: str | None = None
     properties: list[str] | None
     type: str | None
     path: list[str]

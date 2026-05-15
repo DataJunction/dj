@@ -3,13 +3,31 @@ description: This project contains DJ system metadata modeled in DJ itself.
 prefix: system.dj
 build:
   priority:
-  - materialization
+  # Dimension nodes (sources of breakdowns)
+  - repo
+  - namespace
   - nodes
+  - node_revision
   - dimension_link
-  - number_of_materializations
+  - materialization
+  - deployment
   - node_type
-  - date
-  - node_without_description
   - is_active
   - user
+  - date
+  # Metric nodes
   - number_of_nodes
+  - number_of_namespaces
+  - number_of_materializations
+  - number_of_deployments
+  - median_deployment_duration_seconds
+  - distinct_node_authors
+  - distinct_node_editors
+  - median_revisions_per_node
+  - median_upstream_count
+  - median_downstream_count
+  - median_dim_links_per_node
+  - median_dimension_indegree
+  - number_of_orphan_nodes
+  - number_of_unused_dimensions
+  - number_of_branches

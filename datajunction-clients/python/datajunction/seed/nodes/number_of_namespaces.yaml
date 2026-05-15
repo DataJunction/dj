@@ -1,0 +1,19 @@
+name: ${prefix}number_of_namespaces
+node_type: metric
+display_name: Number of Namespaces
+description: Count of distinct DJ namespaces that contain at least one node.
+query: |-
+  SELECT COUNT(name)
+   FROM ${prefix}namespace
+tags: []
+custom_metadata:
+  group: Catalog
+  subgroup: Counts
+  suggested_compare_by:
+  - system.dj.namespace.top_level
+required_dimensions: []
+direction: null
+unit: null
+significant_digits: null
+min_decimal_exponent: null
+max_decimal_exponent: null

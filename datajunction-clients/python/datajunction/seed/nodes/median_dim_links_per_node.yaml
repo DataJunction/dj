@@ -1,0 +1,26 @@
+name: ${prefix}median_dim_links_per_node
+node_type: metric
+display_name: Median Dimension Links per Linkable Node
+description: |-
+  Median number of dimension links defined on each node's current revision,
+  restricted to nodes that *can* define links (transforms and dimensions —
+  sources, metrics, and cubes inherit their dim links through their parents,
+  so including them would just dilute the median with zeros).
+
+  Slice by ``nodes.type`` to compare transforms vs dimensions, or by
+  ``namespace.top_level`` to see which areas have richer dim graphs.
+query: |-
+  SELECT MEDIAN(IF(type IN ('TRANSFORM', 'DIMENSION'), dim_link_count, NULL))
+   FROM ${prefix}nodes
+tags: []
+custom_metadata:
+  group: Quality
+  subgroup: Lineage Shape
+  suggested_compare_by:
+  - system.dj.node_type.type
+required_dimensions: []
+direction: null
+unit: null
+significant_digits: 2
+min_decimal_exponent: null
+max_decimal_exponent: null

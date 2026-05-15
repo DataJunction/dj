@@ -1,3 +1,5 @@
+name: ${prefix}node_type
+node_type: dimension
 display_name: Node Type
 description: ''
 query: |-
@@ -11,7 +13,10 @@ query: |-
       ('metric', 'METRIC'),
       ('cube', 'CUBE')
   AS t (type, type_upper);
-columns: []
+columns:
+- name: type_upper
+  attributes:
+  - hidden
 primary_key:
 - type_upper
 dimension_links: []

@@ -1,8 +1,13 @@
+name: ${prefix}user
+node_type: dimension
 display_name: User
 description: ''
 query: |-
   SELECT id, username FROM source.dj_metadata.public.users
-columns: []
+columns:
+- name: id
+  attributes:
+  - hidden
 primary_key:
 - id
 dimension_links: []

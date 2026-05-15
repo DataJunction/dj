@@ -44,7 +44,6 @@ dependencies = [
 
     # Instrumentation and monitoring
     "opentelemetry-instrumentation-fastapi>=0.48b0",
-    "line-profiler>=4.0.3",
 
     # Task queues
     "celery<6.0.0,>=5.2.7",
