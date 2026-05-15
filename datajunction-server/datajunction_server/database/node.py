@@ -214,7 +214,10 @@ class CubeRelationship(Base):
     """
 
     __tablename__ = "cube"
-    __table_args__ = (Index("idx_cube_cube_id", "cube_id"),)
+    __table_args__ = (
+        Index("idx_cube_cube_id", "cube_id"),
+        Index("ix_cube_cube_element_id", "cube_element_id"),
+    )
 
     cube_id: Mapped[int] = mapped_column(
         ForeignKey(
@@ -242,6 +245,13 @@ class BoundDimensionsRelationship(Base):
     """
 
     __tablename__ = "metric_required_dimensions"
+    __table_args__ = (
+        Index("ix_metric_required_dimensions_metric_id", "metric_id"),
+        Index(
+            "ix_metric_required_dimensions_bound_dimension_id",
+            "bound_dimension_id",
+        ),
+    )
 
     metric_id: Mapped[int] = mapped_column(
         ForeignKey(
@@ -286,6 +296,9 @@ class NodeMissingParents(Base):
     """
 
     __tablename__ = "nodemissingparents"
+    __table_args__ = (
+        Index("ix_nodemissingparents_referencing_node_id", "referencing_node_id"),
+    )
 
     missing_parent_id: Mapped[int] = mapped_column(
         ForeignKey(
@@ -1278,6 +1291,7 @@ class NodeRevision(
     __tablename__ = "noderevision"
     __table_args__ = (
         UniqueConstraint("version", "node_id"),
+        Index("ix_noderevision_node_id", "node_id"),
         Index(
             "ix_noderevision_display_name",
             "display_name",

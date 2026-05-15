@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from functools import partial
 from typing import List, Optional
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, select
+from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, String, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -77,6 +77,7 @@ class CollectionNodes(Base):  # type: ignore
     """
 
     __tablename__ = "collectionnodes"
+    __table_args__ = (Index("ix_collectionnodes_node_id", "node_id"),)
 
     collection_id: Mapped[int] = mapped_column(
         ForeignKey("collection.id", name="fk_collectionnodes_collection_id_collection"),

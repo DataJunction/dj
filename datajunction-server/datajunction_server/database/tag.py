@@ -182,6 +182,7 @@ class TagNodeRelationship(Base):
     """
 
     __tablename__ = "tagnoderelationship"
+    __table_args__ = (Index("ix_tagnoderelationship_node_id", "node_id"),)
 
     tag_id: Mapped[int] = mapped_column(
         ForeignKey(

@@ -5,7 +5,7 @@ from functools import partial
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, BigInteger, DateTime, ForeignKey, Integer, String
+from sqlalchemy import JSON, BigInteger, DateTime, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy_utils import UUIDType
 
@@ -118,6 +118,7 @@ class TableColumns(Base):
     """
 
     __tablename__ = "tablecolumns"
+    __table_args__ = (Index("ix_tablecolumns_column_id", "column_id"),)
 
     table_id: Mapped[int] = mapped_column(
         ForeignKey("table.id", name="fk_tablecolumns_table_id_table"),

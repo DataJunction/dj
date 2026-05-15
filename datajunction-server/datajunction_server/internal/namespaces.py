@@ -13,7 +13,7 @@ from typing import Callable, Dict, List, Optional, Tuple, cast
 
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import Comment, CommentedMap, CommentedSeq
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import bindparam, delete, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 from yamlfix import fix_code
@@ -48,11 +48,7 @@ from datajunction_server.models.namespace import (
 )
 from datajunction_server.models.node import NodeMinimumDetail
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.sql.dag import (
-    get_downstream_nodes,
-    get_nodes_with_common_dimensions,
-    topological_sort,
-)
+from datajunction_server.sql.dag import topological_sort
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import SEPARATOR
 
@@ -390,22 +386,22 @@ async def hard_delete_namespace(
     """
     Hard delete a node namespace.
     """
-    node_names = (
-        (
-            await session.execute(
-                select(Node.name)
-                .where(
-                    or_(
-                        Node.namespace.like(f"{namespace}.%"),
-                        Node.namespace == namespace,
-                    ),
-                )
-                .order_by(Node.name),
+    node_rows = (
+        await session.execute(
+            select(Node.id, Node.name, Node.type)
+            .where(
+                or_(
+                    Node.namespace.like(f"{namespace}.%"),
+                    Node.namespace == namespace,
+                ),
             )
+            .order_by(Node.name),
         )
-        .scalars()
-        .all()
-    )
+    ).all()
+    node_names = [row.name for row in node_rows]
+    node_ids = [row.id for row in node_rows]
+    node_id_to_name = {row.id: row.name for row in node_rows}
+    dimension_ids = [row.id for row in node_rows if row.type == NodeType.DIMENSION]
 
     if not cascade and node_names:
         raise DJActionNotAllowedException(
@@ -421,58 +417,145 @@ async def hard_delete_namespace(
         for node_name in node_names
     }
 
-    # Track downstream nodes affected by deletions
-    impacted_downstreams = defaultdict(list)
-    impacted_links = defaultdict(list)
-    nodes = await Node.get_by_names(session, node_names)
-    for node in nodes:
-        # Downstream links
-        if node.type == NodeType.DIMENSION:
-            for downstream_link in await get_nodes_with_common_dimensions(
-                session,
-                [node],
-            ):
-                if downstream_link.name not in node_names:
-                    impacted_links[downstream_link.name].append(node.name)
+    # Track downstream nodes affected by deletions. Instead of calling
+    # get_downstream_nodes / get_nodes_with_common_dimensions per deleted node
+    # (which is O(N) BFS traversals for N nodes), compute direct edges in two
+    # bulk queries:
+    #   1. NodeRelationship rows where parent is deleted and child is not.
+    #   2. Column.dimension_id / DimensionLink.dimension_id rows pointing at
+    #      a deleted dimension from a non-deleted consumer.
+    impacted_downstreams: Dict[str, List[str]] = defaultdict(list)
+    impacted_links: Dict[str, List[str]] = defaultdict(list)
 
-        # Downstream query references
-        for downstream_node in await get_downstream_nodes(
-            session=session,
-            node_name=node.name,
-        ):
-            if downstream_node.name not in node_names:
-                impacted_downstreams[downstream_node.name].append(node.name)
+    if node_ids:
+        # Transitive downstream attribution: a downstream node D is "caused
+        # by" every deleted ancestor X for which there is a path X -> ... -> D
+        # in the noderelationship graph. We compute this with one recursive
+        # CTE seeded at the deleted nodes, propagating each deleted ancestor
+        # label down through current revisions.
+        downstream_rows = await session.execute(
+            text(
+                """
+                WITH RECURSIVE descendants(deleted_id, current_id) AS (
+                    SELECT id, id FROM node WHERE id IN :deleted_ids
+                  UNION
+                    SELECT d.deleted_id, n.id
+                    FROM descendants d
+                    JOIN noderelationship rel ON rel.parent_id = d.current_id
+                    JOIN noderevision nr ON nr.id = rel.child_id
+                    JOIN node n
+                      ON n.id = nr.node_id
+                     AND n.current_version = nr.version
+                    WHERE n.deactivated_at IS NULL
+                )
+                SELECT DISTINCT d.deleted_id, n.name
+                FROM descendants d
+                JOIN node n ON n.id = d.current_id
+                WHERE d.current_id NOT IN :deleted_ids
+                """,
+            ).bindparams(bindparam("deleted_ids", expanding=True)),
+            {"deleted_ids": node_ids},
+        )
+        # Preserve attribution ordering by deleted-node sort order (node_names
+        # is already sorted), so tests can assert on the caused_by list.
+        downstream_pairs: Dict[str, List[int]] = defaultdict(list)
+        for parent_id, child_name in downstream_rows.all():
+            downstream_pairs[child_name].append(parent_id)
+        for child_name, parent_ids in downstream_pairs.items():
+            ordered = sorted(parent_ids, key=lambda pid: node_id_to_name[pid])
+            impacted_downstreams[child_name] = [node_id_to_name[pid] for pid in ordered]
 
-    # Save history and update impacts for downstream nodes
+    if dimension_ids:
+        # Walk the dimension graph upstream: any dimension D' whose current
+        # revision has a column or dimension link pointing at a deleted
+        # dimension D (transitively) means consumers of D' lose a path that
+        # leads to D. We propagate the original deleted-dim attribution
+        # through the recursive expansion, then find non-deleted consumers
+        # of any dimension in the expanded set.
+        link_rows = await session.execute(
+            text(
+                """
+                WITH RECURSIVE
+                edges(node_revision_id, dimension_id) AS (
+                    SELECT node_revision_id, dimension_id
+                    FROM "column"
+                    WHERE dimension_id IS NOT NULL
+                  UNION ALL
+                    SELECT node_revision_id, dimension_id
+                    FROM dimensionlink
+                ),
+                dim_graph(deleted_dim_id, reachable_dim_id) AS (
+                    SELECT id, id FROM node WHERE id IN :deleted_dim_ids
+                  UNION
+                    SELECT dg.deleted_dim_id, n.id
+                    FROM dim_graph dg
+                    JOIN edges e ON e.dimension_id = dg.reachable_dim_id
+                    JOIN noderevision nr ON nr.id = e.node_revision_id
+                    JOIN node n
+                      ON n.id = nr.node_id
+                     AND n.current_version = nr.version
+                    WHERE n.type = 'DIMENSION'
+                      AND n.deactivated_at IS NULL
+                )
+                SELECT DISTINCT dg.deleted_dim_id, consumer.name
+                FROM dim_graph dg
+                JOIN edges e ON e.dimension_id = dg.reachable_dim_id
+                JOIN noderevision nr ON nr.id = e.node_revision_id
+                JOIN node consumer
+                  ON consumer.id = nr.node_id
+                 AND consumer.current_version = nr.version
+                WHERE consumer.deactivated_at IS NULL
+                  AND consumer.id NOT IN :deleted_node_ids
+                """,
+            ).bindparams(
+                bindparam("deleted_dim_ids", expanding=True),
+                bindparam("deleted_node_ids", expanding=True),
+            ),
+            {"deleted_dim_ids": dimension_ids, "deleted_node_ids": node_ids},
+        )
+        link_pairs: Dict[str, List[int]] = defaultdict(list)
+        for dim_id, consumer_name in link_rows.all():
+            link_pairs[consumer_name].append(dim_id)
+        for consumer_name, dim_ids in link_pairs.items():
+            ordered = sorted(set(dim_ids), key=lambda d: node_id_to_name[d])
+            impacted_links[consumer_name] = [node_id_to_name[d] for d in ordered]
+
+    # Stage history events on the session without committing — the whole
+    # hard-delete operation (history + node deletes + namespace deletes)
+    # commits atomically at the end. ``save_history`` commits per-event, so
+    # we ``session.add`` directly here. Notifications are intentionally
+    # skipped on bulk hard-delete (the notifier is a per-event side effect
+    # that isn't useful at this scale).
     for impacted_node, causes in impacted_downstreams.items():
-        await save_history(
-            event=History(
+        session.add(
+            History(
                 entity_type=EntityType.DEPENDENCY,
                 entity_name=impacted_node,
                 activity_type=ActivityType.DELETE,
                 user=current_user.username,
                 details={"caused_by": causes},
             ),
-            session=session,
         )
 
     for impacted_node, causes in impacted_links.items():
-        await save_history(
-            event=History(
+        session.add(
+            History(
                 entity_type=EntityType.DEPENDENCY,
                 entity_name=impacted_node,
                 activity_type=ActivityType.DELETE,
                 user=current_user.username,
                 details={"caused_by": causes},
             ),
-            session=session,
         )
 
-    # Delete the nodes
-    await session.execute(delete(Node).where(Node.name.in_(node_names)))
-    await session.commit()
+    # Delete the nodes — FK CASCADE handles all child tables. Fast as long
+    # as every cascade-target FK column is indexed; otherwise Postgres
+    # seq-scans each child table per row deleted (catastrophic). See the
+    # add_missing_fk_indexes migration.
+    await session.execute(delete(Node).where(Node.id.in_(node_ids)))
 
-    # Delete namespaces and record impact
+    # Delete namespaces in the same transaction so the whole operation is
+    # atomic.
     namespaces = await list_namespaces_in_hierarchy(session, namespace)
     deleted_namespaces = [ns.namespace for ns in namespaces]
     for _namespace in namespaces:
@@ -481,6 +564,7 @@ async def hard_delete_namespace(
             "status": "hard deleted",
         }
         await session.delete(_namespace)
+
     await session.commit()
 
     return HardDeleteResponse(
