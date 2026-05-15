@@ -69,14 +69,14 @@ query: |-
       ON DNR.id = C.node_revision_id
     JOIN source.dj_metadata.public.node DN
       ON DN.id = DNR.node_id AND DN.current_version = DNR.version
-     AND CAST(DN.type AS STRING) = 'DIMENSION'
+     AND CAST(DN.type AS VARCHAR) = 'DIMENSION'
     GROUP BY DNR.node_id
   )
   SELECT
     N.id,
     N.name,
     NR.display_name,
-    CAST(N.type AS STRING) AS type,
+    CAST(N.type AS VARCHAR) AS type,
     N.namespace,
     N.created_by_id,
     N.created_at,
@@ -84,8 +84,8 @@ query: |-
     CAST(TO_CHAR(CAST(DATE_TRUNC('week', N.created_at) AS date), 'YYYYMMDD') AS integer) AS created_at_week,
     N.current_version,
     CASE WHEN N.deactivated_at IS NULL THEN true ELSE false END AS is_active,
-    CAST(NR.status AS STRING) AS status,
-    CAST(NR.mode AS STRING) AS mode,
+    CAST(NR.status AS VARCHAR) AS status,
+    CAST(NR.mode AS VARCHAR) AS mode,
     NR.description,
     NR.id AS current_revision_id,
     CASE
@@ -104,7 +104,7 @@ query: |-
     CASE WHEN COALESCE(PC.parent_count, 0) = 0 THEN true ELSE false END AS is_root,
     CASE WHEN COALESCE(RC.revision_count, 0) > 1 THEN true ELSE false END AS is_iterated,
     CASE
-      WHEN CAST(N.type AS STRING) = 'DIMENSION'
+      WHEN CAST(N.type AS VARCHAR) = 'DIMENSION'
         AND COALESCE(DI.indegree, 0) = 0
         AND COALESCE(DCU.cube_count, 0) = 0
       THEN true ELSE false

@@ -90,7 +90,7 @@ query: |-
     ns.namespace                                                AS name,
     CASE WHEN deployed_ns.namespace IS NOT NULL
          THEN true ELSE false END                               AS has_deployments,
-    CAST(SPLIT_PART(ns.namespace, '.', 1) AS STRING)            AS top_level,
+    CAST(SPLIT_PART(ns.namespace, '.', 1) AS VARCHAR)           AS top_level,
     CAST(LENGTH(ns.namespace) - LENGTH(REPLACE(ns.namespace, '.', '')) + 1 AS integer) AS depth,
     ns_repo.github_repo_path                                    AS github_repo_path,
     ns_repo.container                                           AS repo_container,
