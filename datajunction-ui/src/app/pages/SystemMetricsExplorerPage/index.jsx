@@ -64,7 +64,7 @@ const OPERATORS = [
 const isTemporal = name =>
   /(_date|_week|_month|_quarter|_year|_day|dateint|created_at)/i.test(name);
 
-const typeIcon = type => {
+export const typeIcon = type => {
   if (!type) return '#';
   const t = String(type).toLowerCase();
   if (/(bool)/.test(t)) return '✓';
@@ -101,7 +101,7 @@ const groupedSelectStyles = {
 // Recharts tooltip that drops zero-valued series — when stacked breakdowns
 // have lots of empty cells (zero-filled for stacking), the default tooltip
 // fills the screen with "X: 0" rows that aren't useful.
-function NonZeroTooltip({ active, payload, label }) {
+export function NonZeroTooltip({ active, payload, label }) {
   if (!active || !payload || !payload.length) return null;
   const nonZero = payload.filter(p => p && p.value !== 0 && p.value != null);
   if (!nonZero.length) return null;

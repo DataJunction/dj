@@ -15,6 +15,7 @@ from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.errors import DJException
 from datajunction_server.models.node import DimensionAttributeOutput, NodeType
 from datajunction_server.sql.dag import (
+    build_reference_link,
     get_common_dimensions,
     get_dimensions,
     get_dimensions_dag,
@@ -2856,3 +2857,155 @@ async def test_get_dimensions_filters_hidden_reference_link_columns(
     dims = await get_dimensions(session, child_ref)
     # The reference link to the hidden column must not surface.
     assert not any(d.name.startswith("refhidden.D.secret_col") for d in dims)
+
+
+@pytest.mark.asyncio
+async def test_build_reference_link_returns_attribute(
+    session: AsyncSession,
+    current_user: User,
+) -> None:
+    """
+    Reference-link helper returns a DimensionAttributeOutput when the target
+    column is visible. Covers the success path of ``build_reference_link``.
+    """
+    dim_ref = Node(
+        name="reflink_ok.D",
+        type=NodeType.DIMENSION,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    dim_rev = NodeRevision(
+        node=dim_ref,
+        name=dim_ref.name,
+        type=dim_ref.type,
+        display_name="reflink_ok.D",
+        version="1",
+        columns=[Column(name="visible_col", type=StringType(), order=0)],
+        created_by_id=current_user.id,
+    )
+    dim_ref.current = dim_rev
+    session.add(dim_rev)
+    session.add(dim_ref)
+    await session.flush()
+
+    src_ref = Node(
+        name="reflink_ok.A",
+        type=NodeType.SOURCE,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    src_col = Column(
+        name="d_visible",
+        type=StringType(),
+        order=0,
+        dimension=dim_ref,
+        dimension_column="visible_col",
+    )
+    src_rev = NodeRevision(
+        node=src_ref,
+        name=src_ref.name,
+        type=src_ref.type,
+        display_name="reflink_ok.A",
+        version="1",
+        columns=[src_col],
+        created_by_id=current_user.id,
+    )
+    src_ref.current = src_rev
+    session.add(src_rev)
+    session.add(src_ref)
+    await session.commit()
+
+    result = await build_reference_link(
+        session,
+        src_col,
+        path=["reflink_ok.A.d_visible"],
+    )
+    assert result is not None
+    assert result.name == "reflink_ok.D.visible_col"
+    assert result.column_display_name == "Visible Col"
+
+
+@pytest.mark.asyncio
+async def test_build_reference_link_skips_hidden_target_column(
+    session: AsyncSession,
+    current_user: User,
+) -> None:
+    """
+    When the target dim column is marked ``hidden``, ``build_reference_link``
+    returns None. Covers the early-return at dag.py:303.
+    """
+    from datajunction_server.database.attributetype import (
+        AttributeType,
+        ColumnAttribute,
+    )
+    from datajunction_server.models.attribute import ColumnAttributes
+    from sqlalchemy import select as _select
+
+    hidden_attr = (
+        await session.execute(
+            _select(AttributeType).where(
+                AttributeType.name == ColumnAttributes.HIDDEN.value,
+            ),
+        )
+    ).scalar_one()
+
+    dim_ref = Node(
+        name="reflink_hidden.D",
+        type=NodeType.DIMENSION,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    dim_rev = NodeRevision(
+        node=dim_ref,
+        name=dim_ref.name,
+        type=dim_ref.type,
+        display_name="reflink_hidden.D",
+        version="1",
+        columns=[
+            Column(
+                name="secret_col",
+                type=StringType(),
+                order=0,
+                attributes=[ColumnAttribute(attribute_type=hidden_attr)],
+            ),
+        ],
+        created_by_id=current_user.id,
+    )
+    dim_ref.current = dim_rev
+    session.add(dim_rev)
+    session.add(dim_ref)
+    await session.flush()
+
+    src_ref = Node(
+        name="reflink_hidden.A",
+        type=NodeType.SOURCE,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    src_col = Column(
+        name="d_secret",
+        type=StringType(),
+        order=0,
+        dimension=dim_ref,
+        dimension_column="secret_col",
+    )
+    src_rev = NodeRevision(
+        node=src_ref,
+        name=src_ref.name,
+        type=src_ref.type,
+        display_name="reflink_hidden.A",
+        version="1",
+        columns=[src_col],
+        created_by_id=current_user.id,
+    )
+    src_ref.current = src_rev
+    session.add(src_rev)
+    session.add(src_ref)
+    await session.commit()
+
+    result = await build_reference_link(
+        session,
+        src_col,
+        path=["reflink_hidden.A.d_secret"],
+    )
+    assert result is None
