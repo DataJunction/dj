@@ -563,13 +563,12 @@ async def hard_delete_namespace(
     # the to-be-deleted namespaces — e.g., sibling branches whose name
     # doesn't start with ``namespace`` but that point to it as parent.
     # Without this the namespace delete trips the self-FK.
-    if deleted_namespaces:
-        await session.execute(
-            update(NodeNamespace)
-            .where(NodeNamespace.parent_namespace.in_(deleted_namespaces))
-            .where(~NodeNamespace.namespace.in_(deleted_namespaces))
-            .values(parent_namespace=None),
-        )
+    await session.execute(
+        update(NodeNamespace)
+        .where(NodeNamespace.parent_namespace.in_(deleted_namespaces))
+        .where(~NodeNamespace.namespace.in_(deleted_namespaces))
+        .values(parent_namespace=None),
+    )
 
     for _namespace in namespaces:
         impacts[_namespace.namespace] = {
