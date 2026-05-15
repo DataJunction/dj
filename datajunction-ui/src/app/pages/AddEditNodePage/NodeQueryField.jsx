@@ -18,9 +18,16 @@ export const NodeQueryField = ({ djClient, value }) => {
   const knownCatalogsRef = React.useRef([]);
 
   React.useEffect(() => {
-    djClient.catalogs().then(catalogs => {
-      knownCatalogsRef.current = catalogs.map(c => c.name.toLowerCase());
-    });
+    if (typeof djClient.catalogs !== 'function') return;
+    Promise.resolve(djClient.catalogs())
+      .then(catalogs => {
+        knownCatalogsRef.current = (catalogs || []).map(c =>
+          c.name.toLowerCase(),
+        );
+      })
+      .catch(() => {
+        // Auto-register is best-effort; failing to load catalogs just disables it.
+      });
   }, [djClient]);
 
   const initialAutocomplete = async context => {
