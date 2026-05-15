@@ -327,7 +327,15 @@ async def get_dimension_attributes(
         await Node.get_by_name(
             session,
             node_name,
-            options=[joinedload(Node.current)],
+            options=[
+                joinedload(Node.current).options(
+                    selectinload(NodeRevision.columns).options(
+                        selectinload(Column.attributes).joinedload(
+                            ColumnAttribute.attribute_type,
+                        ),
+                    ),
+                ),
+            ],
             raise_if_not_exists=True,
         ),
     )
