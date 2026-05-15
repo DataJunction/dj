@@ -5,7 +5,10 @@ Available materialization jobs.
 import abc
 from typing import Dict, List, Optional
 
+import requests.exceptions
+
 from datajunction_server.database.materialization import Materialization
+from datajunction_server.errors import DJException
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import (
     GenericMaterializationConfig,
@@ -161,27 +164,35 @@ class SparkSqlMaterializationJob(  # pragma: no cover
                     op=ast.BinaryOpKind.And,
                 )
 
-        result = query_service_client.materialize(
-            GenericMaterializationInput(
-                name=materialization.name,  # type: ignore
-                node_name=materialization.node_revision.name,
-                node_version=materialization.node_revision.version,
-                node_type=materialization.node_revision.type.value,
-                job=materialization.job,
-                strategy=materialization.strategy,
-                lookback_window=generic_config.lookback_window,
-                schedule=materialization.schedule,
-                query=str(final_query),
-                upstream_tables=generic_config.upstream_tables,
-                spark_conf=generic_config.spark.root if generic_config.spark else {},
-                columns=generic_config.columns,
-                partitions=(
-                    generic_config.temporal_partition(materialization.node_revision)
-                    + generic_config.categorical_partitions(
-                        materialization.node_revision,
-                    )
+        try:
+            result = query_service_client.materialize(
+                GenericMaterializationInput(
+                    name=materialization.name,  # type: ignore
+                    node_name=materialization.node_revision.name,
+                    node_version=materialization.node_revision.version,
+                    node_type=materialization.node_revision.type.value,
+                    job=materialization.job,
+                    strategy=materialization.strategy,
+                    lookback_window=generic_config.lookback_window,
+                    schedule=materialization.schedule,
+                    query=str(final_query),
+                    upstream_tables=generic_config.upstream_tables,
+                    spark_conf=generic_config.spark.root
+                    if generic_config.spark
+                    else {},
+                    columns=generic_config.columns,
+                    partitions=(
+                        generic_config.temporal_partition(materialization.node_revision)
+                        + generic_config.categorical_partitions(
+                            materialization.node_revision,
+                        )
+                    ),
                 ),
-            ),
-            request_headers=request_headers,
-        )
+                request_headers=request_headers,
+            )
+        except requests.exceptions.RetryError as exc:
+            raise DJException(
+                message=f"Query service unavailable: {exc}",
+                http_status_code=502,
+            ) from exc
         return result
