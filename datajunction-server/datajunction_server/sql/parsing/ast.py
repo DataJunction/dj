@@ -2833,7 +2833,10 @@ class FunctionTable(FunctionTableExpression):
             return
         self._is_compiled = True
         types = await self._type(ctx)
-        for type, col in zip_longest(types, self.column_list):
+        # `column_list or []` covers the zero-column-alias case — e.g.
+        # `SELECT id FROM range(1, 10)` has no AS-list, so the function's
+        # inferred NestedField names (here, `id`) are used directly.
+        for type, col in zip_longest(types, self.column_list or []):
             if self.column_list:
                 if (type is None) or (col is None):
                     ctx.exception.errors.append(

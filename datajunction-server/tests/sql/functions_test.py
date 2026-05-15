@@ -1609,6 +1609,27 @@ async def test_explode_outer_func(session: AsyncSession):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "call",
+    [
+        "range(10)",
+        "range(1, 10)",
+        "range(1, 10, 2)",
+        "range(1, 10, 2, 4)",
+    ],
+)
+async def test_range(session: AsyncSession, call: str):
+    """Spark's ``range(...)`` table function: all four arities expose a single
+    ``id`` column typed BIGINT, and the generated query compiles clean."""
+    query = parse(f"SELECT id FROM {call}")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors, f"unexpected errors for {call!r}: {exc.errors}"
+    assert query.select.projection[0].type == ct.BigIntType()  # type: ignore
+
+
+@pytest.mark.asyncio
 async def test_expm1_func(session: AsyncSession):
     """
     Test the `expm1` function
