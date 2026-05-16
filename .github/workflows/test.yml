@@ -147,8 +147,8 @@ jobs:
       - name: Run Unit Tests and Build
         if: ${{ needs.changes.outputs.ui == 'true' }}
         run: |
-          yarn test --runInBand --ci --coverage
-          yarn webpack-build
+          yarn test --coverage
+          yarn build:lib
 
   build-java:
     runs-on: ubuntu-latest
