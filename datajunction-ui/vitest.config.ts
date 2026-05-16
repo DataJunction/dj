@@ -25,7 +25,12 @@ export default defineConfig(({ mode }) => {
       // @codemirror/state twice (once for @uiw/react-codemirror's
       // pre-bundle, once for our direct import), breaking the
       // `instanceof Extension` checks the extension array does.
-      dedupe: ['@codemirror/state', '@codemirror/view'],
+      dedupe: [
+        '@codemirror/state',
+        '@codemirror/view',
+        '@codemirror/language',
+        '@lezer/highlight',
+      ],
     },
     define: {
       'process.env.NODE_ENV': JSON.stringify('test'),
@@ -37,6 +42,20 @@ export default defineConfig(({ mode }) => {
       setupFiles: ['./src/setupTests.ts'],
       css: true,
       isolate: true,
+      // CodeMirror packages do `instanceof Extension` checks; under Vitest
+      // they can be loaded twice (once by @uiw/react-codemirror's pre-bundle
+      // and once by our own direct import), so the check fails. Inlining
+      // these forces a single instance in the test's module graph.
+      server: {
+        deps: {
+          inline: [
+            /@codemirror\//,
+            /@lezer\//,
+            /@uiw\/(react-)?codemirror/,
+            /codemirror/,
+          ],
+        },
+      },
       // Each test file gets a fresh module graph + mock registry. Without
       // this, App.test imports NodePage indirectly and primes the lazy
       // module cache, defeating NodePage.test's `vi.mock('cronstrue', ...)`.
