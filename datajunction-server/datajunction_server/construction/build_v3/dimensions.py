@@ -347,7 +347,10 @@ def _register_pushdown_into_upstream(
     FK column.
     """
     from datajunction_server.construction.build_v3.filters import parse_filter
-    from datajunction_server.construction.build_v3.cte import get_column_full_name
+    from datajunction_server.construction.build_v3.cte import (
+        get_column_full_name,
+        inject_filter_into_select,
+    )
 
     # Find filter strings that reference this dim ref. Parse each once.
     base_ref = original_ref.split("[")[0]
@@ -383,14 +386,15 @@ def _register_pushdown_into_upstream(
     for filter_str in matching:
         consumed = False
         for linked_node, fk_col in candidates:  # pragma: no branch
-            target_name, qualifier = _resolve_pushdown_target(
+            target = _resolve_pushdown_target(
                 ctx,
                 linked_node,
                 fk_col,
                 children_of,
             )
-            if target_name is None:
+            if target is None:
                 continue  # pragma: no cover
+            target_name, qualifier, arm_select = target
             rewritten = _rewrite_filter_col_refs(
                 filter_str,
                 base_ref,
@@ -399,9 +403,17 @@ def _register_pushdown_into_upstream(
             )
             if rewritten is None:
                 continue  # pragma: no cover
-            ctx.upstream_pushdown_filters.setdefault(target_name, []).append(
-                rewritten,
-            )
+            if arm_select is not None:
+                # Source link case — bake the filter directly into the arm's
+                # WHERE in the cached AST.  For set-op bodies this targets
+                # the specific arm that references the source; for plain
+                # SELECTs the arm is the top-level select, equivalent to
+                # injecting at the CTE WHERE.
+                inject_filter_into_select(arm_select, rewritten)
+            else:
+                ctx.upstream_pushdown_filters.setdefault(target_name, []).append(
+                    rewritten,
+                )
             consumed = True
         if consumed:  # pragma: no branch
             ctx.pushdown_consumed_filters.add(filter_str)
@@ -413,16 +425,19 @@ def _resolve_pushdown_target(
     linked_node: Node,
     fk_col: str,
     children_of: Callable[[str], list[str]],
-) -> tuple[Optional[str], Optional[str]]:
+) -> Optional[tuple[str, Optional[str], Optional["ast.Select"]]]:
     """
-    Return ``(target_cte_name, qualifier)`` for filter injection.
+    Return ``(target_cte_name, qualifier, arm_select)`` or ``None``.
 
-    Transform with the link → inject into its own CTE, no qualifier.
-    Source with the link → inject into a child transform's CTE, qualified
-    with the alias that child uses for the source.
+    - Transform with the link: ``arm_select`` is ``None``; caller registers
+      the filter for normal top-level CTE injection.
+    - Source with the link: walk every arm of the child transform's body
+      (UNION/INTERSECT/EXCEPT or plain SELECT) and return the specific
+      arm whose FROM references the source.  Caller injects directly into
+      that arm's WHERE.
     """
     if linked_node.type != NodeType.SOURCE:
-        return linked_node.name, None
+        return linked_node.name, None, None
     for child_name in children_of(linked_node.name):  # pragma: no branch
         child = ctx.nodes.get(child_name)
         if (
@@ -436,22 +451,34 @@ def _resolve_pushdown_target(
             child_query = ctx.get_parsed_query(child)
         except Exception:  # pragma: no cover
             continue
-        select = child_query.select if hasattr(child_query, "select") else None
-        if select is None or select.from_ is None:
+        top_select = child_query.select
+        if not isinstance(top_select, ast.Select):
             continue  # pragma: no cover
-        for tbl in select.from_.find_all(ast.Table):  # pragma: no branch
-            try:
-                tbl_name = tbl.name.identifier(quotes=False)
-            except Exception:  # pragma: no cover
-                continue
-            if tbl_name == linked_node.name:  # pragma: no branch
-                alias = (
-                    tbl.alias.name
-                    if tbl.alias
-                    else linked_node.name.split(SEPARATOR)[-1]
-                )
-                return child.name, alias
-    return None, None  # pragma: no cover
+        # Walk every arm: leading SELECT, then each set_op.right recursively.
+        arms: list[ast.Select] = [top_select]
+        cur_set_op = top_select.set_op
+        while cur_set_op is not None:
+            right = cur_set_op.right
+            if not isinstance(right, ast.Select):
+                break  # pragma: no cover
+            arms.append(right)
+            cur_set_op = right.set_op
+        for arm in arms:
+            if arm.from_ is None:
+                continue  # pragma: no cover
+            for tbl in arm.from_.find_all(ast.Table):  # pragma: no branch
+                try:
+                    tbl_name = tbl.name.identifier(quotes=False)
+                except Exception:  # pragma: no cover
+                    continue
+                if tbl_name == linked_node.name:  # pragma: no branch
+                    alias = (
+                        tbl.alias.name
+                        if tbl.alias
+                        else linked_node.name.split(SEPARATOR)[-1]
+                    )
+                    return child.name, alias, arm
+    return None  # pragma: no cover
 
 
 def _rewrite_filter_col_refs(
