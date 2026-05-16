@@ -3,7 +3,10 @@ import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { mocks } from '../../../../mocks/mockNodes';
 import DJClientContext from '../../../providers/djclient';
-import { NodePage } from '../Loadable';
+// Import NodePage directly (not via Loadable) — Loadable wraps it in a
+// React.lazy + Suspense boundary which adds an async resolution step that
+// can race testing-library's waitFor on slower CI runners.
+import { NodePage } from '../index';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
 

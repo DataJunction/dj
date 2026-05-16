@@ -272,12 +272,9 @@ describe('QueryPlannerPage', () => {
     it('expands namespace when clicked', async () => {
       renderPage();
 
-      await waitFor(() => {
-        expect(mockDjClient.metrics).toHaveBeenCalled();
-      });
-
-      // Click to expand namespace
-      const defaultNamespace = screen.getByText('default');
+      // Wait for the namespace label to actually render, not just for the
+      // metrics() spy to be called — the spy fires before React commits.
+      const defaultNamespace = await screen.findByText('default');
       fireEvent.click(defaultNamespace);
 
       // Metrics should now be visible
