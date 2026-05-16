@@ -3,7 +3,11 @@
  * Uses async search to efficiently handle large numbers of metrics.
  * Results are grouped by namespace for easier navigation.
  */
-import AsyncSelect, { components } from 'react-select/async';
+import AsyncSelect from 'react-select/async';
+// `components` is exported from the main `react-select` entry, not from
+// `react-select/async`. CRA's webpack was lenient about this; Vite's
+// stricter ESM resolution rejects the named import on the subpath.
+import { components } from 'react-select';
 import React, { useContext, useEffect, useState, useCallback } from 'react';
 import DJClientContext from '../../providers/djclient';
 

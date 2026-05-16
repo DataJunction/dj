@@ -30,6 +30,8 @@
   "homepage": "https://github.com/DataJunction/dj#readme",
   "dependencies": {
     "@codemirror/lang-sql": "^6.4.0",
+    "@codemirror/state": "^6.5.2",
+    "@codemirror/view": "^6.39.11",
     "@reduxjs/toolkit": "1.8.5",
     "@uiw/codemirror-extensions-basic-setup": "4.21.12",
     "@uiw/codemirror-extensions-langs": "4.21.12",

@@ -42,6 +42,10 @@ export default defineConfig(({ mode }) => {
         utils: path.resolve(__dirname, 'src/utils'),
         mocks: path.resolve(__dirname, 'src/mocks'),
       },
+      // CodeMirror's instanceof checks break when @codemirror/state or
+      // @codemirror/view get loaded twice (once via @uiw/react-codemirror's
+      // pre-bundle, once via our direct import). Dedupe forces a single copy.
+      dedupe: ['@codemirror/state', '@codemirror/view'],
     },
     server: {
       host: '0.0.0.0',

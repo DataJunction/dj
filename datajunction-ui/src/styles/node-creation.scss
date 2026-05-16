@@ -296,3 +296,225 @@ form {
   background: #f5efff;
   padding: 5px;
 }
+
+/* Chips applied by djNodeBadges (CodeMirror extension) to catalog-qualified
+ * table references in the SQL editor. The mark decoration wraps the matched
+ * text directly (e.g. `prodhive.dse.playback_f`) — same visual vocabulary
+ * as the .node_type__* pills used in the node graph and elsewhere so users
+ * see the same colored chip in both places. */
+.dj-node-chip {
+  border-radius: 4px !important;
+  padding: 0 5px !important;
+  margin: 0 1px;
+  border: none;
+  /* Slightly tighter than the surrounding monospace so the chip doesn't
+   * crowd adjacent tokens — it should feel inline, not stacked on top. */
+  font-size: 0.95em;
+}
+
+/* Per-node-type palette — soft tints derived from the .node_type__* hex in
+ * styles/index.css, lightened so they sit inside the editor surface
+ * (`#fbfbfd` from djEditorTheme) without looking like loud stickers. */
+.dj-node-chip--source {
+  background: #d6f6e8 !important;
+  color: #008a55 !important;
+}
+.dj-node-chip--dimension {
+  background: #fbeacc !important;
+  color: #8f5418 !important;
+}
+.dj-node-chip--metric {
+  background: #f8dde2 !important;
+  color: #8c1f33 !important;
+}
+.dj-node-chip--transform {
+  background: #d4ecff !important;
+  color: #0058a3 !important;
+}
+.dj-node-chip--cube {
+  background: #ead0fb !important;
+  color: #4f0671 !important;
+}
+.dj-node-chip--node {
+  background: #ececec !important;
+  color: #4b5563 !important;
+}
+
+/* Status indicators — IDE-style. Healthy nodes have no extra signal; the
+ * chip color alone says "DJ recognizes this". Problem states reuse the
+ * convention every engineer already knows from VS Code / IntelliJ:
+ *   amber wavy underline = "exists but something is off"
+ *   red wavy underline   = "this doesn't exist"
+ * Registering shows a brief opacity pulse instead — it's a transient state,
+ * not an error, so it shouldn't look like one. */
+.dj-node-chip--registering {
+  animation: dj-node-chip-pulse 1.2s ease-in-out infinite;
+}
+
+.dj-node-chip--warning {
+  text-decoration: underline wavy #b97f00 !important;
+  text-decoration-thickness: 1px !important;
+  text-underline-offset: 2px;
+}
+
+.dj-node-chip--invalid {
+  text-decoration: underline wavy #cc2222 !important;
+  text-decoration-thickness: 1px !important;
+  text-underline-offset: 2px;
+}
+
+@keyframes dj-node-chip-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* Hover tooltip rendered by djNodeHoverTooltip when the user hovers a chip.
+ * The outer .cm-tooltip wrapper is themed by djEditorTheme; this styles the
+ * inner content. Layout: header → metadata grid → description → scrollable
+ * column list → footer link. */
+.dj-node-tooltip {
+  font-family: 'Lato', sans-serif;
+  font-size: 12px;
+  color: #27303d;
+  width: 340px;
+}
+
+.dj-node-tooltip > * + * {
+  border-top: 1px solid #eef0f3;
+}
+.dj-node-tooltip > *:first-child,
+.dj-node-tooltip > *:last-child {
+  border: none;
+}
+
+.dj-node-tooltip__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+}
+.dj-node-tooltip__header .dj-node-chip {
+  font-size: 11px !important;
+  text-transform: lowercase;
+}
+.dj-node-tooltip__name {
+  font-family: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: #1f2937;
+  word-break: break-all;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.dj-node-tooltip__note {
+  padding: 8px 10px;
+  color: #6b7280;
+  font-style: italic;
+}
+
+.dj-node-tooltip__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 12px;
+  padding: 8px 10px;
+}
+.dj-node-tooltip__cell {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.dj-node-tooltip__label {
+  color: #6b7280;
+  text-transform: uppercase;
+  font-size: 9px;
+  letter-spacing: 0.05em;
+  line-height: 1.2;
+}
+.dj-node-tooltip__value {
+  color: #1f2937;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.dj-node-tooltip__description {
+  padding: 8px 10px;
+  color: #4b5563;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
+.dj-node-tooltip__columns {
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 6px 0;
+  /* Thin custom scrollbar — minimal, doesn't fight the popover surface. */
+  scrollbar-width: thin;
+  scrollbar-color: #d1d5db transparent;
+}
+.dj-node-tooltip__columns::-webkit-scrollbar {
+  width: 6px;
+}
+.dj-node-tooltip__columns::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
+}
+.dj-node-tooltip__col-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 10px;
+  font-family: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 11px;
+}
+.dj-node-tooltip__col-row:hover {
+  background: #f4f6f9;
+}
+.dj-node-tooltip__col-name {
+  color: #1f2937;
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dj-node-tooltip__col-tag {
+  font-family: 'Lato', sans-serif;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: #ead0fb;
+  color: #4f0671;
+  padding: 0 4px;
+  border-radius: 3px;
+  align-self: center;
+  flex: 0 0 auto;
+}
+.dj-node-tooltip__col-type {
+  color: #6b7280;
+  flex: 0 0 auto;
+  max-width: 40%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dj-node-tooltip__footer {
+  padding: 6px 10px;
+  text-align: right;
+}
+.dj-node-tooltip__footer a {
+  color: #2563eb;
+  font-weight: 500;
+  text-decoration: none;
+  font-size: 11px;
+}
+.dj-node-tooltip__footer a:hover {
+  text-decoration: underline;
+}
