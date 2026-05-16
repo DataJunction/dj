@@ -87,7 +87,12 @@ export const NodeQueryField = ({ djClient, value }) => {
 
       let response;
       try {
-        response = await djClient.registerTable(catalog, tableSchema, table, '');
+        response = await djClient.registerTable(
+          catalog,
+          tableSchema,
+          table,
+          '',
+        );
       } catch {
         registeredTables.current.delete(key);
         continue;
