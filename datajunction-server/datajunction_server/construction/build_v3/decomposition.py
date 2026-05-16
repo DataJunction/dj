@@ -528,6 +528,14 @@ def _merge_parent_grain_groups(groups: list[GrainGroup]) -> GrainGroup:
             # Track original aggregability for each component
             component_aggregabilities[component.name] = gg.aggregability
 
+    # Carry over non-decomposable metrics from every contributing group.
+    # Without this, merging a NONE group into a FULL/LIMITED neighbor
+    # silently drops the non-decomposable metric expressions and the
+    # response loses those metrics entirely.
+    all_non_decomposable: list[DecomposedMetricInfo] = []
+    for gg in groups:
+        all_non_decomposable.extend(gg.non_decomposable_metrics)
+
     # Compute finest grain (union of all grain columns)
     finest_grain_set: set[str] = set()
     merged_grain_col_aliases: dict[str, str] = {}
@@ -552,4 +560,5 @@ def _merge_parent_grain_groups(groups: list[GrainGroup]) -> GrainGroup:
         is_merged=True,
         component_aggregabilities=component_aggregabilities,
         grain_col_aliases=merged_grain_col_aliases,
+        non_decomposable_metrics=all_non_decomposable,
     )

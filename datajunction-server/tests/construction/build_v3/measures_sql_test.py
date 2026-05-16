@@ -3684,6 +3684,131 @@ class TestNonDecomposableMetrics:
             """,
         )
 
+    @pytest.mark.asyncio
+    async def test_mixed_decomposable_metric_is_non_decomposable(
+        self,
+        session,
+        client_with_build_v3,
+    ):
+        """
+        A metric mixing decomposable (MAX) and non-decomposable (MIN_BY)
+        aggregations must be treated as non-decomposable as a whole.
+
+        Pre-aggregating the MAX side alone would silently drop columns
+        referenced only inside MIN_BY (here ``product_id`` and
+        ``order_date``) from the CTE projection — and downstream consumers
+        that compute the metric expression against the measures table
+        would fail with missing-column errors.
+
+        Expected behavior: the metric is routed through the
+        non-decomposable pass-through path at native grain
+        (``order_id`` + ``line_number``), with raw rows projecting every
+        column the metric expression references.
+        """
+        result = await build_measures_sql(
+            session=session,
+            metrics=["v3.first_product_when_any_quantity"],
+            dimensions=["v3.order_details.status"],
+        )
+
+        assert len(result.grain_groups) == 1
+        gg = result.grain_groups[0]
+        # No pre-aggregation possible because MIN_BY is non-decomposable.
+        assert gg.aggregability.value == "none"
+        # Native grain of v3.order_details (the order_details PK columns).
+        assert set(gg.grain) == {"order_id", "line_number"}
+
+        # Pass-through SQL: every column referenced by the metric expression
+        # (`quantity`, `product_id`, `order_date`) plus grain + requested
+        # dimension (`status`) is in the projection, with no GROUP BY.
+        assert_sql_equal(
+            gg.sql,
+            """
+            WITH v3_order_details AS (
+              SELECT
+                o.order_id,
+                oi.line_number,
+                o.order_date,
+                o.status,
+                oi.product_id,
+                oi.quantity
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT
+              t1.status,
+              t1.order_id,
+              t1.line_number,
+              t1.quantity,
+              t1.product_id,
+              t1.order_date
+            FROM v3_order_details t1
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_decomposable_metric_merged_with_non_decomposable(
+        self,
+        session,
+        client_with_build_v3,
+    ):
+        """
+        FULL + NONE metrics on the same parent must merge into a single
+        grain group at the worst-case (NONE) aggregability, carrying both
+        the decomposable components and the non-decomposable metrics
+        through to the response.
+
+        Without proper merging, ``_merge_parent_grain_groups`` would
+        forget to carry over ``non_decomposable_metrics`` and silently
+        drop the non-decomposable metric from the output.
+
+        The emitted CTE must:
+        1. Include both metrics in ``metrics`` (no silent drop).
+        2. Project every column referenced by the non-decomposable
+           expression (here ``product_id``, ``line_total``) alongside
+           the decomposable component's source column (``line_total``).
+        3. Emit no GROUP BY on the outer SELECT — the merged grain is
+           NONE, so the downstream consumer applies aggregations after
+           the join.
+        """
+        result = await build_measures_sql(
+            session=session,
+            metrics=["v3.total_revenue", "v3.top_product_by_revenue"],
+            dimensions=["v3.order_details.status"],
+        )
+
+        # Both metrics merged into one grain group at NONE.
+        assert len(result.grain_groups) == 1
+        gg = result.grain_groups[0]
+        assert gg.aggregability.value == "none"
+        assert set(gg.metrics) == {
+            "v3.total_revenue",
+            "v3.top_product_by_revenue",
+        }
+
+        assert_sql_equal(
+            gg.sql,
+            """
+            WITH v3_order_details AS (
+              SELECT
+                o.order_id,
+                oi.line_number,
+                o.status,
+                oi.product_id,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT
+              t1.status,
+              t1.line_number,
+              t1.order_id,
+              t1.line_total AS line_total,
+              t1.product_id AS product_id
+            FROM v3_order_details t1
+            """,
+        )
+
 
 class TestCombinedMeasuresSQLEndpoint:
     """Tests for the /sql/measures/v3/combined endpoint."""

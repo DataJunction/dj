@@ -1901,6 +1901,20 @@ def build_grain_group_sql(
     # Handle non-decomposable metrics (like MAX_BY)
     # Extract column references from the metric expression and pass them through
     non_decomposable_columns: list[tuple[str, ast.Expression]] = []
+
+    # In the merged-with-non-decomposable case, components emit raw column
+    # refs (because downstream applies the aggregation after the join).  If a
+    # non-decomposable expression references one of those same columns
+    # (e.g. ``MAX_BY(product_id, line_total)`` shares ``line_total`` with a
+    # ``SUM(line_total)`` component), projecting it again here produces a
+    # duplicate column in the SELECT — track which column names the
+    # components already cover and skip them.
+    component_col_names: set[str] = set()
+    for _, expr in component_expressions:
+        for c in expr.find_all(ast.Column):
+            if c.name:  # pragma: no branch
+                component_col_names.add(c.name.name)
+
     for decomposed in grain_group.non_decomposable_metrics:
         metrics_covered.add(decomposed.metric_node.name)
 
@@ -1908,7 +1922,11 @@ def build_grain_group_sql(
         # These are the columns needed for the aggregation function
         for col in decomposed.derived_ast.find_all(ast.Column):
             col_name = col.name.name if col.name else None
-            if col_name and col_name not in seen_components:  # pragma: no branch
+            if (
+                col_name
+                and col_name not in seen_components
+                and col_name not in component_col_names
+            ):  # pragma: no branch
                 seen_components.add(col_name)
                 col_ast = make_column_ref(col_name)
                 non_decomposable_columns.append((col_name, col_ast))
@@ -1949,6 +1967,15 @@ def build_grain_group_sql(
     else:
         # Normal case: combine component expressions with non-decomposable columns
         all_metric_expressions = component_expressions + non_decomposable_columns
+        # When a merged grain group has non-decomposable metrics, the
+        # worst-case aggregability is NONE and components carry raw column
+        # refs (not pre-aggregations).  A GROUP BY here would be redundant
+        # — every projected column is part of the full grain — and the
+        # real aggregation happens downstream after the join.
+        skip_agg = bool(
+            grain_group.non_decomposable_metrics
+            and grain_group.aggregability == Aggregability.NONE,
+        )
         query_ast, scanned_sources = build_select_ast(
             ctx,
             metric_expressions=all_metric_expressions,
@@ -1957,6 +1984,7 @@ def build_grain_group_sql(
             grain_columns=effective_grain_columns,
             grain_col_aliases=grain_group.grain_col_aliases or None,
             filters=ctx.dimension_filters,  # Use dimension_filters only (not metric_filters)
+            skip_aggregation=skip_agg,
         )
 
     # Build column metadata

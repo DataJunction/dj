@@ -901,6 +901,47 @@ async def test_min_by(session: AsyncSession, create_metric):
 
 
 @pytest.mark.asyncio
+async def test_mixed_decomposable_and_non_decomposable_aggs(
+    session: AsyncSession,
+    create_metric,
+):
+    """
+    A metric mixing decomposable (MAX) and non-decomposable (MIN_BY)
+    aggregations is treated as non-decomposable as a whole.
+
+    Otherwise the MAX would produce a component while MIN_BY would not,
+    leaving the metric's column-dependency set incomplete:
+    column-pruning on the parent CTE would drop columns referenced only
+    inside MIN_BY (e.g. ``recovery_user_retry``, ``period_recovery_utc_ms``),
+    and the downstream measures table would be missing them.
+
+    Expected behavior: empty components list, derived AST preserved verbatim,
+    so the consumer routes the metric through the non-decomposable
+    pass-through path at native grain.
+    """
+    metric_rev = await create_metric(
+        "SELECT IF("
+        "MAX(recovered_cnt) IS NOT NULL, "
+        "MIN_BY(recovery_user_retry, period_recovery_utc_ms), "
+        "NULL"
+        ") FROM parent_node",
+    )
+    extractor = MetricComponentExtractor(metric_rev.id)
+    measures, derived_sql = await extractor.extract(session)
+    assert measures == []
+    # The query is preserved verbatim — MAX is NOT replaced with a combiner,
+    # since the whole metric is non-decomposable.
+    assert_sql_equal(
+        str(derived_sql),
+        "SELECT IF("
+        "MAX(recovered_cnt) IS NOT NULL, "
+        "MIN_BY(recovery_user_retry, period_recovery_utc_ms), "
+        "NULL"
+        ") FROM parent_node",
+    )
+
+
+@pytest.mark.asyncio
 async def test_approx_count_distinct(session: AsyncSession, create_metric):
     """
     Test decomposition for an approximate count distinct metric.
