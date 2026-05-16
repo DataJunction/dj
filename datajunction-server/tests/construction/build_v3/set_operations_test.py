@@ -223,10 +223,12 @@ class TestSetOperationTransforms:
             json={
                 "name": "v3.orders_global",
                 "description": "Union of US and EU orders",
+                # Linked source is in the SECOND (non-leading) arm so the
+                # pushdown goes through the direct-arm-WHERE-mutation path.
                 "query": """
-                    SELECT order_id, status FROM v3.src_orders_us
-                    UNION ALL
                     SELECT order_id, status FROM v3.src_orders_eu
+                    UNION ALL
+                    SELECT order_id, status FROM v3.src_orders_us
                 """,
                 "mode": "published",
                 "primary_key": ["order_id"],
@@ -255,17 +257,18 @@ class TestSetOperationTransforms:
         assert response.status_code == 200, response.json()
         sql = get_first_grain_group(response.json())["sql"]
         # The filter lands in the US arm (linked to the dim) only;
-        # the EU arm stays untouched.
+        # the EU arm stays untouched.  US is the non-leading arm, so this
+        # exercises the direct-arm-WHERE-mutation path.
         assert_sql_equal(
             sql,
             """
             WITH v3_orders_global AS (
                 SELECT order_id, status
-                FROM default.v3.orders_us
-                WHERE src_orders_us.order_date >= 20260101
+                FROM default.v3.orders_eu
                 UNION ALL
                 SELECT order_id, status
-                FROM default.v3.orders_eu
+                FROM default.v3.orders_us
+                WHERE src_orders_us.order_date >= 20260101
             )
             SELECT t1.status, t1.order_id
             FROM v3_orders_global t1

@@ -404,11 +404,10 @@ def _register_pushdown_into_upstream(
             if rewritten is None:
                 continue  # pragma: no cover
             if arm_select is not None:
-                # Source link case — bake the filter directly into the arm's
-                # WHERE in the cached AST.  For set-op bodies this targets
-                # the specific arm that references the source; for plain
-                # SELECTs the arm is the top-level select, equivalent to
-                # injecting at the CTE WHERE.
+                # Source lives in a non-leading set-op arm — the normal CTE
+                # WHERE injection would target the leading arm and reference
+                # an alias that doesn't exist there.  Bake the filter
+                # directly into the matching arm's WHERE in the cached AST.
                 inject_filter_into_select(arm_select, rewritten)
             else:
                 ctx.upstream_pushdown_filters.setdefault(target_name, []).append(
@@ -429,12 +428,11 @@ def _resolve_pushdown_target(
     """
     Return ``(target_cte_name, qualifier, arm_select)`` or ``None``.
 
-    - Transform with the link: ``arm_select`` is ``None``; caller registers
-      the filter for normal top-level CTE injection.
-    - Source with the link: walk every arm of the child transform's body
-      (UNION/INTERSECT/EXCEPT or plain SELECT) and return the specific
-      arm whose FROM references the source.  Caller injects directly into
-      that arm's WHERE.
+    ``arm_select`` is set only when the source lives in a non-leading arm
+    of a UNION/INTERSECT/EXCEPT body — in that case the caller injects
+    directly into that arm's WHERE.  For plain SELECT bodies or set-op
+    leading arms, ``arm_select`` is ``None`` and the caller registers the
+    filter through the normal CTE WHERE injection path.
     """
     if linked_node.type != NodeType.SOURCE:
         return linked_node.name, None, None
@@ -463,7 +461,7 @@ def _resolve_pushdown_target(
                 break  # pragma: no cover
             arms.append(right)
             cur_set_op = right.set_op
-        for arm in arms:
+        for idx, arm in enumerate(arms):  # pragma: no branch
             if arm.from_ is None:
                 continue  # pragma: no cover
             for tbl in arm.from_.find_all(ast.Table):  # pragma: no branch
@@ -477,7 +475,14 @@ def _resolve_pushdown_target(
                         if tbl.alias
                         else linked_node.name.split(SEPARATOR)[-1]
                     )
-                    return child.name, alias, arm
+                    # arm_select is only returned for non-leading set-op
+                    # arms; the leading arm goes through the normal CTE
+                    # WHERE injection (which would target the same arm).
+                    return (
+                        child.name,
+                        alias,
+                        arm if idx > 0 else None,
+                    )
     return None  # pragma: no cover
 
 
