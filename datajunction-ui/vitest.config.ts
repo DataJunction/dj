@@ -21,6 +21,11 @@ export default defineConfig(({ mode }) => {
         utils: path.resolve(__dirname, 'src/utils'),
         mocks: path.resolve(__dirname, 'src/mocks'),
       },
+      // Match vite.config.ts — without this, vitest can load
+      // @codemirror/state twice (once for @uiw/react-codemirror's
+      // pre-bundle, once for our direct import), breaking the
+      // `instanceof Extension` checks the extension array does.
+      dedupe: ['@codemirror/state', '@codemirror/view'],
     },
     define: {
       'process.env.NODE_ENV': JSON.stringify('test'),
