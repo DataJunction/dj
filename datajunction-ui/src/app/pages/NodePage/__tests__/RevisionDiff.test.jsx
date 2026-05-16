@@ -8,7 +8,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 describe('<RevisionDiff />', () => {
   const mockDjClient = {
     DataJunctionAPI: {
-      revisions: jest.fn(),
+      revisions: vi.fn(),
     },
   };
 

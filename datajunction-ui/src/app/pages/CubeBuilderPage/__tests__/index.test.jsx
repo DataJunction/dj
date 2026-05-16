@@ -5,21 +5,21 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import React from 'react';
 
 const mockDjClient = {
-  metrics: jest.fn(),
-  searchMetrics: jest.fn(),
-  getMetricsInfo: jest.fn(),
-  commonDimensions: jest.fn(),
-  createCube: jest.fn(),
-  namespaces: jest.fn(),
-  cube: jest.fn(),
-  getCubeForEditing: jest.fn(),
-  node: jest.fn(),
-  listTags: jest.fn(),
-  tagsNode: jest.fn(),
-  patchCube: jest.fn(),
-  users: jest.fn(),
-  whoami: jest.fn(),
-  metricsV3: jest.fn(),
+  metrics: vi.fn(),
+  searchMetrics: vi.fn(),
+  getMetricsInfo: vi.fn(),
+  commonDimensions: vi.fn(),
+  createCube: vi.fn(),
+  namespaces: vi.fn(),
+  cube: vi.fn(),
+  getCubeForEditing: vi.fn(),
+  node: vi.fn(),
+  listTags: vi.fn(),
+  tagsNode: vi.fn(),
+  patchCube: vi.fn(),
+  users: vi.fn(),
+  whoami: vi.fn(),
+  metricsV3: vi.fn(),
 };
 
 const mockMetrics = [
@@ -189,11 +189,11 @@ describe('CubeBuilderPage', () => {
     mockDjClient.getMetricsInfo.mockResolvedValue([]);
     mockDjClient.metricsV3.mockResolvedValue({ sql: '', errors: [] });
 
-    window.scrollTo = jest.fn();
+    window.scrollTo = vi.fn();
   });
 
   afterEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   it('renders without crashing', async () => {
@@ -343,7 +343,7 @@ describe('CubeBuilderPage', () => {
     fireEvent.change(metricsInput, { target: { value: 'default' } });
 
     // Advance timers to flush the 300ms debounce
-    jest.advanceTimersByTime(400);
+    vi.advanceTimersByTime(400);
 
     // Wait for search results
     await waitFor(() => {

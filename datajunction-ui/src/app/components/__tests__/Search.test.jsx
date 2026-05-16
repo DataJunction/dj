@@ -41,7 +41,7 @@ const mockTags = [
 
 const makeClient = overrides => ({
   DataJunctionAPI: {
-    globalSearch: jest
+    globalSearch: vi
       .fn()
       .mockResolvedValue({ nodes: mockNodes, tags: mockTags }),
     ...(overrides || {}),
@@ -49,19 +49,17 @@ const makeClient = overrides => ({
 });
 
 const flushDebounce = async () => {
+  // Real-timer wait that exceeds the debounce delay. Switching away from
+  // vitest fake timers here because testing-library's findBy* polling
+  // relies on real setTimeout to retry — fake timers deadlock it.
   await act(async () => {
-    jest.advanceTimersByTime(200);
+    await new Promise(resolve => setTimeout(resolve, 200));
   });
 };
 
 describe('<Search />', () => {
   beforeEach(() => {
-    jest.useFakeTimers();
-    jest.clearAllMocks();
-  });
-
-  afterEach(() => {
-    jest.useRealTimers();
+    vi.clearAllMocks();
   });
 
   it('renders the search input with the idle placeholder', () => {
@@ -146,7 +144,7 @@ describe('<Search />', () => {
 
   it('truncates descriptions longer than 100 characters', async () => {
     const client = makeClient({
-      globalSearch: jest
+      globalSearch: vi
         .fn()
         .mockResolvedValue({ nodes: [mockNodes[2]], tags: [] }),
     });
@@ -180,9 +178,9 @@ describe('<Search />', () => {
   });
 
   it('logs an error but does not throw when the request fails', async () => {
-    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation();
     const client = makeClient({
-      globalSearch: jest.fn().mockRejectedValue(new Error('boom')),
+      globalSearch: vi.fn().mockRejectedValue(new Error('boom')),
     });
     const { getByPlaceholderText } = render(
       <DJClientContext.Provider value={client}>
@@ -223,7 +221,7 @@ describe('<Search />', () => {
   it('aborts the in-flight request when a new query is typed', async () => {
     const aborts = [];
     const client = makeClient({
-      globalSearch: jest.fn((q, { signal }) => {
+      globalSearch: vi.fn((q, { signal }) => {
         return new Promise((resolve, reject) => {
           signal.addEventListener('abort', () => {
             const err = new Error('aborted');

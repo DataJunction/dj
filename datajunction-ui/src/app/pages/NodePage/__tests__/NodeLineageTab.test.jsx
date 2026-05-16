@@ -1,3 +1,4 @@
+import * as domTestingLib from '@testing-library/dom';
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import NodeColumnLineage from '../NodeLineageTab';
@@ -5,7 +6,7 @@ import DJClientContext from '../../../providers/djclient';
 import { mocks } from '../../../../mocks/mockNodes';
 
 describe('<NodeColumnLineage />', () => {
-  const domTestingLib = require('@testing-library/dom');
+  /* moved to top */
   const { queryHelpers } = domTestingLib;
 
   const queryByAttribute = attribute =>
@@ -19,9 +20,9 @@ describe('<NodeColumnLineage />', () => {
   const mockDJClient = () => {
     return {
       DataJunctionAPI: {
-        node: jest.fn(),
-        metric: jest.fn(),
-        node_lineage: jest.fn(name => {
+        node: vi.fn(),
+        metric: vi.fn(),
+        node_lineage: vi.fn(name => {
           return mocks.mockNodeLineage;
         }),
       },

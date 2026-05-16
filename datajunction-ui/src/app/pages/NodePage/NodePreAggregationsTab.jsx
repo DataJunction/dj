@@ -2,8 +2,7 @@ import { useEffect, useState, useMemo, useContext } from 'react';
 import DJClientContext from '../../providers/djclient';
 import { labelize } from '../../../utils/form';
 import '../../../styles/preaggregations.css';
-
-const cronstrue = require('cronstrue');
+import cronstrue from 'cronstrue';
 
 /**
  * Pre-aggregations tab for non-cube nodes (transform, metric, dimension).

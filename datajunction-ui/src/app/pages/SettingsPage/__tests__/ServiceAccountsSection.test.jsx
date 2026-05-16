@@ -3,8 +3,8 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ServiceAccountsSection } from '../ServiceAccountsSection';
 
 describe('ServiceAccountsSection', () => {
-  const mockOnCreate = jest.fn();
-  const mockOnDelete = jest.fn();
+  const mockOnCreate = vi.fn();
+  const mockOnDelete = vi.fn();
 
   const mockAccounts = [
     {
@@ -22,7 +22,7 @@ describe('ServiceAccountsSection', () => {
   ];
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   it('renders empty state when no accounts', () => {
@@ -80,7 +80,7 @@ describe('ServiceAccountsSection', () => {
   });
 
   it('calls onDelete when delete is confirmed', async () => {
-    window.confirm = jest.fn().mockReturnValue(true);
+    window.confirm = vi.fn().mockReturnValue(true);
     mockOnDelete.mockResolvedValue();
 
     render(
@@ -104,7 +104,7 @@ describe('ServiceAccountsSection', () => {
   });
 
   it('does not call onDelete when delete is cancelled', () => {
-    window.confirm = jest.fn().mockReturnValue(false);
+    window.confirm = vi.fn().mockReturnValue(false);
 
     render(
       <ServiceAccountsSection
@@ -149,9 +149,9 @@ describe('ServiceAccountsSection', () => {
   });
 
   it('handles delete error gracefully', async () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
-    const alertSpy = jest.spyOn(window, 'alert').mockImplementation();
-    window.confirm = jest.fn().mockReturnValue(true);
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation();
+    const alertSpy = vi.spyOn(window, 'alert').mockImplementation();
+    window.confirm = vi.fn().mockReturnValue(true);
     mockOnDelete.mockRejectedValue(new Error('Delete failed'));
 
     render(

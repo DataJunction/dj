@@ -3,8 +3,8 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { MyNodesSection } from '../MyNodesSection';
 
-jest.mock('../MyWorkspacePage.css', () => ({}));
-jest.mock('../NodeList', () => ({
+vi.mock('../MyWorkspacePage.css', () => ({}));
+vi.mock('../NodeList', () => ({
   NodeList: ({ nodes, showUpdatedAt }) => (
     <div data-testid="node-list">
       {nodes.map(node => (
@@ -13,7 +13,7 @@ jest.mock('../NodeList', () => ({
     </div>
   ),
 }));
-jest.mock('../TypeGroupGrid', () => ({
+vi.mock('../TypeGroupGrid', () => ({
   TypeGroupGrid: ({ groupedData }) => (
     <div data-testid="type-group-grid">
       {groupedData.map(group => (

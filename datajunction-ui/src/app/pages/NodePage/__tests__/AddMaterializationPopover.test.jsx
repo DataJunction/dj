@@ -6,15 +6,15 @@ import { mocks } from '../../../../mocks/mockNodes';
 
 const mockDjClient = {
   DataJunctionAPI: {
-    materialize: jest.fn(),
-    materializationInfo: jest.fn(),
+    materialize: vi.fn(),
+    materializationInfo: vi.fn(),
   },
 };
 
 describe('<AddMaterializationPopover />', () => {
   it('renders correctly and handles form submission', async () => {
     // Mock onSubmit function
-    const onSubmitMock = jest.fn();
+    const onSubmitMock = vi.fn();
     mockDjClient.DataJunctionAPI.materialize.mockReturnValue({
       status: 201,
       json: {

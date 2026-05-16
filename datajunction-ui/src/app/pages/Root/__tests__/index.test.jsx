@@ -6,18 +6,18 @@ import { HelmetProvider } from 'react-helmet-async';
 
 describe('<Root />', () => {
   const mockDjClient = {
-    logout: jest.fn(),
-    nodeDetails: jest.fn(),
-    listTags: jest.fn().mockResolvedValue([]),
-    nodes: jest.fn().mockResolvedValue([]),
-    whoami: jest.fn().mockResolvedValue({
+    logout: vi.fn(),
+    nodeDetails: vi.fn(),
+    listTags: vi.fn().mockResolvedValue([]),
+    nodes: vi.fn().mockResolvedValue([]),
+    whoami: vi.fn().mockResolvedValue({
       id: 1,
       username: 'testuser',
       email: 'test@example.com',
     }),
-    getSubscribedHistory: jest.fn().mockResolvedValue([]),
-    markNotificationsRead: jest.fn().mockResolvedValue({}),
-    getNodesByNames: jest.fn().mockResolvedValue([]),
+    getSubscribedHistory: vi.fn().mockResolvedValue([]),
+    markNotificationsRead: vi.fn().mockResolvedValue({}),
+    getNodesByNames: vi.fn().mockResolvedValue([]),
   };
 
   const renderRoot = () => {
@@ -31,7 +31,7 @@ describe('<Root />', () => {
   };
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   it('renders with the correct title and navigation', async () => {

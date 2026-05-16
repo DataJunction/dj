@@ -8,7 +8,7 @@ import UserContext from '../../providers/UserProvider';
 
 const buildClient = () => ({
   DataJunctionAPI: {
-    addNamespace: jest.fn().mockResolvedValue({ status: 201, json: {} }),
+    addNamespace: vi.fn().mockResolvedValue({ status: 201, json: {} }),
   },
 });
 

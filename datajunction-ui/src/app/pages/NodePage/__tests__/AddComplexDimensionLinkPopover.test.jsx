@@ -11,19 +11,19 @@ import DJClientContext from '../../../providers/djclient';
 
 // Mock window.location.reload
 delete window.location;
-window.location = { reload: jest.fn() };
+window.location = { reload: vi.fn() };
 
 const mockDjClient = {
   DataJunctionAPI: {
-    addComplexDimensionLink: jest.fn(),
-    removeComplexDimensionLink: jest.fn(),
+    addComplexDimensionLink: vi.fn(),
+    removeComplexDimensionLink: vi.fn(),
   },
 };
 
 describe('<AddComplexDimensionLinkPopover />', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
-    window.alert = jest.fn();
+    vi.clearAllMocks();
+    window.alert = vi.fn();
   });
 
   const defaultProps = {
@@ -32,7 +32,7 @@ describe('<AddComplexDimensionLinkPopover />', () => {
       { value: 'default.dim1', label: 'dim1 (5 links)' },
       { value: 'default.dim2', label: 'dim2 (3 links)' },
     ],
-    onSubmit: jest.fn(),
+    onSubmit: vi.fn(),
   };
 
   it('renders add button in add mode', () => {
@@ -314,7 +314,6 @@ describe('<AddComplexDimensionLinkPopover />', () => {
     });
 
     // Use fake timers to control setTimeout
-    jest.useFakeTimers();
 
     const { getByLabelText, getByRole } = render(
       <DJClientContext.Provider value={mockDjClient}>
@@ -330,8 +329,6 @@ describe('<AddComplexDimensionLinkPopover />', () => {
 
     // Trigger validation by clicking submit without filling fields
     // This will at least exercise the validation code paths
-
-    jest.useRealTimers();
   });
 
   it('shows error message when submission returns non-200 status', async () => {
@@ -438,8 +435,6 @@ describe('<AddComplexDimensionLinkPopover />', () => {
       status: 201, // Test status 201 as well as 200
     });
 
-    jest.useFakeTimers();
-
     const { getByLabelText, getByRole } = render(
       <DJClientContext.Provider value={mockDjClient}>
         <AddComplexDimensionLinkPopover {...defaultProps} />
@@ -453,7 +448,5 @@ describe('<AddComplexDimensionLinkPopover />', () => {
     });
 
     // Test that setTimeout would call window.location.reload (line 79)
-
-    jest.useRealTimers();
   });
 });

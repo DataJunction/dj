@@ -6,7 +6,7 @@ import { FullNameField } from '../FullNameField';
 describe('FullNameField', () => {
   const setup = initialValues => {
     return render(
-      <Formik initialValues={initialValues} onSubmit={jest.fn()}>
+      <Formik initialValues={initialValues} onSubmit={vi.fn()}>
         <Form>
           <FullNameField name="full_name" />
         </Form>

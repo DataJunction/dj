@@ -3,8 +3,8 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { NotificationSubscriptionsSection } from '../NotificationSubscriptionsSection';
 
 describe('NotificationSubscriptionsSection', () => {
-  const mockOnUpdate = jest.fn();
-  const mockOnUnsubscribe = jest.fn();
+  const mockOnUpdate = vi.fn();
+  const mockOnUnsubscribe = vi.fn();
 
   const mockSubscriptions = [
     {
@@ -24,7 +24,7 @@ describe('NotificationSubscriptionsSection', () => {
   ];
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   it('renders empty state when no subscriptions', () => {
@@ -117,7 +117,7 @@ describe('NotificationSubscriptionsSection', () => {
   });
 
   it('calls onUnsubscribe when unsubscribe is confirmed', async () => {
-    window.confirm = jest.fn().mockReturnValue(true);
+    window.confirm = vi.fn().mockReturnValue(true);
     mockOnUnsubscribe.mockResolvedValue();
 
     render(
@@ -138,7 +138,7 @@ describe('NotificationSubscriptionsSection', () => {
   });
 
   it('does not call onUnsubscribe when unsubscribe is cancelled', () => {
-    window.confirm = jest.fn().mockReturnValue(false);
+    window.confirm = vi.fn().mockReturnValue(false);
 
     render(
       <NotificationSubscriptionsSection
@@ -155,7 +155,7 @@ describe('NotificationSubscriptionsSection', () => {
   });
 
   it('shows alert when trying to save with no activity types', () => {
-    window.alert = jest.fn();
+    window.alert = vi.fn();
 
     render(
       <NotificationSubscriptionsSection
@@ -232,8 +232,8 @@ describe('NotificationSubscriptionsSection', () => {
   });
 
   it('handles onUpdate error gracefully', async () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
-    window.alert = jest.fn();
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation();
+    window.alert = vi.fn();
     mockOnUpdate.mockRejectedValue(new Error('Update failed'));
 
     render(
@@ -260,8 +260,8 @@ describe('NotificationSubscriptionsSection', () => {
   });
 
   it('handles onUnsubscribe error gracefully', async () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
-    window.confirm = jest.fn().mockReturnValue(true);
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation();
+    window.confirm = vi.fn().mockReturnValue(true);
     mockOnUnsubscribe.mockRejectedValue(new Error('Unsubscribe failed'));
 
     render(

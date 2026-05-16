@@ -5,9 +5,9 @@ import DJClientContext from '../../../providers/djclient';
 import NodeDimensionsTab from '../NodeDimensionsTab';
 
 // Mock reactflow — renders DimNode components directly to cover lines 42-136
-jest.mock('reactflow', () => {
-  const { useState } = require('react');
-  const React = require('react');
+vi.mock('reactflow', async () => {
+  const React = await vi.importActual('react');
+  const { useState } = React;
   return {
     __esModule: true,
     default: ({ nodes, nodeTypes }) => {
@@ -39,9 +39,9 @@ jest.mock('reactflow', () => {
   };
 });
 
-jest.mock('reactflow/dist/style.css', () => ({}));
+vi.mock('reactflow/dist/style.css', () => ({}));
 
-jest.mock('dagre', () => {
+vi.mock('dagre', () => {
   function MockGraph() {
     this.setDefaultEdgeLabel = function () {};
     this.setGraph = function () {};
@@ -51,15 +51,16 @@ jest.mock('dagre', () => {
       return { x: 100, y: 100 };
     };
   }
-  return {
+  const dagreModule = {
     graphlib: { Graph: MockGraph },
     layout: function () {},
   };
+  return { ...dagreModule, default: dagreModule };
 });
 
 describe('<NodeDimensionsTab />', () => {
   const mockDjClient = {
-    dimensionDag: jest.fn(),
+    dimensionDag: vi.fn(),
   };
 
   const renderWithContext = djNode =>
@@ -72,7 +73,7 @@ describe('<NodeDimensionsTab />', () => {
     );
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   it('shows "No dimension links found" when dimensionDag returns empty', async () => {
@@ -132,9 +133,7 @@ describe('<NodeDimensionsTab />', () => {
   });
 
   it('handles error from dimensionDag gracefully', async () => {
-    const consoleSpy = jest
-      .spyOn(console, 'error')
-      .mockImplementation(() => {});
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const djNode = {
       name: 'default.metric1',
       type: 'metric',
@@ -298,9 +297,7 @@ describe('<NodeDimensionsTab />', () => {
   });
 
   it('handles dimensionDag error gracefully', async () => {
-    const consoleSpy = jest
-      .spyOn(console, 'error')
-      .mockImplementation(() => {});
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const djNode = {
       name: 'default.hard_hat',
       type: 'dimension',

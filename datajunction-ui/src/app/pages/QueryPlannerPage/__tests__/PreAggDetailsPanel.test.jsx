@@ -22,20 +22,20 @@ import {
 import React from 'react';
 
 // Mock the syntax highlighter to avoid issues with CSS imports
-jest.mock('react-syntax-highlighter', () => ({
+vi.mock('react-syntax-highlighter', () => ({
   Light: ({ children }) => (
     <pre data-testid="syntax-highlighter">{children}</pre>
   ),
 }));
 
-jest.mock('react-syntax-highlighter/src/styles/hljs', () => ({
+vi.mock('react-syntax-highlighter/src/styles/hljs', () => ({
   atomOneLight: {},
 }));
 
 // Mock clipboard API
 Object.assign(navigator, {
   clipboard: {
-    writeText: jest.fn(),
+    writeText: vi.fn(),
   },
 });
 
@@ -267,7 +267,7 @@ describe('QueryOverviewPanel', () => {
     it('fetches and displays raw SQL when Raw tab is clicked', async () => {
       const mockRawSql =
         'SELECT * FROM raw_table WHERE date_id = 123 GROUP BY 1';
-      const onFetchRawSql = jest.fn().mockResolvedValue(mockRawSql);
+      const onFetchRawSql = vi.fn().mockResolvedValue(mockRawSql);
 
       renderWithRouter(
         <QueryOverviewPanel {...defaultProps} onFetchRawSql={onFetchRawSql} />,
@@ -290,7 +290,7 @@ describe('QueryOverviewPanel', () => {
       renderWithRouter(
         <QueryOverviewPanel
           {...defaultProps}
-          onPlanMaterialization={jest.fn()}
+          onPlanMaterialization={vi.fn()}
         />,
       );
       expect(screen.getByText('Configure')).toBeInTheDocument();
@@ -300,14 +300,14 @@ describe('QueryOverviewPanel', () => {
       renderWithRouter(
         <QueryOverviewPanel
           {...defaultProps}
-          onPlanMaterialization={jest.fn()}
+          onPlanMaterialization={vi.fn()}
         />,
       );
       expect(screen.getByText('Ready to materialize?')).toBeInTheDocument();
     });
 
     it('opens configuration form when Configure button is clicked', async () => {
-      const onFetchNodePartitions = jest.fn().mockResolvedValue({
+      const onFetchNodePartitions = vi.fn().mockResolvedValue({
         columns: [{ name: 'date_id', type: 'int' }],
         temporalPartitions: [],
       });
@@ -315,7 +315,7 @@ describe('QueryOverviewPanel', () => {
       renderWithRouter(
         <QueryOverviewPanel
           {...defaultProps}
-          onPlanMaterialization={jest.fn()}
+          onPlanMaterialization={vi.fn()}
           onFetchNodePartitions={onFetchNodePartitions}
         />,
       );
@@ -336,7 +336,7 @@ describe('QueryOverviewPanel', () => {
 
   describe('Materialization Configuration Form', () => {
     const setupConfigForm = async () => {
-      const onFetchNodePartitions = jest.fn().mockResolvedValue({
+      const onFetchNodePartitions = vi.fn().mockResolvedValue({
         columns: [
           { name: 'date_id', type: 'int' },
           { name: 'customer_id', type: 'int' },
@@ -344,7 +344,7 @@ describe('QueryOverviewPanel', () => {
         temporalPartitions: [{ name: 'date_id', granularity: 'DAY' }],
       });
 
-      const onPlanMaterialization = jest.fn().mockResolvedValue({});
+      const onPlanMaterialization = vi.fn().mockResolvedValue({});
 
       renderWithRouter(
         <QueryOverviewPanel
@@ -416,9 +416,9 @@ describe('QueryOverviewPanel', () => {
       renderWithRouter(
         <QueryOverviewPanel
           {...defaultProps}
-          onPlanMaterialization={jest.fn()}
+          onPlanMaterialization={vi.fn()}
           materializationError="Failed to plan materialization"
-          onClearError={jest.fn()}
+          onClearError={vi.fn()}
         />,
       );
 
@@ -428,12 +428,12 @@ describe('QueryOverviewPanel', () => {
     });
 
     it('calls onClearError when dismiss button is clicked', () => {
-      const onClearError = jest.fn();
+      const onClearError = vi.fn();
 
       renderWithRouter(
         <QueryOverviewPanel
           {...defaultProps}
-          onPlanMaterialization={jest.fn()}
+          onPlanMaterialization={vi.fn()}
           materializationError="Failed to plan materialization"
           onClearError={onClearError}
         />,
@@ -452,9 +452,9 @@ describe('QueryOverviewPanel', () => {
       renderWithRouter(
         <QueryOverviewPanel
           {...defaultProps}
-          onPlanMaterialization={jest.fn()}
+          onPlanMaterialization={vi.fn()}
           workflowUrls={['http://workflow.example.com/job/123']}
-          onClearWorkflowUrls={jest.fn()}
+          onClearWorkflowUrls={vi.fn()}
         />,
       );
 
@@ -479,7 +479,7 @@ describe('QueryOverviewPanel', () => {
         <QueryOverviewPanel
           {...defaultProps}
           plannedPreaggs={plannedPreaggs}
-          onPlanMaterialization={jest.fn()}
+          onPlanMaterialization={vi.fn()}
         />,
       );
 
@@ -497,7 +497,7 @@ describe('QueryOverviewPanel', () => {
         <QueryOverviewPanel
           {...defaultProps}
           loadedCubeName="default.test_cube"
-          onPlanMaterialization={jest.fn()}
+          onPlanMaterialization={vi.fn()}
         />,
       );
 
@@ -521,7 +521,7 @@ describe('QueryOverviewPanel', () => {
         },
       };
 
-      const onFetchNodePartitions = jest.fn().mockImplementation(nodeName =>
+      const onFetchNodePartitions = vi.fn().mockImplementation(nodeName =>
         Promise.resolve(
           mockNodePartitions[nodeName] || {
             columns: [],
@@ -530,8 +530,8 @@ describe('QueryOverviewPanel', () => {
         ),
       );
 
-      const onSetPartition = jest.fn().mockResolvedValue({ status: 200 });
-      const onPlanMaterialization = jest.fn().mockResolvedValue({});
+      const onSetPartition = vi.fn().mockResolvedValue({ status: 200 });
+      const onPlanMaterialization = vi.fn().mockResolvedValue({});
 
       renderWithRouter(
         <QueryOverviewPanel
@@ -717,7 +717,7 @@ describe('QueryOverviewPanel', () => {
     });
 
     it('shows success state when partition is already configured', async () => {
-      const onFetchNodePartitions = jest.fn().mockResolvedValue({
+      const onFetchNodePartitions = vi.fn().mockResolvedValue({
         columns: [{ name: 'date_id', type: 'int' }],
         temporalPartitions: [{ name: 'date_id', granularity: 'DAY' }],
       });
@@ -725,7 +725,7 @@ describe('QueryOverviewPanel', () => {
       renderWithRouter(
         <QueryOverviewPanel
           {...defaultProps}
-          onPlanMaterialization={jest.fn()}
+          onPlanMaterialization={vi.fn()}
           onFetchNodePartitions={onFetchNodePartitions}
         />,
       );
@@ -758,12 +758,12 @@ describe('QueryOverviewPanel', () => {
 
   describe('Backfill Date Range in Config Form', () => {
     const setupBackfillTest = async () => {
-      const onFetchNodePartitions = jest.fn().mockResolvedValue({
+      const onFetchNodePartitions = vi.fn().mockResolvedValue({
         columns: [{ name: 'date_id', type: 'int' }],
         temporalPartitions: [{ name: 'date_id', granularity: 'DAY' }],
       });
 
-      const onPlanMaterialization = jest.fn().mockResolvedValue({});
+      const onPlanMaterialization = vi.fn().mockResolvedValue({});
 
       renderWithRouter(
         <QueryOverviewPanel
@@ -879,7 +879,7 @@ describe('QueryOverviewPanel', () => {
 
   describe('Schedule Configuration', () => {
     const setupScheduleTest = async () => {
-      const onFetchNodePartitions = jest.fn().mockResolvedValue({
+      const onFetchNodePartitions = vi.fn().mockResolvedValue({
         columns: [{ name: 'date_id', type: 'int' }],
         temporalPartitions: [{ name: 'date_id', granularity: 'DAY' }],
       });
@@ -887,7 +887,7 @@ describe('QueryOverviewPanel', () => {
       renderWithRouter(
         <QueryOverviewPanel
           {...defaultProps}
-          onPlanMaterialization={jest.fn()}
+          onPlanMaterialization={vi.fn()}
           onFetchNodePartitions={onFetchNodePartitions}
         />,
       );
@@ -936,7 +936,7 @@ describe('QueryOverviewPanel', () => {
 
   describe('Lookback Window', () => {
     it('shows lookback window input for incremental strategy', async () => {
-      const onFetchNodePartitions = jest.fn().mockResolvedValue({
+      const onFetchNodePartitions = vi.fn().mockResolvedValue({
         columns: [{ name: 'date_id', type: 'int' }],
         temporalPartitions: [{ name: 'date_id', granularity: 'DAY' }],
       });
@@ -944,7 +944,7 @@ describe('QueryOverviewPanel', () => {
       renderWithRouter(
         <QueryOverviewPanel
           {...defaultProps}
-          onPlanMaterialization={jest.fn()}
+          onPlanMaterialization={vi.fn()}
           onFetchNodePartitions={onFetchNodePartitions}
         />,
       );
@@ -967,7 +967,7 @@ describe('QueryOverviewPanel', () => {
     });
 
     it('hides lookback window for full strategy', async () => {
-      const onFetchNodePartitions = jest.fn().mockResolvedValue({
+      const onFetchNodePartitions = vi.fn().mockResolvedValue({
         columns: [{ name: 'date_id', type: 'int' }],
         temporalPartitions: [{ name: 'date_id', granularity: 'DAY' }],
       });
@@ -975,7 +975,7 @@ describe('QueryOverviewPanel', () => {
       renderWithRouter(
         <QueryOverviewPanel
           {...defaultProps}
-          onPlanMaterialization={jest.fn()}
+          onPlanMaterialization={vi.fn()}
           onFetchNodePartitions={onFetchNodePartitions}
         />,
       );
@@ -1005,7 +1005,7 @@ describe('QueryOverviewPanel', () => {
 
   describe('Druid Cube Configuration', () => {
     it('shows Druid cube checkbox', async () => {
-      const onFetchNodePartitions = jest.fn().mockResolvedValue({
+      const onFetchNodePartitions = vi.fn().mockResolvedValue({
         columns: [{ name: 'date_id', type: 'int' }],
         temporalPartitions: [{ name: 'date_id', granularity: 'DAY' }],
       });
@@ -1013,7 +1013,7 @@ describe('QueryOverviewPanel', () => {
       renderWithRouter(
         <QueryOverviewPanel
           {...defaultProps}
-          onPlanMaterialization={jest.fn()}
+          onPlanMaterialization={vi.fn()}
           onFetchNodePartitions={onFetchNodePartitions}
         />,
       );
@@ -1032,7 +1032,7 @@ describe('QueryOverviewPanel', () => {
     });
 
     it('shows cube name inputs when Druid is enabled and no cube loaded', async () => {
-      const onFetchNodePartitions = jest.fn().mockResolvedValue({
+      const onFetchNodePartitions = vi.fn().mockResolvedValue({
         columns: [{ name: 'date_id', type: 'int' }],
         temporalPartitions: [{ name: 'date_id', granularity: 'DAY' }],
       });
@@ -1040,7 +1040,7 @@ describe('QueryOverviewPanel', () => {
       renderWithRouter(
         <QueryOverviewPanel
           {...defaultProps}
-          onPlanMaterialization={jest.fn()}
+          onPlanMaterialization={vi.fn()}
           onFetchNodePartitions={onFetchNodePartitions}
         />,
       );
@@ -1061,7 +1061,7 @@ describe('QueryOverviewPanel', () => {
     });
 
     it('shows preview of pre-aggregations to combine', async () => {
-      const onFetchNodePartitions = jest.fn().mockResolvedValue({
+      const onFetchNodePartitions = vi.fn().mockResolvedValue({
         columns: [{ name: 'date_id', type: 'int' }],
         temporalPartitions: [{ name: 'date_id', granularity: 'DAY' }],
       });
@@ -1069,7 +1069,7 @@ describe('QueryOverviewPanel', () => {
       renderWithRouter(
         <QueryOverviewPanel
           {...defaultProps}
-          onPlanMaterialization={jest.fn()}
+          onPlanMaterialization={vi.fn()}
           onFetchNodePartitions={onFetchNodePartitions}
         />,
       );
@@ -1094,7 +1094,7 @@ describe('QueryOverviewPanel', () => {
 
   describe('Form Submission', () => {
     it('shows correct button text for Druid cube materialization', async () => {
-      const onFetchNodePartitions = jest.fn().mockResolvedValue({
+      const onFetchNodePartitions = vi.fn().mockResolvedValue({
         columns: [{ name: 'date_id', type: 'int' }],
         temporalPartitions: [{ name: 'date_id', granularity: 'DAY' }],
       });
@@ -1102,7 +1102,7 @@ describe('QueryOverviewPanel', () => {
       renderWithRouter(
         <QueryOverviewPanel
           {...defaultProps}
-          onPlanMaterialization={jest.fn()}
+          onPlanMaterialization={vi.fn()}
           onFetchNodePartitions={onFetchNodePartitions}
         />,
       );
@@ -1121,7 +1121,7 @@ describe('QueryOverviewPanel', () => {
     });
 
     it('shows Cancel and submit buttons', async () => {
-      const onFetchNodePartitions = jest.fn().mockResolvedValue({
+      const onFetchNodePartitions = vi.fn().mockResolvedValue({
         columns: [{ name: 'date_id', type: 'int' }],
         temporalPartitions: [{ name: 'date_id', granularity: 'DAY' }],
       });
@@ -1129,7 +1129,7 @@ describe('QueryOverviewPanel', () => {
       renderWithRouter(
         <QueryOverviewPanel
           {...defaultProps}
-          onPlanMaterialization={jest.fn()}
+          onPlanMaterialization={vi.fn()}
           onFetchNodePartitions={onFetchNodePartitions}
         />,
       );
@@ -1146,7 +1146,7 @@ describe('QueryOverviewPanel', () => {
     });
 
     it('closes form when Cancel is clicked', async () => {
-      const onFetchNodePartitions = jest.fn().mockResolvedValue({
+      const onFetchNodePartitions = vi.fn().mockResolvedValue({
         columns: [{ name: 'date_id', type: 'int' }],
         temporalPartitions: [{ name: 'date_id', granularity: 'DAY' }],
       });
@@ -1154,7 +1154,7 @@ describe('QueryOverviewPanel', () => {
       renderWithRouter(
         <QueryOverviewPanel
           {...defaultProps}
-          onPlanMaterialization={jest.fn()}
+          onPlanMaterialization={vi.fn()}
           onFetchNodePartitions={onFetchNodePartitions}
         />,
       );
@@ -1183,12 +1183,12 @@ describe('QueryOverviewPanel', () => {
     });
 
     it('calls onPlanMaterialization with config when submitted', async () => {
-      const onFetchNodePartitions = jest.fn().mockResolvedValue({
+      const onFetchNodePartitions = vi.fn().mockResolvedValue({
         columns: [{ name: 'date_id', type: 'int' }],
         temporalPartitions: [{ name: 'date_id', granularity: 'DAY' }],
       });
 
-      const onPlanMaterialization = jest.fn().mockResolvedValue({});
+      const onPlanMaterialization = vi.fn().mockResolvedValue({});
 
       renderWithRouter(
         <QueryOverviewPanel
@@ -1263,10 +1263,10 @@ describe('PreAggDetailsPanel', () => {
     },
   ];
 
-  const onClose = jest.fn();
+  const onClose = vi.fn();
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   it('returns null when no preAgg provided', () => {
@@ -1542,10 +1542,10 @@ describe('MetricDetailsPanel', () => {
     },
   ];
 
-  const onClose = jest.fn();
+  const onClose = vi.fn();
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   it('returns null when no metric provided', () => {
@@ -1792,19 +1792,19 @@ describe('QueryOverviewPanel - Pre-Agg Cards', () => {
     selectedDimensions: ['default.date_dim.dateint'],
     loadedCubeName: null,
     plannedPreaggs: mockPlannedPreaggs,
-    onPlanMaterialization: jest.fn(),
-    onUpdateConfig: jest.fn(),
-    onCreateWorkflow: jest.fn(),
-    onRunBackfill: jest.fn(),
-    onDeactivatePreaggWorkflow: jest.fn(),
-    onFetchNodePartitions: jest.fn().mockResolvedValue({
+    onPlanMaterialization: vi.fn(),
+    onUpdateConfig: vi.fn(),
+    onCreateWorkflow: vi.fn(),
+    onRunBackfill: vi.fn(),
+    onDeactivatePreaggWorkflow: vi.fn(),
+    onFetchNodePartitions: vi.fn().mockResolvedValue({
       columns: [{ name: 'date_id', type: 'int' }],
       temporalPartitions: [{ name: 'date_id', granularity: 'DAY' }],
     }),
   };
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   describe('Pre-Agg Card Display', () => {
@@ -2060,7 +2060,7 @@ describe('QueryOverviewPanel - Pre-Agg Cards', () => {
     });
 
     it('calls onUpdateConfig when Save is clicked', async () => {
-      const onUpdateConfig = jest.fn().mockResolvedValue({});
+      const onUpdateConfig = vi.fn().mockResolvedValue({});
       renderWithRouter(
         <QueryOverviewPanel {...baseProps} onUpdateConfig={onUpdateConfig} />,
       );
@@ -2112,7 +2112,7 @@ describe('QueryOverviewPanel - Pre-Agg Cards', () => {
     });
 
     it('calls onCreateWorkflow when Refresh is clicked', async () => {
-      const onCreateWorkflow = jest.fn().mockResolvedValue({});
+      const onCreateWorkflow = vi.fn().mockResolvedValue({});
       renderWithRouter(
         <QueryOverviewPanel
           {...baseProps}
@@ -2165,8 +2165,8 @@ describe('QueryOverviewPanel - Pre-Agg Cards', () => {
     });
 
     it('calls onDeactivatePreaggWorkflow when Deactivate is clicked and confirmed', async () => {
-      const onDeactivatePreaggWorkflow = jest.fn().mockResolvedValue({});
-      window.confirm = jest.fn().mockReturnValue(true);
+      const onDeactivatePreaggWorkflow = vi.fn().mockResolvedValue({});
+      window.confirm = vi.fn().mockReturnValue(true);
 
       renderWithRouter(
         <QueryOverviewPanel
@@ -2195,8 +2195,8 @@ describe('QueryOverviewPanel - Pre-Agg Cards', () => {
     });
 
     it('does not deactivate when confirmation is cancelled', async () => {
-      const onDeactivatePreaggWorkflow = jest.fn().mockResolvedValue({});
-      window.confirm = jest.fn().mockReturnValue(false);
+      const onDeactivatePreaggWorkflow = vi.fn().mockResolvedValue({});
+      window.confirm = vi.fn().mockReturnValue(false);
 
       renderWithRouter(
         <QueryOverviewPanel
@@ -2254,7 +2254,7 @@ describe('QueryOverviewPanel - Pre-Agg Cards', () => {
     });
 
     it('calls onCreateWorkflow when Create Workflow is clicked', async () => {
-      const onCreateWorkflow = jest.fn().mockResolvedValue({
+      const onCreateWorkflow = vi.fn().mockResolvedValue({
         workflow_urls: ['https://workflow.example.com/new-123'],
       });
 
@@ -2335,15 +2335,15 @@ describe('QueryOverviewPanel - Backfill Modal', () => {
     selectedMetrics: ['default.num_repair_orders'],
     selectedDimensions: ['default.date_dim.date_id'], // Must have at least one dimension
     plannedPreaggs: mockPlannedPreaggs,
-    onRunBackfill: jest.fn(),
-    onFetchNodePartitions: jest.fn().mockResolvedValue({
+    onRunBackfill: vi.fn(),
+    onFetchNodePartitions: vi.fn().mockResolvedValue({
       columns: [],
       temporalPartitions: [],
     }),
   };
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   it('opens backfill modal when Run Backfill is clicked on preagg card', async () => {
@@ -2404,7 +2404,7 @@ describe('QueryOverviewPanel - Backfill Modal', () => {
   });
 
   it('calls onRunBackfill when Start Backfill is clicked in modal', async () => {
-    const onRunBackfill = jest
+    const onRunBackfill = vi
       .fn()
       .mockResolvedValue({ job_url: 'https://job.example.com' });
     renderWithRouter(
@@ -2529,18 +2529,18 @@ describe('QueryOverviewPanel - Cube Materialization Section', () => {
     loadedCubeName: 'default.test_cube',
     cubeMaterialization: mockCubeMaterialization,
     workflowUrls: mockWorkflowUrls, // This triggers cube section
-    onUpdateCubeConfig: jest.fn(),
-    onRefreshCubeWorkflow: jest.fn(),
-    onRunCubeBackfill: jest.fn(),
-    onDeactivateCubeWorkflow: jest.fn(),
-    onFetchNodePartitions: jest.fn().mockResolvedValue({
+    onUpdateCubeConfig: vi.fn(),
+    onRefreshCubeWorkflow: vi.fn(),
+    onRunCubeBackfill: vi.fn(),
+    onDeactivateCubeWorkflow: vi.fn(),
+    onFetchNodePartitions: vi.fn().mockResolvedValue({
       columns: [],
       temporalPartitions: [],
     }),
   };
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   describe('Cube Summary Display', () => {
@@ -2661,7 +2661,7 @@ describe('QueryOverviewPanel - Cube Materialization Section', () => {
     });
 
     it('calls onUpdateCubeConfig when Save is clicked', async () => {
-      const onUpdateCubeConfig = jest.fn().mockResolvedValue({});
+      const onUpdateCubeConfig = vi.fn().mockResolvedValue({});
       renderWithRouter(
         <QueryOverviewPanel
           {...baseProps}
@@ -2699,7 +2699,7 @@ describe('QueryOverviewPanel - Cube Materialization Section', () => {
 
   describe('Cube Workflow Actions', () => {
     it('calls onRefreshCubeWorkflow when Refresh is clicked', async () => {
-      const onRefreshCubeWorkflow = jest.fn().mockResolvedValue({});
+      const onRefreshCubeWorkflow = vi.fn().mockResolvedValue({});
       renderWithRouter(
         <QueryOverviewPanel
           {...baseProps}
@@ -2727,8 +2727,8 @@ describe('QueryOverviewPanel - Cube Materialization Section', () => {
     });
 
     it('calls onDeactivateCubeWorkflow when Deactivate is clicked and confirmed', async () => {
-      const onDeactivateCubeWorkflow = jest.fn().mockResolvedValue({});
-      window.confirm = jest.fn().mockReturnValue(true);
+      const onDeactivateCubeWorkflow = vi.fn().mockResolvedValue({});
+      window.confirm = vi.fn().mockReturnValue(true);
 
       renderWithRouter(
         <QueryOverviewPanel
@@ -2811,7 +2811,7 @@ describe('QueryOverviewPanel - Cube Materialization Section', () => {
     });
 
     it('calls onRunCubeBackfill when Start Backfill is clicked', async () => {
-      const onRunCubeBackfill = jest.fn().mockResolvedValue({
+      const onRunCubeBackfill = vi.fn().mockResolvedValue({
         workflow_urls: ['https://workflow.example.com/backfill'],
       });
       renderWithRouter(
@@ -2879,15 +2879,15 @@ describe('QueryOverviewPanel - Custom Schedule and Druid Config', () => {
     selectedMetrics: ['default.num_repair_orders'],
     selectedDimensions: ['default.date_dim.date_id'], // Must have at least one dimension
     plannedPreaggs: {}, // No planned preaggs = shows Configure button
-    onPlanMaterialization: jest.fn(),
-    onFetchNodePartitions: jest.fn().mockResolvedValue({
+    onPlanMaterialization: vi.fn(),
+    onFetchNodePartitions: vi.fn().mockResolvedValue({
       columns: [{ name: 'date_id', type: 'int' }],
       temporalPartitions: [{ name: 'date_id', granularity: 'DAY' }],
     }),
   };
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   describe('Custom Schedule Input', () => {
@@ -3316,9 +3316,9 @@ describe('Scan Estimation Features', () => {
     errorMetrics: null,
     loadingMeasures: false,
     errorMeasures: null,
-    onToggleMaterialization: jest.fn(),
-    onUpdateCubeConfig: jest.fn(),
-    onClearWorkflowUrls: jest.fn(),
+    onToggleMaterialization: vi.fn(),
+    onUpdateCubeConfig: vi.fn(),
+    onClearWorkflowUrls: vi.fn(),
   };
 
   it('displays scan estimate banner with warning level', async () => {
@@ -3377,7 +3377,7 @@ describe('Scan Estimation Features', () => {
   });
 
   it('toggles between optimized and raw SQL views', async () => {
-    const mockFetchRawSql = jest.fn().mockResolvedValue({
+    const mockFetchRawSql = vi.fn().mockResolvedValue({
       sql: 'SELECT * FROM raw_tables',
       scan_estimate: {
         total_bytes: 100 * 1024 * 1024 * 1024, // 100GB

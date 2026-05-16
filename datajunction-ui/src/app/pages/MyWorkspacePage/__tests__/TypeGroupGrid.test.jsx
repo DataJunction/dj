@@ -3,8 +3,8 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { TypeGroupGrid } from '../TypeGroupGrid';
 
-jest.mock('../MyWorkspacePage.css', () => ({}));
-jest.mock('../../../components/NodeComponents', () => ({
+vi.mock('../MyWorkspacePage.css', () => ({}));
+vi.mock('../../../components/NodeComponents', () => ({
   NodeBadge: ({ type }) => <span data-testid="badge">{type}</span>,
   NodeLink: ({ node }) => (
     <a href={`/nodes/${node.name}`} data-testid={`node-link-${node.name}`}>
@@ -12,7 +12,7 @@ jest.mock('../../../components/NodeComponents', () => ({
     </a>
   ),
 }));
-jest.mock('../../../components/NodeListActions', () => ({
+vi.mock('../../../components/NodeListActions', () => ({
   __esModule: true,
   default: ({ nodeName }) => (
     <div data-testid={`actions-${nodeName}`}>actions</div>

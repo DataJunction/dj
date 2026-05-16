@@ -1,49 +1,32 @@
 /**
  * index.tsx
  *
- * This is the entry file for the application, only setup and boilerplate
- * code.
+ * Library entry. Re-exports the public surface so consumers can do
+ * `import { App, ... } from 'datajunction-ui'`.
+ *
+ * Note: the existing internal consumer imports from deep paths
+ * (`datajunction-ui/src/app/...`). Those still work because `src/` is
+ * shipped as part of the package.
  */
 
-import 'react-app-polyfill/ie11';
-import 'react-app-polyfill/stable';
+export { App } from './app';
+export { Root } from './app/pages/Root';
+export { default as DJClientContext } from './app/providers/djclient';
+export { UserProvider } from './app/providers/UserProvider';
+export { DataJunctionAPI } from './app/services/DJService';
 
-import * as React from 'react';
-import ReactDOM from 'react-dom/client';
-import FontFaceObserver from 'fontfaceobserver';
-
-// Use consistent styling
-import 'sanitize.css/sanitize.css';
-import './styles/index.css';
-import 'react-diff-view/style/index.css';
-
-import { App } from './app';
-
-import { HelmetProvider } from 'react-helmet-async';
-import reportWebVitals from './reportWebVitals';
-
-// Observe loading of Inter (to remove 'Inter', remove the <link> tag in
-// the index.html file and this observer)
-const openSansObserver = new FontFaceObserver('Inter', {});
-
-// When Inter is loaded, add a font-family using Inter to the body
-openSansObserver.load().then(() => {
-  document.body.classList.add('fontLoaded');
-});
-
-const root = ReactDOM.createRoot(
-  document.getElementById('root') as HTMLElement,
-);
-
-root.render(
-  <HelmetProvider>
-    <React.StrictMode>
-      <App />
-    </React.StrictMode>
-  </HelmetProvider>,
-);
-
-// If you want to start measuring performance in your app, pass a function
-// to log results (for example: reportWebVitals(console.log))
-// or send to an analytics endpoint. Learn more: https://bit.ly/CRA-vitals
-reportWebVitals();
+export { NamespacePage } from './app/pages/NamespacePage/Loadable';
+export { MyWorkspacePage } from './app/pages/MyWorkspacePage/Loadable';
+export { OverviewPage } from './app/pages/OverviewPage/Loadable';
+export { SystemMetricsExplorerPage } from './app/pages/SystemMetricsExplorerPage/Loadable';
+export { SettingsPage } from './app/pages/SettingsPage/Loadable';
+export { NotificationsPage } from './app/pages/NotificationsPage/Loadable';
+export { NodePage } from './app/pages/NodePage';
+export { SQLBuilderPage } from './app/pages/SQLBuilderPage/Loadable';
+export { CubeBuilderPage } from './app/pages/CubeBuilderPage/Loadable';
+export { QueryPlannerPage } from './app/pages/QueryPlannerPage/Loadable';
+export { TagPage } from './app/pages/TagPage/Loadable';
+export { AddEditNodePage } from './app/pages/AddEditNodePage/Loadable';
+export { AddEditTagPage } from './app/pages/AddEditTagPage/Loadable';
+export { NotFoundPage } from './app/pages/NotFoundPage/Loadable';
+export { RegisterTablePage } from './app/pages/RegisterTablePage';

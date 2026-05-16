@@ -2,7 +2,7 @@ import reportWebVitals from '../reportWebVitals';
 
 describe('reportWebVitals', () => {
   it('calls web vitals functions when handler is provided', async () => {
-    const mockHandler = jest.fn();
+    const mockHandler = vi.fn();
 
     // Call reportWebVitals with a handler
     reportWebVitals(mockHandler);

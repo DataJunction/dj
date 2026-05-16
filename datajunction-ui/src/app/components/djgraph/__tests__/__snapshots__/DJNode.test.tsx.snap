@@ -1,4 +1,120 @@
-// Jest Snapshot v1, https://goo.gl/fbAQLP
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`<DJNode /> > should render and match the snapshot 1`] = `
+<React.Fragment>
+  <div
+    className="dj-node__full node_type__source"
+    style={
+      {
+        "width": "450px",
+      }
+    }
+  >
+    <div
+      style={
+        {
+          "display": "flex",
+          "flexDirection": "column",
+          "height": "100%",
+          "justifyContent": "space-between",
+          "position": "absolute",
+          "top": "50%",
+        }
+      }
+    >
+      <Memo(Handle)
+        id="shared.dimensions.accounts"
+        position="left"
+        style={
+          {
+            "background": "transparent",
+            "border": "4px solid transparent",
+            "borderRadius": "12px",
+            "cursor": "pointer",
+            "height": "12px",
+            "left": 0,
+            "position": "absolute",
+            "top": "0px",
+            "transform": "translate(-100%, -50%)",
+            "width": "12px",
+          }
+        }
+        type="target"
+      />
+    </div>
+    <div
+      className="dj-node__header"
+    >
+      <div
+        className="serif"
+      >
+        shared ▶ dimensions
+      </div>
+    </div>
+    <div
+      className="dj-node__body"
+    >
+      <b>
+        Source
+      </b>
+      <br />
+       
+      <a
+        href="/nodes/shared.dimensions.accounts"
+      />
+      <Collapse
+        collapsed={true}
+        data={
+          {
+            "column_names": [
+              "a",
+            ],
+            "name": "shared.dimensions.accounts",
+            "primary_key": [
+              "id",
+            ],
+            "type": "source",
+          }
+        }
+        text="columns"
+      />
+    </div>
+    <div
+      style={
+        {
+          "display": "flex",
+          "flexDirection": "column",
+          "height": "100%",
+          "justifyContent": "space-between",
+          "position": "absolute",
+          "right": 0,
+          "top": "50%",
+        }
+      }
+    >
+      <Memo(Handle)
+        id="shared.dimensions.accounts"
+        position="right"
+        style={
+          {
+            "background": "transparent",
+            "border": "4px solid transparent",
+            "borderRadius": "12px",
+            "cursor": "pointer",
+            "height": "12px",
+            "left": 0,
+            "position": "absolute",
+            "top": "0px",
+            "transform": "translate(-90%, -50%)",
+            "width": "12px",
+          }
+        }
+        type="source"
+      />
+    </div>
+  </div>
+</React.Fragment>
+`;
 
 exports[`<DJNode /> should render and match the snapshot 1`] = `
 <React.Fragment>

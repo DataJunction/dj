@@ -5,8 +5,8 @@ import DJClientContext from '../../../providers/djclient';
 import NodeDataFlowTab from '../NodeDataFlowTab';
 
 // Sankey mock renders the node/link elements with fake props so SankeyNode/SankeyLink are covered
-jest.mock('recharts', () => {
-  const React = require('react');
+vi.mock('recharts', async () => {
+  const React = await vi.importActual('react');
   return {
     Sankey: ({ node: nodeEl, link: linkEl, data, children }) => {
       const nodes = data?.nodes || [];
@@ -152,9 +152,9 @@ beforeAll(() => {
 
 describe('<NodeDataFlowTab />', () => {
   const mockDjClient = {
-    upstreamsGQL: jest.fn(),
-    downstreamsGQL: jest.fn(),
-    findCubesWithMetrics: jest.fn(),
+    upstreamsGQL: vi.fn(),
+    downstreamsGQL: vi.fn(),
+    findCubesWithMetrics: vi.fn(),
   };
 
   const renderWithContext = djNode =>
@@ -167,7 +167,7 @@ describe('<NodeDataFlowTab />', () => {
     );
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     mockDjClient.findCubesWithMetrics.mockResolvedValue([]);
   });
 
@@ -217,9 +217,7 @@ describe('<NodeDataFlowTab />', () => {
   });
 
   it('handles error from Promise.all gracefully (lines 268-269)', async () => {
-    const consoleSpy = jest
-      .spyOn(console, 'error')
-      .mockImplementation(() => {});
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const djNode = { name: 'default.metric1', type: 'metric', parents: [] };
     mockDjClient.upstreamsGQL.mockRejectedValue(new Error('Network error'));
     mockDjClient.downstreamsGQL.mockResolvedValue([]);

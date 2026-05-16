@@ -1,4 +1,24 @@
-// Jest Snapshot v1, https://goo.gl/fbAQLP
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`<NodePage /> > renders the NodeInfo tab correctly for a metric node 1`] = `
+HTMLCollection [
+  <code
+    class="language-sql"
+    style="white-space: pre-wrap;"
+  >
+    <span>
+      <span
+        class="hljs-built_in"
+      >
+        count
+      </span>
+      <span>
+        (repair_order_id)
+      </span>
+    </span>
+  </code>,
+]
+`;
 
 exports[`<NodePage /> renders the NodeInfo tab correctly for a metric node 1`] = `
 HTMLCollection [

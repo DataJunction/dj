@@ -37,16 +37,16 @@ const mockDimensions = [
 const defaultProps = {
   metrics: mockMetrics,
   selectedMetrics: [],
-  onMetricsChange: jest.fn(),
+  onMetricsChange: vi.fn(),
   dimensions: mockDimensions,
   selectedDimensions: [],
-  onDimensionsChange: jest.fn(),
+  onDimensionsChange: vi.fn(),
   loading: false,
 };
 
 describe('SelectionPanel', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   describe('Metrics Section', () => {
@@ -100,7 +100,7 @@ describe('SelectionPanel', () => {
     });
 
     it('calls onMetricsChange when metric is selected', () => {
-      const onMetricsChange = jest.fn();
+      const onMetricsChange = vi.fn();
       render(
         <SelectionPanel {...defaultProps} onMetricsChange={onMetricsChange} />,
       );
@@ -120,7 +120,7 @@ describe('SelectionPanel', () => {
     });
 
     it('removes metric when unchecked', () => {
-      const onMetricsChange = jest.fn();
+      const onMetricsChange = vi.fn();
       render(
         <SelectionPanel
           {...defaultProps}
@@ -218,7 +218,7 @@ describe('SelectionPanel', () => {
     });
 
     it('selects all metrics in namespace when Select all is clicked', () => {
-      const onMetricsChange = jest.fn();
+      const onMetricsChange = vi.fn();
       render(
         <SelectionPanel {...defaultProps} onMetricsChange={onMetricsChange} />,
       );
@@ -234,7 +234,7 @@ describe('SelectionPanel', () => {
     });
 
     it('clears all metrics in namespace when namespace Clear is clicked', () => {
-      const onMetricsChange = jest.fn();
+      const onMetricsChange = vi.fn();
       render(
         <SelectionPanel
           {...defaultProps}
@@ -294,7 +294,7 @@ describe('SelectionPanel', () => {
     });
 
     it('calls onDimensionsChange when dimension is selected', () => {
-      const onDimensionsChange = jest.fn();
+      const onDimensionsChange = vi.fn();
       render(
         <SelectionPanel
           {...defaultProps}
@@ -432,7 +432,7 @@ describe('SelectionPanel', () => {
         { name: 'default.test_cube', display_name: 'Test Cube' },
         { name: 'sales.revenue_cube', display_name: 'Revenue Cube' },
       ],
-      onLoadCubePreset: jest.fn(),
+      onLoadCubePreset: vi.fn(),
     };
 
     it('shows Load from Cube button when cubes are available', () => {
@@ -472,7 +472,7 @@ describe('SelectionPanel', () => {
     });
 
     it('calls onLoadCubePreset when a cube is selected', () => {
-      const onLoadCubePreset = jest.fn();
+      const onLoadCubePreset = vi.fn();
       render(
         <SelectionPanel {...cubeProps} onLoadCubePreset={onLoadCubePreset} />,
       );
@@ -535,7 +535,7 @@ describe('SelectionPanel', () => {
     });
 
     it('removes metric when chip remove button is clicked', () => {
-      const onMetricsChange = jest.fn();
+      const onMetricsChange = vi.fn();
       render(
         <SelectionPanel
           {...defaultProps}
@@ -619,7 +619,7 @@ describe('SelectionPanel', () => {
     });
 
     it('removes dimension when chip remove button is clicked', () => {
-      const onDimensionsChange = jest.fn();
+      const onDimensionsChange = vi.fn();
       render(
         <SelectionPanel
           {...defaultProps}
@@ -658,7 +658,7 @@ describe('SelectionPanel', () => {
     });
 
     it('calls onClearSelection when global Clear is clicked', () => {
-      const onClearSelection = jest.fn();
+      const onClearSelection = vi.fn();
       render(
         <SelectionPanel
           {...defaultProps}
@@ -675,8 +675,8 @@ describe('SelectionPanel', () => {
     });
 
     it('clears metrics and dimensions if no onClearSelection provided', () => {
-      const onMetricsChange = jest.fn();
-      const onDimensionsChange = jest.fn();
+      const onMetricsChange = vi.fn();
+      const onDimensionsChange = vi.fn();
       render(
         <SelectionPanel
           {...defaultProps}
@@ -932,7 +932,7 @@ describe('SelectionPanel', () => {
 
   describe('Remove Dimension from Selected', () => {
     it('removes dimension when clicking X on dimension chip', () => {
-      const onDimensionsChange = jest.fn();
+      const onDimensionsChange = vi.fn();
       render(
         <SelectionPanel
           {...defaultProps}
@@ -959,7 +959,7 @@ describe('SelectionPanel', () => {
 
   describe('Toggle Dimension Selection', () => {
     it('removes dimension when unchecking already selected dimension', () => {
-      const onDimensionsChange = jest.fn();
+      const onDimensionsChange = vi.fn();
       render(
         <SelectionPanel
           {...defaultProps}
@@ -978,24 +978,24 @@ describe('SelectionPanel', () => {
 
   describe('Filters Section', () => {
     it('renders filter input with placeholder', () => {
-      render(<SelectionPanel {...defaultProps} onFiltersChange={jest.fn()} />);
+      render(<SelectionPanel {...defaultProps} onFiltersChange={vi.fn()} />);
       expect(
         screen.getByPlaceholderText("e.g. v3.date.date_id >= '2024-01-01'"),
       ).toBeInTheDocument();
     });
 
     it('renders "Add" button for filters', () => {
-      render(<SelectionPanel {...defaultProps} onFiltersChange={jest.fn()} />);
+      render(<SelectionPanel {...defaultProps} onFiltersChange={vi.fn()} />);
       expect(screen.getByText('Add')).toBeInTheDocument();
     });
 
     it('Add button is disabled when filter input is empty', () => {
-      render(<SelectionPanel {...defaultProps} onFiltersChange={jest.fn()} />);
+      render(<SelectionPanel {...defaultProps} onFiltersChange={vi.fn()} />);
       expect(screen.getByText('Add')).toBeDisabled();
     });
 
     it('Add button is enabled when filter input has text', () => {
-      render(<SelectionPanel {...defaultProps} onFiltersChange={jest.fn()} />);
+      render(<SelectionPanel {...defaultProps} onFiltersChange={vi.fn()} />);
 
       const filterInput = screen.getByPlaceholderText(
         "e.g. v3.date.date_id >= '2024-01-01'",
@@ -1008,7 +1008,7 @@ describe('SelectionPanel', () => {
     });
 
     it('calls onFiltersChange when Add button is clicked with non-empty input (lines 281-284)', () => {
-      const onFiltersChange = jest.fn();
+      const onFiltersChange = vi.fn();
       render(
         <SelectionPanel
           {...defaultProps}
@@ -1029,7 +1029,7 @@ describe('SelectionPanel', () => {
     });
 
     it('clears filter input after adding a filter', () => {
-      const onFiltersChange = jest.fn();
+      const onFiltersChange = vi.fn();
       render(
         <SelectionPanel
           {...defaultProps}
@@ -1048,7 +1048,7 @@ describe('SelectionPanel', () => {
     });
 
     it('does not add duplicate filters', () => {
-      const onFiltersChange = jest.fn();
+      const onFiltersChange = vi.fn();
       render(
         <SelectionPanel
           {...defaultProps}
@@ -1069,7 +1069,7 @@ describe('SelectionPanel', () => {
     });
 
     it('adds filter on Enter key press (lines 289-291)', () => {
-      const onFiltersChange = jest.fn();
+      const onFiltersChange = vi.fn();
       render(
         <SelectionPanel
           {...defaultProps}
@@ -1088,7 +1088,7 @@ describe('SelectionPanel', () => {
     });
 
     it('does not add filter on non-Enter key press', () => {
-      const onFiltersChange = jest.fn();
+      const onFiltersChange = vi.fn();
       render(
         <SelectionPanel
           {...defaultProps}
@@ -1111,7 +1111,7 @@ describe('SelectionPanel', () => {
         <SelectionPanel
           {...defaultProps}
           filters={["date >= '2024-01-01'", 'status = active']}
-          onFiltersChange={jest.fn()}
+          onFiltersChange={vi.fn()}
         />,
       );
 
@@ -1120,7 +1120,7 @@ describe('SelectionPanel', () => {
     });
 
     it('calls onFiltersChange when filter chip remove button is clicked (lines 296-297)', () => {
-      const onFiltersChange = jest.fn();
+      const onFiltersChange = vi.fn();
       render(
         <SelectionPanel
           {...defaultProps}
@@ -1146,7 +1146,7 @@ describe('SelectionPanel', () => {
         <SelectionPanel
           {...defaultProps}
           filters={['filter1', 'filter2']}
-          onFiltersChange={jest.fn()}
+          onFiltersChange={vi.fn()}
         />,
       );
       expect(screen.getByText('2 applied')).toBeInTheDocument();
@@ -1174,7 +1174,7 @@ describe('SelectionPanel', () => {
     });
 
     it('calls onEngineChange when engine pill is clicked', () => {
-      const onEngineChange = jest.fn();
+      const onEngineChange = vi.fn();
       render(
         <SelectionPanel
           {...defaultProps}
@@ -1239,7 +1239,7 @@ describe('SelectionPanel', () => {
     });
 
     it('calls onMetricsChange([]) when inline Clear is clicked', () => {
-      const onMetricsChange = jest.fn();
+      const onMetricsChange = vi.fn();
       render(
         <SelectionPanel
           {...defaultProps}
@@ -1300,7 +1300,7 @@ describe('SelectionPanel', () => {
     });
 
     it('calls onDimensionsChange([]) when dimensions inline Clear is clicked', () => {
-      const onDimensionsChange = jest.fn();
+      const onDimensionsChange = vi.fn();
       render(
         <SelectionPanel
           {...defaultProps}
@@ -1343,7 +1343,7 @@ describe('SelectionPanel', () => {
         <SelectionPanel
           {...defaultProps}
           canRunQuery={true}
-          onRunQuery={jest.fn()}
+          onRunQuery={vi.fn()}
         />,
       );
       expect(
@@ -1357,14 +1357,14 @@ describe('SelectionPanel', () => {
           {...defaultProps}
           canRunQuery={true}
           queryLoading={true}
-          onRunQuery={jest.fn()}
+          onRunQuery={vi.fn()}
         />,
       );
       expect(screen.getByText('Running...')).toBeInTheDocument();
     });
 
     it('calls onRunQuery when Run Query is clicked', () => {
-      const onRunQuery = jest.fn();
+      const onRunQuery = vi.fn();
       render(
         <SelectionPanel
           {...defaultProps}

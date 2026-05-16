@@ -1,6 +1,6 @@
 import React from 'react';
 import { screen, waitFor } from '@testing-library/react';
-import fetchMock from 'jest-fetch-mock';
+import fetchMock from 'mocks/fetchMock';
 import { render } from '../../../../setupTests';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import DJClientContext from '../../../providers/djclient';
@@ -10,8 +10,8 @@ describe('<TagPage />', () => {
   const initializeMockDJClient = () => {
     return {
       DataJunctionAPI: {
-        getTag: jest.fn(),
-        listNodesForTag: jest.fn(),
+        getTag: vi.fn(),
+        listNodesForTag: vi.fn(),
       },
     };
   };
@@ -20,8 +20,8 @@ describe('<TagPage />', () => {
 
   beforeEach(() => {
     fetchMock.resetMocks();
-    jest.clearAllMocks();
-    window.scrollTo = jest.fn();
+    vi.clearAllMocks();
+    window.scrollTo = vi.fn();
 
     mockDjClient.DataJunctionAPI.getTag.mockReturnValue({
       name: 'domains.com',

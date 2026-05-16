@@ -42,14 +42,14 @@ describe('<NotificationBell />', () => {
   ];
 
   const createMockDjClient = (overrides = {}) => ({
-    whoami: jest.fn().mockResolvedValue({
+    whoami: vi.fn().mockResolvedValue({
       id: 1,
       username: 'testuser',
       last_viewed_notifications_at: null,
     }),
-    getSubscribedHistory: jest.fn().mockResolvedValue(mockNotifications),
-    getNodesByNames: jest.fn().mockResolvedValue(mockNodes),
-    markNotificationsRead: jest.fn().mockResolvedValue({}),
+    getSubscribedHistory: vi.fn().mockResolvedValue(mockNotifications),
+    getNodesByNames: vi.fn().mockResolvedValue(mockNodes),
+    markNotificationsRead: vi.fn().mockResolvedValue({}),
     ...overrides,
   });
 
@@ -64,7 +64,7 @@ describe('<NotificationBell />', () => {
   };
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   it('renders the notification bell button', async () => {
@@ -91,7 +91,7 @@ describe('<NotificationBell />', () => {
 
   it('does not show badge when all notifications have been viewed', async () => {
     const mockDjClient = createMockDjClient({
-      whoami: jest.fn().mockResolvedValue({
+      whoami: vi.fn().mockResolvedValue({
         id: 1,
         username: 'testuser',
         // Set last_viewed to future date so all notifications are "read"
@@ -147,7 +147,7 @@ describe('<NotificationBell />', () => {
 
   it('shows empty state when no notifications', async () => {
     const mockDjClient = createMockDjClient({
-      getSubscribedHistory: jest.fn().mockResolvedValue([]),
+      getSubscribedHistory: vi.fn().mockResolvedValue([]),
     });
     renderWithContext(mockDjClient);
 
@@ -177,7 +177,7 @@ describe('<NotificationBell />', () => {
 
   it('does not mark as read if already all read', async () => {
     const mockDjClient = createMockDjClient({
-      whoami: jest.fn().mockResolvedValue({
+      whoami: vi.fn().mockResolvedValue({
         id: 1,
         username: 'testuser',
         last_viewed_notifications_at: new Date(
@@ -215,7 +215,7 @@ describe('<NotificationBell />', () => {
 
   it('calls onDropdownToggle when dropdown state changes', async () => {
     const mockDjClient = createMockDjClient();
-    const onDropdownToggle = jest.fn();
+    const onDropdownToggle = vi.fn();
 
     render(
       <DJClientContext.Provider
@@ -278,7 +278,7 @@ describe('<NotificationBell />', () => {
 
   it('closes dropdown when clicking outside', async () => {
     const mockDjClient = createMockDjClient();
-    const onDropdownToggle = jest.fn();
+    const onDropdownToggle = vi.fn();
 
     render(
       <DJClientContext.Provider
@@ -312,12 +312,12 @@ describe('<NotificationBell />', () => {
   });
 
   it('handles error when fetching notifications fails', async () => {
-    const consoleErrorSpy = jest
+    const consoleErrorSpy = vi
       .spyOn(console, 'error')
       .mockImplementation(() => {});
 
     const mockDjClient = createMockDjClient({
-      getSubscribedHistory: jest
+      getSubscribedHistory: vi
         .fn()
         .mockRejectedValue(new Error('Network error')),
     });

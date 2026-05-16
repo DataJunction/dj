@@ -10,11 +10,11 @@ import DJClientContext from '../../../providers/djclient';
 import { SQLBuilderPage } from '../index';
 
 const mockDjClient = {
-  metrics: jest.fn(),
-  commonDimensions: jest.fn(),
-  sqls: jest.fn(),
-  data: jest.fn(),
-  stream: jest.fn(),
+  metrics: vi.fn(),
+  commonDimensions: vi.fn(),
+  sqls: vi.fn(),
+  data: vi.fn(),
+  stream: vi.fn(),
 };
 
 const mockMetrics = [
@@ -117,7 +117,7 @@ describe('SQLBuilderPage', () => {
   });
 
   afterEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   it('renders without crashing', async () => {
@@ -223,7 +223,7 @@ describe('SQLBuilderPage', () => {
 
 describe('SQLBuilderPage - Data fetching', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     mockDjClient.metrics.mockResolvedValue(mockMetrics);
     mockDjClient.commonDimensions.mockResolvedValue(mockCommonDimensions);
     mockDjClient.sqls.mockResolvedValue({ sql: 'SELECT * FROM table' });
@@ -294,7 +294,7 @@ describe('SQLBuilderPage - Data fetching', () => {
 
 describe('SQLBuilderPage - Data execution and display', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     mockDjClient.metrics.mockResolvedValue(mockMetrics);
     mockDjClient.commonDimensions.mockResolvedValue(mockCommonDimensions);
     mockDjClient.sqls.mockResolvedValue({
@@ -426,7 +426,7 @@ describe('SQLBuilderPage - Data execution and display', () => {
 
 describe('SQLBuilderPage - Query generation', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     mockDjClient.metrics.mockResolvedValue(mockMetrics);
     mockDjClient.commonDimensions.mockResolvedValue(mockCommonDimensions);
     mockDjClient.sqls.mockResolvedValue({

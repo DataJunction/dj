@@ -3,16 +3,16 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import GitSettingsModal from '../GitSettingsModal';
 
 describe('<GitSettingsModal />', () => {
-  const mockOnClose = jest.fn();
-  const mockOnSave = jest.fn();
-  const mockOnRemove = jest.fn();
+  const mockOnClose = vi.fn();
+  const mockOnSave = vi.fn();
+  const mockOnRemove = vi.fn();
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     // Mock window.confirm
-    global.confirm = jest.fn(() => true);
+    global.confirm = vi.fn(() => true);
     // Mock fetch for parent config fetching
-    global.fetch = jest.fn(() =>
+    global.fetch = vi.fn(() =>
       Promise.resolve({
         ok: true,
         json: () =>
@@ -25,7 +25,7 @@ describe('<GitSettingsModal />', () => {
   });
 
   afterEach(() => {
-    jest.restoreAllMocks();
+    vi.restoreAllMocks();
   });
 
   it('should render with existing git root config', () => {
@@ -116,7 +116,7 @@ describe('<GitSettingsModal />', () => {
   });
 
   it('should not call onRemove when user cancels confirmation', async () => {
-    global.confirm = jest.fn(() => false);
+    global.confirm = vi.fn(() => false);
 
     const currentConfig = {
       github_repo_path: 'test/repo',
@@ -177,8 +177,6 @@ describe('<GitSettingsModal />', () => {
   });
 
   it('should show success message and close modal after successful removal', async () => {
-    jest.useFakeTimers();
-
     const currentConfig = {
       github_repo_path: 'test/repo',
       git_path: 'nodes/',
@@ -211,14 +209,13 @@ describe('<GitSettingsModal />', () => {
       ).toBeInTheDocument();
     });
 
-    // Fast-forward time to trigger modal close
-    jest.advanceTimersByTime(1500);
-
-    await waitFor(() => {
-      expect(mockOnClose).toHaveBeenCalled();
-    });
-
-    jest.useRealTimers();
+    // Wait for the timeout-driven modal close (real-timer wait).
+    await waitFor(
+      () => {
+        expect(mockOnClose).toHaveBeenCalled();
+      },
+      { timeout: 3000 },
+    );
   });
 
   it('should handle exception during remove', async () => {
@@ -355,7 +352,7 @@ describe('<GitSettingsModal />', () => {
   });
 
   it('should show error when branch name is empty in branch mode', async () => {
-    render(
+    const { container } = render(
       <GitSettingsModal
         isOpen={true}
         onClose={mockOnClose}
@@ -369,8 +366,10 @@ describe('<GitSettingsModal />', () => {
     // Switch to branch mode
     fireEvent.click(screen.getByText('Branch Namespace'));
 
-    // Try to save without entering a branch name
-    fireEvent.click(screen.getByText('Save Settings'));
+    // Try to save without entering a branch name. The Save Settings button
+    // is type="submit" inside a <form>; React 18 batches the click→submit
+    // synthetic events differently, so submit the form directly.
+    fireEvent.submit(container.querySelector('form'));
 
     await waitFor(() => {
       expect(
@@ -382,7 +381,7 @@ describe('<GitSettingsModal />', () => {
   });
 
   it('should show error when namespace has no parent in branch mode', async () => {
-    render(
+    const { container } = render(
       <GitSettingsModal
         isOpen={true}
         onClose={mockOnClose}
@@ -396,8 +395,7 @@ describe('<GitSettingsModal />', () => {
     // Switch to branch mode (should fail because namespace has no parent)
     fireEvent.click(screen.getByText('Branch Namespace'));
 
-    // Try to save
-    fireEvent.click(screen.getByText('Save Settings'));
+    fireEvent.submit(container.querySelector('form'));
 
     await waitFor(() => {
       expect(
@@ -411,7 +409,7 @@ describe('<GitSettingsModal />', () => {
   });
 
   it('should show error when repository is empty in git root mode', async () => {
-    render(
+    const { container } = render(
       <GitSettingsModal
         isOpen={true}
         onClose={mockOnClose}
@@ -427,8 +425,7 @@ describe('<GitSettingsModal />', () => {
     const repoInput = screen.getByLabelText(/Repository/);
     fireEvent.change(repoInput, { target: { value: '' } });
 
-    // Try to save without entering a repository
-    fireEvent.click(screen.getByText('Save Settings'));
+    fireEvent.submit(container.querySelector('form'));
 
     await waitFor(() => {
       expect(screen.getByText('Repository is required')).toBeInTheDocument();
@@ -439,7 +436,7 @@ describe('<GitSettingsModal />', () => {
 
   it('should handle parent config fetch failure gracefully', async () => {
     // Mock fetch to fail
-    global.fetch = jest.fn(() => Promise.reject(new Error('Network error')));
+    global.fetch = vi.fn(() => Promise.reject(new Error('Network error')));
 
     render(
       <GitSettingsModal

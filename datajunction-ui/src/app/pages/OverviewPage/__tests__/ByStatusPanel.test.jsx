@@ -11,7 +11,7 @@ describe('<ByStatusPanel />', () => {
 
     const mockDjClient = {
       system: {
-        node_counts_by_status: jest.fn().mockResolvedValue(mockNodeCounts),
+        node_counts_by_status: vi.fn().mockResolvedValue(mockNodeCounts),
       },
     };
 

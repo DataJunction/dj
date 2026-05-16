@@ -5,19 +5,22 @@ import NodePreAggregationsTab from '../NodePreAggregationsTab';
 import DJClientContext from '../../../providers/djclient';
 
 // Mock the CSS import
-jest.mock('../../../../styles/preaggregations.css', () => ({}));
+vi.mock('../../../../styles/preaggregations.css', () => ({}));
 
 // Mock cronstrue - it's imported via require() in the component
-jest.mock('cronstrue', () => ({
-  toString: cron => {
-    if (cron === '0 0 * * *') return 'At 12:00 AM';
-    if (cron === '0 * * * *') return 'Every hour';
-    return cron || 'Not scheduled';
-  },
-}));
+vi.mock('cronstrue', () => {
+  const mock = {
+    toString: cron => {
+      if (cron === '0 0 * * *') return 'At 12:00 AM';
+      if (cron === '0 * * * *') return 'Every hour';
+      return cron || 'Not scheduled';
+    },
+  };
+  return { ...mock, default: mock };
+});
 
 // Mock labelize from utils/form
-jest.mock('../../../../utils/form', () => ({
+vi.mock('../../../../utils/form', () => ({
   labelize: str => {
     if (!str) return '';
     // Convert snake_case/SCREAMING_SNAKE to Title Case
@@ -161,9 +164,9 @@ const mockPreaggsWithStale = {
 
 const createMockDjClient = (preaggs = mockPreaggs) => ({
   DataJunctionAPI: {
-    listPreaggs: jest.fn().mockResolvedValue(preaggs),
-    deactivatePreaggWorkflow: jest.fn().mockResolvedValue({ status: 'none' }),
-    bulkDeactivatePreaggWorkflows: jest.fn().mockResolvedValue({
+    listPreaggs: vi.fn().mockResolvedValue(preaggs),
+    deactivatePreaggWorkflow: vi.fn().mockResolvedValue({ status: 'none' }),
+    bulkDeactivatePreaggWorkflows: vi.fn().mockResolvedValue({
       deactivated_count: 1,
       deactivated: [{ id: 3 }],
     }),
@@ -182,7 +185,7 @@ const renderWithContext = (component, djClient) => {
 
 describe('<NodePreAggregationsTab />', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   describe('Loading and Empty States', () => {
@@ -456,7 +459,7 @@ describe('<NodePreAggregationsTab />', () => {
 
     it('calls deactivatePreaggWorkflow when deactivate is clicked', async () => {
       const djClient = createMockDjClient();
-      window.confirm = jest.fn(() => true);
+      window.confirm = vi.fn(() => true);
 
       renderWithContext(<NodePreAggregationsTab node={mockNode} />, djClient);
 
@@ -503,7 +506,7 @@ describe('<NodePreAggregationsTab />', () => {
 
     it('calls bulkDeactivatePreaggWorkflows when "Deactivate All Stale" is clicked', async () => {
       const djClient = createMockDjClient(mockPreaggsWithStale);
-      window.confirm = jest.fn(() => true);
+      window.confirm = vi.fn(() => true);
 
       renderWithContext(<NodePreAggregationsTab node={mockNode} />, djClient);
 
@@ -629,7 +632,7 @@ describe('<NodePreAggregationsTab />', () => {
 
     it('refreshes list after deactivate action', async () => {
       const djClient = createMockDjClient();
-      window.confirm = jest.fn(() => true);
+      window.confirm = vi.fn(() => true);
 
       renderWithContext(<NodePreAggregationsTab node={mockNode} />, djClient);
 

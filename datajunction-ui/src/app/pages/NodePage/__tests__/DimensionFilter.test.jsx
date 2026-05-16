@@ -7,8 +7,8 @@ import DimensionFilter from '../DimensionFilter';
 // Mock DJClientContext
 const mockDJClient = {
   DataJunctionAPI: {
-    node: jest.fn(),
-    nodeData: jest.fn(),
+    node: vi.fn(),
+    nodeData: vi.fn(),
   },
 };
 
@@ -61,7 +61,7 @@ describe('DimensionFilter', () => {
 
     const { container } = render(
       <DJClientContext.Provider value={mockDJClient}>
-        <DimensionFilter dimension={mockDimension} onChange={jest.fn()} />
+        <DimensionFilter dimension={mockDimension} onChange={vi.fn()} />
       </DJClientContext.Provider>,
     );
 

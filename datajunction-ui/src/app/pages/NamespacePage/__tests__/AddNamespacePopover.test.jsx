@@ -5,17 +5,17 @@ import DJClientContext from '../../../providers/djclient';
 
 // Mock window.location.reload
 delete window.location;
-window.location = { reload: jest.fn() };
+window.location = { reload: vi.fn() };
 
 const mockDjClient = {
   DataJunctionAPI: {
-    addNamespace: jest.fn(),
+    addNamespace: vi.fn(),
   },
 };
 
 describe('<AddNamespacePopover />', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   const defaultProps = {

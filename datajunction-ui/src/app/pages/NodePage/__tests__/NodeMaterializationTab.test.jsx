@@ -4,11 +4,11 @@ import NodeMaterializationTab from '../NodeMaterializationTab';
 
 describe('<NodeMaterializationTab />', () => {
   const mockDjClient = {
-    node: jest.fn(),
-    materializations: jest.fn(),
-    availabilityStates: jest.fn(),
-    materializationInfo: jest.fn(),
-    refreshLatestMaterialization: jest.fn(),
+    node: vi.fn(),
+    materializations: vi.fn(),
+    availabilityStates: vi.fn(),
+    materializationInfo: vi.fn(),
+    refreshLatestMaterialization: vi.fn(),
   };
 
   const mockMaterializations = [

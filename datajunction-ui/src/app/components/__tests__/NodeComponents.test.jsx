@@ -46,7 +46,7 @@ describe('NodeComponents', () => {
     it('should apply custom styles', () => {
       render(<NodeBadge type="METRIC" style={{ color: 'red' }} />);
       const badge = screen.getByText('METRIC');
-      expect(badge).toHaveStyle({ color: 'red' });
+      expect(badge).toHaveStyle({ color: 'rgb(255, 0, 0)' });
     });
 
     it('should have correct class name', () => {
@@ -139,7 +139,7 @@ describe('NodeComponents', () => {
     it('should apply custom styles', () => {
       render(<NodeLink node={mockNode} style={{ color: 'blue' }} />);
       const link = screen.getByText('My Metric');
-      expect(link).toHaveStyle({ color: 'blue' });
+      expect(link).toHaveStyle({ color: 'rgb(0, 0, 255)' });
     });
 
     it('should link to correct node page', () => {
@@ -200,7 +200,7 @@ describe('NodeComponents', () => {
         />,
       );
       const wrapper = container.firstChild;
-      expect(wrapper).toHaveStyle({ backgroundColor: 'red' });
+      expect(wrapper).toHaveStyle({ backgroundColor: 'rgb(255, 0, 0)' });
     });
 
     it('should not show badge when node has no type', () => {

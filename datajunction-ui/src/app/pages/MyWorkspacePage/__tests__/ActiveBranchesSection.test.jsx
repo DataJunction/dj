@@ -4,14 +4,14 @@ import { MemoryRouter } from 'react-router-dom';
 import { ActiveBranchesSection } from '../ActiveBranchesSection';
 import DJClientContext from '../../../providers/djclient';
 
-jest.mock('../MyWorkspacePage.css', () => ({}));
-jest.mock('../../../utils/date', () => ({
+vi.mock('../MyWorkspacePage.css', () => ({}));
+vi.mock('../../../utils/date', () => ({
   formatRelativeTime: () => '2d ago',
 }));
 
 describe('<ActiveBranchesSection />', () => {
   const mockDjClient = {
-    listNodesForLanding: jest.fn().mockResolvedValue({
+    listNodesForLanding: vi.fn().mockResolvedValue({
       data: { findNodesPaginated: { edges: [] } },
     }),
   };

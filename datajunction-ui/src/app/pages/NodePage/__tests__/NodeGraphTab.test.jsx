@@ -1,10 +1,11 @@
+import * as domTestingLib from '@testing-library/dom';
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import NodeGraphTab from '../NodeGraphTab';
 import DJClientContext from '../../../providers/djclient';
 
 describe('<NodeLineage />', () => {
-  const domTestingLib = require('@testing-library/dom');
+  /* moved to top */
   const { queryHelpers } = domTestingLib;
 
   const queryByAttribute = attribute =>
@@ -324,8 +325,8 @@ describe('<NodeLineage />', () => {
   const mockDJClient = () => {
     return {
       DataJunctionAPI: {
-        metric: jest.fn(),
-        node_dag: jest.fn(name => {
+        metric: vi.fn(),
+        node_dag: vi.fn(name => {
           return mockNodeDAG;
         }),
       },
@@ -561,7 +562,7 @@ describe('<NodeLineage />', () => {
   it('renders and calls node_dag with the correct node name', async () => {
     const djClient = mockDJClient();
     djClient.DataJunctionAPI.metric = name => defaultProps.djNode;
-    // const layoutFlowMock = jest.spyOn(LayoutFlow);
+    // const layoutFlowMock = vi.spyOn(LayoutFlow);
     const { container } = render(
       <DJClientContext.Provider value={djClient}>
         <NodeGraphTab {...defaultProps} />

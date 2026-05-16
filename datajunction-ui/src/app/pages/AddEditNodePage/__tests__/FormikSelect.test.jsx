@@ -14,7 +14,7 @@ describe('FormikSelect', () => {
 
   const singleSelect = () => {
     const utils = render(
-      <Formik initialValues={{ namespace: '' }} onSubmit={jest.fn()}>
+      <Formik initialValues={{ namespace: '' }} onSubmit={vi.fn()}>
         <Form>
           <FormikSelect
             selectOptions={namespaces}
@@ -38,7 +38,7 @@ describe('FormikSelect', () => {
 
   const multiSelect = () => {
     const utils = render(
-      <Formik initialValues={{ namespace: [] }} onSubmit={jest.fn()}>
+      <Formik initialValues={{ namespace: [] }} onSubmit={vi.fn()}>
         <Form>
           <FormikSelect
             selectOptions={namespaces}
@@ -75,7 +75,7 @@ describe('FormikSelect', () => {
 
   it('handles undefined selectOptions gracefully for single-select', () => {
     const utils = render(
-      <Formik initialValues={{ test: '' }} onSubmit={jest.fn()}>
+      <Formik initialValues={{ test: '' }} onSubmit={vi.fn()}>
         <Form>
           <FormikSelect
             selectOptions={undefined}
@@ -93,7 +93,7 @@ describe('FormikSelect', () => {
 
   it('handles undefined selectOptions gracefully for multi-select', () => {
     const utils = render(
-      <Formik initialValues={{ test: [] }} onSubmit={jest.fn()}>
+      <Formik initialValues={{ test: [] }} onSubmit={vi.fn()}>
         <Form>
           <FormikSelect
             selectOptions={undefined}
@@ -112,7 +112,7 @@ describe('FormikSelect', () => {
 
   it('handles undefined selectOptions with existing field value for single-select', () => {
     const utils = render(
-      <Formik initialValues={{ test: 'existing-value' }} onSubmit={jest.fn()}>
+      <Formik initialValues={{ test: 'existing-value' }} onSubmit={vi.fn()}>
         <Form>
           <FormikSelect
             selectOptions={undefined}
@@ -130,10 +130,7 @@ describe('FormikSelect', () => {
 
   it('handles undefined selectOptions with existing field value for multi-select', () => {
     const utils = render(
-      <Formik
-        initialValues={{ test: ['value1', 'value2'] }}
-        onSubmit={jest.fn()}
-      >
+      <Formik initialValues={{ test: ['value1', 'value2'] }} onSubmit={vi.fn()}>
         <Form>
           <FormikSelect
             selectOptions={undefined}

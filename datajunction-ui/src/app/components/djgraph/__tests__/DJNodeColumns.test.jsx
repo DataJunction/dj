@@ -1,3 +1,4 @@
+import * as domTestingLib from '@testing-library/dom';
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { DJNodeColumns } from '../DJNodeColumns';
@@ -18,7 +19,7 @@ describe('<DJNodeColumns />', () => {
     limit: 10,
   };
 
-  const domTestingLib = require('@testing-library/dom');
+  /* moved to top */
   const { queryHelpers } = domTestingLib;
 
   const queryByAttribute = attribute =>

@@ -1,6 +1,6 @@
 import React from 'react';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
-import fetchMock from 'jest-fetch-mock';
+import fetchMock from 'mocks/fetchMock';
 import userEvent from '@testing-library/user-event';
 import {
   initializeMockDJClient,
@@ -19,8 +19,8 @@ import { AddEditNodePage } from '../index';
 describe('AddEditNodePage submission succeeded', () => {
   beforeEach(() => {
     fetchMock.resetMocks();
-    jest.clearAllMocks();
-    window.scrollTo = jest.fn();
+    vi.clearAllMocks();
+    window.scrollTo = vi.fn();
   });
 
   it('for creating a dimension/transform node', async () => {
@@ -162,7 +162,7 @@ describe('AddEditNodePage submission succeeded', () => {
     mockDjClient.DataJunctionAPI.getNodeForEditing.mockReturnValue(
       mocks.mockGetTransformNode,
     );
-    mockDjClient.DataJunctionAPI.patchNode = jest.fn();
+    mockDjClient.DataJunctionAPI.patchNode = vi.fn();
     mockDjClient.DataJunctionAPI.patchNode.mockReturnValue({
       status: 201,
       json: { name: 'default.repair_order_transform', type: 'transform' },
@@ -226,7 +226,7 @@ describe('AddEditNodePage submission succeeded', () => {
     mockDjClient.DataJunctionAPI.getNodeForEditing.mockReturnValue(
       mocks.mockGetMetricNode,
     );
-    mockDjClient.DataJunctionAPI.patchNode = jest.fn();
+    mockDjClient.DataJunctionAPI.patchNode = vi.fn();
     mockDjClient.DataJunctionAPI.patchNode.mockReturnValue({
       status: 201,
       json: { name: 'default.num_repair_orders', type: 'metric' },

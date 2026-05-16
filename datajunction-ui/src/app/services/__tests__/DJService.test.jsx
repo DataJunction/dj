@@ -10,7 +10,7 @@ describe('DataJunctionAPI', () => {
   beforeEach(() => {
     fetch.resetMocks();
     originalEventSource = global.EventSource;
-    global.EventSource = jest.fn();
+    global.EventSource = vi.fn();
   });
 
   afterEach(() => {
@@ -2129,7 +2129,7 @@ describe('DataJunctionAPI', () => {
   });
 
   it('handles listCubesForPreset error gracefully', async () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation();
     fetch.mockRejectOnce(new Error('Network error'));
 
     const result = await DataJunctionAPI.listCubesForPreset();
@@ -2226,7 +2226,7 @@ describe('DataJunctionAPI', () => {
   });
 
   it('handles cubeForPlanner error gracefully', async () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation();
     fetch.mockRejectOnce(new Error('Network error'));
 
     const result = await DataJunctionAPI.cubeForPlanner('default.cube1');
@@ -2323,7 +2323,7 @@ describe('DataJunctionAPI', () => {
   });
 
   it('handles getNodeColumnsWithPartitions error gracefully', async () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation();
     fetch.mockRejectOnce(new Error('Network error'));
 
     const result = await DataJunctionAPI.getNodeColumnsWithPartitions(
@@ -2550,7 +2550,7 @@ describe('DataJunctionAPI', () => {
 
   // Test getCubeWorkflowUrls (lines 2019-2044)
   it('calls getCubeWorkflowUrls correctly', async () => {
-    const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation();
     fetch.mockResponseOnce(
       JSON.stringify({
         name: 'cube1',
@@ -2569,7 +2569,7 @@ describe('DataJunctionAPI', () => {
   });
 
   it('returns empty array for getCubeWorkflowUrls when no materializations', async () => {
-    const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation();
     fetch.mockResponseOnce(
       JSON.stringify({ name: 'cube1', materializations: [] }),
     );
@@ -2848,7 +2848,7 @@ describe('DataJunctionAPI', () => {
 
   // ===== cubeForPlanner — GraphQL error branch (lines 207-208) =====
   it('returns null from cubeForPlanner when GraphQL returns errors', async () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation();
     fetch.mockResponseOnce(
       JSON.stringify({ errors: [{ message: 'Not authorized' }] }),
     );
@@ -3095,7 +3095,7 @@ describe('DataJunctionAPI', () => {
 
   // ===== getCubeWorkflowUrls — null json branch (lines 2507-2508) =====
   it('returns empty array from getCubeWorkflowUrls when getCubeDetails returns null json', async () => {
-    const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation();
     // getCubeDetails returns null json when response is not ok
     fetch.mockResponseOnce('Not found', { status: 404 });
     const result = await DataJunctionAPI.getCubeWorkflowUrls('default.cube1');

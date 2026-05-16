@@ -15,7 +15,7 @@ const renderPanel = ({ djClient, initialValues }) =>
 
 describe('CubePreviewPanel', () => {
   it('shows the empty state when no metrics or dimensions are selected', () => {
-    const djClient = { metricsV3: jest.fn() };
+    const djClient = { metricsV3: vi.fn() };
     renderPanel({ djClient, initialValues: { metrics: [], dimensions: [] } });
 
     expect(
@@ -27,7 +27,7 @@ describe('CubePreviewPanel', () => {
 
   it('renders the generated SQL once metricsV3 resolves', async () => {
     const djClient = {
-      metricsV3: jest.fn().mockResolvedValue({ sql: 'SELECT 1', errors: [] }),
+      metricsV3: vi.fn().mockResolvedValue({ sql: 'SELECT 1', errors: [] }),
     };
     renderPanel({
       djClient,
@@ -60,7 +60,7 @@ describe('CubePreviewPanel', () => {
 
   it('surfaces API errors returned alongside a 200 response', async () => {
     const djClient = {
-      metricsV3: jest.fn().mockResolvedValue({ errors: ['boom'] }),
+      metricsV3: vi.fn().mockResolvedValue({ errors: ['boom'] }),
     };
     renderPanel({
       djClient,
@@ -76,7 +76,7 @@ describe('CubePreviewPanel', () => {
 
   it('surfaces the message field when the API returns it instead of sql', async () => {
     const djClient = {
-      metricsV3: jest.fn().mockResolvedValue({ message: 'no metrics' }),
+      metricsV3: vi.fn().mockResolvedValue({ message: 'no metrics' }),
     };
     renderPanel({
       djClient,
@@ -92,7 +92,7 @@ describe('CubePreviewPanel', () => {
 
   it('surfaces thrown errors from metricsV3', async () => {
     const djClient = {
-      metricsV3: jest.fn().mockRejectedValue(new Error('network down')),
+      metricsV3: vi.fn().mockRejectedValue(new Error('network down')),
     };
     renderPanel({
       djClient,

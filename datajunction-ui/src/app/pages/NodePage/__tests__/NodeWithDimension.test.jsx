@@ -4,7 +4,7 @@ import NodesWithDimension from '../NodesWithDimension';
 
 describe('<NodesWithDimension />', () => {
   const mockDjClient = {
-    nodesWithDimension: jest.fn(),
+    nodesWithDimension: vi.fn(),
   };
 
   const mockNodesWithDimension = [
