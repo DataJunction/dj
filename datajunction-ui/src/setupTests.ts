@@ -1,36 +1,42 @@
-// react-testing-library renders your components to document.body,
-// this adds jest-dom's custom assertions
-import '@testing-library/jest-dom';
+import '@testing-library/jest-dom/vitest';
 
-import 'react-app-polyfill/ie11';
-import 'react-app-polyfill/stable';
-import { JSDOM } from 'jsdom';
+import { vi } from 'vitest';
 import { render as originalRender } from '@testing-library/react';
+import createFetchMock from 'vitest-fetch-mock';
+import ResizeObserver from 'resize-observer-polyfill';
 
-global.ResizeObserver = require('resize-observer-polyfill');
-global.fetch = require('jest-fetch-mock');
+const fetchMocker = createFetchMock(vi);
+fetchMocker.enableMocks();
+// Expose the singleton so the `src/mocks/fetchMock` shim can re-export it
+(globalThis as any).__vitestFetchMock = fetchMocker;
 
-const setDom = () => {
-  const dom = new JSDOM('<!doctype html><html><body></body></html>', {});
+(global as any).ResizeObserver = ResizeObserver;
 
-  global.window = dom.window;
-  global.document = dom.window.document;
-  document.createRange = () => {
-    const range = new Range();
-    range.getBoundingClientRect = jest.fn();
-    range.getClientRects = () => {
-      return {
-        item: () => null,
-        length: 0,
-        [Symbol.iterator]: jest.fn(),
-      };
-    };
+// jsdom doesn't ship rAF/cAF; polyfill so CodeMirror and other libs that
+// schedule paints don't crash inside the test environment.
+if (!(global as any).requestAnimationFrame) {
+  (global as any).requestAnimationFrame = (cb: FrameRequestCallback) =>
+    setTimeout(() => cb(Date.now()), 0) as unknown as number;
+  (global as any).cancelAnimationFrame = (id: number) => clearTimeout(id);
+}
 
-    return range;
-  };
-};
+// Range.getBoundingClientRect / getClientRects are used by CodeMirror; jsdom
+// returns degenerate values that crash some plugins. Stub them at the prototype
+// once so every Range gets them.
+if (typeof Range !== 'undefined') {
+  if (!Range.prototype.getBoundingClientRect) {
+    Range.prototype.getBoundingClientRect = vi.fn() as any;
+  }
+  if (!Range.prototype.getClientRects) {
+    Range.prototype.getClientRects = (() => ({
+      item: () => null,
+      length: 0,
+      [Symbol.iterator]: vi.fn(),
+    })) as any;
+  }
+}
 
-export const render = ui => {
-  setDom();
-  return originalRender(ui);
-};
+// Kept as a named export for tests that previously imported a wrapped
+// `render` from this file. It just forwards to testing-library now —
+// the old version recreated jsdom mid-test, which fights vitest's env.
+export const render = originalRender;

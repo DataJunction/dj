@@ -16,8 +16,8 @@ describe('<OverviewPanel />', () => {
 
     const mockDjClient = {
       system: {
-        node_counts_by_active: jest.fn().mockResolvedValue(mockNodesByActive),
-        node_counts_by_status: jest.fn().mockResolvedValue(mockNodesByStatus),
+        node_counts_by_active: vi.fn().mockResolvedValue(mockNodesByActive),
+        node_counts_by_status: vi.fn().mockResolvedValue(mockNodesByStatus),
       },
     };
 
@@ -54,8 +54,8 @@ describe('<OverviewPanel />', () => {
   it('renders no badges if data is empty', async () => {
     const mockDjClient = {
       system: {
-        node_counts_by_active: jest.fn().mockResolvedValue([]),
-        node_counts_by_status: jest.fn().mockResolvedValue([]),
+        node_counts_by_active: vi.fn().mockResolvedValue([]),
+        node_counts_by_status: vi.fn().mockResolvedValue([]),
       },
     };
 

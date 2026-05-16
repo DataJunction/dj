@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { DJNodeDimensions } from '../DJNodeDimensions';
 import DJClientContext from '../../../providers/djclient';
 
-const mockMetric = jest.fn();
+const mockMetric = vi.fn();
 describe('<DJNodeDimensions />', () => {
   const defaultProps = {
     type: 'metric',

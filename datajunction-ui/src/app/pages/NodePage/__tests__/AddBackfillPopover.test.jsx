@@ -6,11 +6,11 @@ import { mocks } from '../../../../mocks/mockNodes';
 
 const mockDjClient = {
   DataJunctionAPI: {
-    runBackfill: jest.fn(),
+    runBackfill: vi.fn(),
   },
 };
 
-let reloadMock = jest.fn();
+let reloadMock = vi.fn();
 
 beforeEach(() => {
   delete window.location;
@@ -24,7 +24,7 @@ afterEach(() => {
 describe('<AddBackfillPopover />', () => {
   it('renders correctly and handles form submission', async () => {
     // Mock onSubmit function
-    const onSubmitMock = jest.fn();
+    const onSubmitMock = vi.fn();
 
     mockDjClient.DataJunctionAPI.runBackfill.mockReturnValue({
       status: 201,

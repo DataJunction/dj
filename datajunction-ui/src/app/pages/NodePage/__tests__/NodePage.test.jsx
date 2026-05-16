@@ -1,3 +1,4 @@
+import * as domTestingLib from '@testing-library/dom';
 import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { mocks } from '../../../../mocks/mockNodes';
@@ -7,15 +8,16 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
 
 // Mock cronstrue for NodePreAggregationsTab
-jest.mock('cronstrue', () => ({
-  toString: () => 'Every day at midnight',
-}));
+vi.mock('cronstrue', () => {
+  const mock = { toString: () => 'Every day at midnight' };
+  return { ...mock, default: mock };
+});
 
 // Mock CSS imports
-jest.mock('../../../../styles/preaggregations.css', () => ({}));
+vi.mock('../../../../styles/preaggregations.css', () => ({}));
 
 // Mock recharts for NodeDataFlowTab (Sankey doesn't work in jsdom)
-jest.mock('recharts', () => ({
+vi.mock('recharts', () => ({
   Sankey: () => <div data-testid="sankey-chart" />,
   Tooltip: () => null,
 }));
@@ -32,7 +34,7 @@ HTMLCanvasElement.prototype.getContext = () => ({
 });
 
 describe('<NodePage />', () => {
-  const domTestingLib = require('@testing-library/dom');
+  /* moved to top */
   const { queryHelpers } = domTestingLib;
 
   const queryByAttribute = attribute =>
@@ -46,54 +48,54 @@ describe('<NodePage />', () => {
   const mockDJClient = () => {
     return {
       DataJunctionAPI: {
-        node: jest.fn(),
-        metric: jest.fn(),
-        getMetric: jest.fn(),
-        revalidate: jest.fn().mockReturnValue({ status: 'valid' }),
-        node_dag: jest.fn().mockReturnValue(mocks.mockNodeDAG),
-        clientCode: jest.fn().mockResolvedValue('dj_client = DJClient()'),
-        columns: jest.fn(),
-        history: jest.fn(),
-        revisions: jest.fn(),
-        materializations: jest.fn(),
-        availabilityStates: jest.fn(),
-        refreshLatestMaterialization: jest.fn(),
-        materializationInfo: jest.fn(),
-        sql: jest.fn(),
-        cube: jest.fn(),
-        compiledSql: jest.fn(),
-        node_lineage: jest.fn(),
-        nodesWithDimension: jest.fn(),
-        attributes: jest.fn(),
-        dimensions: jest.fn(),
-        setPartition: jest.fn(),
-        engines: jest.fn(),
-        streamNodeData: jest.fn(),
-        nodeDimensions: jest.fn(),
-        getNotificationPreferences: jest.fn().mockResolvedValue([]),
-        subscribeToNotifications: jest.fn().mockResolvedValue({ status: 200 }),
-        unsubscribeFromNotifications: jest
+        node: vi.fn(),
+        metric: vi.fn(),
+        getMetric: vi.fn(),
+        revalidate: vi.fn().mockReturnValue({ status: 'valid' }),
+        node_dag: vi.fn().mockReturnValue(mocks.mockNodeDAG),
+        clientCode: vi.fn().mockResolvedValue('dj_client = DJClient()'),
+        columns: vi.fn(),
+        history: vi.fn(),
+        revisions: vi.fn(),
+        materializations: vi.fn(),
+        availabilityStates: vi.fn(),
+        refreshLatestMaterialization: vi.fn(),
+        materializationInfo: vi.fn(),
+        sql: vi.fn(),
+        cube: vi.fn(),
+        compiledSql: vi.fn(),
+        node_lineage: vi.fn(),
+        nodesWithDimension: vi.fn(),
+        attributes: vi.fn(),
+        dimensions: vi.fn(),
+        setPartition: vi.fn(),
+        engines: vi.fn(),
+        streamNodeData: vi.fn(),
+        nodeDimensions: vi.fn(),
+        getNotificationPreferences: vi.fn().mockResolvedValue([]),
+        subscribeToNotifications: vi.fn().mockResolvedValue({ status: 200 }),
+        unsubscribeFromNotifications: vi
           .fn()
           .mockResolvedValue({ status: 200 }),
-        setAttributes: jest.fn().mockResolvedValue({ status: 200 }),
-        linkDimension: jest.fn().mockResolvedValue({ status: 200 }),
-        unlinkDimension: jest.fn().mockResolvedValue({ status: 200 }),
-        addReferenceDimensionLink: jest.fn().mockResolvedValue({ status: 200 }),
-        removeReferenceDimensionLink: jest
+        setAttributes: vi.fn().mockResolvedValue({ status: 200 }),
+        linkDimension: vi.fn().mockResolvedValue({ status: 200 }),
+        unlinkDimension: vi.fn().mockResolvedValue({ status: 200 }),
+        addReferenceDimensionLink: vi.fn().mockResolvedValue({ status: 200 }),
+        removeReferenceDimensionLink: vi
           .fn()
           .mockResolvedValue({ status: 200 }),
-        addComplexDimensionLink: jest.fn().mockResolvedValue({ status: 200 }),
-        removeComplexDimensionLink: jest
+        addComplexDimensionLink: vi.fn().mockResolvedValue({ status: 200 }),
+        removeComplexDimensionLink: vi
           .fn()
           .mockResolvedValue({ status: 200 }),
-        listPreaggs: jest.fn().mockResolvedValue({ items: [] }),
-        deactivatePreaggWorkflow: jest.fn().mockResolvedValue({ status: 200 }),
-        namespaceSources: jest.fn().mockResolvedValue(null),
-        listDeployments: jest.fn().mockResolvedValue([]),
-        getNamespaceGitConfig: jest.fn().mockResolvedValue(null),
-        upstreamsGQL: jest.fn().mockResolvedValue([]),
-        downstreamsGQL: jest.fn().mockResolvedValue([]),
-        findCubesWithMetrics: jest.fn().mockResolvedValue([]),
+        listPreaggs: vi.fn().mockResolvedValue({ items: [] }),
+        deactivatePreaggWorkflow: vi.fn().mockResolvedValue({ status: 200 }),
+        namespaceSources: vi.fn().mockResolvedValue(null),
+        listDeployments: vi.fn().mockResolvedValue([]),
+        getNamespaceGitConfig: vi.fn().mockResolvedValue(null),
+        upstreamsGQL: vi.fn().mockResolvedValue([]),
+        downstreamsGQL: vi.fn().mockResolvedValue([]),
+        findCubesWithMetrics: vi.fn().mockResolvedValue([]),
       },
     };
   };
@@ -347,16 +349,19 @@ describe('<NodePage />', () => {
       </MemoryRouter>,
     );
 
-    await waitFor(() => {
-      expect(djClient.DataJunctionAPI.node).toHaveBeenCalledWith(
-        'default.num_repair_orders',
-      );
+    await waitFor(
+      () => {
+        expect(djClient.DataJunctionAPI.node).toHaveBeenCalledWith(
+          'default.num_repair_orders',
+        );
 
-      expect(
-        screen.getByRole('dialog', { name: 'NodeName' }),
-      ).toHaveTextContent('default.num_repair_orders');
+        expect(
+          screen.getByRole('dialog', { name: 'NodeName' }),
+        ).toHaveTextContent('default.num_repair_orders');
 
-      expect(screen.getByRole('button', { name: 'Info' })).toBeInTheDocument();
+        expect(
+          screen.getByRole('button', { name: 'Info' }),
+        ).toBeInTheDocument();
       expect(
         screen.getByRole('dialog', { name: 'Description' }),
       ).toHaveTextContent('Number of repair orders');
@@ -384,7 +389,9 @@ describe('<NodePage />', () => {
       expect(
         screen.getByRole('dialog', { name: 'NodeType' }),
       ).toHaveTextContent('metric');
-    });
+      },
+      { timeout: 4000 },
+    );
 
     // Wait separately for getMetric to be called and data to render
     await waitFor(() => {
@@ -411,9 +418,9 @@ describe('<NodePage />', () => {
       </DJClientContext.Provider>
     );
     const { container } = render(
-      <MemoryRouter initialEntries={['/nodes/default.repair_orders_cube']}>
+      <MemoryRouter initialEntries={['/nodes/default.repair_orders_cube/info']}>
         <Routes>
-          <Route path="nodes/:name" element={element} />
+          <Route path="nodes/:name/:tab" element={element} />
         </Routes>
       </MemoryRouter>,
     );

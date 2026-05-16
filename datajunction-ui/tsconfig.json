@@ -1,16 +1,17 @@
 {
   "compilerOptions": {
     "noImplicitAny": false,
-    "target": "es5",
-    "lib": ["dom", "dom.iterable", "esnext", "es2015"],
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["DOM", "DOM.Iterable", "ES2020"],
     "allowJs": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "strict": true,
     "forceConsistentCasingInFileNames": true,
-    "module": "commonjs",
-    "moduleResolution": "node",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
@@ -19,16 +20,9 @@
     "baseUrl": "./src",
     "preserveConstEnums": true,
     "removeComments": true,
-    "sourceMap": true
+    "sourceMap": true,
+    "types": ["vite/client", "vitest/globals"]
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "internals/startingTemplate/**/*"],
-  "ts-node": {
-    "compilerOptions": {
-      "esModuleInterop": true,
-      "module": "commonjs",
-      "moduleResolution": "node",
-      "noEmit": false,
-      "allowSyntheticDefaultImports": true
-    }
-  }
+  "references": [{ "path": "./tsconfig.node.json" }]
 }

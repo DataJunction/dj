@@ -2,26 +2,27 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import React from 'react';
 
 // Mock dagre module with inline class definition
-jest.mock('dagre', () => {
+vi.mock('dagre', () => {
   // Define mock graph class inside the mock factory
   function MockGraph() {
-    this.setDefaultEdgeLabel = jest.fn().mockReturnValue(this);
-    this.setGraph = jest.fn().mockReturnValue(this);
-    this.setNode = jest.fn().mockReturnValue(this);
-    this.setEdge = jest.fn().mockReturnValue(this);
-    this.node = jest.fn().mockReturnValue({ x: 100, y: 100 });
+    this.setDefaultEdgeLabel = vi.fn().mockReturnValue(this);
+    this.setGraph = vi.fn().mockReturnValue(this);
+    this.setNode = vi.fn().mockReturnValue(this);
+    this.setEdge = vi.fn().mockReturnValue(this);
+    this.node = vi.fn().mockReturnValue({ x: 100, y: 100 });
   }
 
-  return {
+  const dagreModule = {
     graphlib: {
       Graph: MockGraph,
     },
-    layout: jest.fn(),
+    layout: vi.fn(),
   };
+  return { ...dagreModule, default: dagreModule };
 });
 
 // Mock ReactFlow and related components
-jest.mock('reactflow', () => {
+vi.mock('reactflow', () => {
   return {
     __esModule: true,
     default: ({ children, nodes, edges, onNodeClick, onPaneClick }) => (
@@ -46,8 +47,8 @@ jest.mock('reactflow', () => {
     Background: () => <div data-testid="background" />,
     Controls: () => <div data-testid="controls" />,
     MarkerType: { ArrowClosed: 'arrowclosed' },
-    useNodesState: nodes => [nodes, jest.fn(), jest.fn()],
-    useEdgesState: edges => [edges, jest.fn(), jest.fn()],
+    useNodesState: nodes => [nodes, vi.fn(), vi.fn()],
+    useEdgesState: edges => [edges, vi.fn(), vi.fn()],
     Handle: ({ type, position }) => (
       <div data-testid={`handle-${type}-${position}`} />
     ),
@@ -105,7 +106,7 @@ describe('MetricFlowGraph', () => {
         <MetricFlowGraph
           grainGroups={[]}
           metricFormulas={mockMetricFormulas}
-          onNodeSelect={jest.fn()}
+          onNodeSelect={vi.fn()}
         />,
       );
 
@@ -121,7 +122,7 @@ describe('MetricFlowGraph', () => {
         <MetricFlowGraph
           grainGroups={mockGrainGroups}
           metricFormulas={[]}
-          onNodeSelect={jest.fn()}
+          onNodeSelect={vi.fn()}
         />,
       );
 
@@ -137,7 +138,7 @@ describe('MetricFlowGraph', () => {
         <MetricFlowGraph
           grainGroups={null}
           metricFormulas={null}
-          onNodeSelect={jest.fn()}
+          onNodeSelect={vi.fn()}
         />,
       );
 
@@ -153,7 +154,7 @@ describe('MetricFlowGraph', () => {
         <MetricFlowGraph
           grainGroups={[]}
           metricFormulas={[]}
-          onNodeSelect={jest.fn()}
+          onNodeSelect={vi.fn()}
         />,
       );
 
@@ -167,7 +168,7 @@ describe('MetricFlowGraph', () => {
         <MetricFlowGraph
           grainGroups={mockGrainGroups}
           metricFormulas={mockMetricFormulas}
-          onNodeSelect={jest.fn()}
+          onNodeSelect={vi.fn()}
         />,
       );
 
@@ -179,7 +180,7 @@ describe('MetricFlowGraph', () => {
         <MetricFlowGraph
           grainGroups={mockGrainGroups}
           metricFormulas={mockMetricFormulas}
-          onNodeSelect={jest.fn()}
+          onNodeSelect={vi.fn()}
         />,
       );
 
@@ -192,7 +193,7 @@ describe('MetricFlowGraph', () => {
         <MetricFlowGraph
           grainGroups={mockGrainGroups}
           metricFormulas={mockMetricFormulas}
-          onNodeSelect={jest.fn()}
+          onNodeSelect={vi.fn()}
         />,
       );
 
@@ -205,7 +206,7 @@ describe('MetricFlowGraph', () => {
         <MetricFlowGraph
           grainGroups={mockGrainGroups}
           metricFormulas={mockMetricFormulas}
-          onNodeSelect={jest.fn()}
+          onNodeSelect={vi.fn()}
         />,
       );
 
@@ -217,7 +218,7 @@ describe('MetricFlowGraph', () => {
 
   describe('Node Selection', () => {
     it('calls onNodeSelect with preagg data when preagg node is clicked', () => {
-      const onNodeSelect = jest.fn();
+      const onNodeSelect = vi.fn();
       render(
         <MetricFlowGraph
           grainGroups={mockGrainGroups}
@@ -239,7 +240,7 @@ describe('MetricFlowGraph', () => {
     });
 
     it('calls onNodeSelect with metric data when metric node is clicked', () => {
-      const onNodeSelect = jest.fn();
+      const onNodeSelect = vi.fn();
       render(
         <MetricFlowGraph
           grainGroups={mockGrainGroups}
@@ -261,7 +262,7 @@ describe('MetricFlowGraph', () => {
     });
 
     it('calls onNodeSelect with null when pane is clicked', () => {
-      const onNodeSelect = jest.fn();
+      const onNodeSelect = vi.fn();
       render(
         <MetricFlowGraph
           grainGroups={mockGrainGroups}
@@ -283,7 +284,7 @@ describe('MetricFlowGraph', () => {
         <MetricFlowGraph
           grainGroups={mockGrainGroups}
           metricFormulas={mockMetricFormulas}
-          onNodeSelect={jest.fn()}
+          onNodeSelect={vi.fn()}
         />,
       );
 
@@ -299,7 +300,7 @@ describe('MetricFlowGraph', () => {
         <MetricFlowGraph
           grainGroups={mockGrainGroups}
           metricFormulas={mockMetricFormulas}
-          onNodeSelect={jest.fn()}
+          onNodeSelect={vi.fn()}
         />,
       );
 
@@ -313,7 +314,7 @@ describe('MetricFlowGraph', () => {
         <MetricFlowGraph
           grainGroups={mockGrainGroups}
           metricFormulas={mockMetricFormulas}
-          onNodeSelect={jest.fn()}
+          onNodeSelect={vi.fn()}
         />,
       );
 
@@ -325,7 +326,7 @@ describe('MetricFlowGraph', () => {
 
   describe('Node Selection by Index', () => {
     it('selects correct preagg when second preagg is clicked', () => {
-      const onNodeSelect = jest.fn();
+      const onNodeSelect = vi.fn();
       render(
         <MetricFlowGraph
           grainGroups={mockGrainGroups}
@@ -347,7 +348,7 @@ describe('MetricFlowGraph', () => {
     });
 
     it('selects correct metric when derived metric is clicked', () => {
-      const onNodeSelect = jest.fn();
+      const onNodeSelect = vi.fn();
       render(
         <MetricFlowGraph
           grainGroups={mockGrainGroups}
@@ -373,14 +374,14 @@ describe('MetricFlowGraph', () => {
   });
 
   describe('Graph Layout', () => {
-    it('uses dagre for layout computation', () => {
-      const dagre = require('dagre');
+    it('uses dagre for layout computation', async () => {
+      const dagre = await import('dagre');
 
       render(
         <MetricFlowGraph
           grainGroups={mockGrainGroups}
           metricFormulas={mockMetricFormulas}
-          onNodeSelect={jest.fn()}
+          onNodeSelect={vi.fn()}
         />,
       );
 
@@ -408,7 +409,7 @@ describe('MetricFlowGraph Node Display', () => {
             components: ['comp1'],
           },
         ]}
-        onNodeSelect={jest.fn()}
+        onNodeSelect={vi.fn()}
       />,
     );
 
@@ -421,7 +422,7 @@ describe('MetricFlowGraph Node Display', () => {
       <MetricFlowGraph
         grainGroups={mockGrainGroups}
         metricFormulas={mockMetricFormulas}
-        onNodeSelect={jest.fn()}
+        onNodeSelect={vi.fn()}
       />,
     );
 
@@ -451,7 +452,7 @@ describe('MetricFlowGraph Node Display', () => {
               is_derived: false,
             },
           ]}
-          onNodeSelect={jest.fn()}
+          onNodeSelect={vi.fn()}
         />,
       );
 
@@ -478,7 +479,7 @@ describe('MetricFlowGraph Node Display', () => {
               is_derived: false,
             },
           ]}
-          onNodeSelect={jest.fn()}
+          onNodeSelect={vi.fn()}
         />,
       );
 
@@ -505,7 +506,7 @@ describe('MetricFlowGraph Node Display', () => {
               is_derived: false,
             },
           ]}
-          onNodeSelect={jest.fn()}
+          onNodeSelect={vi.fn()}
         />,
       );
 
@@ -525,7 +526,7 @@ describe('MetricFlowGraph Node Display', () => {
               components: ['count_orders'],
             },
           ]}
-          onNodeSelect={jest.fn()}
+          onNodeSelect={vi.fn()}
         />,
       );
 
@@ -545,7 +546,7 @@ describe('MetricFlowGraph Node Display', () => {
               components: ['sum_revenue', 'count_orders'],
             },
           ]}
-          onNodeSelect={jest.fn()}
+          onNodeSelect={vi.fn()}
         />,
       );
 
@@ -557,7 +558,7 @@ describe('MetricFlowGraph Node Display', () => {
         <MetricFlowGraph
           grainGroups={mockGrainGroups}
           metricFormulas={mockMetricFormulas}
-          onNodeSelect={jest.fn()}
+          onNodeSelect={vi.fn()}
           selectedNode={{ type: 'preagg', index: 0, data: mockGrainGroups[0] }}
         />,
       );
@@ -570,7 +571,7 @@ describe('MetricFlowGraph Node Display', () => {
         <MetricFlowGraph
           grainGroups={mockGrainGroups}
           metricFormulas={mockMetricFormulas}
-          onNodeSelect={jest.fn()}
+          onNodeSelect={vi.fn()}
           selectedNode={{
             type: 'metric',
             index: 0,
@@ -587,7 +588,7 @@ describe('MetricFlowGraph Node Display', () => {
         <MetricFlowGraph
           grainGroups={mockGrainGroups}
           metricFormulas={mockMetricFormulas}
-          onNodeSelect={jest.fn()}
+          onNodeSelect={vi.fn()}
           selectedNode={null}
         />,
       );
@@ -615,7 +616,7 @@ describe('MetricFlowGraph Node Display', () => {
               is_derived: false,
             },
           ]}
-          onNodeSelect={jest.fn()}
+          onNodeSelect={vi.fn()}
         />,
       );
 

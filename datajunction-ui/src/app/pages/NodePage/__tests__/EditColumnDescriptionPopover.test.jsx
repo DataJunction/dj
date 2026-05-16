@@ -11,7 +11,7 @@ import DJClientContext from '../../../providers/djclient';
 
 const mockDjClient = {
   DataJunctionAPI: {
-    setColumnDescription: jest.fn(),
+    setColumnDescription: vi.fn(),
   },
 };
 
@@ -25,7 +25,7 @@ describe('<EditColumnDescriptionPopover />', () => {
     const node = { name: 'default.node1' };
 
     // Mock onSubmit function
-    const onSubmitMock = jest.fn();
+    const onSubmitMock = vi.fn();
 
     mockDjClient.DataJunctionAPI.setColumnDescription.mockReturnValue({
       status: 200,
@@ -75,7 +75,7 @@ describe('<EditColumnDescriptionPopover />', () => {
     const node = { name: 'default.node1' };
 
     // Mock onSubmit function
-    const onSubmitMock = jest.fn();
+    const onSubmitMock = vi.fn();
 
     mockDjClient.DataJunctionAPI.setColumnDescription.mockReturnValue({
       status: 500,
@@ -125,7 +125,7 @@ describe('<EditColumnDescriptionPopover />', () => {
     const node = { name: 'default.node1' };
 
     // Mock onSubmit function
-    const onSubmitMock = jest.fn();
+    const onSubmitMock = vi.fn();
 
     // Render the component
     render(

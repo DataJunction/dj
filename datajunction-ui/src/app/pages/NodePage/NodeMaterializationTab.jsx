@@ -8,8 +8,7 @@ import NodeMaterializationDelete from '../../components/NodeMaterializationDelet
 import Tab from '../../components/Tab';
 import NodeRevisionMaterializationTab from './NodeRevisionMaterializationTab';
 import AvailabilityStateBlock from './AvailabilityStateBlock';
-
-const cronstrue = require('cronstrue');
+import cronstrue from 'cronstrue';
 
 /**
  * Cube materialization tab - shows cube-specific materializations.

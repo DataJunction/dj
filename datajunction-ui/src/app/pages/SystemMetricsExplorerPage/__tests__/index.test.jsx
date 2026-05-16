@@ -11,7 +11,7 @@ import { SystemMetricsExplorerPage } from '../index';
 
 // Recharts is heavy and renders SVG; stub it out so tests focus on the
 // page's data plumbing rather than chart geometry.
-jest.mock('recharts', () => ({
+vi.mock('recharts', () => ({
   ResponsiveContainer: ({ children }) => (
     <div data-testid="responsive-container">{children}</div>
   ),
@@ -92,10 +92,10 @@ const SAMPLE_DIMS = [
 function mockClient(overrides = {}) {
   return {
     system: {
-      list: jest.fn().mockResolvedValue(SAMPLE_METRICS),
+      list: vi.fn().mockResolvedValue(SAMPLE_METRICS),
     },
-    commonDimensions: jest.fn().mockResolvedValue(SAMPLE_DIMS),
-    querySystemMetric: jest.fn().mockResolvedValue({
+    commonDimensions: vi.fn().mockResolvedValue(SAMPLE_DIMS),
+    querySystemMetric: vi.fn().mockResolvedValue({
       columns: ['system.dj.nodes.created_at_week', 'system.dj.number_of_nodes'],
       rows: [
         [20240101, 5],
@@ -234,7 +234,7 @@ describe('<SystemMetricsExplorerPage />', () => {
   it('handles legacy string-array metric responses', async () => {
     const client = mockClient({
       system: {
-        list: jest
+        list: vi
           .fn()
           .mockResolvedValue([
             'system.dj.number_of_nodes',
@@ -254,7 +254,7 @@ describe('<SystemMetricsExplorerPage />', () => {
   it('surfaces an explicit error when /system/metrics returns a non-array', async () => {
     const client = mockClient({
       system: {
-        list: jest.fn().mockResolvedValue({ message: 'Not authenticated' }),
+        list: vi.fn().mockResolvedValue({ message: 'Not authenticated' }),
       },
     });
     renderPage(client);
@@ -465,7 +465,7 @@ describe('<SystemMetricsExplorerPage />', () => {
 
   it('falls back to chart=auto → bar when X-axis is non-temporal', async () => {
     const client = mockClient({
-      commonDimensions: jest.fn().mockResolvedValue([
+      commonDimensions: vi.fn().mockResolvedValue([
         {
           name: 'system.dj.node_type.type',
           node_name: 'system.dj.node_type',
@@ -476,7 +476,7 @@ describe('<SystemMetricsExplorerPage />', () => {
           path: ['system.dj.nodes'],
         },
       ]),
-      querySystemMetric: jest.fn().mockResolvedValue({
+      querySystemMetric: vi.fn().mockResolvedValue({
         columns: ['system.dj.node_type.type', 'system.dj.number_of_nodes'],
         rows: [
           ['metric', 5],
@@ -493,7 +493,7 @@ describe('<SystemMetricsExplorerPage />', () => {
 
   it('node-type series get the canonical NODE_TYPE_COLORS palette', async () => {
     const client = mockClient({
-      querySystemMetric: jest.fn().mockResolvedValue({
+      querySystemMetric: vi.fn().mockResolvedValue({
         columns: [
           'system.dj.nodes.created_at_week',
           'system.dj.node_type.type',
@@ -526,7 +526,7 @@ describe('<SystemMetricsExplorerPage />', () => {
     // That hits the "no xKey, no breakdown" branch.
     const client = mockClient({
       system: {
-        list: jest.fn().mockResolvedValue([
+        list: vi.fn().mockResolvedValue([
           {
             name: 'system.dj.number_of_orphan_nodes',
             display_name: 'Number of Orphan Nodes',
@@ -538,7 +538,7 @@ describe('<SystemMetricsExplorerPage />', () => {
           },
         ]),
       },
-      commonDimensions: jest.fn().mockResolvedValue([
+      commonDimensions: vi.fn().mockResolvedValue([
         {
           name: 'system.dj.node_type.type',
           node_name: 'system.dj.node_type',
@@ -549,7 +549,7 @@ describe('<SystemMetricsExplorerPage />', () => {
           path: ['system.dj.nodes'],
         },
       ]),
-      querySystemMetric: jest.fn().mockResolvedValue({
+      querySystemMetric: vi.fn().mockResolvedValue({
         columns: ['system.dj.number_of_orphan_nodes'],
         rows: [[17]],
       }),
@@ -609,7 +609,7 @@ describe('<SystemMetricsExplorerPage />', () => {
 
   it('catches errors from querySystemMetric and clears the chart state', async () => {
     const client = mockClient({
-      querySystemMetric: jest.fn().mockRejectedValue(new Error('boom!')),
+      querySystemMetric: vi.fn().mockRejectedValue(new Error('boom!')),
     });
     renderPage(client);
     await waitFor(() => expect(screen.getByText(/boom!/)).toBeInTheDocument());
@@ -617,7 +617,7 @@ describe('<SystemMetricsExplorerPage />', () => {
 
   it('renders "No data" when the query result is empty', async () => {
     const client = mockClient({
-      querySystemMetric: jest.fn().mockResolvedValue({
+      querySystemMetric: vi.fn().mockResolvedValue({
         columns: [
           'system.dj.nodes.created_at_week',
           'system.dj.number_of_nodes',
@@ -637,8 +637,10 @@ describe('<SystemMetricsExplorerPage />', () => {
 
 // Cover the helper modules used by the page directly so all branches are visited.
 describe('SystemMetricsExplorerPage helpers', () => {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { typeIcon, NonZeroTooltip } = require('../index');
+  let typeIcon, NonZeroTooltip;
+  beforeAll(async () => {
+    ({ typeIcon, NonZeroTooltip } = await import('../index'));
+  });
 
   it('typeIcon maps each known SQL type family', () => {
     expect(typeIcon(null)).toBe('#');

@@ -17,7 +17,7 @@ describe('<NamespaceHeader />', () => {
 
   it('should render git source badge when source type is git with branch', async () => {
     const mockDjClient = {
-      namespaceSources: jest.fn().mockResolvedValue({
+      namespaceSources: vi.fn().mockResolvedValue({
         total_deployments: 5,
         primary_source: {
           type: 'git',
@@ -25,7 +25,7 @@ describe('<NamespaceHeader />', () => {
           branch: 'main',
         },
       }),
-      listDeployments: jest.fn().mockResolvedValue([]),
+      listDeployments: vi.fn().mockResolvedValue([]),
     };
 
     render(
@@ -48,7 +48,7 @@ describe('<NamespaceHeader />', () => {
 
   it('should render git source badge when source type is git without branch', async () => {
     const mockDjClient = {
-      namespaceSources: jest.fn().mockResolvedValue({
+      namespaceSources: vi.fn().mockResolvedValue({
         total_deployments: 3,
         primary_source: {
           type: 'git',
@@ -56,7 +56,7 @@ describe('<NamespaceHeader />', () => {
           branch: null,
         },
       }),
-      listDeployments: jest.fn().mockResolvedValue([]),
+      listDeployments: vi.fn().mockResolvedValue([]),
     };
 
     render(
@@ -79,14 +79,14 @@ describe('<NamespaceHeader />', () => {
 
   it('should render local source badge when source type is local', async () => {
     const mockDjClient = {
-      namespaceSources: jest.fn().mockResolvedValue({
+      namespaceSources: vi.fn().mockResolvedValue({
         total_deployments: 2,
         primary_source: {
           type: 'local',
           hostname: 'localhost',
         },
       }),
-      listDeployments: jest.fn().mockResolvedValue([]),
+      listDeployments: vi.fn().mockResolvedValue([]),
     };
 
     render(
@@ -109,11 +109,11 @@ describe('<NamespaceHeader />', () => {
 
   it('should not render badge when no deployments', async () => {
     const mockDjClient = {
-      namespaceSources: jest.fn().mockResolvedValue({
+      namespaceSources: vi.fn().mockResolvedValue({
         total_deployments: 0,
         primary_source: null,
       }),
-      listDeployments: jest.fn().mockResolvedValue([]),
+      listDeployments: vi.fn().mockResolvedValue([]),
     };
 
     render(
@@ -137,8 +137,8 @@ describe('<NamespaceHeader />', () => {
 
   it('should handle API error gracefully', async () => {
     const mockDjClient = {
-      namespaceSources: jest.fn().mockRejectedValue(new Error('API Error')),
-      listDeployments: jest.fn().mockResolvedValue([]),
+      namespaceSources: vi.fn().mockRejectedValue(new Error('API Error')),
+      listDeployments: vi.fn().mockResolvedValue([]),
     };
 
     render(
@@ -163,7 +163,7 @@ describe('<NamespaceHeader />', () => {
 
   it('should open dropdown when clicking the git managed button', async () => {
     const mockDjClient = {
-      namespaceSources: jest.fn().mockResolvedValue({
+      namespaceSources: vi.fn().mockResolvedValue({
         total_deployments: 5,
         primary_source: {
           type: 'git',
@@ -171,7 +171,7 @@ describe('<NamespaceHeader />', () => {
           branch: 'main',
         },
       }),
-      listDeployments: jest.fn().mockResolvedValue([
+      listDeployments: vi.fn().mockResolvedValue([
         {
           uuid: 'deploy-1',
           status: 'success',
@@ -209,14 +209,14 @@ describe('<NamespaceHeader />', () => {
 
   it('should open dropdown when clicking local deploy button', async () => {
     const mockDjClient = {
-      namespaceSources: jest.fn().mockResolvedValue({
+      namespaceSources: vi.fn().mockResolvedValue({
         total_deployments: 2,
         primary_source: {
           type: 'local',
           hostname: 'localhost',
         },
       }),
-      listDeployments: jest.fn().mockResolvedValue([
+      listDeployments: vi.fn().mockResolvedValue([
         {
           uuid: 'deploy-1',
           status: 'success',
@@ -254,7 +254,7 @@ describe('<NamespaceHeader />', () => {
 
   it('should show recent deployments list with git source', async () => {
     const mockDjClient = {
-      namespaceSources: jest.fn().mockResolvedValue({
+      namespaceSources: vi.fn().mockResolvedValue({
         total_deployments: 3,
         primary_source: {
           type: 'git',
@@ -262,7 +262,7 @@ describe('<NamespaceHeader />', () => {
           branch: 'main',
         },
       }),
-      listDeployments: jest.fn().mockResolvedValue([
+      listDeployments: vi.fn().mockResolvedValue([
         {
           uuid: 'deploy-1',
           status: 'success',
@@ -313,13 +313,13 @@ describe('<NamespaceHeader />', () => {
 
   it('should show local deployments with reason', async () => {
     const mockDjClient = {
-      namespaceSources: jest.fn().mockResolvedValue({
+      namespaceSources: vi.fn().mockResolvedValue({
         total_deployments: 2,
         primary_source: {
           type: 'local',
         },
       }),
-      listDeployments: jest.fn().mockResolvedValue([
+      listDeployments: vi.fn().mockResolvedValue([
         {
           uuid: 'deploy-1',
           status: 'success',
@@ -355,7 +355,7 @@ describe('<NamespaceHeader />', () => {
 
   it('should close dropdown when clicking outside', async () => {
     const mockDjClient = {
-      namespaceSources: jest.fn().mockResolvedValue({
+      namespaceSources: vi.fn().mockResolvedValue({
         total_deployments: 5,
         primary_source: {
           type: 'git',
@@ -363,7 +363,7 @@ describe('<NamespaceHeader />', () => {
           branch: 'main',
         },
       }),
-      listDeployments: jest.fn().mockResolvedValue([]),
+      listDeployments: vi.fn().mockResolvedValue([]),
     };
 
     render(
@@ -398,7 +398,7 @@ describe('<NamespaceHeader />', () => {
 
   it('should toggle dropdown arrow indicator', async () => {
     const mockDjClient = {
-      namespaceSources: jest.fn().mockResolvedValue({
+      namespaceSources: vi.fn().mockResolvedValue({
         total_deployments: 5,
         primary_source: {
           type: 'git',
@@ -406,7 +406,7 @@ describe('<NamespaceHeader />', () => {
           branch: 'main',
         },
       }),
-      listDeployments: jest.fn().mockResolvedValue([]),
+      listDeployments: vi.fn().mockResolvedValue([]),
     };
 
     render(
@@ -435,7 +435,7 @@ describe('<NamespaceHeader />', () => {
 
   it('should handle git repository URL with https prefix', async () => {
     const mockDjClient = {
-      namespaceSources: jest.fn().mockResolvedValue({
+      namespaceSources: vi.fn().mockResolvedValue({
         total_deployments: 1,
         primary_source: {
           type: 'git',
@@ -443,7 +443,7 @@ describe('<NamespaceHeader />', () => {
           branch: 'main',
         },
       }),
-      listDeployments: jest.fn().mockResolvedValue([]),
+      listDeployments: vi.fn().mockResolvedValue([]),
     };
 
     render(
@@ -471,13 +471,13 @@ describe('<NamespaceHeader />', () => {
 
   it('should render adhoc deployment label when no created_by', async () => {
     const mockDjClient = {
-      namespaceSources: jest.fn().mockResolvedValue({
+      namespaceSources: vi.fn().mockResolvedValue({
         total_deployments: 1,
         primary_source: {
           type: 'local',
         },
       }),
-      listDeployments: jest.fn().mockResolvedValue([
+      listDeployments: vi.fn().mockResolvedValue([
         {
           uuid: 'deploy-1',
           status: 'success',
@@ -511,12 +511,12 @@ describe('<NamespaceHeader />', () => {
 
   it('should show Git Settings button and open modal', async () => {
     const mockDjClient = {
-      namespaceSources: jest.fn().mockResolvedValue({
+      namespaceSources: vi.fn().mockResolvedValue({
         total_deployments: 0,
         primary_source: null,
       }),
-      listDeployments: jest.fn().mockResolvedValue([]),
-      getNamespaceGitConfig: jest.fn().mockResolvedValue(null),
+      listDeployments: vi.fn().mockResolvedValue([]),
+      getNamespaceGitConfig: vi.fn().mockResolvedValue(null),
     };
 
     render(
@@ -540,7 +540,7 @@ describe('<NamespaceHeader />', () => {
 
   it('should show git action buttons when git is configured', async () => {
     const mockDjClient = {
-      namespaceSources: jest.fn().mockResolvedValue({
+      namespaceSources: vi.fn().mockResolvedValue({
         total_deployments: 1,
         primary_source: {
           type: 'git',
@@ -548,8 +548,8 @@ describe('<NamespaceHeader />', () => {
           branch: 'main',
         },
       }),
-      listDeployments: jest.fn().mockResolvedValue([]),
-      getNamespaceGitConfig: jest.fn().mockResolvedValue({
+      listDeployments: vi.fn().mockResolvedValue([]),
+      getNamespaceGitConfig: vi.fn().mockResolvedValue({
         github_repo_path: 'test/repo',
         git_path: 'nodes/',
         default_branch: 'main',
@@ -573,7 +573,7 @@ describe('<NamespaceHeader />', () => {
 
   it('should show Create PR and Delete Branch for branch namespaces', async () => {
     const mockDjClient = {
-      namespaceSources: jest.fn().mockResolvedValue({
+      namespaceSources: vi.fn().mockResolvedValue({
         total_deployments: 1,
         primary_source: {
           type: 'git',
@@ -581,8 +581,8 @@ describe('<NamespaceHeader />', () => {
           branch: 'feature',
         },
       }),
-      listDeployments: jest.fn().mockResolvedValue([]),
-      getNamespaceGitConfig: jest
+      listDeployments: vi.fn().mockResolvedValue([]),
+      getNamespaceGitConfig: vi
         .fn()
         .mockResolvedValueOnce({
           github_repo_path: 'test/repo',
@@ -597,7 +597,7 @@ describe('<NamespaceHeader />', () => {
           git_branch: 'main',
           git_path: 'nodes/',
         }),
-      getPullRequest: jest.fn().mockResolvedValue(null),
+      getPullRequest: vi.fn().mockResolvedValue(null),
     };
 
     render(
@@ -617,7 +617,7 @@ describe('<NamespaceHeader />', () => {
 
   it('should open Create Branch modal when button is clicked', async () => {
     const mockDjClient = {
-      namespaceSources: jest.fn().mockResolvedValue({
+      namespaceSources: vi.fn().mockResolvedValue({
         total_deployments: 1,
         primary_source: {
           type: 'git',
@@ -625,8 +625,8 @@ describe('<NamespaceHeader />', () => {
           branch: 'main',
         },
       }),
-      listDeployments: jest.fn().mockResolvedValue([]),
-      getNamespaceGitConfig: jest.fn().mockResolvedValue({
+      listDeployments: vi.fn().mockResolvedValue([]),
+      getNamespaceGitConfig: vi.fn().mockResolvedValue({
         github_repo_path: 'test/repo',
         git_path: 'nodes/',
         default_branch: 'main',
@@ -656,7 +656,7 @@ describe('<NamespaceHeader />', () => {
   it('should open Sync to Git modal when button is clicked', async () => {
     // Sync to Git only shows for branch namespaces
     const mockDjClient = {
-      namespaceSources: jest.fn().mockResolvedValue({
+      namespaceSources: vi.fn().mockResolvedValue({
         total_deployments: 1,
         primary_source: {
           type: 'git',
@@ -664,8 +664,8 @@ describe('<NamespaceHeader />', () => {
           branch: 'feature',
         },
       }),
-      listDeployments: jest.fn().mockResolvedValue([]),
-      getNamespaceGitConfig: jest
+      listDeployments: vi.fn().mockResolvedValue([]),
+      getNamespaceGitConfig: vi
         .fn()
         .mockResolvedValueOnce({
           github_repo_path: 'test/repo',
@@ -680,7 +680,7 @@ describe('<NamespaceHeader />', () => {
           git_branch: 'main',
           git_path: 'nodes/',
         }),
-      getPullRequest: jest.fn().mockResolvedValue(null),
+      getPullRequest: vi.fn().mockResolvedValue(null),
     };
 
     render(
@@ -704,13 +704,13 @@ describe('<NamespaceHeader />', () => {
 
   it('should call updateNamespaceGitConfig when saving git settings', async () => {
     const mockDjClient = {
-      namespaceSources: jest.fn().mockResolvedValue({
+      namespaceSources: vi.fn().mockResolvedValue({
         total_deployments: 0,
         primary_source: null,
       }),
-      listDeployments: jest.fn().mockResolvedValue([]),
-      getNamespaceGitConfig: jest.fn().mockResolvedValue(null),
-      updateNamespaceGitConfig: jest.fn().mockResolvedValue({
+      listDeployments: vi.fn().mockResolvedValue([]),
+      getNamespaceGitConfig: vi.fn().mockResolvedValue(null),
+      updateNamespaceGitConfig: vi.fn().mockResolvedValue({
         github_repo_path: 'myorg/repo',
         git_path: 'nodes/',
         // git_branch and git_only not present in git root config
@@ -754,7 +754,7 @@ describe('<NamespaceHeader />', () => {
 
   it('should call createBranch when creating a branch', async () => {
     const mockDjClient = {
-      namespaceSources: jest.fn().mockResolvedValue({
+      namespaceSources: vi.fn().mockResolvedValue({
         total_deployments: 1,
         primary_source: {
           type: 'git',
@@ -762,14 +762,14 @@ describe('<NamespaceHeader />', () => {
           branch: 'main',
         },
       }),
-      listDeployments: jest.fn().mockResolvedValue([]),
-      getNamespaceGitConfig: jest.fn().mockResolvedValue({
+      listDeployments: vi.fn().mockResolvedValue([]),
+      getNamespaceGitConfig: vi.fn().mockResolvedValue({
         github_repo_path: 'test/repo',
         git_path: 'nodes/',
         default_branch: 'main',
         // No git_branch or parent_namespace - this is a git root
       }),
-      createBranch: jest.fn().mockResolvedValue({
+      createBranch: vi.fn().mockResolvedValue({
         branch: {
           namespace: 'test.namespace.feature_xyz',
           git_branch: 'feature-xyz',
@@ -815,7 +815,7 @@ describe('<NamespaceHeader />', () => {
   it('should call syncNamespaceToGit when syncing', async () => {
     // Sync to Git only shows for branch namespaces
     const mockDjClient = {
-      namespaceSources: jest.fn().mockResolvedValue({
+      namespaceSources: vi.fn().mockResolvedValue({
         total_deployments: 1,
         primary_source: {
           type: 'git',
@@ -823,8 +823,8 @@ describe('<NamespaceHeader />', () => {
           branch: 'feature',
         },
       }),
-      listDeployments: jest.fn().mockResolvedValue([]),
-      getNamespaceGitConfig: jest
+      listDeployments: vi.fn().mockResolvedValue([]),
+      getNamespaceGitConfig: vi
         .fn()
         .mockResolvedValueOnce({
           github_repo_path: 'test/repo',
@@ -839,8 +839,8 @@ describe('<NamespaceHeader />', () => {
           git_branch: 'main',
           git_path: 'nodes/',
         }),
-      getPullRequest: jest.fn().mockResolvedValue(null),
-      syncNamespaceToGit: jest.fn().mockResolvedValue({
+      getPullRequest: vi.fn().mockResolvedValue(null),
+      syncNamespaceToGit: vi.fn().mockResolvedValue({
         files_synced: 5,
         commit_sha: 'abc123',
         commit_url: 'https://github.com/test/repo/commit/abc123',
@@ -881,7 +881,7 @@ describe('<NamespaceHeader />', () => {
 
   it('should show View PR button when PR exists', async () => {
     const mockDjClient = {
-      namespaceSources: jest.fn().mockResolvedValue({
+      namespaceSources: vi.fn().mockResolvedValue({
         total_deployments: 1,
         primary_source: {
           type: 'git',
@@ -889,8 +889,8 @@ describe('<NamespaceHeader />', () => {
           branch: 'feature',
         },
       }),
-      listDeployments: jest.fn().mockResolvedValue([]),
-      getNamespaceGitConfig: jest.fn().mockResolvedValue({
+      listDeployments: vi.fn().mockResolvedValue([]),
+      getNamespaceGitConfig: vi.fn().mockResolvedValue({
         github_repo_path: 'test/repo',
         git_branch: 'feature',
         git_path: 'nodes/',
@@ -898,7 +898,7 @@ describe('<NamespaceHeader />', () => {
         parent_namespace: 'test.main',
         branch_namespace: 'test.feature',
       }),
-      getPullRequest: jest.fn().mockResolvedValue({
+      getPullRequest: vi.fn().mockResolvedValue({
         pr_number: 42,
         pr_url: 'https://github.com/test/repo/pull/42',
       }),
@@ -919,7 +919,7 @@ describe('<NamespaceHeader />', () => {
 
   it('should call createPullRequest when creating a PR', async () => {
     const mockDjClient = {
-      namespaceSources: jest.fn().mockResolvedValue({
+      namespaceSources: vi.fn().mockResolvedValue({
         total_deployments: 1,
         primary_source: {
           type: 'git',
@@ -927,8 +927,8 @@ describe('<NamespaceHeader />', () => {
           branch: 'feature',
         },
       }),
-      listDeployments: jest.fn().mockResolvedValue([]),
-      getNamespaceGitConfig: jest
+      listDeployments: vi.fn().mockResolvedValue([]),
+      getNamespaceGitConfig: vi
         .fn()
         .mockResolvedValueOnce({
           github_repo_path: 'test/repo',
@@ -943,13 +943,13 @@ describe('<NamespaceHeader />', () => {
           git_branch: 'main',
           git_path: 'nodes/',
         }),
-      getPullRequest: jest.fn().mockResolvedValue(null),
-      syncNamespaceToGit: jest.fn().mockResolvedValue({
+      getPullRequest: vi.fn().mockResolvedValue(null),
+      syncNamespaceToGit: vi.fn().mockResolvedValue({
         files_synced: 3,
         commit_sha: 'abc123',
         commit_url: 'https://github.com/test/repo/commit/abc123',
       }),
-      createPullRequest: jest.fn().mockResolvedValue({
+      createPullRequest: vi.fn().mockResolvedValue({
         pr_number: 99,
         pr_url: 'https://github.com/test/repo/pull/99',
         head_branch: 'feature',
@@ -1007,7 +1007,7 @@ describe('<NamespaceHeader />', () => {
 
   it('should call deleteBranch when deleting a branch', async () => {
     const mockDjClient = {
-      namespaceSources: jest.fn().mockResolvedValue({
+      namespaceSources: vi.fn().mockResolvedValue({
         total_deployments: 1,
         primary_source: {
           type: 'git',
@@ -1015,8 +1015,8 @@ describe('<NamespaceHeader />', () => {
           branch: 'feature',
         },
       }),
-      listDeployments: jest.fn().mockResolvedValue([]),
-      getNamespaceGitConfig: jest
+      listDeployments: vi.fn().mockResolvedValue([]),
+      getNamespaceGitConfig: vi
         .fn()
         .mockResolvedValueOnce({
           github_repo_path: 'test/repo',
@@ -1031,8 +1031,8 @@ describe('<NamespaceHeader />', () => {
           git_branch: 'main',
           git_path: 'nodes/',
         }),
-      getPullRequest: jest.fn().mockResolvedValue(null),
-      deleteBranch: jest.fn().mockResolvedValue({ success: true }),
+      getPullRequest: vi.fn().mockResolvedValue(null),
+      deleteBranch: vi.fn().mockResolvedValue({ success: true }),
     };
 
     // Mock window.location
@@ -1076,7 +1076,7 @@ describe('<NamespaceHeader />', () => {
 
   it('should fetch parent git config for branch namespace', async () => {
     const mockDjClient = {
-      namespaceSources: jest.fn().mockResolvedValue({
+      namespaceSources: vi.fn().mockResolvedValue({
         total_deployments: 1,
         primary_source: {
           type: 'git',
@@ -1084,8 +1084,8 @@ describe('<NamespaceHeader />', () => {
           branch: 'feature',
         },
       }),
-      listDeployments: jest.fn().mockResolvedValue([]),
-      getNamespaceGitConfig: jest
+      listDeployments: vi.fn().mockResolvedValue([]),
+      getNamespaceGitConfig: vi
         .fn()
         .mockResolvedValueOnce({
           github_repo_path: 'test/repo',
@@ -1100,7 +1100,7 @@ describe('<NamespaceHeader />', () => {
           git_branch: 'main',
           git_path: 'nodes/',
         }),
-      getPullRequest: jest.fn().mockResolvedValue(null),
+      getPullRequest: vi.fn().mockResolvedValue(null),
     };
 
     render(
@@ -1129,10 +1129,10 @@ describe('<NamespaceHeader />', () => {
   });
 
   it('should handle error fetching parent git config gracefully', async () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation();
 
     const mockDjClient = {
-      namespaceSources: jest.fn().mockResolvedValue({
+      namespaceSources: vi.fn().mockResolvedValue({
         total_deployments: 1,
         primary_source: {
           type: 'git',
@@ -1140,8 +1140,8 @@ describe('<NamespaceHeader />', () => {
           branch: 'feature',
         },
       }),
-      listDeployments: jest.fn().mockResolvedValue([]),
-      getNamespaceGitConfig: jest
+      listDeployments: vi.fn().mockResolvedValue([]),
+      getNamespaceGitConfig: vi
         .fn()
         .mockResolvedValueOnce({
           github_repo_path: 'test/repo',
@@ -1152,7 +1152,7 @@ describe('<NamespaceHeader />', () => {
           branch_namespace: 'test.feature',
         })
         .mockRejectedValueOnce(new Error('Parent not found')),
-      getPullRequest: jest.fn().mockResolvedValue(null),
+      getPullRequest: vi.fn().mockResolvedValue(null),
     };
 
     render(
@@ -1175,7 +1175,7 @@ describe('<NamespaceHeader />', () => {
 
   it('should handle error fetching PR gracefully', async () => {
     const mockDjClient = {
-      namespaceSources: jest.fn().mockResolvedValue({
+      namespaceSources: vi.fn().mockResolvedValue({
         total_deployments: 1,
         primary_source: {
           type: 'git',
@@ -1183,8 +1183,8 @@ describe('<NamespaceHeader />', () => {
           branch: 'feature',
         },
       }),
-      listDeployments: jest.fn().mockResolvedValue([]),
-      getNamespaceGitConfig: jest
+      listDeployments: vi.fn().mockResolvedValue([]),
+      getNamespaceGitConfig: vi
         .fn()
         .mockResolvedValueOnce({
           github_repo_path: 'test/repo',
@@ -1199,7 +1199,7 @@ describe('<NamespaceHeader />', () => {
           git_branch: 'main',
           git_path: 'nodes/',
         }),
-      getPullRequest: jest.fn().mockRejectedValue(new Error('API Error')),
+      getPullRequest: vi.fn().mockRejectedValue(new Error('API Error')),
     };
 
     render(
@@ -1217,14 +1217,14 @@ describe('<NamespaceHeader />', () => {
   });
 
   it('should call onGitConfigLoaded callback when config is fetched', async () => {
-    const onGitConfigLoaded = jest.fn();
+    const onGitConfigLoaded = vi.fn();
     const mockDjClient = {
-      namespaceSources: jest.fn().mockResolvedValue({
+      namespaceSources: vi.fn().mockResolvedValue({
         total_deployments: 0,
         primary_source: null,
       }),
-      listDeployments: jest.fn().mockResolvedValue([]),
-      getNamespaceGitConfig: jest.fn().mockResolvedValue({
+      listDeployments: vi.fn().mockResolvedValue([]),
+      getNamespaceGitConfig: vi.fn().mockResolvedValue({
         github_repo_path: 'test/repo',
         git_branch: 'main',
       }),
@@ -1250,14 +1250,14 @@ describe('<NamespaceHeader />', () => {
   });
 
   it('should call onGitConfigLoaded with null when git config fetch fails', async () => {
-    const onGitConfigLoaded = jest.fn();
+    const onGitConfigLoaded = vi.fn();
     const mockDjClient = {
-      namespaceSources: jest.fn().mockResolvedValue({
+      namespaceSources: vi.fn().mockResolvedValue({
         total_deployments: 0,
         primary_source: null,
       }),
-      listDeployments: jest.fn().mockResolvedValue([]),
-      getNamespaceGitConfig: jest
+      listDeployments: vi.fn().mockResolvedValue([]),
+      getNamespaceGitConfig: vi
         .fn()
         .mockRejectedValue(new Error('Config not found')),
     };
@@ -1280,21 +1280,21 @@ describe('<NamespaceHeader />', () => {
 
   it('should call deleteNamespaceGitConfig when removing git settings', async () => {
     // Mock window.confirm for this test
-    global.confirm = jest.fn(() => true);
+    global.confirm = vi.fn(() => true);
 
     const mockDjClient = {
-      namespaceSources: jest.fn().mockResolvedValue({
+      namespaceSources: vi.fn().mockResolvedValue({
         total_deployments: 0,
         primary_source: null,
       }),
-      listDeployments: jest.fn().mockResolvedValue([]),
-      getNamespaceGitConfig: jest.fn().mockResolvedValue({
+      listDeployments: vi.fn().mockResolvedValue([]),
+      getNamespaceGitConfig: vi.fn().mockResolvedValue({
         github_repo_path: 'test/repo',
         git_branch: 'main',
         git_path: 'nodes/',
         git_only: false,
       }),
-      deleteNamespaceGitConfig: jest.fn().mockResolvedValue({ success: true }),
+      deleteNamespaceGitConfig: vi.fn().mockResolvedValue({ success: true }),
     };
 
     render(
@@ -1326,12 +1326,12 @@ describe('<NamespaceHeader />', () => {
     });
 
     // Clean up mock
-    jest.restoreAllMocks();
+    vi.restoreAllMocks();
   });
 
   it('should handle sync error in handleCreatePR', async () => {
     const mockDjClient = {
-      namespaceSources: jest.fn().mockResolvedValue({
+      namespaceSources: vi.fn().mockResolvedValue({
         total_deployments: 1,
         primary_source: {
           type: 'git',
@@ -1339,8 +1339,8 @@ describe('<NamespaceHeader />', () => {
           branch: 'feature',
         },
       }),
-      listDeployments: jest.fn().mockResolvedValue([]),
-      getNamespaceGitConfig: jest
+      listDeployments: vi.fn().mockResolvedValue([]),
+      getNamespaceGitConfig: vi
         .fn()
         .mockResolvedValueOnce({
           github_repo_path: 'test/repo',
@@ -1355,8 +1355,8 @@ describe('<NamespaceHeader />', () => {
           git_branch: 'main',
           git_path: 'nodes/',
         }),
-      getPullRequest: jest.fn().mockResolvedValue(null),
-      syncNamespaceToGit: jest.fn().mockResolvedValue({
+      getPullRequest: vi.fn().mockResolvedValue(null),
+      syncNamespaceToGit: vi.fn().mockResolvedValue({
         _error: true,
         message: 'Sync failed: merge conflict',
       }),

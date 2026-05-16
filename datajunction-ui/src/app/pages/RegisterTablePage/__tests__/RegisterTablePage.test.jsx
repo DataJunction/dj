@@ -1,6 +1,6 @@
 import React from 'react';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
-import fetchMock from 'jest-fetch-mock';
+import fetchMock from 'mocks/fetchMock';
 import userEvent from '@testing-library/user-event';
 import { render } from '../../../../setupTests';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
@@ -11,8 +11,8 @@ describe('<RegisterTablePage />', () => {
   const initializeMockDJClient = () => {
     return {
       DataJunctionAPI: {
-        catalogs: jest.fn(),
-        registerTable: jest.fn(),
+        catalogs: vi.fn(),
+        registerTable: vi.fn(),
       },
     };
   };
@@ -21,8 +21,8 @@ describe('<RegisterTablePage />', () => {
 
   beforeEach(() => {
     fetchMock.resetMocks();
-    jest.clearAllMocks();
-    window.scrollTo = jest.fn();
+    vi.clearAllMocks();
+    window.scrollTo = vi.fn();
 
     mockDjClient.DataJunctionAPI.catalogs.mockReturnValue([
       {

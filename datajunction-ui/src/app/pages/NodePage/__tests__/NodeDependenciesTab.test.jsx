@@ -4,10 +4,10 @@ import NodeDependenciesTab, { NodeList } from '../NodeDependenciesTab';
 
 describe('<NodeDependenciesTab />', () => {
   const mockDjClient = {
-    node: jest.fn(),
-    nodeDimensions: jest.fn(),
-    upstreamsGQL: jest.fn(),
-    downstreamsGQL: jest.fn(),
+    node: vi.fn(),
+    nodeDimensions: vi.fn(),
+    upstreamsGQL: vi.fn(),
+    downstreamsGQL: vi.fn(),
   };
 
   const mockNode = {

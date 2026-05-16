@@ -1,4 +1,12 @@
-// Jest Snapshot v1, https://goo.gl/fbAQLP
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`<App /> > should render and match the snapshot 1`] = `
+<CookiesProvider>
+  <BrowserRouter>
+    <LoginPage />
+  </BrowserRouter>
+</CookiesProvider>
+`;
 
 exports[`<App /> should render and match the snapshot 1`] = `
 <CookiesProvider>

@@ -7,20 +7,20 @@ import React from 'react';
 import userEvent from '@testing-library/user-event';
 
 const mockDjClient = {
-  namespaces: jest.fn(),
-  listNamespacesWithGit: jest.fn(),
-  namespace: jest.fn(),
-  listNodesForLanding: jest.fn(),
-  addNamespace: jest.fn(),
-  whoami: jest.fn(),
-  users: jest.fn(),
-  listTags: jest.fn(),
-  namespaceSources: jest.fn(),
-  namespaceSourcesBulk: jest.fn(),
-  getNamespaceGitConfig: jest.fn(),
-  getNamespaceBranches: jest.fn(),
-  listDeployments: jest.fn(),
-  getPullRequest: jest.fn(),
+  namespaces: vi.fn(),
+  listNamespacesWithGit: vi.fn(),
+  namespace: vi.fn(),
+  listNodesForLanding: vi.fn(),
+  addNamespace: vi.fn(),
+  whoami: vi.fn(),
+  users: vi.fn(),
+  listTags: vi.fn(),
+  namespaceSources: vi.fn(),
+  namespaceSourcesBulk: vi.fn(),
+  getNamespaceGitConfig: vi.fn(),
+  getNamespaceBranches: vi.fn(),
+  listDeployments: vi.fn(),
+  getPullRequest: vi.fn(),
 };
 
 const mockCurrentUser = { username: 'dj', email: 'dj@test.com' };
@@ -52,7 +52,7 @@ describe('NamespacePage', () => {
   beforeAll(() => {
     Object.defineProperty(window, 'location', {
       configurable: true,
-      value: { reload: jest.fn() },
+      value: { reload: vi.fn() },
     });
   });
 
@@ -142,7 +142,7 @@ describe('NamespacePage', () => {
   });
 
   afterEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   it('displays namespaces and renders nodes', async () => {
@@ -166,8 +166,9 @@ describe('NamespacePage', () => {
       expect(screen.getByText('Namespaces')).toBeInTheDocument();
     });
 
-    // Check that it displays namespaces
-    expect(screen.getByText('common')).toBeInTheDocument();
+    // Check that it displays namespaces (wait — the namespace tree loads
+    // asynchronously, so the labels may appear a tick after the heading).
+    await screen.findByText('common');
     expect(screen.getByText('one')).toBeInTheDocument();
     expect(screen.getByText('fruits')).toBeInTheDocument();
     expect(screen.getByText('vegetables')).toBeInTheDocument();
@@ -248,10 +249,10 @@ describe('NamespacePage', () => {
   it('can add new namespace via inline creation', async () => {
     // Mock window.location to track navigation
     delete window.location;
-    window.location = { href: jest.fn() };
+    window.location = { href: vi.fn() };
     Object.defineProperty(window.location, 'href', {
-      set: jest.fn(),
-      get: jest.fn(),
+      set: vi.fn(),
+      get: vi.fn(),
     });
 
     mockDjClient.addNamespace.mockReturnValue({

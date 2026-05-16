@@ -5,16 +5,16 @@ import { NodeQueryField } from '../NodeQueryField';
 
 describe('NodeQueryField', () => {
   const mockDjClient = {
-    nodes: jest.fn(),
-    node: jest.fn(),
-    catalogs: jest.fn().mockResolvedValue([]),
-    registerTable: jest
+    nodes: vi.fn(),
+    node: vi.fn(),
+    catalogs: vi.fn().mockResolvedValue([]),
+    registerTable: vi
       .fn()
       .mockResolvedValue({ status: 200, json: { name: '' } }),
   };
   const renderWithFormik = (djClient = mockDjClient) => {
     return render(
-      <Formik initialValues={{ query: '' }} onSubmit={jest.fn()}>
+      <Formik initialValues={{ query: '' }} onSubmit={vi.fn()}>
         <Form>
           <NodeQueryField djClient={djClient} />
         </Form>
@@ -23,7 +23,7 @@ describe('NodeQueryField', () => {
   };
 
   afterEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   it('renders without crashing', () => {

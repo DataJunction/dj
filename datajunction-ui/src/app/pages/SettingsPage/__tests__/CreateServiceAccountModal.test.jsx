@@ -3,11 +3,11 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { CreateServiceAccountModal } from '../CreateServiceAccountModal';
 
 describe('CreateServiceAccountModal', () => {
-  const mockOnClose = jest.fn();
-  const mockOnCreate = jest.fn();
+  const mockOnClose = vi.fn();
+  const mockOnCreate = vi.fn();
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   it('does not render when isOpen is false', () => {
@@ -180,7 +180,7 @@ describe('CreateServiceAccountModal', () => {
   });
 
   it('shows alert when creation returns error message', async () => {
-    window.alert = jest.fn();
+    window.alert = vi.fn();
     mockOnCreate.mockResolvedValue({ message: 'Account already exists' });
 
     render(
@@ -201,7 +201,7 @@ describe('CreateServiceAccountModal', () => {
   });
 
   it('shows alert when creation throws error', async () => {
-    window.alert = jest.fn();
+    window.alert = vi.fn();
     mockOnCreate.mockRejectedValue(new Error('Network error'));
 
     render(
@@ -290,7 +290,7 @@ describe('CreateServiceAccountModal', () => {
 
     Object.assign(navigator, {
       clipboard: {
-        writeText: jest.fn().mockResolvedValue(),
+        writeText: vi.fn().mockResolvedValue(),
       },
     });
 
@@ -326,7 +326,7 @@ describe('CreateServiceAccountModal', () => {
 
     Object.assign(navigator, {
       clipboard: {
-        writeText: jest.fn().mockResolvedValue(),
+        writeText: vi.fn().mockResolvedValue(),
       },
     });
 

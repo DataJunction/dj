@@ -12,30 +12,30 @@ import {
   usePersonalNamespace,
 } from '../useWorkspaceData';
 
-jest.mock('react', () => ({
-  ...jest.requireActual('react'),
-  useContext: jest.fn(),
+vi.mock('react', async () => ({
+  ...(await vi.importActual('react')),
+  useContext: vi.fn(),
 }));
 
 const mockDjClient = {
-  whoami: jest.fn(),
-  getWorkspaceOwnedNodes: jest.fn(),
-  getWorkspaceRecentlyEdited: jest.fn(),
-  getNotificationPreferences: jest.fn(),
-  getNodesByNames: jest.fn(),
-  getWorkspaceCollections: jest.fn(),
-  getSubscribedHistory: jest.fn(),
-  getWorkspaceMaterializations: jest.fn(),
-  getWorkspaceNodesMissingDescription: jest.fn(),
-  getWorkspaceInvalidNodes: jest.fn(),
-  getWorkspaceDraftNodes: jest.fn(),
-  getWorkspaceOrphanedDimensions: jest.fn(),
-  namespaces: jest.fn(),
+  whoami: vi.fn(),
+  getWorkspaceOwnedNodes: vi.fn(),
+  getWorkspaceRecentlyEdited: vi.fn(),
+  getNotificationPreferences: vi.fn(),
+  getNodesByNames: vi.fn(),
+  getWorkspaceCollections: vi.fn(),
+  getSubscribedHistory: vi.fn(),
+  getWorkspaceMaterializations: vi.fn(),
+  getWorkspaceNodesMissingDescription: vi.fn(),
+  getWorkspaceInvalidNodes: vi.fn(),
+  getWorkspaceDraftNodes: vi.fn(),
+  getWorkspaceOrphanedDimensions: vi.fn(),
+  namespaces: vi.fn(),
 };
 
 describe('useWorkspaceData hooks', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     useContext.mockReturnValue({ DataJunctionAPI: mockDjClient });
   });
 
@@ -59,7 +59,7 @@ describe('useWorkspaceData hooks', () => {
     it('should handle errors when fetching user', async () => {
       const mockError = new Error('API error');
       mockDjClient.whoami.mockRejectedValue(mockError);
-      const consoleErrorSpy = jest
+      const consoleErrorSpy = vi
         .spyOn(console, 'error')
         .mockImplementation(() => {});
 
@@ -115,7 +115,7 @@ describe('useWorkspaceData hooks', () => {
     it('should handle errors', async () => {
       const mockError = new Error('API error');
       mockDjClient.getWorkspaceOwnedNodes.mockRejectedValue(mockError);
-      const consoleErrorSpy = jest
+      const consoleErrorSpy = vi
         .spyOn(console, 'error')
         .mockImplementation(() => {});
 
@@ -513,7 +513,7 @@ describe('useWorkspaceData hooks', () => {
     it('should handle errors', async () => {
       const mockError = new Error('API error');
       mockDjClient.namespaces.mockRejectedValue(mockError);
-      const consoleErrorSpy = jest
+      const consoleErrorSpy = vi
         .spyOn(console, 'error')
         .mockImplementation(() => {});
 

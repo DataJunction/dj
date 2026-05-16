@@ -1,6 +1,6 @@
 import React from 'react';
 import { screen, waitFor } from '@testing-library/react';
-import fetchMock from 'jest-fetch-mock';
+import fetchMock from 'mocks/fetchMock';
 import userEvent from '@testing-library/user-event';
 import { render } from '../../../../setupTests';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
@@ -11,7 +11,7 @@ describe('<AddEditTagPage />', () => {
   const initializeMockDJClient = () => {
     return {
       DataJunctionAPI: {
-        addTag: jest.fn(),
+        addTag: vi.fn(),
       },
     };
   };
@@ -20,8 +20,8 @@ describe('<AddEditTagPage />', () => {
 
   beforeEach(() => {
     fetchMock.resetMocks();
-    jest.clearAllMocks();
-    window.scrollTo = jest.fn();
+    vi.clearAllMocks();
+    window.scrollTo = vi.fn();
   });
 
   const renderAddEditTagPage = element => {

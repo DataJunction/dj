@@ -11,19 +11,19 @@ import DJClientContext from '../../../providers/djclient';
 
 // Mock window.location.reload
 delete window.location;
-window.location = { reload: jest.fn() };
+window.location = { reload: vi.fn() };
 
 // Mock window.confirm
-window.confirm = jest.fn(() => true);
+window.confirm = vi.fn(() => true);
 
 const mockDjClient = {
   DataJunctionAPI: {
-    linkDimension: jest.fn(),
-    unlinkDimension: jest.fn(),
-    addReferenceDimensionLink: jest.fn(),
-    removeReferenceDimensionLink: jest.fn(),
+    linkDimension: vi.fn(),
+    unlinkDimension: vi.fn(),
+    addReferenceDimensionLink: vi.fn(),
+    removeReferenceDimensionLink: vi.fn(),
   },
-  node: jest.fn().mockResolvedValue({
+  node: vi.fn().mockResolvedValue({
     name: 'default.test_dimension',
     columns: [{ name: 'id', type: 'int' }],
   }),
@@ -31,8 +31,8 @@ const mockDjClient = {
 
 describe('<ManageDimensionLinksDialog />', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
-    window.alert = jest.fn();
+    vi.clearAllMocks();
+    window.alert = vi.fn();
     window.confirm.mockReturnValue(true);
   });
 
@@ -44,7 +44,7 @@ describe('<ManageDimensionLinksDialog />', () => {
       { value: 'default.dim2', label: 'dim2 (3 links)' },
     ],
     fkLinks: [],
-    onSubmit: jest.fn(),
+    onSubmit: vi.fn(),
   };
 
   it('renders the toggle button', () => {

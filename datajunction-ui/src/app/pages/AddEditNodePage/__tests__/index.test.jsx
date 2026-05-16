@@ -2,7 +2,7 @@ import React from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { screen, waitFor } from '@testing-library/react';
 import { render } from '../../../../setupTests';
-import fetchMock from 'jest-fetch-mock';
+import fetchMock from 'mocks/fetchMock';
 import { AddEditNodePage } from '../index.jsx';
 import { mocks } from '../../../../mocks/mockNodes';
 import DJClientContext from '../../../providers/djclient';
@@ -34,13 +34,13 @@ export const initializeMockDJClient = () => {
           },
         ];
       },
-      metrics: jest
+      metrics: vi
         .fn()
         .mockReturnValue([
           'default.num_repair_orders',
           'default.some_other_metric',
         ]),
-      getNodeForEditing: jest.fn(),
+      getNodeForEditing: vi.fn(),
       namespaces: () => {
         return [
           {
@@ -53,25 +53,28 @@ export const initializeMockDJClient = () => {
           },
         ];
       },
-      createNode: jest.fn(),
-      patchNode: jest.fn(),
-      node: jest.fn(),
-      tagsNode: jest.fn(),
-      listTags: jest.fn().mockReturnValue([]),
-      metric: jest.fn().mockReturnValue(mocks.mockMetricNode),
-      nodesWithType: jest
+      createNode: vi.fn(),
+      patchNode: vi.fn(),
+      node: vi.fn().mockResolvedValue({ columns: [] }),
+      tagsNode: vi.fn(),
+      validateNode: vi
+        .fn()
+        .mockResolvedValue({ status: 200, json: { columns: [] } }),
+      listTags: vi.fn().mockReturnValue([]),
+      metric: vi.fn().mockReturnValue(mocks.mockMetricNode),
+      nodesWithType: vi
         .fn()
         .mockReturnValueOnce(['a'])
         .mockReturnValueOnce(['b'])
         .mockReturnValueOnce(['default.repair_orders']),
-      listMetricMetadata: jest.fn().mockReturnValue({
+      listMetricMetadata: vi.fn().mockReturnValue({
         directions: ['higher_is_better', 'lower_is_better', 'neutral'],
         units: [
           { name: 'dollar', label: 'Dollar' },
           { name: 'second', label: 'Second' },
         ],
       }),
-      users: jest.fn().mockReturnValue([
+      users: vi.fn().mockReturnValue([
         {
           id: 123,
           username: 'test_user',
@@ -81,7 +84,7 @@ export const initializeMockDJClient = () => {
           username: 'dj',
         },
       ]),
-      whoami: jest.fn().mockReturnValue({
+      whoami: vi.fn().mockReturnValue({
         id: 123,
         username: 'test_user',
       }),
@@ -152,8 +155,8 @@ export const renderEditDerivedMetricNode = element => {
 describe('AddEditNodePage', () => {
   beforeEach(() => {
     fetchMock.resetMocks();
-    jest.clearAllMocks();
-    window.scrollTo = jest.fn();
+    vi.clearAllMocks();
+    window.scrollTo = vi.fn();
   });
 
   it('Create node page renders with the selected nodeType and namespace', async () => {
@@ -298,7 +301,7 @@ describe('AddEditNodePage', () => {
       new Error('Network error'),
     );
 
-    const consoleSpy = jest
+    const consoleSpy = vi
       .spyOn(console, 'error')
       .mockImplementation(() => {});
 

@@ -1,4 +1,34 @@
-// Jest Snapshot v1, https://goo.gl/fbAQLP
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`<ListGroupItem /> > should render and match the snapshot 1`] = `
+<div
+  className="list-group-item d-flex"
+>
+  <div
+    className="d-flex gap-2 w-100 justify-content-between py-3"
+  >
+    <div>
+      <h6
+        className="mb-0 w-100"
+      >
+        Name
+      </h6>
+      <div
+        aria-hidden="false"
+        aria-label="Name"
+        className="mb-0 opacity-75"
+        role="dialog"
+      >
+        <Markdown>
+          <span>
+            Something
+          </span>
+        </Markdown>
+      </div>
+    </div>
+  </div>
+</div>
+`;
 
 exports[`<ListGroupItem /> should render and match the snapshot 1`] = `
 <div

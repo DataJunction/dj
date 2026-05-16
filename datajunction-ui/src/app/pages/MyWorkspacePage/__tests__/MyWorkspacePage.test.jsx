@@ -6,11 +6,11 @@ import * as useWorkspaceData from '../../../hooks/useWorkspaceData';
 import * as UserProvider from '../../../providers/UserProvider';
 
 // Mock CSS imports
-jest.mock('../MyWorkspacePage.css', () => ({}));
-jest.mock('../../../../styles/settings.css', () => ({}));
+vi.mock('../MyWorkspacePage.css', () => ({}));
+vi.mock('../../../../styles/settings.css', () => ({}));
 
 // Mock child components to test integration
-jest.mock('../NotificationsSection', () => ({
+vi.mock('../NotificationsSection', () => ({
   NotificationsSection: ({ notifications, loading }) => (
     <div data-testid="notifications-section">
       {loading ? 'Loading...' : `${notifications.length} notifications`}
@@ -18,7 +18,7 @@ jest.mock('../NotificationsSection', () => ({
   ),
 }));
 
-jest.mock('../NeedsAttentionSection', () => ({
+vi.mock('../NeedsAttentionSection', () => ({
   NeedsAttentionSection: ({ loading }) => (
     <div data-testid="needs-attention-section">
       {loading ? 'Loading...' : 'Needs Attention'}
@@ -26,7 +26,7 @@ jest.mock('../NeedsAttentionSection', () => ({
   ),
 }));
 
-jest.mock('../MyNodesSection', () => ({
+vi.mock('../MyNodesSection', () => ({
   MyNodesSection: ({ ownedNodes, loading }) => (
     <div data-testid="my-nodes-section">
       {loading ? 'Loading...' : `${ownedNodes.length} owned nodes`}
@@ -34,7 +34,7 @@ jest.mock('../MyNodesSection', () => ({
   ),
 }));
 
-jest.mock('../MaterializationsSection', () => ({
+vi.mock('../MaterializationsSection', () => ({
   MaterializationsSection: ({ nodes, loading }) => (
     <div data-testid="materializations-section">
       {loading ? 'Loading...' : `${nodes.length} materializations`}
@@ -42,7 +42,7 @@ jest.mock('../MaterializationsSection', () => ({
   ),
 }));
 
-jest.mock('../ActiveBranchesSection', () => ({
+vi.mock('../ActiveBranchesSection', () => ({
   ActiveBranchesSection: ({ loading }) => (
     <div data-testid="active-branches-section">
       {loading ? 'Loading...' : 'Active Branches'}
@@ -126,15 +126,15 @@ describe('<MyWorkspacePage />', () => {
   });
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   it('should render loading state', () => {
-    jest.spyOn(UserProvider, 'useCurrentUser').mockReturnValue({
+    vi.spyOn(UserProvider, 'useCurrentUser').mockReturnValue({
       currentUser: null,
       loading: true,
     });
-    jest
+    vi
       .spyOn(useWorkspaceData, 'useWorkspaceDashboardData')
       .mockReturnValue(makeDashboardData());
 
@@ -150,11 +150,11 @@ describe('<MyWorkspacePage />', () => {
   });
 
   it('should render all sections when data is loaded', () => {
-    jest.spyOn(UserProvider, 'useCurrentUser').mockReturnValue({
+    vi.spyOn(UserProvider, 'useCurrentUser').mockReturnValue({
       currentUser: mockCurrentUser,
       loading: false,
     });
-    jest.spyOn(useWorkspaceData, 'useWorkspaceDashboardData').mockReturnValue(
+    vi.spyOn(useWorkspaceData, 'useWorkspaceDashboardData').mockReturnValue(
       makeDashboardData({
         ownedNodes: mockOwnedNodes,
         notifications: mockNotifications,
@@ -182,11 +182,11 @@ describe('<MyWorkspacePage />', () => {
   });
 
   it('should pass correct props to sections', () => {
-    jest.spyOn(UserProvider, 'useCurrentUser').mockReturnValue({
+    vi.spyOn(UserProvider, 'useCurrentUser').mockReturnValue({
       currentUser: mockCurrentUser,
       loading: false,
     });
-    jest
+    vi
       .spyOn(useWorkspaceData, 'useWorkspaceDashboardData')
       .mockReturnValue(makeDashboardData({ ownedNodes: mockOwnedNodes }));
 
@@ -213,11 +213,11 @@ describe('<MyWorkspacePage />', () => {
       },
     };
 
-    jest.spyOn(UserProvider, 'useCurrentUser').mockReturnValue({
+    vi.spyOn(UserProvider, 'useCurrentUser').mockReturnValue({
       currentUser: mockCurrentUser,
       loading: false,
     });
-    jest
+    vi
       .spyOn(useWorkspaceData, 'useWorkspaceDashboardData')
       .mockReturnValue(makeDashboardData({ materializedNodes: [freshNode] }));
 
@@ -245,11 +245,11 @@ describe('<MyWorkspacePage />', () => {
       },
     };
 
-    jest.spyOn(UserProvider, 'useCurrentUser').mockReturnValue({
+    vi.spyOn(UserProvider, 'useCurrentUser').mockReturnValue({
       currentUser: mockCurrentUser,
       loading: false,
     });
-    jest
+    vi
       .spyOn(useWorkspaceData, 'useWorkspaceDashboardData')
       .mockReturnValue(makeDashboardData({ materializedNodes: [pendingNode] }));
 
@@ -270,11 +270,11 @@ describe('<MyWorkspacePage />', () => {
       current: {},
     };
 
-    jest.spyOn(UserProvider, 'useCurrentUser').mockReturnValue({
+    vi.spyOn(UserProvider, 'useCurrentUser').mockReturnValue({
       currentUser: mockCurrentUser,
       loading: false,
     });
-    jest
+    vi
       .spyOn(useWorkspaceData, 'useWorkspaceDashboardData')
       .mockReturnValue(
         makeDashboardData({ materializedNodes: [noAvailabilityNode] }),
@@ -290,11 +290,11 @@ describe('<MyWorkspacePage />', () => {
   });
 
   it('should derive personal namespace from username', () => {
-    jest.spyOn(UserProvider, 'useCurrentUser').mockReturnValue({
+    vi.spyOn(UserProvider, 'useCurrentUser').mockReturnValue({
       currentUser: { username: 'jane.doe@company.com' },
       loading: false,
     });
-    jest
+    vi
       .spyOn(useWorkspaceData, 'useWorkspaceDashboardData')
       .mockReturnValue(makeDashboardData());
 
@@ -321,11 +321,11 @@ describe('<MyWorkspacePage />', () => {
       },
     };
 
-    jest.spyOn(UserProvider, 'useCurrentUser').mockReturnValue({
+    vi.spyOn(UserProvider, 'useCurrentUser').mockReturnValue({
       currentUser: mockCurrentUser,
       loading: false,
     });
-    jest
+    vi
       .spyOn(useWorkspaceData, 'useWorkspaceDashboardData')
       .mockReturnValue(makeDashboardData({ materializedNodes: [staleNode] }));
 

@@ -12,7 +12,7 @@ const renderInForm = ({ djClient, cube, onChange = () => {} }) =>
 
 describe('MetricsSelect', () => {
   it('renders an empty state with the prompt to start typing', () => {
-    const djClient = { searchMetrics: jest.fn(), getMetricsInfo: jest.fn() };
+    const djClient = { searchMetrics: vi.fn(), getMetricsInfo: vi.fn() };
     renderInForm({ djClient });
 
     expect(screen.getByText('Type to search metrics...')).toBeInTheDocument();
@@ -23,8 +23,8 @@ describe('MetricsSelect', () => {
 
   it('pre-populates and enriches existing cube metrics on mount', async () => {
     const djClient = {
-      searchMetrics: jest.fn(),
-      getMetricsInfo: jest.fn().mockResolvedValue([
+      searchMetrics: vi.fn(),
+      getMetricsInfo: vi.fn().mockResolvedValue([
         {
           value: 'default.revenue',
           label: 'Revenue',
@@ -52,7 +52,7 @@ describe('MetricsSelect', () => {
 
   it('queries searchMetrics and renders namespace-grouped results when the user types', async () => {
     const djClient = {
-      searchMetrics: jest.fn().mockResolvedValue([
+      searchMetrics: vi.fn().mockResolvedValue([
         {
           value: 'finance.total_revenue',
           label: 'Total Revenue',
@@ -66,7 +66,7 @@ describe('MetricsSelect', () => {
           gitInfo: { branch: 'feat-x', isDefaultBranch: false },
         },
       ]),
-      getMetricsInfo: jest.fn(),
+      getMetricsInfo: vi.fn(),
     };
 
     const { container } = renderInForm({ djClient });
@@ -89,8 +89,8 @@ describe('MetricsSelect', () => {
 
   it('returns no options for queries shorter than 2 characters', async () => {
     const djClient = {
-      searchMetrics: jest.fn(),
-      getMetricsInfo: jest.fn(),
+      searchMetrics: vi.fn(),
+      getMetricsInfo: vi.fn(),
     };
     const { container } = renderInForm({ djClient });
     const input = container.querySelector('input');
@@ -105,10 +105,10 @@ describe('MetricsSelect', () => {
 
   it('returns [] and logs when searchMetrics throws', async () => {
     const djClient = {
-      searchMetrics: jest.fn().mockRejectedValue(new Error('boom')),
-      getMetricsInfo: jest.fn(),
+      searchMetrics: vi.fn().mockRejectedValue(new Error('boom')),
+      getMetricsInfo: vi.fn(),
     };
-    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const { container } = renderInForm({ djClient });
     const input = container.querySelector('input');
 
@@ -122,8 +122,8 @@ describe('MetricsSelect', () => {
 
   it('handles a missing displayName by falling back to the metric name', async () => {
     const djClient = {
-      searchMetrics: jest.fn(),
-      getMetricsInfo: jest.fn().mockResolvedValue([]),
+      searchMetrics: vi.fn(),
+      getMetricsInfo: vi.fn().mockResolvedValue([]),
     };
     const cube = {
       current: {

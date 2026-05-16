@@ -6,12 +6,12 @@ import { UserProvider } from '../../providers/UserProvider';
 
 describe('<UserMenu />', () => {
   const createMockDjClient = (overrides = {}) => ({
-    whoami: jest.fn().mockResolvedValue({
+    whoami: vi.fn().mockResolvedValue({
       id: 1,
       username: 'testuser',
       email: 'test@example.com',
     }),
-    logout: jest.fn().mockResolvedValue({}),
+    logout: vi.fn().mockResolvedValue({}),
     ...overrides,
   });
 
@@ -29,9 +29,9 @@ describe('<UserMenu />', () => {
   const originalLocation = window.location;
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     delete (window as any).location;
-    (window as any).location = { ...originalLocation, reload: jest.fn() };
+    (window as any).location = { ...originalLocation, reload: vi.fn() };
   });
 
   afterEach(() => {
@@ -49,7 +49,7 @@ describe('<UserMenu />', () => {
 
   it('shows "?" before user is loaded', () => {
     const mockDjClient = createMockDjClient({
-      whoami: jest.fn().mockImplementation(
+      whoami: vi.fn().mockImplementation(
         () => new Promise(() => {}), // Never resolves
       ),
     });
@@ -61,7 +61,7 @@ describe('<UserMenu />', () => {
 
   it('displays initials from username (first two letters uppercase)', async () => {
     const mockDjClient = createMockDjClient({
-      whoami: jest.fn().mockResolvedValue({
+      whoami: vi.fn().mockResolvedValue({
         id: 1,
         username: 'johndoe',
         email: 'john@example.com',
@@ -79,7 +79,7 @@ describe('<UserMenu />', () => {
 
   it('displays initials from name when available', async () => {
     const mockDjClient = createMockDjClient({
-      whoami: jest.fn().mockResolvedValue({
+      whoami: vi.fn().mockResolvedValue({
         id: 1,
         username: 'johndoe',
         email: 'john@example.com',
@@ -147,7 +147,7 @@ describe('<UserMenu />', () => {
 
   it('calls onDropdownToggle when dropdown is opened', async () => {
     const mockDjClient = createMockDjClient();
-    const onDropdownToggle = jest.fn();
+    const onDropdownToggle = vi.fn();
     renderWithContext(mockDjClient, { onDropdownToggle });
 
     await waitFor(() => {
@@ -201,7 +201,7 @@ describe('<UserMenu />', () => {
 
   it('closes dropdown when clicking outside', async () => {
     const mockDjClient = createMockDjClient();
-    const onDropdownToggle = jest.fn();
+    const onDropdownToggle = vi.fn();
     renderWithContext(mockDjClient, { onDropdownToggle });
 
     await waitFor(() => {
@@ -227,7 +227,7 @@ describe('<UserMenu />', () => {
 
   it('toggles dropdown closed when clicking avatar again', async () => {
     const mockDjClient = createMockDjClient();
-    const onDropdownToggle = jest.fn();
+    const onDropdownToggle = vi.fn();
     renderWithContext(mockDjClient, { onDropdownToggle });
 
     await waitFor(() => {

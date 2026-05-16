@@ -63,12 +63,12 @@ describe('date utilities', () => {
   describe('getDateGroup with mocked time', () => {
     // Test "This Week" branch with a fixed date (Wednesday, Jan 15, 2025)
     beforeEach(() => {
-      jest.useFakeTimers();
-      jest.setSystemTime(new Date('2025-01-15T12:00:00Z'));
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2025-01-15T12:00:00Z'));
     });
 
     afterEach(() => {
-      jest.useRealTimers();
+      vi.useRealTimers();
     });
 
     it('returns "This Week" for dates earlier this week', () => {

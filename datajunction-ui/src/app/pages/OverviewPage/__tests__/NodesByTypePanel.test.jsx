@@ -15,8 +15,8 @@ describe('<NodesByTypePanel />', () => {
 
     const mockDjClient = {
       system: {
-        node_counts_by_type: jest.fn().mockResolvedValue(mockNodesByType),
-        materialization_counts_by_type: jest
+        node_counts_by_type: vi.fn().mockResolvedValue(mockNodesByType),
+        materialization_counts_by_type: vi
           .fn()
           .mockResolvedValue(mockMaterializationsByType),
       },
@@ -60,8 +60,8 @@ describe('<NodesByTypePanel />', () => {
   it('renders nothing if no data returned', async () => {
     const mockDjClient = {
       system: {
-        node_counts_by_type: jest.fn().mockResolvedValue([]),
-        materialization_counts_by_type: jest.fn().mockResolvedValue([]),
+        node_counts_by_type: vi.fn().mockResolvedValue([]),
+        materialization_counts_by_type: vi.fn().mockResolvedValue([]),
       },
     };
 

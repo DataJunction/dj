@@ -1,23 +1,23 @@
 import { render, screen } from '@testing-library/react';
 import { OverviewPage } from '../index';
 
-jest.mock('../OverviewPanel', () => ({
+vi.mock('../OverviewPanel', () => ({
   OverviewPanel: () => <div data-testid="overview-panel">OverviewPanel</div>,
 }));
-jest.mock('../NodesByTypePanel', () => ({
+vi.mock('../NodesByTypePanel', () => ({
   NodesByTypePanel: () => (
     <div data-testid="nodes-by-type-panel">NodesByTypePanel</div>
   ),
 }));
-jest.mock('../GovernanceWarningsPanel', () => ({
+vi.mock('../GovernanceWarningsPanel', () => ({
   GovernanceWarningsPanel: () => (
     <div data-testid="governance-warnings-panel">GovernanceWarningsPanel</div>
   ),
 }));
-jest.mock('../TrendsPanel', () => ({
+vi.mock('../TrendsPanel', () => ({
   TrendsPanel: () => <div data-testid="trends-panel">TrendsPanel</div>,
 }));
-jest.mock('../DimensionNodeUsagePanel', () => ({
+vi.mock('../DimensionNodeUsagePanel', () => ({
   DimensionNodeUsagePanel: () => (
     <div data-testid="dimension-node-usage-panel">DimensionNodeUsagePanel</div>
   ),

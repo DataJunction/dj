@@ -11,7 +11,7 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import React from 'react';
 
 // Mock the MetricFlowGraph component to avoid dagre dependency issues
-jest.mock('../MetricFlowGraph', () => ({
+vi.mock('../MetricFlowGraph', () => ({
   __esModule: true,
   default: ({ grainGroups, metricFormulas, selectedNode, onNodeSelect }) => {
     if (!grainGroups?.length || !metricFormulas?.length) {
@@ -53,26 +53,26 @@ jest.mock('../MetricFlowGraph', () => ({
 }));
 
 const mockDjClient = {
-  metrics: jest.fn(),
-  commonDimensions: jest.fn(),
-  commonMetrics: jest.fn(),
-  measuresV3: jest.fn(),
-  metricsV3: jest.fn(),
-  listCubesForPreset: jest.fn(),
-  cubeForPlanner: jest.fn(),
-  planPreaggs: jest.fn(),
-  updatePreaggConfig: jest.fn(),
-  materializePreagg: jest.fn(),
-  runPreaggBackfill: jest.fn(),
-  deactivatePreaggWorkflow: jest.fn(),
-  deactivateCubeWorkflow: jest.fn(),
-  createCube: jest.fn(),
-  materializeCubeV2: jest.fn(),
-  refreshCubeWorkflow: jest.fn(),
-  runCubeBackfill: jest.fn(),
-  listPreaggs: jest.fn(),
-  getNodeColumnsWithPartitions: jest.fn(),
-  setPartition: jest.fn(),
+  metrics: vi.fn(),
+  commonDimensions: vi.fn(),
+  commonMetrics: vi.fn(),
+  measuresV3: vi.fn(),
+  metricsV3: vi.fn(),
+  listCubesForPreset: vi.fn(),
+  cubeForPlanner: vi.fn(),
+  planPreaggs: vi.fn(),
+  updatePreaggConfig: vi.fn(),
+  materializePreagg: vi.fn(),
+  runPreaggBackfill: vi.fn(),
+  deactivatePreaggWorkflow: vi.fn(),
+  deactivateCubeWorkflow: vi.fn(),
+  createCube: vi.fn(),
+  materializeCubeV2: vi.fn(),
+  refreshCubeWorkflow: vi.fn(),
+  runCubeBackfill: vi.fn(),
+  listPreaggs: vi.fn(),
+  getNodeColumnsWithPartitions: vi.fn(),
+  setPartition: vi.fn(),
 };
 
 const mockMetrics = [
@@ -206,7 +206,7 @@ describe('QueryPlannerPage', () => {
   });
 
   afterEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   describe('Initial Render', () => {

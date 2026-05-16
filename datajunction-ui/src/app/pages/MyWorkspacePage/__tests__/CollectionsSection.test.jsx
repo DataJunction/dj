@@ -4,11 +4,11 @@ import { MemoryRouter } from 'react-router-dom';
 import { CollectionsSection } from '../CollectionsSection';
 import DJClientContext from '../../../providers/djclient';
 
-jest.mock('../MyWorkspacePage.css', () => ({}));
+vi.mock('../MyWorkspacePage.css', () => ({}));
 
 describe('<CollectionsSection />', () => {
   const mockDjClient = {
-    listAllCollections: jest.fn(),
+    listAllCollections: vi.fn(),
   };
 
   const mockCollections = [
@@ -31,7 +31,7 @@ describe('<CollectionsSection />', () => {
   };
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   const renderWithContext = props => {
@@ -202,7 +202,7 @@ describe('<CollectionsSection />', () => {
   });
 
   it('should log response when fetching all collections succeeds', async () => {
-    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     mockDjClient.listAllCollections.mockResolvedValue({
       data: { listCollections: mockCollections },
     });

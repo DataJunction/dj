@@ -5,20 +5,20 @@ import DJClientContext from '../../providers/djclient';
 
 // Mock window.location.reload
 delete window.location;
-window.location = { reload: jest.fn() };
+window.location = { reload: vi.fn() };
 
 // Mock window.confirm
-window.confirm = jest.fn();
+window.confirm = vi.fn();
 
 const mockDjClient = {
   DataJunctionAPI: {
-    deleteMaterialization: jest.fn(),
+    deleteMaterialization: vi.fn(),
   },
 };
 
 describe('<NodeMaterializationDelete />', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     window.confirm.mockReturnValue(true);
   });
 

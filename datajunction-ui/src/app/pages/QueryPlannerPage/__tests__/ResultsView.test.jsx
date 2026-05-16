@@ -2,22 +2,24 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ResultsView } from '../ResultsView';
 
 // Mock react-syntax-highlighter
-jest.mock('react-syntax-highlighter', () => {
+vi.mock('react-syntax-highlighter', () => {
   const MockLight = ({ children }) => (
     <pre data-testid="syntax-highlighter">{children}</pre>
   );
-  MockLight.registerLanguage = jest.fn();
+  MockLight.registerLanguage = vi.fn();
   return { Light: MockLight };
 });
-jest.mock('react-syntax-highlighter/src/styles/hljs', () => ({
+vi.mock('react-syntax-highlighter/src/styles/hljs', () => ({
   foundation: {},
 }));
-jest.mock('react-syntax-highlighter/dist/esm/languages/hljs/sql', () => ({}));
+vi.mock('react-syntax-highlighter/dist/esm/languages/hljs/sql', () => ({
+  default: () => {},
+}));
 
 // Mock recharts to avoid canvas rendering issues in jsdom.
 // YAxis calls tickFormatter with sample values (covering the formatYAxis helper).
-jest.mock('recharts', () => {
-  const React = require('react');
+vi.mock('recharts', async () => {
+  const React = await vi.importActual('react');
   const mockComponent =
     name =>
     ({ children, ...props }) =>
@@ -58,7 +60,7 @@ jest.mock('recharts', () => {
 });
 
 // Mock clipboard API
-const mockWriteText = jest.fn();
+const mockWriteText = vi.fn();
 Object.assign(navigator, {
   clipboard: {
     writeText: mockWriteText,
@@ -85,7 +87,7 @@ describe('ResultsView', () => {
     loading: false,
     error: null,
     elapsedTime: 1.5,
-    onBackToPlan: jest.fn(),
+    onBackToPlan: vi.fn(),
     selectedMetrics: ['metric1', 'metric2'],
     selectedDimensions: ['dim1'],
     filters: [],
@@ -95,7 +97,7 @@ describe('ResultsView', () => {
   };
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   describe('Header', () => {
@@ -105,7 +107,7 @@ describe('ResultsView', () => {
     });
 
     it('calls onBackToPlan when back button is clicked', () => {
-      const onBackToPlan = jest.fn();
+      const onBackToPlan = vi.fn();
       render(<ResultsView {...defaultProps} onBackToPlan={onBackToPlan} />);
 
       fireEvent.click(screen.getByText('Back to Plan'));
@@ -218,7 +220,7 @@ describe('ResultsView', () => {
     });
 
     it('shows back to plan button in error state', () => {
-      const onBackToPlan = jest.fn();
+      const onBackToPlan = vi.fn();
       render(
         <ResultsView
           {...defaultProps}

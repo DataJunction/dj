@@ -17,10 +17,10 @@ describe('<GovernanceWarningsPanel />', () => {
 
     const mockDjClient = {
       system: {
-        nodes_without_description: jest
+        nodes_without_description: vi
           .fn()
           .mockResolvedValue(mockNodesWithoutDescription),
-        dimensions: jest.fn().mockResolvedValue(mockDimensions),
+        dimensions: vi.fn().mockResolvedValue(mockDimensions),
       },
     };
 
@@ -55,8 +55,8 @@ describe('<GovernanceWarningsPanel />', () => {
   it('shows fallback if no data returned', async () => {
     const mockDjClient = {
       system: {
-        nodes_without_description: jest.fn().mockResolvedValue([]),
-        dimensions: jest.fn().mockResolvedValue([]),
+        nodes_without_description: vi.fn().mockResolvedValue([]),
+        dimensions: vi.fn().mockResolvedValue([]),
       },
     };
 

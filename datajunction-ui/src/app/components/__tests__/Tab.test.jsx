@@ -21,7 +21,7 @@ describe('<Tab />', () => {
   });
 
   it('calls onClick when the button is clicked', () => {
-    const onClickMock = jest.fn();
+    const onClickMock = vi.fn();
     const { getByRole } = render(<Tab id="1" onClick={onClickMock} />);
     fireEvent.click(getByRole('button'));
     expect(onClickMock).toHaveBeenCalledTimes(1);

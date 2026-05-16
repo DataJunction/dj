@@ -3,10 +3,12 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { NodeList } from '../NodeList';
 
-jest.mock('../MyWorkspacePage.css', () => ({}));
-jest.mock('../../../components/NodeListActions', () => {
-  return function MockNodeListActions({ nodeName }) {
-    return <div data-testid="node-actions">{nodeName}</div>;
+vi.mock('../MyWorkspacePage.css', () => ({}));
+vi.mock('../../../components/NodeListActions', () => {
+  return {
+    default: function MockNodeListActions({ nodeName }) {
+      return <div data-testid="node-actions">{nodeName}</div>;
+    },
   };
 });
 

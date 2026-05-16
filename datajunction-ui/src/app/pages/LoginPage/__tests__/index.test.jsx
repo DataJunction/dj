@@ -8,7 +8,7 @@ describe('LoginPage', () => {
   beforeAll(() => {
     Object.defineProperty(window, 'location', {
       configurable: true,
-      value: { reload: jest.fn() },
+      value: { reload: vi.fn() },
     });
   });
 
@@ -24,7 +24,7 @@ describe('LoginPage', () => {
   });
 
   afterEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   it('displays error messages when fields are empty and form is submitted', async () => {

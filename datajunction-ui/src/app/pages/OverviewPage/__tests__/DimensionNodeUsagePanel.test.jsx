@@ -12,7 +12,7 @@ describe('<DimensionNodeUsagePanel />', () => {
 
     const mockDjClient = {
       system: {
-        dimensions: jest.fn().mockResolvedValue(mockDimensions),
+        dimensions: vi.fn().mockResolvedValue(mockDimensions),
       },
     };
 
@@ -53,7 +53,7 @@ describe('<DimensionNodeUsagePanel />', () => {
   it('handles empty dimensions gracefully', async () => {
     const mockDjClient = {
       system: {
-        dimensions: jest.fn().mockResolvedValue([]),
+        dimensions: vi.fn().mockResolvedValue([]),
       },
     };
 

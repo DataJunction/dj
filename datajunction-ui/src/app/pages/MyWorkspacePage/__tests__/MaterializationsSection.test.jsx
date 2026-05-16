@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { MaterializationsSection } from '../MaterializationsSection';
 
-jest.mock('../MyWorkspacePage.css', () => ({}));
+vi.mock('../MyWorkspacePage.css', () => ({}));
 
 describe('<MaterializationsSection />', () => {
   const now = Date.now();

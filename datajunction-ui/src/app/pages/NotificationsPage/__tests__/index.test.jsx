@@ -41,8 +41,8 @@ describe('<NotificationsPage />', () => {
   ];
 
   const createMockDjClient = (overrides = {}) => ({
-    getSubscribedHistory: jest.fn().mockResolvedValue(mockNotifications),
-    getNodesByNames: jest.fn().mockResolvedValue(mockNodes),
+    getSubscribedHistory: vi.fn().mockResolvedValue(mockNotifications),
+    getNodesByNames: vi.fn().mockResolvedValue(mockNodes),
     ...overrides,
   });
 
@@ -55,7 +55,7 @@ describe('<NotificationsPage />', () => {
   };
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   it('renders the page title', async () => {
@@ -78,7 +78,7 @@ describe('<NotificationsPage />', () => {
     });
 
     const mockDjClient = createMockDjClient({
-      getSubscribedHistory: jest.fn().mockImplementation(() => pendingPromise),
+      getSubscribedHistory: vi.fn().mockImplementation(() => pendingPromise),
     });
     renderWithContext(mockDjClient);
 
@@ -97,7 +97,7 @@ describe('<NotificationsPage />', () => {
 
   it('shows empty state when no notifications', async () => {
     const mockDjClient = createMockDjClient({
-      getSubscribedHistory: jest.fn().mockResolvedValue([]),
+      getSubscribedHistory: vi.fn().mockResolvedValue([]),
     });
     renderWithContext(mockDjClient);
 
@@ -143,7 +143,7 @@ describe('<NotificationsPage />', () => {
 
   it('falls back to entity_name when no display_name', async () => {
     const mockDjClient = createMockDjClient({
-      getNodesByNames: jest.fn().mockResolvedValue([]), // No node info
+      getNodesByNames: vi.fn().mockResolvedValue([]), // No node info
     });
     renderWithContext(mockDjClient);
 
@@ -194,7 +194,7 @@ describe('<NotificationsPage />', () => {
 
   it('links to history page when no version', async () => {
     const mockDjClient = createMockDjClient({
-      getSubscribedHistory: jest.fn().mockResolvedValue([
+      getSubscribedHistory: vi.fn().mockResolvedValue([
         {
           id: 1,
           entity_type: 'node',
@@ -206,7 +206,7 @@ describe('<NotificationsPage />', () => {
           details: {}, // No version
         },
       ]),
-      getNodesByNames: jest.fn().mockResolvedValue([]),
+      getNodesByNames: vi.fn().mockResolvedValue([]),
     });
     renderWithContext(mockDjClient);
 
@@ -276,12 +276,12 @@ describe('<NotificationsPage />', () => {
   });
 
   it('handles errors gracefully', async () => {
-    const consoleSpy = jest
+    const consoleSpy = vi
       .spyOn(console, 'error')
       .mockImplementation(() => {});
 
     const mockDjClient = createMockDjClient({
-      getSubscribedHistory: jest
+      getSubscribedHistory: vi
         .fn()
         .mockRejectedValue(new Error('Network error')),
     });
@@ -302,7 +302,7 @@ describe('<NotificationsPage />', () => {
 
   it('handles null response from getSubscribedHistory', async () => {
     const mockDjClient = createMockDjClient({
-      getSubscribedHistory: jest.fn().mockResolvedValue(null),
+      getSubscribedHistory: vi.fn().mockResolvedValue(null),
     });
     renderWithContext(mockDjClient);
 
@@ -316,7 +316,7 @@ describe('<NotificationsPage />', () => {
 
   it('handles undefined response from getSubscribedHistory', async () => {
     const mockDjClient = createMockDjClient({
-      getSubscribedHistory: jest.fn().mockResolvedValue(undefined),
+      getSubscribedHistory: vi.fn().mockResolvedValue(undefined),
     });
     renderWithContext(mockDjClient);
 

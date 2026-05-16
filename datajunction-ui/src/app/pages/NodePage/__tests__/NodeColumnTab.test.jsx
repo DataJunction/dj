@@ -4,10 +4,10 @@ import NodeColumnTab from '../NodeColumnTab';
 
 describe('<NodeColumnTab />', () => {
   const mockDjClient = {
-    node: jest.fn(),
-    columns: jest.fn(),
-    attributes: jest.fn(),
-    dimensions: jest.fn(),
+    node: vi.fn(),
+    columns: vi.fn(),
+    attributes: vi.fn(),
+    dimensions: vi.fn(),
   };
 
   const mockNodeColumns = [

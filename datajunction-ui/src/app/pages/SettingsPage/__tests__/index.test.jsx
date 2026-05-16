@@ -6,14 +6,14 @@ import { UserProvider } from '../../../providers/UserProvider';
 
 describe('SettingsPage', () => {
   const mockDjClient = {
-    whoami: jest.fn(),
-    getNotificationPreferences: jest.fn(),
-    getNodesByNames: jest.fn(),
-    listServiceAccounts: jest.fn(),
-    subscribeToNotifications: jest.fn(),
-    unsubscribeFromNotifications: jest.fn(),
-    createServiceAccount: jest.fn(),
-    deleteServiceAccount: jest.fn(),
+    whoami: vi.fn(),
+    getNotificationPreferences: vi.fn(),
+    getNodesByNames: vi.fn(),
+    listServiceAccounts: vi.fn(),
+    subscribeToNotifications: vi.fn(),
+    unsubscribeFromNotifications: vi.fn(),
+    createServiceAccount: vi.fn(),
+    deleteServiceAccount: vi.fn(),
   };
 
   const renderWithContext = () => {
@@ -27,7 +27,7 @@ describe('SettingsPage', () => {
   };
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
 
     // Default mock implementations
     mockDjClient.whoami.mockResolvedValue({
@@ -127,7 +127,7 @@ describe('SettingsPage', () => {
   });
 
   it('handles service accounts API error gracefully', async () => {
-    const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation();
     mockDjClient.listServiceAccounts.mockRejectedValue(
       new Error('Not available'),
     );
@@ -145,7 +145,7 @@ describe('SettingsPage', () => {
   });
 
   it('handles fetch error gracefully', async () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation();
     mockDjClient.whoami.mockRejectedValue(new Error('Network error'));
 
     renderWithContext();
@@ -303,7 +303,7 @@ describe('SettingsPage', () => {
   it('handles subscription unsubscribe and removes from list', async () => {
     // Mock window.confirm to return true
     const originalConfirm = window.confirm;
-    window.confirm = jest.fn().mockReturnValue(true);
+    window.confirm = vi.fn().mockReturnValue(true);
 
     mockDjClient.getNotificationPreferences.mockResolvedValue([
       {
@@ -444,7 +444,7 @@ describe('SettingsPage', () => {
   it('handles service account deletion by clicking delete button with confirmation', async () => {
     // Mock window.confirm to return true
     const originalConfirm = window.confirm;
-    window.confirm = jest.fn().mockReturnValue(true);
+    window.confirm = vi.fn().mockReturnValue(true);
 
     mockDjClient.listServiceAccounts.mockResolvedValue([
       {
@@ -488,7 +488,7 @@ describe('SettingsPage', () => {
   it('removes service account from list after deletion', async () => {
     // Mock window.confirm to return true
     const originalConfirm = window.confirm;
-    window.confirm = jest.fn().mockReturnValue(true);
+    window.confirm = vi.fn().mockReturnValue(true);
 
     mockDjClient.listServiceAccounts.mockResolvedValue([
       {
@@ -529,7 +529,7 @@ describe('SettingsPage', () => {
   it('does not delete service account when confirmation is cancelled', async () => {
     // Mock window.confirm to return false
     const originalConfirm = window.confirm;
-    window.confirm = jest.fn().mockReturnValue(false);
+    window.confirm = vi.fn().mockReturnValue(false);
 
     mockDjClient.listServiceAccounts.mockResolvedValue([
       {
@@ -596,7 +596,7 @@ describe('SettingsPage', () => {
   });
 
   it('handles notification preferences fetch error gracefully', async () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation();
     mockDjClient.getNotificationPreferences.mockRejectedValue(
       new Error('Failed to fetch preferences'),
     );

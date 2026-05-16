@@ -5,8 +5,8 @@ import DJClientContext from '../../../providers/djclient';
 
 const mockDjClient = {
   DataJunctionAPI: {
-    linkDimension: jest.fn(),
-    unlinkDimension: jest.fn(),
+    linkDimension: vi.fn(),
+    unlinkDimension: vi.fn(),
   },
 };
 
@@ -24,7 +24,7 @@ describe('<LinkDimensionPopover />', () => {
     ];
 
     // Mock onSubmit function
-    const onSubmitMock = jest.fn();
+    const onSubmitMock = vi.fn();
 
     mockDjClient.DataJunctionAPI.linkDimension.mockReturnValue({
       status: 200,
@@ -82,7 +82,7 @@ describe('<LinkDimensionPopover />', () => {
     ];
 
     // Mock onSubmit function
-    const onSubmitMock = jest.fn();
+    const onSubmitMock = vi.fn();
 
     mockDjClient.DataJunctionAPI.linkDimension.mockReturnValue({
       status: 500,

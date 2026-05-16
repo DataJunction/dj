@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { NotificationsSection } from '../NotificationsSection';
 
-jest.mock('../MyWorkspacePage.css', () => ({}));
+vi.mock('../MyWorkspacePage.css', () => ({}));
 
 describe('<NotificationsSection />', () => {
   const mockNotifications = [

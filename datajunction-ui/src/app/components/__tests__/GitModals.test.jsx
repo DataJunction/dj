@@ -12,14 +12,14 @@ import { CreatePRModal } from '../git/CreatePRModal';
 describe('<CreateBranchModal />', () => {
   const defaultProps = {
     isOpen: true,
-    onClose: jest.fn(),
-    onCreate: jest.fn(),
+    onClose: vi.fn(),
+    onCreate: vi.fn(),
     namespace: 'analytics.prod',
     gitBranch: 'main',
   };
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   it('should not render when isOpen is false', () => {
@@ -310,15 +310,15 @@ describe('<CreateBranchModal />', () => {
 describe('<DeleteBranchModal />', () => {
   const defaultProps = {
     isOpen: true,
-    onClose: jest.fn(),
-    onDelete: jest.fn(),
+    onClose: vi.fn(),
+    onDelete: vi.fn(),
     namespace: 'analytics.feature_xyz',
     gitBranch: 'feature-xyz',
     parentNamespace: 'analytics.prod',
   };
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     delete window.location;
     window.location = { href: '' };
   });
@@ -495,15 +495,15 @@ describe('<DeleteBranchModal />', () => {
 describe('<SyncToGitModal />', () => {
   const defaultProps = {
     isOpen: true,
-    onClose: jest.fn(),
-    onSync: jest.fn(),
+    onClose: vi.fn(),
+    onSync: vi.fn(),
     namespace: 'analytics.prod',
     gitBranch: 'main',
     repoPath: 'myorg/dj-definitions',
   };
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   it('should not render when isOpen is false', () => {
@@ -739,16 +739,16 @@ describe('<SyncToGitModal />', () => {
 describe('<GitSettingsModal />', () => {
   const defaultProps = {
     isOpen: true,
-    onClose: jest.fn(),
-    onSave: jest.fn(),
+    onClose: vi.fn(),
+    onSave: vi.fn(),
     currentConfig: null,
     namespace: 'analytics.prod',
   };
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     // Mock fetch for parent config fetching
-    global.fetch = jest.fn(() =>
+    global.fetch = vi.fn(() =>
       Promise.resolve({
         ok: true,
         json: () =>
@@ -1032,8 +1032,8 @@ describe('<GitSettingsModal />', () => {
 describe('<CreatePRModal />', () => {
   const defaultProps = {
     isOpen: true,
-    onClose: jest.fn(),
-    onCreate: jest.fn(),
+    onClose: vi.fn(),
+    onCreate: vi.fn(),
     namespace: 'analytics.feature_xyz',
     gitBranch: 'feature-xyz',
     parentBranch: 'main',
@@ -1041,7 +1041,7 @@ describe('<CreatePRModal />', () => {
   };
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   it('should not render when isOpen is false', () => {

@@ -21,7 +21,7 @@ const renderInForm = ({
 
 describe('DimensionsSelect', () => {
   it('renders nothing when no metrics are selected', () => {
-    const djClient = { commonDimensions: jest.fn() };
+    const djClient = { commonDimensions: vi.fn() };
     const { container } = renderInForm({ djClient });
     expect(container.firstChild).toBeNull();
     expect(djClient.commonDimensions).not.toHaveBeenCalled();
@@ -29,7 +29,7 @@ describe('DimensionsSelect', () => {
 
   it('groups dimensions by hop distance', async () => {
     const djClient = {
-      commonDimensions: jest.fn().mockResolvedValue([
+      commonDimensions: vi.fn().mockResolvedValue([
         // Direct dimension (path length 0)
         {
           name: 'default.event.event_type',
@@ -72,7 +72,7 @@ describe('DimensionsSelect', () => {
 
   it('uses singular "1 Hop Away" label for path length 1', async () => {
     const djClient = {
-      commonDimensions: jest.fn().mockResolvedValue([
+      commonDimensions: vi.fn().mockResolvedValue([
         {
           name: 'default.user.country',
           node_name: 'default.user',
@@ -94,7 +94,7 @@ describe('DimensionsSelect', () => {
 
   it('pre-fills selected dimensions when editing an existing cube', async () => {
     const djClient = {
-      commonDimensions: jest.fn().mockResolvedValue([
+      commonDimensions: vi.fn().mockResolvedValue([
         {
           name: 'default.event.event_type',
           node_name: 'default.event',
@@ -131,7 +131,7 @@ describe('DimensionsSelect', () => {
 
   it('shows the role suffix on chip labels for role-aliased cube dimensions', async () => {
     const djClient = {
-      commonDimensions: jest.fn().mockResolvedValue([
+      commonDimensions: vi.fn().mockResolvedValue([
         {
           name: 'default.user_dim.country_code[birth_country]',
           node_name: 'default.user_dim',
@@ -173,7 +173,7 @@ describe('DimensionsSelect', () => {
     // Two role-aliased instances of the same attribute show as two distinct
     // chips, distinguishable by the role suffix in the label.
     const djClient = {
-      commonDimensions: jest.fn().mockResolvedValue([
+      commonDimensions: vi.fn().mockResolvedValue([
         {
           name: 'default.user_dim.country_code[birth_country]',
           node_name: 'default.user_dim',

@@ -2,8 +2,8 @@ import { render, screen, waitFor } from '@testing-library/react';
 import DJClientContext from '../../../providers/djclient';
 import { TrendsPanel } from '../TrendsPanel';
 
-jest.mock('recharts', () => {
-  const Original = jest.requireActual('recharts');
+vi.mock('recharts', () => {
+  const Original = vi.importActual('recharts');
   return {
     ...Original,
     ResponsiveContainer: ({ children, ...props }) => (
@@ -48,7 +48,7 @@ describe('<TrendsPanel />', () => {
 
     const mockDjClient = {
       system: {
-        node_trends: jest.fn().mockResolvedValue(mockNodeTrends),
+        node_trends: vi.fn().mockResolvedValue(mockNodeTrends),
       },
     };
 
@@ -99,7 +99,7 @@ describe('<TrendsPanel />', () => {
   it('renders with empty trends', async () => {
     const mockDjClient = {
       system: {
-        node_trends: jest.fn().mockResolvedValue([]),
+        node_trends: vi.fn().mockResolvedValue([]),
       },
     };
 

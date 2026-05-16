@@ -4,8 +4,8 @@ import Collapse from '../Collapse';
 import { mocks } from '../../../../mocks/mockNodes';
 import { ReactFlowProvider } from 'reactflow';
 
-jest.mock('../DJNodeDimensions', () => ({
-  DJNodeDimensions: jest.fn(data => <div>DJNodeDimensions content</div>),
+vi.mock('../DJNodeDimensions', () => ({
+  DJNodeDimensions: vi.fn(data => <div>DJNodeDimensions content</div>),
 }));
 
 describe('<Collapse />', () => {

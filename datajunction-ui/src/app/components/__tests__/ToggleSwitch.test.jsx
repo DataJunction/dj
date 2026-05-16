@@ -5,7 +5,7 @@ import ToggleSwitch from '../ToggleSwitch';
 describe('<ToggleSwitch />', () => {
   const defaultProps = {
     checked: false,
-    onChange: jest.fn(),
+    onChange: vi.fn(),
     toggleName: 'Toggle Switch',
   };
 
@@ -36,7 +36,7 @@ describe('<ToggleSwitch />', () => {
   });
 
   it('is unchecked by default if no checked prop is provided', () => {
-    render(<ToggleSwitch onChange={jest.fn()} toggleName="Test Toggle" />);
+    render(<ToggleSwitch onChange={vi.fn()} toggleName="Test Toggle" />);
     const checkbox = screen.getByRole('checkbox');
     expect(checkbox).not.toBeChecked();
   });

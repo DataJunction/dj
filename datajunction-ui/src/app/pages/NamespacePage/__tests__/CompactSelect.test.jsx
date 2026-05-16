@@ -15,11 +15,11 @@ describe('<CompactSelect />', () => {
     name: 'test-select',
     options: defaultOptions,
     value: '',
-    onChange: jest.fn(),
+    onChange: vi.fn(),
   };
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   it('renders without crashing', () => {
@@ -43,7 +43,7 @@ describe('<CompactSelect />', () => {
   });
 
   it('calls onChange when an option is selected', async () => {
-    const handleChange = jest.fn();
+    const handleChange = vi.fn();
     render(<CompactSelect {...defaultProps} onChange={handleChange} />);
 
     // Open the dropdown
@@ -63,7 +63,7 @@ describe('<CompactSelect />', () => {
   });
 
   it('supports multi-select mode', async () => {
-    const handleChange = jest.fn();
+    const handleChange = vi.fn();
     render(
       <CompactSelect
         {...defaultProps}
@@ -97,7 +97,7 @@ describe('<CompactSelect />', () => {
   });
 
   it('allows clearing the selection when isClearable is true', async () => {
-    const handleChange = jest.fn();
+    const handleChange = vi.fn();
     render(
       <CompactSelect
         {...defaultProps}
