@@ -6,11 +6,29 @@ import React from 'react';
 import { ErrorMessage, Field, useFormikContext } from 'formik';
 import CodeMirror from '@uiw/react-codemirror';
 import { langs } from '@uiw/codemirror-extensions-langs';
+import { extractCatalogTables } from './catalogTables';
 
 export const NodeQueryField = ({ djClient, value }) => {
   const [schema, setSchema] = React.useState([]);
   const formik = useFormikContext();
   const sqlExt = langs.sql({ schema: schema });
+  const autoRegisterTimer = React.useRef(null);
+  const registeredTables = React.useRef(new Set());
+  // useRef so the onChange closure always sees the latest catalog list
+  const knownCatalogsRef = React.useRef([]);
+
+  React.useEffect(() => {
+    if (typeof djClient.catalogs !== 'function') return;
+    Promise.resolve(djClient.catalogs())
+      .then(catalogs => {
+        knownCatalogsRef.current = (catalogs || []).map(c =>
+          c.name.toLowerCase(),
+        );
+      })
+      .catch(() => {
+        // Auto-register is best-effort; failing to load catalogs just disables it.
+      });
+  }, [djClient]);
 
   const initialAutocomplete = async context => {
     // Based on the parsed prefix, we load node names with that prefix
@@ -42,6 +60,55 @@ export const NodeQueryField = ({ djClient, value }) => {
         const nodeDetails = await djClient.node(nodeName);
         schema[nodeName] = nodeDetails.columns.map(col => col.name);
         setSchema(schema);
+      }
+    }
+
+    // Auto-register any catalog-qualified tables typed in the SQL
+    if (knownCatalogsRef.current.length > 0) {
+      clearTimeout(autoRegisterTimer.current);
+      autoRegisterTimer.current = setTimeout(
+        () => autoRegisterCatalogTables(value),
+        600,
+      );
+    }
+  };
+
+  const autoRegisterCatalogTables = async sql => {
+    const tables = extractCatalogTables(sql, knownCatalogsRef.current);
+    for (const [catalog, tableSchema, table] of tables) {
+      const key = `${catalog}.${tableSchema}.${table}`;
+      if (registeredTables.current.has(key)) continue;
+      // If autocomplete already saw this node, DJ knows about it — skip silently
+      if (schema[key] !== undefined) {
+        registeredTables.current.add(key);
+        continue;
+      }
+      registeredTables.current.add(key);
+
+      let response;
+      try {
+        response = await djClient.registerTable(
+          catalog,
+          tableSchema,
+          table,
+          '',
+        );
+      } catch {
+        registeredTables.current.delete(key);
+        continue;
+      }
+      const { status, json } = response;
+      if (status === 200 || status === 201) {
+        const nodeName = json?.name || key;
+        const columns = (json?.columns || []).map(col => col.name);
+        schema[nodeName] = columns;
+        if (table && table !== nodeName) {
+          schema[table] = columns;
+        }
+        setSchema(schema);
+      } else if (status !== 409) {
+        // 409 = already exists (silent); other errors: allow retry on next edit
+        registeredTables.current.delete(key);
       }
     }
   };

@@ -7,6 +7,10 @@ describe('NodeQueryField', () => {
   const mockDjClient = {
     nodes: jest.fn(),
     node: jest.fn(),
+    catalogs: jest.fn().mockResolvedValue([]),
+    registerTable: jest
+      .fn()
+      .mockResolvedValue({ status: 200, json: { name: '' } }),
   };
   const renderWithFormik = (djClient = mockDjClient) => {
     return render(
