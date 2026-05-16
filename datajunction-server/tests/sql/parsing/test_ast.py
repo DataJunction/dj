@@ -1416,3 +1416,47 @@ def test_struct_column_name_two_level():
     assert col.struct_column_name == "struct_col"
     assert col.struct_subscript == "field_leaf"
     assert str(col) == "tbl.struct_col.field_leaf"
+
+
+def test_binaryop_and_with_no_args_returns_none():
+    """
+    `BinaryOp.And(*[])` (i.e. spreading an empty filter list) must not raise.
+    Callers should be able to safely no-op when there are no conditions.
+    """
+    assert ast.BinaryOp.And() is None
+
+
+def test_binaryop_and_with_single_arg_returns_it_unchanged():
+    """
+    A single condition collapses to itself (no AND wrapping).
+    """
+    col = ast.Column(name=ast.Name("x"))
+    assert ast.BinaryOp.And(col) is col
+
+
+def test_binaryop_and_chains_multiple_conditions():
+    """
+    Multiple conditions roll up into nested BinaryOp(AND, ...) expressions.
+    """
+    a = ast.Column(name=ast.Name("a"))
+    b = ast.Column(name=ast.Name("b"))
+    c = ast.Column(name=ast.Name("c"))
+    result = ast.BinaryOp.And(a, b, c)
+    assert isinstance(result, ast.BinaryOp)
+    assert result.op == ast.BinaryOpKind.And
+    # Right-most is c, left side is (a AND b)
+    assert result.right is c
+    assert isinstance(result.left, ast.BinaryOp)
+    assert result.left.left is a
+    assert result.left.right is b
+
+
+def test_binaryop_and_with_empty_spread_does_not_raise():
+    """
+    Regression test for production crash: BinaryOp.And() missing required arg 'left'.
+    Triggered when a caller unpacks an empty filter list, e.g.
+        ast.BinaryOp.And(*conditions)  # conditions == []
+    """
+    conditions = []
+    # Should not raise TypeError
+    assert ast.BinaryOp.And(*conditions) is None

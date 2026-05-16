@@ -1929,14 +1929,17 @@ class BinaryOp(Operation):
     @classmethod
     def And(
         cls,
-        left: Expression,
+        left: Optional[Expression] = None,
         right: Optional[Expression] = None,
         *rest: Expression,
-    ) -> Union["BinaryOp", Expression]:
+    ) -> Optional[Union["BinaryOp", Expression]]:
         """
-        Create a BinaryOp of kind BinaryOpKind.Eq rolling up all expressions
+        Create a BinaryOp of kind BinaryOpKind.And rolling up all expressions.
+        Tolerates 0/1 args so that callers may safely `.And(*conditions)` an empty list.
         """
-        if right is None:  # pragma: no cover
+        if left is None:
+            return None
+        if right is None:
             return left
         return reduce(
             lambda left, right: BinaryOp(
