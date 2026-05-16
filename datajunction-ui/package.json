@@ -122,8 +122,13 @@
     "wrap-ansi": "^7.0.0",
     "wrap-ansi-cjs": "npm:wrap-ansi@^7.0.0"
   },
-  "devDependencies": {
+  "optionalDependencies": {
     "@rollup/rollup-darwin-arm64": "4.60.4",
+    "@rollup/rollup-darwin-x64": "4.60.4",
+    "@rollup/rollup-linux-arm64-gnu": "4.60.4",
+    "@rollup/rollup-linux-x64-gnu": "4.60.4"
+  },
+  "devDependencies": {
     "@testing-library/jest-dom": "6.1.2",
     "@testing-library/react": "14.0.0",
     "@testing-library/user-event": "14.4.3",
@@ -138,6 +143,7 @@
     "@types/react-test-renderer": "^18.0.0",
     "@vitejs/plugin-react": "^4.3.4",
     "@vitest/coverage-v8": "^2.1.8",
+    "eslint": "8.57.0",
     "eslint-config-prettier": "8.8.0",
     "eslint-config-react-app": "^7.0.1",
     "eslint-plugin-prettier": "4.2.1",

@@ -24,7 +24,11 @@ export default defineConfig(({ mode }) => {
         ? [
             dts({
               include: ['src/**/*.ts', 'src/**/*.tsx'],
-              exclude: ['src/**/__tests__/**', 'src/**/*.test.*', 'src/mocks/**'],
+              exclude: [
+                'src/**/__tests__/**',
+                'src/**/*.test.*',
+                'src/mocks/**',
+              ],
               insertTypesEntry: true,
             }),
           ]

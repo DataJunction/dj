@@ -133,9 +133,7 @@ describe('<NodeDimensionsTab />', () => {
   });
 
   it('handles error from dimensionDag gracefully', async () => {
-    const consoleSpy = vi
-      .spyOn(console, 'error')
-      .mockImplementation(() => {});
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const djNode = {
       name: 'default.metric1',
       type: 'metric',
@@ -299,9 +297,7 @@ describe('<NodeDimensionsTab />', () => {
   });
 
   it('handles dimensionDag error gracefully', async () => {
-    const consoleSpy = vi
-      .spyOn(console, 'error')
-      .mockImplementation(() => {});
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const djNode = {
       name: 'default.hard_hat',
       type: 'dimension',

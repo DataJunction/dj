@@ -217,9 +217,7 @@ describe('<NodeDataFlowTab />', () => {
   });
 
   it('handles error from Promise.all gracefully (lines 268-269)', async () => {
-    const consoleSpy = vi
-      .spyOn(console, 'error')
-      .mockImplementation(() => {});
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const djNode = { name: 'default.metric1', type: 'metric', parents: [] };
     mockDjClient.upstreamsGQL.mockRejectedValue(new Error('Network error'));
     mockDjClient.downstreamsGQL.mockResolvedValue([]);

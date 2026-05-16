@@ -276,9 +276,7 @@ describe('<NotificationsPage />', () => {
   });
 
   it('handles errors gracefully', async () => {
-    const consoleSpy = vi
-      .spyOn(console, 'error')
-      .mockImplementation(() => {});
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const mockDjClient = createMockDjClient({
       getSubscribedHistory: vi

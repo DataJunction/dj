@@ -85,9 +85,7 @@ describe('<NodePage />', () => {
           .fn()
           .mockResolvedValue({ status: 200 }),
         addComplexDimensionLink: vi.fn().mockResolvedValue({ status: 200 }),
-        removeComplexDimensionLink: vi
-          .fn()
-          .mockResolvedValue({ status: 200 }),
+        removeComplexDimensionLink: vi.fn().mockResolvedValue({ status: 200 }),
         listPreaggs: vi.fn().mockResolvedValue({ items: [] }),
         deactivatePreaggWorkflow: vi.fn().mockResolvedValue({ status: 200 }),
         namespaceSources: vi.fn().mockResolvedValue(null),
@@ -362,33 +360,33 @@ describe('<NodePage />', () => {
         expect(
           screen.getByRole('button', { name: 'Info' }),
         ).toBeInTheDocument();
-      expect(
-        screen.getByRole('dialog', { name: 'Description' }),
-      ).toHaveTextContent('Number of repair orders');
+        expect(
+          screen.getByRole('dialog', { name: 'Description' }),
+        ).toHaveTextContent('Number of repair orders');
 
-      expect(screen.getByRole('dialog', { name: 'Version' })).toHaveTextContent(
-        'v1.0',
-      );
+        expect(
+          screen.getByRole('dialog', { name: 'Version' }),
+        ).toHaveTextContent('v1.0');
 
-      expect(
-        screen.getByRole('dialog', { name: 'NodeStatus' }),
-      ).toBeInTheDocument();
+        expect(
+          screen.getByRole('dialog', { name: 'NodeStatus' }),
+        ).toBeInTheDocument();
 
-      expect(screen.getByRole('dialog', { name: 'Tags' })).toHaveTextContent(
-        'Purpose',
-      );
+        expect(screen.getByRole('dialog', { name: 'Tags' })).toHaveTextContent(
+          'Purpose',
+        );
 
-      expect(
-        screen.getByRole('dialog', { name: 'RequiredDimensions' }),
-      ).toHaveTextContent('');
+        expect(
+          screen.getByRole('dialog', { name: 'RequiredDimensions' }),
+        ).toHaveTextContent('');
 
-      expect(
-        screen.getByRole('dialog', { name: 'DisplayName' }),
-      ).toHaveTextContent('Default: Num Repair Orders');
+        expect(
+          screen.getByRole('dialog', { name: 'DisplayName' }),
+        ).toHaveTextContent('Default: Num Repair Orders');
 
-      expect(
-        screen.getByRole('dialog', { name: 'NodeType' }),
-      ).toHaveTextContent('metric');
+        expect(
+          screen.getByRole('dialog', { name: 'NodeType' }),
+        ).toHaveTextContent('metric');
       },
       { timeout: 4000 },
     );

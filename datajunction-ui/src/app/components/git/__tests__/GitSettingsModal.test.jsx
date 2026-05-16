@@ -177,7 +177,6 @@ describe('<GitSettingsModal />', () => {
   });
 
   it('should show success message and close modal after successful removal', async () => {
-
     const currentConfig = {
       github_repo_path: 'test/repo',
       git_path: 'nodes/',

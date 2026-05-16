@@ -134,9 +134,9 @@ describe('<MyWorkspacePage />', () => {
       currentUser: null,
       loading: true,
     });
-    vi
-      .spyOn(useWorkspaceData, 'useWorkspaceDashboardData')
-      .mockReturnValue(makeDashboardData());
+    vi.spyOn(useWorkspaceData, 'useWorkspaceDashboardData').mockReturnValue(
+      makeDashboardData(),
+    );
 
     render(
       <MemoryRouter>
@@ -186,9 +186,9 @@ describe('<MyWorkspacePage />', () => {
       currentUser: mockCurrentUser,
       loading: false,
     });
-    vi
-      .spyOn(useWorkspaceData, 'useWorkspaceDashboardData')
-      .mockReturnValue(makeDashboardData({ ownedNodes: mockOwnedNodes }));
+    vi.spyOn(useWorkspaceData, 'useWorkspaceDashboardData').mockReturnValue(
+      makeDashboardData({ ownedNodes: mockOwnedNodes }),
+    );
 
     render(
       <MemoryRouter>
@@ -217,9 +217,9 @@ describe('<MyWorkspacePage />', () => {
       currentUser: mockCurrentUser,
       loading: false,
     });
-    vi
-      .spyOn(useWorkspaceData, 'useWorkspaceDashboardData')
-      .mockReturnValue(makeDashboardData({ materializedNodes: [freshNode] }));
+    vi.spyOn(useWorkspaceData, 'useWorkspaceDashboardData').mockReturnValue(
+      makeDashboardData({ materializedNodes: [freshNode] }),
+    );
 
     render(
       <MemoryRouter>
@@ -249,9 +249,9 @@ describe('<MyWorkspacePage />', () => {
       currentUser: mockCurrentUser,
       loading: false,
     });
-    vi
-      .spyOn(useWorkspaceData, 'useWorkspaceDashboardData')
-      .mockReturnValue(makeDashboardData({ materializedNodes: [pendingNode] }));
+    vi.spyOn(useWorkspaceData, 'useWorkspaceDashboardData').mockReturnValue(
+      makeDashboardData({ materializedNodes: [pendingNode] }),
+    );
 
     render(
       <MemoryRouter>
@@ -274,11 +274,9 @@ describe('<MyWorkspacePage />', () => {
       currentUser: mockCurrentUser,
       loading: false,
     });
-    vi
-      .spyOn(useWorkspaceData, 'useWorkspaceDashboardData')
-      .mockReturnValue(
-        makeDashboardData({ materializedNodes: [noAvailabilityNode] }),
-      );
+    vi.spyOn(useWorkspaceData, 'useWorkspaceDashboardData').mockReturnValue(
+      makeDashboardData({ materializedNodes: [noAvailabilityNode] }),
+    );
 
     render(
       <MemoryRouter>
@@ -294,9 +292,9 @@ describe('<MyWorkspacePage />', () => {
       currentUser: { username: 'jane.doe@company.com' },
       loading: false,
     });
-    vi
-      .spyOn(useWorkspaceData, 'useWorkspaceDashboardData')
-      .mockReturnValue(makeDashboardData());
+    vi.spyOn(useWorkspaceData, 'useWorkspaceDashboardData').mockReturnValue(
+      makeDashboardData(),
+    );
 
     render(
       <MemoryRouter>
@@ -325,9 +323,9 @@ describe('<MyWorkspacePage />', () => {
       currentUser: mockCurrentUser,
       loading: false,
     });
-    vi
-      .spyOn(useWorkspaceData, 'useWorkspaceDashboardData')
-      .mockReturnValue(makeDashboardData({ materializedNodes: [staleNode] }));
+    vi.spyOn(useWorkspaceData, 'useWorkspaceDashboardData').mockReturnValue(
+      makeDashboardData({ materializedNodes: [staleNode] }),
+    );
 
     render(
       <MemoryRouter>

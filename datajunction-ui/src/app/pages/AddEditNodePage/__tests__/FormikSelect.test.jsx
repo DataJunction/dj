@@ -130,10 +130,7 @@ describe('FormikSelect', () => {
 
   it('handles undefined selectOptions with existing field value for multi-select', () => {
     const utils = render(
-      <Formik
-        initialValues={{ test: ['value1', 'value2'] }}
-        onSubmit={vi.fn()}
-      >
+      <Formik initialValues={{ test: ['value1', 'value2'] }} onSubmit={vi.fn()}>
         <Form>
           <FormikSelect
             selectOptions={undefined}

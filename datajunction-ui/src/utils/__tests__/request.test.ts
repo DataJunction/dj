@@ -2,6 +2,7 @@
  * Test the request function
  */
 
+import type { Mock } from 'vitest';
 import { request } from '../request';
 
 declare let window: { fetch: Mock };
@@ -24,7 +25,7 @@ describe('request', () => {
     });
 
     it('should format the response correctly', async () => {
-      const json = await request('/thisurliscorrect');
+      const json = (await request('/thisurliscorrect')) as { hello: string };
       expect(json.hello).toBe('world');
     });
   });

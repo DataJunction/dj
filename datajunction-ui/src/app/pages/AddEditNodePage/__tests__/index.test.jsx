@@ -301,9 +301,7 @@ describe('AddEditNodePage', () => {
       new Error('Network error'),
     );
 
-    const consoleSpy = vi
-      .spyOn(console, 'error')
-      .mockImplementation(() => {});
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const element = testElement(mockDjClient);
     renderCreateMetric(element);

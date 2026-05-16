@@ -329,7 +329,6 @@ describe('<AddComplexDimensionLinkPopover />', () => {
 
     // Trigger validation by clicking submit without filling fields
     // This will at least exercise the validation code paths
-
   });
 
   it('shows error message when submission returns non-200 status', async () => {
@@ -436,7 +435,6 @@ describe('<AddComplexDimensionLinkPopover />', () => {
       status: 201, // Test status 201 as well as 200
     });
 
-
     const { getByLabelText, getByRole } = render(
       <DJClientContext.Provider value={mockDjClient}>
         <AddComplexDimensionLinkPopover {...defaultProps} />
@@ -450,6 +448,5 @@ describe('<AddComplexDimensionLinkPopover />', () => {
     });
 
     // Test that setTimeout would call window.location.reload (line 79)
-
   });
 });
