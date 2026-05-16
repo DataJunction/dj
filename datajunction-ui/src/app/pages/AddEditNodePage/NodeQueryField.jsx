@@ -78,20 +78,32 @@ export const NodeQueryField = ({ djClient, value }) => {
     for (const [catalog, tableSchema, table] of tables) {
       const key = `${catalog}.${tableSchema}.${table}`;
       if (registeredTables.current.has(key)) continue;
+      // If autocomplete already saw this node, DJ knows about it — skip silently
+      if (schema[key] !== undefined) {
+        registeredTables.current.add(key);
+        continue;
+      }
       registeredTables.current.add(key);
 
-      const { status, json } = await djClient.registerTable(
-        catalog,
-        tableSchema,
-        table,
-        '',
-      );
+      let response;
+      try {
+        response = await djClient.registerTable(catalog, tableSchema, table, '');
+      } catch {
+        registeredTables.current.delete(key);
+        continue;
+      }
+      const { status, json } = response;
       if (status === 200 || status === 201) {
-        const nodeName = json.name;
-        if (schema[nodeName] === undefined) {
-          schema[nodeName] = [];
-          setSchema({ ...schema });
+        const nodeName = json?.name || key;
+        const columns = (json?.columns || []).map(col => col.name);
+        schema[nodeName] = columns;
+        if (table && table !== nodeName) {
+          schema[table] = columns;
         }
+        setSchema(schema);
+      } else if (status !== 409) {
+        // 409 = already exists (silent); other errors: allow retry on next edit
+        registeredTables.current.delete(key);
       }
     }
   };
