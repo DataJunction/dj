@@ -21,16 +21,17 @@ export default defineConfig(({ mode }) => {
         utils: path.resolve(__dirname, 'src/utils'),
         mocks: path.resolve(__dirname, 'src/mocks'),
       },
-      // Match vite.config.ts — without this, vitest can load
-      // @codemirror/state twice (once for @uiw/react-codemirror's
-      // pre-bundle, once for our direct import), breaking the
-      // `instanceof Extension` checks the extension array does.
       dedupe: [
         '@codemirror/state',
         '@codemirror/view',
         '@codemirror/language',
         '@lezer/highlight',
       ],
+      // Force ESM resolution. Without this Vitest can pull @uiw/* in
+      // through its `main` (CJS) field, which loads @codemirror/state's
+      // CJS build — while our direct imports load the ESM build, giving
+      // two module instances and breaking `instanceof Extension`.
+      conditions: ['module', 'browser', 'import', 'default'],
     },
     define: {
       'process.env.NODE_ENV': JSON.stringify('test'),
@@ -42,18 +43,13 @@ export default defineConfig(({ mode }) => {
       setupFiles: ['./src/setupTests.ts'],
       css: true,
       isolate: true,
-      // CodeMirror packages do `instanceof Extension` checks; under Vitest
-      // they can be loaded twice (once by @uiw/react-codemirror's pre-bundle
-      // and once by our own direct import), so the check fails. Inlining
-      // these forces a single instance in the test's module graph.
+      // CodeMirror packages do `instanceof Extension` checks; vitest can
+      // otherwise load them twice (once via @uiw's CJS bundle, once via
+      // our direct ESM import). Inline + dedupe + ESM conditions together
+      // pin a single module instance.
       server: {
         deps: {
-          inline: [
-            /@codemirror\//,
-            /@lezer\//,
-            /@uiw\/(react-)?codemirror/,
-            /codemirror/,
-          ],
+          inline: [/^@codemirror\//, /^@lezer\//, /^@uiw\//, /^codemirror$/],
         },
       },
       // Each test file gets a fresh module graph + mock registry. Without
