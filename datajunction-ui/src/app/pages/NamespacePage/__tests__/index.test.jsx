@@ -272,17 +272,17 @@ describe('NamespacePage', () => {
       </MemoryRouter>,
     );
 
-    // Wait for namespaces to load
+    // Wait for the sidebar link itself to render (not just the 'default' text,
+    // which can appear in the breadcrumb before the tree finishes loading).
+    let defaultNamespace;
     await waitFor(() => {
-      expect(screen.getAllByText('default').length).toBeGreaterThan(0);
+      const link = screen
+        .getAllByRole('link')
+        .find(l => l.getAttribute('href') === '/namespaces/default');
+      expect(link).toBeTruthy();
+      defaultNamespace = link.closest('.select-name');
+      expect(defaultNamespace).toBeTruthy();
     });
-
-    // Find the namespace in the sidebar by looking for the link with specific href
-    const allLinks = screen.getAllByRole('link');
-    const defaultNamespaceLink = allLinks.find(
-      link => link.getAttribute('href') === '/namespaces/default',
-    );
-    const defaultNamespace = defaultNamespaceLink.closest('.select-name');
     fireEvent.mouseEnter(defaultNamespace);
 
     // Find the add namespace button (it exists but is hidden, so use getAllByTitle)
@@ -334,17 +334,17 @@ describe('NamespacePage', () => {
       </MemoryRouter>,
     );
 
-    // Wait for namespaces to load
+    // Wait for the sidebar link itself to render (not just the 'default' text,
+    // which can appear in the breadcrumb before the tree finishes loading).
+    let defaultNamespace;
     await waitFor(() => {
-      expect(screen.getAllByText('default').length).toBeGreaterThan(0);
+      const link = screen
+        .getAllByRole('link')
+        .find(l => l.getAttribute('href') === '/namespaces/default');
+      expect(link).toBeTruthy();
+      defaultNamespace = link.closest('.select-name');
+      expect(defaultNamespace).toBeTruthy();
     });
-
-    // Find the namespace in the sidebar by looking for the link with specific href
-    const allLinks = screen.getAllByRole('link');
-    const defaultNamespaceLink = allLinks.find(
-      link => link.getAttribute('href') === '/namespaces/default',
-    );
-    const defaultNamespace = defaultNamespaceLink.closest('.select-name');
     fireEvent.mouseEnter(defaultNamespace);
 
     // Find the add namespace button (it exists but is hidden, so use getAllByTitle)
