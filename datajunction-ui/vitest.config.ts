@@ -21,6 +21,17 @@ export default defineConfig(({ mode }) => {
         utils: path.resolve(__dirname, 'src/utils'),
         mocks: path.resolve(__dirname, 'src/mocks'),
       },
+      dedupe: [
+        '@codemirror/state',
+        '@codemirror/view',
+        '@codemirror/language',
+        '@lezer/highlight',
+      ],
+      // Force ESM resolution. Without this Vitest can pull @uiw/* in
+      // through its `main` (CJS) field, which loads @codemirror/state's
+      // CJS build — while our direct imports load the ESM build, giving
+      // two module instances and breaking `instanceof Extension`.
+      conditions: ['module', 'browser', 'import', 'default'],
     },
     define: {
       'process.env.NODE_ENV': JSON.stringify('test'),
@@ -32,6 +43,15 @@ export default defineConfig(({ mode }) => {
       setupFiles: ['./src/setupTests.ts'],
       css: true,
       isolate: true,
+      // CodeMirror packages do `instanceof Extension` checks; vitest can
+      // otherwise load them twice (once via @uiw's CJS bundle, once via
+      // our direct ESM import). Inline + dedupe + ESM conditions together
+      // pin a single module instance.
+      server: {
+        deps: {
+          inline: [/^@codemirror\//, /^@lezer\//, /^@uiw\//, /^codemirror$/],
+        },
+      },
       // Each test file gets a fresh module graph + mock registry. Without
       // this, App.test imports NodePage indirectly and primes the lazy
       // module cache, defeating NodePage.test's `vi.mock('cronstrue', ...)`.

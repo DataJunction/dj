@@ -7,15 +7,43 @@ import { ErrorMessage, Field, useFormikContext } from 'formik';
 import CodeMirror from '@uiw/react-codemirror';
 import { langs } from '@uiw/codemirror-extensions-langs';
 import { extractCatalogTables } from './catalogTables';
+import {
+  djNodeBadges,
+  djNodeHoverTooltip,
+  refreshBadges,
+} from './djNodeBadges';
+import { djEditorExtensions } from './djEditorTheme';
 
 export const NodeQueryField = ({ djClient, value }) => {
   const [schema, setSchema] = React.useState([]);
   const formik = useFormikContext();
   const sqlExt = langs.sql({ schema: schema });
   const autoRegisterTimer = React.useRef(null);
+  const validateTimer = React.useRef(null);
   const registeredTables = React.useRef(new Set());
   // useRef so the onChange closure always sees the latest catalog list
   const knownCatalogsRef = React.useRef([]);
+
+  // Per-`catalog.schema.table` registration status, surfaced as badges in
+  // the editor. Mirrored into a ref so the CodeMirror extension (built once,
+  // memoized below) can read the latest value without rebuilding.
+  const [tableStatus, setTableStatus] = React.useState({});
+  const tableStatusRef = React.useRef(tableStatus);
+  React.useEffect(() => {
+    tableStatusRef.current = tableStatus;
+  }, [tableStatus]);
+  const editorViewRef = React.useRef(null);
+  const setStatus = React.useCallback((key, status) => {
+    // Update the ref synchronously so the ViewPlugin's getStatus() closure
+    // sees the new value on the redraw we're about to dispatch.
+    // setTableStatus only schedules the React rerender (next tick) which is
+    // too late for the dispatch below.
+    tableStatusRef.current = { ...tableStatusRef.current, [key]: status };
+    setTableStatus(tableStatusRef.current);
+    if (editorViewRef.current) {
+      editorViewRef.current.dispatch({ effects: refreshBadges.of(null) });
+    }
+  }, []);
 
   React.useEffect(() => {
     if (typeof djClient.catalogs !== 'function') return;
@@ -71,6 +99,70 @@ export const NodeQueryField = ({ djClient, value }) => {
         600,
       );
     }
+
+    // Validate the in-progress query against DJ to discover which 2-part
+    // refs (`namespace.name`) resolve to real nodes vs. are missing.
+    clearTimeout(validateTimer.current);
+    validateTimer.current = setTimeout(() => validateRefs(value), 700);
+  };
+
+  const validateRefs = async sql => {
+    if (typeof djClient.validateNode !== 'function') return;
+    const fv = formik.values || {};
+    if (!fv.type) return; // need a node type to validate
+    let response;
+    try {
+      response = await djClient.validateNode(
+        fv.type,
+        fv.name || '__draft__',
+        fv.display_name || 'Draft',
+        fv.description || '',
+        sql,
+      );
+    } catch {
+      return; // best-effort; ignore network failures
+    }
+    const json = response?.json || {};
+    const deps = json.dependencies || [];
+    const missing = json.missing_parents || [];
+    // Update the ref synchronously in one shot before dispatching, so the
+    // ViewPlugin only redraws once even though we set many keys.
+    const next = { ...tableStatusRef.current };
+    for (const dep of deps) {
+      // `dependencies` is a list of full node objects ({name, type, status, ...}).
+      // Use `type` to color the chip per node kind (source/dimension/…) and
+      // `status` to flag nodes that resolve but are themselves unhealthy
+      // (e.g. broken upstream, drifted columns). We also keep the whole
+      // object around so the hover popover can show description / version
+      // / mode without re-fetching.
+      const name = typeof dep === 'string' ? dep : dep?.name;
+      if (!name) continue;
+      const nodeType = typeof dep === 'object' ? dep.type : undefined;
+      const nodeStatus = typeof dep === 'object' ? dep.status : undefined;
+      const kind = nodeStatus && nodeStatus !== 'valid' ? 'warning' : 'valid';
+      next[name] = {
+        kind,
+        refType: nodeType || 'node',
+        node: typeof dep === 'object' ? dep : undefined,
+        message:
+          kind === 'warning' ? `Node \`${name}\` is ${nodeStatus}` : undefined,
+      };
+    }
+    for (const m of missing) {
+      // `missing_parents` is a list of bare name strings.
+      const name = typeof m === 'string' ? m : m?.name;
+      if (!name) continue;
+      next[name] = {
+        kind: 'invalid',
+        refType: 'node',
+        message: `Node \`${name}\` not found`,
+      };
+    }
+    tableStatusRef.current = next;
+    setTableStatus(next);
+    if (editorViewRef.current) {
+      editorViewRef.current.dispatch({ effects: refreshBadges.of(null) });
+    }
   };
 
   const autoRegisterCatalogTables = async sql => {
@@ -81,9 +173,11 @@ export const NodeQueryField = ({ djClient, value }) => {
       // If autocomplete already saw this node, DJ knows about it — skip silently
       if (schema[key] !== undefined) {
         registeredTables.current.add(key);
+        setStatus(key, { kind: 'valid' });
         continue;
       }
       registeredTables.current.add(key);
+      setStatus(key, { kind: 'registering' });
 
       let response;
       try {
@@ -93,8 +187,12 @@ export const NodeQueryField = ({ djClient, value }) => {
           table,
           '',
         );
-      } catch {
+      } catch (err) {
         registeredTables.current.delete(key);
+        setStatus(key, {
+          kind: 'invalid',
+          message: err?.message || 'Failed to register table',
+        });
         continue;
       }
       const { status, json } = response;
@@ -106,12 +204,37 @@ export const NodeQueryField = ({ djClient, value }) => {
           schema[table] = columns;
         }
         setSchema(schema);
-      } else if (status !== 409) {
-        // 409 = already exists (silent); other errors: allow retry on next edit
+        setStatus(key, { kind: 'valid' });
+      } else if (status === 409) {
+        // 409 = already exists; treat as valid.
+        setStatus(key, { kind: 'valid' });
+      } else {
         registeredTables.current.delete(key);
+        setStatus(key, {
+          kind: 'invalid',
+          message: json?.message || `Registration failed (HTTP ${status})`,
+        });
       }
     }
   };
+
+  const badgeExt = React.useMemo(
+    () =>
+      djNodeBadges({
+        getStatus: key => tableStatusRef.current[key],
+        getKnownCatalogs: () => knownCatalogsRef.current,
+      }),
+    [],
+  );
+
+  const hoverExt = React.useMemo(
+    () =>
+      djNodeHoverTooltip({
+        getStatus: key => tableStatusRef.current[key],
+        getKnownCatalogs: () => knownCatalogsRef.current,
+      }),
+    [],
+  );
 
   return (
     <div className="QueryInput NodeCreationInput">
@@ -133,7 +256,13 @@ export const NodeQueryField = ({ djClient, value }) => {
             sqlExt.language.data.of({
               autocomplete: initialAutocomplete,
             }),
+            ...djEditorExtensions,
+            badgeExt,
+            hoverExt,
           ]}
+          onCreateEditor={view => {
+            editorViewRef.current = view;
+          }}
           value={value}
           placeholder={
             'SELECT\n\tprimary_key,\n\tmeasure1,\n\tmeasure2,\n\tforeign_key_for_dimension1,\n\tforeign_key_for_dimension2\nFROM source.source_node\nWHERE ...'
@@ -147,7 +276,7 @@ export const NodeQueryField = ({ djClient, value }) => {
           style={{
             margin: '0 0 23px 0',
             flex: 1,
-            fontSize: '150%',
+            fontSize: '110%',
             textAlign: 'left',
           }}
           onChange={(value, viewUpdate) => {

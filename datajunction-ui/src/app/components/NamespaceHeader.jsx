@@ -237,12 +237,16 @@ export default function NamespaceHeader({
     );
   };
 
-  // Button style helpers
+  // Button style helpers. React warns if a rerender swaps `border` shorthand
+  // for `borderColor` longhand on the same element, so we keep all three
+  // border properties in longhand form here.
   const buttonStyle = {
     height: '28px',
     padding: '0 10px',
     fontSize: '12px',
-    border: '1px solid #e2e8f0',
+    borderWidth: '1px',
+    borderStyle: 'solid',
+    borderColor: '#e2e8f0',
     borderRadius: '4px',
     backgroundColor: '#ffffff',
     color: '#475569',

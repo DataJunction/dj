@@ -69,8 +69,13 @@ export const DimensionsSelect = React.memo(function DimensionsSelect({
   useEffect(() => {
     const fetchData = async () => {
       let cubeDimensions = undefined;
-      if (cube) {
-        cubeDimensions = cube?.current.cubeDimensions.map(cubeDim => {
+      // `cube` may be the bare cube object or a ref-like { current: ... }.
+      // Either shape can also arrive partially populated while data is in
+      // flight, so guard before touching `.cubeDimensions` to avoid the
+      // Suspense boundary surfacing a TypeError to the user.
+      const cubeData = cube?.current ?? cube;
+      if (cubeData?.cubeDimensions) {
+        cubeDimensions = cubeData.cubeDimensions.map(cubeDim => {
           return {
             value: cubeDim.name,
             label:
@@ -108,8 +113,11 @@ export const DimensionsSelect = React.memo(function DimensionsSelect({
 
         setDimensionsByHop(byHop);
 
-        // Set the selected cube dimensions if an existing cube is being edited
-        if (cube) {
+        // Set the selected cube dimensions if an existing cube is being edited.
+        // Only run when we actually have the cube's dimensions in hand — the
+        // outer guard leaves `cubeDimensions` undefined when the cube data
+        // hasn't loaded yet.
+        if (cube && cubeDimensions) {
           const currentSelectedDimensionsByGroup = {};
           Object.values(groupedByNodePath).forEach(dimensionsInGroup => {
             const groupKey =
