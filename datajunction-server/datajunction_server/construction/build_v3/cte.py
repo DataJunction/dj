@@ -1497,7 +1497,7 @@ def collect_node_ctes(
         if needed_columns_by_node:  # pragma: no branch
             needed_cols = needed_columns_by_node.get(node.name)
 
-        if needed_cols:  # pragma: no branch
+        if needed_cols and not _cte_has_set_operation(query_ast):  # pragma: no branch
             query_ast = filter_cte_projection(query_ast, needed_cols)
 
         # Inject filters into this CTE's WHERE clause from two sources:

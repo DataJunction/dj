@@ -58,14 +58,6 @@ async def client_with_union_transform(client_with_build_v3: AsyncClient):
 class TestSetOperationTransforms:
     """Transforms whose body is a UNION/INTERSECT/EXCEPT."""
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Column pruning applies to only the first arm of a UNION ALL, "
-        "emitting arms with mismatched column counts (arm 1 pruned, arm 2 "
-        "intact) — invalid SQL.  The correct behavior is to skip pruning "
-        "entirely for set-op transform bodies so both arms preserve their "
-        "original projection.  Pinned here so the fix flips it to pass.",
-    )
     @pytest.mark.asyncio
     async def test_union_all_transform_metric_generates_sql(
         self,
@@ -108,13 +100,6 @@ class TestSetOperationTransforms:
             """,
         )
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Same set-op column-pruning bug as above.  The filter-pushdown "
-        "refusal for set-op CTEs is correct (filter stays on outer query "
-        "only), but the CTE body still has mismatched arm column counts. "
-        "Flip to passing when the pruner skips set-op bodies.",
-    )
     @pytest.mark.asyncio
     async def test_union_transform_filter_stays_on_outer_query(
         self,
@@ -149,7 +134,6 @@ class TestSetOperationTransforms:
             orders_unified_0 AS (
               SELECT t1.status, t1.order_id
               FROM v3_orders_unified t1
-              WHERE t1.status = 'completed'
               GROUP BY t1.status, t1.order_id
             )
             SELECT orders_unified_0.status AS status,
