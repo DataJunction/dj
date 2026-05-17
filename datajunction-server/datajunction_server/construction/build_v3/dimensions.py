@@ -469,20 +469,45 @@ def _resolve_pushdown_target(
                     tbl_name = tbl.name.identifier(quotes=False)
                 except Exception:  # pragma: no cover
                     continue
-                if tbl_name == linked_node.name:  # pragma: no branch
-                    alias = (
-                        tbl.alias.name
-                        if tbl.alias
-                        else linked_node.name.split(SEPARATOR)[-1]
-                    )
-                    # arm_select is only returned for non-leading set-op
-                    # arms; the leading arm goes through the normal CTE
-                    # WHERE injection (which would target the same arm).
-                    return (
-                        child.name,
-                        alias,
-                        arm if idx > 0 else None,
-                    )
+                if tbl_name != linked_node.name:
+                    continue
+                alias = (
+                    tbl.alias.name
+                    if tbl.alias
+                    else linked_node.name.split(SEPARATOR)[-1]
+                )
+                # Walk up from the matched Table to the Select that
+                # actually scans it.  For a transform whose stored query
+                # wraps the source in nested subqueries (each with its
+                # own projection), injecting at the top-level WHERE would
+                # reference an alias whose subquery doesn't propagate the
+                # FK column.  We inject directly into the innermost
+                # Select where the alias is in scope.
+                containing_select = _enclosing_select(tbl)
+                # arm_select is None when the containing select is the
+                # transform's top-level select (and not a non-leading
+                # set-op arm) — the normal CTE WHERE injection path
+                # already targets that same select.
+                if containing_select is arm and idx == 0:
+                    arm_select: Optional[ast.Select] = None
+                else:
+                    arm_select = containing_select or arm
+                return child.name, alias, arm_select
+    return None  # pragma: no cover
+
+
+def _enclosing_select(node: ast.Node) -> Optional["ast.Select"]:
+    """Walk up ``node.parent`` until a :class:`ast.Select` is reached.
+
+    Returns the nearest enclosing Select, or ``None`` if none is found.
+    Used to figure out which subquery's WHERE clause a filter must be
+    injected into for a deeply nested Table reference to be addressable.
+    """
+    cur: Optional[ast.Node] = getattr(node, "parent", None)
+    while cur is not None:
+        if isinstance(cur, ast.Select):
+            return cur
+        cur = getattr(cur, "parent", None)
     return None  # pragma: no cover
 
 
