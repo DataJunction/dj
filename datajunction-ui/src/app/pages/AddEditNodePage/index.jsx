@@ -544,28 +544,6 @@ export function AddEditNodePage({ extensions = {} }) {
                         ) : (
                           <RequiredDimensionsSelect />
                         )}
-                        {Object.entries(extensions).map(
-                          ([key, ExtensionComponent]) => (
-                            <div key={key} className="mt-4 border-t pt-4">
-                              <ExtensionComponent
-                                node={node}
-                                action={action}
-                                registerSubmitHandler={(
-                                  onSubmit,
-                                  { prepend } = {},
-                                ) => {
-                                  if (!submitHandlers.includes(onSubmit)) {
-                                    if (prepend) {
-                                      submitHandlers.unshift(onSubmit);
-                                    } else {
-                                      submitHandlers.push(onSubmit);
-                                    }
-                                  }
-                                }}
-                              />
-                            </div>
-                          ),
-                        )}
                       </div>
 
                       <div className="node-group">
@@ -578,6 +556,29 @@ export function AddEditNodePage({ extensions = {} }) {
                           {action === Action.Edit ? selectTags : <TagsField />}
                         </div>
                       </div>
+
+                      {Object.entries(extensions).map(
+                        ([key, ExtensionComponent]) => (
+                          <div key={key} className="node-group">
+                            <ExtensionComponent
+                              node={node}
+                              action={action}
+                              registerSubmitHandler={(
+                                onSubmit,
+                                { prepend } = {},
+                              ) => {
+                                if (!submitHandlers.includes(onSubmit)) {
+                                  if (prepend) {
+                                    submitHandlers.unshift(onSubmit);
+                                  } else {
+                                    submitHandlers.push(onSubmit);
+                                  }
+                                }
+                              }}
+                            />
+                          </div>
+                        ),
+                      )}
 
                       <div className="node-group node-group-last">
                         <CustomMetadataField
