@@ -130,7 +130,7 @@ export const CustomMetadataField = ({ value }) => {
             style={{
               margin: '0 0 23px 0',
               flex: 1,
-              fontSize: '150%',
+              fontSize: '110%',
               textAlign: 'left',
             }}
             onChange={(value, viewUpdate) => {

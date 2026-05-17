@@ -39,6 +39,57 @@
   margin: 0 auto;
 }
 
+/* Title row: page title on the left, Mode chip on the right */
+.node-builder-form-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 16px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--planner-border, #e2e8f0);
+}
+
+.node-builder-form-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.node-builder-form-header .NodeModeInput {
+  margin: 0 !important;
+  width: 160px !important;
+  flex-shrink: 0;
+}
+
+.node-builder-form-header .NodeModeInput label {
+  display: none !important;
+}
+
+/* Field groups — separated by a faint divider for visual rhythm
+ * without screaming "section header". */
+/* .node-builder .node-group {
+  margin-bottom: 20px;
+} */
+
+.node-builder .node-group-last,
+.node-builder .node-group:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+/* MetricMetadataFields: three compact selects side-by-side */
+.node-builder .MetricMetadataFields {
+  gap: 12px;
+}
+
+.node-builder .MetricMetadataFields > * {
+  flex: 1;
+  min-width: 0;
+  margin: 0 !important;
+}
+
 /* Override legacy form-scoped element styling for inputs/selects/buttons.
  * Scope to the specific wrapper classes so we DON'T accidentally restyle
  * the hidden <input> that lives inside react-select's Control — that input

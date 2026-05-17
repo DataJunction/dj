@@ -24,19 +24,10 @@ export const MetricMetadataFields = () => {
   }, [djClient]);
 
   return (
-    <div
-      style={{
-        borderRadius: '8px',
-        padding: '10px 10px 20px 10px',
-        margin: '32px 0',
-        background: '#f9f9f9',
-        width: 'max-content',
-        display: 'flex',
-      }}
-    >
-      <div style={{ margin: '15px 25px' }}>
+    <div className="MetricMetadataFields node-row">
+      <div className="NodeCreationInput NodeModeInput">
         <ErrorMessage name="metric_direction" component="span" />
-        <label htmlFor="MetricDirection">Metric Direction</label>
+        <label htmlFor="MetricDirection">Direction</label>
         <Field as="select" name="metric_direction" id="MetricDirection">
           <option value=""></option>
           {metricDirections.map(direction => (
@@ -46,9 +37,9 @@ export const MetricMetadataFields = () => {
           ))}
         </Field>
       </div>
-      <div style={{ margin: '15px 25px' }}>
+      <div className="NodeCreationInput NodeModeInput">
         <ErrorMessage name="metric_unit" component="span" />
-        <label htmlFor="MetricUnit">Metric Unit</label>
+        <label htmlFor="MetricUnit">Unit</label>
         <Field as="select" name="metric_unit" id="MetricUnit">
           <option value=""></option>
           {metricUnits.map(unit => (
@@ -58,7 +49,7 @@ export const MetricMetadataFields = () => {
           ))}
         </Field>
       </div>
-      <div style={{ margin: '15px 25px' }}>
+      <div className="NodeCreationInput NodeModeInput">
         <ErrorMessage name="significant_digits" component="span" />
         <label htmlFor="SignificantDigits">Significant Digits</label>
         <Field as="select" name="significant_digits" id="SignificantDigits">

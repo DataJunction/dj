@@ -415,7 +415,6 @@ export function AddEditNodePage({ extensions = {} }) {
         }
       />
       <div className="node-builder">
-        <div className="node-builder-header">{pageTitle}</div>
         <div className="node-builder-main">
           <Formik
             initialValues={initialValues}
@@ -480,99 +479,113 @@ export function AddEditNodePage({ extensions = {} }) {
                     <AlertMessage message={message} />
                   ) : (
                     <>
-                      <div className="node-row">
-                        {action === Action.Add ? (
-                          <NamespaceField initialNamespace={initialNamespace} />
-                        ) : (
-                          staticFieldsInEdit(node)
-                        )}
-                        <DisplayNameField />
+                      <div className="node-builder-form-header">
+                        {pageTitle}
+                        <NodeModeField />
                       </div>
-                      {action === Action.Add ? fullNameInput : ''}
-                      <DescriptionField />
-                      <div className="node-row">
-                        <div className="node-row-narrow">
-                          <NodeModeField />
+
+                      <div className="node-group">
+                        <div className="node-row">
+                          {action === Action.Add ? (
+                            <NamespaceField
+                              initialNamespace={initialNamespace}
+                            />
+                          ) : (
+                            staticFieldsInEdit(node)
+                          )}
+                          <DisplayNameField />
                         </div>
-                        <div className="node-row-grow">
+                        {action === Action.Add ? fullNameInput : ''}
+                        <DescriptionField />
+                      </div>
+
+                      <div className="node-group">
+                        {nodeType === 'metric' || node?.type === 'metric' ? (
+                          action === Action.Edit ? (
+                            selectUpstreamNode
+                          ) : (
+                            <UpstreamNodeField />
+                          )
+                        ) : null}
+                        {nodeType === 'metric' || node.type === 'metric' ? (
+                          <MetricQueryField
+                            djClient={djClient}
+                            value={
+                              node.aggregate_expression
+                                ? node.aggregate_expression
+                                : ''
+                            }
+                          />
+                        ) : (
+                          <NodeQueryField
+                            djClient={djClient}
+                            value={node.query ? node.query : ''}
+                          />
+                        )}
+                        {(nodeType === 'metric' || node.type === 'metric') && (
+                          <MetricMetadataFields />
+                        )}
+                      </div>
+
+                      <div className="node-group">
+                        {nodeType !== 'metric' && node.type !== 'metric' ? (
+                          action === Action.Edit ? (
+                            selectPrimaryKey
+                          ) : (
+                            <ColumnsSelect
+                              defaultValue={[]}
+                              fieldName="primary_key"
+                              label="Primary Key"
+                              isMulti={true}
+                            />
+                          )
+                        ) : action === Action.Edit ? (
+                          selectRequiredDims
+                        ) : (
+                          <RequiredDimensionsSelect />
+                        )}
+                        {Object.entries(extensions).map(
+                          ([key, ExtensionComponent]) => (
+                            <div key={key} className="mt-4 border-t pt-4">
+                              <ExtensionComponent
+                                node={node}
+                                action={action}
+                                registerSubmitHandler={(
+                                  onSubmit,
+                                  { prepend } = {},
+                                ) => {
+                                  if (!submitHandlers.includes(onSubmit)) {
+                                    if (prepend) {
+                                      submitHandlers.unshift(onSubmit);
+                                    } else {
+                                      submitHandlers.push(onSubmit);
+                                    }
+                                  }
+                                }}
+                              />
+                            </div>
+                          ),
+                        )}
+                      </div>
+
+                      <div className="node-group">
+                        <div className="node-row">
                           {action === Action.Edit ? (
                             selectOwners
                           ) : (
                             <OwnersField />
                           )}
+                          {action === Action.Edit ? selectTags : <TagsField />}
                         </div>
                       </div>
-                      {nodeType === 'metric' || node?.type === 'metric' ? (
-                        action === Action.Edit ? (
-                          selectUpstreamNode
-                        ) : (
-                          <UpstreamNodeField />
-                        )
-                      ) : (
-                        ''
-                      )}
-                      {nodeType === 'metric' || node.type === 'metric' ? (
-                        <MetricQueryField
-                          djClient={djClient}
+
+                      <div className="node-group node-group-last">
+                        <CustomMetadataField
                           value={
-                            node.aggregate_expression
-                              ? node.aggregate_expression
-                              : ''
+                            node.custom_metadata ? node.custom_metadata : ''
                           }
                         />
-                      ) : (
-                        <NodeQueryField
-                          djClient={djClient}
-                          value={node.query ? node.query : ''}
-                        />
-                      )}
-                      {nodeType === 'metric' || node.type === 'metric' ? (
-                        <MetricMetadataFields />
-                      ) : (
-                        ''
-                      )}
-                      {nodeType !== 'metric' && node.type !== 'metric' ? (
-                        action === Action.Edit ? (
-                          selectPrimaryKey
-                        ) : (
-                          <ColumnsSelect
-                            defaultValue={[]}
-                            fieldName="primary_key"
-                            label="Primary Key"
-                            isMulti={true}
-                          />
-                        )
-                      ) : action === Action.Edit ? (
-                        selectRequiredDims
-                      ) : (
-                        <RequiredDimensionsSelect />
-                      )}
-                      <CustomMetadataField
-                        value={node.custom_metadata ? node.custom_metadata : ''}
-                      />
-                      {Object.entries(extensions).map(
-                        ([key, ExtensionComponent]) => (
-                          <div key={key} className="mt-4 border-t pt-4">
-                            <ExtensionComponent
-                              node={node}
-                              action={action}
-                              registerSubmitHandler={(
-                                onSubmit,
-                                { prepend } = {},
-                              ) => {
-                                if (!submitHandlers.includes(onSubmit)) {
-                                  if (prepend) {
-                                    submitHandlers.unshift(onSubmit);
-                                  } else {
-                                    submitHandlers.push(onSubmit);
-                                  }
-                                }
-                              }}
-                            />
-                          </div>
-                        ),
-                      )}
-                      {action === Action.Edit ? selectTags : <TagsField />}
+                      </div>
 
                       <button
                         type="submit"
