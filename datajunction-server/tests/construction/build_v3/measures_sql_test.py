@@ -6468,16 +6468,13 @@ class TestFilterPushdownScope:
         )
 
     @pytest.mark.asyncio
-    async def test_source_inside_inner_with_cte_unsupported(
+    async def test_source_inside_inner_with_cte(
         self,
         client_with_build_v3,
     ):
         """Source referenced inside the transform's own inner ``WITH``
-        CTE.  ``_resolve_pushdown_target`` walks ``top_select.from_``,
-        which doesn't descend into CTE bodies — the source is invisible
-        to pushdown.  v3 bails with a clear "Cannot find join path"
-        error rather than silently producing wrong SQL.  Pinning the
-        current behaviour so any future improvement is intentional.
+        CTE.  The filter lands in that CTE's WHERE — the only scope
+        where the source's alias is bound.
         """
         client = client_with_build_v3
         await _setup_audit_dim(client)
@@ -6514,19 +6511,39 @@ class TestFilterPushdownScope:
                 "filters": ["v3.audit_date_dim.dateint >= 20260101"],
             },
         )
-        assert response.status_code == 422
-        assert "Cannot find join path" in response.json()["message"]
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        # DJ flattens nested CTEs out of the transform body — the inner
+        # ``inner_cte`` becomes its own top-level CTE.  The filter lands
+        # in *that* CTE's WHERE (the only scope where ``src`` is bound).
+        assert_sql_equal(
+            sql,
+            """
+            WITH v3_events_with_cte__inner_cte AS (
+              SELECT account_id, event_type
+              FROM default.v3.audit_log_withcte AS src
+              WHERE src.audit_date >= 20260101
+            ),
+            v3_events_with_cte AS (
+              SELECT account_id, event_type
+              FROM v3_events_with_cte__inner_cte inner_cte
+            )
+            SELECT t1.event_type, t1.account_id
+            FROM v3_events_with_cte t1
+            GROUP BY t1.event_type, t1.account_id
+            """,
+        )
 
     @pytest.mark.asyncio
-    async def test_source_inside_where_exists_subquery_unsupported(
+    async def test_source_inside_where_exists_subquery(
         self,
         client_with_build_v3,
     ):
         """Source referenced *only* inside a ``WHERE EXISTS`` correlated
-        subquery.  ``_resolve_pushdown_target`` walks
-        ``top_select.from_``, which doesn't descend into WHERE — so the
-        source is invisible to pushdown.  v3 bails with a clear
-        "Cannot find join path" error.  Documented limitation.
+        subquery.  The filter lands in the EXISTS subquery's WHERE —
+        narrowing the semi-join.  Semantically that means "only outer
+        rows for which a matching inner row also satisfies the dim
+        filter", which is the natural reading of the user's intent.
         """
         client = client_with_build_v3
         await _setup_audit_dim(client)
@@ -6583,8 +6600,26 @@ class TestFilterPushdownScope:
                 "filters": ["v3.audit_date_dim.dateint >= 20260101"],
             },
         )
-        assert response.status_code == 422
-        assert "Cannot find join path" in response.json()["message"]
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        assert_sql_equal(
+            sql,
+            """
+            WITH v3_events_exists AS (
+              SELECT acc.account_id, acc.event_type
+              FROM default.v3.accounts_exists AS acc
+              WHERE EXISTS (
+                SELECT 1
+                FROM default.v3.audit_log_exists AS log
+                WHERE log.account_id = acc.account_id
+                  AND log.audit_date >= 20260101
+              )
+            )
+            SELECT t1.event_type, t1.account_id
+            FROM v3_events_exists t1
+            GROUP BY t1.event_type, t1.account_id
+            """,
+        )
 
     @pytest.mark.asyncio
     async def test_set_op_with_nested_subquery_in_non_leading_arm(

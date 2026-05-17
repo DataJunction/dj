@@ -452,40 +452,30 @@ def _resolve_pushdown_target(
         top_select = child_query.select
         if not isinstance(top_select, ast.Select):
             continue  # pragma: no cover
-        # Walk every arm: leading SELECT, then each set_op.right recursively.
-        arms: list[ast.Select] = [top_select]
-        cur_set_op = top_select.set_op
-        while cur_set_op is not None:
-            right = cur_set_op.right
-            if not isinstance(right, ast.Select):
-                break  # pragma: no cover
-            arms.append(right)
-            cur_set_op = right.set_op
-        for idx, arm in enumerate(arms):  # pragma: no branch
-            if arm.from_ is None:
-                continue  # pragma: no cover
-            for tbl in arm.from_.find_all(ast.Table):  # pragma: no branch
-                try:
-                    tbl_name = tbl.name.identifier(quotes=False)
-                except Exception:  # pragma: no cover
-                    continue
-                if tbl_name != linked_node.name:
-                    continue
-                alias = (
-                    tbl.alias.name
-                    if tbl.alias
-                    else linked_node.name.split(SEPARATOR)[-1]
-                )
-                # Find the Select that actually scans the Table — that's
-                # the only scope where ``alias`` is in scope.
-                containing_select = _enclosing_select(tbl)
-                # Top-level Select of the leading arm: normal CTE-WHERE
-                # injection already targets it, return None.
-                if containing_select is arm and idx == 0:
-                    arm_select: Optional[ast.Select] = None
-                else:
-                    arm_select = containing_select or arm
-                return child.name, alias, arm_select
+        # Walk every Table anywhere in the parsed query — set-op arms,
+        # CTE bodies, subqueries inside WHERE/HAVING.  For each match,
+        # ``_enclosing_select`` walks up to the Select that owns the
+        # FROM where the alias is bound; that's the only scope where the
+        # rewritten filter can be injected and the alias resolve.
+        for tbl in child_query.find_all(ast.Table):  # pragma: no branch
+            try:
+                tbl_name = tbl.name.identifier(quotes=False)
+            except Exception:  # pragma: no cover
+                continue
+            if tbl_name != linked_node.name:
+                continue
+            alias = (
+                tbl.alias.name if tbl.alias else linked_node.name.split(SEPARATOR)[-1]
+            )
+            containing_select = _enclosing_select(tbl)
+            # Top-level Select with no set-op: the normal CTE-WHERE
+            # injection path already targets that same select, so return
+            # None and let the existing flow handle it.
+            if containing_select is top_select and top_select.set_op is None:
+                arm_select: Optional[ast.Select] = None
+            else:
+                arm_select = containing_select or top_select
+            return child.name, alias, arm_select
     return None  # pragma: no cover
 
 
