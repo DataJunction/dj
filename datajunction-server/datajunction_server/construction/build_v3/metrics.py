@@ -58,6 +58,7 @@ logger = logging.getLogger(__name__)
 def classify_filters(
     filters: list[str],
     ctx: BuildContext,
+    disallow_metric_filters: bool = False,
 ) -> tuple[list[str], list[str]]:
     """
     Classify filters into dimension filters (WHERE) and metric filters (HAVING).
@@ -65,12 +66,27 @@ def classify_filters(
     A filter is classified as a metric filter if it references any metric node.
     Otherwise, it's a dimension filter.
 
+    Validation:
+    - Any metric referenced by a filter must also appear in ``ctx.metrics``
+      (i.e., be in the requested metrics list). Otherwise we'd be silently
+      computing an extra aggregate the caller didn't ask for, and HAVING
+      against a SELECT item that doesn't exist.
+    - If ``disallow_metric_filters`` is True, filters referencing metric
+      nodes are rejected outright. Used by ``/sql/measures/v3`` since the
+      measures layer is pre-aggregation and has no metrics to bind against.
+
     Args:
         filters: List of filter strings
         ctx: Build context with nodes loaded
+        disallow_metric_filters: If True, raise on any filter that references
+            a metric node (for the measures endpoint).
 
     Returns:
         Tuple of (dimension_filters, metric_filters)
+
+    Raises:
+        DJInvalidInputException: if a filter references a metric not in
+            ``ctx.metrics``, or any metric at all when ``disallow_metric_filters``.
 
     Example::
 
@@ -86,20 +102,38 @@ def classify_filters(
     """
     dimension_filters = []
     metric_filters = []
+    requested_metrics = set(ctx.metrics)
 
     for filter_str in filters:
         # Extract all column references from this filter
         refs = get_filter_column_references(filter_str)
 
-        # Check if any reference is a metric
-        is_metric_filter = False
-        for ref in refs:
-            node = ctx.nodes.get(ref)
-            if node and node.type == NodeType.METRIC:
-                is_metric_filter = True
-                break
+        # Identify metric refs in this filter
+        metric_refs = [
+            ref
+            for ref in refs
+            if (node := ctx.nodes.get(ref)) is not None and node.type == NodeType.METRIC
+        ]
 
-        if is_metric_filter:
+        if metric_refs:
+            if disallow_metric_filters:
+                raise DJInvalidInputException(
+                    f"Filter {filter_str!r} references metric "
+                    f"{metric_refs[0]!r}, but filters on metric nodes are not "
+                    "supported by /sql/measures/v3 — the measures layer is "
+                    "pre-aggregation and has no metrics to bind against. "
+                    "Apply the filter downstream after aggregating, or use "
+                    "/sql/metrics/v3 which emits a HAVING clause for "
+                    "metric filters.",
+                )
+            missing = [m for m in metric_refs if m not in requested_metrics]
+            if missing:
+                raise DJInvalidInputException(
+                    f"Filter {filter_str!r} references metric {missing[0]!r}, "
+                    "which is not in the requested metrics list. Add it to "
+                    "`metrics` to filter on it (HAVING clauses can only "
+                    "reference metrics being selected).",
+                )
             metric_filters.append(filter_str)
         else:
             dimension_filters.append(filter_str)

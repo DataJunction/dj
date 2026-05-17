@@ -44,6 +44,7 @@ from datajunction_server.construction.build_v3.dimensions import parse_dimension
 from datajunction_server.construction.build_v3.utils import (
     add_dimensions_from_filters,
     add_dimensions_from_metric_expressions,
+    preload_filter_metric_refs,
 )
 from datajunction_server.database.partition import Partition
 from datajunction_server.errors import DJError, DJInvalidInputException, ErrorCode
@@ -241,6 +242,7 @@ async def setup_build_context(
     include_temporal_filters: bool = False,
     lookback_window: str | None = None,
     matched_cube: Optional["NodeRevision"] = None,
+    disallow_metric_filters: bool = False,
 ) -> BuildContext:
     """
     Create and initialize a BuildContext with all setup done.
@@ -286,6 +288,11 @@ async def setup_build_context(
         lookback_window=lookback_window,
     )
 
+    # Pre-resolve any filter refs that are themselves nodes (metrics in
+    # particular) so add_dimensions_from_filters doesn't mistake a metric
+    # filter ref for a dimension and produce a confusing join-path error.
+    await preload_filter_metric_refs(ctx)
+
     # Add filter-driven dimensions upfront — this only parses filter strings and
     # needs no DB data, so we do it before load_nodes to include those dimension
     # nodes in the first (and ideally only) load.
@@ -305,6 +312,18 @@ async def setup_build_context(
     # Validate we have at least one metric
     if not ctx.metrics:
         raise DJInvalidInputException("At least one metric is required")
+
+    # Validate filter references against loaded node types BEFORE we try to use
+    # any auto-added "filter dimensions" — a metric ref in a filter would have
+    # been added to ctx.dimensions by add_dimensions_from_filters (it can't tell
+    # node types yet), and downstream join resolution would fail with a confusing
+    # message. Catching it here gives a precise error.
+    # Note: this is an early run; the WHERE/HAVING split below uses the result.
+    ctx.dimension_filters, ctx.metric_filters = classify_filters(
+        ctx.filters,
+        ctx,
+        disallow_metric_filters=disallow_metric_filters,
+    )
 
     # Decompose metrics and group by parent node
     ctx.metric_groups, ctx.decomposed_metrics = await decompose_and_group_metrics(ctx)
@@ -326,11 +345,6 @@ async def setup_build_context(
     internally_added_roots = dim_roots_after - dim_roots_before_load
     if missing_dim_nodes or internally_added_roots:
         await load_nodes(ctx)
-
-    # Classify filters into dimension filters (WHERE) and metric filters (HAVING)
-    # This MUST happen AFTER all nodes are loaded so we can correctly identify
-    # whether a filter references a dimension or a metric
-    ctx.dimension_filters, ctx.metric_filters = classify_filters(ctx.filters, ctx)
 
     return ctx
 
@@ -386,6 +400,7 @@ async def build_measures_sql(
         include_temporal_filters=include_temporal_filters,
         lookback_window=lookback_window,
         matched_cube=matched_cube,
+        disallow_metric_filters=True,
     )
 
     # Build grain groups from context

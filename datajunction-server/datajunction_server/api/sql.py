@@ -247,6 +247,13 @@ async def get_measures_sql_v3(
             a cube with temporal partitions, and applies partition filters if so.
         lookback_window: Lookback window for temporal filters when applicable.
 
+    Filter contract:
+        Filters may only reference dimension attributes — the measures layer
+        is pre-aggregation and has no metrics to bind against. Filters that
+        reference a metric node are rejected with a 422; apply them
+        downstream after aggregating, or use ``/sql/metrics/v3`` which emits
+        them as ``HAVING`` clauses.
+
     See also: `/sql/metrics/v3/` for the final combined query with metric expressions.
     """
     merged_filters = list(filters)
@@ -622,6 +629,16 @@ async def get_metrics_sql_v3(
 
     - Dimension references in metric expressions are resolved to their
     final column aliases.
+
+    Filter contract:
+        Each filter is classified by what it references:
+        - A dimension attribute → emitted as a ``WHERE`` predicate.
+        - A metric in the requested ``metrics`` list → emitted as a ``HAVING``
+          predicate (post-aggregation).
+        - A metric *not* in the requested list → rejected with a 422, since
+          ``HAVING`` can only reference SELECT items and silently computing
+          an extra aggregate would be surprising/wasteful. Add the metric to
+          ``metrics`` to filter on it.
 
     Args:
         metrics: List of metric names to include

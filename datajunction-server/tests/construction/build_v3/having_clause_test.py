@@ -672,3 +672,98 @@ class TestHavingClauseEdgeCases:
         column_names = [col["name"] for col in result["columns"]]
         assert "category" in column_names
         assert "subcategory" not in column_names
+
+
+class TestMetricFilterValidation:
+    """
+    Tests for validation rules on metric-referencing filters:
+    - On /sql/metrics/v3: the filtered metric must be in the metrics list.
+    - On /sql/measures/v3 (and its `combined` variant): metric filters are
+      rejected outright since the measures layer is pre-aggregation.
+    """
+
+    @pytest.mark.asyncio
+    async def test_metrics_v3_metric_filter_not_in_metrics_list_rejected(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        A filter on a metric that isn't in the requested metrics list should
+        be rejected with a 422, since HAVING can only reference SELECT items.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.order_count"],
+                "dimensions": ["v3.product.category"],
+                "filters": ["v3.total_revenue > 10000"],
+            },
+        )
+        assert response.status_code == 422
+        body = response.json()
+        message = body.get("message", "")
+        assert "v3.total_revenue" in message
+        assert "not in the requested metrics list" in message
+
+    @pytest.mark.asyncio
+    async def test_measures_v3_metric_filter_rejected(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        /sql/measures/v3 should reject any filter referencing a metric node —
+        the measures layer is pre-aggregation, so there's nothing to HAVING
+        against.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.product.category"],
+                "filters": ["v3.total_revenue > 10000"],
+            },
+        )
+        assert response.status_code == 422
+        body = response.json()
+        message = body.get("message", "")
+        assert "v3.total_revenue" in message
+        assert "/sql/measures/v3" in message
+
+    @pytest.mark.asyncio
+    async def test_measures_v3_combined_metric_filter_rejected(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        /sql/measures/v3/combined flows through build_measures_sql, so the
+        same rejection applies.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/combined",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.product.category"],
+                "filters": ["v3.total_revenue > 10000"],
+            },
+        )
+        assert response.status_code == 422
+        body = response.json()
+        message = body.get("message", "")
+        assert "v3.total_revenue" in message
+        assert "/sql/measures/v3" in message
+
+    @pytest.mark.asyncio
+    async def test_measures_v3_dimension_filter_still_allowed(
+        self,
+        client_with_build_v3,
+    ):
+        """Sanity check: dimension filters on /sql/measures/v3 still work."""
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.product.category"],
+                "filters": ["v3.product.category = 'Electronics'"],
+            },
+        )
+        assert response.status_code == 200, response.json()
