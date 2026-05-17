@@ -268,3 +268,29 @@ class TestAliasRegistry:
         # "ns.col@@name" -> parts: ["ns", "col__name"] -> ["ns", "col_name"]
         alias3 = registry.register("ns.col@@name")
         assert alias3 == "col_name"
+
+    def test_clean_part_preserves_intentional_double_underscores(self):
+        """``__`` in an already-valid identifier is meaningful (component-name
+        convention) and must NOT be collapsed.  Collapsing would make the SQL
+        alias diverge from the qualified semantic-entity name that downstream
+        consumers index by — e.g. ``foo__sum_max_HASH`` showing up in the
+        measures table as ``foo_sum_max_HASH``, causing
+        'measures not provided in query' errors.
+        """
+        from datajunction_server.construction.build_v3.alias_registry import (
+            AliasRegistry,
+        )
+
+        registry = AliasRegistry()
+
+        # Bare component name (already a valid SQL identifier) — preserved verbatim.
+        alias = registry.register("foo__sum_max_abc12345")
+        assert alias == "foo__sum_max_abc12345"
+
+        # Multiple intentional ``__`` separators are all preserved.
+        alias2 = registry.register("foo__sum_bar__sum_max_abc12345")
+        assert alias2 == "foo__sum_bar__sum_max_abc12345"
+
+        # Dotted dim refs still get the last clean part, with ``__`` preserved.
+        alias3 = registry.register("v3.parent.col__sum_HASH")
+        assert alias3 == "col__sum_HASH"

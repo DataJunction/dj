@@ -386,56 +386,61 @@ def _register_pushdown_into_upstream(
     for filter_str in matching:
         consumed = False
         for linked_node, fk_col in candidates:  # pragma: no branch
-            target = _resolve_pushdown_target(
+            targets = _resolve_pushdown_targets(
                 ctx,
                 linked_node,
                 fk_col,
                 children_of,
             )
-            if target is None:
+            if not targets:
                 continue  # pragma: no cover
-            target_name, qualifier, arm_select = target
-            rewritten = _rewrite_filter_col_refs(
-                filter_str,
-                base_ref,
-                fk_col,
-                qualifier,
-            )
-            if rewritten is None:
-                continue  # pragma: no cover
-            if arm_select is not None:
-                # Source lives in a non-leading set-op arm — the normal CTE
-                # WHERE injection would target the leading arm and reference
-                # an alias that doesn't exist there.  Bake the filter
-                # directly into the matching arm's WHERE in the cached AST.
-                inject_filter_into_select(arm_select, rewritten)
-            else:
-                ctx.upstream_pushdown_filters.setdefault(target_name, []).append(
-                    rewritten,
+            for target_name, qualifier, arm_select in targets:
+                rewritten = _rewrite_filter_col_refs(
+                    filter_str,
+                    base_ref,
+                    fk_col,
+                    qualifier,
                 )
+                if rewritten is None:
+                    continue  # pragma: no cover
+                if arm_select is not None:
+                    # Source lives in a scope where the normal CTE-WHERE
+                    # injection wouldn't see the alias — set-op arm, CTE
+                    # body, or subquery in WHERE.  Bake the filter
+                    # directly into that Select.
+                    inject_filter_into_select(arm_select, rewritten)
+                else:
+                    ctx.upstream_pushdown_filters.setdefault(
+                        target_name,
+                        [],
+                    ).append(rewritten)
             consumed = True
         if consumed:  # pragma: no branch
             ctx.pushdown_consumed_filters.add(filter_str)
     return bool(ctx.pushdown_consumed_filters)
 
 
-def _resolve_pushdown_target(
+def _resolve_pushdown_targets(
     ctx: BuildContext,
     linked_node: Node,
     fk_col: str,
     children_of: Callable[[str], list[str]],
-) -> Optional[tuple[str, Optional[str], Optional["ast.Select"]]]:
+) -> list[tuple[str, Optional[str], Optional["ast.Select"]]]:
     """
-    Return ``(target_cte_name, qualifier, arm_select)`` or ``None``.
+    Return one ``(target_cte_name, qualifier, arm_select)`` triple per
+    Table reference to the linked source in the child transform's query.
 
-    ``arm_select`` is set only when the source lives in a non-leading arm
-    of a UNION/INTERSECT/EXCEPT body — in that case the caller injects
-    directly into that arm's WHERE.  For plain SELECT bodies or set-op
-    leading arms, ``arm_select`` is ``None`` and the caller registers the
-    filter through the normal CTE WHERE injection path.
+    The caller rewrites the filter once per triple (using ``qualifier``)
+    and injects it at the right scope — so a self-join with two
+    references to the same source produces two filter injections (one
+    per alias), each landing in the Select that scans that instance.
+
+    ``arm_select`` is ``None`` only when there's a single match in the
+    top-level Select of a non-set-op body — that's the one case where
+    the normal CTE-WHERE injection path can handle it.
     """
     if linked_node.type != NodeType.SOURCE:
-        return linked_node.name, None, None
+        return [(linked_node.name, None, None)]
     for child_name in children_of(linked_node.name):  # pragma: no branch
         child = ctx.nodes.get(child_name)
         if (
@@ -452,37 +457,50 @@ def _resolve_pushdown_target(
         top_select = child_query.select
         if not isinstance(top_select, ast.Select):
             continue  # pragma: no cover
-        # Walk every arm: leading SELECT, then each set_op.right recursively.
-        arms: list[ast.Select] = [top_select]
-        cur_set_op = top_select.set_op
-        while cur_set_op is not None:
-            right = cur_set_op.right
-            if not isinstance(right, ast.Select):
-                break  # pragma: no cover
-            arms.append(right)
-            cur_set_op = right.set_op
-        for idx, arm in enumerate(arms):  # pragma: no branch
-            if arm.from_ is None:
+        # Walk every Table anywhere in the parsed query — set-op arms,
+        # CTE bodies, subqueries inside WHERE/HAVING.  Collect every
+        # match so a self-join (two refs to the same source) produces
+        # two filter injections, one per alias.
+        matches: list[tuple[str, "ast.Select"]] = []
+        for tbl in child_query.find_all(ast.Table):  # pragma: no branch
+            try:
+                tbl_name = tbl.name.identifier(quotes=False)
+            except Exception:  # pragma: no cover
+                continue
+            if tbl_name != linked_node.name:
+                continue
+            alias = (
+                tbl.alias.name if tbl.alias else linked_node.name.split(SEPARATOR)[-1]
+            )
+            containing_select = _enclosing_select(tbl)
+            if containing_select is None:
                 continue  # pragma: no cover
-            for tbl in arm.from_.find_all(ast.Table):  # pragma: no branch
-                try:
-                    tbl_name = tbl.name.identifier(quotes=False)
-                except Exception:  # pragma: no cover
-                    continue
-                if tbl_name == linked_node.name:  # pragma: no branch
-                    alias = (
-                        tbl.alias.name
-                        if tbl.alias
-                        else linked_node.name.split(SEPARATOR)[-1]
-                    )
-                    # arm_select is only returned for non-leading set-op
-                    # arms; the leading arm goes through the normal CTE
-                    # WHERE injection (which would target the same arm).
-                    return (
-                        child.name,
-                        alias,
-                        arm if idx > 0 else None,
-                    )
+            matches.append((alias, containing_select))
+        if not matches:
+            continue  # pragma: no cover
+        # Optimization: a single match in the top-level Select of a
+        # non-set-op body can reuse the normal CTE-WHERE injection path
+        # (it targets that same Select).
+        if len(matches) == 1:
+            alias, sel = matches[0]
+            if sel is top_select and top_select.set_op is None:
+                return [(child.name, alias, None)]
+        return [(child.name, alias, sel) for alias, sel in matches]
+    return []  # pragma: no cover
+
+
+def _enclosing_select(node: ast.Node) -> Optional["ast.Select"]:
+    """Walk up ``node.parent`` until a :class:`ast.Select` is reached.
+
+    Returns the nearest enclosing Select, or ``None`` if none is found.
+    Used to figure out which subquery's WHERE clause a filter must be
+    injected into for a deeply nested Table reference to be addressable.
+    """
+    cur: Optional[ast.Node] = getattr(node, "parent", None)
+    while cur is not None:
+        if isinstance(cur, ast.Select):
+            return cur
+        cur = getattr(cur, "parent", None)
     return None  # pragma: no cover
 
 

@@ -158,12 +158,20 @@ class AliasRegistry:
 
         - Replace invalid characters with underscores
         - Remove leading/trailing underscores
-        - Collapse multiple underscores
+        - Collapse multiple underscores *only when they were produced by
+          replacing invalid characters*.  Intentional ``__`` in an
+          already-valid identifier (e.g. component names like
+          ``foo__sum_max_ff208d5e``) is preserved so the SQL alias matches
+          the semantic entity name reported in the API response.
         """
+        if not self.INVALID_CHARS.search(part):
+            # Already a valid identifier — only trim outer underscores.
+            return part.strip("_")
+
         # Replace invalid chars with underscore
         cleaned = self.INVALID_CHARS.sub("_", part)
 
-        # Collapse multiple underscores
+        # Collapse multiple underscores (only artefacts of the substitution)
         while "__" in cleaned:
             cleaned = cleaned.replace("__", "_")
 
