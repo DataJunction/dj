@@ -39,6 +39,55 @@
   margin: 0 auto;
 }
 
+/* Override the legacy `.message.success` / `.message.alert` / `.message.warning`
+ * banners (1.2rem text, 20px padding, fat green/red blocks) with a compact
+ * planner-style banner that matches the form aesthetic. */
+.node-builder .message {
+  max-width: 1000px;
+  margin: 0 auto 12px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm, 4px);
+  font-size: 13px;
+  line-height: 1.4;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  border: 1px solid transparent;
+}
+
+.node-builder .message svg {
+  height: 14px !important;
+  width: 14px !important;
+  flex-shrink: 0;
+  margin: 0 8px 0 0 !important;
+}
+
+.node-builder .message.success {
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+  color: #047857;
+}
+
+.node-builder .message.alert {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.node-builder .message.warning {
+  background: #fffbeb;
+  border-color: #fde68a;
+  color: #b45309;
+}
+
+.node-builder .message a {
+  color: inherit;
+  text-decoration: underline;
+  font-weight: 600;
+  margin-left: 4px;
+}
+
 /* Title row: page title on the left, Mode chip on the right */
 .node-builder-form-header {
   display: flex;
