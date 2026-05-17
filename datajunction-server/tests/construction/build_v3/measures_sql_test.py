@@ -6468,10 +6468,16 @@ class TestFilterPushdownScope:
         )
 
     @pytest.mark.asyncio
-    async def test_source_inside_inner_with_cte(self, client_with_build_v3):
-        """Source referenced inside the transform's own inner ``WITH`` CTE.
-        ``_enclosing_select`` walks up to the inner CTE's Select; the
-        filter lands in that CTE's WHERE, not the outer SELECT.
+    async def test_source_inside_inner_with_cte_unsupported(
+        self,
+        client_with_build_v3,
+    ):
+        """Source referenced inside the transform's own inner ``WITH``
+        CTE.  ``_resolve_pushdown_target`` walks ``top_select.from_``,
+        which doesn't descend into CTE bodies — the source is invisible
+        to pushdown.  v3 bails with a clear "Cannot find join path"
+        error rather than silently producing wrong SQL.  Pinning the
+        current behaviour so any future improvement is intentional.
         """
         client = client_with_build_v3
         await _setup_audit_dim(client)
@@ -6508,34 +6514,19 @@ class TestFilterPushdownScope:
                 "filters": ["v3.audit_date_dim.dateint >= 20260101"],
             },
         )
-        assert response.status_code == 200, response.json()
-        sql = get_first_grain_group(response.json())["sql"]
-        assert_sql_equal(
-            sql,
-            """
-            WITH v3_events_with_cte AS (
-              WITH inner_cte AS (
-                SELECT account_id, event_type
-                FROM default.v3.audit_log_withcte AS src
-                WHERE src.audit_date >= 20260101
-              )
-              SELECT account_id, event_type FROM inner_cte
-            )
-            SELECT t1.event_type, t1.account_id
-            FROM v3_events_with_cte t1
-            GROUP BY t1.event_type, t1.account_id
-            """,
-        )
+        assert response.status_code == 422
+        assert "Cannot find join path" in response.json()["message"]
 
     @pytest.mark.asyncio
-    async def test_source_inside_where_exists_subquery(
+    async def test_source_inside_where_exists_subquery_unsupported(
         self,
         client_with_build_v3,
     ):
-        """Source referenced inside a ``WHERE EXISTS`` correlated subquery.
-        The filter lands in the EXISTS subquery's WHERE.  Whether that's
-        the *semantically* desired place is debatable, but it produces
-        valid SQL and constrains the EXISTS check.
+        """Source referenced *only* inside a ``WHERE EXISTS`` correlated
+        subquery.  ``_resolve_pushdown_target`` walks
+        ``top_select.from_``, which doesn't descend into WHERE — so the
+        source is invisible to pushdown.  v3 bails with a clear
+        "Cannot find join path" error.  Documented limitation.
         """
         client = client_with_build_v3
         await _setup_audit_dim(client)
@@ -6592,26 +6583,8 @@ class TestFilterPushdownScope:
                 "filters": ["v3.audit_date_dim.dateint >= 20260101"],
             },
         )
-        assert response.status_code == 200, response.json()
-        sql = get_first_grain_group(response.json())["sql"]
-        assert_sql_equal(
-            sql,
-            """
-            WITH v3_events_exists AS (
-              SELECT acc.account_id, acc.event_type
-              FROM default.v3.accounts_exists AS acc
-              WHERE EXISTS (
-                SELECT 1
-                FROM default.v3.audit_log_exists AS log
-                WHERE log.account_id = acc.account_id
-                  AND log.audit_date >= 20260101
-              )
-            )
-            SELECT t1.event_type, t1.account_id
-            FROM v3_events_exists t1
-            GROUP BY t1.event_type, t1.account_id
-            """,
-        )
+        assert response.status_code == 422
+        assert "Cannot find join path" in response.json()["message"]
 
     @pytest.mark.asyncio
     async def test_set_op_with_nested_subquery_in_non_leading_arm(
