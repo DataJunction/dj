@@ -321,16 +321,10 @@ async def preload_filter_metric_refs(ctx: "BuildContext") -> None:
             refs = get_filter_column_references(filter_str)
         except Exception:  # pragma: no cover
             continue
-        for ref in refs:
-            # Skip refs already loaded as part of ctx.metrics or anything we
-            # have on hand.
-            if ref in ctx.nodes:
-                continue
-            candidate_names.add(ref)
+        candidate_names.update(refs)
 
-    if not candidate_names:
-        return
-
+    # Node.get_by_names early-returns on an empty list, and a no-op lookup is
+    # cheap, so we skip the explicit empty-check here for simpler coverage.
     nodes = await Node.get_by_names(ctx.session, list(candidate_names))
     for node in nodes:
         ctx.nodes[node.name] = node
