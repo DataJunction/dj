@@ -15,9 +15,13 @@ import {
 import { djEditorExtensions } from './djEditorTheme';
 
 export const NodeQueryField = ({ djClient, value }) => {
-  const [schema, setSchema] = React.useState([]);
+  // Schema is `{ [nodeName]: string[] }` — passed to @codemirror/lang-sql so
+  // it can offer table + column autocompletion. Must be an OBJECT, not array,
+  // and every update must produce a new reference so React re-renders and
+  // langs.sql() rebuilds with the latest map.
+  const [schema, setSchema] = React.useState({});
   const formik = useFormikContext();
-  const sqlExt = langs.sql({ schema: schema });
+  const sqlExt = React.useMemo(() => langs.sql({ schema }), [schema]);
   const autoRegisterTimer = React.useRef(null);
   const validateTimer = React.useRef(null);
   const registeredTables = React.useRef(new Set());
@@ -64,11 +68,16 @@ export const NodeQueryField = ({ djClient, value }) => {
     // to save on unnecessary calls
     const word = context.matchBefore(/[\.\w]*/);
     const matches = await djClient.nodes(word.text);
-    matches.forEach(nodeName => {
-      if (schema[nodeName] === undefined) {
-        schema[nodeName] = [];
-        setSchema(schema);
+    setSchema(prev => {
+      const next = { ...prev };
+      let changed = false;
+      for (const nodeName of matches) {
+        if (next[nodeName] === undefined) {
+          next[nodeName] = [];
+          changed = true;
+        }
       }
+      return changed ? next : prev;
     });
   };
 
@@ -78,16 +87,14 @@ export const NodeQueryField = ({ djClient, value }) => {
 
   const updateAutocomplete = async (value, _) => {
     // If a particular node has been chosen, load the columns of that node into
-    // the autocomplete schema for column-level autocompletion
-    for (var nodeName in schema) {
-      if (
-        value.includes(nodeName) &&
-        (!schema.hasOwnProperty(nodeName) ||
-          (schema.hasOwnProperty(nodeName) && schema[nodeName].length === 0))
-      ) {
+    // the autocomplete schema for column-level autocompletion. Mutate via a
+    // functional setState so every update produces a new map reference and
+    // langs.sql sees the change.
+    for (const nodeName of Object.keys(schema)) {
+      if (value.includes(nodeName) && schema[nodeName].length === 0) {
         const nodeDetails = await djClient.node(nodeName);
-        schema[nodeName] = nodeDetails.columns.map(col => col.name);
-        setSchema(schema);
+        const cols = (nodeDetails?.columns || []).map(col => col.name);
+        setSchema(prev => ({ ...prev, [nodeName]: cols }));
       }
     }
 
@@ -199,11 +206,11 @@ export const NodeQueryField = ({ djClient, value }) => {
       if (status === 200 || status === 201) {
         const nodeName = json?.name || key;
         const columns = (json?.columns || []).map(col => col.name);
-        schema[nodeName] = columns;
-        if (table && table !== nodeName) {
-          schema[table] = columns;
-        }
-        setSchema(schema);
+        setSchema(prev => {
+          const next = { ...prev, [nodeName]: columns };
+          if (table && table !== nodeName) next[table] = columns;
+          return next;
+        });
         setStatus(key, { kind: 'valid' });
       } else if (status === 409) {
         // 409 = already exists; treat as valid.
