@@ -8,6 +8,7 @@ import NamespaceHeader from '../../components/NamespaceHeader';
 import { useContext, useEffect, useState } from 'react';
 import DJClientContext from '../../providers/djclient';
 import 'styles/node-creation.scss';
+import './styles.css';
 import { useParams, useNavigate } from 'react-router-dom';
 import { FullNameField } from './FullNameField';
 import { MetricQueryField } from './MetricQueryField';
@@ -413,185 +414,189 @@ export function AddEditNodePage({ extensions = {} }) {
             : ''
         }
       />
-      <div className="card">
-        <div className="card-header">
-          {pageTitle}
-          <center>
-            <Formik
-              initialValues={initialValues}
-              validate={validator}
-              validateOnChange={true}
-              validateOnBlur={true}
-              onSubmit={async (values, { setSubmitting, setStatus }) => {
-                try {
-                  for (const handler of submitHandlers) {
-                    await handler(values, { setSubmitting, setStatus });
-                  }
-                } catch (error) {
-                  console.error('Error in submission', error);
-                } finally {
-                  setSubmitting(false);
+      <div className="node-builder">
+        <div className="node-builder-header">{pageTitle}</div>
+        <div className="node-builder-main">
+          <Formik
+            initialValues={initialValues}
+            validate={validator}
+            validateOnChange={true}
+            validateOnBlur={true}
+            onSubmit={async (values, { setSubmitting, setStatus }) => {
+              try {
+                for (const handler of submitHandlers) {
+                  await handler(values, { setSubmitting, setStatus });
                 }
-              }}
-            >
-              {function Render(formikProps) {
-                const {
-                  isSubmitting,
-                  status,
-                  setFieldValue,
-                  errors,
-                  touched,
-                  isValid,
-                  dirty,
-                } = formikProps;
-                const [node, setNode] = useState([]);
-                const [selectPrimaryKey, setSelectPrimaryKey] = useState(null);
-                const [selectRequiredDims, setSelectRequiredDims] =
-                  useState(null);
-                const [selectUpstreamNode, setSelectUpstreamNode] =
-                  useState(null);
-                const [selectOwners, setSelectOwners] = useState(null);
-                const [selectTags, setSelectTags] = useState(null);
-                const [message, setMessage] = useState('');
+              } catch (error) {
+                console.error('Error in submission', error);
+              } finally {
+                setSubmitting(false);
+              }
+            }}
+          >
+            {function Render(formikProps) {
+              const {
+                isSubmitting,
+                status,
+                setFieldValue,
+                errors,
+                touched,
+                isValid,
+                dirty,
+              } = formikProps;
+              const [node, setNode] = useState([]);
+              const [selectPrimaryKey, setSelectPrimaryKey] = useState(null);
+              const [selectRequiredDims, setSelectRequiredDims] =
+                useState(null);
+              const [selectUpstreamNode, setSelectUpstreamNode] =
+                useState(null);
+              const [selectOwners, setSelectOwners] = useState(null);
+              const [selectTags, setSelectTags] = useState(null);
+              const [message, setMessage] = useState('');
 
-                useEffect(() => {
-                  const fetchData = async () => {
-                    if (action === Action.Edit) {
-                      const data = await getExistingNodeData(name);
-                      runValidityChecks(data, setNode, setMessage);
-                      updateFieldsWithNodeData(
-                        data,
-                        setFieldValue,
-                        setNode,
-                        setSelectTags,
-                        setSelectPrimaryKey,
-                        setSelectUpstreamNode,
-                        setSelectRequiredDims,
-                        setSelectOwners,
-                      );
-                    }
-                  };
-                  fetchData().catch(console.error);
-                }, [setFieldValue]);
-                return (
-                  <Form>
-                    {displayMessageAfterSubmit(status)}
-                    {action === Action.Edit && message ? (
-                      <AlertMessage message={message} />
-                    ) : (
-                      <>
+              useEffect(() => {
+                const fetchData = async () => {
+                  if (action === Action.Edit) {
+                    const data = await getExistingNodeData(name);
+                    runValidityChecks(data, setNode, setMessage);
+                    updateFieldsWithNodeData(
+                      data,
+                      setFieldValue,
+                      setNode,
+                      setSelectTags,
+                      setSelectPrimaryKey,
+                      setSelectUpstreamNode,
+                      setSelectRequiredDims,
+                      setSelectOwners,
+                    );
+                  }
+                };
+                fetchData().catch(console.error);
+              }, [setFieldValue]);
+              return (
+                <Form>
+                  {displayMessageAfterSubmit(status)}
+                  {action === Action.Edit && message ? (
+                    <AlertMessage message={message} />
+                  ) : (
+                    <>
+                      <div className="node-row">
                         {action === Action.Add ? (
                           <NamespaceField initialNamespace={initialNamespace} />
                         ) : (
                           staticFieldsInEdit(node)
                         )}
                         <DisplayNameField />
-                        {action === Action.Add ? fullNameInput : ''}
-                        <DescriptionField />
-                        <br />
-                        {nodeType === 'metric' || node?.type === 'metric' ? (
-                          action === Action.Edit ? (
-                            selectUpstreamNode
+                      </div>
+                      {action === Action.Add ? fullNameInput : ''}
+                      <DescriptionField />
+                      <div className="node-row">
+                        <div className="node-row-narrow">
+                          <NodeModeField />
+                        </div>
+                        <div className="node-row-grow">
+                          {action === Action.Edit ? (
+                            selectOwners
                           ) : (
-                            <UpstreamNodeField />
-                          )
+                            <OwnersField />
+                          )}
+                        </div>
+                      </div>
+                      {nodeType === 'metric' || node?.type === 'metric' ? (
+                        action === Action.Edit ? (
+                          selectUpstreamNode
                         ) : (
-                          ''
-                        )}
-                        <br />
-                        <br />
-                        {action === Action.Edit ? (
-                          selectOwners
-                        ) : (
-                          <OwnersField />
-                        )}
-                        <br />
-                        <br />
-                        {nodeType === 'metric' || node.type === 'metric' ? (
-                          <MetricQueryField
-                            djClient={djClient}
-                            value={
-                              node.aggregate_expression
-                                ? node.aggregate_expression
-                                : ''
-                            }
-                          />
-                        ) : (
-                          <NodeQueryField
-                            djClient={djClient}
-                            value={node.query ? node.query : ''}
-                          />
-                        )}
-                        <br />
-                        {nodeType === 'metric' || node.type === 'metric' ? (
-                          <MetricMetadataFields />
-                        ) : (
-                          ''
-                        )}
-                        {nodeType !== 'metric' && node.type !== 'metric' ? (
-                          action === Action.Edit ? (
-                            selectPrimaryKey
-                          ) : (
-                            <ColumnsSelect
-                              defaultValue={[]}
-                              fieldName="primary_key"
-                              label="Primary Key"
-                              isMulti={true}
-                            />
-                          )
-                        ) : action === Action.Edit ? (
-                          selectRequiredDims
-                        ) : (
-                          <RequiredDimensionsSelect />
-                        )}
-                        <CustomMetadataField
+                          <UpstreamNodeField />
+                        )
+                      ) : (
+                        ''
+                      )}
+                      {nodeType === 'metric' || node.type === 'metric' ? (
+                        <MetricQueryField
+                          djClient={djClient}
                           value={
-                            node.custom_metadata ? node.custom_metadata : ''
+                            node.aggregate_expression
+                              ? node.aggregate_expression
+                              : ''
                           }
                         />
-                        {Object.entries(extensions).map(
-                          ([key, ExtensionComponent]) => (
-                            <div key={key} className="mt-4 border-t pt-4">
-                              <ExtensionComponent
-                                node={node}
-                                action={action}
-                                registerSubmitHandler={(
-                                  onSubmit,
-                                  { prepend } = {},
-                                ) => {
-                                  if (!submitHandlers.includes(onSubmit)) {
-                                    if (prepend) {
-                                      submitHandlers.unshift(onSubmit);
-                                    } else {
-                                      submitHandlers.push(onSubmit);
-                                    }
+                      ) : (
+                        <NodeQueryField
+                          djClient={djClient}
+                          value={node.query ? node.query : ''}
+                        />
+                      )}
+                      {nodeType === 'metric' || node.type === 'metric' ? (
+                        <MetricMetadataFields />
+                      ) : (
+                        ''
+                      )}
+                      {nodeType !== 'metric' && node.type !== 'metric' ? (
+                        action === Action.Edit ? (
+                          selectPrimaryKey
+                        ) : (
+                          <ColumnsSelect
+                            defaultValue={[]}
+                            fieldName="primary_key"
+                            label="Primary Key"
+                            isMulti={true}
+                          />
+                        )
+                      ) : action === Action.Edit ? (
+                        selectRequiredDims
+                      ) : (
+                        <RequiredDimensionsSelect />
+                      )}
+                      <CustomMetadataField
+                        value={node.custom_metadata ? node.custom_metadata : ''}
+                      />
+                      {Object.entries(extensions).map(
+                        ([key, ExtensionComponent]) => (
+                          <div key={key} className="mt-4 border-t pt-4">
+                            <ExtensionComponent
+                              node={node}
+                              action={action}
+                              registerSubmitHandler={(
+                                onSubmit,
+                                { prepend } = {},
+                              ) => {
+                                if (!submitHandlers.includes(onSubmit)) {
+                                  if (prepend) {
+                                    submitHandlers.unshift(onSubmit);
+                                  } else {
+                                    submitHandlers.push(onSubmit);
                                   }
-                                }}
-                              />
-                            </div>
-                          ),
-                        )}
-                        {action === Action.Edit ? selectTags : <TagsField />}
-                        <NodeModeField />
+                                }
+                              }}
+                            />
+                          </div>
+                        ),
+                      )}
+                      {action === Action.Edit ? selectTags : <TagsField />}
 
-                        <button
-                          type="submit"
-                          disabled={isSubmitting || !isValid}
-                        >
-                          {isSubmitting ? (
+                      <button
+                        type="submit"
+                        disabled={isSubmitting || !isValid}
+                        className={`save-node-btn${
+                          isSubmitting ? ' save-node-btn--loading' : ''
+                        }`}
+                      >
+                        {isSubmitting ? (
+                          <>
                             <LoadingIcon />
-                          ) : (
-                            (action === Action.Add ? 'Create ' : 'Save ') +
-                            (nodeType ? nodeType : '')
-                          )}
-                        </button>
-                      </>
-                    )}
-                  </Form>
-                );
-              }}
-            </Formik>
-          </center>
+                            Saving...
+                          </>
+                        ) : (
+                          (action === Action.Add ? 'Create ' : 'Save ') +
+                          (nodeType ? nodeType : '')
+                        )}
+                      </button>
+                    </>
+                  )}
+                </Form>
+              );
+            }}
+          </Formik>
         </div>
       </div>
     </div>

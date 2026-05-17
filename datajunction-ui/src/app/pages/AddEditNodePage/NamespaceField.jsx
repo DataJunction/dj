@@ -27,6 +27,7 @@ export const NamespaceField = ({ initialNamespace }) => {
       <ErrorMessage name="namespace" component="span" />
       <label htmlFor="namespace">Namespace *</label>
       <FormikSelect
+        className=""
         selectOptions={namespaces}
         formikFieldName="namespace"
         placeholder="Choose Namespace"

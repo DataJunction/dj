@@ -9,7 +9,7 @@ import { FormikSelect } from './FormikSelect';
 export const RequiredDimensionsSelect = ({
   defaultValue,
   style,
-  className = 'MultiSelectInput',
+  className = '',
 }) => {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
 
