@@ -15,7 +15,12 @@ export const MetricQueryField = ({ djClient, value }) => {
   const [schema, setSchema] = React.useState({});
   const [availableMetrics, setAvailableMetrics] = React.useState([]);
   const formik = useFormikContext();
-  const sqlExt = langs.sql({ schema: schema });
+  const upstreamNode = formik.values['upstream_node'];
+  // Memoize the sql extension on schema so it only rebuilds when the schema
+  // actually changes. Without this, every parent render produces a new
+  // sqlExt reference and CodeMirror re-registers extensions — which closes
+  // any open autocomplete dropdown.
+  const sqlExt = React.useMemo(() => langs.sql({ schema }), [schema]);
 
   // Load available metrics for derived metric autocomplete
   React.useEffect(() => {
@@ -30,38 +35,39 @@ export const MetricQueryField = ({ djClient, value }) => {
     fetchMetrics();
   }, [djClient]);
 
-  const initialAutocomplete = async context => {
-    const newSchema = {};
-    const nodeName = formik.values['upstream_node'];
-
-    // If an upstream node is selected, load its columns for regular metrics
-    if (nodeName && nodeName.trim() !== '') {
-      try {
-        const nodeDetails = await djClient.node(nodeName);
-        if (nodeDetails && nodeDetails.columns) {
-          nodeDetails.columns.forEach(col => {
-            newSchema[col.name] = [];
+  // Build the autocomplete schema once when upstream node or metrics change.
+  // Doing this from inside an autocomplete source (per keystroke) caused a
+  // re-render mid-completion which dismissed the dropdown.
+  React.useEffect(() => {
+    let cancelled = false;
+    async function loadSchema() {
+      const next = {};
+      if (upstreamNode && upstreamNode.trim() !== '') {
+        try {
+          const nodeDetails = await djClient.node(upstreamNode);
+          nodeDetails?.columns?.forEach(col => {
+            next[col.name] = [];
           });
+        } catch (err) {
+          console.error('Failed to load upstream node columns:', err);
         }
-      } catch (err) {
-        console.error('Failed to load upstream node columns:', err);
       }
+      availableMetrics.forEach(metricName => {
+        next[metricName] = [];
+      });
+      if (!cancelled) setSchema(next);
     }
-
-    // Always include available metrics for derived metric expressions
-    availableMetrics.forEach(metricName => {
-      newSchema[metricName] = [];
-    });
-
-    setSchema(newSchema);
-  };
+    loadSchema();
+    return () => {
+      cancelled = true;
+    };
+  }, [djClient, upstreamNode, availableMetrics]);
 
   const updateFormik = val => {
     formik.setFieldValue('aggregate_expression', val);
   };
 
   // Determine the label and help text based on whether upstream is selected
-  const upstreamNode = formik.values['upstream_node'];
   const isDerivedMode = !upstreamNode || upstreamNode.trim() === '';
   const labelText = isDerivedMode
     ? 'Derived Metric Expression *'
@@ -91,12 +97,7 @@ export const MetricQueryField = ({ djClient, value }) => {
         <CodeMirror
           id={'aggregate_expression'}
           name={'aggregate_expression'}
-          extensions={[
-            sqlExt,
-            sqlExt.language.data.of({
-              autocomplete: initialAutocomplete,
-            }),
-          ]}
+          extensions={[sqlExt]}
           value={value}
           options={{
             theme: 'default',
@@ -107,7 +108,7 @@ export const MetricQueryField = ({ djClient, value }) => {
           style={{
             margin: '0 0 23px 0',
             flex: 1,
-            fontSize: '150%',
+            fontSize: '110%',
             textAlign: 'left',
           }}
           onChange={(value, viewUpdate) => {

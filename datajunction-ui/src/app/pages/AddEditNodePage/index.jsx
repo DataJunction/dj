@@ -59,7 +59,18 @@ export function AddEditNodePage({ extensions = {} }) {
 
   const validator = values => {
     const errors = {};
-    if (!values.name) {
+    // Display name drives the synthesized full name (`namespace.display_name`).
+    // Without it the full name collapses to `namespace.` — non-empty but
+    // useless. Validate the user-facing field instead of the derived one.
+    if (action === Action.Add && !values.display_name?.trim()) {
+      errors.display_name = 'Required';
+    }
+    if (
+      !values.name ||
+      values.name.endsWith('.') ||
+      values.name.startsWith('.') ||
+      values.name.includes('..')
+    ) {
       errors.name = 'Required';
     }
     if (values.type !== 'metric' && !values.query) {
