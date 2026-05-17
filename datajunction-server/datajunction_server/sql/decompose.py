@@ -1054,8 +1054,11 @@ class MetricComponentExtractor:
         """Decompose an aggregation function using the registry."""
         decomposition = get_decomposition(dj_function)
 
-        if decomposition is None:
-            # Not decomposable (e.g., MAX_BY, MIN_BY)
+        if decomposition is None:  # pragma: no cover
+            # Defensive: ``_extract_base`` filters non-decomposable
+            # aggregations out before calling here, so this branch is
+            # unreachable in practice.  Kept so direct callers (if any)
+            # still get a sensible None return.
             return None
 
         # Build components from decomposition
