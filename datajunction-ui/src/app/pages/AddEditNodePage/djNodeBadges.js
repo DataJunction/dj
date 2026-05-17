@@ -274,11 +274,23 @@ export function renderTooltipDom(status, refKey) {
   return wrap;
 }
 
+// Cache of node-detail fetches so re-hovering the same chip doesn't refetch.
+// Lives at module scope (one editor + dom = one cache) — small enough that
+// not bothering with an LRU.
+const nodeDetailsCache = new Map();
+
 /**
  * Hover tooltip extension. Pairs with djNodeBadges so the same
- * `getStatus` source of truth drives the popover content.
+ * `getStatus` source of truth drives the popover content. Additionally
+ * lazy-fetches the full node (columns, description, mode, version) on
+ * hover via `fetchNodeDetails`, and re-renders the tooltip in place
+ * when the promise resolves.
  */
-export function djNodeHoverTooltip({ getStatus, getKnownCatalogs }) {
+export function djNodeHoverTooltip({
+  getStatus,
+  getKnownCatalogs,
+  fetchNodeDetails,
+}) {
   return hoverTooltip(
     (view, pos) => {
       const hit = refAtPos(view, pos);
@@ -299,9 +311,46 @@ export function djNodeHoverTooltip({ getStatus, getKnownCatalogs }) {
         pos: hit.from,
         end: hit.to,
         above: true,
-        create: () => ({
-          dom: renderTooltipDom(status || { refType: 'source' }, hit.key),
-        }),
+        create: () => {
+          const baseStatus = status || { refType: 'source' };
+          const dom = renderTooltipDom(baseStatus, hit.key);
+
+          // Lazy-fetch the full node so we can show columns + description.
+          // The validateNode dep object only carries {name, type, status}.
+          if (
+            fetchNodeDetails &&
+            baseStatus.kind !== 'invalid' &&
+            baseStatus.kind !== 'registering'
+          ) {
+            const cached = nodeDetailsCache.get(hit.key);
+            const promise = cached || fetchNodeDetails(hit.key);
+            if (!cached) nodeDetailsCache.set(hit.key, promise);
+
+            Promise.resolve(promise)
+              .then(full => {
+                if (!full) return;
+                const richDom = renderTooltipDom(
+                  {
+                    ...baseStatus,
+                    node: { ...(baseStatus.node || {}), ...full },
+                  },
+                  hit.key,
+                );
+                if (dom.parentNode) {
+                  dom.parentNode.replaceChild(richDom, dom);
+                } else {
+                  // Tooltip already detached — swap children so future refs
+                  // see the rich content.
+                  dom.replaceChildren(...richDom.childNodes);
+                }
+              })
+              .catch(() => {
+                // Soft-fail — leave the bare header tooltip in place.
+              });
+          }
+
+          return { dom };
+        },
       };
     },
     { hoverTime: 150 },

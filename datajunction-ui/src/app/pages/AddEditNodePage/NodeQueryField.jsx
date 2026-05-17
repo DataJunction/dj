@@ -232,8 +232,9 @@ export const NodeQueryField = ({ djClient, value }) => {
       djNodeHoverTooltip({
         getStatus: key => tableStatusRef.current[key],
         getKnownCatalogs: () => knownCatalogsRef.current,
+        fetchNodeDetails: name => djClient.node(name).catch(() => null),
       }),
-    [],
+    [djClient],
   );
 
   return (
