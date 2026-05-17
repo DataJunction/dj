@@ -1818,6 +1818,123 @@ class TestNonDecomposableMetrics:
         )
 
     @pytest.mark.asyncio
+    async def test_mixed_decomposable_metric_is_non_decomposable(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        Mixed decomposable + non-decomposable metric via /sql/metrics/v3.
+
+        ``v3.first_product_when_any_quantity`` mixes ``MAX(quantity)`` with
+        ``MIN_BY(product_id, order_date)``.  The whole metric is forced
+        non-decomposable, the measures CTE passes raw rows through at
+        native grain with every referenced column projected, and the
+        final SELECT applies the original metric expression verbatim
+        over those rows.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.first_product_when_any_quantity"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH v3_order_details AS (
+              SELECT
+                o.order_id,
+                oi.line_number,
+                o.order_date,
+                o.status,
+                oi.product_id,
+                oi.quantity
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+              SELECT
+                t1.status,
+                t1.order_id,
+                t1.line_number,
+                t1.quantity,
+                t1.product_id,
+                t1.order_date
+              FROM v3_order_details t1
+            )
+            SELECT
+              order_details_0.status AS status,
+              IF(
+                MAX(order_details_0.quantity) IS NOT NULL,
+                MIN_BY(order_details_0.product_id, order_details_0.order_date),
+                NULL
+              ) AS first_product_when_any_quantity
+            FROM order_details_0
+            GROUP BY order_details_0.status
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_decomposable_metric_combined_with_non_decomposable(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        FULL + NONE metrics on the same parent via /sql/metrics/v3.
+
+        Requests ``v3.total_revenue`` (SUM/FULL) and
+        ``v3.top_product_by_revenue`` (MAX_BY/NONE).  The merged grain
+        group passes raw rows through (no GROUP BY at the measures CTE),
+        and the final metrics SELECT applies SUM and MAX_BY downstream.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": [
+                    "v3.total_revenue",
+                    "v3.top_product_by_revenue",
+                ],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH v3_order_details AS (
+              SELECT
+                o.order_id,
+                oi.line_number,
+                o.status,
+                oi.product_id,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+              SELECT
+                t1.status,
+                t1.line_number,
+                t1.order_id,
+                t1.line_total line_total,
+                t1.product_id product_id
+              FROM v3_order_details t1
+            )
+            SELECT
+              order_details_0.status AS status,
+              SUM(order_details_0.line_total) AS total_revenue,
+              MAX_BY(order_details_0.product_id, order_details_0.line_total)
+                AS top_product_by_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.status
+            """,
+        )
+
+    @pytest.mark.asyncio
     async def test_trailing_wow_metrics(self, client_with_build_v3):
         """
         Test trailing/rolling week-over-week metrics.

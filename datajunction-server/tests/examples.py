@@ -3484,6 +3484,29 @@ BUILD_V3 = (  # type: ignore
             "mode": "published",
         },
     ),
+    # Mixed decomposable + non-decomposable aggregations — the whole metric
+    # must be treated as non-decomposable since MIN_BY can't be
+    # pre-aggregated alongside MAX.
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.first_product_when_any_quantity",
+            "description": (
+                "Product id of the earliest line with a quantity, only if any "
+                "line had a quantity at all.  Mixes MAX (decomposable) with "
+                "MIN_BY (non-decomposable) so the metric is non-decomposable "
+                "overall."
+            ),
+            "query": (
+                "SELECT IF("
+                "MAX(quantity) IS NOT NULL, "
+                "MIN_BY(product_id, order_date), "
+                "NULL"
+                ") FROM v3.order_details"
+            ),
+            "mode": "published",
+        },
+    ),
     # Conditional Aggregation (SUM with CASE WHEN)
     (
         "/nodes/metric/",

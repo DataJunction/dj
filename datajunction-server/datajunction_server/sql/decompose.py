@@ -959,6 +959,15 @@ class MetricComponentExtractor:
         """
         Extract components from a base metric by decomposing aggregations.
 
+        If any aggregation in the metric is non-decomposable (e.g. ``MIN_BY``,
+        ``MAX_BY``), the whole metric is treated as non-decomposable — we
+        return an empty components list and leave the AST untouched.  A
+        mixed metric (some decomposable, some not) can't be safely
+        pre-aggregated: the components that *did* decompose would lose
+        track of columns referenced inside the non-decomposable functions,
+        and the resulting measures table wouldn't contain everything the
+        metric expression needs.
+
         Returns:
             Tuple of (components, modified_query_ast)
         """
@@ -968,18 +977,27 @@ class MetricComponentExtractor:
         if query_ast.select.from_:  # pragma: no branch
             query_ast = self._normalize_aliases(query_ast)
 
+            agg_funcs: list[tuple[ast.Function, type]] = []
             for func in query_ast.find_all(ast.Function):
                 dj_function = func.function()
                 if dj_function and dj_function.is_aggregation:
-                    result = self._decompose(func, dj_function, query_ast)
-                    if result:
-                        # Apply combiner to AST
-                        func.parent.replace(from_=func, to=result.combiner)  # type: ignore
-                        # Collect unique components
-                        for comp in sorted(result.components, key=lambda m: m.name):
-                            if comp.name not in components_tracker:
-                                components_tracker.add(comp.name)
-                                components.append(comp)
+                    agg_funcs.append((func, dj_function))
+
+            # If any aggregation is non-decomposable, abort decomposition
+            # entirely — the metric is non-decomposable as a whole.
+            if any(get_decomposition(dj_fn) is None for _, dj_fn in agg_funcs):
+                return [], query_ast
+
+            for func, dj_function in agg_funcs:
+                result = self._decompose(func, dj_function, query_ast)
+                if result:  # pragma: no branch
+                    # Apply combiner to AST
+                    func.parent.replace(from_=func, to=result.combiner)  # type: ignore
+                    # Collect unique components
+                    for comp in sorted(result.components, key=lambda m: m.name):
+                        if comp.name not in components_tracker:
+                            components_tracker.add(comp.name)
+                            components.append(comp)
 
         return components, query_ast
 
@@ -1036,8 +1054,11 @@ class MetricComponentExtractor:
         """Decompose an aggregation function using the registry."""
         decomposition = get_decomposition(dj_function)
 
-        if decomposition is None:
-            # Not decomposable (e.g., MAX_BY, MIN_BY)
+        if decomposition is None:  # pragma: no cover
+            # Defensive: ``_extract_base`` filters non-decomposable
+            # aggregations out before calling here, so this branch is
+            # unreachable in practice.  Kept so direct callers (if any)
+            # still get a sensible None return.
             return None
 
         # Build components from decomposition

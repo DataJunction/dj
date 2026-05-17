@@ -353,6 +353,7 @@ async def test_get_nodes_with_details(client_with_examples: AsyncClient):
         "v3.aov_growth_index",
         "v3.efficiency_ratio",
         "v3.wow_aov_change",
+        "v3.first_product_when_any_quantity",
     }
 
 
