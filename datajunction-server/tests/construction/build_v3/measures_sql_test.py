@@ -6273,6 +6273,502 @@ class TestUpstreamFilterOnlyPushdown:
         }
 
 
+async def _setup_audit_dim(client):
+    """Helper: create the audit_dates source + audit_date_dim used by the
+    edge-case tests below.  Idempotent — a 200 response means already
+    present from a prior test in the same module fixture."""
+    resp = await client.post(
+        "/nodes/source/",
+        json={
+            "name": "v3.src_audit_dates",
+            "description": "audit dates",
+            "columns": [{"name": "dateint", "type": "int"}],
+            "mode": "published",
+            "catalog": "default",
+            "schema_": "v3",
+            "table": "audit_dates",
+        },
+    )
+    assert resp.status_code in (200, 201), resp.json()
+    resp = await client.post(
+        "/nodes/dimension/",
+        json={
+            "name": "v3.audit_date_dim",
+            "description": "Audit date dim",
+            "query": "SELECT dateint FROM v3.src_audit_dates",
+            "mode": "published",
+            "primary_key": ["dateint"],
+        },
+    )
+    assert resp.status_code in (200, 201), resp.json()
+
+
+async def _setup_audit_log_source(client, suffix: str, table: str) -> str:
+    """Helper: create an audit_log source with a dim link
+    ``audit_date → v3.audit_date_dim.dateint``.  Returns the DJ node
+    name so callers can splice it into transform queries."""
+    name = f"v3.src_audit_log_{suffix}"
+    resp = await client.post(
+        "/nodes/source/",
+        json={
+            "name": name,
+            "description": f"Audit log ({suffix})",
+            "columns": [
+                {"name": "audit_id", "type": "int"},
+                {"name": "audit_date", "type": "int"},
+                {"name": "account_id", "type": "int"},
+                {"name": "event_type", "type": "string"},
+            ],
+            "mode": "published",
+            "catalog": "default",
+            "schema_": "v3",
+            "table": table,
+        },
+    )
+    assert resp.status_code in (200, 201), resp.json()
+    resp = await client.post(
+        f"/nodes/{name}/link",
+        json={
+            "dimension_node": "v3.audit_date_dim",
+            "join_type": "inner",
+            "join_on": f"{name}.audit_date = v3.audit_date_dim.dateint",
+        },
+    )
+    assert resp.status_code in (200, 201), resp.json()
+    return name
+
+
+class TestFilterPushdownScope:
+    """Edge cases around v3's choice of *scope* for a filter-only dim
+    pushdown.  All tests share the same dim/source shape: a filter on
+    ``v3.audit_date_dim.dateint`` resolves via the source's
+    ``audit_date`` FK column.  The transform's stored query varies
+    structurally — each shape tests a different code path in
+    ``_resolve_pushdown_target`` / ``_enclosing_select``.
+    """
+
+    @pytest.mark.asyncio
+    async def test_nested_subquery_drops_fk_column(self, client_with_build_v3):
+        """Source wrapped in an inner subquery whose projection drops the FK
+        column.  Filter must land in the inner SELECT — the outer alias
+        doesn't expose ``audit_date``.
+        """
+        client = client_with_build_v3
+        await _setup_audit_dim(client)
+        src = await _setup_audit_log_source(client, "nested", "audit_log_nested")
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.events_nested",
+                "query": (
+                    "SELECT account_id, event_type, COUNT(*) AS event_count "
+                    "FROM (SELECT account_id, event_type "
+                    f"FROM {src} AS inner_src) AS wrap "
+                    "GROUP BY account_id, event_type"
+                ),
+                "mode": "published",
+                "primary_key": ["account_id", "event_type"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.nested_event_count",
+                "query": "SELECT COUNT(DISTINCT account_id) FROM v3.events_nested",
+                "mode": "published",
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.nested_event_count"],
+                "dimensions": ["v3.events_nested.event_type"],
+                "filters": ["v3.audit_date_dim.dateint >= 20260101"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        assert_sql_equal(
+            sql,
+            """
+            WITH v3_events_nested AS (
+              SELECT account_id, event_type
+              FROM (
+                SELECT account_id, event_type
+                FROM default.v3.audit_log_nested AS inner_src
+                WHERE inner_src.audit_date >= 20260101
+              ) AS wrap
+              GROUP BY account_id, event_type
+            )
+            SELECT t1.event_type, t1.account_id
+            FROM v3_events_nested t1
+            GROUP BY t1.event_type, t1.account_id
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_self_join_filters_first_alias_only(self, client_with_build_v3):
+        """Same source aliased twice in a single FROM.  ``find_all`` returns
+        the first Table match; the filter rewrites against that alias and
+        the second instance is unconstrained.  Documented limitation —
+        v3 has no way to know which side of the self-join the user meant.
+        """
+        client = client_with_build_v3
+        await _setup_audit_dim(client)
+        src = await _setup_audit_log_source(client, "selfjoin", "audit_log_selfjoin")
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.events_self_join",
+                "query": (
+                    "SELECT a1.account_id, a1.event_type "
+                    f"FROM {src} AS a1 "
+                    f"JOIN {src} AS a2 ON a1.account_id = a2.account_id"
+                ),
+                "mode": "published",
+                "primary_key": ["account_id"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.self_join_count",
+                "query": ("SELECT COUNT(DISTINCT account_id) FROM v3.events_self_join"),
+                "mode": "published",
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.self_join_count"],
+                "dimensions": ["v3.events_self_join.event_type"],
+                "filters": ["v3.audit_date_dim.dateint >= 20260101"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        assert_sql_equal(
+            sql,
+            """
+            WITH v3_events_self_join AS (
+              SELECT a1.account_id, a1.event_type
+              FROM default.v3.audit_log_selfjoin AS a1
+              JOIN default.v3.audit_log_selfjoin AS a2
+                ON a1.account_id = a2.account_id
+              WHERE a1.audit_date >= 20260101
+            )
+            SELECT t1.event_type, t1.account_id
+            FROM v3_events_self_join t1
+            GROUP BY t1.event_type, t1.account_id
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_source_inside_inner_with_cte(self, client_with_build_v3):
+        """Source referenced inside the transform's own inner ``WITH`` CTE.
+        ``_enclosing_select`` walks up to the inner CTE's Select; the
+        filter lands in that CTE's WHERE, not the outer SELECT.
+        """
+        client = client_with_build_v3
+        await _setup_audit_dim(client)
+        src = await _setup_audit_log_source(client, "withcte", "audit_log_withcte")
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.events_with_cte",
+                "query": (
+                    "WITH inner_cte AS ("
+                    f"  SELECT account_id, event_type FROM {src} AS src"
+                    ") "
+                    "SELECT account_id, event_type FROM inner_cte"
+                ),
+                "mode": "published",
+                "primary_key": ["account_id"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.with_cte_count",
+                "query": ("SELECT COUNT(DISTINCT account_id) FROM v3.events_with_cte"),
+                "mode": "published",
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.with_cte_count"],
+                "dimensions": ["v3.events_with_cte.event_type"],
+                "filters": ["v3.audit_date_dim.dateint >= 20260101"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        assert_sql_equal(
+            sql,
+            """
+            WITH v3_events_with_cte AS (
+              WITH inner_cte AS (
+                SELECT account_id, event_type
+                FROM default.v3.audit_log_withcte AS src
+                WHERE src.audit_date >= 20260101
+              )
+              SELECT account_id, event_type FROM inner_cte
+            )
+            SELECT t1.event_type, t1.account_id
+            FROM v3_events_with_cte t1
+            GROUP BY t1.event_type, t1.account_id
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_source_inside_where_exists_subquery(
+        self,
+        client_with_build_v3,
+    ):
+        """Source referenced inside a ``WHERE EXISTS`` correlated subquery.
+        The filter lands in the EXISTS subquery's WHERE.  Whether that's
+        the *semantically* desired place is debatable, but it produces
+        valid SQL and constrains the EXISTS check.
+        """
+        client = client_with_build_v3
+        await _setup_audit_dim(client)
+        src = await _setup_audit_log_source(client, "exists", "audit_log_exists")
+        # The outer FROM is a second, unrelated source so we can place
+        # ``src`` exclusively inside an EXISTS subquery.
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_accounts_exists",
+                "description": "accounts",
+                "columns": [
+                    {"name": "account_id", "type": "int"},
+                    {"name": "event_type", "type": "string"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "accounts_exists",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.events_exists",
+                "query": (
+                    "SELECT acc.account_id, acc.event_type "
+                    "FROM v3.src_accounts_exists AS acc "
+                    "WHERE EXISTS ("
+                    f"  SELECT 1 FROM {src} AS log "
+                    "  WHERE log.account_id = acc.account_id"
+                    ")"
+                ),
+                "mode": "published",
+                "primary_key": ["account_id"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.exists_count",
+                "query": "SELECT COUNT(DISTINCT account_id) FROM v3.events_exists",
+                "mode": "published",
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.exists_count"],
+                "dimensions": ["v3.events_exists.event_type"],
+                "filters": ["v3.audit_date_dim.dateint >= 20260101"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        assert_sql_equal(
+            sql,
+            """
+            WITH v3_events_exists AS (
+              SELECT acc.account_id, acc.event_type
+              FROM default.v3.accounts_exists AS acc
+              WHERE EXISTS (
+                SELECT 1
+                FROM default.v3.audit_log_exists AS log
+                WHERE log.account_id = acc.account_id
+                  AND log.audit_date >= 20260101
+              )
+            )
+            SELECT t1.event_type, t1.account_id
+            FROM v3_events_exists t1
+            GROUP BY t1.event_type, t1.account_id
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_set_op_with_nested_subquery_in_non_leading_arm(
+        self,
+        client_with_build_v3,
+    ):
+        """A UNION-ALL transform whose *non-leading* arm wraps the linked
+        source in a nested subquery.  Both fixes have to compose: the
+        set-op fix routes us to the right arm, the nested-subquery fix
+        routes us further down to the inner SELECT inside that arm.
+        """
+        client = client_with_build_v3
+        await _setup_audit_dim(client)
+        # The leading arm reads from an *unrelated* source (no dim link).
+        # The second arm wraps the linked source in a nested subquery.
+        await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_other_events",
+                "description": "events without a dim link",
+                "columns": [
+                    {"name": "account_id", "type": "int"},
+                    {"name": "event_type", "type": "string"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "other_events",
+            },
+        )
+        src = await _setup_audit_log_source(client, "setopn", "audit_log_setopn")
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.events_union_nested",
+                "query": (
+                    "SELECT account_id, event_type FROM v3.src_other_events "
+                    "UNION ALL "
+                    "SELECT account_id, event_type "
+                    "FROM (SELECT account_id, event_type "
+                    f"FROM {src} AS deep) AS wrap"
+                ),
+                "mode": "published",
+                "primary_key": ["account_id"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.union_nested_count",
+                "query": (
+                    "SELECT COUNT(DISTINCT account_id) FROM v3.events_union_nested"
+                ),
+                "mode": "published",
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.union_nested_count"],
+                "dimensions": ["v3.events_union_nested.event_type"],
+                "filters": ["v3.audit_date_dim.dateint >= 20260101"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        assert_sql_equal(
+            sql,
+            """
+            WITH v3_events_union_nested AS (
+              SELECT account_id, event_type
+              FROM default.v3.other_events
+              UNION ALL
+              SELECT account_id, event_type
+              FROM (
+                SELECT account_id, event_type
+                FROM default.v3.audit_log_setopn AS deep
+                WHERE deep.audit_date >= 20260101
+              ) AS wrap
+            )
+            SELECT t1.event_type, t1.account_id
+            FROM v3_events_union_nested t1
+            GROUP BY t1.event_type, t1.account_id
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_multiple_filters_same_source_different_scopes(
+        self,
+        client_with_build_v3,
+    ):
+        """Two filters on the same dim resolve through the same source.
+        Each is registered independently; both must land — at the
+        innermost SELECT — and combine via ``AND`` in the WHERE.
+        """
+        client = client_with_build_v3
+        await _setup_audit_dim(client)
+        src = await _setup_audit_log_source(client, "twoflt", "audit_log_twoflt")
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.events_two_filters",
+                "query": (
+                    "SELECT account_id, event_type "
+                    "FROM (SELECT account_id, event_type "
+                    f"FROM {src} AS inner_src) AS wrap"
+                ),
+                "mode": "published",
+                "primary_key": ["account_id"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.two_filters_count",
+                "query": (
+                    "SELECT COUNT(DISTINCT account_id) FROM v3.events_two_filters"
+                ),
+                "mode": "published",
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.two_filters_count"],
+                "dimensions": ["v3.events_two_filters.event_type"],
+                "filters": [
+                    "v3.audit_date_dim.dateint >= 20260101",
+                    "v3.audit_date_dim.dateint <= 20260131",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        assert_sql_equal(
+            sql,
+            """
+            WITH v3_events_two_filters AS (
+              SELECT account_id, event_type
+              FROM (
+                SELECT account_id, event_type
+                FROM default.v3.audit_log_twoflt AS inner_src
+                WHERE inner_src.audit_date >= 20260101
+                  AND inner_src.audit_date <= 20260131
+              ) AS wrap
+            )
+            SELECT t1.event_type, t1.account_id
+            FROM v3_events_two_filters t1
+            GROUP BY t1.event_type, t1.account_id
+            """,
+        )
+
+
 class TestWrapperCTEAbsorption:
     """When a LEFT/INNER-joined dim's filter would silently defeat a
     downstream RIGHT/FULL OUTER JOIN, the LEFT/INNER join + filter are

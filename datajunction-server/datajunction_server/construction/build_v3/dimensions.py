@@ -476,18 +476,11 @@ def _resolve_pushdown_target(
                     if tbl.alias
                     else linked_node.name.split(SEPARATOR)[-1]
                 )
-                # Walk up from the matched Table to the Select that
-                # actually scans it.  For a transform whose stored query
-                # wraps the source in nested subqueries (each with its
-                # own projection), injecting at the top-level WHERE would
-                # reference an alias whose subquery doesn't propagate the
-                # FK column.  We inject directly into the innermost
-                # Select where the alias is in scope.
+                # Find the Select that actually scans the Table — that's
+                # the only scope where ``alias`` is in scope.
                 containing_select = _enclosing_select(tbl)
-                # arm_select is None when the containing select is the
-                # transform's top-level select (and not a non-leading
-                # set-op arm) — the normal CTE WHERE injection path
-                # already targets that same select.
+                # Top-level Select of the leading arm: normal CTE-WHERE
+                # injection already targets it, return None.
                 if containing_select is arm and idx == 0:
                     arm_select: Optional[ast.Select] = None
                 else:
