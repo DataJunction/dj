@@ -47,7 +47,7 @@ export const UpstreamNodeField = ({ defaultValue }) => {
       </p>
       <span data-testid="select-upstream-node">
         <FormikSelect
-          className="SelectInput"
+          className=""
           defaultValue={defaultValue}
           selectOptions={availableNodes}
           formikFieldName="upstream_node"

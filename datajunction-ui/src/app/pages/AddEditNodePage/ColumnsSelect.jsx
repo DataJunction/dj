@@ -86,7 +86,7 @@ export const ColumnsSelect = ({
       )}
       <span data-testid={`select-${fieldName}`}>
         <FormikSelect
-          className={isMulti ? 'MultiSelectInput' : 'SelectInput'}
+          className=""
           defaultValue={
             isMulti
               ? defaultValue.map(val => {

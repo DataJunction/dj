@@ -26,10 +26,7 @@ export const TagsField = ({ defaultValue }) => {
   }, [djClient]);
 
   return (
-    <div
-      className="TagsInput"
-      style={{ width: '25%', margin: '1rem 0 1rem 1.2rem' }}
-    >
+    <div className="TagsInput NodeCreationInput">
       <ErrorMessage name="tags" component="span" />
       <label htmlFor="tags">Tags</label>
       <span data-testid="select-tags">
@@ -37,7 +34,7 @@ export const TagsField = ({ defaultValue }) => {
           isMulti={true}
           selectOptions={tags}
           formikFieldName="tags"
-          className="MultiSelectInput"
+          className=""
           placeholder="Choose Tags"
           defaultValue={defaultValue}
         />

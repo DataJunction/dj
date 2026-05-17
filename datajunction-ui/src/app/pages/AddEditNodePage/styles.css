@@ -1,0 +1,546 @@
+/* AddEditNodePage - cube-builder inspired styling.
+ * Mirrors the look of CubeBuilderPage/styles.css but keeps the existing
+ * single-column layout. The legacy field components (NodeCreationInput,
+ * DisplayNameInput, etc.) are visually overridden when nested under
+ * `.node-builder`. */
+
+.node-builder {
+  padding: 16px 24px;
+  background: var(--planner-bg, #f8fafc);
+  font-family: var(
+    --font-body,
+    'Inter',
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif
+  );
+  color: var(--planner-text, #1e293b);
+  font-size: 13px;
+  box-sizing: border-box;
+  text-align: left;
+}
+
+.node-builder-header {
+  margin: 0 auto 16px;
+  max-width: 1000px;
+}
+
+.node-builder-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.node-builder-main {
+  background: var(--planner-surface, #ffffff);
+  border: 1px solid var(--planner-border, #e2e8f0);
+  padding: 16px;
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+/* Override the legacy `.message.success` / `.message.alert` / `.message.warning`
+ * banners (1.2rem text, 20px padding, fat green/red blocks) with a compact
+ * planner-style banner that matches the form aesthetic. */
+.node-builder .message {
+  max-width: 1000px;
+  margin: 0 auto 12px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm, 4px);
+  font-size: 13px;
+  line-height: 1.4;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  border: 1px solid transparent;
+}
+
+.node-builder .message svg {
+  height: 14px !important;
+  width: 14px !important;
+  flex-shrink: 0;
+  margin: 0 8px 0 0 !important;
+}
+
+.node-builder .message.success {
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+  color: #047857;
+}
+
+.node-builder .message.alert {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.node-builder .message.warning {
+  background: #fffbeb;
+  border-color: #fde68a;
+  color: #b45309;
+}
+
+.node-builder .message a {
+  color: inherit;
+  text-decoration: underline;
+  font-weight: 600;
+  margin-left: 4px;
+}
+
+/* Title row: page title on the left, Mode chip on the right */
+.node-builder-form-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 16px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--planner-border, #e2e8f0);
+}
+
+.node-builder-form-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.node-builder-form-header .NodeModeInput {
+  margin: 0 !important;
+  width: 160px !important;
+  flex-shrink: 0;
+}
+
+.node-builder-form-header .NodeModeInput label {
+  display: none !important;
+}
+
+/* Field groups — separated by a faint divider for visual rhythm
+ * without screaming "section header". */
+/* .node-builder .node-group {
+  margin-bottom: 20px;
+} */
+
+.node-builder .node-group-last,
+.node-builder .node-group:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+/* MetricMetadataFields: three compact selects side-by-side */
+.node-builder .MetricMetadataFields {
+  gap: 12px;
+}
+
+.node-builder .MetricMetadataFields > * {
+  flex: 1;
+  min-width: 0;
+  margin: 0 !important;
+}
+
+/* Override legacy form-scoped element styling for inputs/selects/buttons.
+ * Scope to the specific wrapper classes so we DON'T accidentally restyle
+ * the hidden <input> that lives inside react-select's Control — that input
+ * is also `type='text'`, and forcing 36px height + 8px padding on it makes
+ * every react-select Control balloon. */
+.node-builder form .DisplayNameInput input,
+.node-builder form .FullNameInput input,
+.node-builder form .NodeNameInput input,
+.node-builder form .DescriptionInput textarea,
+.node-builder form .NodeModeInput select,
+.node-builder form .QueryInput input {
+  width: 100%;
+  height: 36px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--planner-text, #1e293b);
+  background: var(--planner-surface, #ffffff);
+  border: 1px solid var(--planner-border, #e2e8f0);
+  border-radius: var(--radius-sm, 4px);
+  box-shadow: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease;
+  text-transform: none;
+}
+
+.node-builder form .DisplayNameInput input:focus,
+.node-builder form .FullNameInput input:focus,
+.node-builder form .DescriptionInput textarea:focus,
+.node-builder form .NodeModeInput select:focus {
+  outline: none;
+  border-color: var(--accent-primary, #3b82f6);
+}
+
+/* Neutralize the legacy global `form input { padding: 1rem; background: #eee
+ * ...; box-shadow: ... }` rule for react-select's internal hidden input.
+ * Without this reset the legacy rule bloats every Control. */
+.node-builder form div[class*='-control'] input {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  height: auto !important;
+  min-height: 0 !important;
+  font-size: 13px !important;
+}
+
+.node-builder form textarea {
+  height: auto;
+  min-height: 80px;
+  max-height: 200px;
+  resize: vertical;
+}
+
+.node-builder form label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--planner-text-muted, #64748b);
+  margin-bottom: 6px;
+  font-family: inherit;
+}
+
+/* Reset the inline-grid / 35% width tricks the legacy CSS uses — each field
+ * gets its own full-width row in the cube aesthetic. */
+.node-builder .NodeCreationInput,
+.node-builder .CubeCreationInput,
+.node-builder .DisplayNameInput,
+.node-builder .FullNameInput,
+.node-builder .NamespaceInput,
+.node-builder .DescriptionInput,
+.node-builder .QueryInput,
+.node-builder .NodeModeInput,
+.node-builder .RequiredDimensionsInput {
+  display: block;
+  width: 100%;
+  margin: 0 0 16px 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.node-builder .DisplayNameInput {
+  width: 100%;
+}
+
+.node-builder .NamespaceInput input,
+.node-builder .FullNameInput input {
+  width: 100%;
+  border: 1px solid var(--planner-border, #e2e8f0);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  padding: 8px 12px;
+  color: var(--planner-text, #1e293b);
+}
+
+.node-builder .FullNameField {
+  background: var(--planner-surface-hover, #f8fafc) !important;
+  color: var(--planner-text-muted, #64748b) !important;
+}
+
+.node-builder .DescriptionInput textarea {
+  width: 100%;
+  background: var(--planner-surface, #ffffff);
+  border: 1px solid var(--planner-border, #e2e8f0);
+  border-radius: var(--radius-sm, 4px);
+  box-shadow: none;
+  padding: 8px 12px;
+  font-family: inherit;
+  font-size: 13px;
+  margin: 0;
+  min-height: 80px;
+  max-height: 200px;
+}
+
+.node-builder .QueryInput {
+  width: 100%;
+  max-width: 100%;
+}
+
+.node-builder .MetricQueryInput {
+  height: auto;
+}
+
+.node-builder .NodeModeInput select {
+  background: var(--planner-surface, #ffffff);
+  border-radius: var(--radius-sm, 4px);
+  padding: 8px 12px;
+  font-family: inherit;
+  font-size: 13px;
+  border: 1px solid var(--planner-border, #e2e8f0);
+}
+
+/* react-select wrappers (SelectInput, MultiSelectInput, TagsInput) used by
+ * Owners/Tags/UpstreamNode/PrimaryKey/RequiredDimensions/Columns. The legacy
+ * `node-creation.scss` paints them as gray rounded pills with !important
+ * rules and backgrounds applied to every nested div in the react-select
+ * hierarchy. We have to win on specificity (form-scoped + nth-child
+ * selectors raise the bar), so we use a multi-class prefix and cover every
+ * descendant level used by the legacy stylesheet. */
+.node-builder form .SelectInput,
+.node-builder form .MultiSelectInput,
+.node-builder form .TagsInput {
+  background: transparent !important;
+  background-color: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  font-size: 13px;
+}
+
+/* Override the specific react-select internals the legacy stylesheet paints.
+ * Targeting react-select's generated class names ([class*='-...']) is much
+ * cheaper for the style engine than walking deep `div div div` chains, and
+ * `.node-builder form .SelectInput [class*='-x']` (0,3,2) beats the legacy
+ * `form .SelectInput div:first-child` (0,2,2). */
+.node-builder form .SelectInput div[class*='-singleValue'],
+.node-builder form .SelectInput div[class*='-placeholder'],
+.node-builder form .SelectInput div[class*='-input'],
+.node-builder form .SelectInput div[class*='-IndicatorsContainer'],
+.node-builder form .SelectInput div[class*='-indicatorContainer'],
+.node-builder form .SelectInput span[class*='-indicatorSeparator'],
+.node-builder form .MultiSelectInput div[class*='-placeholder'],
+.node-builder form .MultiSelectInput div[class*='-input'],
+.node-builder form .MultiSelectInput div[class*='-IndicatorsContainer'],
+.node-builder form .MultiSelectInput div[class*='-indicatorContainer'],
+.node-builder form .MultiSelectInput span[class*='-indicatorSeparator'],
+.node-builder form .TagsInput div[class*='-placeholder'],
+.node-builder form .TagsInput div[class*='-input'],
+.node-builder form .TagsInput div[class*='-IndicatorsContainer'],
+.node-builder form .TagsInput div[class*='-indicatorContainer'],
+.node-builder form .TagsInput span[class*='-indicatorSeparator'] {
+  background: transparent !important;
+  background-color: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+/* The hidden text input inside react-select must not get the legacy
+ * `form input` chunky pill treatment. */
+.node-builder form .SelectInput input,
+.node-builder form .MultiSelectInput input,
+.node-builder form .TagsInput input {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  height: auto !important;
+  font-size: 13px !important;
+}
+
+/* Style react-select's Control with the planner aesthetic — but DON'T
+ * force an explicit height. Let react-select's own flex layout center
+ * placeholder/singleValue/chips naturally. */
+.node-builder form div[class*='-control'] {
+  background: var(--planner-surface, #ffffff) !important;
+  border: 1px solid var(--planner-border, #e2e8f0) !important;
+  border-radius: var(--radius-sm, 4px) !important;
+  box-shadow: none !important;
+}
+
+.node-builder form div[class*='-control']:hover {
+  border-color: var(--planner-border, #cbd5e1) !important;
+}
+
+.node-builder form div[class*='-control'][class*='--is-focused'] {
+  border-color: var(--accent-primary, #3b82f6) !important;
+  box-shadow: none !important;
+}
+
+/* Hide the IndicatorSeparator (cosmetic vertical bar) — cube page does too */
+.node-builder form span[class*='-indicatorSeparator'] {
+  display: none !important;
+}
+
+/* Belt-and-braces: target by structural position too, with the
+ * .node-builder-main prefix to push specificity to (0,4,2) and beat
+ * the legacy `form .SelectInput div:first-child` (0,2,2) decisively. */
+.node-builder .node-builder-main form .SelectInput > div:first-child,
+.node-builder .node-builder-main form .MultiSelectInput > div:first-child,
+.node-builder .node-builder-main form .TagsInput > div:first-child {
+  background: var(--planner-surface, #ffffff) !important;
+  background-color: var(--planner-surface, #ffffff) !important;
+  border: 1px solid var(--planner-border, #e2e8f0) !important;
+  border-radius: var(--radius-sm, 4px) !important;
+  box-shadow: none !important;
+}
+
+/* Same nuclear-specificity treatment for the wrapper, in case any other
+ * rule is painting the .SelectInput / .MultiSelectInput wrapper gray. */
+.node-builder .node-builder-main form .SelectInput,
+.node-builder .node-builder-main form .MultiSelectInput,
+.node-builder .node-builder-main form .TagsInput {
+  background: transparent !important;
+  background-color: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+/* ValueContainer holds chips + input — keep it tight */
+.node-builder form div[class*='-ValueContainer'],
+.node-builder form div[class*='valueContainer'] {
+  padding: 2px 6px !important;
+}
+
+/* Restore the dropdown menu — multi-class prefix so we beat the
+ * `.SelectInput div div` (etc.) transparent-background strip above. */
+.node-builder form .SelectInput div[class*='-menu'],
+.node-builder form .MultiSelectInput div[class*='-menu'],
+.node-builder form .TagsInput div[class*='-menu'],
+.node-builder form div[class*='-menu'] {
+  background: var(--planner-surface, #ffffff) !important;
+  background-color: var(--planner-surface, #ffffff) !important;
+  border: 1px solid var(--planner-border, #e2e8f0) !important;
+  border-radius: var(--radius-sm, 4px) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+  z-index: 10;
+}
+
+.node-builder form .SelectInput div[class*='-MenuList'],
+.node-builder form .MultiSelectInput div[class*='-MenuList'],
+.node-builder form .TagsInput div[class*='-MenuList'],
+.node-builder form div[class*='-MenuList'] {
+  background: var(--planner-surface, #ffffff) !important;
+  background-color: var(--planner-surface, #ffffff) !important;
+  padding: 4px 0 !important;
+}
+
+.node-builder form .SelectInput div[class*='-option'],
+.node-builder form .MultiSelectInput div[class*='-option'],
+.node-builder form .TagsInput div[class*='-option'],
+.node-builder form div[class*='-option'] {
+  background: transparent !important;
+  color: var(--planner-text, #1e293b) !important;
+  padding: 6px 12px !important;
+  cursor: pointer;
+}
+
+.node-builder form div[class*='-option']:hover,
+.node-builder form div[class*='-option']:active,
+.node-builder form div[class*='-option'][class*='--is-focused'] {
+  background: var(--planner-surface-hover, #f1f5f9) !important;
+}
+
+/* Multi-value chips */
+.node-builder div[class*='multiValue'] {
+  background: var(--planner-surface-hover, #f1f5f9) !important;
+  border-radius: 3px !important;
+  margin: 2px 4px 2px 0 !important;
+  padding: 0 !important;
+}
+
+.node-builder div[class*='multiValueLabel'] {
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  color: var(--planner-text, #1e293b) !important;
+  background: transparent !important;
+  padding: 2px 4px !important;
+}
+
+.node-builder div[class*='multiValueRemove']:hover {
+  background: rgba(220, 38, 38, 0.1) !important;
+  color: var(--accent-error, #dc2626) !important;
+}
+
+/* Indicators (dropdown arrow / clear) */
+.node-builder div[class*='-indicatorContainer'] {
+  padding: 4px 8px !important;
+  color: var(--planner-text-muted, #64748b) !important;
+}
+
+/* Two-column rows (Namespace | Display Name, Mode | Owners) */
+.node-builder .node-row {
+  display: flex;
+  gap: 16px;
+  margin: 0 0 16px 0;
+  align-items: flex-end;
+}
+
+.node-builder .node-row > * {
+  flex: 1;
+  min-width: 0;
+  margin: 0 !important;
+}
+
+.node-builder .node-row-narrow {
+  flex: 0 0 160px !important;
+}
+
+.node-builder .node-row-grow {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The Mode select shouldn't stretch full width */
+.node-builder .NodeModeInput select {
+  width: 100%;
+}
+
+/* Save button — matches the cube page save button */
+.node-builder form .save-node-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: auto;
+  min-width: 160px;
+  margin: 16px 0 0 0;
+  padding: 10px 20px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  text-transform: none;
+  letter-spacing: 0;
+  background: var(--accent-primary, #3b82f6);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm, 4px);
+  box-shadow: none;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.node-builder form .save-node-btn:hover {
+  background: #2563eb;
+}
+
+.node-builder form .save-node-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.node-builder form .save-node-btn.save-node-btn--saved,
+.node-builder form .save-node-btn.save-node-btn--saved:disabled {
+  background: var(--accent-success, #059669);
+  opacity: 1;
+  cursor: default;
+}
+
+.node-builder form .save-node-btn.save-node-btn--loading,
+.node-builder form .save-node-btn.save-node-btn--loading:disabled {
+  opacity: 1;
+  cursor: wait;
+}
+
+/* Validation error message (spans rendered by Formik's ErrorMessage) */
+.node-builder form .DisplayNameInput span,
+.node-builder form .FullNameInput span,
+.node-builder form .NamespaceInput span {
+  color: var(--accent-error, #dc2626);
+  font-size: 11px;
+}
+
+/* Field help text used by UpstreamNode and MetricQuery */
+.node-builder .field-help-text {
+  font-size: 11px;
+  color: var(--planner-text-muted, #64748b);
+  margin: 2px 0 6px 0;
+}

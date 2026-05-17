@@ -8,6 +8,7 @@ import NamespaceHeader from '../../components/NamespaceHeader';
 import { useContext, useEffect, useState } from 'react';
 import DJClientContext from '../../providers/djclient';
 import 'styles/node-creation.scss';
+import './styles.css';
 import { useParams, useNavigate } from 'react-router-dom';
 import { FullNameField } from './FullNameField';
 import { MetricQueryField } from './MetricQueryField';
@@ -413,100 +414,99 @@ export function AddEditNodePage({ extensions = {} }) {
             : ''
         }
       />
-      <div className="card">
-        <div className="card-header">
-          {pageTitle}
-          <center>
-            <Formik
-              initialValues={initialValues}
-              validate={validator}
-              validateOnChange={true}
-              validateOnBlur={true}
-              onSubmit={async (values, { setSubmitting, setStatus }) => {
-                try {
-                  for (const handler of submitHandlers) {
-                    await handler(values, { setSubmitting, setStatus });
-                  }
-                } catch (error) {
-                  console.error('Error in submission', error);
-                } finally {
-                  setSubmitting(false);
+      <div className="node-builder">
+        <div className="node-builder-main">
+          <Formik
+            initialValues={initialValues}
+            validate={validator}
+            validateOnChange={true}
+            validateOnBlur={true}
+            onSubmit={async (values, { setSubmitting, setStatus }) => {
+              try {
+                for (const handler of submitHandlers) {
+                  await handler(values, { setSubmitting, setStatus });
                 }
-              }}
-            >
-              {function Render(formikProps) {
-                const {
-                  isSubmitting,
-                  status,
-                  setFieldValue,
-                  errors,
-                  touched,
-                  isValid,
-                  dirty,
-                } = formikProps;
-                const [node, setNode] = useState([]);
-                const [selectPrimaryKey, setSelectPrimaryKey] = useState(null);
-                const [selectRequiredDims, setSelectRequiredDims] =
-                  useState(null);
-                const [selectUpstreamNode, setSelectUpstreamNode] =
-                  useState(null);
-                const [selectOwners, setSelectOwners] = useState(null);
-                const [selectTags, setSelectTags] = useState(null);
-                const [message, setMessage] = useState('');
+              } catch (error) {
+                console.error('Error in submission', error);
+              } finally {
+                setSubmitting(false);
+              }
+            }}
+          >
+            {function Render(formikProps) {
+              const {
+                isSubmitting,
+                status,
+                setFieldValue,
+                errors,
+                touched,
+                isValid,
+                dirty,
+              } = formikProps;
+              const [node, setNode] = useState([]);
+              const [selectPrimaryKey, setSelectPrimaryKey] = useState(null);
+              const [selectRequiredDims, setSelectRequiredDims] =
+                useState(null);
+              const [selectUpstreamNode, setSelectUpstreamNode] =
+                useState(null);
+              const [selectOwners, setSelectOwners] = useState(null);
+              const [selectTags, setSelectTags] = useState(null);
+              const [message, setMessage] = useState('');
 
-                useEffect(() => {
-                  const fetchData = async () => {
-                    if (action === Action.Edit) {
-                      const data = await getExistingNodeData(name);
-                      runValidityChecks(data, setNode, setMessage);
-                      updateFieldsWithNodeData(
-                        data,
-                        setFieldValue,
-                        setNode,
-                        setSelectTags,
-                        setSelectPrimaryKey,
-                        setSelectUpstreamNode,
-                        setSelectRequiredDims,
-                        setSelectOwners,
-                      );
-                    }
-                  };
-                  fetchData().catch(console.error);
-                }, [setFieldValue]);
-                return (
-                  <Form>
-                    {displayMessageAfterSubmit(status)}
-                    {action === Action.Edit && message ? (
-                      <AlertMessage message={message} />
-                    ) : (
-                      <>
-                        {action === Action.Add ? (
-                          <NamespaceField initialNamespace={initialNamespace} />
-                        ) : (
-                          staticFieldsInEdit(node)
-                        )}
-                        <DisplayNameField />
+              useEffect(() => {
+                const fetchData = async () => {
+                  if (action === Action.Edit) {
+                    const data = await getExistingNodeData(name);
+                    runValidityChecks(data, setNode, setMessage);
+                    updateFieldsWithNodeData(
+                      data,
+                      setFieldValue,
+                      setNode,
+                      setSelectTags,
+                      setSelectPrimaryKey,
+                      setSelectUpstreamNode,
+                      setSelectRequiredDims,
+                      setSelectOwners,
+                    );
+                  }
+                };
+                fetchData().catch(console.error);
+              }, [setFieldValue]);
+              return (
+                <Form>
+                  {displayMessageAfterSubmit(status)}
+                  {action === Action.Edit && message ? (
+                    <AlertMessage message={message} />
+                  ) : (
+                    <>
+                      <div className="node-builder-form-header">
+                        {pageTitle}
+                        <NodeModeField />
+                      </div>
+
+                      <div className="node-group">
+                        <div className="node-row">
+                          {action === Action.Add ? (
+                            <NamespaceField
+                              initialNamespace={initialNamespace}
+                            />
+                          ) : (
+                            staticFieldsInEdit(node)
+                          )}
+                          <DisplayNameField />
+                        </div>
                         {action === Action.Add ? fullNameInput : ''}
                         <DescriptionField />
-                        <br />
+                      </div>
+
+                      <div className="node-group">
                         {nodeType === 'metric' || node?.type === 'metric' ? (
                           action === Action.Edit ? (
                             selectUpstreamNode
                           ) : (
                             <UpstreamNodeField />
                           )
-                        ) : (
-                          ''
-                        )}
-                        <br />
-                        <br />
-                        {action === Action.Edit ? (
-                          selectOwners
-                        ) : (
-                          <OwnersField />
-                        )}
-                        <br />
-                        <br />
+                        ) : null}
                         {nodeType === 'metric' || node.type === 'metric' ? (
                           <MetricQueryField
                             djClient={djClient}
@@ -522,12 +522,12 @@ export function AddEditNodePage({ extensions = {} }) {
                             value={node.query ? node.query : ''}
                           />
                         )}
-                        <br />
-                        {nodeType === 'metric' || node.type === 'metric' ? (
+                        {(nodeType === 'metric' || node.type === 'metric') && (
                           <MetricMetadataFields />
-                        ) : (
-                          ''
                         )}
+                      </div>
+
+                      <div className="node-group">
                         {nodeType !== 'metric' && node.type !== 'metric' ? (
                           action === Action.Edit ? (
                             selectPrimaryKey
@@ -544,11 +544,6 @@ export function AddEditNodePage({ extensions = {} }) {
                         ) : (
                           <RequiredDimensionsSelect />
                         )}
-                        <CustomMetadataField
-                          value={
-                            node.custom_metadata ? node.custom_metadata : ''
-                          }
-                        />
                         {Object.entries(extensions).map(
                           ([key, ExtensionComponent]) => (
                             <div key={key} className="mt-4 border-t pt-4">
@@ -571,27 +566,50 @@ export function AddEditNodePage({ extensions = {} }) {
                             </div>
                           ),
                         )}
-                        {action === Action.Edit ? selectTags : <TagsField />}
-                        <NodeModeField />
+                      </div>
 
-                        <button
-                          type="submit"
-                          disabled={isSubmitting || !isValid}
-                        >
-                          {isSubmitting ? (
-                            <LoadingIcon />
+                      <div className="node-group">
+                        <div className="node-row">
+                          {action === Action.Edit ? (
+                            selectOwners
                           ) : (
-                            (action === Action.Add ? 'Create ' : 'Save ') +
-                            (nodeType ? nodeType : '')
+                            <OwnersField />
                           )}
-                        </button>
-                      </>
-                    )}
-                  </Form>
-                );
-              }}
-            </Formik>
-          </center>
+                          {action === Action.Edit ? selectTags : <TagsField />}
+                        </div>
+                      </div>
+
+                      <div className="node-group node-group-last">
+                        <CustomMetadataField
+                          value={
+                            node.custom_metadata ? node.custom_metadata : ''
+                          }
+                        />
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={isSubmitting || !isValid}
+                        className={`save-node-btn${
+                          isSubmitting ? ' save-node-btn--loading' : ''
+                        }`}
+                      >
+                        {isSubmitting ? (
+                          <>
+                            <LoadingIcon />
+                            Saving...
+                          </>
+                        ) : (
+                          (action === Action.Add ? 'Create ' : 'Save ') +
+                          (nodeType ? nodeType : '')
+                        )}
+                      </button>
+                    </>
+                  )}
+                </Form>
+              );
+            }}
+          </Formik>
         </div>
       </div>
     </div>

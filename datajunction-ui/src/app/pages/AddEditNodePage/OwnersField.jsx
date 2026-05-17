@@ -34,7 +34,7 @@ export const OwnersField = ({ defaultValue }) => {
       <label htmlFor="Owners">Owners</label>
       <span data-testid="select-owner">
         <FormikSelect
-          className="MultiSelectInput"
+          className=""
           defaultValue={
             defaultValue || [
               { value: currentUser.username, label: currentUser.username },
