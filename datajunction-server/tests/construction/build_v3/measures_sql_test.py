@@ -6409,11 +6409,10 @@ class TestFilterPushdownScope:
         )
 
     @pytest.mark.asyncio
-    async def test_self_join_filters_first_alias_only(self, client_with_build_v3):
-        """Same source aliased twice in a single FROM.  ``find_all`` returns
-        the first Table match; the filter rewrites against that alias and
-        the second instance is unconstrained.  Documented limitation —
-        v3 has no way to know which side of the self-join the user meant.
+    async def test_self_join_filters_both_aliases(self, client_with_build_v3):
+        """Same source aliased twice in a single FROM.  The dim filter
+        logically applies to both instances — v3 injects one filter per
+        Table match, each qualified with that instance's alias.
         """
         client = client_with_build_v3
         await _setup_audit_dim(client)
@@ -6460,6 +6459,7 @@ class TestFilterPushdownScope:
               JOIN default.v3.audit_log_selfjoin AS a2
                 ON a1.account_id = a2.account_id
               WHERE a1.audit_date >= 20260101
+                AND a2.audit_date >= 20260101
             )
             SELECT t1.event_type, t1.account_id
             FROM v3_events_self_join t1
