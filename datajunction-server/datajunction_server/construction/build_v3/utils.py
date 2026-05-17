@@ -8,6 +8,7 @@ from datajunction_server.construction.build_v3.filters import (
     parse_filter,
 )
 from datajunction_server.database.node import Node
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.parsing import ast
 from datajunction_server.utils import SEPARATOR
 
@@ -296,6 +297,45 @@ def add_dimensions_from_metric_expressions(
                         )
 
 
+async def preload_filter_metric_refs(ctx: "BuildContext") -> None:
+    """
+    Pre-load any nodes referenced by filters so we can detect metric filters
+    before ``add_dimensions_from_filters`` would otherwise treat them as
+    dimension refs (and produce confusing join-path errors downstream).
+
+    Filter-refs that resolve to non-node names (true dimension attribute paths
+    like ``v3.product.category``) are simply absent from the result — those
+    continue to flow through ``add_dimensions_from_filters`` unchanged.
+    """
+    # Local imports to avoid circulars.
+    from datajunction_server.construction.build_v3.filters import (
+        get_filter_column_references,
+    )
+
+    if not ctx.filters:
+        return
+
+    candidate_names: set[str] = set()
+    for filter_str in ctx.filters:
+        try:
+            refs = get_filter_column_references(filter_str)
+        except Exception:  # pragma: no cover
+            continue
+        for ref in refs:
+            # Skip refs already loaded as part of ctx.metrics or anything we
+            # have on hand.
+            if ref in ctx.nodes:
+                continue
+            candidate_names.add(ref)
+
+    if not candidate_names:
+        return
+
+    nodes = await Node.get_by_names(ctx.session, list(candidate_names))
+    for node in nodes:
+        ctx.nodes[node.name] = node
+
+
 def add_dimensions_from_filters(ctx: "BuildContext") -> None:
     """
     Scan filter expressions for dimension references and add them to ctx.dimensions.
@@ -415,10 +455,18 @@ def add_dimensions_from_filters(ctx: "BuildContext") -> None:
                 # Already in dimensions, no need to add
                 continue
 
-            # Skip if this is a metric reference, not a dimension
-            # Metrics in WHERE clauses should be treated as HAVING conditions,
-            # not dimension joins
+            # Skip if this is a metric reference, not a dimension.
+            # Metrics in filter expressions become HAVING conditions, not
+            # dimension joins. We catch both the (common) case where the metric
+            # is in the requested list, and the case where the user filtered on
+            # a metric that's NOT in the metrics list — the latter is a
+            # validation error raised later by classify_filters, but we must
+            # avoid auto-adding it as a dimension here or downstream join
+            # resolution would fail first with a confusing error.
             if full_name in ctx.metrics:
+                continue
+            ref_node = ctx.nodes.get(full_name)
+            if ref_node is not None and ref_node.type == NodeType.METRIC:
                 continue
 
             # Check if any existing dimension already covers this (node, column)
