@@ -2330,7 +2330,12 @@ class TestDeployments:
             client,
             DeploymentSpec(namespace=namespace, nodes=[]),
         )
-        assert data["results"][-1] == {
+        deletes = {
+            (r["deploy_type"], r["name"]): r
+            for r in data["results"]
+            if r["operation"] == "delete"
+        }
+        assert deletes[("node", "node_update.default.hard_hats")] == {
             "deploy_type": "node",
             "message": "Node node_update.default.hard_hats has been removed.",
             "name": "node_update.default.hard_hats",
@@ -2338,6 +2343,76 @@ class TestDeployments:
             "changed_fields": [],
             "status": "success",
         }
+        # The child namespace is no longer referenced by any local node —
+        # dj push syncs the namespace with the folder, so it should be
+        # pruned. The deployment root namespace itself is preserved.
+        assert deletes[("namespace", "node_update.default")] == {
+            "deploy_type": "namespace",
+            "message": "Namespace node_update.default has been removed.",
+            "name": "node_update.default",
+            "operation": "delete",
+            "changed_fields": [],
+            "status": "success",
+        }
+        assert ("namespace", "node_update") not in deletes
+
+    @pytest.mark.asyncio
+    async def test_deploy_prunes_nested_namespaces(
+        self,
+        client,
+    ):
+        """
+        dj push should sync the namespace with the spec contents: when a
+        whole sub-namespace's nodes disappear from the spec, the matching
+        ``NodeNamespace`` rows are pruned too (deepest-first), but the
+        deployment root namespace itself is preserved.
+        """
+        namespace = "ns_sync"
+
+        def src(name: str) -> SourceSpec:
+            return SourceSpec(
+                name=name,
+                catalog="default",
+                schema="roads",
+                table=name.rsplit(".", 1)[-1],
+                columns=[ColumnSpec(name="id", type="int")],
+            )
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[src("a.deep.x"), src("b.y")],
+            ),
+        )
+        assert data["status"] == "success"
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[src("a.deep.x")],
+            ),
+        )
+        deletes = {
+            (r["deploy_type"], r["name"])
+            for r in data["results"]
+            if r["operation"] == "delete" and r["status"] == "success"
+        }
+        assert ("node", "ns_sync.b.y") in deletes
+        assert ("namespace", "ns_sync.b") in deletes
+        # Surviving branch and the deployment root are preserved.
+        assert ("namespace", "ns_sync.a") not in deletes
+        assert ("namespace", "ns_sync.a.deep") not in deletes
+        assert ("namespace", "ns_sync") not in deletes
+
+        # Verify on the server: ns_sync.b is gone, the rest remain.
+        resp = await client.get("/namespaces/")
+        all_namespaces = {n["namespace"] for n in resp.json()}
+        assert "ns_sync" in all_namespaces
+        assert "ns_sync.a" in all_namespaces
+        assert "ns_sync.a.deep" in all_namespaces
+        assert "ns_sync.b" not in all_namespaces
 
     @pytest.mark.asyncio
     async def test_deploy_tags(
