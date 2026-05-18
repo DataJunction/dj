@@ -34,6 +34,49 @@ def make_func(name: str, *args: ast.Expression | str) -> ast.Function:
     )
 
 
+def safe_denominator(expr: ast.Expression) -> ast.Expression:
+    """Wrap ``expr`` in ``NULLIF(expr, 0)`` to make it safe as a divisor.
+
+    Idempotent — if ``expr`` is already ``NULLIF(..., 0)`` (or a numeric
+    literal), it's returned unchanged.  Caller's responsibility to pass
+    only the ``right`` side of a Divide.
+    """
+    # Already a literal — division by literal 0 is the author's intent
+    # and we should preserve it as-is (most likely the literal isn't 0).
+    if isinstance(expr, ast.Number):
+        return expr
+    # Already wrapped in NULLIF(x, 0)
+    if (
+        isinstance(expr, ast.Function)
+        and expr.name.name.upper() == "NULLIF"
+        and len(expr.args) == 2
+        and isinstance(expr.args[1], ast.Number)
+        and expr.args[1].value == 0
+    ):
+        return expr
+    return ast.Function(
+        ast.Name("NULLIF"),
+        args=[expr, ast.Number(value=0)],
+    )
+
+
+def wrap_divisions_in_nullif(expr: ast.Expression) -> ast.Expression:
+    """Walk ``expr`` and wrap the right-hand side of every Divide ``BinaryOp``
+    in ``NULLIF(..., 0)`` so division-by-zero produces NULL instead of
+    NaN/Infinity/error.
+
+    Returns ``expr`` (mutated in place where possible).  Idempotent via
+    :func:`safe_denominator`.
+    """
+    for node in expr.find_all(ast.BinaryOp):
+        if node.op != ast.BinaryOpKind.Divide:
+            continue
+        wrapped = safe_denominator(node.right)
+        if wrapped is not node.right:
+            node.right = wrapped
+    return expr
+
+
 # =============================================================================
 # Decomposition Framework
 # =============================================================================
@@ -1080,6 +1123,12 @@ class MetricComponentExtractor:
             )
         else:
             combiner_ast = decomposition.combine(components)
+            # Auto-wrap every Divide's RHS in NULLIF(_, 0).  Decomposed AVG /
+            # variance / stddev / covariance all construct ``SUM(...) /
+            # SUM(count)`` patterns where the denominator can legitimately
+            # be 0; without NULLIF the result is NaN/Infinity/error
+            # depending on dialect.  Idempotent.
+            combiner_ast = wrap_divisions_in_nullif(combiner_ast)
 
         return DecompositionResult(components, combiner_ast)
 

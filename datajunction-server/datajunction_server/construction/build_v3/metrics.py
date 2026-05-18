@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from datajunction_server.construction.build_v3.cte import (
     build_alias_to_dimension_node,
@@ -686,6 +686,13 @@ def build_intermediate_metric_expr(
                 # The dependency hasn't been built, so defer this metric
                 return None  # pragma: no cover
 
+    # Auto-wrap every Divide's RHS in NULLIF(_, 0).  Intermediate
+    # derived metrics like ``avg_order_value = total_revenue /
+    # order_count`` inline raw aggregations on both sides; without
+    # NULLIF the result is NaN/Infinity/error when the denominator is 0.
+    from datajunction_server.sql.decompose import wrap_divisions_in_nullif
+
+    wrap_divisions_in_nullif(cast(ast.Expression, expr_ast))
     return expr_ast  # type: ignore
 
 

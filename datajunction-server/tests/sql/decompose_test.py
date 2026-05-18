@@ -344,7 +344,7 @@ async def test_average(session: AsyncSession, create_metric):
     assert_sql_equal(
         str(derived_sql),
         "SELECT SUM(sales_amount_sum_b5a3cefe) / "
-        "SUM(sales_amount_count_b5a3cefe) FROM parent_node",
+        "NULLIF(SUM(sales_amount_count_b5a3cefe), 0) FROM parent_node",
     )
 
 
@@ -862,7 +862,7 @@ async def test_metric_query_with_aliases(session: AsyncSession, create_metric):
     assert_sql_equal(
         str(derived_sql),
         "SELECT SUM(time_to_dispatch_sum_3bc9baed) / "
-        "SUM(time_to_dispatch_count_3bc9baed) FROM default.repair_orders_fact",
+        "NULLIF(SUM(time_to_dispatch_count_3bc9baed), 0) FROM default.repair_orders_fact",
     )
 
 
@@ -1254,8 +1254,8 @@ async def test_var_pop(session: AsyncSession, create_metric):
         derived_str,
         """
       SELECT
-        SUM(price_sum_sq_726db899) / SUM(price_count_726db899) -
-        POWER(SUM(price_sum_726db899) / SUM(price_count_726db899), 2)
+        SUM(price_sum_sq_726db899) / NULLIF(SUM(price_count_726db899), 0) -
+        POWER(SUM(price_sum_726db899) / NULLIF(SUM(price_count_726db899), 0), 2)
       FROM parent_node""",
     )
 
@@ -1279,7 +1279,7 @@ async def test_var_samp(session: AsyncSession, create_metric):
         str(derived_sql),
         """
       SELECT
-        SUM(price_count_726db899) * SUM(price_sum_sq_726db899) - POWER(SUM(price_sum_726db899), 2) / SUM(price_count_726db899) * SUM(price_count_726db899) - 1
+        SUM(price_count_726db899) * SUM(price_sum_sq_726db899) - POWER(SUM(price_sum_726db899), 2) / NULLIF(SUM(price_count_726db899) * SUM(price_count_726db899) - 1, 0)
       FROM parent_node""",
     )
 
@@ -1306,8 +1306,8 @@ async def test_stddev_pop(session: AsyncSession, create_metric):
         derived_str,
         """SELECT
         SQRT(
-          SUM(price_sum_sq_726db899) / SUM(price_count_726db899) -
-          POWER(SUM(price_sum_726db899) / SUM(price_count_726db899), 2)
+          SUM(price_sum_sq_726db899) / NULLIF(SUM(price_count_726db899), 0) -
+          POWER(SUM(price_sum_726db899) / NULLIF(SUM(price_count_726db899), 0), 2)
         )
       FROM parent_node""",
     )
@@ -1338,7 +1338,7 @@ async def test_stddev_samp(session: AsyncSession, create_metric):
         SQRT(
           SUM(price_count_726db899) * SUM(price_sum_sq_726db899) -
           POWER(SUM(price_sum_726db899), 2) /
-          SUM(price_count_726db899) * SUM(price_count_726db899) - 1
+          NULLIF(SUM(price_count_726db899) * SUM(price_count_726db899) - 1, 0)
         )
       FROM parent_node""",
     )
@@ -2155,3 +2155,83 @@ async def test_extract_nested_derived_with_avg(
     # Derived SQL should contain the AVG combiner (SUM/COUNT pattern)
     assert "SUM(" in derived_sql
     assert "/" in derived_sql  # Division from AVG decomposition
+
+
+# =============================================================================
+# Division-safety NULLIF auto-wrapping
+# =============================================================================
+
+
+def test_safe_denominator_idempotent():
+    """``safe_denominator`` wraps once and only once."""
+    from datajunction_server.sql.decompose import safe_denominator
+    from datajunction_server.sql.parsing.backends.antlr4 import ast
+
+    inner = ast.Function(ast.Name("SUM"), args=[ast.Column(ast.Name("n"))])
+    wrapped = safe_denominator(inner)
+    assert_sql_equal(str(wrapped), "NULLIF(SUM(n), 0)")
+    # Re-wrapping returns the same expression unchanged.
+    re_wrapped = safe_denominator(wrapped)
+    assert re_wrapped is wrapped
+
+
+def test_safe_denominator_preserves_literal():
+    """Numeric literals (e.g. ``x / 100``) don't need NULLIF."""
+    from datajunction_server.sql.decompose import safe_denominator
+    from datajunction_server.sql.parsing.backends.antlr4 import ast
+
+    lit = ast.Number(value=100)
+    assert safe_denominator(lit) is lit
+
+
+def test_wrap_divisions_in_nullif_walks_nested():
+    """Every nested Divide in the expression tree gets its RHS wrapped."""
+    from datajunction_server.sql.decompose import wrap_divisions_in_nullif
+    from datajunction_server.sql.parsing.backends.antlr4 import parse
+
+    expr = parse(
+        "SELECT (SUM(a) / SUM(b)) - (SUM(c) / SUM(d)) FROM t",
+    ).select.projection[0]
+    wrap_divisions_in_nullif(expr)
+    assert_sql_equal(
+        str(expr),
+        "(SUM(a) / NULLIF(SUM(b), 0)) - (SUM(c) / NULLIF(SUM(d), 0))",
+    )
+
+
+@pytest.mark.asyncio
+async def test_avg_decomposition_wraps_denominator(
+    session: AsyncSession,
+    create_metric,
+):
+    """The AVG combiner is auto-wrapped so 0/0 produces NULL instead of
+    NaN/Infinity/error.  Together with the unit-level ``test_average``
+    above, locks in the auto-wrap behaviour end-to-end via decomposition.
+    """
+    metric_rev = await create_metric("SELECT AVG(amount) FROM parent_node")
+    extractor = MetricComponentExtractor(metric_rev.id)
+    _, derived_sql = await extractor.extract(session)
+    assert_sql_equal(
+        str(derived_sql),
+        "SELECT SUM(amount_sum_67a0b14a) / NULLIF(SUM(amount_count_67a0b14a), 0) "
+        "FROM parent_node",
+    )
+
+
+@pytest.mark.asyncio
+async def test_user_authored_division_not_double_wrapped(
+    session: AsyncSession,
+    create_metric,
+):
+    """If the author already wrote ``NULLIF(denominator, 0)``, the
+    auto-wrap is idempotent — no double-wrap.
+    """
+    metric_rev = await create_metric(
+        "SELECT SUM(x) / NULLIF(SUM(y), 0) FROM parent_node",
+    )
+    extractor = MetricComponentExtractor(metric_rev.id)
+    _, derived_sql = await extractor.extract(session)
+    assert_sql_equal(
+        str(derived_sql),
+        "SELECT SUM(x_sum_22e2f0d6) / NULLIF(SUM(y_sum_22e2f0d6), 0) FROM parent_node",
+    )
