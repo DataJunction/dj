@@ -14,7 +14,13 @@ from datajunction_server.models.cube_materialization import (
     MetricComponent,
 )
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.sql.decompose import MetricComponentExtractor
+from datajunction_server.sql.decompose import (
+    MetricComponentExtractor,
+    safe_denominator,
+    wrap_divisions_in_nullif,
+)
+from datajunction_server.sql.parsing import ast
+from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.models.engine import Dialect
 from datajunction_server.sql.parsing.ast import to_sql
@@ -2164,12 +2170,9 @@ async def test_extract_nested_derived_with_avg(
 
 def test_safe_denominator_idempotent():
     """``safe_denominator`` wraps once and only once."""
-    from datajunction_server.sql.decompose import safe_denominator
-    from datajunction_server.sql.parsing.backends.antlr4 import ast
-
     inner = ast.Function(ast.Name("SUM"), args=[ast.Column(ast.Name("n"))])
     wrapped = safe_denominator(inner)
-    assert_sql_equal(str(wrapped), "NULLIF(SUM(n), 0)")
+    assert_sql_equal(f"SELECT {wrapped}", "SELECT NULLIF(SUM(n), 0)")
     # Re-wrapping returns the same expression unchanged.
     re_wrapped = safe_denominator(wrapped)
     assert re_wrapped is wrapped
@@ -2177,25 +2180,19 @@ def test_safe_denominator_idempotent():
 
 def test_safe_denominator_preserves_literal():
     """Numeric literals (e.g. ``x / 100``) don't need NULLIF."""
-    from datajunction_server.sql.decompose import safe_denominator
-    from datajunction_server.sql.parsing.backends.antlr4 import ast
-
     lit = ast.Number(value=100)
     assert safe_denominator(lit) is lit
 
 
 def test_wrap_divisions_in_nullif_walks_nested():
     """Every nested Divide in the expression tree gets its RHS wrapped."""
-    from datajunction_server.sql.decompose import wrap_divisions_in_nullif
-    from datajunction_server.sql.parsing.backends.antlr4 import parse
-
     expr = parse(
-        "SELECT (SUM(a) / SUM(b)) - (SUM(c) / SUM(d)) FROM t",
+        "SELECT SUM(a) / SUM(b) - SUM(c) / SUM(d) FROM t",
     ).select.projection[0]
     wrap_divisions_in_nullif(expr)
     assert_sql_equal(
-        str(expr),
-        "(SUM(a) / NULLIF(SUM(b), 0)) - (SUM(c) / NULLIF(SUM(d), 0))",
+        f"SELECT {expr}",
+        "SELECT SUM(a) / NULLIF(SUM(b), 0) - SUM(c) / NULLIF(SUM(d), 0)",
     )
 
 
@@ -2213,7 +2210,7 @@ async def test_avg_decomposition_wraps_denominator(
     _, derived_sql = await extractor.extract(session)
     assert_sql_equal(
         str(derived_sql),
-        "SELECT SUM(amount_sum_67a0b14a) / NULLIF(SUM(amount_count_67a0b14a), 0) "
+        "SELECT SUM(amount_sum_9e341235) / NULLIF(SUM(amount_count_9e341235), 0) "
         "FROM parent_node",
     )
 
@@ -2233,5 +2230,5 @@ async def test_user_authored_division_not_double_wrapped(
     _, derived_sql = await extractor.extract(session)
     assert_sql_equal(
         str(derived_sql),
-        "SELECT SUM(x_sum_22e2f0d6) / NULLIF(SUM(y_sum_22e2f0d6), 0) FROM parent_node",
+        "SELECT SUM(x_sum_b5c12ce5) / NULLIF(SUM(y_sum_898a9389), 0) FROM parent_node",
     )

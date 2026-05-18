@@ -50,6 +50,7 @@ from datajunction_server.construction.build_v3.types import (
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.decompose import Aggregability
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.sql.decompose import wrap_divisions_in_nullif
 from datajunction_server.sql.parsing import ast
 
 logger = logging.getLogger(__name__)
@@ -690,8 +691,6 @@ def build_intermediate_metric_expr(
     # derived metrics like ``avg_order_value = total_revenue /
     # order_count`` inline raw aggregations on both sides; without
     # NULLIF the result is NaN/Infinity/error when the denominator is 0.
-    from datajunction_server.sql.decompose import wrap_divisions_in_nullif
-
     wrap_divisions_in_nullif(cast(ast.Expression, expr_ast))
     return expr_ast  # type: ignore
 

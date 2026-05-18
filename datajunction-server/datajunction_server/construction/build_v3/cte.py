@@ -23,6 +23,7 @@ from datajunction_server.construction.build_v3.types import (
 from datajunction_server.construction.build_v3.utils import get_cte_name
 from datajunction_server.database.node import Node
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.sql.decompose import wrap_divisions_in_nullif
 from datajunction_server.sql.parsing import ast
 from datajunction_server.utils import SEPARATOR
 
@@ -1597,8 +1598,6 @@ def process_metric_combiner_expression(
     # ratio metrics don't produce NaN/Infinity/error on zero denominators.
     # Idempotent — denominators that already have NULLIF or a literal
     # constant are left alone.
-    from datajunction_server.sql.decompose import wrap_divisions_in_nullif
-
     wrap_divisions_in_nullif(expr_ast)
 
     return expr_ast
