@@ -2169,7 +2169,7 @@ async def test_extract_nested_derived_with_avg(
 
 
 def test_safe_denominator_idempotent():
-    """``safe_denominator`` wraps once and only once."""
+    """safe_denominator wraps once and only once."""
     inner = ast.Function(ast.Name("SUM"), args=[ast.Column(ast.Name("n"))])
     wrapped = safe_denominator(inner)
     assert_sql_equal(f"SELECT {wrapped}", "SELECT NULLIF(SUM(n), 0)")
@@ -2179,7 +2179,7 @@ def test_safe_denominator_idempotent():
 
 
 def test_safe_denominator_preserves_literal():
-    """Numeric literals (e.g. ``x / 100``) don't need NULLIF."""
+    """Numeric literals (e.g. x / 100) don't need NULLIF."""
     lit = ast.Number(value=100)
     assert safe_denominator(lit) is lit
 
@@ -2202,8 +2202,8 @@ async def test_avg_decomposition_wraps_denominator(
     create_metric,
 ):
     """The AVG combiner is auto-wrapped so 0/0 produces NULL instead of
-    NaN/Infinity/error.  Together with the unit-level ``test_average``
-    above, locks in the auto-wrap behaviour end-to-end via decomposition.
+    NaN/Infinity/error.  Together with the unit-level test_average above,
+    locks in the auto-wrap behaviour end-to-end via decomposition.
     """
     metric_rev = await create_metric("SELECT AVG(amount) FROM parent_node")
     extractor = MetricComponentExtractor(metric_rev.id)
@@ -2220,8 +2220,8 @@ async def test_user_authored_division_not_double_wrapped(
     session: AsyncSession,
     create_metric,
 ):
-    """If the author already wrote ``NULLIF(denominator, 0)``, the
-    auto-wrap is idempotent — no double-wrap.
+    """If the author already wrote NULLIF(denominator, 0), the auto-wrap
+    is idempotent — no double-wrap.
     """
     metric_rev = await create_metric(
         "SELECT SUM(x) / NULLIF(SUM(y), 0) FROM parent_node",

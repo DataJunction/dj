@@ -1594,10 +1594,8 @@ def process_metric_combiner_expression(
             partition_cte_alias=cte_alias,
         )
 
-    # Auto-wrap every Divide's RHS in NULLIF(_, 0) so user-authored
-    # ratio metrics don't produce NaN/Infinity/error on zero denominators.
-    # Idempotent — denominators that already have NULLIF or a literal
-    # constant are left alone.
+    # Wrap denominators so user-authored ratio metrics don't blow up on
+    # zero (NaN/Infinity/error → NULL).  Idempotent.
     wrap_divisions_in_nullif(expr_ast)
 
     return expr_ast
