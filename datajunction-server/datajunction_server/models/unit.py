@@ -165,7 +165,7 @@ class AtomicUnit(BaseModel):
             return self.code or "Count"
         if self.kind == UnitKind.UNITLESS:
             return "Unitless"
-        return ""
+        return ""  # pragma: no cover  (unreachable; every UnitKind handled above)
 
 
 class CompoundUnit(BaseModel):

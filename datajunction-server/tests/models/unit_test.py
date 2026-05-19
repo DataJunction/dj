@@ -94,13 +94,21 @@ class TestAtomicUnit:
         assert u.abbreviation() == "%"
         assert u.label() == "Percentage"
 
-    def test_proportion_label(self) -> None:
+    def test_proportion_abbreviation_and_label(self) -> None:
         u = AtomicUnit(kind=UnitKind.PROPORTION)
+        assert u.abbreviation() == ""
         assert u.label() == "Proportion"
 
-    def test_unitless_label(self) -> None:
+    def test_unitless_abbreviation_and_label(self) -> None:
         u = AtomicUnit(kind=UnitKind.UNITLESS)
+        assert u.abbreviation() == ""
         assert u.label() == "Unitless"
+
+    def test_time_abbreviation_for_known_codes(self) -> None:
+        assert AtomicUnit(kind=UnitKind.TIME, code="s").abbreviation() == "s"
+        assert AtomicUnit(kind=UnitKind.TIME, code="ms").abbreviation() == "ms"
+        assert AtomicUnit(kind=UnitKind.TIME, code="min").abbreviation() == "m"
+        assert AtomicUnit(kind=UnitKind.TIME, code="h").label() == "Hour"
 
 
 class TestCompoundUnit:

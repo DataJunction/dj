@@ -6219,6 +6219,7 @@ async def test_set_column_partition(client_with_roads: AsyncClient):
             "granularity": "hour",
         },
         "type": "timestamp",
+        "unit": None,
     }
 
     # Set state to categorical
@@ -6242,6 +6243,7 @@ async def test_set_column_partition(client_with_roads: AsyncClient):
             "granularity": None,
         },
         "type": "string",
+        "unit": None,
     }
 
     # Attempt to set country to temporal (missing granularity)
@@ -6303,6 +6305,7 @@ async def test_set_column_partition(client_with_roads: AsyncClient):
             "granularity": None,
         },
         "type": "string",
+        "unit": None,
     }
 
 
