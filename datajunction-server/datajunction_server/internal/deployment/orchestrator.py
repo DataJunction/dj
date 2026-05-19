@@ -279,9 +279,12 @@ class DeploymentPlan:
     existing_specs: dict[str, NodeSpec]
     node_graph: dict[str, list[str]]
     external_deps: set[str]
+    to_delete_namespaces: list[str] = field(default_factory=list)
 
     def is_empty(self) -> bool:
-        return not self.to_deploy and not self.to_delete
+        return (
+            not self.to_deploy and not self.to_delete and not self.to_delete_namespaces
+        )
 
     @property
     def linked_dimension_nodes(self) -> set[str]:
@@ -742,6 +745,35 @@ class DeploymentOrchestrator:
 
         return all_namespaces
 
+    async def _find_namespaces_to_delete(self) -> list[str]:
+        """
+        Identify child namespaces of the deployment namespace that no longer
+        appear in the local spec (folder structure) and should be pruned.
+
+        The root deployment namespace itself is never returned — ``dj push``
+        syncs *contents* of the namespace, not the namespace itself.
+        """
+        deployment_namespace = self.deployment_spec.namespace
+        desired = await self._find_namespaces_to_create()
+        existing = (
+            (
+                await self.session.execute(
+                    select(NodeNamespace.namespace).where(
+                        NodeNamespace.namespace.like(f"{deployment_namespace}.%"),
+                    ),
+                )
+            )
+            .scalars()
+            .all()
+        )
+        # Deepest-first so children are removed before their parents (the
+        # parent_namespace FK is ON DELETE RESTRICT).
+        return sorted(
+            (ns for ns in existing if ns not in desired),
+            key=lambda ns: (ns.count(SEPARATOR), ns),
+            reverse=True,
+        )
+
     async def _setup_namespaces(self) -> list[NodeNamespace]:
         namespace_start = time.perf_counter()
         to_create = await self._find_namespaces_to_create()
@@ -1061,6 +1093,10 @@ class DeploymentOrchestrator:
                 f"{len(to_deploy)} deploy, {len(to_skip)} skip, {len(to_delete)} delete",
             )
 
+        with self._timer.phase("  plan: diff namespaces") as p:
+            to_delete_namespaces = await self._find_namespaces_to_delete()
+            p.append(f"{len(to_delete_namespaces)} namespaces")
+
         # Add skipped nodes to results - flag nodes that are still invalid
         for node_spec in to_skip:
             existing_node = self.registry.nodes.get(node_spec.rendered_name)
@@ -1195,6 +1231,7 @@ class DeploymentOrchestrator:
                 existing_specs=existing_specs,
                 node_graph=node_graph,
                 external_deps=external_deps,
+                to_delete_namespaces=to_delete_namespaces,
             ),
             pre_results,
         )
@@ -1274,6 +1311,18 @@ class DeploymentOrchestrator:
                 delete_results = await self._delete_nodes(plan.to_delete)
                 p.append(f"{len(delete_results)} deleted")
             self.deployed_results.extend(delete_results)
+            await self._update_deployment_status()
+
+        # Prune child namespaces that no longer appear in the local spec.
+        # Runs after node deletion so namespaces are empty by the time we
+        # try to remove them.
+        if plan.to_delete_namespaces:
+            with timer.phase("delete namespaces") as p:
+                ns_results = await self._delete_namespaces(
+                    plan.to_delete_namespaces,
+                )
+                p.append(f"{len(ns_results)} namespaces")
+            self.deployed_results.extend(ns_results)
             await self._update_deployment_status()
 
         return downstream
@@ -2600,6 +2649,76 @@ class DeploymentOrchestrator:
                 operation=DeploymentResult.Operation.DELETE,
                 message=str(exc),
             )
+
+    async def _delete_namespaces(
+        self,
+        namespaces: list[str],
+    ) -> list[DeploymentResult]:
+        """
+        Hard-delete child ``NodeNamespace`` rows that are no longer referenced
+        by the local spec. ``namespaces`` must be sorted deepest-first so the
+        ``parent_namespace`` self-FK (ON DELETE RESTRICT) doesn't trip.
+
+        Skips any namespace that still has nodes — that means a node delete
+        was blocked earlier (e.g. external references). Per-result FAILED
+        entries surface the reason to the caller.
+        """
+        results: list[DeploymentResult] = []
+        for ns in namespaces:
+            remaining_nodes = (
+                await self.session.execute(
+                    select(func.count())
+                    .select_from(Node)
+                    .where(Node.namespace == ns)
+                    .where(Node.deactivated_at.is_(None)),
+                )
+            ).scalar() or 0
+            if remaining_nodes:
+                results.append(
+                    DeploymentResult(
+                        name=ns,
+                        deploy_type=DeploymentResult.Type.NAMESPACE,
+                        status=DeploymentResult.Status.FAILED,
+                        operation=DeploymentResult.Operation.DELETE,
+                        message=(
+                            f"Cannot delete namespace '{ns}' — {remaining_nodes} "
+                            "node(s) remain (likely blocked by external references)."
+                        ),
+                    ),
+                )
+                continue
+
+            ns_row = await get_node_namespace(
+                session=self.session,
+                namespace=ns,
+                raise_if_not_exists=False,
+            )
+            if not ns_row:  # pragma: no cover
+                continue
+            try:
+                await self.session.delete(ns_row)
+                await self.session.flush()
+                results.append(
+                    DeploymentResult(
+                        name=ns,
+                        deploy_type=DeploymentResult.Type.NAMESPACE,
+                        status=DeploymentResult.Status.SUCCESS,
+                        operation=DeploymentResult.Operation.DELETE,
+                        message=f"Namespace {ns} has been removed.",
+                    ),
+                )
+            except Exception as exc:  # pragma: no cover
+                logger.exception(exc)
+                results.append(
+                    DeploymentResult(
+                        name=ns,
+                        deploy_type=DeploymentResult.Type.NAMESPACE,
+                        status=DeploymentResult.Status.FAILED,
+                        operation=DeploymentResult.Operation.DELETE,
+                        message=str(exc),
+                    ),
+                )
+        return results
 
     def filter_nodes_to_deploy(
         self,

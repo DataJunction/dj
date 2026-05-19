@@ -781,6 +781,7 @@ class DeploymentResult(BaseModel):
         NODE = "node"
         LINK = "link"
         TAG = "tag"
+        NAMESPACE = "namespace"
         GENERAL = "general"
 
     name: str
