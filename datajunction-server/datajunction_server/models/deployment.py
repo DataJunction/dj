@@ -27,6 +27,7 @@ from datajunction_server.models.node import (
     NodeStatus,
     NodeType,
 )
+from datajunction_server.models.unit import Unit
 from datajunction_server.utils import SEPARATOR
 
 
@@ -82,6 +83,7 @@ class ColumnSpec(BaseModel):
     description: str | None = None
     attributes: list[str] = Field(default_factory=list)
     partition: PartitionSpec | None = None
+    unit: Unit | None = None
     order: int | None = Field(
         default=None,
         exclude=True,
@@ -97,6 +99,7 @@ class ColumnSpec(BaseModel):
             and self.description == other.description
             and set(self.attributes) == set(other.attributes)
             and self.partition == other.partition
+            and self.unit == other.unit
         )
 
 

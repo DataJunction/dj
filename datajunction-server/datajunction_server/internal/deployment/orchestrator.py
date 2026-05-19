@@ -2454,6 +2454,7 @@ class DeploymentOrchestrator:
                 if referenced_node.type == NodeType.METRIC
                 else col.display_name,
                 type=col.type,
+                unit=col.unit,
                 attributes=[
                     ColumnAttribute(attribute_type_id=attr.attribute_type_id)
                     for attr in col.attributes
@@ -3473,6 +3474,9 @@ class DeploymentOrchestrator:
                             "attributes": spec_col.attributes
                             if spec_col.attributes
                             else inferred.attributes,
+                            "unit": spec_col.unit
+                            if spec_col.unit is not None
+                            else inferred.unit,
                             "order": spec_col.order
                             if spec_col.order is not None
                             else (
@@ -3554,6 +3558,7 @@ class DeploymentOrchestrator:
             display_name=col.display_name,
             description=col.description,
             order=order,
+            unit=col.unit.model_dump() if col.unit is not None else None,
             attributes=[
                 ColumnAttribute(
                     attribute_type=self.registry.attributes.get(attr),
