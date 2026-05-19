@@ -489,6 +489,7 @@ class TestNodeCRUD:
                 "name": "title_code",
                 "type": "int",
                 "partition": None,
+                "unit": None,
             },
             {
                 "attributes": [
@@ -501,6 +502,7 @@ class TestNodeCRUD:
                 "name": "title",
                 "type": "string",
                 "partition": None,
+                "unit": None,
             },
         ]
 
@@ -520,6 +522,7 @@ class TestNodeCRUD:
             "name": "title",
             "type": "string",
             "partition": None,
+            "unit": None,
         } in response.json()["columns"]
 
         assert response.json()["dimension_links"] == [
@@ -1761,6 +1764,7 @@ class TestNodeCRUD:
                 "dimension": None,
                 "dimension_column": None,
                 "partition": None,
+                "unit": None,
             },
             {
                 "name": "two",
@@ -1771,6 +1775,7 @@ class TestNodeCRUD:
                 "dimension": None,
                 "dimension_column": None,
                 "partition": None,
+                "unit": None,
             },
         ]
         assert response.status_code == 201
@@ -1808,6 +1813,7 @@ class TestNodeCRUD:
                 "dimension": None,
                 "dimension_column": None,
                 "partition": None,
+                "unit": None,
             },
             {
                 "name": "user_id",
@@ -1818,6 +1824,7 @@ class TestNodeCRUD:
                 "dimension": None,
                 "dimension_column": None,
                 "partition": None,
+                "unit": None,
             },
             {
                 "name": "timestamp",
@@ -1828,6 +1835,7 @@ class TestNodeCRUD:
                 "dimension": None,
                 "dimension_column": None,
                 "partition": None,
+                "unit": None,
             },
             {
                 "name": "text",
@@ -1838,6 +1846,7 @@ class TestNodeCRUD:
                 "dimension": None,
                 "dimension_column": None,
                 "partition": None,
+                "unit": None,
             },
         ]
         assert response.status_code == 201
@@ -1950,6 +1959,7 @@ class TestNodeCRUD:
                 "name": "repair_order_id",
                 "type": "int",
                 "partition": None,
+                "unit": None,
             },
             {
                 "attributes": [],
@@ -1960,6 +1970,7 @@ class TestNodeCRUD:
                 "name": "municipality_id",
                 "type": "string",
                 "partition": None,
+                "unit": None,
             },
             {
                 "attributes": [],
@@ -1970,6 +1981,7 @@ class TestNodeCRUD:
                 "name": "hard_hat_id",
                 "type": "int",
                 "partition": None,
+                "unit": None,
             },
             {
                 "attributes": [],
@@ -1980,6 +1992,7 @@ class TestNodeCRUD:
                 "name": "order_date",
                 "type": "timestamp",
                 "partition": None,
+                "unit": None,
             },
             {
                 "attributes": [],
@@ -1990,6 +2003,7 @@ class TestNodeCRUD:
                 "name": "required_date",
                 "type": "timestamp",
                 "partition": None,
+                "unit": None,
             },
             {
                 "attributes": [],
@@ -2000,6 +2014,7 @@ class TestNodeCRUD:
                 "name": "dispatched_date",
                 "type": "timestamp",
                 "partition": None,
+                "unit": None,
             },
             {
                 "attributes": [],
@@ -2010,6 +2025,7 @@ class TestNodeCRUD:
                 "name": "dispatcher_id",
                 "type": "int",
                 "partition": None,
+                "unit": None,
             },
             {
                 "attributes": [],
@@ -2020,6 +2036,7 @@ class TestNodeCRUD:
                 "name": "rating",
                 "type": "int",
                 "partition": None,
+                "unit": None,
             },
         ]
 
@@ -2220,6 +2237,7 @@ class TestNodeCRUD:
                 "name": "repair_order_id",
                 "type": "int",
                 "partition": None,
+                "unit": None,
             },
             {
                 "attributes": [],
@@ -2230,6 +2248,7 @@ class TestNodeCRUD:
                 "name": "municipality_id",
                 "type": "string",
                 "partition": None,
+                "unit": None,
             },
             {
                 "attributes": [],
@@ -2240,6 +2259,7 @@ class TestNodeCRUD:
                 "name": "hard_hat_id",
                 "type": "int",
                 "partition": None,
+                "unit": None,
             },
             {
                 "attributes": [],
@@ -2250,6 +2270,7 @@ class TestNodeCRUD:
                 "name": "order_date",
                 "type": "timestamp",
                 "partition": None,
+                "unit": None,
             },
             {
                 "attributes": [],
@@ -2260,6 +2281,7 @@ class TestNodeCRUD:
                 "name": "required_date",
                 "type": "timestamp",
                 "partition": None,
+                "unit": None,
             },
             {
                 "attributes": [],
@@ -2270,6 +2292,7 @@ class TestNodeCRUD:
                 "name": "dispatched_date",
                 "type": "timestamp",
                 "partition": None,
+                "unit": None,
             },
             {
                 "attributes": [],
@@ -2280,6 +2303,7 @@ class TestNodeCRUD:
                 "name": "dispatcher_id",
                 "type": "int",
                 "partition": None,
+                "unit": None,
             },
             {
                 "attributes": [],
@@ -2290,6 +2314,7 @@ class TestNodeCRUD:
                 "name": "rating",
                 "type": "int",
                 "partition": None,
+                "unit": None,
             },
         ]
 
@@ -2397,6 +2422,7 @@ class TestNodeCRUD:
                 "name": "id",
                 "type": "int",
                 "partition": None,
+                "unit": None,
             },
             {
                 "attributes": [],
@@ -2407,6 +2433,7 @@ class TestNodeCRUD:
                 "name": "user_id",
                 "type": "int",
                 "partition": None,
+                "unit": None,
             },
             {
                 "attributes": [],
@@ -2417,6 +2444,7 @@ class TestNodeCRUD:
                 "name": "timestamp",
                 "type": "timestamp",
                 "partition": None,
+                "unit": None,
             },
             {
                 "attributes": [],
@@ -2427,6 +2455,7 @@ class TestNodeCRUD:
                 "name": "text_v2",
                 "type": "string",
                 "partition": None,
+                "unit": None,
             },
         ]
 
@@ -2662,6 +2691,7 @@ class TestNodeCRUD:
                 "name": "country",
                 "type": "string",
                 "partition": None,
+                "unit": None,
             },
             {
                 "attributes": [],
@@ -2672,6 +2702,7 @@ class TestNodeCRUD:
                 "name": "num_users",
                 "type": "bigint",
                 "partition": None,
+                "unit": None,
             },
         ]
 
@@ -2734,6 +2765,7 @@ class TestNodeCRUD:
                 "name": "country",
                 "type": "string",
                 "partition": None,
+                "unit": None,
             },
             {
                 "attributes": [],
@@ -2744,6 +2776,7 @@ class TestNodeCRUD:
                 "name": "num_users",
                 "type": "bigint",
                 "partition": None,
+                "unit": None,
             },
             {
                 "attributes": [],
@@ -2754,6 +2787,7 @@ class TestNodeCRUD:
                 "name": "num_entries",
                 "type": "bigint",
                 "partition": None,
+                "unit": None,
             },
         ]
 
@@ -2785,6 +2819,7 @@ class TestNodeCRUD:
                     "name": "country",
                     "type": "string",
                     "partition": None,
+                    "unit": None,
                 },
                 {
                     "attributes": [],
@@ -2795,6 +2830,7 @@ class TestNodeCRUD:
                     "name": "num_users",
                     "type": "bigint",
                     "partition": None,
+                    "unit": None,
                 },
             ],
             "v1.1": [
@@ -2807,6 +2843,7 @@ class TestNodeCRUD:
                     "name": "country",
                     "type": "string",
                     "partition": None,
+                    "unit": None,
                 },
                 {
                     "attributes": [],
@@ -2817,6 +2854,7 @@ class TestNodeCRUD:
                     "name": "num_users",
                     "type": "bigint",
                     "partition": None,
+                    "unit": None,
                 },
             ],
             "v2.0": [
@@ -2829,6 +2867,7 @@ class TestNodeCRUD:
                     "name": "country",
                     "type": "string",
                     "partition": None,
+                    "unit": None,
                 },
                 {
                     "attributes": [],
@@ -2839,6 +2878,7 @@ class TestNodeCRUD:
                     "name": "num_users",
                     "type": "bigint",
                     "partition": None,
+                    "unit": None,
                 },
                 {
                     "attributes": [],
@@ -2849,6 +2889,7 @@ class TestNodeCRUD:
                     "name": "num_entries",
                     "type": "bigint",
                     "partition": None,
+                    "unit": None,
                 },
             ],
         }
@@ -3001,6 +3042,7 @@ class TestNodeCRUD:
                 "name": "country",
                 "type": "string",
                 "partition": None,
+                "unit": None,
             },
             {
                 "attributes": [],
@@ -3011,6 +3053,7 @@ class TestNodeCRUD:
                 "name": "user_cnt",
                 "type": "bigint",
                 "partition": None,
+                "unit": None,
             },
         ]
 
@@ -3038,6 +3081,7 @@ class TestNodeCRUD:
                 "name": "country",
                 "type": "string",
                 "partition": None,
+                "unit": None,
             },
         ]
 
@@ -3063,6 +3107,7 @@ class TestNodeCRUD:
                 "name": "country",
                 "type": "string",
                 "partition": None,
+                "unit": None,
             },
             {
                 "attributes": [
@@ -3075,6 +3120,7 @@ class TestNodeCRUD:
                 "name": "sum_age",
                 "type": "bigint",
                 "partition": None,
+                "unit": None,
             },
             {
                 "attributes": [],
@@ -3085,6 +3131,7 @@ class TestNodeCRUD:
                 "name": "num_users",
                 "type": "bigint",
                 "partition": None,
+                "unit": None,
             },
         ]
 
@@ -3107,6 +3154,7 @@ class TestNodeCRUD:
                 "name": "country",
                 "type": "string",
                 "partition": None,
+                "unit": None,
             },
             {
                 "attributes": [],
@@ -3117,6 +3165,7 @@ class TestNodeCRUD:
                 "name": "sum_age",
                 "type": "bigint",
                 "partition": None,
+                "unit": None,
             },
             {
                 "attributes": [],
@@ -3127,6 +3176,7 @@ class TestNodeCRUD:
                 "name": "num_users",
                 "type": "bigint",
                 "partition": None,
+                "unit": None,
             },
         ]
 
@@ -3193,6 +3243,7 @@ class TestNodeCRUD:
                 "name": "country",
                 "type": "string",
                 "partition": None,
+                "unit": None,
             },
             {
                 "attributes": [],
@@ -3203,6 +3254,7 @@ class TestNodeCRUD:
                 "name": "user_cnt",
                 "type": "bigint",
                 "partition": None,
+                "unit": None,
             },
         ]
 
@@ -3338,6 +3390,7 @@ GROUP BY
             "bigint>",
             "display_name": "Measures",
             "partition": None,
+            "unit": None,
         } in response.json()["columns"]
 
         await client_with_roads.post(
@@ -3780,6 +3833,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
             "name": "hard_hat_id",
             "type": "int",
             "partition": None,
+            "unit": None,
         }
 
     @pytest.mark.asyncio
@@ -3803,6 +3857,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
             "name": "hard_hat_id",
             "type": "int",
             "partition": None,
+            "unit": None,
         }
 
     @pytest.mark.asyncio
@@ -3921,6 +3976,7 @@ class TestNodeColumnsAttributes:
                 "dimension": None,
                 "dimension_column": None,
                 "partition": None,
+                "unit": None,
             },
         ]
 
@@ -3961,6 +4017,7 @@ class TestNodeColumnsAttributes:
                 "dimension": None,
                 "dimension_column": None,
                 "partition": None,
+                "unit": None,
             },
         ]
 
@@ -3980,6 +4037,7 @@ class TestNodeColumnsAttributes:
                 "dimension": None,
                 "dimension_column": None,
                 "partition": None,
+                "unit": None,
             },
         ]
 
@@ -4008,6 +4066,7 @@ class TestNodeColumnsAttributes:
                 "dimension": None,
                 "dimension_column": None,
                 "partition": None,
+                "unit": None,
             },
         ]
         response = await client_with_basic.get(
@@ -4105,6 +4164,7 @@ class TestNodeColumnsAttributes:
                 "dimension": {"name": "basic.dimension.users"},
                 "dimension_column": None,
                 "partition": None,
+                "unit": None,
             },
         ]
 
@@ -4167,6 +4227,7 @@ class TestNodeColumnsAttributes:
                 "dimension": None,
                 "dimension_column": None,
                 "partition": None,
+                "unit": None,
             },
             {
                 "name": "user_id",
@@ -4179,6 +4240,7 @@ class TestNodeColumnsAttributes:
                 "dimension_column": None,
                 "description": None,
                 "partition": None,
+                "unit": None,
             },
             {
                 "name": "timestamp",
@@ -4189,6 +4251,7 @@ class TestNodeColumnsAttributes:
                 "dimension": None,
                 "dimension_column": None,
                 "partition": None,
+                "unit": None,
             },
             {
                 "name": "text",
@@ -4199,6 +4262,7 @@ class TestNodeColumnsAttributes:
                 "dimension": None,
                 "dimension_column": None,
                 "partition": None,
+                "unit": None,
             },
             {
                 "name": "event_timestamp",
@@ -4209,6 +4273,7 @@ class TestNodeColumnsAttributes:
                 "dimension": None,
                 "dimension_column": None,
                 "partition": None,
+                "unit": None,
             },
             {
                 "name": "created_at",
@@ -4219,6 +4284,7 @@ class TestNodeColumnsAttributes:
                 "dimension": None,
                 "dimension_column": None,
                 "partition": None,
+                "unit": None,
             },
             {
                 "name": "post_processing_timestamp",
@@ -4229,6 +4295,7 @@ class TestNodeColumnsAttributes:
                 "dimension": None,
                 "dimension_column": None,
                 "partition": None,
+                "unit": None,
             },
         ]
 
@@ -4268,6 +4335,7 @@ class TestValidateNodes:
                 "display_name": "Payment Id",
                 "name": "payment_id",
                 "partition": None,
+                "unit": None,
                 "type": "int",
             },
         ]
@@ -4411,6 +4479,7 @@ class TestValidateNodes:
                     "display_name": "Col0",
                     "name": "col0",
                     "partition": None,
+                    "unit": None,
                     "type": "int",
                 },
             ],
@@ -4458,6 +4527,7 @@ class TestValidateNodes:
                 "display_name": "Col0",
                 "name": "col0",
                 "partition": None,
+                "unit": None,
                 "type": "int",
             },
         ]
@@ -4665,6 +4735,7 @@ class TestValidateNodes:
                 "name": "hard_hat_id",
                 "type": "int",
                 "partition": None,
+                "unit": None,
             },
             {
                 "attributes": [],
@@ -4675,6 +4746,7 @@ class TestValidateNodes:
                 "name": "title",
                 "type": "string",
                 "partition": None,
+                "unit": None,
             },
             {
                 "attributes": [],
@@ -4685,6 +4757,7 @@ class TestValidateNodes:
                 "name": "state",
                 "type": "string",
                 "partition": None,
+                "unit": None,
             },
         ]
 
@@ -5093,6 +5166,7 @@ class TestValidateNodes:
             "name": "us_region_id",
             "type": "int",
             "partition": None,
+            "unit": None,
         }
         assert columns_map["state_name"] == {
             "attributes": [
@@ -5105,6 +5179,7 @@ class TestValidateNodes:
             "name": "state_name",
             "type": "string",
             "partition": None,
+            "unit": None,
         }
         assert columns_map["location_hierarchy"] == {
             "attributes": [],
@@ -5115,6 +5190,7 @@ class TestValidateNodes:
             "name": "location_hierarchy",
             "type": "string",
             "partition": None,
+            "unit": None,
         }
         assert columns_map["order_year"] == {
             "attributes": [
@@ -5127,6 +5203,7 @@ class TestValidateNodes:
             "name": "order_year",
             "type": "int",
             "partition": None,
+            "unit": None,
         }
         assert columns_map["order_month"] == {
             "attributes": [
@@ -5139,6 +5216,7 @@ class TestValidateNodes:
             "name": "order_month",
             "type": "int",
             "partition": None,
+            "unit": None,
         }
         assert columns_map["order_day"] == {
             "attributes": [
@@ -5151,6 +5229,7 @@ class TestValidateNodes:
             "name": "order_day",
             "type": "int",
             "partition": None,
+            "unit": None,
         }
         assert columns_map["completed_repairs"] == {
             "attributes": [],
@@ -5161,6 +5240,7 @@ class TestValidateNodes:
             "name": "completed_repairs",
             "type": "bigint",
             "partition": None,
+            "unit": None,
         }
         assert columns_map["total_repairs_dispatched"] == {
             "attributes": [],
@@ -5171,6 +5251,7 @@ class TestValidateNodes:
             "name": "total_repairs_dispatched",
             "type": "bigint",
             "partition": None,
+            "unit": None,
         }
         assert columns_map["total_amount_in_region"] == {
             "attributes": [],
@@ -5181,6 +5262,7 @@ class TestValidateNodes:
             "name": "total_amount_in_region",
             "type": "double",
             "partition": None,
+            "unit": None,
         }
         assert columns_map["avg_repair_amount_in_region"] == {
             "attributes": [],
@@ -5191,6 +5273,7 @@ class TestValidateNodes:
             "name": "avg_repair_amount_in_region",
             "type": "double",
             "partition": None,
+            "unit": None,
         }
         assert columns_map["avg_dispatch_delay"] == {
             "attributes": [],
@@ -5201,6 +5284,7 @@ class TestValidateNodes:
             "name": "avg_dispatch_delay",
             "type": "double",
             "partition": None,
+            "unit": None,
         }
         assert columns_map["unique_contractors"] == {
             "attributes": [],
@@ -5211,6 +5295,7 @@ class TestValidateNodes:
             "name": "unique_contractors",
             "type": "bigint",
             "partition": None,
+            "unit": None,
         }
 
         response = (
@@ -5228,6 +5313,7 @@ class TestValidateNodes:
                 "name": "default_DOT_regional_repair_efficiency",
                 "type": "double",
                 "partition": None,
+                "unit": None,
             },
         ]
         response = (

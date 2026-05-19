@@ -172,6 +172,7 @@ async def test_update_source_node(
             "display_name": "Total Amount",
             "name": "total_amount",
             "partition": None,
+            "unit": None,
             "type": "double",
         },
     ]
