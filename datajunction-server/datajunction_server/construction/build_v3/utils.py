@@ -511,4 +511,6 @@ def _build_join_criteria(
     if len(conditions) == 1:
         return conditions[0]
 
-    return ast.BinaryOp.And(*conditions)
+    combined = ast.BinaryOp.And(*conditions)
+    assert combined is not None  # noqa: S101  # conditions is non-empty here
+    return combined

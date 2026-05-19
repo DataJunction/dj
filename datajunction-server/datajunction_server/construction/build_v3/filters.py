@@ -311,7 +311,12 @@ def combine_filters(filters: list[ast.Expression]) -> ast.Expression | None:
     if len(filters) == 1:
         return filters[0]
 
-    return reduce(lambda a, b: ast.BinaryOp.And(a, b), filters)
+    def _and(a: ast.Expression, b: ast.Expression) -> ast.Expression:
+        result = ast.BinaryOp.And(a, b)
+        assert result is not None  # noqa: S101  # two non-None args guarantee non-None result
+        return result
+
+    return reduce(_and, filters)
 
 
 def parse_and_resolve_filters(
