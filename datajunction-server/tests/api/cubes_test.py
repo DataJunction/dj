@@ -2308,6 +2308,7 @@ async def test_updating_cube(
                     "granularity": "day",
                     "expression": None,
                 },
+                "unit": None,
             },
         ],
         key=lambda x: x["name"],  # type: ignore
