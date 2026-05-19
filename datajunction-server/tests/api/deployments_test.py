@@ -1127,7 +1127,7 @@ def default_discounted_orders_rate():
         description="""Proportion of Discounted Orders""",
         query="""
                 SELECT
-                  cast(sum(if(discount > 0.0, 1, 0)) as double) / NULLIF(count(*), 0)
+                  cast(sum(if(discount > 0.0, 1, 0)) as double) / count(*)
                     AS default_DOT_discounted_orders_rate
                 FROM ${prefix}default.repair_orders_fact
                 """,

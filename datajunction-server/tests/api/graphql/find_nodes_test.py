@@ -716,16 +716,16 @@ async def test_find_metric(
                         },
                     ],
                     "derivedQuery": "SELECT  (SUM(completed_repairs_sum_8b112bf1) * 1.0 / "
-                    "SUM(total_repairs_dispatched_sum_601dc4f1)) * "
+                    "NULLIF(SUM(total_repairs_dispatched_sum_601dc4f1), 0)) * "
                     "(SUM(total_amount_in_region_sum_3426ede4) * 1.0 / "
-                    "SUM(na_DOT_total_amount_nationwide_sum_4ecb2318)) * 100 \n"
+                    "NULLIF(SUM(na_DOT_total_amount_nationwide_sum_4ecb2318), 0)) * 100 \n"
                     " FROM default.regional_level_agg CROSS JOIN "
                     "default.national_level_agg na\n"
                     "\n",
                     "derivedExpression": "(SUM(completed_repairs_sum_8b112bf1) * 1.0 / "
-                    "SUM(total_repairs_dispatched_sum_601dc4f1)) * "
+                    "NULLIF(SUM(total_repairs_dispatched_sum_601dc4f1), 0)) * "
                     "(SUM(total_amount_in_region_sum_3426ede4) * 1.0 / "
-                    "SUM(na_DOT_total_amount_nationwide_sum_4ecb2318)) * 100",
+                    "NULLIF(SUM(na_DOT_total_amount_nationwide_sum_4ecb2318), 0)) * 100",
                 },
             },
             "name": "default.regional_repair_efficiency",

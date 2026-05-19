@@ -2698,7 +2698,7 @@ async def test_get_sql_for_metrics2(client_with_examples: AsyncClient):
         default_DOT_hard_hat.state default_DOT_hard_hat_DOT_state,
         default_DOT_dispatcher.company_name default_DOT_dispatcher_DOT_company_name,
         default_DOT_municipality_dim.local_region default_DOT_municipality_dim_DOT_local_region,
-        CAST(sum(if(default_DOT_repair_orders_fact.discount > 0.0, 1, 0)) AS DOUBLE) / NULLIF(count(*), 0) AS default_DOT_discounted_orders_rate,
+        CAST(sum(if(default_DOT_repair_orders_fact.discount > 0.0, 1, 0)) AS DOUBLE) / count(*) AS default_DOT_discounted_orders_rate,
         count(default_DOT_repair_orders_fact.repair_order_id) default_DOT_num_repair_orders
       FROM default_DOT_repair_orders_fact
       INNER JOIN default_DOT_hard_hat
@@ -3346,7 +3346,7 @@ GROUP BY
         default_DOT_simple_agg.order_year default_DOT_simple_agg_DOT_order_year,
         default_DOT_simple_agg.order_month default_DOT_simple_agg_DOT_order_month,
         default_DOT_simple_agg.order_day default_DOT_simple_agg_DOT_order_day,
-        SUM(default_DOT_simple_agg.dispatch_delay_sum) / NULLIF(SUM(default_DOT_simple_agg.repair_orders_cnt), 0) default_DOT_average_dispatch_delay
+        SUM(default_DOT_simple_agg.dispatch_delay_sum) / SUM(default_DOT_simple_agg.repair_orders_cnt) default_DOT_average_dispatch_delay
       FROM default_DOT_simple_agg
       WHERE  default_DOT_simple_agg.order_year = 2020
       GROUP BY  default_DOT_simple_agg.order_year, default_DOT_simple_agg.order_month, default_DOT_simple_agg.order_day

@@ -757,7 +757,7 @@ WITH default_DOT_repair_orders_fact AS (
     default_DOT_dispatcher.company_name default_DOT_dispatcher_DOT_company_name,
     default_DOT_municipality_dim.local_region default_DOT_municipality_dim_DOT_local_region,
     default_DOT_hard_hat_to_delete.hire_date default_DOT_hard_hat_to_delete_DOT_hire_date,
-    CAST(sum(if(default_DOT_repair_orders_fact.discount > 0.0, 1, 0)) AS DOUBLE) / NULLIF(count(*), 0)
+    CAST(sum(if(default_DOT_repair_orders_fact.discount > 0.0, 1, 0)) AS DOUBLE) / count(*)
       AS default_DOT_discounted_orders_rate,
     count(default_DOT_repair_orders_fact.repair_order_id) default_DOT_num_repair_orders,
     avg(default_DOT_repair_orders_fact.price) default_DOT_avg_repair_price,
@@ -3000,10 +3000,10 @@ async def test_cube_materialization_metadata(
     assert results["metrics"] == [
         {
             "derived_expression": "SELECT CAST(SUM(discount_sum_30b84e6c) AS DOUBLE) / "
-            "SUM(count_c8e42e74) AS default_DOT_discounted_orders_rate FROM "
+            "NULLIF(SUM(count_c8e42e74), 0) AS default_DOT_discounted_orders_rate FROM "
             "default.repair_orders_fact",
             "metric_expression": "CAST(SUM(discount_sum_30b84e6c) AS DOUBLE) / "
-            "SUM(count_c8e42e74)",
+            "NULLIF(SUM(count_c8e42e74), 0)",
             "metric": {
                 "name": "default.discounted_orders_rate",
                 "version": mock.ANY,

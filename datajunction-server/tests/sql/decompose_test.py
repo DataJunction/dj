@@ -383,7 +383,7 @@ async def test_rate(session: AsyncSession, create_metric):
     assert measures == expected_measures0
     assert_sql_equal(
         str(derived_sql),
-        "SELECT SUM(clicks_sum_c45fd8cf) / SUM(impressions_sum_3be0a0e7) FROM parent_node",
+        "SELECT SUM(clicks_sum_c45fd8cf) / NULLIF(SUM(impressions_sum_3be0a0e7), 0) FROM parent_node",
     )
 
     metric_rev2 = await create_metric(
@@ -424,7 +424,7 @@ async def test_rate(session: AsyncSession, create_metric):
     assert_sql_equal(
         str(derived_sql),
         "SELECT CAST(CAST(SUM(clicks_sum_c45fd8cf) AS INT) AS DOUBLE) / "
-        "CAST(SUM(impressions_sum_3be0a0e7) AS DOUBLE) FROM parent_node",
+        "NULLIF(CAST(SUM(impressions_sum_3be0a0e7) AS DOUBLE), 0) FROM parent_node",
     )
 
     metric_rev4 = await create_metric(
@@ -452,7 +452,7 @@ async def test_rate(session: AsyncSession, create_metric):
     assert_sql_equal(
         str(derived_sql),
         "SELECT COALESCE(SUM(clicks_sum_c45fd8cf) / "
-        "SUM(impressions_sum_3be0a0e7), 0) FROM parent_node",
+        "NULLIF(SUM(impressions_sum_3be0a0e7), 0), 0) FROM parent_node",
     )
 
     metric_rev5 = await create_metric(
@@ -481,7 +481,7 @@ async def test_rate(session: AsyncSession, create_metric):
     assert_sql_equal(
         str(derived_sql),
         "SELECT IF(SUM(clicks_sum_c45fd8cf) > 0, CAST(SUM(impressions_sum_3be0a0e7) AS DOUBLE)"
-        " / CAST(SUM(clicks_sum_c45fd8cf) AS DOUBLE), NULL) FROM parent_node",
+        " / NULLIF(CAST(SUM(clicks_sum_c45fd8cf) AS DOUBLE), 0), NULL) FROM parent_node",
     )
 
     metric_rev6 = await create_metric(
@@ -508,7 +508,7 @@ async def test_rate(session: AsyncSession, create_metric):
     assert measures == expected_measures
     assert_sql_equal(
         str(derived_sql),
-        "SELECT ln(SUM(clicks_sum_c45fd8cf) + 1) / SUM(views_sum_d8e39817) FROM parent_node",
+        "SELECT ln(SUM(clicks_sum_c45fd8cf) + 1) / NULLIF(SUM(views_sum_d8e39817), 0) FROM parent_node",
     )
 
 
@@ -570,7 +570,7 @@ async def test_fraction_with_if(session: AsyncSession, create_metric):
         str(derived_sql),
         "SELECT IF(SUM(action_sum_c9802ccb) > 0, "
         "CAST(SUM(action_two_sum_05d921a8) AS DOUBLE) / "
-        "CAST(SUM(action_sum_c9802ccb) AS DOUBLE), NULL) FROM parent_node",
+        "NULLIF(CAST(SUM(action_sum_c9802ccb) AS DOUBLE), 0), NULL) FROM parent_node",
     )
 
 
@@ -638,7 +638,7 @@ async def test_count_distinct_rate(session: AsyncSession, create_metric):
     assert_sql_equal(
         str(derived_sql),
         "SELECT COUNT( DISTINCT user_id_distinct_7f092f23) / "
-        "SUM(action_count_50d753fd) FROM parent_node",
+        "NULLIF(SUM(action_count_50d753fd), 0) FROM parent_node",
     )
 
 
@@ -831,7 +831,7 @@ async def test_count_if(session: AsyncSession, create_metric):
     assert measures == expected_measures
     assert_sql_equal(
         str(derived_sql),
-        "SELECT  CAST(SUM(field_a_count_if_3979ffbd) AS FLOAT) / SUM(count_58ac32c5) "
+        "SELECT  CAST(SUM(field_a_count_if_3979ffbd) AS FLOAT) / NULLIF(SUM(count_58ac32c5), 0) "
         "FROM parent_node",
     )
 
@@ -1129,7 +1129,7 @@ async def test_approx_count_distinct_rate(session: AsyncSession, create_metric):
     derived_str = str(derived_sql)
     assert_sql_equal(
         derived_str,
-        "SELECT  CAST(hll_sketch_estimate(hll_union_agg(clicked_user_id_hll_f3824813)) AS DOUBLE) / CAST(hll_sketch_estimate(hll_union_agg(user_id_hll_7f092f23)) AS DOUBLE) FROM parent_node",
+        "SELECT  CAST(hll_sketch_estimate(hll_union_agg(clicked_user_id_hll_f3824813)) AS DOUBLE) / NULLIF(CAST(hll_sketch_estimate(hll_union_agg(user_id_hll_7f092f23)) AS DOUBLE), 0) FROM parent_node",
     )
 
 
@@ -1196,21 +1196,21 @@ async def test_approx_count_distinct_combined_metrics_dialect_translation(
     # Verify Spark SQL structure - contains both SUM and HLL
     assert_sql_equal(
         spark_sql,
-        "SELECT SUM(revenue_sum_60e4d31f) / hll_sketch_estimate(hll_union_agg(user_id_hll_7f092f23)) AS revenue_per_user FROM parent_node",
+        "SELECT SUM(revenue_sum_60e4d31f) / NULLIF(hll_sketch_estimate(hll_union_agg(user_id_hll_7f092f23)), 0) AS revenue_per_user FROM parent_node",
     )
 
     # Translate to Druid - should preserve SUM but translate HLL
     druid_sql = to_sql(derived_sql, Dialect.DRUID)
     assert_sql_equal(
         druid_sql,
-        "SELECT SAFE_DIVIDE(SUM(revenue_sum_60e4d31f), hll_sketch_estimate(ds_hll(user_id_hll_7f092f23))) AS revenue_per_user FROM parent_node",
+        "SELECT SAFE_DIVIDE(SUM(revenue_sum_60e4d31f), NULLIF(hll_sketch_estimate(ds_hll(user_id_hll_7f092f23)), 0)) AS revenue_per_user FROM parent_node",
     )
 
     # Translate to Trino
     trino_sql = to_sql(derived_sql, Dialect.TRINO)
     assert_sql_equal(
         trino_sql,
-        "SELECT SUM(revenue_sum_60e4d31f) / cardinality(merge(user_id_hll_7f092f23)) AS revenue_per_user FROM parent_node",
+        "SELECT SUM(revenue_sum_60e4d31f) / NULLIF(cardinality(merge(user_id_hll_7f092f23)), 0) AS revenue_per_user FROM parent_node",
     )
 
 

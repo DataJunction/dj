@@ -1038,6 +1038,15 @@ class MetricComponentExtractor:
                             components_tracker.add(comp.name)
                             components.append(comp)
 
+            # Wrap user-authored divisions in the outer expression too.
+            # _decompose only wraps the small combiners it builds for AVG /
+            # variance / stddev / covariance; the user's top-level
+            # expression (e.g. CAST(SUM(...)) / COUNT(*)) is unchanged
+            # after sub-aggregation replacements and would otherwise emit
+            # bare divisions.
+            for proj in query_ast.select.projection:
+                wrap_divisions_in_nullif(cast(ast.Expression, proj))
+
         return components, query_ast
 
     def _substitute_metric_references(
