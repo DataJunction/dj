@@ -146,7 +146,7 @@ class TestMetricsSQLBasic:
         Test metrics SQL for a multi-component metric (AVG).
 
         AVG decomposes into SUM and COUNT, and the combiner expression
-        should be applied: SUM(x) / COUNT(x).
+        should be applied: SUM(x) / NULLIF(COUNT(x), 0).
         """
         response = await client_with_build_v3.get(
             "/sql/metrics/v3/",

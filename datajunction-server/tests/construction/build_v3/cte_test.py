@@ -264,7 +264,7 @@ class TestInjectPartitionByIntoWindows:
 
     def test_weighted_cpm_pattern(self):
         """Test weighted CPM pattern with grand total weight."""
-        # Weighted CPM = (revenue / impressions) * (impressions / SUM(impressions) OVER ())
+        # Weighted CPM = (revenue / impressions) * (impressions / NULLIF(SUM(impressions), 0) OVER ())
         query = parse(
             "SELECT "
             "(revenue / NULLIF(impressions / 1000.0, 0)) "

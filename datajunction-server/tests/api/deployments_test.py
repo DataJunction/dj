@@ -1064,8 +1064,8 @@ def default_regional_repair_efficiency():
                 "Total Repair Amount in Region" is the total amount spent on repairs in a given region.
                 "Total Repair Amount Nationwide" is the total amount spent on all repairs nationwide.""",
         query="""SELECT
-    (SUM(rm.completed_repairs) * 1.0 / SUM(rm.total_repairs_dispatched)) *
-    (SUM(rm.total_amount_in_region) * 1.0 / SUM(na.total_amount_nationwide)) * 100
+    (SUM(rm.completed_repairs) * 1.0 / NULLIF(SUM(rm.total_repairs_dispatched), 0)) *
+    (SUM(rm.total_amount_in_region) * 1.0 / NULLIF(SUM(na.total_amount_nationwide), 0)) * 100
 FROM
     ${prefix}default.regional_level_agg rm
 CROSS JOIN
@@ -1127,7 +1127,7 @@ def default_discounted_orders_rate():
         description="""Proportion of Discounted Orders""",
         query="""
                 SELECT
-                  cast(sum(if(discount > 0.0, 1, 0)) as double) / count(*)
+                  cast(sum(if(discount > 0.0, 1, 0)) as double) / NULLIF(count(*), 0)
                     AS default_DOT_discounted_orders_rate
                 FROM ${prefix}default.repair_orders_fact
                 """,

@@ -757,7 +757,7 @@ WITH default_DOT_repair_orders_fact AS (
     default_DOT_dispatcher.company_name default_DOT_dispatcher_DOT_company_name,
     default_DOT_municipality_dim.local_region default_DOT_municipality_dim_DOT_local_region,
     default_DOT_hard_hat_to_delete.hire_date default_DOT_hard_hat_to_delete_DOT_hire_date,
-    CAST(sum(if(default_DOT_repair_orders_fact.discount > 0.0, 1, 0)) AS DOUBLE) / count(*)
+    CAST(sum(if(default_DOT_repair_orders_fact.discount > 0.0, 1, 0)) AS DOUBLE) / NULLIF(count(*), 0)
       AS default_DOT_discounted_orders_rate,
     count(default_DOT_repair_orders_fact.repair_order_id) default_DOT_num_repair_orders,
     avg(default_DOT_repair_orders_fact.price) default_DOT_avg_repair_price,
@@ -947,9 +947,9 @@ SELECT  COALESCE(repair_order_details_0.country, repair_orders_fact_0.country) A
   COALESCE(repair_order_details_0.company_name, repair_orders_fact_0.company_name) AS company_name,
   COALESCE(repair_order_details_0.local_region, repair_orders_fact_0.local_region) AS local_region,
   COALESCE(repair_order_details_0.hire_date, repair_orders_fact_0.hire_date) AS hire_date,
-  CAST(SUM(repair_orders_fact_0.discount_sum_30b84e6c) AS DOUBLE) / SUM(repair_orders_fact_0.count_c8e42e74) AS discounted_orders_rate,
+  CAST(SUM(repair_orders_fact_0.discount_sum_30b84e6c) AS DOUBLE) / NULLIF(SUM(repair_orders_fact_0.count_c8e42e74), 0) AS discounted_orders_rate,
   SUM(repair_orders_fact_0.repair_order_id_count_bd241964) AS num_repair_orders,
-  SUM(repair_orders_fact_0.price_sum_935e7117) / SUM(repair_orders_fact_0.price_count_935e7117) AS avg_repair_price,
+  SUM(repair_orders_fact_0.price_sum_935e7117) / NULLIF(SUM(repair_orders_fact_0.price_count_935e7117), 0) AS avg_repair_price,
   SUM(repair_orders_fact_0.total_repair_cost_sum_67874507) AS total_repair_cost,
   SUM(repair_orders_fact_0.price_discount_sum_e4ba5456) AS total_repair_order_discounts,
   SUM(repair_order_details_0.price_sum_252381cf) + SUM(repair_order_details_0.price_sum_252381cf) AS double_total_repair_cost
@@ -1082,9 +1082,9 @@ async def test_cube_filters_merged_with_request_filters(
           COALESCE(repair_order_details_0.company_name, repair_orders_fact_0.company_name) AS company_name,
           COALESCE(repair_order_details_0.local_region, repair_orders_fact_0.local_region) AS local_region,
           COALESCE(repair_order_details_0.hire_date, repair_orders_fact_0.hire_date) AS hire_date,
-          CAST(SUM(repair_orders_fact_0.discount_sum_30b84e6c) AS DOUBLE) / SUM(repair_orders_fact_0.count_c8e42e74) AS discounted_orders_rate,
+          CAST(SUM(repair_orders_fact_0.discount_sum_30b84e6c) AS DOUBLE) / NULLIF(SUM(repair_orders_fact_0.count_c8e42e74), 0) AS discounted_orders_rate,
           SUM(repair_orders_fact_0.repair_order_id_count_bd241964) AS num_repair_orders,
-          SUM(repair_orders_fact_0.price_sum_935e7117) / SUM(repair_orders_fact_0.price_count_935e7117) AS avg_repair_price,
+          SUM(repair_orders_fact_0.price_sum_935e7117) / NULLIF(SUM(repair_orders_fact_0.price_count_935e7117), 0) AS avg_repair_price,
           SUM(repair_orders_fact_0.total_repair_cost_sum_67874507) AS total_repair_cost,
           SUM(repair_orders_fact_0.price_discount_sum_e4ba5456) AS total_repair_order_discounts,
           SUM(repair_order_details_0.price_sum_252381cf) + SUM(repair_order_details_0.price_sum_252381cf) AS double_total_repair_cost
@@ -1163,7 +1163,7 @@ async def test_cube_filters_applied_in_v3_sql_via_cube_param(
         SELECT repair_orders_fact_0.state AS state,
           repair_orders_fact_0.company_name AS company_name,
           SUM(repair_orders_fact_0.repair_order_id_count_bd241964) AS num_repair_orders,
-          SUM(repair_orders_fact_0.price_sum_935e7117) / SUM(repair_orders_fact_0.price_count_935e7117) AS avg_repair_price,
+          SUM(repair_orders_fact_0.price_sum_935e7117) / NULLIF(SUM(repair_orders_fact_0.price_count_935e7117), 0) AS avg_repair_price,
           SUM(repair_orders_fact_0.total_repair_cost_sum_67874507) AS total_repair_cost
         FROM repair_orders_fact_0
         WHERE repair_orders_fact_0.state = 'AZ'
@@ -1247,7 +1247,7 @@ async def test_cube_filters_applied_in_v3_sql_via_cube_param(
         SELECT repair_orders_fact_0.state AS state,
           repair_orders_fact_0.company_name AS company_name,
           SUM(repair_orders_fact_0.repair_order_id_count_bd241964) AS num_repair_orders,
-          SUM(repair_orders_fact_0.price_sum_935e7117) / SUM(repair_orders_fact_0.price_count_935e7117) AS avg_repair_price,
+          SUM(repair_orders_fact_0.price_sum_935e7117) / NULLIF(SUM(repair_orders_fact_0.price_count_935e7117), 0) AS avg_repair_price,
           SUM(repair_orders_fact_0.total_repair_cost_sum_67874507) AS total_repair_cost
         FROM repair_orders_fact_0
         GROUP BY repair_orders_fact_0.state, repair_orders_fact_0.company_name
@@ -1296,7 +1296,7 @@ async def test_cube_filters_applied_in_v3_sql_via_cube_param(
         SELECT repair_orders_fact_0.state AS state,
           repair_orders_fact_0.company_name AS company_name,
           SUM(repair_orders_fact_0.repair_order_id_count_bd241964) AS num_repair_orders,
-          SUM(repair_orders_fact_0.price_sum_935e7117) / SUM(repair_orders_fact_0.price_count_935e7117) AS avg_repair_price,
+          SUM(repair_orders_fact_0.price_sum_935e7117) / NULLIF(SUM(repair_orders_fact_0.price_count_935e7117), 0) AS avg_repair_price,
           SUM(repair_orders_fact_0.total_repair_cost_sum_67874507) AS total_repair_cost
         FROM repair_orders_fact_0
         WHERE repair_orders_fact_0.state = 'AZ' AND repair_orders_fact_0.company_name = 'Potts LLC'
@@ -1398,9 +1398,9 @@ async def test_cube_only_no_metrics_no_dims(client_with_repairs_cube: AsyncClien
           COALESCE(repair_order_details_0.company_name, repair_orders_fact_0.company_name) AS company_name,
           COALESCE(repair_order_details_0.local_region, repair_orders_fact_0.local_region) AS local_region,
           COALESCE(repair_order_details_0.hire_date, repair_orders_fact_0.hire_date) AS hire_date,
-          CAST(SUM(repair_orders_fact_0.discount_sum_30b84e6c) AS DOUBLE) / SUM(repair_orders_fact_0.count_c8e42e74) AS discounted_orders_rate,
+          CAST(SUM(repair_orders_fact_0.discount_sum_30b84e6c) AS DOUBLE) / NULLIF(SUM(repair_orders_fact_0.count_c8e42e74), 0) AS discounted_orders_rate,
           SUM(repair_orders_fact_0.repair_order_id_count_bd241964) AS num_repair_orders,
-          SUM(repair_orders_fact_0.price_sum_935e7117) / SUM(repair_orders_fact_0.price_count_935e7117) AS avg_repair_price,
+          SUM(repair_orders_fact_0.price_sum_935e7117) / NULLIF(SUM(repair_orders_fact_0.price_count_935e7117), 0) AS avg_repair_price,
           SUM(repair_orders_fact_0.total_repair_cost_sum_67874507) AS total_repair_cost,
           SUM(repair_orders_fact_0.price_discount_sum_e4ba5456) AS total_repair_order_discounts,
           SUM(repair_order_details_0.price_sum_252381cf) + SUM(repair_order_details_0.price_sum_252381cf) AS double_total_repair_cost
@@ -3049,9 +3049,9 @@ async def test_cube_materialization_metadata(
             ],
         },
         {
-            "derived_expression": "SELECT SUM(price_sum_935e7117) / SUM(price_count_935e7117) FROM "
+            "derived_expression": "SELECT SUM(price_sum_935e7117) / NULLIF(SUM(price_count_935e7117), 0) FROM "
             "default.repair_orders_fact",
-            "metric_expression": "SUM(price_sum_935e7117) / SUM(price_count_935e7117)",
+            "metric_expression": "SUM(price_sum_935e7117) / NULLIF(SUM(price_count_935e7117), 0)",
             "metric": {
                 "name": "default.avg_repair_price",
                 "version": mock.ANY,

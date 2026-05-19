@@ -235,7 +235,7 @@ class TestMetricsSQLWithPreAggregation:
         assert metrics_response.status_code == 200
         metrics_data = metrics_response.json()
 
-        # avg_order_value = SUM(total_revenue) / COUNT(DISTINCT order_id)
+        # avg_order_value = SUM(total_revenue) / NULLIF(COUNT(DISTINCT order_id), 0)
         assert_sql_equal(
             metrics_data["sql"],
             """

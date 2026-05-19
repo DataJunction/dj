@@ -4964,7 +4964,7 @@ class TestValidateNodes:
                 "query": (
                     """
                     SELECT
-                      cast(sum(if(discount > 0.0, 1, 0)) as double) / count(repair_order_id)
+                      cast(sum(if(discount > 0.0, 1, 0)) as double) / NULLIF(count(repair_order_id), 0)
                     FROM default.repair_order_details
                     """
                 ),
@@ -5750,7 +5750,10 @@ def test_decompose_expression():
     res = decompose_expression(
         ast.Function(ast.Name("avg"), args=[ast.Column(ast.Name("orders"))]),
     )
-    assert str(res[0]) == "sum(orders3845127662_sum) / count(orders3845127662_count)"
+    assert (
+        str(res[0])
+        == "sum(orders3845127662_sum) / NULLIF(count(orders3845127662_count), 0)"
+    )
     assert [measure.alias_or_name.name for measure in res[1]] == [
         "orders3845127662_sum",
         "orders3845127662_count",
@@ -5765,7 +5768,8 @@ def test_decompose_expression():
         ),
     )
     assert (
-        str(res[0]) == "sum(orders3845127662_sum) / count(orders3845127662_count) + 5.5"
+        str(res[0])
+        == "sum(orders3845127662_sum) / NULLIF(count(orders3845127662_count), 0) + 5.5"
     )
     assert [measure.alias_or_name.name for measure in res[1]] == [
         "orders3845127662_sum",
@@ -5793,8 +5797,8 @@ def test_decompose_expression():
     )
     assert (
         str(res[0])
-        == "max(sum(orders_a1170126662_sum) / count(orders_a1170126662_count) "
-        "+ sum(orders_b3703039740_sum) / count(orders_b3703039740_count))"
+        == "max(sum(orders_a1170126662_sum) / NULLIF(count(orders_a1170126662_count), 0) "
+        "+ sum(orders_b3703039740_sum) / NULLIF(count(orders_b3703039740_count), 0))"
     )
 
     # Decompose `sum(max(orders))`
@@ -5834,7 +5838,7 @@ def test_decompose_expression():
     )
     assert (
         str(res[0])
-        == "max(orders3845127662_max) + min(validations2970758927_min) / sum(total3257917790_sum)"
+        == "max(orders3845127662_max) + min(validations2970758927_min) / NULLIF(sum(total3257917790_sum), 0)"
     )
     assert [measure.alias_or_name.name for measure in res[1]] == [
         "orders3845127662_max",
@@ -5864,7 +5868,10 @@ def test_decompose_expression():
             op=ast.BinaryOpKind.Divide,
         ),
     )
-    assert str(res[0]) == "sum(has_ordered2766370626_sum) / sum(total3257917790_sum)"
+    assert (
+        str(res[0])
+        == "sum(has_ordered2766370626_sum) / NULLIF(sum(total3257917790_sum), 0)"
+    )
     assert [measure.alias_or_name.name for measure in res[1]] == [
         "has_ordered2766370626_sum",
         "total3257917790_sum",
