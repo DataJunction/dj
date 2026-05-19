@@ -483,7 +483,7 @@ async def test_get_djsql_with_orderby_and_limit(
         )
         SELECT
             repair_orders_fact_0.country AS country,
-            SUM(repair_orders_fact_0.price_sum_HASH) / SUM(repair_orders_fact_0.price_count_HASH) AS avg_repair_price
+            SUM(repair_orders_fact_0.price_sum_HASH) / NULLIF(SUM(repair_orders_fact_0.price_count_HASH), 0) AS avg_repair_price
         FROM repair_orders_fact_0
         GROUP BY repair_orders_fact_0.country
         ORDER BY country DESC

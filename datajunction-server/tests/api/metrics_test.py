@@ -482,11 +482,11 @@ async def test_read_metrics(module__client_with_roads: AsyncClient) -> None:
         },
     ]
     assert data["derived_query"] == (
-        "SELECT  CAST(SUM(discount_sum_30b84e6c) AS DOUBLE) / SUM(count_c8e42e74) AS "
+        "SELECT  CAST(SUM(discount_sum_30b84e6c) AS DOUBLE) / NULLIF(SUM(count_c8e42e74), 0) AS "
         "default_DOT_discounted_orders_rate \n FROM default.repair_orders_fact"
     )
     assert data["derived_expression"] == (
-        "CAST(SUM(discount_sum_30b84e6c) AS DOUBLE) / SUM(count_c8e42e74) "
+        "CAST(SUM(discount_sum_30b84e6c) AS DOUBLE) / NULLIF(SUM(count_c8e42e74), 0) "
         "AS default_DOT_discounted_orders_rate"
     )
     assert data["custom_metadata"] is None

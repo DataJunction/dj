@@ -428,8 +428,14 @@ def decompose_expression(
                     args=[ast.Column(name=numerator_measure_name)],
                 ),
                 right=ast.Function(
-                    ast.Name("count"),
-                    args=[ast.Column(name=denominator_measure_name)],
+                    ast.Name("NULLIF"),
+                    args=[
+                        ast.Function(
+                            ast.Name("count"),
+                            args=[ast.Column(name=denominator_measure_name)],
+                        ),
+                        ast.Number(value=0),
+                    ],
                 ),
                 op=ast.BinaryOpKind.Divide,
             )
@@ -455,6 +461,14 @@ def decompose_expression(
         if expr.op in acceptable_binary_ops:  # pragma: no cover
             measures_combiner_left, measures_left = decompose_expression(expr.left)
             measures_combiner_right, measures_right = decompose_expression(expr.right)
+            if expr.op == ast.BinaryOpKind.Divide and not (
+                isinstance(measures_combiner_right, ast.Function)
+                and measures_combiner_right.alias_or_name.name.lower() == "nullif"
+            ):
+                measures_combiner_right = ast.Function(
+                    ast.Name("NULLIF"),
+                    args=[measures_combiner_right, ast.Number(value=0)],
+                )
             combiner = ast.BinaryOp(
                 left=measures_combiner_left,
                 right=measures_combiner_right,

@@ -34,6 +34,45 @@ def make_func(name: str, *args: ast.Expression | str) -> ast.Function:
     )
 
 
+def safe_denominator(expr: ast.Expression) -> ast.Expression:
+    """Wrap expr in NULLIF(expr, 0) to make it safe as a divisor.
+
+    Idempotent: if expr is already NULLIF(_, 0) or a numeric literal,
+    returns it unchanged.  Caller passes the RHS of a Divide.
+    """
+    # Numeric literals: x / 100 doesn't need wrapping.
+    if isinstance(expr, ast.Number):
+        return expr
+    # Already wrapped.
+    if (
+        isinstance(expr, ast.Function)
+        and expr.name.name.upper() == "NULLIF"
+        and len(expr.args) == 2
+        and isinstance(expr.args[1], ast.Number)
+        and expr.args[1].value == 0
+    ):
+        return expr
+    return ast.Function(
+        ast.Name("NULLIF"),
+        args=[expr, ast.Number(value=0)],
+    )
+
+
+def wrap_divisions_in_nullif(expr: ast.Expression) -> ast.Expression:
+    """Walk expr and wrap the RHS of every Divide BinaryOp in NULLIF(_, 0)
+    so division-by-zero produces NULL instead of NaN/Infinity/error.
+
+    Mutates and returns expr.  Idempotent via :func:`safe_denominator`.
+    """
+    for node in expr.find_all(ast.BinaryOp):
+        if node.op != ast.BinaryOpKind.Divide:
+            continue
+        wrapped = safe_denominator(node.right)
+        if wrapped is not node.right:
+            node.right = wrapped
+    return expr
+
+
 # =============================================================================
 # Decomposition Framework
 # =============================================================================
@@ -999,6 +1038,15 @@ class MetricComponentExtractor:
                             components_tracker.add(comp.name)
                             components.append(comp)
 
+            # Wrap user-authored divisions in the outer expression too.
+            # _decompose only wraps the small combiners it builds for AVG /
+            # variance / stddev / covariance; the user's top-level
+            # expression (e.g. CAST(SUM(...)) / COUNT(*)) is unchanged
+            # after sub-aggregation replacements and would otherwise emit
+            # bare divisions.
+            for proj in query_ast.select.projection:
+                wrap_divisions_in_nullif(cast(ast.Expression, proj))
+
         return components, query_ast
 
     def _substitute_metric_references(
@@ -1080,6 +1128,11 @@ class MetricComponentExtractor:
             )
         else:
             combiner_ast = decomposition.combine(components)
+            # Decomposed AVG / variance / stddev / covariance all build
+            # SUM(...) / SUM(count)-style combiners where the denominator
+            # can legitimately be 0.  Wrap to produce NULL rather than
+            # NaN/Infinity/error.
+            combiner_ast = wrap_divisions_in_nullif(combiner_ast)
 
         return DecompositionResult(components, combiner_ast)
 

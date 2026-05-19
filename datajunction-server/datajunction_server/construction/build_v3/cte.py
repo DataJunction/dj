@@ -23,6 +23,7 @@ from datajunction_server.construction.build_v3.types import (
 from datajunction_server.construction.build_v3.utils import get_cte_name
 from datajunction_server.database.node import Node
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.sql.decompose import wrap_divisions_in_nullif
 from datajunction_server.sql.parsing import ast
 from datajunction_server.utils import SEPARATOR
 
@@ -1592,5 +1593,9 @@ def process_metric_combiner_expression(
             alias_to_dimension_node,
             partition_cte_alias=cte_alias,
         )
+
+    # Wrap denominators so user-authored ratio metrics don't blow up on
+    # zero (NaN/Infinity/error → NULL).  Idempotent.
+    wrap_divisions_in_nullif(expr_ast)
 
     return expr_ast

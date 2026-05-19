@@ -14,7 +14,13 @@ from datajunction_server.models.cube_materialization import (
     MetricComponent,
 )
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.sql.decompose import MetricComponentExtractor
+from datajunction_server.sql.decompose import (
+    MetricComponentExtractor,
+    safe_denominator,
+    wrap_divisions_in_nullif,
+)
+from datajunction_server.sql.parsing import ast
+from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.models.engine import Dialect
 from datajunction_server.sql.parsing.ast import to_sql
@@ -344,7 +350,7 @@ async def test_average(session: AsyncSession, create_metric):
     assert_sql_equal(
         str(derived_sql),
         "SELECT SUM(sales_amount_sum_b5a3cefe) / "
-        "SUM(sales_amount_count_b5a3cefe) FROM parent_node",
+        "NULLIF(SUM(sales_amount_count_b5a3cefe), 0) FROM parent_node",
     )
 
 
@@ -377,7 +383,7 @@ async def test_rate(session: AsyncSession, create_metric):
     assert measures == expected_measures0
     assert_sql_equal(
         str(derived_sql),
-        "SELECT SUM(clicks_sum_c45fd8cf) / SUM(impressions_sum_3be0a0e7) FROM parent_node",
+        "SELECT SUM(clicks_sum_c45fd8cf) / NULLIF(SUM(impressions_sum_3be0a0e7), 0) FROM parent_node",
     )
 
     metric_rev2 = await create_metric(
@@ -418,7 +424,7 @@ async def test_rate(session: AsyncSession, create_metric):
     assert_sql_equal(
         str(derived_sql),
         "SELECT CAST(CAST(SUM(clicks_sum_c45fd8cf) AS INT) AS DOUBLE) / "
-        "CAST(SUM(impressions_sum_3be0a0e7) AS DOUBLE) FROM parent_node",
+        "NULLIF(CAST(SUM(impressions_sum_3be0a0e7) AS DOUBLE), 0) FROM parent_node",
     )
 
     metric_rev4 = await create_metric(
@@ -446,7 +452,7 @@ async def test_rate(session: AsyncSession, create_metric):
     assert_sql_equal(
         str(derived_sql),
         "SELECT COALESCE(SUM(clicks_sum_c45fd8cf) / "
-        "SUM(impressions_sum_3be0a0e7), 0) FROM parent_node",
+        "NULLIF(SUM(impressions_sum_3be0a0e7), 0), 0) FROM parent_node",
     )
 
     metric_rev5 = await create_metric(
@@ -475,7 +481,7 @@ async def test_rate(session: AsyncSession, create_metric):
     assert_sql_equal(
         str(derived_sql),
         "SELECT IF(SUM(clicks_sum_c45fd8cf) > 0, CAST(SUM(impressions_sum_3be0a0e7) AS DOUBLE)"
-        " / CAST(SUM(clicks_sum_c45fd8cf) AS DOUBLE), NULL) FROM parent_node",
+        " / NULLIF(CAST(SUM(clicks_sum_c45fd8cf) AS DOUBLE), 0), NULL) FROM parent_node",
     )
 
     metric_rev6 = await create_metric(
@@ -502,7 +508,7 @@ async def test_rate(session: AsyncSession, create_metric):
     assert measures == expected_measures
     assert_sql_equal(
         str(derived_sql),
-        "SELECT ln(SUM(clicks_sum_c45fd8cf) + 1) / SUM(views_sum_d8e39817) FROM parent_node",
+        "SELECT ln(SUM(clicks_sum_c45fd8cf) + 1) / NULLIF(SUM(views_sum_d8e39817), 0) FROM parent_node",
     )
 
 
@@ -564,7 +570,7 @@ async def test_fraction_with_if(session: AsyncSession, create_metric):
         str(derived_sql),
         "SELECT IF(SUM(action_sum_c9802ccb) > 0, "
         "CAST(SUM(action_two_sum_05d921a8) AS DOUBLE) / "
-        "CAST(SUM(action_sum_c9802ccb) AS DOUBLE), NULL) FROM parent_node",
+        "NULLIF(CAST(SUM(action_sum_c9802ccb) AS DOUBLE), 0), NULL) FROM parent_node",
     )
 
 
@@ -632,7 +638,7 @@ async def test_count_distinct_rate(session: AsyncSession, create_metric):
     assert_sql_equal(
         str(derived_sql),
         "SELECT COUNT( DISTINCT user_id_distinct_7f092f23) / "
-        "SUM(action_count_50d753fd) FROM parent_node",
+        "NULLIF(SUM(action_count_50d753fd), 0) FROM parent_node",
     )
 
 
@@ -825,7 +831,7 @@ async def test_count_if(session: AsyncSession, create_metric):
     assert measures == expected_measures
     assert_sql_equal(
         str(derived_sql),
-        "SELECT  CAST(SUM(field_a_count_if_3979ffbd) AS FLOAT) / SUM(count_58ac32c5) "
+        "SELECT  CAST(SUM(field_a_count_if_3979ffbd) AS FLOAT) / NULLIF(SUM(count_58ac32c5), 0) "
         "FROM parent_node",
     )
 
@@ -862,7 +868,7 @@ async def test_metric_query_with_aliases(session: AsyncSession, create_metric):
     assert_sql_equal(
         str(derived_sql),
         "SELECT SUM(time_to_dispatch_sum_3bc9baed) / "
-        "SUM(time_to_dispatch_count_3bc9baed) FROM default.repair_orders_fact",
+        "NULLIF(SUM(time_to_dispatch_count_3bc9baed), 0) FROM default.repair_orders_fact",
     )
 
 
@@ -1123,7 +1129,7 @@ async def test_approx_count_distinct_rate(session: AsyncSession, create_metric):
     derived_str = str(derived_sql)
     assert_sql_equal(
         derived_str,
-        "SELECT  CAST(hll_sketch_estimate(hll_union_agg(clicked_user_id_hll_f3824813)) AS DOUBLE) / CAST(hll_sketch_estimate(hll_union_agg(user_id_hll_7f092f23)) AS DOUBLE) FROM parent_node",
+        "SELECT  CAST(hll_sketch_estimate(hll_union_agg(clicked_user_id_hll_f3824813)) AS DOUBLE) / NULLIF(CAST(hll_sketch_estimate(hll_union_agg(user_id_hll_7f092f23)) AS DOUBLE), 0) FROM parent_node",
     )
 
 
@@ -1190,21 +1196,21 @@ async def test_approx_count_distinct_combined_metrics_dialect_translation(
     # Verify Spark SQL structure - contains both SUM and HLL
     assert_sql_equal(
         spark_sql,
-        "SELECT SUM(revenue_sum_60e4d31f) / hll_sketch_estimate(hll_union_agg(user_id_hll_7f092f23)) AS revenue_per_user FROM parent_node",
+        "SELECT SUM(revenue_sum_60e4d31f) / NULLIF(hll_sketch_estimate(hll_union_agg(user_id_hll_7f092f23)), 0) AS revenue_per_user FROM parent_node",
     )
 
     # Translate to Druid - should preserve SUM but translate HLL
     druid_sql = to_sql(derived_sql, Dialect.DRUID)
     assert_sql_equal(
         druid_sql,
-        "SELECT SAFE_DIVIDE(SUM(revenue_sum_60e4d31f), hll_sketch_estimate(ds_hll(user_id_hll_7f092f23))) AS revenue_per_user FROM parent_node",
+        "SELECT SAFE_DIVIDE(SUM(revenue_sum_60e4d31f), NULLIF(hll_sketch_estimate(ds_hll(user_id_hll_7f092f23)), 0)) AS revenue_per_user FROM parent_node",
     )
 
     # Translate to Trino
     trino_sql = to_sql(derived_sql, Dialect.TRINO)
     assert_sql_equal(
         trino_sql,
-        "SELECT SUM(revenue_sum_60e4d31f) / cardinality(merge(user_id_hll_7f092f23)) AS revenue_per_user FROM parent_node",
+        "SELECT SUM(revenue_sum_60e4d31f) / NULLIF(cardinality(merge(user_id_hll_7f092f23)), 0) AS revenue_per_user FROM parent_node",
     )
 
 
@@ -1254,8 +1260,8 @@ async def test_var_pop(session: AsyncSession, create_metric):
         derived_str,
         """
       SELECT
-        SUM(price_sum_sq_726db899) / SUM(price_count_726db899) -
-        POWER(SUM(price_sum_726db899) / SUM(price_count_726db899), 2)
+        SUM(price_sum_sq_726db899) / NULLIF(SUM(price_count_726db899), 0) -
+        POWER(SUM(price_sum_726db899) / NULLIF(SUM(price_count_726db899), 0), 2)
       FROM parent_node""",
     )
 
@@ -1279,7 +1285,7 @@ async def test_var_samp(session: AsyncSession, create_metric):
         str(derived_sql),
         """
       SELECT
-        SUM(price_count_726db899) * SUM(price_sum_sq_726db899) - POWER(SUM(price_sum_726db899), 2) / SUM(price_count_726db899) * SUM(price_count_726db899) - 1
+        SUM(price_count_726db899) * SUM(price_sum_sq_726db899) - POWER(SUM(price_sum_726db899), 2) / NULLIF(SUM(price_count_726db899) * SUM(price_count_726db899) - 1, 0)
       FROM parent_node""",
     )
 
@@ -1306,8 +1312,8 @@ async def test_stddev_pop(session: AsyncSession, create_metric):
         derived_str,
         """SELECT
         SQRT(
-          SUM(price_sum_sq_726db899) / SUM(price_count_726db899) -
-          POWER(SUM(price_sum_726db899) / SUM(price_count_726db899), 2)
+          SUM(price_sum_sq_726db899) / NULLIF(SUM(price_count_726db899), 0) -
+          POWER(SUM(price_sum_726db899) / NULLIF(SUM(price_count_726db899), 0), 2)
         )
       FROM parent_node""",
     )
@@ -1338,7 +1344,7 @@ async def test_stddev_samp(session: AsyncSession, create_metric):
         SQRT(
           SUM(price_count_726db899) * SUM(price_sum_sq_726db899) -
           POWER(SUM(price_sum_726db899), 2) /
-          SUM(price_count_726db899) * SUM(price_count_726db899) - 1
+          NULLIF(SUM(price_count_726db899) * SUM(price_count_726db899) - 1, 0)
         )
       FROM parent_node""",
     )
@@ -2155,3 +2161,74 @@ async def test_extract_nested_derived_with_avg(
     # Derived SQL should contain the AVG combiner (SUM/COUNT pattern)
     assert "SUM(" in derived_sql
     assert "/" in derived_sql  # Division from AVG decomposition
+
+
+# =============================================================================
+# Division-safety NULLIF auto-wrapping
+# =============================================================================
+
+
+def test_safe_denominator_idempotent():
+    """safe_denominator wraps once and only once."""
+    inner = ast.Function(ast.Name("SUM"), args=[ast.Column(ast.Name("n"))])
+    wrapped = safe_denominator(inner)
+    assert_sql_equal(f"SELECT {wrapped}", "SELECT NULLIF(SUM(n), 0)")
+    # Re-wrapping returns the same expression unchanged.
+    re_wrapped = safe_denominator(wrapped)
+    assert re_wrapped is wrapped
+
+
+def test_safe_denominator_preserves_literal():
+    """Numeric literals (e.g. x / 100) don't need NULLIF."""
+    lit = ast.Number(value=100)
+    assert safe_denominator(lit) is lit
+
+
+def test_wrap_divisions_in_nullif_walks_nested():
+    """Every nested Divide in the expression tree gets its RHS wrapped."""
+    expr = parse(
+        "SELECT SUM(a) / SUM(b) - SUM(c) / SUM(d) FROM t",
+    ).select.projection[0]
+    wrap_divisions_in_nullif(expr)
+    assert_sql_equal(
+        f"SELECT {expr}",
+        "SELECT SUM(a) / NULLIF(SUM(b), 0) - SUM(c) / NULLIF(SUM(d), 0)",
+    )
+
+
+@pytest.mark.asyncio
+async def test_avg_decomposition_wraps_denominator(
+    session: AsyncSession,
+    create_metric,
+):
+    """The AVG combiner is auto-wrapped so 0/0 produces NULL instead of
+    NaN/Infinity/error.  Together with the unit-level test_average above,
+    locks in the auto-wrap behaviour end-to-end via decomposition.
+    """
+    metric_rev = await create_metric("SELECT AVG(amount) FROM parent_node")
+    extractor = MetricComponentExtractor(metric_rev.id)
+    _, derived_sql = await extractor.extract(session)
+    assert_sql_equal(
+        str(derived_sql),
+        "SELECT SUM(amount_sum_9e341235) / NULLIF(SUM(amount_count_9e341235), 0) "
+        "FROM parent_node",
+    )
+
+
+@pytest.mark.asyncio
+async def test_user_authored_division_not_double_wrapped(
+    session: AsyncSession,
+    create_metric,
+):
+    """If the author already wrote NULLIF(denominator, 0), the auto-wrap
+    is idempotent — no double-wrap.
+    """
+    metric_rev = await create_metric(
+        "SELECT SUM(x) / NULLIF(SUM(y), 0) FROM parent_node",
+    )
+    extractor = MetricComponentExtractor(metric_rev.id)
+    _, derived_sql = await extractor.extract(session)
+    assert_sql_equal(
+        str(derived_sql),
+        "SELECT SUM(x_sum_b5c12ce5) / NULLIF(SUM(y_sum_898a9389), 0) FROM parent_node",
+    )

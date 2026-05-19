@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from datajunction_server.construction.build_v3.cte import (
     build_alias_to_dimension_node,
@@ -50,6 +50,7 @@ from datajunction_server.construction.build_v3.types import (
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.decompose import Aggregability
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.sql.decompose import wrap_divisions_in_nullif
 from datajunction_server.sql.parsing import ast
 
 logger = logging.getLogger(__name__)
@@ -686,6 +687,10 @@ def build_intermediate_metric_expr(
                 # The dependency hasn't been built, so defer this metric
                 return None  # pragma: no cover
 
+    # Intermediate derived metrics like avg_order_value =
+    # total_revenue / order_count inline raw aggregations on both
+    # sides — wrap denominators to avoid NaN/Infinity/error on 0.
+    wrap_divisions_in_nullif(cast(ast.Expression, expr_ast))
     return expr_ast  # type: ignore
 
 

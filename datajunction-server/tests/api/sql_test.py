@@ -1782,7 +1782,7 @@ async def test_metric_with_second_order_dimensions(
         )
 
         SELECT  repair_orders_fact_0.city AS city,
-        	SUM(repair_orders_fact_0.price_sum_935e7117) / SUM(repair_orders_fact_0.price_count_935e7117) AS avg_repair_price
+        	SUM(repair_orders_fact_0.price_sum_935e7117) / NULLIF(SUM(repair_orders_fact_0.price_count_935e7117), 0) AS avg_repair_price
          FROM repair_orders_fact_0
          GROUP BY  repair_orders_fact_0.city
 
@@ -1861,7 +1861,7 @@ async def test_metric_with_nth_order_dimensions(
 
         SELECT  repair_orders_fact_0.city AS city,
         	repair_orders_fact_0.company_name AS company_name,
-        	SUM(repair_orders_fact_0.price_sum_935e7117) / SUM(repair_orders_fact_0.price_count_935e7117) AS avg_repair_price
+        	SUM(repair_orders_fact_0.price_sum_935e7117) / NULLIF(SUM(repair_orders_fact_0.price_count_935e7117), 0) AS avg_repair_price
          FROM repair_orders_fact_0
          GROUP BY  repair_orders_fact_0.city, repair_orders_fact_0.company_name
 
@@ -4243,7 +4243,7 @@ async def test_role_path_dimensions_in_filters_single_hop(
         )
 
         SELECT  user_dim_0.name_user_birth_country AS name_user_birth_country,
-        	SUM(user_dim_0.age_sum_4ebaaaaa) / SUM(user_dim_0.age_count_4ebaaaaa) AS avg_user_age
+        	SUM(user_dim_0.age_sum_4ebaaaaa) / NULLIF(SUM(user_dim_0.age_count_4ebaaaaa), 0) AS avg_user_age
          FROM user_dim_0
          WHERE  user_dim_0.name_user_birth_country = 'United States'
          GROUP BY  user_dim_0.name_user_birth_country
@@ -4312,7 +4312,7 @@ async def test_role_path_dimensions_in_filters_multi_hop_geographic(
         )
 
         SELECT  user_dim_0.continent_name_region_continent AS continent_name_region_continent,
-        	SUM(user_dim_0.age_sum_4ebaaaaa) / SUM(user_dim_0.age_count_4ebaaaaa) AS avg_user_age
+        	SUM(user_dim_0.age_sum_4ebaaaaa) / NULLIF(SUM(user_dim_0.age_count_4ebaaaaa), 0) AS avg_user_age
          FROM user_dim_0
          WHERE  user_dim_0.continent_name_region_continent = 'North America'
          GROUP BY  user_dim_0.continent_name_region_continent
@@ -4388,7 +4388,7 @@ async def test_role_path_dimensions_in_filters_multi_hop_temporal(
         )
 
         SELECT  user_dim_0.year_number_month_year AS year_number_month_year,
-        	SUM(user_dim_0.age_sum_4ebaaaaa) / SUM(user_dim_0.age_count_4ebaaaaa) AS avg_user_age
+        	SUM(user_dim_0.age_sum_4ebaaaaa) / NULLIF(SUM(user_dim_0.age_count_4ebaaaaa), 0) AS avg_user_age
          FROM user_dim_0
          WHERE  user_dim_0.year_number_month_year = 2024
          GROUP BY  user_dim_0.year_number_month_year
@@ -4450,7 +4450,7 @@ async def test_role_path_dimensions_mixed_paths(
 
         SELECT  user_dim_0.name_user_birth_country AS name_user_birth_country,
         	user_dim_0.name_user_residence_country AS name_user_residence_country,
-        	SUM(user_dim_0.age_sum_4ebaaaaa) / SUM(user_dim_0.age_count_4ebaaaaa) AS avg_user_age
+        	SUM(user_dim_0.age_sum_4ebaaaaa) / NULLIF(SUM(user_dim_0.age_count_4ebaaaaa), 0) AS avg_user_age
          FROM user_dim_0
          WHERE  user_dim_0.name_user_birth_country = 'Canada' AND user_dim_0.name_user_residence_country = 'United States'
          GROUP BY  user_dim_0.name_user_birth_country, user_dim_0.name_user_residence_country
@@ -4548,7 +4548,7 @@ async def test_role_path_dimensions_mixed_hierarchies(
 
         SELECT  user_dim_0.continent_name_region_continent AS continent_name_region_continent,
         	user_dim_0.month_name_week_month AS month_name_week_month,
-        	SUM(user_dim_0.age_sum_4ebaaaaa) / SUM(user_dim_0.age_count_4ebaaaaa) AS avg_user_age
+        	SUM(user_dim_0.age_sum_4ebaaaaa) / NULLIF(SUM(user_dim_0.age_count_4ebaaaaa), 0) AS avg_user_age
          FROM user_dim_0
          GROUP BY  user_dim_0.continent_name_region_continent, user_dim_0.month_name_week_month
 
@@ -4744,7 +4744,7 @@ async def test_multiple_filters_same_role_path(
           GROUP BY  t2.name
         )
         SELECT  user_dim_0.name_user_birth_country AS name_user_birth_country,
-          SUM(user_dim_0.age_sum_4ebaaaaa) / SUM(user_dim_0.age_count_4ebaaaaa) AS avg_user_age
+          SUM(user_dim_0.age_sum_4ebaaaaa) / NULLIF(SUM(user_dim_0.age_count_4ebaaaaa), 0) AS avg_user_age
         FROM user_dim_0
         WHERE  user_dim_0.name_user_birth_country IS NOT NULL
         GROUP BY  user_dim_0.name_user_birth_country
@@ -4849,7 +4849,7 @@ async def test_role_path_dimensions_performance_complex_query(
         	user_dim_0.region_name_country_region AS region_name_country_region,
         	user_dim_0.month_name_week_month AS month_name_week_month,
         	user_dim_0.year_number_month_year AS year_number_month_year,
-        	SUM(user_dim_0.age_sum_4ebaaaaa) / SUM(user_dim_0.age_count_4ebaaaaa) AS avg_user_age
+        	SUM(user_dim_0.age_sum_4ebaaaaa) / NULLIF(SUM(user_dim_0.age_count_4ebaaaaa), 0) AS avg_user_age
          FROM user_dim_0
          WHERE  user_dim_0.name_user_birth_country IN ('Canada', 'United States', 'Mexico') AND user_dim_0.region_name_country_region = 'North America' AND user_dim_0.month_name_week_month IN ('January', 'February', 'March') AND user_dim_0.year_number_month_year >= 2020
          GROUP BY  user_dim_0.name_user_birth_country, user_dim_0.name_user_residence_country, user_dim_0.region_name_country_region, user_dim_0.month_name_week_month, user_dim_0.year_number_month_year

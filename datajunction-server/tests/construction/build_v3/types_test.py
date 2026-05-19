@@ -61,7 +61,7 @@ class TestDecomposedMetricInfo:
             metric_node=metric_node,
             components=[component1, component2],
             aggregability=Aggregability.LIMITED,
-            combiner="SUM(x) / COUNT(DISTINCT y)",
+            combiner="SUM(x) / NULLIF(COUNT(DISTINCT y), 0)",
             derived_ast=derived_ast,
         )
 

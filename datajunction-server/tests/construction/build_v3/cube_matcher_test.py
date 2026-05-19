@@ -844,13 +844,13 @@ class TestBuildSqlFromCube:
           SUM(test_cube_all_order_metrics_0.quantity_sum_06b64d2e) AS total_quantity,
           COUNT( DISTINCT test_cube_all_order_metrics_0.order_id_distinct_f93d50ab) AS order_count,
           hll_sketch_estimate(hll_union_agg(test_cube_all_order_metrics_0.customer_id_hll_23002251)) AS customer_count,
-          SUM(test_cube_all_order_metrics_0.unit_price_sum_55cff00f) / SUM(test_cube_all_order_metrics_0.unit_price_count_55cff00f) AS avg_unit_price,
+          SUM(test_cube_all_order_metrics_0.unit_price_sum_55cff00f) / NULLIF(SUM(test_cube_all_order_metrics_0.unit_price_count_55cff00f), 0) AS avg_unit_price,
           MAX(test_cube_all_order_metrics_0.unit_price_max_55cff00f) AS max_unit_price,
           MIN(test_cube_all_order_metrics_0.unit_price_min_55cff00f) AS min_unit_price,
           SUM(test_cube_all_order_metrics_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT test_cube_all_order_metrics_0.order_id_distinct_f93d50ab), 0) AS avg_order_value,
           SUM(test_cube_all_order_metrics_0.quantity_sum_06b64d2e) / NULLIF(COUNT( DISTINCT test_cube_all_order_metrics_0.order_id_distinct_f93d50ab), 0) AS avg_items_per_order,
           SUM(test_cube_all_order_metrics_0.line_total_sum_e1f61696) / NULLIF(hll_sketch_estimate(hll_union_agg(test_cube_all_order_metrics_0.customer_id_hll_23002251)), 0) AS revenue_per_customer,
-          (MAX(test_cube_all_order_metrics_0.unit_price_max_55cff00f) - MIN(test_cube_all_order_metrics_0.unit_price_min_55cff00f)) / NULLIF(SUM(test_cube_all_order_metrics_0.unit_price_sum_55cff00f) / SUM(test_cube_all_order_metrics_0.unit_price_count_55cff00f), 0) * 100 AS price_spread_pct
+          (MAX(test_cube_all_order_metrics_0.unit_price_max_55cff00f) - MIN(test_cube_all_order_metrics_0.unit_price_min_55cff00f)) / NULLIF(SUM(test_cube_all_order_metrics_0.unit_price_sum_55cff00f) / NULLIF(SUM(test_cube_all_order_metrics_0.unit_price_count_55cff00f), 0), 0) * 100 AS price_spread_pct
         FROM test_cube_all_order_metrics_0
         GROUP BY
           test_cube_all_order_metrics_0.category
@@ -890,13 +890,13 @@ class TestBuildSqlFromCube:
           SUM(test_cube_all_order_metrics_0.quantity_sum_06b64d2e) AS total_quantity,
           COUNT( DISTINCT test_cube_all_order_metrics_0.order_id_distinct_f93d50ab) AS order_count,
           hll_sketch_estimate(ds_hll(test_cube_all_order_metrics_0.customer_id_hll_23002251)) AS customer_count,
-          SAFE_DIVIDE(SUM(test_cube_all_order_metrics_0.unit_price_sum_55cff00f), SUM(test_cube_all_order_metrics_0.unit_price_count_55cff00f)) AS avg_unit_price,
+          SAFE_DIVIDE(SUM(test_cube_all_order_metrics_0.unit_price_sum_55cff00f), NULLIF(SUM(test_cube_all_order_metrics_0.unit_price_count_55cff00f), 0)) AS avg_unit_price,
           MAX(test_cube_all_order_metrics_0.unit_price_max_55cff00f) AS max_unit_price,
           MIN(test_cube_all_order_metrics_0.unit_price_min_55cff00f) AS min_unit_price,
           SAFE_DIVIDE(SUM(test_cube_all_order_metrics_0.line_total_sum_e1f61696), NULLIF(COUNT( DISTINCT test_cube_all_order_metrics_0.order_id_distinct_f93d50ab), 0)) AS avg_order_value,
           SAFE_DIVIDE(SUM(test_cube_all_order_metrics_0.quantity_sum_06b64d2e), NULLIF(COUNT( DISTINCT test_cube_all_order_metrics_0.order_id_distinct_f93d50ab), 0)) AS avg_items_per_order,
           SAFE_DIVIDE(SUM(test_cube_all_order_metrics_0.line_total_sum_e1f61696), NULLIF(hll_sketch_estimate(ds_hll(test_cube_all_order_metrics_0.customer_id_hll_23002251)), 0)) AS revenue_per_customer,
-          SAFE_DIVIDE((MAX(test_cube_all_order_metrics_0.unit_price_max_55cff00f) - MIN(test_cube_all_order_metrics_0.unit_price_min_55cff00f)), NULLIF(SAFE_DIVIDE(SUM(test_cube_all_order_metrics_0.unit_price_sum_55cff00f), SUM(test_cube_all_order_metrics_0.unit_price_count_55cff00f)), 0)) * 100 AS price_spread_pct
+          SAFE_DIVIDE((MAX(test_cube_all_order_metrics_0.unit_price_max_55cff00f) - MIN(test_cube_all_order_metrics_0.unit_price_min_55cff00f)), NULLIF(SAFE_DIVIDE(SUM(test_cube_all_order_metrics_0.unit_price_sum_55cff00f), NULLIF(SUM(test_cube_all_order_metrics_0.unit_price_count_55cff00f), 0)), 0)) * 100 AS price_spread_pct
         FROM test_cube_all_order_metrics_0
         GROUP BY
           test_cube_all_order_metrics_0.category
@@ -2295,7 +2295,7 @@ class TestBuildMetricsSqlCubePath:
             SELECT
                 cube_avg_metric_0.category AS category,
                 SAFE_DIVIDE(SUM(cube_avg_metric_0.unit_price_sum_55cff00f),
-                    SUM(cube_avg_metric_0.unit_price_count_55cff00f)) AS avg_unit_price
+                    NULLIF(SUM(cube_avg_metric_0.unit_price_count_55cff00f), 0)) AS avg_unit_price
             FROM cube_avg_metric_0
             GROUP BY cube_avg_metric_0.category
             """,

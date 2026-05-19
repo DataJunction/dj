@@ -146,7 +146,7 @@ class TestMetricsSQLBasic:
         Test metrics SQL for a multi-component metric (AVG).
 
         AVG decomposes into SUM and COUNT, and the combiner expression
-        should be applied: SUM(x) / COUNT(x).
+        should be applied: SUM(x) / NULLIF(COUNT(x), 0).
         """
         response = await client_with_build_v3.get(
             "/sql/metrics/v3/",
@@ -178,7 +178,7 @@ class TestMetricsSQLBasic:
             GROUP BY  t1.status
             )
             SELECT  order_details_0.status AS status,
-                SUM(order_details_0.unit_price_sum_55cff00f) / SUM(order_details_0.unit_price_count_55cff00f) AS avg_unit_price
+                SUM(order_details_0.unit_price_sum_55cff00f) / NULLIF(SUM(order_details_0.unit_price_count_55cff00f), 0) AS avg_unit_price
             FROM order_details_0
             GROUP BY order_details_0.status
             """,
@@ -1307,7 +1307,7 @@ class TestMetricsSQLCrossFact:
                 SUM(order_details_0.status_line_total_sum_43004dae) AS completed_order_revenue,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue,
                 MAX(order_details_0.unit_price_max_55cff00f) - MIN(order_details_0.unit_price_min_55cff00f) AS price_spread,
-                (MAX(order_details_0.unit_price_max_55cff00f) - MIN(order_details_0.unit_price_min_55cff00f)) / NULLIF(SUM(order_details_0.unit_price_sum_55cff00f) / SUM(order_details_0.unit_price_count_55cff00f), 0) * 100 AS price_spread_pct
+                (MAX(order_details_0.unit_price_max_55cff00f) - MIN(order_details_0.unit_price_min_55cff00f)) / NULLIF(SUM(order_details_0.unit_price_sum_55cff00f) / NULLIF(SUM(order_details_0.unit_price_count_55cff00f), 0), 0) * 100 AS price_spread_pct
             FROM order_details_0
             GROUP BY order_details_0.status, order_details_0.category
             """,
