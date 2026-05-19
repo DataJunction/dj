@@ -1256,7 +1256,7 @@ QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
     "JOINdefault_repair_ordert2ONt1.repair_order_id=t2.repair_order_idLEFTOUTERJOIN"
     "default_hard_hatt3ONt2.hard_hat_id=t3.hard_hat_idGROUPBYt3.state)SELECT"
     "repair_order_details_0.stateASstate,\tSUM(repair_order_details_0.price_sum_252381cf)"
-    "/SUM(repair_order_details_0.price_count_252381cf)ASavg_repair_priceFROM"
+    "/NULLIF(SUM(repair_order_details_0.price_count_252381cf),0)ASavg_repair_priceFROM"
     "repair_order_details_0GROUPBYrepair_order_details_0.state": QueryWithResults(
         **{
             "id": "bd98d6be-e2d2-413e-94c7-96d9411ddee2",
@@ -1399,7 +1399,7 @@ QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
     "LEFTOUTERJOINdefault_repair_ordert2ONt1.repair_order_id=t2.repair_order_id"
     "LEFTOUTERJOINdefault_hard_hatt3ONt2.hard_hat_id=t3.hard_hat_idGROUPBYt3.city)"
     "SELECTCOALESCE(repair_order_details_0.city)AScity,\tSUM(repair_order_details_0."
-    "price_sum_252381cf)/SUM(repair_order_details_0.price_count_252381cf)AS"
+    "price_sum_252381cf)/NULLIF(SUM(repair_order_details_0.price_count_252381cf),0)AS"
     "avg_repair_priceFROMrepair_order_details_0GROUPBYrepair_order_details_0.city": QueryWithResults(
         id="v3-avg-repair-price-city",
         submitted_query="...",
@@ -1437,7 +1437,7 @@ QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
     "LEFTOUTERJOINdefault_repair_ordert2ONt1.repair_order_id=t2.repair_order_id"
     "LEFTOUTERJOINdefault_hard_hatt3ONt2.hard_hat_id=t3.hard_hat_idGROUPBYt3.city)"
     "SELECTrepair_order_details_0.cityAScity,\tSUM(repair_order_details_0."
-    "price_sum_252381cf)/SUM(repair_order_details_0.price_count_252381cf)AS"
+    "price_sum_252381cf)/NULLIF(SUM(repair_order_details_0.price_count_252381cf),0)AS"
     "avg_repair_priceFROMrepair_order_details_0GROUPBYrepair_order_details_0.city": QueryWithResults(
         id="v3-avg-repair-price-city",
         submitted_query="...",
@@ -1465,7 +1465,7 @@ QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
     "LEFTOUTERJOINdefault_repair_ordert2ONt1.repair_order_id=t2.repair_order_id"
     "LEFTOUTERJOINdefault_hard_hatt3ONt2.hard_hat_id=t3.hard_hat_idGROUPBYt3.state)"
     "SELECTCOALESCE(repair_order_details_0.state)ASstate,\tSUM(repair_order_details_0."
-    "price_sum_252381cf)/SUM(repair_order_details_0.price_count_252381cf)AS"
+    "price_sum_252381cf)/NULLIF(SUM(repair_order_details_0.price_count_252381cf),0)AS"
     "avg_repair_priceFROMrepair_order_details_0GROUPBYrepair_order_details_0.state": QueryWithResults(
         id="v3-avg-repair-price-state-no-data",
         submitted_query="...",
@@ -1481,7 +1481,7 @@ QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
     "LEFTOUTERJOINdefault_repair_ordert2ONt1.repair_order_id=t2.repair_order_id"
     "LEFTOUTERJOINdefault_hard_hatt3ONt2.hard_hat_id=t3.hard_hat_idGROUPBYt3.state)"
     "SELECTrepair_order_details_0.stateASstate,\tSUM(repair_order_details_0."
-    "price_sum_252381cf)/SUM(repair_order_details_0.price_count_252381cf)AS"
+    "price_sum_252381cf)/NULLIF(SUM(repair_order_details_0.price_count_252381cf),0)AS"
     "avg_repair_priceFROMrepair_order_details_0GROUPBYrepair_order_details_0.state": QueryWithResults(
         id="v3-avg-repair-price-state-no-data-no-coalesce",
         submitted_query="...",
@@ -1498,7 +1498,7 @@ QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
     "LEFTOUTERJOINdefault_repair_ordert2ONt1.repair_order_id=t2.repair_order_id"
     "LEFTOUTERJOINdefault_hard_hatt3ONt2.hard_hat_id=t3.hard_hat_idGROUPBYt3.city)"
     "SELECTrepair_order_details_0.cityAScity,\tSUM(repair_order_details_0."
-    "price_sum_252381cf)/SUM(repair_order_details_0.price_count_252381cf)AS"
+    "price_sum_252381cf)/NULLIF(SUM(repair_order_details_0.price_count_252381cf),0)AS"
     "avg_repair_priceFROMrepair_order_details_0GROUPBYrepair_order_details_0.city": QueryWithResults(
         id="v3-avg-repair-price-city-with-join-key",
         submitted_query="...",
@@ -1526,7 +1526,7 @@ QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
     "LEFTOUTERJOINdefault_repair_ordert2ONt1.repair_order_id=t2.repair_order_id"
     "LEFTOUTERJOINdefault_hard_hatt3ONt2.hard_hat_id=t3.hard_hat_idGROUPBYt3.state)"
     "SELECTrepair_order_details_0.stateASstate,\tSUM(repair_order_details_0."
-    "price_sum_252381cf)/SUM(repair_order_details_0.price_count_252381cf)AS"
+    "price_sum_252381cf)/NULLIF(SUM(repair_order_details_0.price_count_252381cf),0)AS"
     "avg_repair_priceFROMrepair_order_details_0GROUPBYrepair_order_details_0.state": QueryWithResults(
         id="v3-avg-repair-price-state-no-data-with-join-key",
         submitted_query="...",
