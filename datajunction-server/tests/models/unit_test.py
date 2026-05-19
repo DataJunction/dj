@@ -21,22 +21,33 @@ def _validate(value: dict) -> Unit:
 
 
 class TestAtomicUnit:
-    def test_currency_with_supported_code(self) -> None:
+    def test_currency_with_iso_code(self) -> None:
         u = AtomicUnit(kind=UnitKind.CURRENCY, code="USD")
         assert u.kind == UnitKind.CURRENCY
         assert u.code == "USD"
         assert u.abbreviation() == "$"
         assert u.label() == "USD"
 
+    def test_currency_accepts_any_iso_4217_shape(self) -> None:
+        # Codes outside the symbol table still validate and round-trip;
+        # display falls back to the code itself.
+        u = AtomicUnit(kind=UnitKind.CURRENCY, code="SEK")
+        assert u.code == "SEK"
+        assert u.abbreviation() == "SEK"
+
     def test_currency_without_code_is_allowed(self) -> None:
         u = AtomicUnit(kind=UnitKind.CURRENCY, code=None)
         assert u.code is None
         assert u.label() == "Currency"
 
-    def test_currency_rejects_unsupported_code(self) -> None:
+    @pytest.mark.parametrize(
+        "bad_code",
+        ["usd", "USDX", "US", "US$", "U S", "12A", "U1D"],
+    )
+    def test_currency_rejects_malformed_code(self, bad_code: str) -> None:
         with pytest.raises(ValidationError) as exc_info:
-            AtomicUnit(kind=UnitKind.CURRENCY, code="USDX")
-        assert "Unsupported currency code" in str(exc_info.value)
+            AtomicUnit(kind=UnitKind.CURRENCY, code=bad_code)
+        assert "ISO 4217" in str(exc_info.value)
 
     def test_time_requires_supported_code(self) -> None:
         AtomicUnit(kind=UnitKind.TIME, code="ms")
@@ -46,6 +57,20 @@ class TestAtomicUnit:
             AtomicUnit(kind=UnitKind.TIME, code="seconds")
         with pytest.raises(ValidationError):
             AtomicUnit(kind=UnitKind.TIME, code=None)
+
+    def test_data_size_with_supported_codes(self) -> None:
+        for code in ("B", "KB", "MB", "GB", "TB", "PB", "KiB", "MiB", "GiB", "TiB"):
+            u = AtomicUnit(kind=UnitKind.DATA_SIZE, code=code)
+            assert u.code == code
+            assert u.abbreviation() == code
+        u = AtomicUnit(kind=UnitKind.DATA_SIZE, code="MB")
+        assert u.label() == "Megabyte"
+
+    def test_data_size_rejects_unsupported_code(self) -> None:
+        with pytest.raises(ValidationError):
+            AtomicUnit(kind=UnitKind.DATA_SIZE, code="bytes")
+        with pytest.raises(ValidationError):
+            AtomicUnit(kind=UnitKind.DATA_SIZE, code=None)
 
     def test_count_accepts_free_form_code(self) -> None:
         u = AtomicUnit(kind=UnitKind.COUNT, code="clicks")

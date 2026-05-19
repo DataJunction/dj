@@ -8,6 +8,7 @@ denominator atomic unit, e.g. clicks per second).
 Stored as JSONB on `column.unit`. Validated at the Pydantic layer.
 """
 
+import re
 from enum import Enum
 from typing import Annotated, Any, Union
 
@@ -22,20 +23,27 @@ class UnitKind(str, Enum):
 
     CURRENCY = "currency"
     TIME = "time"
+    DATA_SIZE = "data_size"
     PERCENTAGE = "percentage"
     PROPORTION = "proportion"
     COUNT = "count"
     UNITLESS = "unitless"
 
 
-# Closed sets used by AtomicUnit validators. Extending these is a one-line
-# code change and should not require a migration.
-CURRENCY_CODES: frozenset[str] = frozenset(
-    {"USD", "EUR", "GBP", "JPY", "CAD", "AUD", "CHF", "CNY"},
-)
+# Currency codes follow ISO 4217 (3 uppercase letters). DJ does not own the
+# currency vocabulary — any conforming code is accepted; the regex catches
+# typos (lowercase, wrong length, non-letters) without keeping a frozen list
+# that would need updates per release.
+_CURRENCY_CODE_RE = re.compile(r"^[A-Z]{3}$")
 
+# Closed sets where the universe is small and inputs are easy to mistype.
 TIME_CODES: frozenset[str] = frozenset(
     {"ms", "s", "min", "h", "d", "wk", "mo", "yr"},
+)
+
+# Data size codes: base-10 (KB, MB, GB, TB, PB) and base-2 (KiB, MiB, GiB, TiB).
+DATA_SIZE_CODES: frozenset[str] = frozenset(
+    {"B", "KB", "MB", "GB", "TB", "PB", "KiB", "MiB", "GiB", "TiB"},
 )
 
 # Display helpers — abbreviation and label per (kind, code).
@@ -50,6 +58,22 @@ _TIME_LABELS: dict[str, tuple[str, str]] = {
     "yr": ("y", "Year"),
 }
 
+_DATA_SIZE_LABELS: dict[str, str] = {
+    "B": "Byte",
+    "KB": "Kilobyte",
+    "MB": "Megabyte",
+    "GB": "Gigabyte",
+    "TB": "Terabyte",
+    "PB": "Petabyte",
+    "KiB": "Kibibyte",
+    "MiB": "Mebibyte",
+    "GiB": "Gibibyte",
+    "TiB": "Tebibyte",
+}
+
+# Symbols for common currency codes. Anything not listed falls back to the
+# code itself (e.g. "SEK", "INR") which is the standard rendering when no
+# locale-specific symbol is available.
 _CURRENCY_SYMBOLS: dict[str, str] = {
     "USD": "$",
     "EUR": "€",
@@ -59,6 +83,8 @@ _CURRENCY_SYMBOLS: dict[str, str] = {
     "AUD": "A$",
     "CHF": "CHF",
     "CNY": "¥",
+    "INR": "₹",
+    "KRW": "₩",
 }
 
 
@@ -78,15 +104,21 @@ class AtomicUnit(BaseModel):
                 # Currency with no code is allowed — represents
                 # "denomination unknown" or row-typed by a sibling column.
                 return self
-            if self.code not in CURRENCY_CODES:
+            if not _CURRENCY_CODE_RE.match(self.code):
                 raise ValueError(
-                    f"Unsupported currency code {self.code!r}. "
-                    f"Supported: {sorted(CURRENCY_CODES)}",
+                    f"Currency code {self.code!r} must be ISO 4217 "
+                    "(three uppercase letters, e.g. 'USD').",
                 )
         elif self.kind == UnitKind.TIME:
             if self.code is None or self.code not in TIME_CODES:
                 raise ValueError(
                     f"Time unit requires a code in {sorted(TIME_CODES)}; "
+                    f"got {self.code!r}",
+                )
+        elif self.kind == UnitKind.DATA_SIZE:
+            if self.code is None or self.code not in DATA_SIZE_CODES:
+                raise ValueError(
+                    f"Data size unit requires a code in {sorted(DATA_SIZE_CODES)}; "
                     f"got {self.code!r}",
                 )
         elif self.kind == UnitKind.COUNT:
@@ -107,6 +139,8 @@ class AtomicUnit(BaseModel):
             return _CURRENCY_SYMBOLS.get(self.code or "", self.code or "")
         if self.kind == UnitKind.TIME and self.code in _TIME_LABELS:
             return _TIME_LABELS[self.code][0]
+        if self.kind == UnitKind.DATA_SIZE:
+            return self.code or ""
         if self.kind == UnitKind.PERCENTAGE:
             return "%"
         if self.kind == UnitKind.PROPORTION:
@@ -121,6 +155,8 @@ class AtomicUnit(BaseModel):
             return self.code or "Currency"
         if self.kind == UnitKind.TIME and self.code in _TIME_LABELS:
             return _TIME_LABELS[self.code][1]
+        if self.kind == UnitKind.DATA_SIZE:
+            return _DATA_SIZE_LABELS.get(self.code or "", self.code or "Data size")
         if self.kind == UnitKind.PERCENTAGE:
             return "Percentage"
         if self.kind == UnitKind.PROPORTION:

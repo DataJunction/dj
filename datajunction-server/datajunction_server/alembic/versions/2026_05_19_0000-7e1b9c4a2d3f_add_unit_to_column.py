@@ -1,4 +1,5 @@
-"""add unit JSONB column to column table
+"""
+Add unit JSONB column to column table
 
 Revision ID: 7e1b9c4a2d3f
 Revises: 6d7e8f9a0b1c
@@ -8,12 +9,7 @@ Adds a structured `unit` column to `column` for column-level unit metadata.
 Atomic shape: {"kind": "currency", "code": "USD"}.
 Compound shape: {"numerator": {...}, "denominator": {...}}.
 
-Validation lives at the Pydantic model layer
-(datajunction_server.models.unit.Unit); the DB just stores JSONB.
-
-This migration is purely additive — no existing rows are touched, no other
-table or column changes. Subsequent migrations (lift unit from
-metricmetadata.unit, backfill historical data) ship in separate PRs.
+Validation lives at the Pydantic model layer (datajunction_server.models.unit.Unit); the DB just stores JSONB.
 """
 # pylint: disable=no-member, invalid-name, missing-function-docstring, unused-import, no-name-in-module
 
