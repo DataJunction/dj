@@ -2415,6 +2415,100 @@ class TestDeployments:
         assert "ns_sync.b" not in all_namespaces
 
     @pytest.mark.asyncio
+    async def test_deploy_namespace_prune_blocked_by_external_ref(
+        self,
+        client,
+    ):
+        """
+        When a node delete is blocked because it's referenced by a node
+        outside the deployment, the surrounding namespace can't be pruned
+        either — surface that as a FAILED namespace result instead of
+        silently dropping the row or letting the FK trip.
+        """
+        source = SourceSpec(
+            name="drop.metric_b",
+            catalog="default",
+            schema="roads",
+            table="metric_b",
+            columns=[ColumnSpec(name="id", type="int")],
+        )
+
+        await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace="blocked_sync",
+                nodes=[
+                    SourceSpec(
+                        name="keep.metric_a",
+                        catalog="default",
+                        schema="roads",
+                        table="metric_a",
+                        columns=[ColumnSpec(name="id", type="int")],
+                    ),
+                    source,
+                ],
+            ),
+        )
+
+        # Outside deployment that depends on blocked_sync.drop.metric_b —
+        # establishes the NodeRelationship that blocks deletion later.
+        await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace="outside_ns",
+                nodes=[
+                    TransformSpec(
+                        name="consumer",
+                        description="External consumer of blocked_sync.drop.metric_b",
+                        query="SELECT id FROM blocked_sync.drop.metric_b",
+                        dimension_links=[],
+                        owners=["dj"],
+                    ),
+                ],
+            ),
+        )
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace="blocked_sync",
+                nodes=[
+                    SourceSpec(
+                        name="keep.metric_a",
+                        catalog="default",
+                        schema="roads",
+                        table="metric_a",
+                        columns=[ColumnSpec(name="id", type="int")],
+                    ),
+                ],
+            ),
+        )
+
+        node_delete = next(
+            r
+            for r in data["results"]
+            if r["deploy_type"] == "node"
+            and r["name"] == "blocked_sync.drop.metric_b"
+            and r["operation"] == "delete"
+        )
+        assert node_delete["status"] == "failed"
+        assert "outside_ns.consumer" in node_delete["message"]
+
+        ns_delete = next(
+            r
+            for r in data["results"]
+            if r["deploy_type"] == "namespace" and r["name"] == "blocked_sync.drop"
+        )
+        assert ns_delete["status"] == "failed"
+        assert ns_delete["operation"] == "delete"
+        assert "1 node(s) remain" in ns_delete["message"]
+
+        # Namespace row is still present on the server.
+        resp = await client.get("/namespaces/")
+        all_namespaces = {n["namespace"] for n in resp.json()}
+        assert "blocked_sync.drop" in all_namespaces
+
+    @pytest.mark.asyncio
     async def test_deploy_tags(
         self,
         session,
