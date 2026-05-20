@@ -132,6 +132,8 @@ class SyncNamespaceResult(BaseModel):
 
     namespace: str
     files_synced: int
+    files_deleted: int = 0
+    deleted_paths: List[str] = []
     commit_sha: Optional[str] = None  # None if no changes detected
     commit_url: Optional[str] = None  # None if no changes detected
     results: List[SyncResult]
@@ -450,10 +452,9 @@ async def sync_namespace_to_git(
         git_path,
     )
 
-    if not files:
-        raise DJInvalidInputException(
-            message=f"Namespace '{namespace}' has no nodes to sync.",
-        )
+    # Note: we don't raise on `not files` here — the namespace may have had all
+    # of its nodes deactivated, in which case we still want to push the
+    # corresponding deletions to git below.
 
     # Filter out unchanged files (semantic comparison), unless force=True
     files_to_commit: List[dict] = []
@@ -488,28 +489,42 @@ async def sync_namespace_to_git(
             namespace,
         )
 
+    # Detect orphan files: YAML files in the existing git tree that no longer
+    # correspond to any active node in this namespace (e.g., because the node
+    # was deactivated). The git branch is assumed to belong wholly to this
+    # namespace, so any orphan under git_path is safe to delete.
+    expected_paths = {file_info["path"] for file_info in files}
+    paths_to_delete = sorted(
+        path
+        for path in existing_files_map
+        if path not in expected_paths and Path(path).name != "dj.yaml"
+    )
+
     results: List[SyncResult] = []
+
+    # If nothing changed and no orphans need deleting, return without even
+    # instantiating GitHubService (which has auth-config requirements).
+    if not files_to_commit and not paths_to_delete:
+        _logger.info(
+            "No changes detected for namespace '%s' - skipping commit",
+            namespace,
+        )
+        return SyncNamespaceResult(
+            namespace=namespace,
+            files_synced=0,
+            files_deleted=0,
+            deleted_paths=[],
+            commit_sha=None,
+            commit_url=None,
+            results=[],
+        )
 
     try:
         github = GitHubService()
 
-        # If no files have changed, return early without making a commit
-        if not files_to_commit:
-            _logger.info(
-                "No changes detected for namespace '%s' - skipping commit",
-                namespace,
-            )
-            return SyncNamespaceResult(
-                namespace=namespace,
-                files_synced=0,
-                commit_sha=None,
-                commit_url=None,
-                results=[],
-            )
-
         commit_message = request.commit_message or f"Sync {namespace}"
 
-        # Batch commit all files in a single commit
+        # Batch commit all files (and deletions) in a single commit
         commit_result = await github.commit_files(
             repo_path=github_repo_path,
             files=[
@@ -520,6 +535,7 @@ async def sync_namespace_to_git(
             co_author_name=current_user.username,
             co_author_email=current_user.email
             or f"{current_user.username}@users.noreply",
+            deletions=paths_to_delete or None,
         )
 
         commit_sha = commit_result["sha"]
@@ -538,15 +554,18 @@ async def sync_namespace_to_git(
             )
 
         _logger.info(
-            "Synced namespace '%s' to git: %d files in single commit (sha: %s)",
+            "Synced namespace '%s' to git: %d files, %d deletions in single commit (sha: %s)",
             namespace,
             len(results),
+            len(paths_to_delete),
             commit_sha[:8] if commit_sha else "none",
         )
 
         return SyncNamespaceResult(
             namespace=namespace,
             files_synced=len(results),
+            files_deleted=len(paths_to_delete),
+            deleted_paths=paths_to_delete,
             commit_sha=commit_sha,
             commit_url=commit_url,
             results=results,
