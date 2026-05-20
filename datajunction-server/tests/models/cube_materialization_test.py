@@ -1,15 +1,22 @@
 """Tests for cube materialization models."""
 
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
 from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.materialization.jobs.cube_materialization import (
+    DruidCubeMaterializationJob,
+)
 from datajunction_server.models.cube_materialization import (
+    DruidCubeConfig,
+    DruidCubeMaterializationInput,
     DruidCubeV3Config,
     MeasuresMaterialization,
     PreAggTableInfo,
 )
+from datajunction_server.models.materialization import MaterializationStrategy
 from datajunction_server.models.node_type import NodeNameVersion
 from datajunction_server.models.partition import Granularity
 from datajunction_server.models.decompose import (
@@ -18,6 +25,37 @@ from datajunction_server.models.decompose import (
     MetricComponent,
 )
 from datajunction_server.models.query import ColumnMetadata
+
+
+def test_druid_cube_materialization_job_passes_lookback_window():
+    """
+    The legacy Druid cube scheduler should preserve the configured lookback
+    window when it hands off to the query service.
+    """
+    cube_config = DruidCubeConfig(
+        cube=NodeNameVersion(name="default.repairs_cube", version="v1.0"),
+        dimensions=[],
+        metrics=[],
+        measures_materializations=[],
+        combiners=[],
+        lookback_window="7 DAY",
+    )
+    materialization = SimpleNamespace(
+        name="druid_cube__incremental_time__default.repair_orders_fact.order_date",
+        config=cube_config.model_dump(),
+        strategy=MaterializationStrategy.INCREMENTAL_TIME,
+        schedule="@daily",
+        job="DruidCubeMaterializationJob",
+    )
+    query_service_client = Mock()
+
+    DruidCubeMaterializationJob().schedule(materialization, query_service_client)
+
+    materialization_input = query_service_client.materialize_cube.call_args.kwargs[
+        "materialization_input"
+    ]
+    assert isinstance(materialization_input, DruidCubeMaterializationInput)
+    assert materialization_input.lookback_window == "7 DAY"
 
 
 class TestDruidCubeV3ConfigDruidCubeConfigCompatibility:
