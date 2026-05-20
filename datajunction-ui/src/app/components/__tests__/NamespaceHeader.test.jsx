@@ -554,6 +554,7 @@ describe('<NamespaceHeader />', () => {
         git_path: 'nodes/',
         default_branch: 'main',
         // No git_branch or parent_namespace - this is a git root with default_branch
+        git_root_namespace: 'test.namespace',
       }),
     };
 
@@ -631,6 +632,7 @@ describe('<NamespaceHeader />', () => {
         git_path: 'nodes/',
         default_branch: 'main',
         // No git_branch or parent_namespace - this is a git root with default_branch
+        git_root_namespace: 'test.namespace',
       }),
     };
 
@@ -768,6 +770,7 @@ describe('<NamespaceHeader />', () => {
         git_path: 'nodes/',
         default_branch: 'main',
         // No git_branch or parent_namespace - this is a git root
+        git_root_namespace: 'test.namespace',
       }),
       createBranch: vi.fn().mockResolvedValue({
         branch: {

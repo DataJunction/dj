@@ -174,7 +174,10 @@ export default function NamespaceHeader({
   const isBranchNamespace = branchNamespace === namespace;
   const isInBranch = !!branchNamespace;
   const branchScopeNamespace = branchNamespace || namespace;
-  const isGitRoot = gitConfig?.github_repo_path && !gitConfig?.parent_namespace;
+  // Descendants inherit github_repo_path via cascade, so compare against
+  // git_root_namespace to know if this namespace IS the git root.
+  const isGitRoot =
+    gitConfig?.github_repo_path && gitConfig?.git_root_namespace === namespace;
   const canCreateBranches = isGitRoot && gitConfig?.default_branch;
 
   // Handlers for git operations

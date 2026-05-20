@@ -3010,6 +3010,91 @@ async def test_git_inheritance_with_no_git_path(
 
 
 @pytest.mark.asyncio
+async def test_git_root_namespace_distinguishes_root_from_descendants(
+    module__client_with_all_examples: AsyncClient,
+) -> None:
+    """``git_root_namespace`` lets clients tell apart a git root from a
+    descendant that merely inherits the root's repo path.
+
+    Without it the UI conflates the two (descendants have inherited
+    ``github_repo_path`` and own ``parent_namespace=None``), which hid the
+    "Add Nodes" control on every plain subnamespace under a git root.
+    """
+    root = "rootns.repo"
+    plain_sub = "rootns.repo.plain_sub"
+    branch_ns = "rootns.repo.feature_branch"
+    branch_sub = "rootns.repo.feature_branch.cubes"
+
+    await module__client_with_all_examples.post(f"/namespaces/{root}/")
+    await module__client_with_all_examples.post(f"/namespaces/{plain_sub}/")
+    await module__client_with_all_examples.post(f"/namespaces/{branch_ns}/")
+    await module__client_with_all_examples.post(f"/namespaces/{branch_sub}/")
+
+    await module__client_with_all_examples.patch(
+        f"/namespaces/{root}/git",
+        json={"github_repo_path": "corp/repo", "git_path": "nodes/"},
+    )
+    await module__client_with_all_examples.patch(
+        f"/namespaces/{branch_ns}/git",
+        json={"parent_namespace": root, "git_branch": "feature"},
+    )
+
+    root_data = (
+        await module__client_with_all_examples.get(f"/namespaces/{root}/git")
+    ).json()
+    plain_data = (
+        await module__client_with_all_examples.get(f"/namespaces/{plain_sub}/git")
+    ).json()
+    branch_data = (
+        await module__client_with_all_examples.get(f"/namespaces/{branch_ns}/git")
+    ).json()
+    branch_sub_data = (
+        await module__client_with_all_examples.get(f"/namespaces/{branch_sub}/git")
+    ).json()
+
+    assert root_data == {
+        "github_repo_path": "corp/repo",
+        "git_path": "nodes/",
+        "git_branch": None,
+        "default_branch": None,
+        "parent_namespace": None,
+        "git_only": False,
+        "branch_namespace": None,
+        "git_root_namespace": root,
+    }
+    assert plain_data == {
+        "github_repo_path": "corp/repo",
+        "git_path": "nodes/",
+        "git_branch": None,
+        "default_branch": None,
+        "parent_namespace": None,
+        "git_only": False,
+        "branch_namespace": None,
+        "git_root_namespace": root,
+    }
+    assert branch_data == {
+        "github_repo_path": "corp/repo",
+        "git_path": "nodes/",
+        "git_branch": "feature",
+        "default_branch": None,
+        "parent_namespace": root,
+        "git_only": False,
+        "branch_namespace": branch_ns,
+        "git_root_namespace": root,
+    }
+    assert branch_sub_data == {
+        "github_repo_path": "corp/repo",
+        "git_path": "nodes/",
+        "git_branch": "feature",
+        "default_branch": None,
+        "parent_namespace": None,
+        "git_only": False,
+        "branch_namespace": branch_ns,
+        "git_root_namespace": root,
+    }
+
+
+@pytest.mark.asyncio
 async def test_list_namespace_branches_empty(
     module__client_with_all_examples: AsyncClient,
 ) -> None:

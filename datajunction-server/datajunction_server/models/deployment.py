@@ -681,6 +681,9 @@ class NamespaceGitConfig(BaseModel):
     # controls (Git Settings / Sync to Git / Create PR) on subnamespaces
     # too, scoped to the branch.
     branch_namespace: str | None = None
+    # The namespace that owns the repo path. Lets clients tell apart
+    # the git root from descendants that inherit it.
+    git_root_namespace: str | None = None
 
 
 class DeploymentSpec(BaseModel):

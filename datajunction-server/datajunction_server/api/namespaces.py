@@ -698,6 +698,7 @@ async def get_namespace_git_config(
         parent_namespace=node_namespace.parent_namespace,
         git_only=git_info.get("git_only", node_namespace.git_only),
         branch_namespace=git_info.get("branch_namespace"),
+        git_root_namespace=git_info.get("git_root_namespace"),
     )
 
 

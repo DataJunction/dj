@@ -285,6 +285,9 @@ def resolve_git_info_from_map(
         ),
         "parent_namespace": branch_ns.parent_namespace if branch_ns else None,
         "git_only": effective_git_only,
+        # The namespace that owns the repo path. Lets callers tell apart
+        # the git root from descendants that inherit it.
+        "git_root_namespace": config_ns.namespace,
         # Name of the branch namespace this lookup resolves through. Equals
         # ``namespace`` when called against the branch itself, or the
         # ancestor branch namespace when called against a descendant. The UI

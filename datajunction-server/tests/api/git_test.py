@@ -319,6 +319,7 @@ class TestNamespaceGitConfig:
             "parent_namespace": None,
             "default_branch": None,
             "branch_namespace": None,
+            "git_root_namespace": None,
         }
 
     @pytest.mark.asyncio
@@ -356,6 +357,7 @@ class TestNamespaceGitConfig:
             "parent_namespace": None,
             "default_branch": None,
             "branch_namespace": None,
+            "git_root_namespace": None,
         }
 
 

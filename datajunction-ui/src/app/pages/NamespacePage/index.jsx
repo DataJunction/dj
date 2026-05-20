@@ -393,10 +393,12 @@ export function NamespacePage() {
 
   // Only show edit/add controls once git config has loaded and namespace is not git-only
   const gitConfigLoaded = gitConfig !== undefined;
+  // Descendants inherit github_repo_path via cascade, so compare against
+  // git_root_namespace to know if this namespace IS the git root.
   const isGitRoot =
     gitConfigLoaded &&
     !!gitConfig?.github_repo_path &&
-    !gitConfig?.parent_namespace;
+    gitConfig?.git_root_namespace === namespace;
   const isBranchNamespace = gitConfigLoaded && !!gitConfig?.parent_namespace;
   const showEditControls =
     gitConfigLoaded && !gitConfig?.git_only && !isGitRoot;
