@@ -481,5 +481,6 @@ async def build_cube_materialization(
         dimensions=current_revision.cube_node_dimensions,
         measures_materializations=measures_materializations,
         combiners=combiners,
+        lookback_window=upsert_input.lookback_window if incremental else None,
     )
     return config

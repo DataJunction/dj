@@ -414,6 +414,9 @@ class DruidCubeConfig(BaseModel):
     # possible for metrics at different levels.
     combiners: list[CombineMaterialization]
 
+    # Lookback window, only relevant if materialization strategy is INCREMENTAL_TIME
+    lookback_window: Optional[str] = "1 DAY"
+
 
 class DruidCubeMaterializationInput(BaseModel):
     """

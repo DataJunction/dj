@@ -795,7 +795,7 @@ async def test_druid_cube_incremental(
             "job": "druid_cube",
             "strategy": "incremental_time",
             "schedule": "@daily",
-            "lookback_window": "1 DAY",
+            "lookback_window": "7 DAY",
         },
     )
     assert response.status_code in (200, 201)
@@ -810,6 +810,7 @@ async def test_druid_cube_incremental(
         == "druid_cube__incremental_time__default.repair_orders_fact.order_date"
     )
     assert mat.job == "DruidCubeMaterializationJob"
+    assert mat.lookback_window == "7 DAY"
     assert mat.cube == NodeNameVersion(
         name="default.repairs_cube__default_incremental",
         version="v1.0",
