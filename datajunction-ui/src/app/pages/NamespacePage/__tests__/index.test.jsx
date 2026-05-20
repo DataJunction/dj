@@ -632,6 +632,7 @@ describe('NamespacePage', () => {
       default_branch: 'main',
       parent_namespace: null,
       git_only: false,
+      git_root_namespace: 'default',
     };
 
     const mockBranches = [
@@ -805,6 +806,7 @@ describe('NamespacePage', () => {
         default_branch: 'main',
         parent_namespace: null,
         git_only: false,
+        git_root_namespace: 'default',
       });
       mockDjClient.getNamespaceBranches.mockResolvedValue([
         {
