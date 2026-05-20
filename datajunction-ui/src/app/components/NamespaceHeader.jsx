@@ -174,8 +174,8 @@ export default function NamespaceHeader({
   const isBranchNamespace = branchNamespace === namespace;
   const isInBranch = !!branchNamespace;
   const branchScopeNamespace = branchNamespace || namespace;
-  // Compare against the namespace that owns the repo path — inheriting it
-  // via cascade doesn't make a subnamespace a git root.
+  // Descendants inherit github_repo_path via cascade, so compare against
+  // git_root_namespace to know if this namespace IS the git root.
   const isGitRoot =
     gitConfig?.github_repo_path && gitConfig?.git_root_namespace === namespace;
   const canCreateBranches = isGitRoot && gitConfig?.default_branch;

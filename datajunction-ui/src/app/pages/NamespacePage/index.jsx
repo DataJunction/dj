@@ -393,10 +393,8 @@ export function NamespacePage() {
 
   // Only show edit/add controls once git config has loaded and namespace is not git-only
   const gitConfigLoaded = gitConfig !== undefined;
-  // A namespace IS the git root only when its own row carries the repo
-  // path. ``github_repo_path`` alone isn't enough — descendants inherit
-  // it via cascade, so we compare against ``git_root_namespace`` (the
-  // ancestor that actually owns the config).
+  // Descendants inherit github_repo_path via cascade, so compare against
+  // git_root_namespace to know if this namespace IS the git root.
   const isGitRoot =
     gitConfigLoaded &&
     !!gitConfig?.github_repo_path &&
