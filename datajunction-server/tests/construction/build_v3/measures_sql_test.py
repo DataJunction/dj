@@ -3764,12 +3764,17 @@ class TestNonDecomposableMetrics:
 
         The emitted CTE must:
         1. Include both metrics in ``metrics`` (no silent drop).
-        2. Project every column referenced by the non-decomposable
-           expression (here ``product_id``, ``line_total``) alongside
-           the decomposable component's source column (``line_total``).
-        3. Emit no GROUP BY on the outer SELECT — the merged grain is
-           NONE, so the downstream consumer applies aggregations after
-           the join.
+        2. Pre-aggregate the decomposable component at finest grain
+           (here ``SUM(line_total)``) so the stored metric combiner —
+           which uses MERGE functions on the component column — composes
+           correctly on top of the CTE.
+        3. Project every column referenced by the non-decomposable
+           expression (here ``product_id``, ``line_total``) wrapped in
+           ``MAX()`` so they coexist with the aggregations under strict
+           GROUP BY rules; at finest grain ``MAX(col) == col``.
+        4. Emit GROUP BY at the finest grain (the union of native PK and
+           requested dim columns) so each row is a single source row,
+           making the per-component accumulate aggregations passthroughs.
         """
         result = await build_measures_sql(
             session=session,
@@ -3803,9 +3808,11 @@ class TestNonDecomposableMetrics:
               t1.status,
               t1.line_number,
               t1.order_id,
-              t1.line_total line_total,
-              t1.product_id product_id
+              SUM(t1.line_total) line_total_sum_e1f61696,
+              MAX(t1.product_id) product_id,
+              MAX(t1.line_total) line_total
             FROM v3_order_details t1
+            GROUP BY t1.status, t1.line_number, t1.order_id
             """,
         )
 

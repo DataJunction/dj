@@ -1842,15 +1842,18 @@ def build_grain_group_sql(
         # Collect unique components for API response
         unique_components.append(component)
 
-        # For NONE aggregability, output raw columns (no aggregation possible)
-        # Note: This path is only hit for BASE metrics with NONE aggregability
-        # (e.g., metrics with RANK() directly). Derived metrics with window functions
-        # don't go through this path - they're computed in generate_metrics_sql.
-        if grain_group.aggregability == Aggregability.NONE:  # pragma: no cover
+        # For NONE aggregability, pre-aggregate at the finest grain (added
+        # to GROUP BY below) so the stored metric combiner — which uses
+        # MERGE functions on pre-aggregated component columns — composes
+        # correctly when applied on top of this CTE. At native-PK grain
+        # each group is a single source row, so SUM(expr)/COUNT(expr)
+        # per group is effectively a passthrough; the real aggregation
+        # happens in the outer SELECT across PK rows within a dim group.
+        if grain_group.aggregability == Aggregability.NONE:
             if component.expression:
-                col_ast = make_column_ref(component.expression)
-                component_alias = component.expression
-                component_expressions.append((component_alias, col_ast))
+                expr_ast = build_component_expression(component)
+                component_alias = component.name
+                component_expressions.append((component_alias, expr_ast))
                 component_metadata.append(
                     (component_alias, component, metric_node),
                 )
@@ -1906,18 +1909,17 @@ def build_grain_group_sql(
     # Extract column references from the metric expression and pass them through
     non_decomposable_columns: list[tuple[str, ast.Expression]] = []
 
-    # In the merged-with-non-decomposable case, components emit raw column
-    # refs (because downstream applies the aggregation after the join).  If a
-    # non-decomposable expression references one of those same columns
-    # (e.g. ``MAX_BY(product_id, line_total)`` shares ``line_total`` with a
-    # ``SUM(line_total)`` component), projecting it again here produces a
-    # duplicate column in the SELECT — track which column names the
-    # components already cover and skip them.
-    component_col_names: set[str] = set()
-    for _, expr in component_expressions:
-        for c in expr.find_all(ast.Column):
-            if c.name:  # pragma: no branch
-                component_col_names.add(c.name.name)
+    # In merged-NONE groups, decomposable components pre-aggregate at
+    # finest grain (GROUP BY native PK + dim cols). Raw columns needed
+    # by non-decomposable siblings must coexist with those aggregations
+    # under strict GROUP BY rules; wrap each raw col in MAX(). At
+    # native-PK grain every group has a single source row, so
+    # MAX(col) == col — no semantic change.
+    wrap_non_decomp_in_max = (
+        bool(grain_group.non_decomposable_metrics)
+        and bool(component_expressions)
+        and grain_group.aggregability == Aggregability.NONE
+    )
 
     for decomposed in grain_group.non_decomposable_metrics:
         metrics_covered.add(decomposed.metric_node.name)
@@ -1925,14 +1927,24 @@ def build_grain_group_sql(
         # Extract column references from the metric's derived AST
         # These are the columns needed for the aggregation function
         for col in decomposed.derived_ast.find_all(ast.Column):
+            # Skip fully-qualified dotted refs (e.g.
+            # ``common.dimensions.line_item_virtual_market.line_item_max_target_frequency``):
+            # those are dimension references that resolve via the joined dim
+            # CTE, not columns on the parent transform. Projecting their bare
+            # last identifier here produces ``t1.<col>`` against the transform,
+            # which doesn't have the column.
+            if col.name and col.name.namespace and col.name.namespace.name:
+                continue
             col_name = col.name.name if col.name else None
-            if (
-                col_name
-                and col_name not in seen_components
-                and col_name not in component_col_names
-            ):  # pragma: no branch
+            if col_name and col_name not in seen_components:  # pragma: no branch
                 seen_components.add(col_name)
-                col_ast = make_column_ref(col_name)
+                if wrap_non_decomp_in_max:
+                    col_ast: ast.Expression = ast.Function(
+                        ast.Name("MAX"),
+                        args=[make_column_ref(col_name)],
+                    )
+                else:
+                    col_ast = make_column_ref(col_name)
                 non_decomposable_columns.append((col_name, col_ast))
 
     # Determine grain columns for this group
@@ -1969,17 +1981,12 @@ def build_grain_group_sql(
             skip_aggregation=True,  # Don't add GROUP BY
         )
     else:
-        # Normal case: combine component expressions with non-decomposable columns
+        # Normal case: combine component expressions with non-decomposable columns.
+        # When we have component aggregations we always need GROUP BY (at the
+        # finest grain) so the aggregations are well-formed; non-decomposable
+        # raw columns coexist with those aggregations via MAX() wrapping above.
         all_metric_expressions = component_expressions + non_decomposable_columns
-        # When a merged grain group has non-decomposable metrics, the
-        # worst-case aggregability is NONE and components carry raw column
-        # refs (not pre-aggregations).  A GROUP BY here would be redundant
-        # — every projected column is part of the full grain — and the
-        # real aggregation happens downstream after the join.
-        skip_agg = bool(
-            grain_group.non_decomposable_metrics
-            and grain_group.aggregability == Aggregability.NONE,
-        )
+        skip_agg = False
         query_ast, scanned_sources = build_select_ast(
             ctx,
             metric_expressions=all_metric_expressions,

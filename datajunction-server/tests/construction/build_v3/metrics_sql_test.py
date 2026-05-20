@@ -1887,8 +1887,10 @@ class TestNonDecomposableMetrics:
 
         Requests ``v3.total_revenue`` (SUM/FULL) and
         ``v3.top_product_by_revenue`` (MAX_BY/NONE).  The merged grain
-        group passes raw rows through (no GROUP BY at the measures CTE),
-        and the final metrics SELECT applies SUM and MAX_BY downstream.
+        group pre-aggregates the decomposable component at finest grain
+        (so the metric's stored MERGE-based combiner composes correctly),
+        MAX-wraps the non-decomposable raw columns, and the final
+        metrics SELECT applies SUM and MAX_BY downstream.
         """
         response = await client_with_build_v3.get(
             "/sql/metrics/v3/",
@@ -1920,13 +1922,15 @@ class TestNonDecomposableMetrics:
                 t1.status,
                 t1.line_number,
                 t1.order_id,
-                t1.line_total line_total,
-                t1.product_id product_id
+                SUM(t1.line_total) line_total_sum_e1f61696,
+                MAX(t1.product_id) product_id,
+                MAX(t1.line_total) line_total
               FROM v3_order_details t1
+              GROUP BY t1.status, t1.line_number, t1.order_id
             )
             SELECT
               order_details_0.status AS status,
-              SUM(order_details_0.line_total) AS total_revenue,
+              SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue,
               MAX_BY(order_details_0.product_id, order_details_0.line_total)
                 AS top_product_by_revenue
             FROM order_details_0
