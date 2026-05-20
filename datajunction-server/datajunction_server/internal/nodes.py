@@ -9,6 +9,7 @@ from typing import Callable, Dict, List, Optional, Union, cast
 from fastapi import BackgroundTasks, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
@@ -3157,21 +3158,21 @@ async def activate_node(
             missing_parent and missing_parent in downstream.current.missing_parents
         ):
             downstream.current.missing_parents.remove(missing_parent)
-        # Query NodeRelationship directly rather than trusting the in-memory
-        # `downstream.current.parents` collection. On Python 3.11 we've seen
-        # the selectinload'd collection miss the row that already exists in
-        # the DB (autoflush ordering across the prior deactivate + this
-        # activate), which caused duplicate-key violations at flush time.
-        existing = await session.execute(
-            select(NodeRelationship.parent_id)
-            .where(
-                NodeRelationship.parent_id == node.id,
-                NodeRelationship.child_id == downstream.current.id,
+        # Re-link parent directly via INSERT...ON CONFLICT DO NOTHING. The
+        # ORM collection approach is racy here: selectinload + autoflush
+        # ordering can produce either a missed-row read (we append, then
+        # flush a duplicate) or a stale in-memory state that triggers a
+        # duplicate insert during a later autoflush. We've seen both on
+        # 3.11 and 3.13. Going through the table directly sidesteps both.
+        await session.execute(
+            pg_insert(NodeRelationship)
+            .values(
+                parent_id=node.id,
+                parent_version="latest",
+                child_id=downstream.current.id,
             )
-            .limit(1),
+            .on_conflict_do_nothing(index_elements=["parent_id", "child_id"]),
         )
-        if existing.first() is None:
-            downstream.current.parents.append(node)
 
         _logger.info(
             f"Revalidating downstream: {downstream.name} (type={downstream.type}, old_status={downstream.current.status})",
