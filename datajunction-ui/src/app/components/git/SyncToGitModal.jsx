@@ -84,7 +84,13 @@ export function SyncToGitModal({
               </span>
               <h4 style={{ margin: '0 0 8px 0' }}>
                 Synced {result.files_synced} file
-                {result.files_synced !== 1 ? 's' : ''}!
+                {result.files_synced !== 1 ? 's' : ''}
+                {result.files_deleted > 0
+                  ? `, deleted ${result.files_deleted} file${
+                      result.files_deleted !== 1 ? 's' : ''
+                    }`
+                  : ''}
+                !
               </h4>
             </div>
 

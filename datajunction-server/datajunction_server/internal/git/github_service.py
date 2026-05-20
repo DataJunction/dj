@@ -378,8 +378,9 @@ class GitHubService:
         branch: str,
         co_author_name: Optional[str] = None,
         co_author_email: Optional[str] = None,
+        deletions: Optional[list[str]] = None,
     ) -> dict:
-        """Commit multiple files in a single commit using Git Data API.
+        """Commit multiple files (and/or deletions) in a single commit using Git Data API.
 
         This is more efficient than commit_file() when updating multiple files,
         as it creates only one commit instead of one per file.
@@ -395,22 +396,26 @@ class GitHubService:
             branch: Target branch
             co_author_name: Name of user to add as co-author
             co_author_email: Email of user to add as co-author
+            deletions: Optional list of file paths to remove from the tree.
 
         Returns:
             Commit result with 'sha' and 'html_url'
         """
-        if not files:
+        deletions = deletions or []
+        if not files and not deletions:
             raise GitHubServiceError(
                 message="No files to commit",
                 http_status_code=400,
             )
 
         _logger.info(
-            "Batch committing %d files to %s branch '%s': %s",
+            "Batch committing %d files (%d deletions) to %s branch '%s': %s del=%s",
             len(files),
+            len(deletions),
             repo_path,
             branch,
             [f["path"] for f in files],
+            deletions,
         )
 
         async with httpx.AsyncClient() as client:
@@ -433,7 +438,7 @@ class GitHubService:
             base_tree_sha = commit_resp.json()["tree"]["sha"]
 
             # 3. Build tree entries with inline content (no separate blob creation needed)
-            tree_entries = [
+            tree_entries: list[dict] = [
                 {
                     "path": file_info["path"],
                     "mode": "100644",  # Regular file
@@ -442,6 +447,16 @@ class GitHubService:
                 }
                 for file_info in files
             ]
+            # Deletions: a tree entry with sha=None removes the path from base_tree
+            for del_path in deletions:
+                tree_entries.append(
+                    {
+                        "path": del_path,
+                        "mode": "100644",
+                        "type": "blob",
+                        "sha": None,
+                    },
+                )
 
             # 4. Create a new tree with all the files
             tree_resp = await client.post(
@@ -490,6 +505,7 @@ class GitHubService:
                 "sha": new_commit["sha"],
                 "html_url": new_commit["html_url"],
                 "files_committed": len(files),
+                "files_deleted": len(deletions),
             }
 
     async def create_pull_request(

@@ -2135,6 +2135,163 @@ columns:
             assert not mock_github.commit_files.called
 
     @pytest.mark.asyncio
+    async def test_sync_namespace_deletes_orphan_yamls(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """A YAML in the git tree with no matching active node is deleted in the sync commit.
+
+        Simulates: user deactivates a node in a branch, then clicks "Sync to Git" —
+        the orphan YAML for the deactivated node must be removed from the branch.
+        """
+        client = client_with_service_setup
+
+        await client.post("/namespaces/orphan_test")
+        await client.patch(
+            "/namespaces/orphan_test/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+            },
+        )
+
+        await client.post(
+            "/nodes/source/",
+            json={
+                "name": "orphan_test.kept_source",
+                "description": "Kept source",
+                "catalog": "default",
+                "schema_": "public",
+                "table": "kept",
+                "columns": [{"name": "id", "type": "int"}],
+            },
+        )
+
+        # YAML for "kept_source" plus an orphan for a node that no longer exists.
+        # dj.yaml should be preserved (filtered out of orphan candidates).
+        orphan_yaml = (
+            "name: ${prefix}removed_node\n"
+            "node_type: source\n"
+            "catalog: default\n"
+            "schema: public\n"
+            "table: removed\n"
+            "columns:\n"
+            "  - name: id\n"
+            "    type: int\n"
+        )
+        kept_yaml = (
+            "name: ${prefix}kept_source\n"
+            "node_type: source\n"
+            "catalog: default\n"
+            "schema: public\n"
+            "table: kept\n"
+            "columns:\n"
+            "  - name: id\n"
+            "    type: int\n"
+        )
+
+        with (
+            patch(
+                "datajunction_server.internal.git.yaml_export.GitHubService",
+            ) as mock_fetch_github_class,
+            patch(
+                "datajunction_server.api.git_sync.GitHubService",
+            ) as mock_commit_github_class,
+        ):
+            mock_github = MagicMock()
+            mock_github.download_archive = AsyncMock(
+                return_value=create_mock_tarball(
+                    {
+                        "kept_source.yaml": kept_yaml,
+                        "removed_node.yaml": orphan_yaml,
+                        "dj.yaml": "name: dj-project\n",
+                    },
+                ),
+            )
+            mock_github.commit_files = AsyncMock(
+                return_value={
+                    "sha": "del-commit-1",
+                    "html_url": "https://github.com/myorg/myrepo/commit/del-commit-1",
+                },
+            )
+            mock_fetch_github_class.return_value = mock_github
+            mock_commit_github_class.return_value = mock_github
+
+            response = await client.post(
+                "/namespaces/orphan_test/sync-to-git",
+                json={},
+            )
+
+            assert response.status_code == HTTPStatus.OK
+            data = response.json()
+            assert data["files_deleted"] == 1
+            assert data["deleted_paths"] == ["removed_node.yaml"]
+            assert data["commit_sha"] == "del-commit-1"
+
+            assert mock_github.commit_files.called
+            call_kwargs = mock_github.commit_files.call_args.kwargs
+            assert call_kwargs["deletions"] == ["removed_node.yaml"]
+
+    @pytest.mark.asyncio
+    async def test_sync_namespace_only_deletions(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """When the namespace has no remaining nodes but orphan YAMLs exist, the sync
+        still commits the deletions (rather than erroring with "no nodes to sync")."""
+        client = client_with_service_setup
+
+        await client.post("/namespaces/only_del")
+        await client.patch(
+            "/namespaces/only_del/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+            },
+        )
+
+        with (
+            patch(
+                "datajunction_server.internal.git.yaml_export.GitHubService",
+            ) as mock_fetch_github_class,
+            patch(
+                "datajunction_server.api.git_sync.GitHubService",
+            ) as mock_commit_github_class,
+        ):
+            mock_github = MagicMock()
+            mock_github.download_archive = AsyncMock(
+                return_value=create_mock_tarball(
+                    {
+                        "gone.yaml": "name: ${prefix}gone\n",
+                    },
+                ),
+            )
+            mock_github.commit_files = AsyncMock(
+                return_value={
+                    "sha": "del-only-1",
+                    "html_url": "https://github.com/myorg/myrepo/commit/del-only-1",
+                },
+            )
+            mock_fetch_github_class.return_value = mock_github
+            mock_commit_github_class.return_value = mock_github
+
+            response = await client.post(
+                "/namespaces/only_del/sync-to-git",
+                json={},
+            )
+
+            assert response.status_code == HTTPStatus.OK
+            data = response.json()
+            assert data["files_synced"] == 0
+            assert data["files_deleted"] == 1
+            assert data["deleted_paths"] == ["gone.yaml"]
+            assert data["commit_sha"] == "del-only-1"
+
+            call_kwargs = mock_github.commit_files.call_args.kwargs
+            assert call_kwargs["files"] == []
+            assert call_kwargs["deletions"] == ["gone.yaml"]
+
+    @pytest.mark.asyncio
     async def test_sync_node_file_doesnt_exist_yet(
         self,
         client_with_roads: AsyncClient,
@@ -2353,7 +2510,7 @@ dimensions:
         self,
         client_with_service_setup: AsyncClient,
     ):
-        """Test syncing an empty namespace."""
+        """Syncing an empty namespace with an empty git tree is a no-op."""
         await client_with_service_setup.post("/namespaces/empty_sync_ns")
         await client_with_service_setup.patch(
             "/namespaces/empty_sync_ns/git",
@@ -2363,15 +2520,24 @@ dimensions:
             },
         )
 
-        response = await client_with_service_setup.post(
-            "/namespaces/empty_sync_ns/sync-to-git",
-            json={},
-        )
-        assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
-        assert (
-            response.json()["message"]
-            == "Namespace 'empty_sync_ns' has no nodes to sync."
-        )
+        with patch(
+            "datajunction_server.internal.git.yaml_export.GitHubService",
+        ) as mock_fetch_github_class:
+            mock_github = MagicMock()
+            mock_github.download_archive = AsyncMock(
+                return_value=create_mock_tarball({}),
+            )
+            mock_fetch_github_class.return_value = mock_github
+
+            response = await client_with_service_setup.post(
+                "/namespaces/empty_sync_ns/sync-to-git",
+                json={},
+            )
+            assert response.status_code == HTTPStatus.OK
+            data = response.json()
+            assert data["files_synced"] == 0
+            assert data["files_deleted"] == 0
+            assert data["commit_sha"] is None
 
     @pytest.mark.asyncio
     async def test_sync_namespace_no_git_config(

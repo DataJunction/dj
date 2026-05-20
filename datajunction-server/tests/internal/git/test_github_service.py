@@ -759,6 +759,116 @@ class TestCommitFiles:
             assert result["files_committed"] == 2
 
     @pytest.mark.asyncio
+    async def test_commit_files_with_deletions(self, github_service):
+        """Should include deletion tree entries (sha=None) in the new tree."""
+        ref_response = MagicMock()
+        ref_response.is_success = True
+        ref_response.json.return_value = {"object": {"sha": "current-commit-sha"}}
+
+        commit_response = MagicMock()
+        commit_response.is_success = True
+        commit_response.json.return_value = {"tree": {"sha": "base-tree-sha"}}
+
+        tree_response = MagicMock()
+        tree_response.is_success = True
+        tree_response.json.return_value = {"sha": "new-tree-sha"}
+
+        new_commit_response = MagicMock()
+        new_commit_response.is_success = True
+        new_commit_response.json.return_value = {
+            "sha": "new-commit-sha",
+            "html_url": "https://github.com/owner/repo/commit/new-commit-sha",
+        }
+
+        update_ref_response = MagicMock()
+        update_ref_response.is_success = True
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_instance = mock_client.return_value.__aenter__.return_value
+            mock_instance.get = AsyncMock(
+                side_effect=[ref_response, commit_response],
+            )
+            mock_instance.post = AsyncMock(
+                side_effect=[tree_response, new_commit_response],
+            )
+            mock_instance.patch = AsyncMock(return_value=update_ref_response)
+
+            result = await github_service.commit_files(
+                repo_path="owner/repo",
+                files=[{"path": "kept.yaml", "content": "content"}],
+                message="Sync with deletion",
+                branch="main",
+                deletions=["gone.yaml", "also_gone.yaml"],
+            )
+
+            assert result["sha"] == "new-commit-sha"
+            assert result["files_committed"] == 1
+            assert result["files_deleted"] == 2
+
+            # Verify the tree payload contains deletion entries with sha=None
+            tree_call = mock_instance.post.call_args_list[0]
+            tree_payload = tree_call.kwargs["json"]
+            tree_entries = tree_payload["tree"]
+            assert {
+                "path": "gone.yaml",
+                "mode": "100644",
+                "type": "blob",
+                "sha": None,
+            } in tree_entries
+            assert {
+                "path": "also_gone.yaml",
+                "mode": "100644",
+                "type": "blob",
+                "sha": None,
+            } in tree_entries
+
+    @pytest.mark.asyncio
+    async def test_commit_files_only_deletions(self, github_service):
+        """Should commit when only deletions are provided (no file updates)."""
+        ref_response = MagicMock()
+        ref_response.is_success = True
+        ref_response.json.return_value = {"object": {"sha": "sha-a"}}
+
+        commit_response = MagicMock()
+        commit_response.is_success = True
+        commit_response.json.return_value = {"tree": {"sha": "sha-b"}}
+
+        tree_response = MagicMock()
+        tree_response.is_success = True
+        tree_response.json.return_value = {"sha": "sha-c"}
+
+        new_commit_response = MagicMock()
+        new_commit_response.is_success = True
+        new_commit_response.json.return_value = {
+            "sha": "sha-d",
+            "html_url": "https://...",
+        }
+
+        update_ref_response = MagicMock()
+        update_ref_response.is_success = True
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_instance = mock_client.return_value.__aenter__.return_value
+            mock_instance.get = AsyncMock(
+                side_effect=[ref_response, commit_response],
+            )
+            mock_instance.post = AsyncMock(
+                side_effect=[tree_response, new_commit_response],
+            )
+            mock_instance.patch = AsyncMock(return_value=update_ref_response)
+
+            result = await github_service.commit_files(
+                repo_path="owner/repo",
+                files=[],
+                message="Deletions only",
+                branch="main",
+                deletions=["gone.yaml"],
+            )
+
+            assert result["files_committed"] == 0
+            assert result["files_deleted"] == 1
+
+    @pytest.mark.asyncio
     async def test_commit_files_empty_list(self, github_service):
         """Should raise error when no files provided."""
         with pytest.raises(GitHubServiceError) as exc_info:
