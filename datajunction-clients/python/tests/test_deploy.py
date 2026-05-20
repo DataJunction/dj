@@ -45,6 +45,33 @@ def test_pull_extracts_zip_from_server(tmp_path):
     assert (tmp_path / "foo" / "bar" / "baz.yaml").exists()
 
 
+def test_pull_removes_orphan_local_yaml(tmp_path):
+    """A local YAML for a node that no longer exists on the server is removed."""
+    (tmp_path / "kept.yaml").write_text("name: ns.kept\n")
+    (tmp_path / "subdir").mkdir()
+    (tmp_path / "subdir" / "gone.yaml").write_text("name: ns.gone\n")
+    (tmp_path / "README.md").write_text("# unrelated\n")
+
+    new_zip = _make_zip(
+        {
+            "dj.yaml": "namespace: ns\n",
+            "kept.yaml": "name: ns.kept\nquery: SELECT 1\n",
+        },
+    )
+    client = MagicMock()
+    client._export_namespace_yaml_zip.return_value = new_zip
+    svc = DeploymentService(client)
+
+    svc.pull("ns", tmp_path)
+
+    assert (tmp_path / "kept.yaml").exists()
+    assert not (tmp_path / "subdir" / "gone.yaml").exists()
+    # empty directory should have been cleaned up
+    assert not (tmp_path / "subdir").exists()
+    # non-YAML files are left alone
+    assert (tmp_path / "README.md").exists()
+
+
 def test_pull_uploads_existing_yaml_files(tmp_path):
     (tmp_path / "old.yaml").write_text("name: ns.old\n")
     updated_zip = _make_zip({"old.yaml": "name: ns.old\nquery: SELECT 2\n"})

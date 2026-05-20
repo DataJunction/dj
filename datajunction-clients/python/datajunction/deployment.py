@@ -98,7 +98,24 @@ class DeploymentService:
         )
 
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+            new_yaml_names = {n for n in zf.namelist() if n.endswith(".yaml")}
             zf.extractall(base_path)
+
+        # Remove local YAML files for nodes that no longer exist on the server.
+        # The server only emits YAML for active nodes, so any local *.yaml not
+        # present in the new export is an orphan (e.g. a node was deactivated
+        # after a previous pull). Non-YAML files are left alone.
+        for yaml_file in base_path.rglob("*.yaml"):
+            rel = str(yaml_file.relative_to(base_path))
+            if rel not in new_yaml_names:
+                yaml_file.unlink()
+                # Clean up directories that became empty as a result.
+                parent = yaml_file.parent
+                while parent != base_path and parent.is_dir() and not any(
+                    parent.iterdir()
+                ):
+                    parent.rmdir()
+                    parent = parent.parent
 
     def push(
         self,
