@@ -681,10 +681,8 @@ class NamespaceGitConfig(BaseModel):
     # controls (Git Settings / Sync to Git / Create PR) on subnamespaces
     # too, scoped to the branch.
     branch_namespace: str | None = None
-    # Namespace that owns ``github_repo_path`` (the git root). Equals the
-    # queried namespace when it IS the git root; otherwise points at an
-    # ancestor. Lets clients tell apart a git root from a descendant that
-    # merely inherits its repo path.
+    # The namespace that owns the repo path. Lets clients tell apart
+    # the git root from descendants that inherit it.
     git_root_namespace: str | None = None
 
 
