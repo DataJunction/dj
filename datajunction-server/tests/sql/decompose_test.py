@@ -2236,19 +2236,9 @@ async def test_user_authored_division_not_double_wrapped(
 
 
 class TestFunctionAggregationClassification:
-    """
-    Locks in ``is_aggregation`` for functions that have been (or could be)
-    misclassified. Misclassifying a scalar function as an aggregation makes
-    every metric that uses it (e.g. ``SUM(ABS(x))``) silently extract with
-    empty ``measures`` because ``_extract_base`` early-returns when any
-    walked aggregation lacks a registered decomposition. The reverse
-    misclassification (real aggregation marked scalar) hides the function
-    from the extractor entirely, also producing empty measures.
-    """
+    """Lock in is_aggregation for previously-misclassified functions."""
 
     def test_scalar_functions_not_marked_as_aggregation(self):
-        # ``ABS`` was previously is_aggregation=True; that single line broke
-        # ``SUM(ABS(...))``-style metrics across the codebase.
         assert dj_functions.Abs.is_aggregation is False
 
     def test_real_aggregations_marked_as_aggregation(self):
@@ -2267,12 +2257,7 @@ class TestFunctionAggregationClassification:
 
 @pytest.mark.asyncio
 async def test_sum_abs_decomposes(session: AsyncSession, create_metric):
-    """Regression test for the ABS-misclassification cascade: a metric
-    wrapping ``ABS`` inside ``SUM`` must decompose into a single SUM
-    component whose expression is the inner ``ABS(...)``. Previously
-    ``Abs.is_aggregation = True`` triggered the non-decomposable early
-    return in ``_extract_base``, producing empty measures.
-    """
+    """SUM(ABS(x)) decomposes into one SUM component over ABS(x)."""
     metric_rev = await create_metric(
         "SELECT SUM(ABS(amount - 100)) FROM parent_node",
     )
@@ -2283,7 +2268,5 @@ async def test_sum_abs_decomposes(session: AsyncSession, create_metric):
     assert comp.aggregation == "SUM"
     assert comp.merge == "SUM"
     assert comp.rule.type == Aggregability.FULL
-    # The component's expression is the ABS arg of the outer SUM.
     assert "ABS" in comp.expression
-    # The combiner re-sums the per-row pre-aggregated component.
     assert_sql_equal(str(derived_sql), f"SELECT SUM({comp.name}) FROM parent_node")
