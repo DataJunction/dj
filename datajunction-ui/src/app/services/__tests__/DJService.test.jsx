@@ -3441,3 +3441,66 @@ describe('DataJunctionAPI', () => {
     expect(result.message).toBe('PR already exists');
   });
 });
+
+// Regression tests for the new URL() bug when DJ_URL is relative.
+// In prod, REACT_APP_DJ_URL is often a relative path (e.g. ``/dj-api``).
+// Plain ``new URL('/dj-api/...')`` throws ``TypeError: Failed to construct
+// 'URL'`` because URL requires an absolute spec when no base is given.
+// The three call sites that built URLs to mutate search params used to
+// crash client-side in prod, masquerading as server validation errors
+// (e.g. tables auto-flagged "invalid" in the SQL editor).
+describe('DataJunctionAPI with relative DJ_URL', () => {
+  const RELATIVE_DJ_URL = '/dj-api';
+
+  beforeEach(() => {
+    fetch.resetMocks();
+    vi.resetModules();
+    process.env.REACT_APP_DJ_URL = RELATIVE_DJ_URL;
+  });
+
+  afterEach(() => {
+    // Restore so the main suite's absolute-URL assumption holds if reused.
+    process.env.REACT_APP_DJ_URL = 'http://localhost:8000';
+  });
+
+  it('registerTable does not throw on relative DJ_URL', async () => {
+    const { DataJunctionAPI: API } = await import('../DJService');
+    fetch.mockResponseOnce(JSON.stringify({}));
+    await API.registerTable('default', 'xyz', 'abc');
+    expect(fetch).toHaveBeenCalled();
+    const calledUrl = fetch.mock.calls[0][0];
+    expect(calledUrl).toContain('/dj-api/register/table/default/xyz/abc');
+  });
+
+  it('addReferenceDimensionLink does not throw on relative DJ_URL', async () => {
+    const { DataJunctionAPI: API } = await import('../DJService');
+    fetch.mockResponseOnce(JSON.stringify({}));
+    await API.addReferenceDimensionLink(
+      'default.node1',
+      'col1',
+      'default.dim1',
+      'dim_col',
+    );
+    expect(fetch).toHaveBeenCalled();
+    const calledUrl = fetch.mock.calls[0][0];
+    expect(calledUrl).toContain(
+      '/dj-api/nodes/default.node1/columns/col1/link',
+    );
+    expect(calledUrl).toContain('dimension_node=default.dim1');
+    expect(calledUrl).toContain('dimension_column=dim_col');
+  });
+
+  it('unsubscribeFromNotifications does not throw on relative DJ_URL', async () => {
+    const { DataJunctionAPI: API } = await import('../DJService');
+    fetch.mockResponseOnce(JSON.stringify({}));
+    await API.unsubscribeFromNotifications({
+      entity_type: 'node',
+      entity_name: 'default.node1',
+    });
+    expect(fetch).toHaveBeenCalled();
+    const calledUrl = fetch.mock.calls[0][0];
+    expect(calledUrl).toContain('/dj-api/notifications/unsubscribe');
+    expect(calledUrl).toContain('entity_type=node');
+    expect(calledUrl).toContain('entity_name=default.node1');
+  });
+});
