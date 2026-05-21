@@ -13,11 +13,7 @@ const DJ_GQL = process.env.REACT_APP_DJ_GQL
 // Export the base URL for components that need direct access
 export const getDJUrl = () => DJ_URL;
 
-// Build a URL we can mutate (searchParams, etc.) that works whether
-// DJ_URL is absolute (e.g. ``http://localhost:8000``) or relative (e.g.
-// ``/dj-api``). Plain ``new URL(rel)`` throws "Invalid URL" on a relative
-// path; passing ``window.location.origin`` as the base makes both shapes
-// work and ``url.pathname`` keeps the original relative prefix.
+// URL builder that works with either an absolute or relative DJ_URL.
 const _djURL = path => {
   const base =
     typeof window !== 'undefined' && window.location
