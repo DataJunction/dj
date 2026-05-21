@@ -635,9 +635,13 @@ async def test_count_distinct_rate(session: AsyncSession, create_metric):
         ),
     ]
     assert measures == expected_measures
+    # Derived expression uses the LIMITED component's public ``grain_alias``
+    # (bare column name for simple DISTINCT args), not the internal hashed
+    # component name — so it stays runnable against ``/sql/measures/v3``
+    # output, which projects the same bare column.
     assert_sql_equal(
         str(derived_sql),
-        "SELECT COUNT( DISTINCT user_id_distinct_7f092f23) / "
+        "SELECT COUNT( DISTINCT user_id) / "
         "NULLIF(SUM(action_count_50d753fd), 0) FROM parent_node",
     )
 

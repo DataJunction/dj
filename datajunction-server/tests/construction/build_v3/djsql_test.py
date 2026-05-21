@@ -133,25 +133,39 @@ class TestDJSQLBasic:
         assert response.status_code == 200, response.json()
         result = response.json()
 
-        # avg_order_value = total_revenue / order_count
+        # avg_order_value = total_revenue / order_count.
+        # Matrix split: FULL and LIMITED bases land in separate grain
+        # groups, FOJ on status, derived combiner applied in final SELECT.
         assert_sql_equal(
             result["sql"],
             """
             WITH
             v3_order_details AS (
-                SELECT o.order_id, o.status, oi.quantity * oi.unit_price AS line_total
+                SELECT o.status, oi.quantity * oi.unit_price AS line_total, o.order_id
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             ),
             order_details_0 AS (
-                SELECT t1.status, t1.order_id, SUM(t1.line_total) line_total_sum_e1f61696
+                SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                GROUP BY t1.status
+            ),
+            order_details_1 AS (
+                SELECT t1.status, t1.order_id
                 FROM v3_order_details t1
                 GROUP BY t1.status, t1.order_id
+            ),
+            order_details_1_agg AS (
+                SELECT status, COUNT(DISTINCT order_id) order_id
+                FROM order_details_1
+                GROUP BY status
             )
-            SELECT order_details_0.status AS status,
-                   SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT(DISTINCT order_details_0.order_id), 0) AS avg_order_value
+            SELECT COALESCE(order_details_0.status, order_details_1_agg.status) AS status,
+                   SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(MAX(order_details_1_agg.order_id), 0) AS avg_order_value
             FROM order_details_0
-            GROUP BY order_details_0.status
+            FULL OUTER JOIN order_details_1_agg
+              ON order_details_0.status = order_details_1_agg.status
+            GROUP BY 1
             """,
         )
 

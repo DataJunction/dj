@@ -205,26 +205,39 @@ class TestMetricsSQLWithPreAggregation:
             },
         )
         assert measures_response.status_code == 200
-        measures_data = get_first_grain_group(measures_response.json())
+        data = measures_response.json()
 
-        # Merged grain group at finest grain (LIMITED dominates)
-        assert measures_data["aggregability"] == "limited"
-        assert "order_id" in measures_data["grain"]
+        # Matrix split: 2 grain groups (FULL total_revenue, LIMITED order_count).
+        assert len(data["grain_groups"]) == 2
+        by_metric = {gg["metrics"][0]: gg for gg in data["grain_groups"]}
         assert_sql_equal(
-            measures_data["sql"],
+            by_metric["v3.total_revenue"]["sql"],
             """
             WITH v3_order_details AS (
-                SELECT o.order_id, o.status, oi.quantity * oi.unit_price AS line_total
+                SELECT o.status, oi.quantity * oi.unit_price AS line_total
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT t1.status, t1.order_id, SUM(t1.line_total) line_total_sum_e1f61696
+            SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            GROUP BY t1.status
+            """,
+        )
+        assert_sql_equal(
+            by_metric["v3.order_count"]["sql"],
+            """
+            WITH v3_order_details AS (
+                SELECT o.order_id, o.status
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t1.status, t1.order_id
             FROM v3_order_details t1
             GROUP BY t1.status, t1.order_id
             """,
         )
 
-        # Metrics SQL - applies both combiners and divides
+        # Metrics SQL - FOJ + pre-agg wrapper applies the combiner.
         metrics_response = await client_with_build_v3.get(
             "/sql/metrics/v3/",
             params={
@@ -235,25 +248,38 @@ class TestMetricsSQLWithPreAggregation:
         assert metrics_response.status_code == 200
         metrics_data = metrics_response.json()
 
-        # avg_order_value = SUM(total_revenue) / NULLIF(COUNT(DISTINCT order_id), 0)
         assert_sql_equal(
             metrics_data["sql"],
             """
             WITH
             v3_order_details AS (
-                SELECT o.order_id, o.status, oi.quantity * oi.unit_price AS line_total
+                SELECT o.status,
+                       oi.quantity * oi.unit_price AS line_total,
+                       o.order_id
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             ),
             order_details_0 AS (
-                SELECT t1.status, t1.order_id, SUM(t1.line_total) line_total_sum_e1f61696
+                SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                GROUP BY t1.status
+            ),
+            order_details_1 AS (
+                SELECT t1.status, t1.order_id
                 FROM v3_order_details t1
                 GROUP BY t1.status, t1.order_id
+            ),
+            order_details_1_agg AS (
+                SELECT status, COUNT(DISTINCT order_id) order_id
+                FROM order_details_1
+                GROUP BY status
             )
-            SELECT order_details_0.status AS status,
-                   SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT(DISTINCT order_details_0.order_id), 0) AS avg_order_value
+            SELECT COALESCE(order_details_0.status, order_details_1_agg.status) AS status,
+                   SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(MAX(order_details_1_agg.order_id), 0) AS avg_order_value
             FROM order_details_0
-            GROUP BY order_details_0.status
+            FULL OUTER JOIN order_details_1_agg
+              ON order_details_0.status = order_details_1_agg.status
+            GROUP BY 1
             """,
         )
 
@@ -377,23 +403,42 @@ class TestMetricsSQLWithPreAggregation:
         assert metrics_response.status_code == 200
         metrics_data = metrics_response.json()
 
-        # Uses pre-agg table, applies combiners
-        # Pre-agg has: total_revenue (aggregated) and order_id grain column (for order_count)
-        # Note: aggregated columns appear before non-aggregated grain columns
+        # Matrix split: the FULL grain group (total_revenue) sources from
+        # the pre-agg table; the LIMITED grain group (order_count) sources
+        # from the raw parent (the pre-agg substitution only covers the
+        # FULL part — LIMITED requires raw rows for COUNT DISTINCT). FOJ
+        # combines them in the final SELECT.
         assert_sql_equal(
             metrics_data["sql"],
             """
-            WITH order_details_0 AS (
+            WITH
+            v3_order_details AS (
+                SELECT o.order_id, o.status
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
                 SELECT status,
-                       SUM(line_total_sum_e1f61696) line_total_sum_e1f61696,
-                       order_id
+                       SUM(line_total_sum_e1f61696) line_total_sum_e1f61696
                 FROM warehouse.preaggs.v3_order_metrics
-                GROUP BY status, order_id
+                GROUP BY status
+            ),
+            order_details_1 AS (
+                SELECT t1.status, t1.order_id
+                FROM v3_order_details t1
+                GROUP BY t1.status, t1.order_id
+            ),
+            order_details_1_agg AS (
+                SELECT status, COUNT(DISTINCT order_id) order_id
+                FROM order_details_1
+                GROUP BY status
             )
-            SELECT order_details_0.status AS status,
-                   SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT(DISTINCT order_details_0.order_id), 0) AS avg_order_value
+            SELECT COALESCE(order_details_0.status, order_details_1_agg.status) AS status,
+                   SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(MAX(order_details_1_agg.order_id), 0) AS avg_order_value
             FROM order_details_0
-            GROUP BY order_details_0.status
+            FULL OUTER JOIN order_details_1_agg
+              ON order_details_0.status = order_details_1_agg.status
+            GROUP BY 1
             """,
         )
 

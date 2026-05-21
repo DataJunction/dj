@@ -1119,11 +1119,18 @@ class MetricComponentExtractor:
         is_distinct = func.quantifier == ast.SetQuantifier.Distinct
 
         if is_distinct:
-            # DISTINCT aggregations can't be pre-aggregated, so keep original function
-            # Just replace column references with component names
+            # DISTINCT aggregations can't be pre-aggregated, so keep original function.
+            # Reference the column by its public ``grain_alias`` (the actual SQL alias
+            # projected on the LIMITED grain-group CTE), not the internal hashed
+            # component name. This keeps the stored ``derived_expression`` runnable
+            # against ``/sql/measures/v3`` output: for simple-column DISTINCT args
+            # ``grain_alias`` is the bare column name (``order_id``); for complex
+            # expressions it falls back to the component name (the hash), which is
+            # also what the LIMITED CTE projects the aliased expression as.
+            distinct_col = components[0].grain_alias or components[0].name
             combiner_ast: ast.Expression = ast.Function(
                 func.name,
-                args=[ast.Column(ast.Name(components[0].name))],
+                args=[ast.Column(ast.Name(distinct_col))],
                 quantifier=ast.SetQuantifier.Distinct,
             )
         else:

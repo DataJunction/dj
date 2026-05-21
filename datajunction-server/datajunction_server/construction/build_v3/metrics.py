@@ -273,7 +273,10 @@ def _build_pre_agg_wrapper_cte(
 
     # Build SELECT projection: dim cols + COUNT(DISTINCT grain_key) per component.
     # The DISTINCT arg references the upstream LIMITED CTE's projected column,
-    # which is the grain alias (bare column name or component name).
+    # which is the grain alias (bare column name or component name). We alias
+    # the COUNT(DISTINCT) output back to the same grain alias so the metric's
+    # stored ``derived_expression`` — which also uses the grain alias — runs
+    # unchanged against this wrapper CTE.
     projection: list[Any] = [
         ast.Column(name=ast.Name(col_name)) for col_name in dim_col_names
     ]
@@ -288,7 +291,7 @@ def _build_pre_agg_wrapper_cte(
                 args=[grain_col_ref],
                 quantifier=ast.SetQuantifier.Distinct,
             )
-            projection.append(ast.Alias(child=count_expr, alias=ast.Name(comp.name)))
+            projection.append(ast.Alias(child=count_expr, alias=ast.Name(grain_col)))
 
     # GROUP BY the dimension columns only (not the grain key)
     group_by: list[ast.Expression] = [
@@ -422,14 +425,17 @@ def collect_and_build_ctes(
         if needs_pre_agg:
             wrapper_cte, wrapper_alias = _build_pre_agg_wrapper_cte(alias, gg)
             all_cte_asts.append(wrapper_cte)
-            # Record the pre-aggregated column name for each LIMITED component so that
-            # _build_metric_aggregation() can reference it by name instead of re-applying
-            # COUNT(DISTINCT).
+            # Record the pre-aggregated column name for each LIMITED component
+            # so that ``_build_metric_aggregation`` references the wrapper's
+            # actual output column. The wrapper aliases ``COUNT(DISTINCT ...)``
+            # back to ``grain_alias`` (bare column for simple DISTINCT args,
+            # component name for complex expressions) so the mapping mirrors
+            # what's projected.
             for comp in gg.components:
                 if (
                     comp.rule and comp.rule.type == Aggregability.LIMITED
                 ):  # pragma: no branch
-                    gg.component_aliases[comp.name] = comp.name
+                    gg.component_aliases[comp.name] = comp.grain_alias or comp.name
             gg.is_pre_aggregated = True
             cte_aliases.append(wrapper_alias)
         else:

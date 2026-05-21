@@ -797,7 +797,8 @@ class TestMeasuresSQLRoles:
         - total_revenue: SUM - FULL aggregability
         - order_count: COUNT(DISTINCT order_id) - LIMITED aggregability
 
-        With grain group merging, this produces 1 merged grain group.
+        Per the matrix-split contract these split into 2 grain groups so
+        each metric's combiner runs against its own CTE shape.
         """
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
@@ -814,20 +815,84 @@ class TestMeasuresSQLRoles:
         assert response.status_code == 200
         result = response.json()
 
-        # With merging, should have 1 merged grain group at finest grain
-        assert len(result["grain_groups"]) == 1
+        assert len(result["grain_groups"]) == 2
 
-        gg = result["grain_groups"][0]
+        full_gg = next(
+            g for g in result["grain_groups"] if g["aggregability"] == "full"
+        )
+        limited_gg = next(
+            g for g in result["grain_groups"] if g["aggregability"] == "limited"
+        )
 
-        # Merged group has LIMITED aggregability
-        assert gg["aggregability"] == "limited"
-        assert sorted(gg["grain"]) == [
+        assert full_gg["metrics"] == ["v3.total_revenue"]
+        assert sorted(full_gg["grain"]) == [
+            "country_from",
+            "country_to",
+            "month_order",
+        ]
+        assert limited_gg["metrics"] == ["v3.order_count"]
+        assert sorted(limited_gg["grain"]) == [
             "country_from",
             "country_to",
             "month_order",
             "order_id",
         ]
-        assert sorted(gg["metrics"]) == ["v3.order_count", "v3.total_revenue"]
+        assert_sql_equal(
+            full_gg["sql"],
+            """
+            WITH v3_date AS (
+                SELECT date_id, month
+                FROM default.v3.dates
+            ),
+            v3_location AS (
+                SELECT location_id, country
+                FROM default.v3.locations
+            ),
+            v3_order_details AS (
+                SELECT o.order_date, o.from_location_id, o.to_location_id,
+                       oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t2.month month_order,
+                   t3.country country_from,
+                   t4.country country_to,
+                   SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_date t2 ON t1.order_date = t2.date_id
+            LEFT OUTER JOIN v3_location t3 ON t1.from_location_id = t3.location_id
+            LEFT OUTER JOIN v3_location t4 ON t1.to_location_id = t4.location_id
+            GROUP BY t2.month, t3.country, t4.country
+            """,
+        )
+        assert_sql_equal(
+            limited_gg["sql"],
+            """
+            WITH v3_date AS (
+                SELECT date_id, month
+                FROM default.v3.dates
+            ),
+            v3_location AS (
+                SELECT location_id, country
+                FROM default.v3.locations
+            ),
+            v3_order_details AS (
+                SELECT o.order_id, o.order_date,
+                       o.from_location_id, o.to_location_id
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t2.month month_order,
+                   t3.country country_from,
+                   t4.country country_to,
+                   t1.order_id
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_date t2 ON t1.order_date = t2.date_id
+            LEFT OUTER JOIN v3_location t3 ON t1.from_location_id = t3.location_id
+            LEFT OUTER JOIN v3_location t4 ON t1.to_location_id = t4.location_id
+            GROUP BY t2.month, t3.country, t4.country, t1.order_id
+            """,
+        )
 
         # Validate requested_dimensions
         assert result["requested_dimensions"] == [
@@ -1405,7 +1470,9 @@ class TestMeasuresSQLMultipleMetrics:
         - customer_count: APPROX_COUNT_DISTINCT - FULL
         - order_count: COUNT(DISTINCT order_id) - LIMITED
 
-        With grain group merging, this produces 1 merged grain group at finest grain.
+        Per the matrix-split contract this produces 2 grain groups: the
+        three FULL metrics share one at the requested dim grain; order_count
+        gets its own at the LIMITED grain.
         """
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
@@ -1422,21 +1489,29 @@ class TestMeasuresSQLMultipleMetrics:
         assert response.status_code == 200
         result = response.json()
 
-        # With merging, should have 1 merged grain group at finest grain (LIMITED)
-        assert len(result["grain_groups"]) == 1
+        assert len(result["grain_groups"]) == 2
+        full_gg = next(
+            g for g in result["grain_groups"] if g["aggregability"] == "full"
+        )
+        limited_gg = next(
+            g for g in result["grain_groups"] if g["aggregability"] == "limited"
+        )
 
-        gg = result["grain_groups"][0]
-
-        # Merged group has LIMITED aggregability (worst case)
-        assert gg["aggregability"] == "limited"
-        assert sorted(gg["grain"]) == ["category", "name", "order_id", "status"]
-        assert sorted(gg["metrics"]) == [
+        assert sorted(full_gg["grain"]) == ["category", "name", "status"]
+        assert sorted(full_gg["metrics"]) == [
             "v3.customer_count",
-            "v3.order_count",
             "v3.total_quantity",
             "v3.total_revenue",
         ]
-        assert "_DOT_" not in gg["sql"]
+        assert sorted(limited_gg["grain"]) == [
+            "category",
+            "name",
+            "order_id",
+            "status",
+        ]
+        assert limited_gg["metrics"] == ["v3.order_count"]
+        for gg in result["grain_groups"]:
+            assert "_DOT_" not in gg["sql"]
 
         # Validate requested_dimensions
         assert result["requested_dimensions"] == [
@@ -1797,10 +1872,10 @@ class TestMeasuresSQLCrossFact:
 
         These decompose into base metrics from two facts:
         - From order_details: total_revenue (FULL), order_count (LIMITED)
-        - From page_views_enriched: visitor_count (LIMITED), page_view_count (FULL)
+        - From page_views_enriched: page_view_count (FULL), visitor_count (LIMITED)
 
-        With grain group merging, each parent produces ONE merged grain group
-        with raw values at finest grain. Aggregations are applied in metrics SQL.
+        Per the matrix-split contract, each parent splits its FULL and
+        LIMITED bases into separate grain groups → 4 grain groups total.
         """
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
@@ -1817,37 +1892,23 @@ class TestMeasuresSQLCrossFact:
         assert response.status_code == 200
         result = response.json()
 
-        # With merging, should have 2 grain groups (one per parent):
-        # 1. order_details (merged: total_revenue order_count) at LIMITED grain
-        # 2. page_views_enriched (merged: visitor_count page_view_count) at LIMITED grain
-        assert len(result["grain_groups"]) == 2
-
-        # Find grain groups by parent name
-        gg_order_details = next(
-            gg
-            for gg in result["grain_groups"]
-            if "v3.order_count" in gg["metrics"] or "v3.total_revenue" in gg["metrics"]
-        )
-        gg_page_views = next(
-            gg
-            for gg in result["grain_groups"]
-            if "v3.visitor_count" in gg["metrics"]
-            or "v3.page_view_count" in gg["metrics"]
-        )
-
-        # Validate merged grain group for order_details
-        assert gg_order_details["aggregability"] == "limited"
-        assert gg_order_details["grain"] == ["category", "order_id"]
-        assert sorted(gg_order_details["metrics"]) == [
-            "v3.order_count",
+        assert len(result["grain_groups"]) == 4
+        by_metric = {gg["metrics"][0]: gg for gg in result["grain_groups"]}
+        assert set(by_metric) == {
             "v3.total_revenue",
-        ]
+            "v3.order_count",
+            "v3.page_view_count",
+            "v3.visitor_count",
+        }
+
+        # order_details FULL (total_revenue) at category
+        assert by_metric["v3.total_revenue"]["aggregability"] == "full"
+        assert by_metric["v3.total_revenue"]["grain"] == ["category"]
         assert_sql_equal(
-            gg_order_details["sql"],
+            by_metric["v3.total_revenue"]["sql"],
             """
-            WITH
-            v3_order_details AS (
-                SELECT o.order_id, oi.product_id, oi.quantity * oi.unit_price AS line_total
+            WITH v3_order_details AS (
+                SELECT oi.product_id, oi.quantity * oi.unit_price AS line_total
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             ),
@@ -1855,33 +1916,71 @@ class TestMeasuresSQLCrossFact:
                 SELECT product_id, category
                 FROM default.v3.products
             )
-            SELECT t2.category, t1.order_id, SUM(t1.line_total) line_total_sum_e1f61696
+            SELECT t2.category, SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+            GROUP BY t2.category
+            """,
+        )
+
+        # order_details LIMITED (order_count) at {category, order_id}
+        assert by_metric["v3.order_count"]["aggregability"] == "limited"
+        assert by_metric["v3.order_count"]["grain"] == ["category", "order_id"]
+        assert_sql_equal(
+            by_metric["v3.order_count"]["sql"],
+            """
+            WITH v3_order_details AS (
+                SELECT o.order_id, oi.product_id
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+            )
+            SELECT t2.category, t1.order_id
             FROM v3_order_details t1
             LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             GROUP BY t2.category, t1.order_id
             """,
         )
 
-        # Validate merged grain group for page_views_enriched
-        assert gg_page_views["aggregability"] == "limited"
-        assert gg_page_views["grain"] == ["category", "customer_id"]
-        assert sorted(gg_page_views["metrics"]) == [
-            "v3.page_view_count",
-            "v3.visitor_count",
-        ]
+        # page_views_enriched FULL (page_view_count) at category
+        assert by_metric["v3.page_view_count"]["aggregability"] == "full"
+        assert by_metric["v3.page_view_count"]["grain"] == ["category"]
         assert_sql_equal(
-            gg_page_views["sql"],
+            by_metric["v3.page_view_count"]["sql"],
             """
-            WITH
-            v3_page_views_enriched AS (
-                SELECT view_id, customer_id, product_id
+            WITH v3_page_views_enriched AS (
+                SELECT view_id, product_id
                 FROM default.v3.page_views
             ),
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
             )
-            SELECT t2.category, t1.customer_id, COUNT(t1.view_id) view_id_count_f41e2db4
+            SELECT t2.category, COUNT(t1.view_id) view_id_count_f41e2db4
+            FROM v3_page_views_enriched t1
+            LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+            GROUP BY t2.category
+            """,
+        )
+
+        # page_views_enriched LIMITED (visitor_count) at {category, customer_id}
+        assert by_metric["v3.visitor_count"]["aggregability"] == "limited"
+        assert by_metric["v3.visitor_count"]["grain"] == ["category", "customer_id"]
+        assert_sql_equal(
+            by_metric["v3.visitor_count"]["sql"],
+            """
+            WITH v3_page_views_enriched AS (
+                SELECT customer_id, product_id
+                FROM default.v3.page_views
+            ),
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+            )
+            SELECT t2.category, t1.customer_id
             FROM v3_page_views_enriched t1
             LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             GROUP BY t2.category, t1.customer_id
@@ -2759,13 +2858,48 @@ class TestBaseMetricCaching:
         assert response.status_code == 200, response.json()
         result = response.json()
 
-        # Should have one grain group (both metrics from same parent)
-        assert len(result["grain_groups"]) == 1
+        # Matrix split: FULL (total_revenue) and LIMITED (order_count)
+        # get their own grain groups.
+        assert len(result["grain_groups"]) == 2
+        by_metric = {gg["metrics"][0]: gg for gg in result["grain_groups"]}
+        assert set(by_metric) == {"v3.total_revenue", "v3.order_count"}
 
-        gg = result["grain_groups"][0]
-        # Both base metrics (order_count and total_revenue) should be in the grain group
-        assert "v3.order_count" in gg["metrics"]
-        assert "v3.total_revenue" in gg["metrics"]
+        assert_sql_equal(
+            by_metric["v3.total_revenue"]["sql"],
+            """
+            WITH v3_date AS (
+                SELECT date_id, month
+                FROM default.v3.dates
+            ),
+            v3_order_details AS (
+                SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t2.month month_order, SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_date t2 ON t1.order_date = t2.date_id
+            GROUP BY t2.month
+            """,
+        )
+        assert_sql_equal(
+            by_metric["v3.order_count"]["sql"],
+            """
+            WITH v3_date AS (
+                SELECT date_id, month
+                FROM default.v3.dates
+            ),
+            v3_order_details AS (
+                SELECT o.order_id, o.order_date
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t2.month month_order, t1.order_id
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_date t2 ON t1.order_date = t2.date_id
+            GROUP BY t2.month, t1.order_id
+            """,
+        )
 
     @pytest.mark.asyncio
     async def test_shared_base_metric_across_derived(self, client_with_build_v3):
@@ -2776,6 +2910,8 @@ class TestBaseMetricCaching:
         v3.avg_items_per_order = total_quantity / order_count
 
         Both use v3.order_count, so it should only be decomposed once.
+        Matrix split: FULL bases (total_revenue + total_quantity) share one
+        grain group; LIMITED base (order_count) gets its own.
         """
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
@@ -2788,14 +2924,55 @@ class TestBaseMetricCaching:
         assert response.status_code == 200, response.json()
         result = response.json()
 
-        # Should have one grain group
-        assert len(result["grain_groups"]) == 1
+        assert len(result["grain_groups"]) == 2
+        full_gg = next(
+            g for g in result["grain_groups"] if g["aggregability"] == "full"
+        )
+        limited_gg = next(
+            g for g in result["grain_groups"] if g["aggregability"] == "limited"
+        )
+        assert sorted(full_gg["metrics"]) == ["v3.total_quantity", "v3.total_revenue"]
+        assert limited_gg["metrics"] == ["v3.order_count"]
 
-        gg = result["grain_groups"][0]
-        # Should have all three base metrics
-        assert "v3.total_revenue" in gg["metrics"]
-        assert "v3.total_quantity" in gg["metrics"]
-        assert "v3.order_count" in gg["metrics"]
+        assert_sql_equal(
+            full_gg["sql"],
+            """
+            WITH v3_date AS (
+                SELECT date_id, month
+                FROM default.v3.dates
+            ),
+            v3_order_details AS (
+                SELECT o.order_date, oi.quantity,
+                       oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t2.month month_order,
+                   SUM(t1.line_total) line_total_sum_e1f61696,
+                   SUM(t1.quantity) quantity_sum_06b64d2e
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_date t2 ON t1.order_date = t2.date_id
+            GROUP BY t2.month
+            """,
+        )
+        assert_sql_equal(
+            limited_gg["sql"],
+            """
+            WITH v3_date AS (
+                SELECT date_id, month
+                FROM default.v3.dates
+            ),
+            v3_order_details AS (
+                SELECT o.order_id, o.order_date
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t2.month month_order, t1.order_id
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_date t2 ON t1.order_date = t2.date_id
+            GROUP BY t2.month, t1.order_id
+            """,
+        )
 
 
 class TestTemporalFilters:
@@ -3154,13 +3331,17 @@ class TestCubeBasedTemporalFiltering:
         assert response.status_code == 200
         data = response.json()
 
-        # Temporal filter pushed into the parent CTE's WHERE.
+        # Matrix split: FULL bases (revenue + quantity) share one grain
+        # group; order_count (LIMITED) gets its own. Temporal filter is
+        # pushed into each parent CTE's WHERE.
+        assert len(data["grain_groups"]) == 2
+        by_agg = {gg["aggregability"]: gg for gg in data["grain_groups"]}
+
         assert_sql_equal(
-            data["grain_groups"][0]["sql"],
+            by_agg["full"]["sql"],
             """
             WITH v3_order_details AS (
               SELECT
-                o.order_id,
                 o.order_date,
                 oi.quantity,
                 oi.quantity * oi.unit_price AS line_total
@@ -3170,11 +3351,28 @@ class TestCubeBasedTemporalFiltering:
             )
             SELECT
               t1.order_date date_id,
-              t1.order_id,
               SUM(t1.line_total) line_total_sum_e1f61696,
               SUM(t1.quantity) quantity_sum_06b64d2e
             FROM v3_order_details t1
-            GROUP BY  t1.order_date, t1.order_id
+            GROUP BY t1.order_date
+            """,
+        )
+        assert_sql_equal(
+            by_agg["limited"]["sql"],
+            """
+            WITH v3_order_details AS (
+              SELECT
+                o.order_id,
+                o.order_date
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+              WHERE order_date = CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
+            )
+            SELECT
+              t1.order_date date_id,
+              t1.order_id
+            FROM v3_order_details t1
+            GROUP BY t1.order_date, t1.order_id
             """,
         )
 
@@ -4424,26 +4622,34 @@ class TestMeasuresSQLNestedDerived:
         assert response.status_code == 200, response.json()
         data = response.json()
 
-        # Should have grain groups with base components
-        assert "grain_groups" in data
-        assert len(data["grain_groups"]) >= 1
+        # Matrix split: total_revenue (FULL) and order_count (LIMITED) get
+        # separate grain groups so each combiner composes against its own CTE.
+        assert len(data["grain_groups"]) == 2
+        by_metric = {gg["metrics"][0]: gg for gg in data["grain_groups"]}
+        assert set(by_metric) == {"v3.total_revenue", "v3.order_count"}
 
-        # Verify the SQL structure using assert_sql_equal
-        # Uses merged grain group approach: order_id as grain column for COUNT DISTINCT
-        gg = data["grain_groups"][0]
         assert_sql_equal(
-            gg["sql"],
+            by_metric["v3.total_revenue"]["sql"],
             """
-            WITH
-            v3_order_details AS (
-                SELECT o.order_id, o.status, oi.quantity * oi.unit_price AS line_total
+            WITH v3_order_details AS (
+                SELECT o.status, oi.quantity * oi.unit_price AS line_total
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT
-                t1.status,
-                t1.order_id,
-                SUM(t1.line_total) line_total_sum_e1f61696
+            SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            GROUP BY t1.status
+            """,
+        )
+        assert_sql_equal(
+            by_metric["v3.order_count"]["sql"],
+            """
+            WITH v3_order_details AS (
+                SELECT o.order_id, o.status
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t1.status, t1.order_id
             FROM v3_order_details t1
             GROUP BY t1.status, t1.order_id
             """,
@@ -4473,23 +4679,23 @@ class TestMeasuresSQLNestedDerived:
         assert response.status_code == 200, response.json()
         data = response.json()
 
-        # Should have grain groups with base components
-        assert "grain_groups" in data
-        assert len(data["grain_groups"]) >= 1
+        # Matrix split: total_revenue (FULL) and order_count (LIMITED) get
+        # their own grain groups; the window function operates on the
+        # base_metrics CTE downstream.
+        assert len(data["grain_groups"]) == 2
+        by_metric = {gg["metrics"][0]: gg for gg in data["grain_groups"]}
+        assert set(by_metric) == {"v3.total_revenue", "v3.order_count"}
 
-        # Verify the SQL structure for the first grain group
-        # Uses merged grain group approach with week dimension for window function
-        gg = data["grain_groups"][0]
         assert_sql_equal(
-            gg["sql"],
+            by_metric["v3.total_revenue"]["sql"],
             """
-            WITH
-            v3_date AS (
+            WITH v3_date AS (
                 SELECT date_id, week
                 FROM default.v3.dates
             ),
             v3_order_details AS (
-                SELECT o.order_id, o.order_date, oi.product_id, oi.quantity * oi.unit_price AS line_total
+                SELECT o.order_date, oi.product_id,
+                       oi.quantity * oi.unit_price AS line_total
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             ),
@@ -4497,11 +4703,30 @@ class TestMeasuresSQLNestedDerived:
                 SELECT product_id, category
                 FROM default.v3.products
             )
-            SELECT
-                t2.category,
-                t3.week,
-                t1.order_id,
-                SUM(t1.line_total) line_total_sum_e1f61696
+            SELECT t2.category, t3.week, SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+            LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
+            GROUP BY t2.category, t3.week
+            """,
+        )
+        assert_sql_equal(
+            by_metric["v3.order_count"]["sql"],
+            """
+            WITH v3_date AS (
+                SELECT date_id, week
+                FROM default.v3.dates
+            ),
+            v3_order_details AS (
+                SELECT o.order_id, o.order_date, oi.product_id
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+            )
+            SELECT t2.category, t3.week, t1.order_id
             FROM v3_order_details t1
             LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
@@ -4533,30 +4758,22 @@ class TestMeasuresSQLNestedDerived:
         assert response.status_code == 200, response.json()
         data = response.json()
 
-        # Should have two grain groups - one from each fact
-        assert "grain_groups" in data
-        assert len(data["grain_groups"]) == 2
+        # Matrix split + 2 facts → 4 grain groups (FULL+LIMITED per fact).
+        assert len(data["grain_groups"]) == 4
+        by_metric = {gg["metrics"][0]: gg for gg in data["grain_groups"]}
+        assert set(by_metric) == {
+            "v3.total_revenue",
+            "v3.order_count",
+            "v3.page_view_count",
+            "v3.session_count",
+        }
 
-        # Find the grain groups by their parent
-        order_gg = None
-        page_gg = None
-        for gg in data["grain_groups"]:
-            if "order_details" in gg["sql"].lower():
-                order_gg = gg
-            if "page_views" in gg["sql"].lower():
-                page_gg = gg
-
-        assert order_gg is not None, "Should have grain group from order_details"
-        assert page_gg is not None, "Should have grain group from page_views"
-
-        # Verify order_details grain group has components for total_revenue/order_count
-        # Uses merged grain group approach with order_id as grain column
+        # order_details FULL
         assert_sql_equal(
-            order_gg["sql"],
+            by_metric["v3.total_revenue"]["sql"],
             """
-            WITH
-            v3_order_details AS (
-                SELECT o.order_id, oi.product_id, oi.quantity * oi.unit_price AS line_total
+            WITH v3_order_details AS (
+                SELECT oi.product_id, oi.quantity * oi.unit_price AS line_total
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             ),
@@ -4564,37 +4781,68 @@ class TestMeasuresSQLNestedDerived:
                 SELECT product_id, category
                 FROM default.v3.products
             )
-            SELECT
-                t2.category,
-                t1.order_id,
-                SUM(t1.line_total) line_total_sum_e1f61696
+            SELECT t2.category, SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+            GROUP BY t2.category
+            """,
+        )
+
+        # order_details LIMITED
+        assert_sql_equal(
+            by_metric["v3.order_count"]["sql"],
+            """
+            WITH v3_order_details AS (
+                SELECT o.order_id, oi.product_id
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+            )
+            SELECT t2.category, t1.order_id
             FROM v3_order_details t1
             LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             GROUP BY t2.category, t1.order_id
             """,
         )
 
-        # Verify page_views grain group has components for page_view_count/session_count
+        # page_views_enriched FULL
         assert_sql_equal(
-            page_gg["sql"],
+            by_metric["v3.page_view_count"]["sql"],
             """
-            WITH
-            v3_page_views_enriched AS (
-            SELECT  view_id,
-                session_id,
-                product_id
-            FROM default.v3.page_views
+            WITH v3_page_views_enriched AS (
+                SELECT view_id, product_id
+                FROM default.v3.page_views
             ),
             v3_product AS (
-            SELECT  product_id,
-                category
-            FROM default.v3.products
+                SELECT product_id, category
+                FROM default.v3.products
             )
-            SELECT  t2.category,
-                t1.session_id,
-                COUNT(t1.view_id) view_id_count_f41e2db4
-            FROM v3_page_views_enriched t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
-            GROUP BY  t2.category, t1.session_id
+            SELECT t2.category, COUNT(t1.view_id) view_id_count_f41e2db4
+            FROM v3_page_views_enriched t1
+            LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+            GROUP BY t2.category
+            """,
+        )
+
+        # page_views_enriched LIMITED
+        assert_sql_equal(
+            by_metric["v3.session_count"]["sql"],
+            """
+            WITH v3_page_views_enriched AS (
+                SELECT session_id, product_id
+                FROM default.v3.page_views
+            ),
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+            )
+            SELECT t2.category, t1.session_id
+            FROM v3_page_views_enriched t1
+            LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+            GROUP BY t2.category, t1.session_id
             """,
         )
 

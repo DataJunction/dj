@@ -241,36 +241,43 @@ class TestHavingClauseMultipleFilters:
             result["sql"],
             """
             WITH v3_order_details AS (
-              SELECT
-                o.order_id,
-                oi.product_id,
-                oi.quantity * oi.unit_price AS line_total
-              FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+              SELECT oi.product_id,
+                     oi.quantity * oi.unit_price AS line_total,
+                     o.order_id
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             ),
             v3_product AS (
-              SELECT
-                product_id,
-                category
+              SELECT product_id, category
               FROM default.v3.products
             ),
             order_details_0 AS (
-              SELECT
-                t2.category,
-                t1.order_id,
-                SUM(t1.line_total) line_total_sum_e1f61696
+              SELECT t2.category,
+                     SUM(t1.line_total) line_total_sum_e1f61696
               FROM v3_order_details t1
               LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
-              GROUP BY  t2.category, t1.order_id
+              GROUP BY t2.category
+            ),
+            order_details_1 AS (
+              SELECT t2.category, t1.order_id
+              FROM v3_order_details t1
+              LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+              GROUP BY t2.category, t1.order_id
+            ),
+            order_details_1_agg AS (
+              SELECT category, COUNT(DISTINCT order_id) order_id
+              FROM order_details_1
+              GROUP BY category
             )
-            SELECT
-              order_details_0.category AS category,
-              SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue,
-              COUNT( DISTINCT order_details_0.order_id) AS order_count
+            SELECT COALESCE(order_details_0.category, order_details_1_agg.category) AS category,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue,
+                   MAX(order_details_1_agg.order_id) AS order_count
             FROM order_details_0
-            GROUP BY  order_details_0.category
-            HAVING
-              SUM(order_details_0.line_total_sum_e1f61696) > 5000
-              AND COUNT( DISTINCT order_details_0.order_id) > 20
+            FULL OUTER JOIN order_details_1_agg
+              ON order_details_0.category = order_details_1_agg.category
+            GROUP BY 1
+            HAVING SUM(order_details_0.line_total_sum_e1f61696) > 5000
+               AND MAX(order_details_1_agg.order_id) > 20
             """,
         )
 
@@ -416,41 +423,50 @@ class TestHavingClauseMixedFilters:
             result["sql"],
             """
             WITH v3_order_details AS (
-              SELECT
-                o.order_id,
-                o.status,
-                oi.product_id,
-                oi.quantity * oi.unit_price AS line_total
-              FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+              SELECT o.status, oi.product_id,
+                     oi.quantity * oi.unit_price AS line_total, o.order_id
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
               WHERE o.status = 'completed'
             ),
             v3_product AS (
-              SELECT
-                product_id,
-                category
+              SELECT product_id, category
               FROM default.v3.products
               WHERE category IN ('Electronics', 'Clothing')
             ),
             order_details_0 AS (
-              SELECT
-                t2.category,
-                t1.status,
-                t1.order_id,
-                SUM(t1.line_total) line_total_sum_e1f61696
+              SELECT t2.category, t1.status,
+                     SUM(t1.line_total) line_total_sum_e1f61696
               FROM v3_order_details t1
               LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
-              WHERE  t2.category IN ('Electronics', 'Clothing')
-              GROUP BY  t2.category, t1.status, t1.order_id
+              WHERE t2.category IN ('Electronics', 'Clothing')
+              GROUP BY t2.category, t1.status
+            ),
+            order_details_1 AS (
+              SELECT t2.category, t1.status, t1.order_id
+              FROM v3_order_details t1
+              LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+              WHERE t2.category IN ('Electronics', 'Clothing')
+              GROUP BY t2.category, t1.status, t1.order_id
+            ),
+            order_details_1_agg AS (
+              SELECT category, status, COUNT(DISTINCT order_id) order_id
+              FROM order_details_1
+              GROUP BY category, status
             )
-            SELECT
-              order_details_0.category AS category,
-              order_details_0.status AS status,
-              SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue,
-              COUNT(DISTINCT order_details_0.order_id) AS order_count
+            SELECT COALESCE(order_details_0.category, order_details_1_agg.category) AS category,
+                   COALESCE(order_details_0.status, order_details_1_agg.status) AS status,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue,
+                   MAX(order_details_1_agg.order_id) AS order_count
             FROM order_details_0
-            WHERE  order_details_0.category IN ('Electronics', 'Clothing') AND order_details_0.status = 'completed'
-            GROUP BY  order_details_0.category, order_details_0.status
-            HAVING  SUM(order_details_0.line_total_sum_e1f61696) > 10000 AND COUNT( DISTINCT order_details_0.order_id) >= 50
+            FULL OUTER JOIN order_details_1_agg
+              ON order_details_0.category = order_details_1_agg.category
+             AND order_details_0.status = order_details_1_agg.status
+            WHERE order_details_0.category IN ('Electronics', 'Clothing')
+              AND order_details_0.status = 'completed'
+            GROUP BY 1, 2
+            HAVING SUM(order_details_0.line_total_sum_e1f61696) > 10000
+               AND MAX(order_details_1_agg.order_id) >= 50
             """,
         )
 
@@ -485,32 +501,41 @@ class TestHavingClauseWithDerivedMetrics:
             result["sql"],
             """
             WITH v3_order_details AS (
-              SELECT
-                o.order_id,
-                oi.product_id,
-                oi.quantity * oi.unit_price AS line_total
-              FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+              SELECT oi.product_id,
+                     oi.quantity * oi.unit_price AS line_total,
+                     o.order_id
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             ),
             v3_product AS (
-              SELECT
-                product_id,
-                category
+              SELECT product_id, category
               FROM default.v3.products
             ),
             order_details_0 AS (
-              SELECT
-                t2.category,
-                t1.order_id,
-                SUM(t1.line_total) line_total_sum_e1f61696
-              FROM v3_order_details t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
-              GROUP BY  t2.category, t1.order_id
+              SELECT t2.category,
+                     SUM(t1.line_total) line_total_sum_e1f61696
+              FROM v3_order_details t1
+              LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+              GROUP BY t2.category
+            ),
+            order_details_1 AS (
+              SELECT t2.category, t1.order_id
+              FROM v3_order_details t1
+              LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+              GROUP BY t2.category, t1.order_id
+            ),
+            order_details_1_agg AS (
+              SELECT category, COUNT(DISTINCT order_id) order_id
+              FROM order_details_1
+              GROUP BY category
             )
-            SELECT
-              order_details_0.category AS category,
-              SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT order_details_0.order_id), 0) AS avg_order_value
+            SELECT COALESCE(order_details_0.category, order_details_1_agg.category) AS category,
+                   SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(MAX(order_details_1_agg.order_id), 0) AS avg_order_value
             FROM order_details_0
-            GROUP BY  order_details_0.category
-            HAVING  SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT order_details_0.order_id), 0) > 100
+            FULL OUTER JOIN order_details_1_agg
+              ON order_details_0.category = order_details_1_agg.category
+            GROUP BY 1
+            HAVING SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(MAX(order_details_1_agg.order_id), 0) > 100
             """,
         )
 
