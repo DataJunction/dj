@@ -1921,6 +1921,11 @@ def build_grain_group_sql(
         and grain_group.aggregability == Aggregability.NONE
     )
 
+    # Grain columns are already projected by build_select_ast; don't
+    # re-project a non-decomp ref that shadows a grain column or it lands
+    # in the SELECT list twice.
+    grain_column_names = set(grain_group.grain_columns)
+
     for decomposed in grain_group.non_decomposable_metrics:
         metrics_covered.add(decomposed.metric_node.name)
 
@@ -1936,7 +1941,11 @@ def build_grain_group_sql(
             if col.name and col.name.namespace and col.name.namespace.name:
                 continue
             col_name = col.name.name if col.name else None
-            if col_name and col_name not in seen_components:  # pragma: no branch
+            if (
+                col_name
+                and col_name not in seen_components
+                and col_name not in grain_column_names
+            ):  # pragma: no branch
                 seen_components.add(col_name)
                 if wrap_non_decomp_in_max:
                     col_ast: ast.Expression = ast.Function(

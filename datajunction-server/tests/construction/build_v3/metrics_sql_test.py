@@ -1886,11 +1886,12 @@ class TestNonDecomposableMetrics:
         FULL + NONE metrics on the same parent via /sql/metrics/v3.
 
         Requests ``v3.total_revenue`` (SUM/FULL) and
-        ``v3.top_product_by_revenue`` (MAX_BY/NONE).  The merged grain
-        group pre-aggregates the decomposable component at finest grain
-        (so the metric's stored MERGE-based combiner composes correctly),
-        MAX-wraps the non-decomposable raw columns, and the final
-        metrics SELECT applies SUM and MAX_BY downstream.
+        ``v3.top_product_by_revenue`` (MAX_BY/NONE). These end up in
+        separate grain groups (the FULL metric pre-aggregates at the
+        requested dim grain; the NONE metric passes raw rows through at
+        native grain), which the metrics endpoint then combines via
+        FULL OUTER JOIN on the shared dimension and applies each
+        metric's stored derived expression on the corresponding CTE.
         """
         response = await client_with_build_v3.get(
             "/sql/metrics/v3/",
@@ -1909,32 +1910,39 @@ class TestNonDecomposableMetrics:
             """
             WITH v3_order_details AS (
               SELECT
+                o.status,
+                oi.quantity * oi.unit_price AS line_total,
                 o.order_id,
                 oi.line_number,
-                o.status,
-                oi.product_id,
-                oi.quantity * oi.unit_price AS line_total
+                oi.product_id
               FROM default.v3.orders o
               JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             ),
             order_details_0 AS (
               SELECT
                 t1.status,
-                t1.line_number,
-                t1.order_id,
-                SUM(t1.line_total) line_total_sum_e1f61696,
-                MAX(t1.product_id) product_id,
-                MAX(t1.line_total) line_total
+                SUM(t1.line_total) line_total_sum_e1f61696
               FROM v3_order_details t1
-              GROUP BY t1.status, t1.line_number, t1.order_id
+              GROUP BY t1.status
+            ),
+            order_details_1 AS (
+              SELECT
+                t1.status,
+                t1.order_id,
+                t1.line_number,
+                t1.product_id,
+                t1.line_total
+              FROM v3_order_details t1
             )
             SELECT
-              order_details_0.status AS status,
+              COALESCE(order_details_0.status, order_details_1.status) AS status,
               SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue,
-              MAX_BY(order_details_0.product_id, order_details_0.line_total)
+              MAX_BY(order_details_1.product_id, order_details_1.line_total)
                 AS top_product_by_revenue
             FROM order_details_0
-            GROUP BY order_details_0.status
+            FULL OUTER JOIN order_details_1
+              ON order_details_0.status = order_details_1.status
+            GROUP BY 1
             """,
         )
 

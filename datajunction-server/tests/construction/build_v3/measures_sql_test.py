@@ -3747,52 +3747,167 @@ class TestNonDecomposableMetrics:
         )
 
     @pytest.mark.asyncio
-    async def test_decomposable_metric_merged_with_non_decomposable(
+    async def test_dim_ref_inside_agg_not_promoted_to_output(
         self,
         session,
         client_with_build_v3,
     ):
         """
-        FULL + NONE metrics on the same parent must merge into a single
-        grain group at the worst-case (NONE) aggregability, carrying both
-        the decomposable components and the non-decomposable metrics
-        through to the response.
+        Dimension references nested inside an aggregation function arg
+        (e.g. ``MIN_BY(product_id, line_total * IF(v3.customer.location_id
+        IS NOT NULL, 1, 0))``) are values being aggregated, not output
+        dimensions. The dim must still be joined so the metric expression
+        can reference its column, but the dim must NOT appear in GROUP BY
+        of the measures CTE nor in the final output projection.
 
-        Without proper merging, ``_merge_parent_grain_groups`` would
-        forget to carry over ``non_decomposable_metrics`` and silently
-        drop the non-decomposable metric from the output.
-
-        The emitted CTE must:
-        1. Include both metrics in ``metrics`` (no silent drop).
-        2. Pre-aggregate the decomposable component at finest grain
-           (here ``SUM(line_total)``) so the stored metric combiner —
-           which uses MERGE functions on the component column — composes
-           correctly on top of the CTE.
-        3. Project every column referenced by the non-decomposable
-           expression (here ``product_id``, ``line_total``) wrapped in
-           ``MAX()`` so they coexist with the aggregations under strict
-           GROUP BY rules; at finest grain ``MAX(col) == col``.
-        4. Emit GROUP BY at the finest grain (the union of native PK and
-           requested dim columns) so each row is a single source row,
-           making the per-component accumulate aggregations passthroughs.
+        ctx.filter_dimensions gets us this: joined + column kept in dim
+        CTE, excluded from group-by / projection.
         """
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.revenue_min_by_location_signal",
+                "description": (
+                    "Non-decomposable MIN_BY that references "
+                    "v3.customer.location_id INSIDE the aggregation's "
+                    "second arg. The dim should NOT bubble up as an "
+                    "output dimension."
+                ),
+                "query": (
+                    "SELECT MIN_BY("
+                    "product_id, "
+                    "line_total * IF(v3.customer.location_id IS NOT NULL, 1, 0)"
+                    ") FROM v3.order_details"
+                ),
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
         result = await build_measures_sql(
             session=session,
-            metrics=["v3.total_revenue", "v3.top_product_by_revenue"],
+            metrics=["v3.revenue_min_by_location_signal"],
             dimensions=["v3.order_details.status"],
         )
 
-        # Both metrics merged into one grain group at NONE.
         assert len(result.grain_groups) == 1
         gg = result.grain_groups[0]
-        assert gg.aggregability.value == "none"
-        assert set(gg.metrics) == {
-            "v3.total_revenue",
+        # ``location_id`` must not appear as an output dimension on the
+        # measures CTE. The native PK grain (order_id, line_number) and
+        # the user-requested ``status`` are the only output dims.
+        assert "location_id" not in set(gg.grain)
+        # The customer dim is still joined (so the metric expression can
+        # reference ``v3.customer.location_id``), and ``location_id`` is
+        # kept in the customer CTE projection.
+        assert "v3_customer" in gg.sql
+        assert "location_id" in gg.sql
+        # Pass-through non-decomp grain group: no GROUP BY anywhere.
+        assert "GROUP BY" not in gg.sql
+
+    @pytest.mark.asyncio
+    async def test_full_with_limited_merged_grain_group(
+        self,
+        session,
+        client_with_build_v3,
+    ):
+        """
+        FULL + LIMITED decomposable metrics on the same parent merge into a
+        single grain group at the LIMITED grain (the worst case). Both
+        metrics' stored derived expressions still compose correctly on this
+        CTE:
+        - ``v3.total_revenue`` (SUM / FULL): combiner re-SUMs the
+          pre-aggregated ``line_total_sum_…`` across the LIMITED grain rows
+          back up to the requested-dim grain.
+        - ``v3.order_count`` (COUNT(DISTINCT order_id) / LIMITED): combiner
+          applies ``COUNT(DISTINCT order_id)`` on the {status, order_id}
+          rows directly.
+
+        Split is only needed when a non-decomposable metric is involved
+        (see ``test_decomposable_metric_split_from_non_decomposable``).
+        """
+        result = await build_measures_sql(
+            session=session,
+            metrics=["v3.total_revenue", "v3.order_count"],
+            dimensions=["v3.order_details.status"],
+        )
+        assert len(result.grain_groups) == 1
+        gg = result.grain_groups[0]
+        assert set(gg.metrics) == {"v3.total_revenue", "v3.order_count"}
+        assert gg.aggregability.value == "limited"
+        assert set(gg.grain) == {"order_id", "status"}
+        assert_sql_equal(
+            gg.sql,
+            """
+            WITH v3_order_details AS (
+              SELECT
+                o.order_id,
+                o.status,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT
+              t1.status,
+              t1.order_id,
+              SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            GROUP BY t1.status, t1.order_id
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_limited_with_none_split_grain_groups(
+        self,
+        session,
+        client_with_build_v3,
+    ):
+        """
+        LIMITED + NONE metrics on the same parent split into separate grain
+        groups by aggregability:
+        - ``v3.order_count`` (COUNT(DISTINCT order_id) / LIMITED) → grain
+          group at requested dims + ``order_id``
+        - ``v3.top_product_by_revenue`` (MAX_BY / NONE) → grain group at
+          native PK (``order_id``, ``line_number``) so MAX_BY can operate
+          on raw rows in the final SELECT.
+        """
+        result = await build_measures_sql(
+            session=session,
+            metrics=["v3.order_count", "v3.top_product_by_revenue"],
+            dimensions=["v3.order_details.status"],
+        )
+        assert len(result.grain_groups) == 2
+        gg_by_metric = {gg.metrics[0]: gg for gg in result.grain_groups}
+        assert set(gg_by_metric) == {
+            "v3.order_count",
             "v3.top_product_by_revenue",
         }
 
+        limited_gg = gg_by_metric["v3.order_count"]
+        assert limited_gg.aggregability.value == "limited"
+        assert set(limited_gg.grain) == {"order_id", "status"}
         assert_sql_equal(
-            gg.sql,
+            limited_gg.sql,
+            """
+            WITH v3_order_details AS (
+              SELECT
+                o.order_id,
+                o.status
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT
+              t1.status,
+              t1.order_id
+            FROM v3_order_details t1
+            GROUP BY t1.status, t1.order_id
+            """,
+        )
+
+        none_gg = gg_by_metric["v3.top_product_by_revenue"]
+        assert none_gg.aggregability.value == "none"
+        assert set(none_gg.grain) == {"order_id", "line_number"}
+        assert_sql_equal(
+            none_gg.sql,
             """
             WITH v3_order_details AS (
               SELECT
@@ -3806,13 +3921,96 @@ class TestNonDecomposableMetrics:
             )
             SELECT
               t1.status,
-              t1.line_number,
               t1.order_id,
-              SUM(t1.line_total) line_total_sum_e1f61696,
-              MAX(t1.product_id) product_id,
-              MAX(t1.line_total) line_total
+              t1.line_number,
+              t1.product_id,
+              t1.line_total
             FROM v3_order_details t1
-            GROUP BY t1.status, t1.line_number, t1.order_id
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_decomposable_metric_split_from_non_decomposable(
+        self,
+        session,
+        client_with_build_v3,
+    ):
+        """
+        FULL + NONE metrics on the same parent must stay in separate grain
+        groups, even though they share a parent. Mixing them into one CTE
+        would force a shape that's incompatible with at least one
+        contributor's stored derived expression: clients calling
+        ``/metrics/{name}`` independently of ``/sql/measures/v3`` expect
+        each metric's combiner to apply on top of the measures CTE
+        unchanged.
+
+        With the split:
+        - The decomposable metric (``v3.total_revenue`` / FULL) gets its
+          own grain group at the requested dim grain, pre-aggregating the
+          SUM component so the stored ``SUM(line_total_sum_…)`` combiner
+          composes correctly.
+        - The non-decomposable metric (``v3.top_product_by_revenue`` /
+          NONE) gets its own grain group at native grain, passing raw
+          rows through so MAX_BY can operate on them.
+        """
+        result = await build_measures_sql(
+            session=session,
+            metrics=["v3.total_revenue", "v3.top_product_by_revenue"],
+            dimensions=["v3.order_details.status"],
+        )
+
+        # Two separate grain groups, one per metric.
+        assert len(result.grain_groups) == 2
+        gg_by_metric = {gg.metrics[0]: gg for gg in result.grain_groups}
+        assert set(gg_by_metric) == {
+            "v3.total_revenue",
+            "v3.top_product_by_revenue",
+        }
+
+        full_gg = gg_by_metric["v3.total_revenue"]
+        assert full_gg.aggregability.value == "full"
+        assert full_gg.metrics == ["v3.total_revenue"]
+        assert_sql_equal(
+            full_gg.sql,
+            """
+            WITH v3_order_details AS (
+              SELECT
+                o.status,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT
+              t1.status,
+              SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            GROUP BY t1.status
+            """,
+        )
+
+        none_gg = gg_by_metric["v3.top_product_by_revenue"]
+        assert none_gg.aggregability.value == "none"
+        assert none_gg.metrics == ["v3.top_product_by_revenue"]
+        assert_sql_equal(
+            none_gg.sql,
+            """
+            WITH v3_order_details AS (
+              SELECT
+                o.order_id,
+                oi.line_number,
+                o.status,
+                oi.product_id,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT
+              t1.status,
+              t1.order_id,
+              t1.line_number,
+              t1.product_id,
+              t1.line_total
+            FROM v3_order_details t1
             """,
         )
 

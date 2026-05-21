@@ -14,8 +14,10 @@ from datajunction_server.models.cube_materialization import (
     MetricComponent,
 )
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.decompose import Aggregability
 from datajunction_server.sql.decompose import (
     MetricComponentExtractor,
+    infer_non_decomp_grain,
     safe_denominator,
     wrap_divisions_in_nullif,
 )
@@ -2182,6 +2184,56 @@ def test_safe_denominator_preserves_literal():
     """Numeric literals (e.g. x / 100) don't need NULLIF."""
     lit = ast.Number(value=100)
     assert safe_denominator(lit) is lit
+
+
+class TestInferNonDecompGrain:
+    """Unit tests for ``infer_non_decomp_grain``.
+
+    The helper is consulted by the build pipeline when a metric's
+    accumulator decomposition is empty (non-decomposable as a whole). It
+    returns the worst-case grain implied by the metric's inner
+    aggregations so the non-decomposable metric lands at a sensible grain
+    instead of always falling back to the parent's native PK.
+    """
+
+    def test_all_full_inner_aggs_yields_full_no_level(self):
+        # SUM + SUM: both FULL → no extra grain columns needed.
+        query = parse("SELECT SUM(a) + SUM(b) FROM t")
+        agg, level = infer_non_decomp_grain(query)
+        assert agg == Aggregability.FULL
+        assert level == []
+
+    def test_count_distinct_yields_limited_at_distinct_arg(self):
+        # SUM + COUNT(DISTINCT x): worst case is LIMITED at {x}.
+        query = parse("SELECT SUM(a) / NULLIF(COUNT(DISTINCT x), 0) FROM t")
+        agg, level = infer_non_decomp_grain(query)
+        assert agg == Aggregability.LIMITED
+        assert level == ["x"]
+
+    def test_multiple_distinct_args_union_level(self):
+        # Two COUNT(DISTINCT) on different columns → level is the union.
+        query = parse(
+            "SELECT COUNT(DISTINCT a) + COUNT(DISTINCT b) FROM t",
+        )
+        agg, level = infer_non_decomp_grain(query)
+        assert agg == Aggregability.LIMITED
+        assert level == ["a", "b"]
+
+    def test_non_decomposable_inner_agg_forces_none(self):
+        # MIN_BY is non-decomposable → falls back to NONE (native grain).
+        # The COUNT(DISTINCT) inner agg's level cols still bubble up so
+        # downstream code can use them if helpful, but the aggregability
+        # is the worst-case (NONE).
+        query = parse(
+            "SELECT IF("
+            "MIN_BY(p, v) IS NOT NULL, "
+            "SUM(a) / NULLIF(COUNT(DISTINCT x), 0), "
+            "NULL"
+            ") FROM t",
+        )
+        agg, level = infer_non_decomp_grain(query)
+        assert agg == Aggregability.NONE
+        assert level == ["x"]
 
 
 def test_wrap_divisions_in_nullif_walks_nested():

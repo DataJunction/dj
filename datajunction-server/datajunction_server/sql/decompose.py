@@ -646,6 +646,60 @@ def get_decomposition(func_class: type) -> AggDecomposition | None:
     return decomp_class()
 
 
+def infer_non_decomp_grain(
+    query_ast: ast.Query,
+) -> tuple[Aggregability, list[str]]:
+    """
+    Compute the worst-case grain needed for a non-decomposable metric.
+
+    Walks the metric's inner aggregation functions and returns the smallest
+    grain at which the metric can still be evaluated correctly. Used when
+    the metric as a whole can't be split into FULL/LIMITED accumulator
+    components (e.g. ``SUM(...) / NULLIF(COUNT(DISTINCT X), 0)``), but its
+    inner aggregations individually constrain the grain.
+
+    Classification per inner aggregation:
+    - non-decomposable (e.g. ``MIN_BY``, ``MAX_BY``) → ``NONE`` (forces
+      native grain in the caller)
+    - ``DISTINCT`` (e.g. ``COUNT(DISTINCT X)``) → ``LIMITED`` with X
+      contributed to the level columns
+    - everything else → ``FULL`` (no contribution to grain)
+
+    Returns the worst-case aggregability across all inner aggregations and
+    the union of LIMITED level columns.
+    """
+    agg_funcs: list[tuple[ast.Function, type]] = []
+    for func in query_ast.find_all(ast.Function):
+        dj_function = func.function()
+        if dj_function and dj_function.is_aggregation:
+            agg_funcs.append((func, dj_function))
+
+    worst = Aggregability.FULL
+    level: list[str] = []
+    seen: set[str] = set()
+
+    def _rank(a: Aggregability) -> int:
+        return {Aggregability.FULL: 0, Aggregability.LIMITED: 1, Aggregability.NONE: 2}[
+            a
+        ]
+
+    for func, dj_function in agg_funcs:
+        if get_decomposition(dj_function) is None:
+            worst = Aggregability.NONE
+            continue
+        is_distinct = func.quantifier == ast.SetQuantifier.Distinct
+        if is_distinct:
+            if _rank(Aggregability.LIMITED) > _rank(worst):
+                worst = Aggregability.LIMITED
+            for arg in func.args:
+                arg_str = str(arg)
+                if arg_str not in seen:
+                    seen.add(arg_str)
+                    level.append(arg_str)
+
+    return worst, sorted(level)
+
+
 # =============================================================================
 # Decomposition Result
 # =============================================================================

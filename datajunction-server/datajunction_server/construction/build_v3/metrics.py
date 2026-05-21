@@ -326,7 +326,18 @@ def collect_and_build_ctes(
     """
     # Collect all inner CTEs, dedupe by original name
     # CTEs with the same name are shared (e.g., v3_product dimension used by multiple grain groups)
+    # When the same shared CTE appears with different filtered projections across
+    # grain groups (split-grain-group case: one CTE per metric over the same
+    # parent), union the projections so all downstream grain groups can resolve
+    # the columns they reference.
     shared_ctes: dict[str, ast.Query] = {}  # original_name -> CTE AST
+
+    def _proj_col_name(expr: object) -> str | None:
+        if isinstance(expr, ast.Alias):
+            return str(expr.alias.name) if expr.alias else None
+        if isinstance(expr, ast.Column):
+            return str(expr.alias.name) if expr.alias else str(expr.name.name)
+        return None
 
     for gg in grain_groups:
         gg_query = gg.query
@@ -334,8 +345,17 @@ def collect_and_build_ctes(
             for inner_cte in gg_query.ctes:
                 cte_name = str(inner_cte.alias) if inner_cte.alias else "unnamed_cte"
                 if cte_name not in shared_ctes:
-                    # First time seeing this CTE - add it
                     shared_ctes[cte_name] = deepcopy(inner_cte)
+                else:
+                    existing = shared_ctes[cte_name]
+                    existing_names = {
+                        _proj_col_name(e) for e in existing.select.projection
+                    }
+                    for new_expr in inner_cte.select.projection:
+                        nm = _proj_col_name(new_expr)
+                        if nm is not None and nm not in existing_names:
+                            existing.select.projection.append(deepcopy(new_expr))
+                            existing_names.add(nm)
 
     # Build grain group aliases and CTEs
     all_cte_asts: list[ast.Query] = []
