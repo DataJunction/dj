@@ -13,6 +13,19 @@ const DJ_GQL = process.env.REACT_APP_DJ_GQL
 // Export the base URL for components that need direct access
 export const getDJUrl = () => DJ_URL;
 
+// Build a URL we can mutate (searchParams, etc.) that works whether
+// DJ_URL is absolute (e.g. ``http://localhost:8000``) or relative (e.g.
+// ``/dj-api``). Plain ``new URL(rel)`` throws "Invalid URL" on a relative
+// path; passing ``window.location.origin`` as the base makes both shapes
+// work and ``url.pathname`` keeps the original relative prefix.
+const _djURL = path => {
+  const base =
+    typeof window !== 'undefined' && window.location
+      ? window.location.origin
+      : 'http://localhost';
+  return new URL(`${DJ_URL}${path}`, base);
+};
+
 const QUERY_END_STATES = ['FINISHED', 'CANCELED', 'FAILED'];
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -844,9 +857,7 @@ export const DataJunctionAPI = {
     table,
     sourceNodeNamespace = undefined,
   ) {
-    const url = new URL(
-      `${DJ_URL}/register/table/${catalog}/${schema}/${table}`,
-    );
+    const url = _djURL(`/register/table/${catalog}/${schema}/${table}`);
     if (sourceNodeNamespace !== undefined) {
       url.searchParams.set('source_node_namespace', sourceNodeNamespace);
     }
@@ -1791,9 +1802,7 @@ export const DataJunctionAPI = {
     dimensionColumn,
     role = null,
   ) {
-    const url = new URL(
-      `${DJ_URL}/nodes/${nodeName}/columns/${nodeColumn}/link`,
-    );
+    const url = _djURL(`/nodes/${nodeName}/columns/${nodeColumn}/link`);
     url.searchParams.append('dimension_node', dimensionNode);
     url.searchParams.append('dimension_column', dimensionColumn);
     if (role) {
@@ -2193,7 +2202,7 @@ export const DataJunctionAPI = {
 
   // DELETE /notifications/unsubscribe
   unsubscribeFromNotifications: async function ({ entity_type, entity_name }) {
-    const url = new URL(`${DJ_URL}/notifications/unsubscribe`);
+    const url = _djURL(`/notifications/unsubscribe`);
     url.searchParams.append('entity_type', entity_type);
     url.searchParams.append('entity_name', entity_name);
 
