@@ -108,8 +108,10 @@ class TestSetOperationTransforms:
         """Filter on a column of a UNION-ALL transform is pushed into each
         arm's WHERE (Shape B per-arm pushdown).  Each arm's original
         predicate is preserved and the new filter is ANDed alongside it.
-        Once pushed, the filter is consumed so it doesn't reappear at
-        the outer query's WHERE.
+        The filter also continues to land at the metrics-layer outer
+        WHERE — the per-arm pushdown narrows the scan early, and the
+        outer copy is the standard dim-filter narrowing on the
+        aggregation CTE.
         """
         response = await client_with_union_transform.get(
             "/sql/metrics/v3/",
@@ -141,6 +143,7 @@ class TestSetOperationTransforms:
             SELECT orders_unified_0.status AS status,
               COUNT(DISTINCT orders_unified_0.order_id) AS unified_order_count
             FROM orders_unified_0
+            WHERE orders_unified_0.status = 'completed'
             GROUP BY orders_unified_0.status
             """,
         )

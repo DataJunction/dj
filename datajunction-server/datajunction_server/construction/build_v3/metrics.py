@@ -2111,14 +2111,9 @@ def generate_metrics_sql(
         )
 
         # Filter out filters that reference filter-only dimensions
-        # Those filters are already applied in the grain group CTEs.
-        # Also skip filters that were already injected into the measures-layer
-        # CTE's WHERE — re-applying them at the outer level is redundant and
-        # would defeat downstream OUTER-join semantics.
+        # Those filters are already applied in the grain group CTEs
         applicable_dimension_filters = []
         for f in dimension_filters_raw:
-            if f in ctx.cte_consumed_filters:
-                continue
             filter_ast = parse_filter(f)
             # Check if any column ref in this filter is a filter-only dimension.
             # Must handle both plain column refs and role-qualified subscript refs

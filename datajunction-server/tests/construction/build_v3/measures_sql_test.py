@@ -8488,3 +8488,125 @@ class TestParentCteFilterLanding:
             """,
             normalize_aliases=True,
         )
+
+    @pytest.mark.asyncio
+    async def test_fact_filter_under_right_outer_join_lands_in_fact_cte(
+        self,
+        client_with_build_v3,
+    ):
+        """Regression for the XP-style RIGHT OUTER bug.
+
+        When the fact is RIGHT-OUTER-joined to a spine dim, the fact is
+        the null-producing side: spine rows without a matching fact row
+        have NULL fact columns.  A filter on a fact column placed at the
+        outer WHERE silently converts the RIGHT OUTER to INNER — the
+        null-fact rows fail the predicate and get dropped.  The fix
+        pushes the parent-only filter into the fact's CTE *before* the
+        join, so the RIGHT OUTER's row-preservation semantics survive.
+
+        Asserts: the filter on ``account_id`` lives in the fact CTE's
+        WHERE; the outer SELECT has no WHERE on the fact column; the
+        ``RIGHT OUTER JOIN`` keyword remains intact.
+        """
+        client = client_with_build_v3
+
+        # Spine dim — preserved by a RIGHT OUTER from the fact.
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_right_spine",
+                "description": "Spine source",
+                "columns": [
+                    {"name": "spine_id", "type": "int"},
+                    {"name": "account_id", "type": "int"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "right_spine",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        resp = await client.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.right_spine_dim",
+                "description": "Right spine dim",
+                "query": "SELECT spine_id, account_id FROM v3.src_right_spine",
+                "mode": "published",
+                "primary_key": ["spine_id"],
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        # Fact source — the null-producing side under the RIGHT OUTER.
+        src = await _setup_events_source(
+            client,
+            "right_outer",
+            "events_right_outer",
+        )
+
+        # Fact-rooted dim link with join_type=right — fact RIGHT-OUTER-joins
+        # the spine.  The fact side becomes the null-producing branch.
+        resp = await client.post(
+            f"/nodes/{src}/link",
+            json={
+                "dimension_node": "v3.right_spine_dim",
+                "join_type": "right",
+                "join_on": (f"{src}.account_id = v3.right_spine_dim.account_id"),
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.right_outer_total",
+                "query": f"SELECT SUM(value) FROM {src}",
+                "mode": "published",
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.right_outer_total"],
+                "dimensions": ["v3.right_spine_dim.spine_id"],
+                # Filter on a fact column.  At the outer WHERE this would
+                # null-reject spine-only rows and defeat the RIGHT OUTER.
+                "filters": [f"{src}.account_id IN (1, 2, 3)"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+
+        # The fact's source CTE has the filter applied BEFORE the RIGHT
+        # OUTER.  The fact-column filter is wrapped into the fact-source
+        # side of the RIGHT OUTER via
+        # ``_try_push_filter_into_outer_join_side`` — the
+        # events_right_outer table becomes an inline subquery with the
+        # filter pre-applied, and *then* the RIGHT OUTER joins the
+        # spine dim CTE.  No filter at the outer SELECT scope.  Spine
+        # rows whose ``account_id`` doesn't match any filtered fact row
+        # are preserved with NULL value (RIGHT OUTER's row-preservation
+        # semantics survive).
+        assert_sql_equal(
+            sql,
+            """
+            WITH
+            v3_right_spine_dim AS (
+              SELECT spine_id, account_id
+              FROM default.v3.right_spine
+              WHERE account_id IN (1, 2, 3)
+            )
+            SELECT t2.spine_id, SUM(t1.value) value_sum_HASH
+            FROM (SELECT *
+                  FROM default.v3.events_right_outer t1
+                  WHERE t1.account_id IN (1, 2, 3)) t1
+            RIGHT OUTER JOIN v3_right_spine_dim t2
+                ON t1.account_id = t2.account_id
+            GROUP BY t2.spine_id
+            """,
+            normalize_aliases=True,
+        )
