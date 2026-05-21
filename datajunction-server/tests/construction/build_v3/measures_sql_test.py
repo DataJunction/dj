@@ -8172,3 +8172,267 @@ class TestMultiHopInnerDefeatsLeft:
             """,
             normalize_aliases=True,
         )
+
+
+async def _setup_window_dim(client):
+    """A tiny "spine" dim — rows like ('1-35',), ('1-7',), etc.
+
+    Shape mirrors the XP observation_window dimension that's CROSS-joined
+    into a fact's transform body.  Idempotent: a 200 response means the
+    dim was created by a prior test in the same fixture.
+    """
+    resp = await client.post(
+        "/nodes/source/",
+        json={
+            "name": "v3.src_obs_window",
+            "description": "Observation windows",
+            "columns": [{"name": "window", "type": "string"}],
+            "mode": "published",
+            "catalog": "default",
+            "schema_": "v3",
+            "table": "obs_windows",
+        },
+    )
+    assert resp.status_code in (200, 201), resp.json()
+    resp = await client.post(
+        "/nodes/dimension/",
+        json={
+            "name": "v3.obs_window_dim",
+            "description": "Observation window dim",
+            "query": "SELECT window FROM v3.src_obs_window",
+            "mode": "published",
+            "primary_key": ["window"],
+        },
+    )
+    assert resp.status_code in (200, 201), resp.json()
+
+
+async def _setup_events_source(client, suffix: str, table: str) -> str:
+    """A fact-shaped events source used by the cross-joined-spine tests."""
+    name = f"v3.src_events_{suffix}"
+    resp = await client.post(
+        "/nodes/source/",
+        json={
+            "name": name,
+            "description": f"Events ({suffix})",
+            "columns": [
+                {"name": "event_id", "type": "int"},
+                {"name": "account_id", "type": "int"},
+                {"name": "event_date", "type": "int"},
+                {"name": "value", "type": "double"},
+            ],
+            "mode": "published",
+            "catalog": "default",
+            "schema_": "v3",
+            "table": table,
+        },
+    )
+    assert resp.status_code in (200, 201), resp.json()
+    return name
+
+
+class TestParentCteFilterLanding:
+    """Regression tests for the silent-drop bug in
+    :func:`_apply_outer_where_atoms`.
+
+    Before the fix, parent-only filter atoms were dropped whenever any
+    filter was present, on the assumption that pushdown into the parent
+    CTE had already happened.  That assumption broke when the parent CTE
+    was opaque (set-op body, CROSS-joined dim columns from authored
+    source SQL), and the filter was lost entirely.
+
+    These tests pin the shape: every requested filter must land in the
+    generated SQL somewhere, even when the parent CTE can't accept a
+    pushdown.
+    """
+
+    @pytest.mark.asyncio
+    async def test_filter_on_cross_joined_spine_lands_at_outer_where(
+        self,
+        client_with_build_v3,
+    ):
+        """Transform CROSS-joins a spine dim inline (XP observation_window
+        shape).  A filter on the spine's column must land at the outer
+        SELECT — DJ can't push it into the source SQL's CROSS JOIN.
+        """
+        client = client_with_build_v3
+        await _setup_window_dim(client)
+        src = await _setup_events_source(client, "cross_spine", "events_cross_spine")
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.events_by_window",
+                "query": (
+                    "SELECT e.account_id, e.event_date, e.value, w.window "
+                    f"FROM {src} AS e "
+                    "CROSS JOIN v3.src_obs_window AS w"
+                ),
+                "mode": "published",
+                "primary_key": ["account_id", "event_date", "window"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        resp = await client.post(
+            "/nodes/v3.events_by_window/link",
+            json={
+                "dimension_node": "v3.obs_window_dim",
+                "join_type": "inner",
+                "join_on": "v3.events_by_window.window = v3.obs_window_dim.window",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.events_by_window_total",
+                "query": "SELECT SUM(value) FROM v3.events_by_window",
+                "mode": "published",
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.events_by_window_total"],
+                "dimensions": ["v3.obs_window_dim.window"],
+                "filters": ["v3.obs_window_dim.window IN ('1-35')"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        # The filter on the CROSS-joined spine column MUST appear in the
+        # SQL.  Before the fix this was silently dropped because the
+        # parent CTE is opaque (DJ couldn't inject into the source's
+        # CROSS JOIN), and the outer-WHERE copy was dropped on the
+        # false assumption that the parent CTE already had it.
+        assert "'1-35'" in sql, (
+            "Filter on CROSS-joined spine column was dropped from generated SQL.\n"
+            f"SQL:\n{sql}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_multiple_filters_all_land_when_pushdown_partial(
+        self,
+        client_with_build_v3,
+    ):
+        """Mix of filters: one on a column the parent CTE exposes
+        directly (the CROSS-joined spine), one on a column from the
+        source's own projection.  Both must land; neither may be
+        silently dropped because the other was tagged "pushable".
+        """
+        client = client_with_build_v3
+        await _setup_window_dim(client)
+        src = await _setup_events_source(
+            client,
+            "multi_filter",
+            "events_multi_filter",
+        )
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.events_by_window_multi",
+                "query": (
+                    "SELECT e.account_id, e.event_date, e.value, w.window "
+                    f"FROM {src} AS e "
+                    "CROSS JOIN v3.src_obs_window AS w"
+                ),
+                "mode": "published",
+                "primary_key": ["account_id", "event_date", "window"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        resp = await client.post(
+            "/nodes/v3.events_by_window_multi/link",
+            json={
+                "dimension_node": "v3.obs_window_dim",
+                "join_type": "inner",
+                "join_on": "v3.events_by_window_multi.window = v3.obs_window_dim.window",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.events_by_window_multi_total",
+                "query": "SELECT SUM(value) FROM v3.events_by_window_multi",
+                "mode": "published",
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.events_by_window_multi_total"],
+                "dimensions": [
+                    "v3.obs_window_dim.window",
+                    "v3.events_by_window_multi.account_id",
+                ],
+                "filters": [
+                    "v3.obs_window_dim.window IN ('1-35')",
+                    "v3.events_by_window_multi.event_date >= 20260101",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        # Both filters must survive into the generated SQL.  Before the
+        # fix, the `event_date` filter (parent-alias atom) would be
+        # silently dropped because `parent_pushdown_active` was True.
+        assert "'1-35'" in sql, f"Spine filter dropped.\nSQL:\n{sql}"
+        assert "20260101" in sql, f"Parent-column filter dropped.\nSQL:\n{sql}"
+
+    @pytest.mark.asyncio
+    async def test_filter_lands_when_parent_cte_is_setop(
+        self,
+        client_with_build_v3,
+    ):
+        """Transform body is a UNION ALL — `_cte_has_set_operation` is
+        True, so `filter_cte_projection` is skipped and pushdown into
+        the parent CTE body can silently fail.  Filters on
+        parent-exposed columns must still land at the outer SELECT.
+        """
+        client = client_with_build_v3
+        src = await _setup_events_source(client, "setop", "events_setop")
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.events_union",
+                "query": (
+                    "SELECT account_id, event_date, value, 'a' AS branch "
+                    f"FROM {src} "
+                    "UNION ALL "
+                    "SELECT account_id, event_date, value, 'b' AS branch "
+                    f"FROM {src}"
+                ),
+                "mode": "published",
+                "primary_key": ["account_id", "event_date", "branch"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.events_union_total",
+                "query": "SELECT SUM(value) FROM v3.events_union",
+                "mode": "published",
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.events_union_total"],
+                "dimensions": ["v3.events_union.branch"],
+                "filters": [
+                    "v3.events_union.event_date >= 20260101",
+                    "v3.events_union.branch = 'a'",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        # Both predicates must appear in the SQL — before the fix, the
+        # set-op body blocked CTE pushdown AND the outer copy was
+        # dropped, losing the filters entirely.
+        assert "20260101" in sql, f"event_date filter dropped.\nSQL:\n{sql}"
+        assert "'a'" in sql, f"branch filter dropped.\nSQL:\n{sql}"

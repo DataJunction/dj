@@ -674,22 +674,22 @@ def _apply_outer_where_atoms(
     select: ast.Select,
     where_clause: Optional[ast.Expression],
     main_alias: str,
-    parent_pushdown_active: bool = False,
+    parent_pushdown_active: bool = False,  # noqa: ARG001 (kept for back-compat)
 ) -> None:
     """Apply each AND atom of ``where_clause`` to ``select.where``.
 
-    Three categories of atoms:
+    Two categories of atoms:
 
-    - **Parent-alias atoms** (``main_alias.col`` only) when
-      ``parent_pushdown_active`` is True — DROPPED from outer WHERE.
-      The same predicate has already been pushed into the parent CTE's
-      WHERE, so the outer-level copy is redundant *and* unsafe (it
-      would defeat downstream RIGHT/FULL OUTER joins to dims).
-
-    - **Parent-alias atoms** when parent pushdown wasn't applied (e.g.
-      parent is materialized or has a set-op body that blocks
-      pushdown) — routed through :func:`inject_filter_into_select` as
-      the safety backstop.
+    - **Parent-alias atoms** (``main_alias.col`` only) — routed through
+      :func:`inject_filter_into_select`, which handles OUTER-join safety
+      (wrapping the inner relation when the predicate would otherwise
+      defeat a downstream RIGHT/FULL OUTER join).  Always applying these
+      at the outer SELECT is safe because the CTE-level pushdown can
+      silently fail when the parent CTE has an opaque body (set-op,
+      CROSS-joined dim columns from authored source SQL, etc.) — dropping
+      the outer copy in those cases loses the filter entirely.  Worst
+      case is a double-application of the same predicate, which is a
+      no-op for correctness.
 
     - **Dim-alias atoms** (and unqualified atoms) — ANDed into the outer
       WHERE.  These rely on the standard dim-filter narrowing
@@ -707,8 +707,6 @@ def _apply_outer_where_atoms(
     for atom in _split_and_atoms(where_clause):
         ns = _filter_namespaces(atom)
         is_parent_only = bool(ns) and ns.issubset({main_alias})
-        if is_parent_only and parent_pushdown_active:
-            continue
         if is_parent_only:
             inject_filter_into_select(select, atom)
         elif select.where:
@@ -1156,17 +1154,32 @@ def build_dimension_joins(
 ) -> tuple[dict[tuple[str, Optional[str]], str], list[ast.Join]]:
     """Build JOIN clauses for non-local dimensions.
 
-    Walks each resolved dimension's join path, deduplicating joins when two
-    dimensions share a common prefix (same dimension node + accumulated role).
+    Chains whose first link is a null-padding join (RIGHT / FULL OUTER) are
+    processed after chains whose first link is source-preserving (INNER /
+    LEFT / CROSS). This keeps each dim join's ON clause evaluating against
+    live source columns: an intervening RIGHT/FULL OUTER off the same source
+    won't run first and null-pad the columns a sibling chain depends on.
+    Chain locality is preserved — each chain still emits its links
+    contiguously.
 
     Returns:
         (dim_aliases, joins) where dim_aliases maps (node_name, accumulated_role)
         to the table alias used in the JOIN.
     """
+    from datajunction_server.models.dimensionlink import JoinType
+
+    def _chain_bucket(rdim: ResolvedDimension) -> int:
+        if rdim.is_local or not rdim.join_path or not rdim.join_path.links:
+            return 0
+        jt = rdim.join_path.links[0].join_type
+        return 1 if jt in (JoinType.RIGHT, JoinType.FULL) else 0
+
+    ordered_dimensions = sorted(resolved_dimensions, key=_chain_bucket)
+
     dim_aliases: dict[tuple[str, Optional[str]], str] = {}
     joins: list[ast.Join] = []
 
-    for resolved_dim in resolved_dimensions:
+    for resolved_dim in ordered_dimensions:
         if not resolved_dim.is_local and resolved_dim.join_path:
             current_left_alias = main_alias
             accumulated_role_parts: list[str] = []
@@ -1183,7 +1196,7 @@ def build_dimension_joins(
 
                 dim_key = (dim_node_name, accumulated_role)
 
-                if dim_key not in dim_aliases:  # pragma: no branch
+                if dim_key not in dim_aliases:
                     if accumulated_role:
                         alias_base = accumulated_role.replace("->", "_")
                     else:
