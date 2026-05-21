@@ -1398,6 +1398,8 @@ class CountMinSketch(Function):
     count_min_sketch(col, eps, confidence, seed) - Creates a Count-Min sketch of col.
     """
 
+    is_aggregation = True
+
 
 @CountMinSketch.register  # type: ignore
 def infer_type(
@@ -2503,6 +2505,8 @@ class HistogramNumeric(Function):
     defined by equally spaced width intervals.
     """
 
+    is_aggregation = True
+
 
 @HistogramNumeric.register  # type: ignore
 def infer_type(arg1: ct.ColumnType, arg2: ct.IntegerType) -> ct.ColumnType:
@@ -2753,6 +2757,8 @@ class Kurtosis(Function):
     """
     kurtosis(expr) - Returns the kurtosis of the values in a group.
     """
+
+    is_aggregation = True
 
 
 @Kurtosis.register  # type: ignore
@@ -3463,6 +3469,8 @@ class Mean(Function):
     mean(expr) - Returns the average of the values in the group.
     """
 
+    is_aggregation = True
+
 
 @Mean.register  # type: ignore
 def infer_type(arg: ct.ColumnType) -> ct.ColumnType:
@@ -3473,6 +3481,8 @@ class Median(Function):
     """
     median(expr) - Returns the median of the values in the group.
     """
+
+    is_aggregation = True
 
 
 @Median.register  # type: ignore
@@ -3574,6 +3584,8 @@ class Mode(Function):
     """
     mode(col) - Returns the most frequent value for the values within col.
     """
+
+    is_aggregation = True
 
 
 @Mode.register  # type: ignore
