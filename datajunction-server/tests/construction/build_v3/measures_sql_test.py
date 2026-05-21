@@ -1238,7 +1238,9 @@ class TestMeasuresSQLMultipleMetrics:
         # FULL + LIMITED split → 2 grain groups
         assert len(result["grain_groups"]) == 2
 
-        full_gg = next(g for g in result["grain_groups"] if g["aggregability"] == "full")
+        full_gg = next(
+            g for g in result["grain_groups"] if g["aggregability"] == "full"
+        )
         limited_gg = next(
             g for g in result["grain_groups"] if g["aggregability"] == "limited"
         )
@@ -1304,7 +1306,7 @@ class TestMeasuresSQLMultipleMetrics:
         ]
         assert limited_gg["components"] == [
             {
-                "name": "order_id_distinct_f93d50ab",
+                "name": "order_id",
                 "expression": "order_id",
                 "aggregation": None,
                 "merge": None,
