@@ -112,6 +112,12 @@ class BuildContext:
     # re-apply them (the dim ref is unreachable from the fact).
     pushdown_consumed_filters: set[str] = field(default_factory=set)
 
+    # Filter strings that were successfully injected into a measures-layer
+    # CTE's WHERE clause.  The metrics-layer outer WHERE checks this set
+    # and skips re-applying these predicates on top of the aggregation
+    # CTEs — the CTE already narrows its rows correctly.
+    cte_consumed_filters: set[str] = field(default_factory=set)
+
     # Dim refs handled via upstream pushdown — caller skips emitting a
     # ResolvedDimension for these and skips the unreachable-dim error.
     pushdown_resolved_dims: set[str] = field(default_factory=set)

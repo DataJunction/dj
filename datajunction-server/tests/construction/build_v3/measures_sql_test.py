@@ -8300,14 +8300,26 @@ class TestParentCteFilterLanding:
         )
         assert response.status_code == 200, response.json()
         sql = get_first_grain_group(response.json())["sql"]
-        # The filter on the CROSS-joined spine column MUST appear in the
-        # SQL.  Before the fix this was silently dropped because the
-        # parent CTE is opaque (DJ couldn't inject into the source's
-        # CROSS JOIN), and the outer-WHERE copy was dropped on the
-        # false assumption that the parent CTE already had it.
-        assert "'1-35'" in sql, (
-            "Filter on CROSS-joined spine column was dropped from generated SQL.\n"
-            f"SQL:\n{sql}"
+        # The filter lands in the parent CTE's WHERE (DJ's pushdown
+        # into the transform body succeeds because the column is
+        # exposed by the CTE projection).  Now that pushdown success
+        # is tracked per-filter, the outer SELECT drops its redundant
+        # copy — single application, no double-WHERE.
+        assert_sql_equal(
+            sql,
+            """
+            WITH
+            v3_events_by_window AS (
+                SELECT e.value, w.window
+                FROM default.v3.events_cross_spine AS e
+                CROSS JOIN default.v3.obs_windows AS w
+                WHERE w.window IN ('1-35')
+            )
+            SELECT t1.window, SUM(t1.value) value_sum_HASH
+            FROM v3_events_by_window t1
+            GROUP BY t1.window
+            """,
+            normalize_aliases=True,
         )
 
     @pytest.mark.asyncio
@@ -8375,11 +8387,26 @@ class TestParentCteFilterLanding:
         )
         assert response.status_code == 200, response.json()
         sql = get_first_grain_group(response.json())["sql"]
-        # Both filters must survive into the generated SQL.  Before the
-        # fix, the `event_date` filter (parent-alias atom) would be
-        # silently dropped because `parent_pushdown_active` was True.
-        assert "'1-35'" in sql, f"Spine filter dropped.\nSQL:\n{sql}"
-        assert "20260101" in sql, f"Parent-column filter dropped.\nSQL:\n{sql}"
+        # Both filters land in the parent CTE's WHERE.  Both are
+        # tracked as consumed, so neither appears in the outer SELECT.
+        # The regression guarantee is that neither filter is silently
+        # dropped — they live in the CTE's WHERE.
+        assert_sql_equal(
+            sql,
+            """
+            WITH
+            v3_events_by_window_multi AS (
+                SELECT e.account_id, e.event_date, e.value, w.window
+                FROM default.v3.events_multi_filter AS e
+                CROSS JOIN default.v3.obs_windows AS w
+                WHERE w.window IN ('1-35') AND e.event_date >= 20260101
+            )
+            SELECT t1.window, t1.account_id, SUM(t1.value) value_sum_HASH
+            FROM v3_events_by_window_multi t1
+            GROUP BY t1.window, t1.account_id
+            """,
+            normalize_aliases=True,
+        )
 
     @pytest.mark.asyncio
     async def test_filter_lands_when_parent_cte_is_setop(
@@ -8431,8 +8458,33 @@ class TestParentCteFilterLanding:
         )
         assert response.status_code == 200, response.json()
         sql = get_first_grain_group(response.json())["sql"]
-        # Both predicates must appear in the SQL — before the fix, the
-        # set-op body blocked CTE pushdown AND the outer copy was
-        # dropped, losing the filters entirely.
-        assert "20260101" in sql, f"event_date filter dropped.\nSQL:\n{sql}"
-        assert "'a'" in sql, f"branch filter dropped.\nSQL:\n{sql}"
+        # Parent CTE body is a UNION ALL.  Shape B (per-arm pushdown)
+        # injects ``event_date >= 20260101`` into each arm's WHERE so
+        # the planner can prune at the source scan; that filter is
+        # marked consumed and drops out of the outer WHERE.  The
+        # ``branch = 'a'`` predicate is NOT pushed per-arm because each
+        # arm projects ``branch`` as a literal (``'a' AS branch``,
+        # ``'b' AS branch``) — pushing a literal-alias predicate into
+        # WHERE would be unsafe.  Since that filter wasn't consumed,
+        # the outer SELECT keeps it.  Regression guarantee: no filter
+        # is silently dropped.
+        assert_sql_equal(
+            sql,
+            """
+            WITH
+            v3_events_union AS (
+                SELECT account_id, event_date, value, 'a' AS branch
+                FROM default.v3.events_setop
+                WHERE event_date >= 20260101
+                UNION ALL
+                SELECT account_id, event_date, value, 'b' AS branch
+                FROM default.v3.events_setop
+                WHERE event_date >= 20260101
+            )
+            SELECT t1.branch, SUM(t1.value) value_sum_HASH
+            FROM v3_events_union t1
+            WHERE t1.branch = 'a'
+            GROUP BY t1.branch
+            """,
+            normalize_aliases=True,
+        )

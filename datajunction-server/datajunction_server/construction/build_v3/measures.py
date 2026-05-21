@@ -674,22 +674,26 @@ def _apply_outer_where_atoms(
     select: ast.Select,
     where_clause: Optional[ast.Expression],
     main_alias: str,
-    parent_pushdown_active: bool = False,  # noqa: ARG001 (kept for back-compat)
+    parent_pushdown_active: bool = False,
 ) -> None:
     """Apply each AND atom of ``where_clause`` to ``select.where``.
 
-    Two categories of atoms:
+    Three categories of atoms:
 
-    - **Parent-alias atoms** (``main_alias.col`` only) — routed through
-      :func:`inject_filter_into_select`, which handles OUTER-join safety
-      (wrapping the inner relation when the predicate would otherwise
-      defeat a downstream RIGHT/FULL OUTER join).  Always applying these
-      at the outer SELECT is safe because the CTE-level pushdown can
-      silently fail when the parent CTE has an opaque body (set-op,
-      CROSS-joined dim columns from authored source SQL, etc.) — dropping
-      the outer copy in those cases loses the filter entirely.  Worst
-      case is a double-application of the same predicate, which is a
-      no-op for correctness.
+    - **Parent-alias atoms** (``main_alias.col`` only) when
+      ``parent_pushdown_active`` is True — DROPPED from outer WHERE.
+      The same predicate has already been pushed into the parent CTE's
+      WHERE, so the outer-level copy is redundant *and* unsafe (it
+      would defeat downstream RIGHT/FULL OUTER joins to dims).
+      ``parent_pushdown_active`` should be set only when the caller
+      knows pushdown actually succeeded for the parent CTE — callers
+      that aren't sure should pre-strip un-pushed filter strings from
+      ``where_clause`` instead of relying on this flag.
+
+    - **Parent-alias atoms** when parent pushdown wasn't applied (e.g.
+      parent is materialized or has a set-op body that blocks
+      pushdown) — routed through :func:`inject_filter_into_select` as
+      the safety backstop.
 
     - **Dim-alias atoms** (and unqualified atoms) — ANDed into the outer
       WHERE.  These rely on the standard dim-filter narrowing
@@ -707,6 +711,8 @@ def _apply_outer_where_atoms(
     for atom in _split_and_atoms(where_clause):
         ns = _filter_namespaces(atom)
         is_parent_only = bool(ns) and ns.issubset({main_alias})
+        if is_parent_only and parent_pushdown_active:
+            continue
         if is_parent_only:
             inject_filter_into_select(select, atom)
         elif select.where:
@@ -1417,7 +1423,7 @@ def build_select_ast(
     # Build CTEs for all non-source nodes. Requested dimension filters and their
     # resolution map are passed through so each CTE can independently decide
     # whether to push a filter into its own WHERE clause.
-    ctes, scanned_sources = collect_node_ctes(
+    ctes, scanned_sources, consumed_by_node = collect_node_ctes(
         ctx,
         nodes_for_ctes,
         needed_columns_by_node,
@@ -1429,6 +1435,10 @@ def build_select_ast(
         if all_filters
         else None,
     )
+    # Surface all CTE-consumed filters so the metrics layer's outer WHERE
+    # can skip re-applying them on top of the aggregation CTEs.
+    for _consumed_set in consumed_by_node.values():
+        ctx.cte_consumed_filters.update(_consumed_set)
 
     # Build SELECT.
     # For non-decomposable metrics, skip GROUP BY to pass through raw rows.
@@ -1440,16 +1450,39 @@ def build_select_ast(
         hints=spark_hints if spark_hints else None,
     )
 
-    # Apply outer WHERE atoms.  Parent-alias atoms are dropped from outer
-    # WHERE when the parent CTE pushdown is active (filter is already in
-    # the parent CTE; the outer copy is redundant and would defeat
-    # downstream OUTER joins).  Dim-alias atoms continue to land in
-    # outer WHERE for standard dim-filter semantics.  See
-    # ``_apply_outer_where_atoms`` for the full rule.
-    parent_pushdown_active = bool(all_filters) and not should_use_materialized_table(
+    # Determine which filters were actually consumed by the parent CTE's
+    # pushdown.  Parent-alias atoms from those filters are dropped from the
+    # outer WHERE (the parent CTE already has them; double-application is
+    # redundant and can defeat downstream RIGHT/FULL OUTER joins).
+    # Filters that weren't consumed (couldn't be pushed — e.g. their column
+    # is projected as a non-column expression) still need to land at the
+    # outer WHERE so they aren't silently dropped.
+    parent_consumed = consumed_by_node.get(parent_node.name, set())
+    parent_pushdown_active = bool(
+        parent_consumed,
+    ) and not should_use_materialized_table(
         ctx,
         parent_node,
     )
+    # If pushdown was partial, strip the consumed filters from
+    # ``where_clause`` before applying the outer atoms — keeps unconsumed
+    # atoms while dropping the redundant copies of consumed ones.
+    if parent_consumed and parent_consumed != set(all_filters):
+        remaining = [f for f in all_filters if f not in parent_consumed]
+        where_clause = (
+            build_outer_where(
+                remaining,
+                filter_column_aliases,
+                resolved_dimensions,
+                main_alias,
+                dim_aliases,
+                parent_node,
+                nodes=ctx.nodes,
+            )
+            if remaining
+            else None
+        )
+        parent_pushdown_active = False
     # Absorb LEFT/INNER-joined dims whose filter would defeat a
     # downstream RIGHT/FULL OUTER JOIN into a filtered CTE on the
     # parent side.  Mutates ``select.from_`` (re-pointing the parent

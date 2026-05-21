@@ -340,7 +340,7 @@ def _build_no_dimensions(
     # ``collect_node_ctes`` returns (cte_name, body) pairs for every non-source
     # node in the dependency chain (including the starting node itself, with
     # its parent table refs already rewritten by ``rewrite_table_references``).
-    cte_pairs, _ = collect_node_ctes(ctx, [starting])
+    cte_pairs, _, _ = collect_node_ctes(ctx, [starting])
     starting_cte_name = get_cte_name(starting.name)
 
     starting_body: ast.Query | None = None
@@ -426,7 +426,7 @@ def _build_with_dimensions(
     # ``needed_columns_by_node`` — the v3 metric path uses it for column
     # trimming, but for ``/sql/{node}`` we want each node's full projection
     # in the CTE so the user gets every column the node defines.
-    cte_pairs, _ = collect_node_ctes(
+    cte_pairs, _, _ = collect_node_ctes(
         ctx,
         nodes_for_ctes,
         pushdown=PushdownFilters(

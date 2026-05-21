@@ -1108,40 +1108,79 @@ def _inject_filter_into_where(
     inject_filter_into_select(cast(ast.Select, query_ast.select), filter_expr)
 
 
+def _setop_arms(cte_query: ast.Query) -> list[ast.Select]:
+    """Return every Select arm in a (possibly chained) set-operation CTE body.
+
+    A non-set-op CTE returns a single-element list containing its Select.
+    A UNION/INTERSECT/EXCEPT chain returns each arm in order — the first arm
+    is ``cte_query.select`` and subsequent arms hang off ``set_op.right``.
+    """
+    arms: list[ast.Select] = []
+    cur: Optional[ast.Select] = (
+        cte_query.select if isinstance(cte_query.select, ast.Select) else None
+    )
+    while cur is not None:
+        arms.append(cur)
+        nxt = cur.set_op.right if cur.set_op else None
+        # ``set_op.right`` is typed as SelectExpression which may also be a
+        # parenthesised subquery; in practice DJ always emits a Select here.
+        cur = nxt if isinstance(nxt, ast.Select) else None
+    return arms
+
+
 def _resolve_pushdown_filters_for_cte(
     node: "Node",
     cte_query: ast.Query,
     pushdown_filters: list[str],
     filter_column_aliases: dict[str, str],
-) -> list[ast.Expression]:
-    """Determine which user filters can be pushed into this CTE and return them.
+) -> tuple[list[tuple[ast.Select, ast.Expression]], set[str]]:
+    """Determine which user filters can be pushed into this CTE.
 
     For each filter, extracts the dimension references, resolves them to bare
     column names via filter_column_aliases, and checks whether this CTE outputs
     those columns.  If all referenced columns are present, the filter is rewritten
-    using the CTE's internal table-qualified column names and returned.
+    using the CTE's internal table-qualified column names and returned, paired
+    with the Select node it should be injected into.
 
-    Returns a list of parsed filter AST expressions ready for injection.
+    For set-operation CTEs (UNION / INTERSECT / EXCEPT), the rewrite is done
+    independently per arm — each arm's projection may resolve the same output
+    column differently, and pushing only into the first arm would produce
+    semantically wrong SQL.  The push is atomic per filter: if any arm can't
+    accept the rewrite, the filter is skipped for the whole CTE.
+
+    Returns ``(injections, consumed)`` where ``injections`` is the list of
+    ``(target_select, rewritten_filter)`` pairs to inject and ``consumed``
+    is the set of original filter strings that were successfully pushed
+    into the CTE (so the caller can drop them from outer-level WHERE).
     """
     node_output_cols = (
         {col.name for col in (node.current.columns or [])} if node.current else set()
     )
 
     if not node_output_cols:  # pragma: no cover
-        return []
+        return [], set()
 
-    results: list[ast.Expression] = []
+    arms = _setop_arms(cte_query)
+    results: list[tuple[ast.Select, ast.Expression]] = []
+    consumed: set[str] = set()
     for filter_str in pushdown_filters:
-        rewritten = _rewrite_filter_for_cte(
-            filter_str,
-            filter_column_aliases,
-            node_output_cols,
-            cte_query,
-        )
-        if rewritten is None:
-            continue
-        results.append(rewritten)
-    return results
+        per_arm: list[tuple[ast.Select, ast.Expression]] = []
+        all_ok = True
+        for arm in arms:
+            rewritten = _rewrite_filter_for_select(
+                filter_str,
+                filter_column_aliases,
+                node_output_cols,
+                arm,
+            )
+            if rewritten is None:
+                all_ok = False
+                break
+            per_arm.append((arm, rewritten))
+        if all_ok:
+            results.extend(per_arm)
+            consumed.add(filter_str)
+    return results, consumed
 
 
 def _cte_has_set_operation(cte_query: ast.Query) -> bool:
@@ -1197,32 +1236,51 @@ def _rewrite_filter_for_cte(
 ) -> ast.Expression | None:
     """Rewrite a dimension filter for injection into a specific CTE.
 
-    Resolves each dimension reference (e.g., ``v3.product.category``) to the
-    form that's safe in the CTE's WHERE clause.  Three projection cases:
+    For non-set-op CTEs, delegates to :func:`_rewrite_filter_for_select`
+    against the single Select arm.  Set-op CTEs are not handled here —
+    callers that need per-arm rewrites use :func:`_setop_arms` and call
+    :func:`_rewrite_filter_for_select` per arm.
+    """
+    if _cte_has_set_operation(cte_query):
+        return None
+    return _rewrite_filter_for_select(
+        filter_str,
+        filter_column_aliases,
+        cte_output_cols,
+        cast(ast.Select, cte_query.select),
+    )
 
-    1. CTE projects the column as a simple (possibly aliased) column: replace
-       with the underlying qualified form (e.g., ``p.category``).  This is the
-       correctness-critical case — emitting a SELECT-list alias in WHERE is
-       rejected by Spark SQL and standard SQL.
-    2. CTE doesn't project the column at all (pruned): fall through to the
-       bare column name.  Safe because the CTE's underlying source exposes
-       the column, even if it's not selected into the outer query.
-    3. CTE projects the column via a non-column expression (e.g.
+
+def _rewrite_filter_for_select(
+    filter_str: str,
+    filter_column_aliases: dict[str, str],
+    cte_output_cols: set[str],
+    cte_select: ast.Select,
+) -> ast.Expression | None:
+    """Rewrite a dimension filter for injection into a specific Select.
+
+    Resolves each dimension reference (e.g., ``v3.product.category``) to the
+    form that's safe in the Select's WHERE clause.  Three projection cases:
+
+    1. Select projects the column as a simple (possibly aliased) column:
+       replace with the underlying qualified form (e.g., ``p.category``).
+       This is the correctness-critical case — emitting a SELECT-list alias
+       in WHERE is rejected by Spark SQL and standard SQL.
+    2. Select doesn't project the column at all (pruned): fall through to
+       the bare column name.  Safe because the Select's underlying source
+       still exposes the column, even if it's not selected.
+    3. Select projects the column via a non-column expression (e.g.
        ``SUM(x) AS y``): skip — inlining is unsafe.
 
     Multi-predicate handling: a single filter may reference several dim refs
     (``a.x = 1 OR b.y = 2``).  All matching refs are rewritten, but if ANY
-    ref's column isn't exposed by this CTE, the whole filter is skipped —
-    pushing a partial OR-predicate into the wrong CTE produces invalid SQL.
+    ref's column isn't exposed by this Select, the whole filter is skipped —
+    pushing a partial OR-predicate into the wrong scope produces invalid SQL.
 
     Returns the rewritten filter AST, or None when the filter can't be
-    safely pushed into this CTE.
+    safely pushed into this Select.
     """
-    # Set-operation CTEs can't be safely pushed into via the first arm alone.
-    if _cte_has_set_operation(cte_query):
-        return None
-
-    projection_map = _build_cte_projection_map(cte_query)
+    projection_map = _build_select_projection_map(cte_select)
     filter_ast = parse_filter(filter_str)
 
     # First pass: plan the rewrites by walking the AST.  Role-qualified refs
@@ -1303,19 +1361,32 @@ def _rewrite_filter_for_cte(
 def _build_cte_projection_map(cte_query: ast.Query) -> dict[str, str | None]:
     """Map a CTE's output column name to its underlying qualified reference.
 
+    Thin wrapper around :func:`_build_select_projection_map`; kept for
+    callers that already hold an ``ast.Query``.
+    """
+    if not cte_query.select:  # pragma: no cover
+        return {}
+    return _build_select_projection_map(cast(ast.Select, cte_query.select))
+
+
+def _build_select_projection_map(
+    cte_select: ast.Select,
+) -> dict[str, str | None]:
+    """Map a Select's projection output names to underlying qualified refs.
+
     Output name is the SELECT-list alias when present, else the bare column
     name.  Value is either:
 
     - A string — the form that's safe to reference in a WHERE clause pushed
-      into this CTE (a table-qualified column when qualified in the
+      into this Select (a table-qualified column when qualified in the
       projection, else the bare column name).
     - ``None`` — the projection is a non-column expression under an alias
-      (e.g., ``SUM(x) AS y``); pushdown should skip this CTE to avoid
-      inlining an expression that would be semantically wrong in WHERE.
+      (e.g., ``SUM(x) AS y``); pushdown should skip to avoid inlining an
+      expression that would be semantically wrong in WHERE.
 
-    Columns that the CTE doesn't project at all are absent from the map;
-    callers should treat that as "fall through to the bare name" since the
-    CTE's underlying source still exposes them.
+    Columns that aren't projected at all are absent from the map; callers
+    should treat that as "fall through to the bare name" since the Select's
+    underlying source still exposes them.
 
     Examples::
 
@@ -1329,9 +1400,7 @@ def _build_cte_projection_map(cte_query: ast.Query) -> dict[str, str | None]:
           becomes {"total": None}
     """
     result: dict[str, str | None] = {}
-    if not cte_query.select:  # pragma: no cover
-        return result
-    for expr in cte_query.select.projection:
+    for expr in cte_select.projection:
         inner = getattr(expr, "child", expr)
         alias = getattr(expr, "alias", None)
         # Unwrap CAST around a column — CAST(col AS T) is a transparent
@@ -1365,7 +1434,7 @@ def collect_node_ctes(
     needed_columns_by_node: Optional[dict[str, set[str]]] = None,
     injected_filters: Optional[dict[str, ast.Expression]] = None,
     pushdown: Optional[PushdownFilters] = None,
-) -> tuple[list[tuple[str, ast.Query]], list[str]]:
+) -> tuple[list[tuple[str, ast.Query]], list[str], dict[str, set[str]]]:
     """
     Collect CTEs for all non-source nodes, recursively expanding table references.
 
@@ -1389,14 +1458,19 @@ def collect_node_ctes(
             them on the outer query after an expensive join.
 
     Returns:
-        Tuple of (cte_list, scanned_sources):
+        Tuple of (cte_list, scanned_sources, consumed_by_node):
         - cte_list: List of (cte_name, query_ast) tuples in dependency order
         - scanned_sources: List of source node names encountered during traversal
+        - consumed_by_node: Map of node_name -> set of filter strings that were
+          successfully pushed into that node's CTE WHERE clause. Callers use
+          this to drop redundant copies from outer-level WHERE.
     """
     # Collect all node names that need CTEs (including transitive dependencies)
     all_node_names: set[str] = set()
     # Track source nodes encountered during traversal
     scanned_source_names: set[str] = set()
+    # Map of node_name -> filter strings successfully pushed into that CTE
+    consumed_by_node: dict[str, set[str]] = {}
     mat_check_time = 0.0
     parse_check_time = 0.0
     ref_extract_time = 0.0
@@ -1508,17 +1582,20 @@ def collect_node_ctes(
             _inject_filter_into_where(query_ast, injected_filters[node.name])
 
         if pushdown:
-            for filter_ast in _resolve_pushdown_filters_for_cte(
+            injections, consumed = _resolve_pushdown_filters_for_cte(
                 node,
                 query_ast,
                 pushdown.filters,
                 pushdown.column_aliases,
-            ):
-                _inject_filter_into_where(query_ast, filter_ast)
+            )
+            for target_select, filter_ast in injections:
+                inject_filter_into_select(target_select, filter_ast)
+            if consumed:
+                consumed_by_node[node.name] = consumed
 
         ctes.append((cte_name, query_ast))
 
-    return ctes, list(scanned_source_names)
+    return ctes, list(scanned_source_names), consumed_by_node
 
 
 def process_metric_combiner_expression(
