@@ -14,6 +14,7 @@ from datajunction_server.models.cube_materialization import (
     MetricComponent,
 )
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.sql import functions as dj_functions
 from datajunction_server.sql.decompose import (
     MetricComponentExtractor,
     safe_denominator,
@@ -2232,3 +2233,40 @@ async def test_user_authored_division_not_double_wrapped(
         str(derived_sql),
         "SELECT SUM(x_sum_b5c12ce5) / NULLIF(SUM(y_sum_898a9389), 0) FROM parent_node",
     )
+
+
+class TestFunctionAggregationClassification:
+    """Lock in is_aggregation for previously-misclassified functions."""
+
+    def test_scalar_functions_not_marked_as_aggregation(self):
+        assert dj_functions.Abs.is_aggregation is False
+
+    def test_real_aggregations_marked_as_aggregation(self):
+        for cls in (
+            dj_functions.Mean,
+            dj_functions.Median,
+            dj_functions.Mode,
+            dj_functions.Kurtosis,
+            dj_functions.HistogramNumeric,
+            dj_functions.CountMinSketch,
+        ):
+            assert cls.is_aggregation is True, (
+                f"{cls.__name__} is a real aggregation but is_aggregation is False"
+            )
+
+
+@pytest.mark.asyncio
+async def test_sum_abs_decomposes(session: AsyncSession, create_metric):
+    """SUM(ABS(x)) decomposes into one SUM component over ABS(x)."""
+    metric_rev = await create_metric(
+        "SELECT SUM(ABS(amount - 100)) FROM parent_node",
+    )
+    extractor = MetricComponentExtractor(metric_rev.id)
+    measures, derived_sql = await extractor.extract(session)
+    assert len(measures) == 1
+    comp = measures[0]
+    assert comp.aggregation == "SUM"
+    assert comp.merge == "SUM"
+    assert comp.rule.type == Aggregability.FULL
+    assert "ABS" in comp.expression
+    assert_sql_equal(str(derived_sql), f"SELECT SUM({comp.name}) FROM parent_node")
