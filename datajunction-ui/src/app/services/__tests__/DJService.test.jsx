@@ -3483,7 +3483,9 @@ describe('DataJunctionAPI with relative DJ_URL', () => {
     );
     expect(fetch).toHaveBeenCalled();
     const calledUrl = fetch.mock.calls[0][0];
-    expect(calledUrl).toContain('/dj-api/nodes/default.node1/columns/col1/link');
+    expect(calledUrl).toContain(
+      '/dj-api/nodes/default.node1/columns/col1/link',
+    );
     expect(calledUrl).toContain('dimension_node=default.dim1');
     expect(calledUrl).toContain('dimension_column=dim_col');
   });
