@@ -214,32 +214,6 @@ def collect_required_dimensions(
     return sorted(required_dims)
 
 
-def _is_inside_aggregation(node: ast.Node) -> bool:
-    """True if ``node`` is used as a value inside an aggregation function's
-    args (e.g. ``SUM(... node ...)`` or ``MIN_BY(node, ...)``).
-
-    Refs inside a window function's OVER clause (``LAG(x) OVER (ORDER BY
-    node)``) are NOT treated as inside the aggregation — they're output
-    grain refs and belong in ctx.dimensions / GROUP BY.
-    """
-    cur = node.parent
-    crossed_over = False
-    while cur is not None:
-        if isinstance(cur, ast.Over):
-            crossed_over = True
-        if isinstance(cur, ast.Function):
-            if crossed_over:
-                # We're under Function.over, not Function.args — not an
-                # agg-arg ref. Stop here; an outer aggregation above
-                # would be a different Function instance.
-                return False
-            dj_func = cur.function()
-            if dj_func and dj_func.is_aggregation:
-                return True
-        cur = cur.parent
-    return False
-
-
 def _try_add_dim_to_ctx(
     full_name: str,
     ctx: "BuildContext",
@@ -299,22 +273,6 @@ def add_dimensions_from_metric_expressions(
         combiner_ast = decomposed.combiner_ast
         for col in combiner_ast.find_all(ast.Column):
             full_name = get_column_full_name(col)
-            # Dim refs nested inside an aggregation function arg (e.g.
-            # ``SUM(... CAST(common.dim.X AS DOUBLE) ...)``) are values
-            # being aggregated, not output dimensions. They still need
-            # the dim joined so the metric expression can resolve, but
-            # they must be excluded from GROUP BY and final output —
-            # ctx.filter_dimensions gives exactly that semantics.
-            if _is_inside_aggregation(col):
-                _try_add_dim_to_ctx(
-                    full_name,
-                    ctx,
-                    existing_dims,
-                    "metric expression (agg-arg)",
-                )
-                if full_name and SEPARATOR in full_name:
-                    ctx.filter_dimensions.add(full_name)
-                continue
             _try_add_dim_to_ctx(full_name, ctx, existing_dims, "metric expression")
 
         # Also scan the original metric query for window function ORDER BY dimension refs.

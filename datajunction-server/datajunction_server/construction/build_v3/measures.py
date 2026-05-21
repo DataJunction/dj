@@ -1932,8 +1932,7 @@ def build_grain_group_sql(
         # Extract column references from the metric's derived AST
         # These are the columns needed for the aggregation function
         for col in decomposed.derived_ast.find_all(ast.Column):
-            # Skip fully-qualified dotted refs (e.g.
-            # ``common.dimensions.line_item_virtual_market.line_item_max_target_frequency``):
+            # Skip fully-qualified dotted refs (e.g. ``dim_node.col``):
             # those are dimension references that resolve via the joined dim
             # CTE, not columns on the parent transform. Projecting their bare
             # last identifier here produces ``t1.<col>`` against the transform,

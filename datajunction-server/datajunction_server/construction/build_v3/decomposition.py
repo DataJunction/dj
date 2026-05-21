@@ -181,16 +181,9 @@ async def decompose_metric(
     )
 
     # Determine overall aggregability (worst case among components).
-    # For non-decomposable metrics (components=[]) we walk the metric's
-    # inner aggregations to compute the smallest grain at which the metric
-    # can still be evaluated — a metric with no FULL/LIMITED accumulator
-    # decomposition can still be LIMITED if every inner aggregation can
-    # roll up to a {DISTINCT-arg, requested-dim} grain.
-    non_decomp_level: list[str] = []
-    if not components:
-        from datajunction_server.sql.decompose import infer_non_decomp_grain
-
-        aggregability, non_decomp_level = infer_non_decomp_grain(derived_ast)
+    if not components:  # pragma: no cover
+        # No decomposable aggregations found - treat as NONE
+        aggregability = Aggregability.NONE
     elif any(c.rule.type == Aggregability.NONE for c in components):  # pragma: no cover
         aggregability = Aggregability.NONE
     elif any(c.rule.type == Aggregability.LIMITED for c in components):
@@ -204,7 +197,6 @@ async def decompose_metric(
         aggregability=aggregability,
         combiner=combiner,
         derived_ast=derived_ast,
-        non_decomp_level=non_decomp_level,
     )
 
 
@@ -424,58 +416,28 @@ def analyze_grain_groups(
             ),
         )
 
-    # Handle non-decomposable metrics. Each metric's effective grain depends
-    # on its inner aggregations:
-    #   - LIMITED with level cols X: bucket as ``(LIMITED, sorted(X))`` —
-    #     the metric only needs the row set distinct over {X, requested_dims}
-    #   - NONE / no inferred level: fall back to native grain (raw rows)
-    # Bucketing avoids forcing every non-decomposable metric to the parent's
-    # native PK, which can blow up the row count unnecessarily.
+    # Handle non-decomposable metrics — create a NONE grain group at the
+    # parent's native grain. Each non-decomposable metric needs raw rows so
+    # its aggregation can run in the final SELECT.
     if non_decomposable:
         native_grain = get_native_grain(parent_node)
-        # bucket key uses sorted cols for dedup; ordered cols preserve the
-        # native PK order (NONE bucket) or the inferred level order (LIMITED)
-        # so the generated SQL matches conventional column ordering.
-        buckets: dict[
-            tuple[Aggregability, tuple[str, ...]],
-            tuple[list[str], list[DecomposedMetricInfo]],
-        ] = {}
-        for nd in non_decomposable:
-            if nd.aggregability == Aggregability.LIMITED and nd.non_decomp_level:
-                ordered_cols = list(nd.non_decomp_level)
-                key = (Aggregability.LIMITED, tuple(sorted(nd.non_decomp_level)))
-            else:
-                ordered_cols = list(native_grain)
-                key = (Aggregability.NONE, tuple(sorted(native_grain)))
-            entry = buckets.setdefault(key, (ordered_cols, []))
-            entry[1].append(nd)
-
-        for (agg, grain_cols_sorted), (
-            ordered_cols,
-            metrics_in_bucket,
-        ) in buckets.items():
-            existing = next(
-                (
-                    g
-                    for g in grain_groups
-                    if g.grain_key[1:] == (agg, grain_cols_sorted)
+        none_key = (Aggregability.NONE, tuple(sorted(native_grain)))
+        existing_none = next(
+            (g for g in grain_groups if g.grain_key[1:] == none_key),
+            None,
+        )
+        if existing_none:
+            existing_none.non_decomposable_metrics.extend(non_decomposable)
+        else:
+            grain_groups.append(
+                GrainGroup(
+                    parent_node=parent_node,
+                    aggregability=Aggregability.NONE,
+                    grain_columns=list(native_grain),
+                    components=[],
+                    non_decomposable_metrics=non_decomposable,
                 ),
-                None,
             )
-            if existing:
-                existing.non_decomposable_metrics.extend(metrics_in_bucket)
-            else:
-                grain_col_aliases = {col: col for col in ordered_cols}
-                grain_groups.append(
-                    GrainGroup(
-                        parent_node=parent_node,
-                        aggregability=agg,
-                        grain_columns=ordered_cols,
-                        components=[],
-                        grain_col_aliases=grain_col_aliases,
-                        non_decomposable_metrics=metrics_in_bucket,
-                    ),
-                )
 
     # Sort groups: FULL first, then LIMITED, then NONE (for consistent output)
     agg_order = {Aggregability.FULL: 0, Aggregability.LIMITED: 1, Aggregability.NONE: 2}
@@ -488,120 +450,27 @@ def analyze_grain_groups(
 
 def merge_grain_groups(grain_groups: list[GrainGroup]) -> list[GrainGroup]:
     """
-    Merge compatible grain groups from the same parent into single CTEs.
+    Keep grain groups split by ``(aggregability, grain_cols)`` so each
+    metric's stored ``derived_expression`` composes against a CTE at the
+    grain it was generated for.
 
-    Grain groups merge together only when they have decomposable components.
-    A non-decomposable-only group (e.g. MAX_BY-style metrics, which need raw
-    rows at native grain) is kept separate even when there are decomposable
-    metrics on the same parent. Mixing them in one CTE would force a single
-    shape that's incompatible with at least one of the contributors' stored
-    derived expressions (a client calling /metrics/{name} expects each
-    metric's combiner to apply on top of measures CTE output unchanged).
-
-    This optimization reduces duplicate CTEs and JOINs when multiple
-    decomposable metrics with different aggregabilities come from the same
-    parent; the non-decomposable case stays in its own grain group.
-
-    Args:
-        grain_groups: List of grain groups to potentially merge
-
-    Returns:
-        List of grain groups with compatible groups merged
+    ``analyze_grain_groups`` already buckets components by
+    ``(aggregability, grain_cols)`` and emits one grain group per bucket.
+    This function only sorts for deterministic output — it intentionally
+    does NOT merge across aggregabilities. A client calling
+    ``/metrics/{name}`` against ``/sql/measures/v3`` expects the stored
+    combiner to apply on top of the measures CTE unchanged, and that
+    contract breaks when the upstream grain is wider than what the
+    combiner was generated for. Different shape per (agg, grain_cols) key
+    → different CTE per key, joined via FULL OUTER JOIN in the metrics
+    SELECT.
     """
-    from collections import defaultdict
-
-    # Group by parent node name
-    by_parent: dict[str, list[GrainGroup]] = defaultdict(list)
-    for gg in grain_groups:
-        by_parent[gg.parent_node.name].append(gg)
-
-    merged_groups: list[GrainGroup] = []
-
-    for _, parent_groups in by_parent.items():
-        # Split into decomposable (has components) vs non-decomposable-only
-        # (components empty, non_decomposable_metrics non-empty). Keep the
-        # latter separate from the former so each metric's stored combiner
-        # composes correctly against the measures CTE shape.
-        decomposable = [g for g in parent_groups if g.components]
-        non_decomposable_only = [g for g in parent_groups if not g.components]
-
-        if len(decomposable) == 1:
-            merged_groups.append(decomposable[0])
-        elif len(decomposable) > 1:
-            merged_groups.append(_merge_parent_grain_groups(decomposable))
-
-        merged_groups.extend(non_decomposable_only)
-
-    # Sort for deterministic output
     agg_order = {Aggregability.FULL: 0, Aggregability.LIMITED: 1, Aggregability.NONE: 2}
-    merged_groups.sort(
+    return sorted(
+        grain_groups,
         key=lambda g: (
             g.parent_node.name,
             agg_order.get(g.aggregability, 3),
             g.grain_columns,
         ),
-    )
-
-    return merged_groups
-
-
-def _merge_parent_grain_groups(groups: list[GrainGroup]) -> GrainGroup:
-    """
-    Merge multiple grain groups from the same parent into one.
-
-    The merged group:
-    - Uses the finest grain (union of all grain columns)
-    - Has aggregability = worst case (NONE > LIMITED > FULL)
-    - Contains all components from all groups
-    - Has is_merged=True to signal that aggregations happen in final SELECT
-    - Tracks original component aggregabilities for proper final aggregation
-    """
-    if not groups:  # pragma: no cover
-        raise ValueError("Cannot merge empty list of grain groups")
-
-    parent_node = groups[0].parent_node
-
-    # Collect all components and track their original aggregabilities
-    all_components: list[tuple[Node, MetricComponent]] = []
-    component_aggregabilities: dict[str, Aggregability] = {}
-
-    for gg in groups:
-        for metric_node, component in gg.components:
-            all_components.append((metric_node, component))
-            # Track original aggregability for each component
-            component_aggregabilities[component.name] = gg.aggregability
-
-    # Carry over non-decomposable metrics from every contributing group.
-    # Without this, merging a NONE group into a FULL/LIMITED neighbor
-    # silently drops the non-decomposable metric expressions and the
-    # response loses those metrics entirely.
-    all_non_decomposable: list[DecomposedMetricInfo] = []
-    for gg in groups:
-        all_non_decomposable.extend(gg.non_decomposable_metrics)
-
-    # Compute finest grain (union of all grain columns)
-    finest_grain_set: set[str] = set()
-    merged_grain_col_aliases: dict[str, str] = {}
-    for gg in groups:
-        finest_grain_set.update(gg.grain_columns)
-        merged_grain_col_aliases.update(gg.grain_col_aliases)
-    finest_grain = sorted(finest_grain_set)
-
-    # Determine worst-case aggregability
-    # NONE > LIMITED > FULL (NONE is worst, forces finest grain)
-    agg_order = {Aggregability.FULL: 0, Aggregability.LIMITED: 1, Aggregability.NONE: 2}
-    worst_agg = max(
-        groups,
-        key=lambda g: agg_order.get(g.aggregability, 0),
-    ).aggregability
-
-    return GrainGroup(
-        parent_node=parent_node,
-        aggregability=worst_agg,
-        grain_columns=finest_grain,
-        components=all_components,
-        is_merged=True,
-        component_aggregabilities=component_aggregabilities,
-        grain_col_aliases=merged_grain_col_aliases,
-        non_decomposable_metrics=all_non_decomposable,
     )

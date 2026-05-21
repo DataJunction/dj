@@ -560,13 +560,6 @@ class DecomposedMetricInfo:
     )
     derived_ast: ast.Query  # The full derived query AST
 
-    # For non-decomposable metrics (components=[]): level columns inferred from
-    # inner aggregations. When aggregability is LIMITED, these are the columns
-    # that must appear in the grain (e.g. ``ad_profile_id`` from a
-    # ``COUNT(DISTINCT ad_profile_id)`` inside a non-decomposable expression).
-    # Empty for NONE/FULL non-decomposable cases and for decomposable metrics.
-    non_decomp_level: list[str] = field(default_factory=list)
-
     @property
     def combiner_ast(self) -> ast.Expression:
         """

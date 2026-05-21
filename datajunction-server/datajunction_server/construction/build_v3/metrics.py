@@ -256,24 +256,30 @@ def _build_pre_agg_wrapper_cte(
     """
     wrapper_alias = f"{alias}_agg"
 
-    # Dimension columns for the GROUP BY: all grain columns except the LIMITED grain keys.
-    # gg.grain = [dim_col_aliases..., grain_key, ...]
-    # We want only the user-requested dimension columns (e.g., "category"), not the
-    # extra grain keys (e.g., "customer_id") that are being collapsed by COUNT DISTINCT.
+    # Dimension columns for the GROUP BY: all grain columns except the LIMITED
+    # grain keys. ``gg.grain`` holds SQL aliases (set by ``_make_component``:
+    # a simple-column DISTINCT arg aliases to the bare column name; a complex
+    # expression aliases to ``component.name``). ``comp.grain_alias`` mirrors
+    # that choice exactly, so it's the right key for excluding grain keys
+    # from the dim-cols set. Using ``comp.rule.level[0]`` (the raw expression
+    # string) would miss complex-expression cases and leak the alias into
+    # ``dim_col_names``, producing duplicate-alias projection / GROUP BY.
     limited_grain_keys = {
-        comp.rule.level[0]
+        comp.grain_alias
         for comp in gg.components
-        if comp.rule and comp.rule.type == Aggregability.LIMITED and comp.rule.level
+        if comp.rule and comp.rule.type == Aggregability.LIMITED and comp.grain_alias
     }
     dim_col_names = [col for col in gg.grain if col not in limited_grain_keys]
 
-    # Build SELECT projection: dim cols + COUNT(DISTINCT grain_key) per component
+    # Build SELECT projection: dim cols + COUNT(DISTINCT grain_key) per component.
+    # The DISTINCT arg references the upstream LIMITED CTE's projected column,
+    # which is the grain alias (bare column name or component name).
     projection: list[Any] = [
         ast.Column(name=ast.Name(col_name)) for col_name in dim_col_names
     ]
     for comp in gg.components:
         if comp.rule and comp.rule.type == Aggregability.LIMITED:  # pragma: no branch
-            grain_col = comp.rule.level[0] if comp.rule.level else None
+            grain_col = comp.grain_alias
             if not grain_col:
                 continue  # pragma: no cover
             grain_col_ref = ast.Column(name=ast.Name(grain_col))
