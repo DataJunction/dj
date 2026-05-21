@@ -8172,3 +8172,441 @@ class TestMultiHopInnerDefeatsLeft:
             """,
             normalize_aliases=True,
         )
+
+
+async def _setup_window_dim(client):
+    """A tiny "spine" dim — rows like ('1-35',), ('1-7',), etc.
+
+    Shape mirrors the XP observation_window dimension that's CROSS-joined
+    into a fact's transform body.  Idempotent: a 200 response means the
+    dim was created by a prior test in the same fixture.
+    """
+    resp = await client.post(
+        "/nodes/source/",
+        json={
+            "name": "v3.src_obs_window",
+            "description": "Observation windows",
+            "columns": [{"name": "window", "type": "string"}],
+            "mode": "published",
+            "catalog": "default",
+            "schema_": "v3",
+            "table": "obs_windows",
+        },
+    )
+    assert resp.status_code in (200, 201), resp.json()
+    resp = await client.post(
+        "/nodes/dimension/",
+        json={
+            "name": "v3.obs_window_dim",
+            "description": "Observation window dim",
+            "query": "SELECT window FROM v3.src_obs_window",
+            "mode": "published",
+            "primary_key": ["window"],
+        },
+    )
+    assert resp.status_code in (200, 201), resp.json()
+
+
+async def _setup_events_source(client, suffix: str, table: str) -> str:
+    """A fact-shaped events source used by the cross-joined-spine tests."""
+    name = f"v3.src_events_{suffix}"
+    resp = await client.post(
+        "/nodes/source/",
+        json={
+            "name": name,
+            "description": f"Events ({suffix})",
+            "columns": [
+                {"name": "event_id", "type": "int"},
+                {"name": "account_id", "type": "int"},
+                {"name": "event_date", "type": "int"},
+                {"name": "value", "type": "double"},
+            ],
+            "mode": "published",
+            "catalog": "default",
+            "schema_": "v3",
+            "table": table,
+        },
+    )
+    assert resp.status_code in (200, 201), resp.json()
+    return name
+
+
+class TestParentCteFilterLanding:
+    """Regression tests for the silent-drop bug in
+    :func:`_apply_outer_where_atoms`.
+
+    Before the fix, parent-only filter atoms were dropped whenever any
+    filter was present, on the assumption that pushdown into the parent
+    CTE had already happened.  That assumption broke when the parent CTE
+    was opaque (set-op body, CROSS-joined dim columns from authored
+    source SQL), and the filter was lost entirely.
+
+    These tests pin the shape: every requested filter must land in the
+    generated SQL somewhere, even when the parent CTE can't accept a
+    pushdown.
+    """
+
+    @pytest.mark.asyncio
+    async def test_filter_on_cross_joined_spine_lands_at_outer_where(
+        self,
+        client_with_build_v3,
+    ):
+        """Transform CROSS-joins a spine dim inline (XP observation_window
+        shape).  A filter on the spine's column must land at the outer
+        SELECT — DJ can't push it into the source SQL's CROSS JOIN.
+        """
+        client = client_with_build_v3
+        await _setup_window_dim(client)
+        src = await _setup_events_source(client, "cross_spine", "events_cross_spine")
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.events_by_window",
+                "query": (
+                    "SELECT e.account_id, e.event_date, e.value, w.window "
+                    f"FROM {src} AS e "
+                    "CROSS JOIN v3.src_obs_window AS w"
+                ),
+                "mode": "published",
+                "primary_key": ["account_id", "event_date", "window"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        resp = await client.post(
+            "/nodes/v3.events_by_window/link",
+            json={
+                "dimension_node": "v3.obs_window_dim",
+                "join_type": "inner",
+                "join_on": "v3.events_by_window.window = v3.obs_window_dim.window",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.events_by_window_total",
+                "query": "SELECT SUM(value) FROM v3.events_by_window",
+                "mode": "published",
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.events_by_window_total"],
+                "dimensions": ["v3.obs_window_dim.window"],
+                "filters": ["v3.obs_window_dim.window IN ('1-35')"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        # The filter lands in the parent CTE's WHERE (DJ's pushdown
+        # into the transform body succeeds because the column is
+        # exposed by the CTE projection).  Now that pushdown success
+        # is tracked per-filter, the outer SELECT drops its redundant
+        # copy — single application, no double-WHERE.
+        assert_sql_equal(
+            sql,
+            """
+            WITH
+            v3_events_by_window AS (
+                SELECT e.value, w.window
+                FROM default.v3.events_cross_spine AS e
+                CROSS JOIN default.v3.obs_windows AS w
+                WHERE w.window IN ('1-35')
+            )
+            SELECT t1.window, SUM(t1.value) value_sum_HASH
+            FROM v3_events_by_window t1
+            GROUP BY t1.window
+            """,
+            normalize_aliases=True,
+        )
+
+    @pytest.mark.asyncio
+    async def test_multiple_filters_all_land_when_pushdown_partial(
+        self,
+        client_with_build_v3,
+    ):
+        """Mix of filters: one on a column the parent CTE exposes
+        directly (the CROSS-joined spine), one on a column from the
+        source's own projection.  Both must land; neither may be
+        silently dropped because the other was tagged "pushable".
+        """
+        client = client_with_build_v3
+        await _setup_window_dim(client)
+        src = await _setup_events_source(
+            client,
+            "multi_filter",
+            "events_multi_filter",
+        )
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.events_by_window_multi",
+                "query": (
+                    "SELECT e.account_id, e.event_date, e.value, w.window "
+                    f"FROM {src} AS e "
+                    "CROSS JOIN v3.src_obs_window AS w"
+                ),
+                "mode": "published",
+                "primary_key": ["account_id", "event_date", "window"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        resp = await client.post(
+            "/nodes/v3.events_by_window_multi/link",
+            json={
+                "dimension_node": "v3.obs_window_dim",
+                "join_type": "inner",
+                "join_on": "v3.events_by_window_multi.window = v3.obs_window_dim.window",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.events_by_window_multi_total",
+                "query": "SELECT SUM(value) FROM v3.events_by_window_multi",
+                "mode": "published",
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.events_by_window_multi_total"],
+                "dimensions": [
+                    "v3.obs_window_dim.window",
+                    "v3.events_by_window_multi.account_id",
+                ],
+                "filters": [
+                    "v3.obs_window_dim.window IN ('1-35')",
+                    "v3.events_by_window_multi.event_date >= 20260101",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        # Both filters land in the parent CTE's WHERE.  Both are
+        # tracked as consumed, so neither appears in the outer SELECT.
+        # The regression guarantee is that neither filter is silently
+        # dropped — they live in the CTE's WHERE.
+        assert_sql_equal(
+            sql,
+            """
+            WITH
+            v3_events_by_window_multi AS (
+                SELECT e.account_id, e.event_date, e.value, w.window
+                FROM default.v3.events_multi_filter AS e
+                CROSS JOIN default.v3.obs_windows AS w
+                WHERE w.window IN ('1-35') AND e.event_date >= 20260101
+            )
+            SELECT t1.window, t1.account_id, SUM(t1.value) value_sum_HASH
+            FROM v3_events_by_window_multi t1
+            GROUP BY t1.window, t1.account_id
+            """,
+            normalize_aliases=True,
+        )
+
+    @pytest.mark.asyncio
+    async def test_filter_lands_when_parent_cte_is_setop(
+        self,
+        client_with_build_v3,
+    ):
+        """Transform body is a UNION ALL — `_cte_has_set_operation` is
+        True, so `filter_cte_projection` is skipped and pushdown into
+        the parent CTE body can silently fail.  Filters on
+        parent-exposed columns must still land at the outer SELECT.
+        """
+        client = client_with_build_v3
+        src = await _setup_events_source(client, "setop", "events_setop")
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.events_union",
+                "query": (
+                    "SELECT account_id, event_date, value, 'a' AS branch "
+                    f"FROM {src} "
+                    "UNION ALL "
+                    "SELECT account_id, event_date, value, 'b' AS branch "
+                    f"FROM {src}"
+                ),
+                "mode": "published",
+                "primary_key": ["account_id", "event_date", "branch"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.events_union_total",
+                "query": "SELECT SUM(value) FROM v3.events_union",
+                "mode": "published",
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.events_union_total"],
+                "dimensions": ["v3.events_union.branch"],
+                "filters": [
+                    "v3.events_union.event_date >= 20260101",
+                    "v3.events_union.branch = 'a'",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        # Parent CTE body is a UNION ALL.  Shape B (per-arm pushdown)
+        # injects ``event_date >= 20260101`` into each arm's WHERE so
+        # the planner can prune at the source scan; that filter is
+        # marked consumed and drops out of the outer WHERE.  The
+        # ``branch = 'a'`` predicate is NOT pushed per-arm because each
+        # arm projects ``branch`` as a literal (``'a' AS branch``,
+        # ``'b' AS branch``) — pushing a literal-alias predicate into
+        # WHERE would be unsafe.  Since that filter wasn't consumed,
+        # the outer SELECT keeps it.  Regression guarantee: no filter
+        # is silently dropped.
+        assert_sql_equal(
+            sql,
+            """
+            WITH
+            v3_events_union AS (
+                SELECT account_id, event_date, value, 'a' AS branch
+                FROM default.v3.events_setop
+                WHERE event_date >= 20260101
+                UNION ALL
+                SELECT account_id, event_date, value, 'b' AS branch
+                FROM default.v3.events_setop
+                WHERE event_date >= 20260101
+            )
+            SELECT t1.branch, SUM(t1.value) value_sum_HASH
+            FROM v3_events_union t1
+            WHERE t1.branch = 'a'
+            GROUP BY t1.branch
+            """,
+            normalize_aliases=True,
+        )
+
+    @pytest.mark.asyncio
+    async def test_fact_filter_under_right_outer_join_lands_in_fact_cte(
+        self,
+        client_with_build_v3,
+    ):
+        """Regression for the XP-style RIGHT OUTER bug.
+
+        When the fact is RIGHT-OUTER-joined to a spine dim, the fact is
+        the null-producing side: spine rows without a matching fact row
+        have NULL fact columns.  A filter on a fact column placed at the
+        outer WHERE silently converts the RIGHT OUTER to INNER — the
+        null-fact rows fail the predicate and get dropped.  The fix
+        pushes the parent-only filter into the fact's CTE *before* the
+        join, so the RIGHT OUTER's row-preservation semantics survive.
+
+        Asserts: the filter on ``account_id`` lives in the fact CTE's
+        WHERE; the outer SELECT has no WHERE on the fact column; the
+        ``RIGHT OUTER JOIN`` keyword remains intact.
+        """
+        client = client_with_build_v3
+
+        # Spine dim — preserved by a RIGHT OUTER from the fact.
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_right_spine",
+                "description": "Spine source",
+                "columns": [
+                    {"name": "spine_id", "type": "int"},
+                    {"name": "account_id", "type": "int"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "right_spine",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        resp = await client.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.right_spine_dim",
+                "description": "Right spine dim",
+                "query": "SELECT spine_id, account_id FROM v3.src_right_spine",
+                "mode": "published",
+                "primary_key": ["spine_id"],
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        # Fact source — the null-producing side under the RIGHT OUTER.
+        src = await _setup_events_source(
+            client,
+            "right_outer",
+            "events_right_outer",
+        )
+
+        # Fact-rooted dim link with join_type=right — fact RIGHT-OUTER-joins
+        # the spine.  The fact side becomes the null-producing branch.
+        resp = await client.post(
+            f"/nodes/{src}/link",
+            json={
+                "dimension_node": "v3.right_spine_dim",
+                "join_type": "right",
+                "join_on": (f"{src}.account_id = v3.right_spine_dim.account_id"),
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.right_outer_total",
+                "query": f"SELECT SUM(value) FROM {src}",
+                "mode": "published",
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.right_outer_total"],
+                "dimensions": ["v3.right_spine_dim.spine_id"],
+                # Filter on a fact column.  At the outer WHERE this would
+                # null-reject spine-only rows and defeat the RIGHT OUTER.
+                "filters": [f"{src}.account_id IN (1, 2, 3)"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+
+        # The fact's source CTE has the filter applied BEFORE the RIGHT
+        # OUTER.  The fact-column filter is wrapped into the fact-source
+        # side of the RIGHT OUTER via
+        # ``_try_push_filter_into_outer_join_side`` — the
+        # events_right_outer table becomes an inline subquery with the
+        # filter pre-applied, and *then* the RIGHT OUTER joins the
+        # spine dim CTE.  No filter at the outer SELECT scope.  Spine
+        # rows whose ``account_id`` doesn't match any filtered fact row
+        # are preserved with NULL value (RIGHT OUTER's row-preservation
+        # semantics survive).
+        assert_sql_equal(
+            sql,
+            """
+            WITH
+            v3_right_spine_dim AS (
+              SELECT spine_id, account_id
+              FROM default.v3.right_spine
+              WHERE account_id IN (1, 2, 3)
+            )
+            SELECT t2.spine_id, SUM(t1.value) value_sum_HASH
+            FROM (SELECT *
+                  FROM default.v3.events_right_outer t1
+                  WHERE t1.account_id IN (1, 2, 3)) t1
+            RIGHT OUTER JOIN v3_right_spine_dim t2
+                ON t1.account_id = t2.account_id
+            GROUP BY t2.spine_id
+            """,
+            normalize_aliases=True,
+        )

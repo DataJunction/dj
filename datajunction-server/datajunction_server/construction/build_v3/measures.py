@@ -685,6 +685,10 @@ def _apply_outer_where_atoms(
       The same predicate has already been pushed into the parent CTE's
       WHERE, so the outer-level copy is redundant *and* unsafe (it
       would defeat downstream RIGHT/FULL OUTER joins to dims).
+      ``parent_pushdown_active`` should be set only when the caller
+      knows pushdown actually succeeded for the parent CTE — callers
+      that aren't sure should pre-strip un-pushed filter strings from
+      ``where_clause`` instead of relying on this flag.
 
     - **Parent-alias atoms** when parent pushdown wasn't applied (e.g.
       parent is materialized or has a set-op body that blocks
@@ -1156,17 +1160,32 @@ def build_dimension_joins(
 ) -> tuple[dict[tuple[str, Optional[str]], str], list[ast.Join]]:
     """Build JOIN clauses for non-local dimensions.
 
-    Walks each resolved dimension's join path, deduplicating joins when two
-    dimensions share a common prefix (same dimension node + accumulated role).
+    Chains whose first link is a null-padding join (RIGHT / FULL OUTER) are
+    processed after chains whose first link is source-preserving (INNER /
+    LEFT / CROSS). This keeps each dim join's ON clause evaluating against
+    live source columns: an intervening RIGHT/FULL OUTER off the same source
+    won't run first and null-pad the columns a sibling chain depends on.
+    Chain locality is preserved — each chain still emits its links
+    contiguously.
 
     Returns:
         (dim_aliases, joins) where dim_aliases maps (node_name, accumulated_role)
         to the table alias used in the JOIN.
     """
+    from datajunction_server.models.dimensionlink import JoinType
+
+    def _chain_bucket(rdim: ResolvedDimension) -> int:
+        if rdim.is_local or not rdim.join_path or not rdim.join_path.links:
+            return 0
+        jt = rdim.join_path.links[0].join_type
+        return 1 if jt in (JoinType.RIGHT, JoinType.FULL) else 0
+
+    ordered_dimensions = sorted(resolved_dimensions, key=_chain_bucket)
+
     dim_aliases: dict[tuple[str, Optional[str]], str] = {}
     joins: list[ast.Join] = []
 
-    for resolved_dim in resolved_dimensions:
+    for resolved_dim in ordered_dimensions:
         if not resolved_dim.is_local and resolved_dim.join_path:
             current_left_alias = main_alias
             accumulated_role_parts: list[str] = []
@@ -1183,7 +1202,7 @@ def build_dimension_joins(
 
                 dim_key = (dim_node_name, accumulated_role)
 
-                if dim_key not in dim_aliases:  # pragma: no branch
+                if dim_key not in dim_aliases:
                     if accumulated_role:
                         alias_base = accumulated_role.replace("->", "_")
                     else:
@@ -1404,7 +1423,7 @@ def build_select_ast(
     # Build CTEs for all non-source nodes. Requested dimension filters and their
     # resolution map are passed through so each CTE can independently decide
     # whether to push a filter into its own WHERE clause.
-    ctes, scanned_sources = collect_node_ctes(
+    ctes, scanned_sources, consumed_by_node = collect_node_ctes(
         ctx,
         nodes_for_ctes,
         needed_columns_by_node,
@@ -1416,6 +1435,10 @@ def build_select_ast(
         if all_filters
         else None,
     )
+    # Surface all CTE-consumed filters so the metrics layer's outer WHERE
+    # can skip re-applying them on top of the aggregation CTEs.
+    for _consumed_set in consumed_by_node.values():
+        ctx.cte_consumed_filters.update(_consumed_set)
 
     # Build SELECT.
     # For non-decomposable metrics, skip GROUP BY to pass through raw rows.
@@ -1427,16 +1450,39 @@ def build_select_ast(
         hints=spark_hints if spark_hints else None,
     )
 
-    # Apply outer WHERE atoms.  Parent-alias atoms are dropped from outer
-    # WHERE when the parent CTE pushdown is active (filter is already in
-    # the parent CTE; the outer copy is redundant and would defeat
-    # downstream OUTER joins).  Dim-alias atoms continue to land in
-    # outer WHERE for standard dim-filter semantics.  See
-    # ``_apply_outer_where_atoms`` for the full rule.
-    parent_pushdown_active = bool(all_filters) and not should_use_materialized_table(
+    # Determine which filters were actually consumed by the parent CTE's
+    # pushdown.  Parent-alias atoms from those filters are dropped from the
+    # outer WHERE (the parent CTE already has them; double-application is
+    # redundant and can defeat downstream RIGHT/FULL OUTER joins).
+    # Filters that weren't consumed (couldn't be pushed — e.g. their column
+    # is projected as a non-column expression) still need to land at the
+    # outer WHERE so they aren't silently dropped.
+    parent_consumed = consumed_by_node.get(parent_node.name, set())
+    parent_pushdown_active = bool(
+        parent_consumed,
+    ) and not should_use_materialized_table(
         ctx,
         parent_node,
     )
+    # If pushdown was partial, strip the consumed filters from
+    # ``where_clause`` before applying the outer atoms — keeps unconsumed
+    # atoms while dropping the redundant copies of consumed ones.
+    if parent_consumed and parent_consumed != set(all_filters):
+        remaining = [f for f in all_filters if f not in parent_consumed]
+        where_clause = (
+            build_outer_where(
+                remaining,
+                filter_column_aliases,
+                resolved_dimensions,
+                main_alias,
+                dim_aliases,
+                parent_node,
+                nodes=ctx.nodes,
+            )
+            if remaining
+            else None
+        )
+        parent_pushdown_active = False
     # Absorb LEFT/INNER-joined dims whose filter would defeat a
     # downstream RIGHT/FULL OUTER JOIN into a filtered CTE on the
     # parent side.  Mutates ``select.from_`` (re-pointing the parent
