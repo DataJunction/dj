@@ -1990,25 +1990,34 @@ def generate_metrics_sql(
             # Cross-fact window groups need base_metrics CTE as source
             is_cross_fact = wgg.is_cross_fact_window
 
-            # Find the base grain group CTE alias for this window grain group
-            # For single-fact: use the matching base grain group CTE
-            # For cross-fact: use base_metrics CTE
+            # Find the base grain group CTE alias for this window grain group.
+            # When the parent has been split across multiple grain groups
+            # (matrix-split: FULL+LIMITED, FULL+NONE, etc.), the base metric's
+            # components live across more than one CTE. In that case we can't
+            # reaggregate from a single grain-group CTE — route through the
+            # ``base_metrics`` CTE which already FOJ's all grain groups for
+            # all parents and exposes one column per metric.
             base_grain_group: Optional[GrainGroupSQL] = None
-            if is_cross_fact:
-                # Cross-fact: use base_metrics CTE (already has FULL OUTER JOIN)
-                source_cte_alias = window_metrics_cte_alias  # pragma: no cover
-            else:
-                # Single-fact: find the matching base grain group CTE
-                source_cte_alias = None
-                for i, gg in enumerate(base_grain_groups):
-                    if gg.parent_name == wgg.parent_name:  # pragma: no branch
-                        source_cte_alias = cte_aliases[i]
-                        base_grain_group = gg
-                        break
-                if not source_cte_alias:  # pragma: no cover
-                    # Fallback to base_metrics if parent not found
-                    source_cte_alias = window_metrics_cte_alias
-                    is_cross_fact = True  # Treat as cross-fact for building
+            matching_groups = [
+                (i, gg)
+                for i, gg in enumerate(base_grain_groups)
+                if gg.parent_name == wgg.parent_name
+            ]
+            if is_cross_fact or len(matching_groups) > 1:
+                # Cross-fact or split-parent: use base_metrics CTE (already
+                # has FULL OUTER JOIN of all grain groups).
+                source_cte_alias = window_metrics_cte_alias
+                is_cross_fact = True
+            elif matching_groups:
+                # Single-fact, single grain group: use the matching base
+                # grain group CTE directly so we can reference components.
+                i, gg = matching_groups[0]
+                source_cte_alias = cte_aliases[i]
+                base_grain_group = gg
+            else:  # pragma: no cover
+                # Fallback to base_metrics if parent not found at all.
+                source_cte_alias = window_metrics_cte_alias
+                is_cross_fact = True
 
             # Step 1: Build aggregation CTE that reaggregates to the coarser window grain
             agg_cte_alias = f"{parent_short_name}_{order_by_col}_agg"
