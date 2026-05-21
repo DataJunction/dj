@@ -239,7 +239,7 @@ class Abs(Function):
     Returns the absolute value of the numeric or interval value.
     """
 
-    is_aggregation = True
+    is_aggregation = False
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -3473,8 +3473,6 @@ class Median(Function):
     """
     median(expr) - Returns the median of the values in the group.
     """
-
-    is_aggregation = True
 
 
 @Median.register  # type: ignore
