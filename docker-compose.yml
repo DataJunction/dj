@@ -91,7 +91,7 @@ services:
 
   djui:
     container_name: ${DJ_CONTAINER_PREFIX:-dj}-ui
-    image: node:20
+    image: node:22
     working_dir: /usr/src/app
     ports:
       - "${DJ_UI_PORT:-3000}:3000"
