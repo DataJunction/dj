@@ -1219,9 +1219,10 @@ class TestMeasuresSQLMultipleMetrics:
         - total_quantity: SUM - FULL aggregability
         - order_count: COUNT(DISTINCT order_id) - LIMITED aggregability
 
-        With grain group merging, this produces 1 merged grain group at the finest grain.
-        All metrics from the same parent are merged into one CTE with raw values.
-        Aggregations are applied in the final metrics SQL layer.
+        Per the matrix-split contract, FULL and LIMITED split into separate
+        grain groups: the two SUMs share a FULL grain group at the requested
+        dim grain, while order_count gets its own LIMITED grain group at
+        ``{order_id, status}``.
         """
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
@@ -1234,45 +1235,47 @@ class TestMeasuresSQLMultipleMetrics:
         assert response.status_code == 200
         result = response.json()
 
-        # With merging, should have 1 merged grain group at finest grain (LIMITED)
-        assert len(result["grain_groups"]) == 1
+        # FULL + LIMITED split → 2 grain groups
+        assert len(result["grain_groups"]) == 2
 
-        gg = result["grain_groups"][0]
+        full_gg = next(g for g in result["grain_groups"] if g["aggregability"] == "full")
+        limited_gg = next(
+            g for g in result["grain_groups"] if g["aggregability"] == "limited"
+        )
 
-        # Merged group has LIMITED aggregability (worst case)
-        assert gg["aggregability"] == "limited"
-        assert gg["grain"] == ["order_id", "status"]
-        assert sorted(gg["metrics"]) == [
-            "v3.order_count",
+        assert sorted(full_gg["metrics"]) == [
             "v3.total_quantity",
             "v3.total_revenue",
         ]
-
-        # Columns: dimension grain column 3 raw metric columns
-        assert len(gg["columns"]) == 4
-        assert gg["columns"][0] == {
-            "name": "status",
-            "type": "string",
-            "semantic_entity": "v3.order_details.status",
-            "semantic_type": "dimension",
-        }
-        assert gg["columns"][1] == {
-            "name": "order_id",
-            "type": "int",
-            "semantic_entity": "v3.order_details.order_id",
-            "semantic_type": "dimension",
-        }
-
-        # Raw metric columns (for later aggregation)
+        assert full_gg["grain"] == ["status"]
         assert_sql_equal(
-            gg["sql"],
+            full_gg["sql"],
             """
             WITH v3_order_details AS (
-                SELECT o.order_id, o.status, oi.quantity, oi.quantity * oi.unit_price AS line_total
+                SELECT o.status, oi.quantity,
+                       oi.quantity * oi.unit_price AS line_total
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT t1.status, t1.order_id, SUM(t1.line_total) line_total_sum_e1f61696, SUM(t1.quantity) quantity_sum_06b64d2e
+            SELECT t1.status,
+                   SUM(t1.line_total) line_total_sum_e1f61696,
+                   SUM(t1.quantity) quantity_sum_06b64d2e
+            FROM v3_order_details t1
+            GROUP BY t1.status
+            """,
+        )
+
+        assert limited_gg["metrics"] == ["v3.order_count"]
+        assert limited_gg["grain"] == ["order_id", "status"]
+        assert_sql_equal(
+            limited_gg["sql"],
+            """
+            WITH v3_order_details AS (
+                SELECT o.order_id, o.status
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t1.status, t1.order_id
             FROM v3_order_details t1
             GROUP BY t1.status, t1.order_id
             """,
@@ -1281,39 +1284,33 @@ class TestMeasuresSQLMultipleMetrics:
         # Validate requested_dimensions
         assert result["requested_dimensions"] == ["v3.order_details.status"]
 
-        # Validate components are included for materialization planning
-        assert "components" in gg
-        assert len(gg["components"]) == 3
-
-        # Sort by name for deterministic comparison
-        components = sorted(gg["components"], key=lambda c: c["name"])
-
-        # order_count component (LIMITED - grain column)
-        assert components[0] == {
-            "name": "line_total_sum_e1f61696",
-            "expression": "line_total",
-            "aggregation": "SUM",
-            "merge": "SUM",
-            "aggregability": "full",
-        }
-
-        # total_revenue component
-        assert components[1] == {
-            "name": "order_id",
-            "expression": "order_id",
-            "aggregation": None,
-            "merge": None,
-            "aggregability": "limited",
-        }
-
-        # total_quantity component
-        assert components[2] == {
-            "name": "quantity_sum_06b64d2e",
-            "expression": "quantity",
-            "aggregation": "SUM",
-            "merge": "SUM",
-            "aggregability": "full",
-        }
+        # Validate components per group
+        full_components = sorted(full_gg["components"], key=lambda c: c["name"])
+        assert full_components == [
+            {
+                "name": "line_total_sum_e1f61696",
+                "expression": "line_total",
+                "aggregation": "SUM",
+                "merge": "SUM",
+                "aggregability": "full",
+            },
+            {
+                "name": "quantity_sum_06b64d2e",
+                "expression": "quantity",
+                "aggregation": "SUM",
+                "merge": "SUM",
+                "aggregability": "full",
+            },
+        ]
+        assert limited_gg["components"] == [
+            {
+                "name": "order_id_distinct_f93d50ab",
+                "expression": "order_id",
+                "aggregation": None,
+                "merge": None,
+                "aggregability": "limited",
+            },
+        ]
 
     @pytest.mark.asyncio
     async def test_page_views_full_metrics(self, client_with_build_v3):
@@ -3747,39 +3744,37 @@ class TestNonDecomposableMetrics:
         )
 
     @pytest.mark.asyncio
-    async def test_full_with_limited_merged_grain_group(
+    async def test_full_with_limited_split_grain_groups(
         self,
         session,
         client_with_build_v3,
     ):
         """
-        FULL + LIMITED decomposable metrics on the same parent merge into a
-        single grain group at the LIMITED grain (the worst case). Both
-        metrics' stored derived expressions still compose correctly on this
-        CTE because the FULL combiner is additive (SUM re-aggregates back
-        up to the requested-dim grain).
-
-        Splitting decomposable + non-decomposable is load-bearing (see
-        ``test_decomposable_metric_split_from_non_decomposable``); splitting
-        decomposable + decomposable across aggregabilities is a follow-up
-        that requires reworking the LIMITED pre-aggregation wrapper.
+        FULL + LIMITED metrics on the same parent split into separate grain
+        groups so each metric's stored derived expression composes against
+        a CTE at the grain it was generated for:
+        - ``v3.total_revenue`` (SUM / FULL): own grain group at the
+          requested dim grain.
+        - ``v3.order_count`` (COUNT(DISTINCT order_id) / LIMITED): own
+          grain group at requested dim + ``order_id``.
         """
         result = await build_measures_sql(
             session=session,
             metrics=["v3.total_revenue", "v3.order_count"],
             dimensions=["v3.order_details.status"],
         )
-        assert len(result.grain_groups) == 1
-        gg = result.grain_groups[0]
-        assert set(gg.metrics) == {"v3.total_revenue", "v3.order_count"}
-        assert gg.aggregability.value == "limited"
-        assert set(gg.grain) == {"order_id", "status"}
+        assert len(result.grain_groups) == 2
+        gg_by_metric = {gg.metrics[0]: gg for gg in result.grain_groups}
+        assert set(gg_by_metric) == {"v3.total_revenue", "v3.order_count"}
+
+        full_gg = gg_by_metric["v3.total_revenue"]
+        assert full_gg.aggregability.value == "full"
+        assert set(full_gg.grain) == {"status"}
         assert_sql_equal(
-            gg.sql,
+            full_gg.sql,
             """
             WITH v3_order_details AS (
               SELECT
-                o.order_id,
                 o.status,
                 oi.quantity * oi.unit_price AS line_total
               FROM default.v3.orders o
@@ -3787,8 +3782,28 @@ class TestNonDecomposableMetrics:
             )
             SELECT
               t1.status,
-              t1.order_id,
               SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            GROUP BY t1.status
+            """,
+        )
+
+        limited_gg = gg_by_metric["v3.order_count"]
+        assert limited_gg.aggregability.value == "limited"
+        assert set(limited_gg.grain) == {"order_id", "status"}
+        assert_sql_equal(
+            limited_gg.sql,
+            """
+            WITH v3_order_details AS (
+              SELECT
+                o.order_id,
+                o.status
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT
+              t1.status,
+              t1.order_id
             FROM v3_order_details t1
             GROUP BY t1.status, t1.order_id
             """,
@@ -3876,46 +3891,58 @@ class TestNonDecomposableMetrics:
     ):
         """
         Two decomposable LIMITED metrics on the same parent with DIFFERENT
-        DISTINCT-arg levels: ``v3.session_count`` (COUNT(DISTINCT session_id))
-        and ``v3.visitor_count`` (COUNT(DISTINCT customer_id)) on
-        ``v3.page_views_enriched``.
-
-        Under the current ``merge_grain_groups`` behavior, both decomposable
-        LIMITED groups merge into a single CTE at the union of their grain
-        levels (``{customer_id, session_id}``) plus requested dim. The
-        outer metrics SELECT then applies COUNT(DISTINCT ...) on each
-        grain key column directly.
-
-        Per the matrix-split contract, these should split into separate
-        grain groups — one at ``{dim, session_id}`` and one at
-        ``{dim, customer_id}``. Tracked as follow-up.
+        DISTINCT-arg levels — ``v3.session_count`` (COUNT(DISTINCT
+        session_id)) and ``v3.visitor_count`` (COUNT(DISTINCT customer_id))
+        on ``v3.page_views_enriched`` — split into separate grain groups,
+        each at the level its DISTINCT arg dictates. Both metrics' stored
+        derived expressions compose against a CTE at their own grain.
         """
         result = await build_measures_sql(
             session=session,
             metrics=["v3.session_count", "v3.visitor_count"],
             dimensions=["v3.page_views_enriched.page_date"],
         )
-        assert len(result.grain_groups) == 1
-        gg = result.grain_groups[0]
-        assert set(gg.metrics) == {"v3.session_count", "v3.visitor_count"}
-        assert gg.aggregability.value == "limited"
-        assert set(gg.grain) == {"customer_id", "session_id", "page_date"}
+        assert len(result.grain_groups) == 2
+        gg_by_metric = {gg.metrics[0]: gg for gg in result.grain_groups}
+        assert set(gg_by_metric) == {"v3.session_count", "v3.visitor_count"}
+
+        session_gg = gg_by_metric["v3.session_count"]
+        assert session_gg.aggregability.value == "limited"
+        assert set(session_gg.grain) == {"session_id", "page_date"}
         assert_sql_equal(
-            gg.sql,
+            session_gg.sql,
             """
             WITH v3_page_views_enriched AS (
               SELECT
                 session_id,
+                page_date
+              FROM default.v3.page_views
+            )
+            SELECT
+              t1.page_date,
+              t1.session_id
+            FROM v3_page_views_enriched t1
+            GROUP BY t1.page_date, t1.session_id
+            """,
+        )
+
+        visitor_gg = gg_by_metric["v3.visitor_count"]
+        assert visitor_gg.aggregability.value == "limited"
+        assert set(visitor_gg.grain) == {"customer_id", "page_date"}
+        assert_sql_equal(
+            visitor_gg.sql,
+            """
+            WITH v3_page_views_enriched AS (
+              SELECT
                 customer_id,
                 page_date
               FROM default.v3.page_views
             )
             SELECT
               t1.page_date,
-              t1.customer_id,
-              t1.session_id
+              t1.customer_id
             FROM v3_page_views_enriched t1
-            GROUP BY t1.page_date, t1.customer_id, t1.session_id
+            GROUP BY t1.page_date, t1.customer_id
             """,
         )
 

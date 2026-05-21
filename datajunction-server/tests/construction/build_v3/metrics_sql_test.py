@@ -5086,11 +5086,10 @@ class TestMetricsSQLEdgeCases:
         Verify FULL and LIMITED metrics from the same fact in a single query.
 
         total_revenue (Aggregability.FULL / SUM) and order_count
-        (Aggregability.LIMITED / COUNT DISTINCT order_id) share v3.order_details.
-
-        The grain group CTE must pre-aggregate at order_id grain so that COUNT DISTINCT
-        is semantically correct. The outer SELECT then re-aggregates: SUM for the FULL
-        component, COUNT DISTINCT for the LIMITED component.
+        (Aggregability.LIMITED / COUNT DISTINCT order_id) split into
+        separate grain groups so each combiner runs against the CTE
+        shape it was generated for. They're then combined via FULL
+        OUTER JOIN on the shared dim in the final SELECT.
         """
         response = await client_with_build_v3.get(
             "/sql/metrics/v3/",
@@ -5103,27 +5102,39 @@ class TestMetricsSQLEdgeCases:
         assert response.status_code == 200, response.json()
         result = response.json()
 
-        # Pre-agg at order_id grain so COUNT DISTINCT is correct;
-        # final SELECT re-aggregates to status grain
         assert_sql_equal(
             result["sql"],
             """
             WITH v3_order_details AS (
-                SELECT o.order_id, o.status,
-                       oi.quantity * oi.unit_price AS line_total
+                SELECT o.status,
+                       oi.quantity * oi.unit_price AS line_total,
+                       o.order_id
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             ),
             order_details_0 AS (
-                SELECT t1.status, t1.order_id, SUM(t1.line_total) line_total_sum_e1f61696
+                SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                GROUP BY t1.status
+            ),
+            order_details_1 AS (
+                SELECT t1.status, t1.order_id
                 FROM v3_order_details t1
                 GROUP BY t1.status, t1.order_id
+            ),
+            order_details_1_agg AS (
+                SELECT status,
+                       COUNT(DISTINCT order_id) order_id_distinct_f93d50ab
+                FROM order_details_1
+                GROUP BY status
             )
-            SELECT order_details_0.status AS status,
+            SELECT COALESCE(order_details_0.status, order_details_1_agg.status) AS status,
                    SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue,
-                   COUNT(DISTINCT order_details_0.order_id) AS order_count
+                   MAX(order_details_1_agg.order_id_distinct_f93d50ab) AS order_count
             FROM order_details_0
-            GROUP BY order_details_0.status
+            FULL OUTER JOIN order_details_1_agg
+              ON order_details_0.status = order_details_1_agg.status
+            GROUP BY 1
             """,
         )
 
@@ -5264,12 +5275,12 @@ class TestMetricsSQLEdgeCases:
             """
             WITH v3_page_views_enriched AS (
               SELECT
-                session_id,
                 product_id,
                 CASE
                     WHEN page_type = 'product' THEN 1
                     ELSE 0
-                END AS is_product_view
+                END AS is_product_view,
+                session_id
               FROM default.v3.page_views
             ),
             v3_product AS (
@@ -5279,18 +5290,31 @@ class TestMetricsSQLEdgeCases:
               FROM default.v3.products
             ),
             page_views_enriched_0 AS (
-              SELECT
-                t2.category,
-                IF(t1.is_product_view = 1, t1.session_id, NULL) is_product_view_session_id_distinct_ee91aa40,
-                SUM(t1.is_product_view) is_product_view_sum_eb3a4b41
-              FROM v3_page_views_enriched t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
-              GROUP BY  t2.category, is_product_view_session_id_distinct_ee91aa40
+              SELECT t2.category,
+                     SUM(t1.is_product_view) is_product_view_sum_eb3a4b41
+              FROM v3_page_views_enriched t1
+              LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+              GROUP BY t2.category
+            ),
+            page_views_enriched_1 AS (
+              SELECT t2.category,
+                     IF(t1.is_product_view = 1, t1.session_id, NULL) is_product_view_session_id_distinct_ee91aa40
+              FROM v3_page_views_enriched t1
+              LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+              GROUP BY t2.category, is_product_view_session_id_distinct_ee91aa40
+            ),
+            page_views_enriched_1_agg AS (
+              SELECT category,
+                     COUNT(DISTINCT is_product_view_session_id_distinct_ee91aa40) is_product_view_session_id_distinct_ee91aa40
+              FROM page_views_enriched_1
+              GROUP BY category
             )
-            SELECT
-              page_views_enriched_0.category AS category,
-              COUNT(DISTINCT page_views_enriched_0.is_product_view_session_id_distinct_ee91aa40) AS product_session_count,
-              SUM(page_views_enriched_0.is_product_view_sum_eb3a4b41) AS product_view_count
+            SELECT COALESCE(page_views_enriched_0.category, page_views_enriched_1_agg.category) AS category,
+                   MAX(page_views_enriched_1_agg.is_product_view_session_id_distinct_ee91aa40) AS product_session_count,
+                   SUM(page_views_enriched_0.is_product_view_sum_eb3a4b41) AS product_view_count
             FROM page_views_enriched_0
-            GROUP BY  page_views_enriched_0.category
+            FULL OUTER JOIN page_views_enriched_1_agg
+              ON page_views_enriched_0.category = page_views_enriched_1_agg.category
+            GROUP BY 1
             """,
         )
