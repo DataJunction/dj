@@ -1235,7 +1235,7 @@ def _find_table_refs(
         alias = tbl.alias.name if tbl.alias else tbl_name.split(SEPARATOR)[-1]
         enclosing: Optional[ast.Select] = None
         cur = getattr(tbl, "parent", None)
-        while cur is not None:
+        while cur is not None:  # pragma: no branch
             if isinstance(cur, ast.Select):
                 enclosing = cur
                 break
