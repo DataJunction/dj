@@ -389,6 +389,140 @@ class TestNodeSpecToYaml:
         tag_lines = [line for line in result.splitlines() if "  - " in line]
         assert tag_lines == ["  - ratio_metric", "  - core"]
 
+    def test_metric_with_legacy_string_unit_round_trips(self):
+        """Metric authored with legacy `unit: dollar` emits `unit: dollar` on export."""
+        spec = MetricSpec(
+            name="ns.metrics.revenue",
+            node_type=NodeType.METRIC,
+            unit="dollar",
+            query="SELECT SUM(amount) FROM ns.transforms.t",
+        )
+        output = node_spec_to_yaml(spec)
+        assert "unit: dollar" in output
+        # Not a structured dict in the legacy case.
+        assert "kind:" not in output
+
+    def test_metric_with_structured_unit_emits_at_spec_level(self):
+        """Structured `unit:` at the metric spec level emits as a nested dict."""
+        spec = MetricSpec(
+            name="ns.metrics.revenue_eur",
+            node_type=NodeType.METRIC,
+            unit={"kind": "currency", "code": "EUR"},
+            query="SELECT SUM(amount_eur) FROM ns.transforms.t",
+        )
+        output = node_spec_to_yaml(spec)
+        # Emitted at spec level, not on a columns block.
+        assert "unit:" in output
+        assert "kind: currency" in output
+        assert "code: EUR" in output
+
+    def test_metric_with_compound_unit_emits_nested(self):
+        spec = MetricSpec(
+            name="ns.metrics.qps",
+            node_type=NodeType.METRIC,
+            unit={
+                "numerator": {"kind": "count"},
+                "denominator": {"kind": "time", "code": "s"},
+            },
+            query="SELECT 1",
+        )
+        output = node_spec_to_yaml(spec)
+        assert "numerator:" in output
+        assert "denominator:" in output
+        assert "kind: time" in output
+        assert "code: s" in output
+
+    def test_metric_export_suppresses_per_column_unit(self):
+        """A metric's columns[].unit must NOT appear in YAML export — the metric
+        emits its unit at the spec top level instead."""
+        spec = MetricSpec(
+            name="ns.metrics.revenue",
+            node_type=NodeType.METRIC,
+            unit={"kind": "currency", "code": "USD"},
+            query="SELECT SUM(amount) FROM ns.transforms.t",
+            columns=[
+                {
+                    "name": "revenue",
+                    "unit": {"kind": "currency", "code": "USD"},
+                },
+            ],
+        )
+        output = node_spec_to_yaml(spec)
+        # Spec-level unit is present...
+        assert "kind: currency" in output
+        # ...but columns block (if present) does not contain a duplicate unit
+        if "columns:" in output:
+            # Find columns block and inspect its body
+            columns_idx = output.find("columns:")
+            columns_block = output[columns_idx:]
+            # The metric-level `unit:` line lives before `columns:` — so any
+            # unit-related text after `columns:` would be a per-column emit.
+            assert "unit:" not in columns_block
+
+    def test_column_with_unit_is_exported(self):
+        """A column whose only customization is a unit must still be exported.
+
+        Before PR 2's fix to `_has_column_customizations`, a unit-only column
+        was treated as "unmodified" and silently dropped from the YAML.
+        """
+        spec = TransformSpec(
+            name="ns.transforms.t",
+            node_type=NodeType.TRANSFORM,
+            query="SELECT revenue FROM ns.source.s",
+            columns=[
+                {
+                    "name": "revenue",
+                    "unit": {"kind": "currency", "code": "USD"},
+                },
+            ],
+        )
+        lines = node_spec_to_yaml(spec).splitlines()
+        assert "columns:" in lines
+        assert "  - name: revenue" in lines
+        # Unit appears as a nested mapping; check key + values are present
+        unit_idx = next(i for i, line in enumerate(lines) if line.strip() == "unit:")
+        # The following lines should be the kind/code mapping
+        assert "kind: currency" in lines[unit_idx + 1]
+        assert "code: USD" in lines[unit_idx + 2]
+
+    def test_column_without_unit_is_not_exported_with_noise(self):
+        """A column with no customizations (including no unit) is omitted from YAML.
+
+        The new `unit` field must not introduce `unit: null` lines on every
+        column when no unit is set.
+        """
+        spec = TransformSpec(
+            name="ns.transforms.t",
+            node_type=NodeType.TRANSFORM,
+            query="SELECT id FROM ns.source.s",
+            columns=[{"name": "id"}],  # no unit, no customizations
+        )
+        output = node_spec_to_yaml(spec)
+        assert "unit:" not in output
+        assert "columns:" not in output  # column itself filtered out
+
+    def test_compound_unit_round_trips(self):
+        """Compound units serialize cleanly and the structure is preserved."""
+        spec = TransformSpec(
+            name="ns.transforms.t",
+            node_type=NodeType.TRANSFORM,
+            query="SELECT qps FROM ns.source.s",
+            columns=[
+                {
+                    "name": "qps",
+                    "unit": {
+                        "numerator": {"kind": "count"},
+                        "denominator": {"kind": "time", "code": "s"},
+                    },
+                },
+            ],
+        )
+        output = node_spec_to_yaml(spec)
+        assert "numerator:" in output
+        assert "denominator:" in output
+        assert "kind: time" in output
+        assert "code: s" in output
+
     def test_column_attributes_are_sorted(self):
         """column attributes are sorted alphabetically regardless of input order"""
         spec = TransformSpec(

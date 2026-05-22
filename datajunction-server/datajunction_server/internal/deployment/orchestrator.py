@@ -81,9 +81,14 @@ from datajunction_server.models.history import ActivityType
 from datajunction_server.models.node import (
     DEFAULT_DRAFT_VERSION,
     DEFAULT_PUBLISHED_VERSION,
+    MetricUnit,
     NodeMode,
     NodeStatus,
     NodeType,
+)
+from datajunction_server.models.unit import (
+    legacy_unit_to_structured,
+    structured_to_legacy_unit_name,
 )
 from datajunction_server.utils import (
     SEPARATOR,
@@ -3518,15 +3523,26 @@ class DeploymentOrchestrator:
             metric_spec = cast(MetricSpec, result.spec)
             if new_revision.columns:  # pragma: no branch
                 new_revision.columns[0].display_name = new_revision.display_name
+
+            # PR 2 back-compat: bridge legacy metric_metadata.unit and
+            # structured columns[0].unit so users on either input shape
+            # end up with both fields populated where expressible.
+            output_col = new_revision.columns[0] if new_revision.columns else None
+            self._reconcile_metric_unit(metric_spec, output_col)
+
+            legacy_unit = self._derive_legacy_unit_for_storage(
+                metric_spec,
+                output_col,
+            )
             if (
-                metric_spec.unit_enum
+                legacy_unit
                 or metric_spec.direction
                 or metric_spec.significant_digits
                 or metric_spec.max_decimal_exponent
                 or metric_spec.min_decimal_exponent
             ):
                 new_revision.metric_metadata = MetricMetadata(
-                    unit=metric_spec.unit_enum,
+                    unit=legacy_unit,
                     direction=metric_spec.direction,
                     significant_digits=metric_spec.significant_digits,
                     max_decimal_exponent=metric_spec.max_decimal_exponent,
@@ -3545,6 +3561,106 @@ class DeploymentOrchestrator:
                         )  # pragma: no cover
                 new_revision.required_dimensions = required_dimensions
         return new_revision
+
+    def _reconcile_metric_unit(
+        self,
+        metric_spec: MetricSpec,
+        output_col: Column | None,
+    ) -> None:
+        """
+        Resolve the canonical structured unit for a metric's output column
+        from the three possible input surfaces and write it to
+        `output_col.unit`.
+
+        Input surfaces (highest priority first):
+          1. `metric_spec.unit_structured` — top-level structured `unit:`
+             at the metric spec level. Authored shape for the new model.
+          2. `output_col.unit` — structured value set via the explicit
+             `columns[<output>].unit` form. Supported for uniformity with
+             non-metric nodes, but unusual on metrics (where the column
+             name is auto-derived).
+          3. `metric_spec.unit_enum` — legacy flat-string `unit: dollar`
+             form. Translated via the legacy → structured table.
+
+        Conflict handling: if (1) is set together with (2), a warning is
+        logged naming the node; the metric-level structured value wins.
+        Combining (1) or (2) with (3) is normal — the structured value wins
+        and the legacy field becomes redundant scaffolding.
+        """
+        if output_col is None:
+            return  # pragma: no cover
+
+        legacy = metric_spec.unit_enum
+        spec_structured = (
+            metric_spec.unit_structured.model_dump()
+            if metric_spec.unit_structured is not None
+            else None
+        )
+        column_structured = output_col.unit
+
+        # (1) Metric-level structured input wins absolutely.
+        if spec_structured is not None:
+            if column_structured is not None and column_structured != spec_structured:
+                logger.warning(
+                    "Metric %s sets a structured unit at both the metric "
+                    "spec level (%r) and on columns[].unit (%r); the "
+                    "metric-level value wins. Remove one to silence this.",
+                    metric_spec.rendered_name,
+                    spec_structured,
+                    column_structured,
+                )
+            if legacy is not None and legacy != MetricUnit.UNKNOWN:
+                logger.warning(
+                    "Metric %s sets both a structured unit (%r) and the "
+                    "legacy unit_enum (%s); structured value wins.",
+                    metric_spec.rendered_name,
+                    spec_structured,
+                    legacy.name,
+                )
+            output_col.unit = spec_structured
+            return
+
+        # (2) columns[].unit fallback.
+        if column_structured is not None:
+            if legacy is not None and legacy != MetricUnit.UNKNOWN:
+                logger.warning(
+                    "Metric %s sets both metric_metadata.unit (%s) and "
+                    "columns[].unit (%r); structured value wins.",
+                    metric_spec.rendered_name,
+                    legacy.name,
+                    column_structured,
+                )
+            return
+
+        # (3) Legacy translation.
+        translated = legacy_unit_to_structured(legacy)
+        if translated is not None:
+            output_col.unit = translated
+
+    def _derive_legacy_unit_for_storage(
+        self,
+        metric_spec: MetricSpec,
+        output_col: Column | None,
+    ) -> MetricUnit | None:
+        """
+        Compute the value to write to `metricmetadata.unit` (legacy DB
+        column) given the canonical structured `output_col.unit`. This is
+        the dual-write that preserves rollback safety: if PR 4 is reverted,
+        the legacy column still holds the right value for everything the
+        legacy enum can represent.
+
+        Returns None when the structured value has no legacy equivalent
+        (non-USD currencies, compound units, data sizes, count with code) —
+        the caller writes NULL to `metricmetadata.unit` in that case.
+        """
+        structured = output_col.unit if output_col is not None else None
+        if structured is not None:
+            name = structured_to_legacy_unit_name(structured)
+            return MetricUnit[name] if name is not None else None
+        # No structured unit — fall back to whatever the legacy spec field
+        # had (typically None at this point because _reconcile_metric_unit
+        # would have copied it onto the column).
+        return metric_spec.unit_enum
 
     def _create_column_from_spec(
         self,
