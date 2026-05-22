@@ -1108,26 +1108,6 @@ def _inject_filter_into_where(
     inject_filter_into_select(cast(ast.Select, query_ast.select), filter_expr)
 
 
-def _setop_arms(cte_query: ast.Query) -> list[ast.Select]:
-    """Return every Select arm in a (possibly chained) set-operation CTE body.
-
-    A non-set-op CTE returns a single-element list containing its Select.
-    A UNION/INTERSECT/EXCEPT chain returns each arm in order — the first arm
-    is ``cte_query.select`` and subsequent arms hang off ``set_op.right``.
-    """
-    arms: list[ast.Select] = []
-    cur: Optional[ast.Select] = (
-        cte_query.select if isinstance(cte_query.select, ast.Select) else None
-    )
-    while cur is not None:
-        arms.append(cur)
-        nxt = cur.set_op.right if cur.set_op else None
-        # ``set_op.right`` is typed as SelectExpression which may also be a
-        # parenthesised subquery; in practice DJ always emits a Select here.
-        cur = nxt if isinstance(nxt, ast.Select) else None
-    return arms
-
-
 def _resolve_pushdown_filters_for_cte(
     node: "Node",
     cte_query: ast.Query,
