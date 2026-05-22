@@ -1142,11 +1142,15 @@ def _resolve_pushdown_filters_for_cte(
     using the CTE's internal table-qualified column names and returned, paired
     with the Select node it should be injected into.
 
-    For set-operation CTEs (UNION / INTERSECT / EXCEPT), the rewrite is done
-    independently per arm — each arm's projection may resolve the same output
-    column differently, and pushing only into the first arm would produce
-    semantically wrong SQL.  The push is atomic per filter: if any arm can't
-    accept the rewrite, the filter is skipped for the whole CTE.
+    Set-operation CTEs (UNION / INTERSECT / EXCEPT): the filter is injected
+    into the **primary** Select only — i.e. the first arm of the union
+    chain.  Subsequent arms (reachable via ``set_op.right``) are left
+    untouched.  Matches v2's behavior: transform authors often use
+    asymmetric UNION arms where the secondary arm acts as an unfiltered
+    backstop, and uniformly pushing into every arm would override that
+    intent.  Pushing into the primary arm is still useful — it's where
+    DJ's projection inspection sees the CTE's output schema, and Spark
+    can partition-prune through it just as well as a wrapper subquery.
 
     Returns ``(injections, consumed)`` where ``injections`` is the list of
     ``(target_select, rewritten_filter)`` pairs to inject and ``consumed``
@@ -1160,26 +1164,20 @@ def _resolve_pushdown_filters_for_cte(
     if not node_output_cols:  # pragma: no cover
         return [], set()
 
-    arms = _setop_arms(cte_query)
+    target_select = cast(ast.Select, cte_query.select)
     results: list[tuple[ast.Select, ast.Expression]] = []
     consumed: set[str] = set()
     for filter_str in pushdown_filters:
-        per_arm: list[tuple[ast.Select, ast.Expression]] = []
-        all_ok = True
-        for arm in arms:
-            rewritten = _rewrite_filter_for_select(
-                filter_str,
-                filter_column_aliases,
-                node_output_cols,
-                arm,
-            )
-            if rewritten is None:
-                all_ok = False
-                break
-            per_arm.append((arm, rewritten))
-        if all_ok:
-            results.extend(per_arm)
-            consumed.add(filter_str)
+        rewritten = _rewrite_filter_for_select(
+            filter_str,
+            filter_column_aliases,
+            node_output_cols,
+            target_select,
+        )
+        if rewritten is None:
+            continue
+        results.append((target_select, rewritten))
+        consumed.add(filter_str)
     return results, consumed
 
 
@@ -1213,19 +1211,89 @@ def _resolve_pushdown_form(
     output_col: str,
     cte_output_cols: set[str],
     projection_map: dict[str, str | None],
+    null_producing_aliases: set[str] | None = None,
 ) -> str | None:
     """Determine the WHERE-safe form for a filter column in a specific CTE.
 
     Returns the WHERE-safe reference as a string (qualified or bare), or
-    ``None`` when the filter cannot be safely pushed into this CTE — either
-    because the column isn't exposed at all, or because the projection is a
-    non-column expression that can't be inlined into WHERE.
+    ``None`` when the filter cannot be safely pushed into this CTE.  Three
+    cases decline pushdown:
+
+    1. The column isn't exposed at all.
+    2. The projection is a non-column expression that can't be inlined.
+    3. The underlying table is on the null-producing side of an OUTER join
+       inside the CTE body — pushing a NULL-rejecting predicate to WHERE
+       would silently convert the OUTER join to an INNER (drop rows that
+       the OUTER was supposed to preserve).  These filters belong in the
+       join's ON clause, not its WHERE; callers either need to handle
+       that themselves or leave the filter at outer scope.
     """
     if output_col not in cte_output_cols:
         return None
     if output_col in projection_map:
-        return projection_map[output_col]  # may be None: unsafe projection
+        underlying = projection_map[output_col]
+        if underlying is None:
+            return None  # non-column projection
+        if null_producing_aliases and "." in underlying:
+            prefix = underlying.split(".", 1)[0]
+            if prefix in null_producing_aliases:
+                return None  # would defeat the OUTER join
+        return underlying
     return output_col  # pruned from CTE SELECT; falls through to bare name
+
+
+def _null_producing_aliases(select: ast.Select) -> set[str]:
+    """Return the set of table aliases that sit on the null-producing side
+    of any OUTER join in this Select's FROM clause.
+
+    Rules per join type:
+    - ``LEFT OUTER``: the right side may be NULL → its alias is null-producing.
+    - ``RIGHT OUTER``: everything to its left may be NULL → all preceding
+      aliases in the same relation are null-producing.
+    - ``FULL OUTER``: both sides may be NULL.
+    - ``INNER`` / ``CROSS``: no nulls introduced.
+
+    The walk is per relation in ``select.from_.relations``; aliases from
+    different relations don't interact.
+    """
+    null_producing: set[str] = set()
+    if not select.from_:
+        return null_producing
+
+    def _extract_alias(expr: object) -> str | None:
+        # Aliased table reference: SQL parser wraps it in an Alias node.
+        if isinstance(expr, ast.Alias):
+            alias = getattr(expr, "alias", None)
+            if alias is not None and hasattr(alias, "name"):
+                return alias.name
+        # Bare Table with no alias: use the unqualified table name.
+        if isinstance(expr, ast.Table):
+            name = expr.name
+            if name is not None and hasattr(name, "name"):
+                return name.name
+        return None
+
+    for relation in select.from_.relations:
+        left_aliases: set[str] = set()
+        primary_alias = _extract_alias(relation.primary)
+        if primary_alias:
+            left_aliases.add(primary_alias)
+        for join in relation.extensions:
+            right_alias = _extract_alias(join.right)
+            jt = (join.join_type or "").upper().strip()
+            if jt in ("LEFT", "LEFT OUTER"):
+                if right_alias:
+                    null_producing.add(right_alias)
+            elif jt in ("RIGHT", "RIGHT OUTER"):
+                null_producing.update(left_aliases)
+            elif jt in ("FULL", "FULL OUTER"):
+                null_producing.update(left_aliases)
+                if right_alias:
+                    null_producing.add(right_alias)
+            # INNER / CROSS / (no join_type): no nulls introduced
+            if right_alias:
+                left_aliases.add(right_alias)
+    return null_producing
 
 
 def _rewrite_filter_for_cte(
@@ -1281,6 +1349,7 @@ def _rewrite_filter_for_select(
     safely pushed into this Select.
     """
     projection_map = _build_select_projection_map(cte_select)
+    null_producing = _null_producing_aliases(cte_select)
     filter_ast = parse_filter(filter_str)
 
     # First pass: plan the rewrites by walking the AST.  Role-qualified refs
@@ -1321,7 +1390,12 @@ def _rewrite_filter_for_select(
         ) or filter_column_aliases.get(base)
         if output_col is None:
             continue  # pragma: no cover
-        form = _resolve_pushdown_form(output_col, cte_output_cols, projection_map)
+        form = _resolve_pushdown_form(
+            output_col,
+            cte_output_cols,
+            projection_map,
+            null_producing,
+        )
         if form is None:
             return None
         replacement = _column_from_qualified(form)
@@ -1341,7 +1415,12 @@ def _rewrite_filter_for_select(
         if not full_name or full_name not in filter_column_aliases:
             continue
         output_col = filter_column_aliases[full_name]
-        form = _resolve_pushdown_form(output_col, cte_output_cols, projection_map)
+        form = _resolve_pushdown_form(
+            output_col,
+            cte_output_cols,
+            projection_map,
+            null_producing,
+        )
         if form is None:
             return None
         column_rewrites.append((col, _column_from_qualified(form)))

@@ -101,17 +101,19 @@ class TestSetOperationTransforms:
         )
 
     @pytest.mark.asyncio
-    async def test_union_transform_filter_pushed_into_each_arm(
+    async def test_union_transform_filter_pushed_into_primary_arm_only(
         self,
         client_with_union_transform,
     ):
-        """Filter on a column of a UNION-ALL transform is pushed into each
-        arm's WHERE (Shape B per-arm pushdown).  Each arm's original
-        predicate is preserved and the new filter is ANDed alongside it.
-        The filter also continues to land at the metrics-layer outer
-        WHERE — the per-arm pushdown narrows the scan early, and the
-        outer copy is the standard dim-filter narrowing on the
-        aggregation CTE.
+        """Filter on a column of a UNION-ALL transform is pushed into the
+        PRIMARY arm only (matches v2 behavior).  Subsequent UNION'd arms
+        are left untouched so the author's asymmetric-arm semantics
+        survive intact — e.g. a secondary arm acting as a deliberately
+        unfiltered backstop.  The filter is consumed by the primary
+        arm push, so the metrics-layer outer WHERE still gets a copy
+        for narrowing the aggregation CTE's output (the
+        consumption-aware drop only fires for measures-layer outer
+        WHERE, not for metrics-layer).
         """
         response = await client_with_union_transform.get(
             "/sql/metrics/v3/",
@@ -133,7 +135,7 @@ class TestSetOperationTransforms:
               UNION ALL
               SELECT order_id, customer_id, order_date, status
               FROM default.v3.orders
-              WHERE status = 'shipped' AND status = 'completed'
+              WHERE status = 'shipped'
             ),
             orders_unified_0 AS (
               SELECT t1.status, t1.order_id
