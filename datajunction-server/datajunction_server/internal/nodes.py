@@ -634,6 +634,7 @@ async def create_cube_node_revision(
             if referenced_node.type == NodeType.METRIC
             else col.display_name,
             type=col.type,
+            unit=col.unit,
             attributes=[
                 ColumnAttribute(attribute_type_id=attr.attribute_type_id)
                 for attr in col.attributes
