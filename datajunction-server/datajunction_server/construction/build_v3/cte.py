@@ -1165,6 +1165,7 @@ def _resolve_pushdown_filters_for_cte(
         return [], set()
 
     target_select = cast(ast.Select, cte_query.select)
+    alias_to_table = _build_source_alias_map(cte_query)
     results: list[tuple[ast.Select, ast.Expression]] = []
     consumed: set[str] = set()
     for filter_str in pushdown_filters:
@@ -1178,7 +1179,125 @@ def _resolve_pushdown_filters_for_cte(
             continue
         results.append((target_select, rewritten))
         consumed.add(filter_str)
+
+        # Additionally walk every other reference to the same physical
+        # source tables inside the CTE body and inject a retargeted
+        # copy of the filter at each one's enclosing Select.  This
+        # matches the upstream-pushdown path's ``_resolve_pushdown_targets``
+        # behavior so that the direct-link path is just as thorough:
+        # a transform whose source body references the same fact table
+        # twice (e.g. once at top level, once inside a LEFT JOIN's
+        # nested subquery) gets the filter applied to BOTH references,
+        # not just the top-level alias.
+        for primary_alias in _qualifier_aliases(rewritten):
+            physical_table = alias_to_table.get(primary_alias)
+            if not physical_table:
+                continue
+            for ref_alias, enclosing_select in _find_table_refs(
+                cte_query,
+                physical_table,
+            ):
+                if ref_alias == primary_alias and enclosing_select is target_select:
+                    continue  # already covered by the primary injection
+                cloned = _retarget_filter_qualifier(
+                    rewritten,
+                    primary_alias,
+                    ref_alias,
+                )
+                results.append((enclosing_select, cloned))
     return results, consumed
+
+
+def _build_source_alias_map(cte_query: ast.Query) -> dict[str, str]:
+    """Walk every ``ast.Table`` in the CTE body and build an
+    ``alias → physical_table_name`` map.
+
+    For aliased refs (``Table AS a``) the key is the alias name.  For bare
+    refs (no alias) the key is the table's short name — matching how the
+    SQL parser surfaces them when looking up column qualifications.
+
+    Multiple Table refs sharing the same alias is rare and the last-write
+    wins here.  Callers use this map only to look up the physical table a
+    qualified column reference belongs to, so collisions only matter when
+    the same alias is reused for two different tables in distinct
+    subqueries — a pathological shape DJ doesn't optimize for.
+    """
+    result: dict[str, str] = {}
+    for tbl in cte_query.find_all(ast.Table):
+        try:
+            tbl_name = tbl.name.identifier(quotes=False)
+        except Exception:  # pragma: no cover
+            continue
+        alias = tbl.alias.name if tbl.alias else tbl_name.split(SEPARATOR)[-1]
+        result[alias] = tbl_name
+    return result
+
+
+def _find_table_refs(
+    cte_query: ast.Query,
+    physical_table_name: str,
+) -> list[tuple[str, ast.Select]]:
+    """Find every ``ast.Table`` reference to ``physical_table_name`` in
+    the CTE body and return ``(alias, enclosing_select)`` per match.
+
+    Used by :func:`_resolve_pushdown_filters_for_cte` to inject a filter
+    not just at the CTE's top-level Select but also at every nested
+    subquery that scans the same physical source table.
+    """
+    results: list[tuple[str, ast.Select]] = []
+    for tbl in cte_query.find_all(ast.Table):
+        try:
+            tbl_name = tbl.name.identifier(quotes=False)
+        except Exception:  # pragma: no cover
+            continue
+        if tbl_name != physical_table_name:
+            continue
+        alias = tbl.alias.name if tbl.alias else tbl_name.split(SEPARATOR)[-1]
+        enclosing: Optional[ast.Select] = None
+        cur = getattr(tbl, "parent", None)
+        while cur is not None:
+            if isinstance(cur, ast.Select):
+                enclosing = cur
+                break
+            cur = getattr(cur, "parent", None)
+        if enclosing is not None:  # pragma: no branch
+            results.append((alias, enclosing))
+    return results
+
+
+def _qualifier_aliases(filter_ast: ast.Expression) -> set[str]:
+    """Return the set of distinct qualifier aliases used in ``filter_ast``.
+
+    A column like ``a.snapshot_utc_date`` contributes ``"a"`` to the set;
+    bare column references contribute nothing.
+    """
+    result: set[str] = set()
+    for col in filter_ast.find_all(ast.Column):
+        if col.name and col.name.namespace:
+            result.add(col.name.namespace.name)
+    return result
+
+
+def _retarget_filter_qualifier(
+    filter_ast: ast.Expression,
+    old_alias: str,
+    new_alias: str,
+) -> ast.Expression:
+    """Deepcopy ``filter_ast`` and rewrite every column qualified by
+    ``old_alias`` to be qualified by ``new_alias`` instead.
+
+    Used to clone a primary-Select-targeted filter for injection at a
+    sibling reference to the same physical source table.  The cloned
+    filter uses the sibling's alias so column references resolve in the
+    sibling's scope.
+    """
+    cloned = deepcopy(filter_ast)
+    for col in cloned.find_all(ast.Column):
+        if col.name is None or not col.name.namespace:
+            continue
+        if col.name.namespace.name == old_alias:
+            col.name = ast.Name(col.name.name, namespace=ast.Name(new_alias))
+    return cloned
 
 
 def _cte_has_set_operation(cte_query: ast.Query) -> bool:
