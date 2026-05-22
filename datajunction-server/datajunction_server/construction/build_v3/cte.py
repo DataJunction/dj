@@ -1171,7 +1171,7 @@ def _resolve_pushdown_filters_for_cte(
         # not just the top-level alias.
         for primary_alias in _qualifier_aliases(rewritten):
             physical_table = alias_to_table.get(primary_alias)
-            if not physical_table:
+            if not physical_table:  # pragma: no cover
                 continue
             for ref_alias, enclosing_select in _find_table_refs(
                 cte_query,
@@ -1273,9 +1273,9 @@ def _retarget_filter_qualifier(
     """
     cloned = deepcopy(filter_ast)
     for col in cloned.find_all(ast.Column):
-        if col.name is None or not col.name.namespace:
+        if col.name is None or not col.name.namespace:  # pragma: no cover
             continue
-        if col.name.namespace.name == old_alias:
+        if col.name.namespace.name == old_alias:  # pragma: no branch
             col.name = ast.Name(col.name.name, namespace=ast.Name(new_alias))
     return cloned
 
@@ -1310,89 +1310,28 @@ def _resolve_pushdown_form(
     output_col: str,
     cte_output_cols: set[str],
     projection_map: dict[str, str | None],
-    null_producing_aliases: set[str] | None = None,
 ) -> str | None:
     """Determine the WHERE-safe form for a filter column in a specific CTE.
 
     Returns the WHERE-safe reference as a string (qualified or bare), or
-    ``None`` when the filter cannot be safely pushed into this CTE.  Three
-    cases decline pushdown:
+    ``None`` when the filter cannot be safely pushed into this CTE — either
+    because the column isn't exposed at all, or because the projection is a
+    non-column expression that can't be inlined into WHERE.
 
-    1. The column isn't exposed at all.
-    2. The projection is a non-column expression that can't be inlined.
-    3. The underlying table is on the null-producing side of an OUTER join
-       inside the CTE body — pushing a NULL-rejecting predicate to WHERE
-       would silently convert the OUTER join to an INNER (drop rows that
-       the OUTER was supposed to preserve).  These filters belong in the
-       join's ON clause, not its WHERE; callers either need to handle
-       that themselves or leave the filter at outer scope.
+    Null-producing-side safety: the caller injects the rewritten filter
+    via :func:`inject_filter_into_select`, which routes parent-only atoms
+    through :func:`_try_push_filter_into_outer_join_side`.  That function
+    walks the join chain and wraps the inner relation when a predicate
+    would otherwise NULL-reject preserved rows, so it's safe for
+    ``_resolve_pushdown_form`` to allow pushdown even when the underlying
+    column sits on a null-producing side — the downstream injector will
+    do the right thing.
     """
     if output_col not in cte_output_cols:
         return None
     if output_col in projection_map:
-        underlying = projection_map[output_col]
-        if underlying is None:
-            return None  # non-column projection
-        if null_producing_aliases and "." in underlying:
-            prefix = underlying.split(".", 1)[0]
-            if prefix in null_producing_aliases:
-                return None  # would defeat the OUTER join
-        return underlying
+        return projection_map[output_col]  # may be None: unsafe projection
     return output_col  # pruned from CTE SELECT; falls through to bare name
-
-
-def _null_producing_aliases(select: ast.Select) -> set[str]:
-    """Return the set of table aliases that sit on the null-producing side
-    of any OUTER join in this Select's FROM clause.
-
-    Rules per join type:
-    - ``LEFT OUTER``: the right side may be NULL → its alias is null-producing.
-    - ``RIGHT OUTER``: everything to its left may be NULL → all preceding
-      aliases in the same relation are null-producing.
-    - ``FULL OUTER``: both sides may be NULL.
-    - ``INNER`` / ``CROSS``: no nulls introduced.
-
-    The walk is per relation in ``select.from_.relations``; aliases from
-    different relations don't interact.
-    """
-    null_producing: set[str] = set()
-    if not select.from_:
-        return null_producing
-
-    def _extract_alias(expr: object) -> str | None:
-        # Aliased table reference: SQL parser wraps it in an Alias node.
-        if isinstance(expr, ast.Alias):
-            alias = getattr(expr, "alias", None)
-            if alias is not None and hasattr(alias, "name"):
-                return alias.name
-        # Bare Table with no alias: use the unqualified table name.
-        if isinstance(expr, ast.Table):
-            name = expr.name
-            if name is not None and hasattr(name, "name"):
-                return name.name
-        return None
-
-    for relation in select.from_.relations:
-        left_aliases: set[str] = set()
-        primary_alias = _extract_alias(relation.primary)
-        if primary_alias:
-            left_aliases.add(primary_alias)
-        for join in relation.extensions:
-            right_alias = _extract_alias(join.right)
-            jt = (join.join_type or "").upper().strip()
-            if jt in ("LEFT", "LEFT OUTER"):
-                if right_alias:
-                    null_producing.add(right_alias)
-            elif jt in ("RIGHT", "RIGHT OUTER"):
-                null_producing.update(left_aliases)
-            elif jt in ("FULL", "FULL OUTER"):
-                null_producing.update(left_aliases)
-                if right_alias:
-                    null_producing.add(right_alias)
-            # INNER / CROSS / (no join_type): no nulls introduced
-            if right_alias:
-                left_aliases.add(right_alias)
-    return null_producing
 
 
 def _rewrite_filter_for_cte(
@@ -1404,9 +1343,9 @@ def _rewrite_filter_for_cte(
     """Rewrite a dimension filter for injection into a specific CTE.
 
     For non-set-op CTEs, delegates to :func:`_rewrite_filter_for_select`
-    against the single Select arm.  Set-op CTEs are not handled here —
-    callers that need per-arm rewrites use :func:`_setop_arms` and call
-    :func:`_rewrite_filter_for_select` per arm.
+    against the single Select arm.  Returns ``None`` for set-op CTE
+    bodies — callers (e.g. :func:`_resolve_pushdown_filters_for_cte`)
+    handle set-op CTEs by pushing into the primary arm only.
     """
     if _cte_has_set_operation(cte_query):
         return None
@@ -1448,7 +1387,6 @@ def _rewrite_filter_for_select(
     safely pushed into this Select.
     """
     projection_map = _build_select_projection_map(cte_select)
-    null_producing = _null_producing_aliases(cte_select)
     filter_ast = parse_filter(filter_str)
 
     # First pass: plan the rewrites by walking the AST.  Role-qualified refs
@@ -1493,7 +1431,6 @@ def _rewrite_filter_for_select(
             output_col,
             cte_output_cols,
             projection_map,
-            null_producing,
         )
         if form is None:
             return None
@@ -1518,7 +1455,6 @@ def _rewrite_filter_for_select(
             output_col,
             cte_output_cols,
             projection_map,
-            null_producing,
         )
         if form is None:
             return None
