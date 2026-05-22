@@ -1108,26 +1108,6 @@ def _inject_filter_into_where(
     inject_filter_into_select(cast(ast.Select, query_ast.select), filter_expr)
 
 
-def _setop_arms(cte_query: ast.Query) -> list[ast.Select]:
-    """Return every Select arm in a (possibly chained) set-operation CTE body.
-
-    A non-set-op CTE returns a single-element list containing its Select.
-    A UNION/INTERSECT/EXCEPT chain returns each arm in order — the first arm
-    is ``cte_query.select`` and subsequent arms hang off ``set_op.right``.
-    """
-    arms: list[ast.Select] = []
-    cur: Optional[ast.Select] = (
-        cte_query.select if isinstance(cte_query.select, ast.Select) else None
-    )
-    while cur is not None:
-        arms.append(cur)
-        nxt = cur.set_op.right if cur.set_op else None
-        # ``set_op.right`` is typed as SelectExpression which may also be a
-        # parenthesised subquery; in practice DJ always emits a Select here.
-        cur = nxt if isinstance(nxt, ast.Select) else None
-    return arms
-
-
 def _resolve_pushdown_filters_for_cte(
     node: "Node",
     cte_query: ast.Query,
@@ -1142,11 +1122,15 @@ def _resolve_pushdown_filters_for_cte(
     using the CTE's internal table-qualified column names and returned, paired
     with the Select node it should be injected into.
 
-    For set-operation CTEs (UNION / INTERSECT / EXCEPT), the rewrite is done
-    independently per arm — each arm's projection may resolve the same output
-    column differently, and pushing only into the first arm would produce
-    semantically wrong SQL.  The push is atomic per filter: if any arm can't
-    accept the rewrite, the filter is skipped for the whole CTE.
+    Set-operation CTEs (UNION / INTERSECT / EXCEPT): the filter is injected
+    into the **primary** Select only — i.e. the first arm of the union
+    chain.  Subsequent arms (reachable via ``set_op.right``) are left
+    untouched.  Matches v2's behavior: transform authors often use
+    asymmetric UNION arms where the secondary arm acts as an unfiltered
+    backstop, and uniformly pushing into every arm would override that
+    intent.  Pushing into the primary arm is still useful — it's where
+    DJ's projection inspection sees the CTE's output schema, and Spark
+    can partition-prune through it just as well as a wrapper subquery.
 
     Returns ``(injections, consumed)`` where ``injections`` is the list of
     ``(target_select, rewritten_filter)`` pairs to inject and ``consumed``
@@ -1160,27 +1144,140 @@ def _resolve_pushdown_filters_for_cte(
     if not node_output_cols:  # pragma: no cover
         return [], set()
 
-    arms = _setop_arms(cte_query)
+    target_select = cast(ast.Select, cte_query.select)
+    alias_to_table = _build_source_alias_map(cte_query)
     results: list[tuple[ast.Select, ast.Expression]] = []
     consumed: set[str] = set()
     for filter_str in pushdown_filters:
-        per_arm: list[tuple[ast.Select, ast.Expression]] = []
-        all_ok = True
-        for arm in arms:
-            rewritten = _rewrite_filter_for_select(
-                filter_str,
-                filter_column_aliases,
-                node_output_cols,
-                arm,
-            )
-            if rewritten is None:
-                all_ok = False
-                break
-            per_arm.append((arm, rewritten))
-        if all_ok:
-            results.extend(per_arm)
-            consumed.add(filter_str)
+        rewritten = _rewrite_filter_for_select(
+            filter_str,
+            filter_column_aliases,
+            node_output_cols,
+            target_select,
+        )
+        if rewritten is None:
+            continue
+        results.append((target_select, rewritten))
+        consumed.add(filter_str)
+
+        # Additionally walk every other reference to the same physical
+        # source tables inside the CTE body and inject a retargeted
+        # copy of the filter at each one's enclosing Select.  This
+        # matches the upstream-pushdown path's ``_resolve_pushdown_targets``
+        # behavior so that the direct-link path is just as thorough:
+        # a transform whose source body references the same fact table
+        # twice (e.g. once at top level, once inside a LEFT JOIN's
+        # nested subquery) gets the filter applied to BOTH references,
+        # not just the top-level alias.
+        for primary_alias in _qualifier_aliases(rewritten):
+            physical_table = alias_to_table.get(primary_alias)
+            if not physical_table:  # pragma: no cover
+                continue
+            for ref_alias, enclosing_select in _find_table_refs(
+                cte_query,
+                physical_table,
+            ):
+                if ref_alias == primary_alias and enclosing_select is target_select:
+                    continue  # already covered by the primary injection
+                cloned = _retarget_filter_qualifier(
+                    rewritten,
+                    primary_alias,
+                    ref_alias,
+                )
+                results.append((enclosing_select, cloned))
     return results, consumed
+
+
+def _build_source_alias_map(cte_query: ast.Query) -> dict[str, str]:
+    """Walk every ``ast.Table`` in the CTE body and build an
+    ``alias → physical_table_name`` map.
+
+    For aliased refs (``Table AS a``) the key is the alias name.  For bare
+    refs (no alias) the key is the table's short name — matching how the
+    SQL parser surfaces them when looking up column qualifications.
+
+    Multiple Table refs sharing the same alias is rare and the last-write
+    wins here.  Callers use this map only to look up the physical table a
+    qualified column reference belongs to, so collisions only matter when
+    the same alias is reused for two different tables in distinct
+    subqueries — a pathological shape DJ doesn't optimize for.
+    """
+    result: dict[str, str] = {}
+    for tbl in cte_query.find_all(ast.Table):
+        try:
+            tbl_name = tbl.name.identifier(quotes=False)
+        except Exception:  # pragma: no cover
+            continue
+        alias = tbl.alias.name if tbl.alias else tbl_name.split(SEPARATOR)[-1]
+        result[alias] = tbl_name
+    return result
+
+
+def _find_table_refs(
+    cte_query: ast.Query,
+    physical_table_name: str,
+) -> list[tuple[str, ast.Select]]:
+    """Find every ``ast.Table`` reference to ``physical_table_name`` in
+    the CTE body and return ``(alias, enclosing_select)`` per match.
+
+    Used by :func:`_resolve_pushdown_filters_for_cte` to inject a filter
+    not just at the CTE's top-level Select but also at every nested
+    subquery that scans the same physical source table.
+    """
+    results: list[tuple[str, ast.Select]] = []
+    for tbl in cte_query.find_all(ast.Table):
+        try:
+            tbl_name = tbl.name.identifier(quotes=False)
+        except Exception:  # pragma: no cover
+            continue
+        if tbl_name != physical_table_name:
+            continue
+        alias = tbl.alias.name if tbl.alias else tbl_name.split(SEPARATOR)[-1]
+        enclosing: Optional[ast.Select] = None
+        cur = getattr(tbl, "parent", None)
+        while cur is not None:  # pragma: no branch
+            if isinstance(cur, ast.Select):
+                enclosing = cur
+                break
+            cur = getattr(cur, "parent", None)
+        if enclosing is not None:  # pragma: no branch
+            results.append((alias, enclosing))
+    return results
+
+
+def _qualifier_aliases(filter_ast: ast.Expression) -> set[str]:
+    """Return the set of distinct qualifier aliases used in ``filter_ast``.
+
+    A column like ``a.snapshot_utc_date`` contributes ``"a"`` to the set;
+    bare column references contribute nothing.
+    """
+    result: set[str] = set()
+    for col in filter_ast.find_all(ast.Column):
+        if col.name and col.name.namespace:
+            result.add(col.name.namespace.name)
+    return result
+
+
+def _retarget_filter_qualifier(
+    filter_ast: ast.Expression,
+    old_alias: str,
+    new_alias: str,
+) -> ast.Expression:
+    """Deepcopy ``filter_ast`` and rewrite every column qualified by
+    ``old_alias`` to be qualified by ``new_alias`` instead.
+
+    Used to clone a primary-Select-targeted filter for injection at a
+    sibling reference to the same physical source table.  The cloned
+    filter uses the sibling's alias so column references resolve in the
+    sibling's scope.
+    """
+    cloned = deepcopy(filter_ast)
+    for col in cloned.find_all(ast.Column):
+        if col.name is None or not col.name.namespace:  # pragma: no cover
+            continue
+        if col.name.namespace.name == old_alias:  # pragma: no branch
+            col.name = ast.Name(col.name.name, namespace=ast.Name(new_alias))
+    return cloned
 
 
 def _cte_has_set_operation(cte_query: ast.Query) -> bool:
@@ -1220,6 +1317,15 @@ def _resolve_pushdown_form(
     ``None`` when the filter cannot be safely pushed into this CTE — either
     because the column isn't exposed at all, or because the projection is a
     non-column expression that can't be inlined into WHERE.
+
+    Null-producing-side safety: the caller injects the rewritten filter
+    via :func:`inject_filter_into_select`, which routes parent-only atoms
+    through :func:`_try_push_filter_into_outer_join_side`.  That function
+    walks the join chain and wraps the inner relation when a predicate
+    would otherwise NULL-reject preserved rows, so it's safe for
+    ``_resolve_pushdown_form`` to allow pushdown even when the underlying
+    column sits on a null-producing side — the downstream injector will
+    do the right thing.
     """
     if output_col not in cte_output_cols:
         return None
@@ -1237,9 +1343,9 @@ def _rewrite_filter_for_cte(
     """Rewrite a dimension filter for injection into a specific CTE.
 
     For non-set-op CTEs, delegates to :func:`_rewrite_filter_for_select`
-    against the single Select arm.  Set-op CTEs are not handled here —
-    callers that need per-arm rewrites use :func:`_setop_arms` and call
-    :func:`_rewrite_filter_for_select` per arm.
+    against the single Select arm.  Returns ``None`` for set-op CTE
+    bodies — callers (e.g. :func:`_resolve_pushdown_filters_for_cte`)
+    handle set-op CTEs by pushing into the primary arm only.
     """
     if _cte_has_set_operation(cte_query):
         return None
@@ -1321,7 +1427,11 @@ def _rewrite_filter_for_select(
         ) or filter_column_aliases.get(base)
         if output_col is None:
             continue  # pragma: no cover
-        form = _resolve_pushdown_form(output_col, cte_output_cols, projection_map)
+        form = _resolve_pushdown_form(
+            output_col,
+            cte_output_cols,
+            projection_map,
+        )
         if form is None:
             return None
         replacement = _column_from_qualified(form)
@@ -1341,7 +1451,11 @@ def _rewrite_filter_for_select(
         if not full_name or full_name not in filter_column_aliases:
             continue
         output_col = filter_column_aliases[full_name]
-        form = _resolve_pushdown_form(output_col, cte_output_cols, projection_map)
+        form = _resolve_pushdown_form(
+            output_col,
+            cte_output_cols,
+            projection_map,
+        )
         if form is None:
             return None
         column_rewrites.append((col, _column_from_qualified(form)))

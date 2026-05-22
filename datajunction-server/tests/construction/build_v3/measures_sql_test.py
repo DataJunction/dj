@@ -8458,16 +8458,16 @@ class TestParentCteFilterLanding:
         )
         assert response.status_code == 200, response.json()
         sql = get_first_grain_group(response.json())["sql"]
-        # Parent CTE body is a UNION ALL.  Shape B (per-arm pushdown)
-        # injects ``event_date >= 20260101`` into each arm's WHERE so
-        # the planner can prune at the source scan; that filter is
-        # marked consumed and drops out of the outer WHERE.  The
-        # ``branch = 'a'`` predicate is NOT pushed per-arm because each
-        # arm projects ``branch`` as a literal (``'a' AS branch``,
-        # ``'b' AS branch``) — pushing a literal-alias predicate into
-        # WHERE would be unsafe.  Since that filter wasn't consumed,
-        # the outer SELECT keeps it.  Regression guarantee: no filter
-        # is silently dropped.
+        # Parent CTE body is a UNION ALL.  DJ pushes the pushable
+        # filter into the PRIMARY arm only (matches v2 behavior).
+        # Subsequent UNION'd arms are left untouched so the author's
+        # asymmetric-arm semantics (e.g. one arm acting as an
+        # unfiltered backstop) survive intact.  The
+        # ``event_date >= 20260101`` filter pushes into arm 1 and is
+        # marked consumed → dropped from outer WHERE.  The
+        # ``branch = 'a'`` filter can't push (arm 1 projects
+        # ``branch`` as the literal ``'a'``, a non-column projection
+        # that's unsafe to inline) so it stays at outer WHERE.
         assert_sql_equal(
             sql,
             """
@@ -8479,7 +8479,6 @@ class TestParentCteFilterLanding:
                 UNION ALL
                 SELECT account_id, event_date, value, 'b' AS branch
                 FROM default.v3.events_setop
-                WHERE event_date >= 20260101
             )
             SELECT t1.branch, SUM(t1.value) value_sum_HASH
             FROM v3_events_union t1
@@ -8607,6 +8606,278 @@ class TestParentCteFilterLanding:
             RIGHT OUTER JOIN v3_right_spine_dim t2
                 ON t1.account_id = t2.account_id
             GROUP BY t2.spine_id
+            """,
+            normalize_aliases=True,
+        )
+
+    @pytest.mark.asyncio
+    async def test_filter_on_left_joined_side_inside_source_body_skips_pushdown(
+        self,
+        client_with_build_v3,
+    ):
+        """Regression for the XP-style LEFT JOIN bug.
+
+        A transform's source body LEFT-joins a side fact to a primary.
+        A filter on a column from the side fact (the null-producing side
+        of the LEFT JOIN inside the source) must NOT be pushed into the
+        CTE's WHERE — that would NULL-reject primary rows whose side
+        fact has no match and silently turn the LEFT JOIN into an INNER.
+
+        With the null-producing-side check in ``_resolve_pushdown_form``,
+        DJ declines the pushdown for such columns and the filter falls
+        through to the outer scope where it's safe.
+        """
+        client = client_with_build_v3
+
+        # Side fact — the null-producing side under the LEFT JOIN inside
+        # the source body.  Exposes a ``measure_date`` column.
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_side_measurements",
+                "description": "side measurements",
+                "columns": [
+                    {"name": "account_id", "type": "int"},
+                    {"name": "measure_date", "type": "int"},
+                    {"name": "measure_value", "type": "double"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "side_measurements",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        # Primary fact source — preserved through the LEFT JOIN inside
+        # the transform's source body.
+        primary_src = await _setup_events_source(
+            client,
+            "left_join_primary",
+            "events_left_join_primary",
+        )
+
+        # Transform whose source body LEFT-joins side measurements to
+        # the primary events.  The LEFT-joined columns end up in the
+        # CTE's projection — the bug was that DJ pushed filters on them
+        # straight into the CTE's WHERE.
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.events_with_side",
+                "query": (
+                    "SELECT e.account_id, e.event_date, e.value, "
+                    "       s.measure_date, s.measure_value "
+                    f"FROM {primary_src} AS e "
+                    "LEFT JOIN v3.src_side_measurements AS s "
+                    "  ON e.account_id = s.account_id"
+                ),
+                "mode": "published",
+                "primary_key": ["account_id", "event_date"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+
+        # Dim link so DJ knows about ``measure_date`` as a filterable dim.
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_measure_date_dim",
+                "description": "measure date dim",
+                "columns": [{"name": "dateint", "type": "int"}],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "measure_dates",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        resp = await client.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.measure_date_dim",
+                "description": "Measure date dim",
+                "query": "SELECT dateint FROM v3.src_measure_date_dim",
+                "mode": "published",
+                "primary_key": ["dateint"],
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        resp = await client.post(
+            "/nodes/v3.events_with_side/link",
+            json={
+                "dimension_node": "v3.measure_date_dim",
+                "join_type": "inner",
+                "join_on": "v3.events_with_side.measure_date = v3.measure_date_dim.dateint",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.events_with_side_count",
+                "query": "SELECT COUNT(*) FROM v3.events_with_side",
+                "mode": "published",
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.events_with_side_count"],
+                "dimensions": ["v3.events_with_side.account_id"],
+                "filters": ["v3.measure_date_dim.dateint = 20260101"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+
+        # DJ wraps the LEFT-joined inner side (``side_measurements``)
+        # with an inline subquery that pre-applies the filter, then the
+        # outer LEFT JOIN preserves primary rows that have no matching
+        # filtered side row.  The filter does NOT sit at the CTE's
+        # top-level WHERE (which would defeat the LEFT JOIN by
+        # NULL-rejecting unmatched primary rows).  This is the
+        # ``_try_push_filter_into_outer_join_side`` safety mechanism
+        # in action — see ``cte.py:1021``.
+        assert_sql_equal(
+            sql,
+            """
+            WITH v3_events_with_side AS (
+              SELECT e.account_id, s.measure_date
+              FROM default.v3.events_left_join_primary AS e
+              LEFT JOIN (
+                SELECT *
+                FROM default.v3.side_measurements AS s
+                WHERE s.measure_date = 20260101
+              ) s ON e.account_id = s.account_id
+            )
+            SELECT t1.account_id, COUNT(*) count_HASH
+            FROM v3_events_with_side t1
+            GROUP BY t1.account_id
+            """,
+            normalize_aliases=True,
+        )
+
+    @pytest.mark.asyncio
+    async def test_filter_pushes_into_nested_subquery_self_reference(
+        self,
+        client_with_build_v3,
+    ):
+        """Transform body references the same source table twice: once
+        at the top-level FROM (alias ``a``) and once inside a nested
+        subquery on the LEFT-joined side (alias ``a2``).  A filter on
+        a column owned by that source must land at BOTH references —
+        not just the top-level one — so Spark partition pruning fires
+        at both scans (and the inner subquery doesn't full-scan).
+
+        Mirrors the XP-style transform pattern where an inner subquery
+        joins ``allocation_core_d a2`` for account-FK lookup.  The
+        direct dim-link pushdown path used to inject only at the
+        top-level alias; the inner ``a2`` reference would scan
+        unfiltered.  This test pins down the v2-parity fix.
+        """
+        client = client_with_build_v3
+
+        # Source: a fact-shaped table with a partition-eligible date column.
+        src = await _setup_events_source(
+            client,
+            "nested_self_ref",
+            "events_nested_self_ref",
+        )
+
+        # Side fact: subscription-style table the transform LEFT-joins
+        # via a nested subquery that references the primary source again.
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_subs_lifecycle",
+                "description": "subscription lifecycle (side fact)",
+                "columns": [
+                    {"name": "account_id", "type": "int"},
+                    {"name": "lifecycle_id", "type": "int"},
+                    {"name": "signup_ts_ms", "type": "bigint"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "subs_lifecycle",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        # Transform with the XP-shape: top-level FROM references the
+        # source once (a), inner subquery references it again (a2).
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.events_with_nested_self",
+                "query": (
+                    "SELECT a.account_id, a.event_date, a.value, "
+                    "       s.lifecycle_id "
+                    f"FROM {src} AS a "
+                    "LEFT JOIN ("
+                    "  SELECT rev.account_id, rev.lifecycle_id "
+                    "  FROM v3.src_subs_lifecycle AS rev "
+                    f"  JOIN {src} AS a2 ON a2.account_id = rev.account_id "
+                    "  WHERE rev.signup_ts_ms > 0 "
+                    ") AS s ON a.account_id = s.account_id"
+                ),
+                "mode": "published",
+                "primary_key": ["account_id", "event_date"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.events_with_nested_self_count",
+                "query": "SELECT COUNT(*) FROM v3.events_with_nested_self",
+                "mode": "published",
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.events_with_nested_self_count"],
+                "dimensions": ["v3.events_with_nested_self.account_id"],
+                "filters": [
+                    "v3.events_with_nested_self.event_date = 20260101",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        # The filter ``event_date = 20260101`` is pushed into BOTH:
+        #   - the top-level CTE WHERE (qualified to ``a``), and
+        #   - the inner subquery's WHERE (qualified to ``a2``),
+        # because both ``a`` and ``a2`` reference the same source table
+        # ``events_nested_self_ref``.  Without the per-Table-reference
+        # walk, only the top-level injection would happen and the inner
+        # scan would run unfiltered.
+        assert_sql_equal(
+            sql,
+            """
+            WITH v3_events_with_nested_self AS (
+              SELECT a.account_id, a.event_date
+              FROM default.v3.events_nested_self_ref AS a
+              LEFT JOIN (
+                SELECT rev.account_id, rev.lifecycle_id
+                FROM default.v3.subs_lifecycle AS rev
+                JOIN default.v3.events_nested_self_ref AS a2
+                  ON a2.account_id = rev.account_id
+                WHERE rev.signup_ts_ms > 0 AND a2.event_date = 20260101
+              ) AS s ON a.account_id = s.account_id
+              WHERE a.event_date = 20260101
+            )
+            SELECT t1.account_id, COUNT(*) count_HASH
+            FROM v3_events_with_nested_self t1
+            GROUP BY t1.account_id
             """,
             normalize_aliases=True,
         )
