@@ -785,6 +785,7 @@ class ColumnOutput(BaseModel):
     attributes: Optional[List[AttributeOutput]] = None
     dimension: Optional[NodeNameOutput] = None
     partition: Optional[PartitionOutput] = None
+    unit: Optional[dict] = None
 
     model_config = ConfigDict(from_attributes=True, validate_assignment=True)
 

@@ -2281,6 +2281,7 @@ async def test_updating_cube(
                 "dimension": None,
                 "dimension_column": None,
                 "partition": None,
+                "unit": None,
             },
             {
                 "name": "default.hard_hat.city",
@@ -2291,6 +2292,7 @@ async def test_updating_cube(
                 "dimension": None,
                 "dimension_column": None,
                 "partition": None,
+                "unit": None,
             },
             {
                 "name": "default.hard_hat.hire_date",
@@ -2306,6 +2308,7 @@ async def test_updating_cube(
                     "granularity": "day",
                     "expression": None,
                 },
+                "unit": None,
             },
         ],
         key=lambda x: x["name"],  # type: ignore

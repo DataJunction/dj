@@ -3,6 +3,7 @@
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
 from sqlalchemy import BigInteger, ForeignKey, Index, Integer, String
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from datajunction_server.database.attributetype import ColumnAttribute
@@ -44,6 +45,10 @@ class Column(Base):  # type: ignore
     )
     type: Mapped[Optional[ColumnType]] = mapped_column(ColumnTypeDecorator)
     description: Mapped[Optional[str]] = mapped_column()
+
+    # Structured unit metadata. JSONB to accommodate atomic and compound shapes.
+    # Validated at the model layer via datajunction_server.models.unit.Unit.
+    unit: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
 
     dimension_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("node.id", ondelete="SET NULL", name="fk_column_dimension_id_node"),
@@ -109,6 +114,7 @@ class Column(Base):  # type: ignore
             attributes=self.attribute_names(),
             partition=self.partition.to_spec() if self.partition else None,
             order=self.order,
+            unit=self.unit,
         )
 
     def identifier(self) -> Tuple[str, ColumnType]:
@@ -180,6 +186,7 @@ class Column(Base):  # type: ignore
             display_name=self.display_name,
             type=self.type,
             description=self.description,
+            unit=self.unit,
             dimension_id=self.dimension_id,
             dimension_column=self.dimension_column,
             attributes=[

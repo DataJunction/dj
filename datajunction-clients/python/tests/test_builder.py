@@ -1352,6 +1352,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             "dimension": None,
             "dimension_column": None,
             "partition": None,
+            "unit": None,
         } in response["columns"]
         assert {
             "name": "last_name",
@@ -1364,6 +1365,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             "dimension": None,
             "dimension_column": None,
             "partition": None,
+            "unit": None,
         } in response["columns"]
 
     def test_update_custom_metadata(self, client):
@@ -1404,6 +1406,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
                 "name": "state_id",
                 "type": "int",
                 "partition": None,
+                "unit": None,
             },
             {
                 "attributes": [],
@@ -1414,6 +1417,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
                 "name": "name",
                 "type": "string",
                 "partition": None,
+                "unit": None,
             },
             {
                 "attributes": [],
@@ -1424,6 +1428,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
                 "name": "abbr",
                 "type": "string",
                 "partition": None,
+                "unit": None,
             },
             {
                 "attributes": [],
@@ -1434,6 +1439,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
                 "name": "region",
                 "type": "int",
                 "partition": None,
+                "unit": None,
             },
         ]
         assert response["version"] == "v2.0"
@@ -1478,6 +1484,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
                 "name": "contact_title",
                 "type": "string",
                 "partition": None,
+                "unit": None,
             },
         ]
 

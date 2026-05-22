@@ -1210,6 +1210,7 @@ async def test_metric_expression_auto_aliased(module__client_with_roads: AsyncCl
             "display_name": "Dream Count 4",
             "name": "basic_DOT_dream_count_4",
             "partition": None,
+            "unit": None,
             "type": "bigint",
         },
     ]

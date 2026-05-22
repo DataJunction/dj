@@ -62,6 +62,7 @@ class ColumnYAML(TypedDict, total=False):
     type: str
     dimension: str
     description: str
+    unit: dict
 
 
 class ColumnTypeDecorator(TypeDecorator):
