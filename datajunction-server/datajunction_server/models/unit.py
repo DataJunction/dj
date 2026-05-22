@@ -10,9 +10,12 @@ Stored as JSONB on `column.unit`. Validated at the Pydantic layer.
 
 import re
 from enum import Enum
-from typing import Annotated, Any, Union
+from typing import TYPE_CHECKING, Annotated, Any, Union
 
 from pydantic import BaseModel, Discriminator, Tag, model_validator
+
+if TYPE_CHECKING:
+    from datajunction_server.models.node import MetricUnit
 
 
 class UnitKind(str, Enum):
@@ -202,3 +205,97 @@ Unit = Annotated[
     ],
     Discriminator(_unit_discriminator),
 ]
+
+
+# -------------------------------------------------------------------------
+# Legacy <-> structured translation.
+#
+# The legacy `MetricUnit` enum (datajunction_server.models.node.MetricUnit)
+# was a flat one-per-(kind, denomination) enumeration applied only to metric
+# nodes. The new structured `Unit` lives on every column. These functions
+# translate between the two so that:
+#   - existing YAML / API input using the legacy `unit: <flat string>` keeps
+#     working (PR 2 wires this on the input side).
+#   - the legacy `metricmetadata.unit` DB column can be dual-written from
+#     `column.unit` for rollback safety (PR 2 wires this on the storage side).
+#   - the legacy `metric_metadata.unit` API field can be derived from
+#     `column.unit` for downstream consumers (PR 4 wires this on the output
+#     side; the reverse function lands here so it lives next to its inverse).
+#
+# Translation is intentionally lossy in the reverse direction: structured
+# values the legacy enum can't represent (non-USD currencies, compound
+# units, data sizes, count-with-code) map to None. The legacy column simply
+# isn't populated for those.
+# -------------------------------------------------------------------------
+
+# Keyed by MetricUnit.name (not the enum member itself) so this module can
+# avoid importing node.py at module load. Callers translate to/from the enum
+# at the call site.
+_LEGACY_NAME_TO_STRUCTURED: dict[str, dict | None] = {
+    "UNKNOWN": None,
+    "UNITLESS": {"kind": "unitless"},
+    "PERCENTAGE": {"kind": "percentage"},
+    "PROPORTION": {"kind": "proportion"},
+    "DOLLAR": {"kind": "currency", "code": "USD"},
+    "MILLISECOND": {"kind": "time", "code": "ms"},
+    "SECOND": {"kind": "time", "code": "s"},
+    "MINUTE": {"kind": "time", "code": "min"},
+    "HOUR": {"kind": "time", "code": "h"},
+    "DAY": {"kind": "time", "code": "d"},
+    "WEEK": {"kind": "time", "code": "wk"},
+    "MONTH": {"kind": "time", "code": "mo"},
+    "YEAR": {"kind": "time", "code": "yr"},
+    # BIT, BYTE intentionally omitted — unused in production data.
+}
+
+
+def legacy_unit_to_structured(
+    legacy: "MetricUnit | None",
+) -> dict | None:
+    """
+    Translate a legacy `MetricUnit` enum value into a structured `Unit` dict.
+
+    Returns None for `MetricUnit.UNKNOWN` and for `None`, since both mean
+    "no unit set." Returns `{kind: unitless}` for `MetricUnit.UNITLESS`,
+    preserving the distinction between "explicitly no unit" and "not set."
+    """
+    if legacy is None:
+        return None
+    return _LEGACY_NAME_TO_STRUCTURED.get(legacy.name)
+
+
+def structured_to_legacy_unit_name(unit: dict | None) -> str | None:
+    """
+    Translate a structured `Unit` dict back to the legacy `MetricUnit.name`
+    when expressible. Returns None when the structured value has no legacy
+    equivalent (non-USD currencies, compound units, data sizes, count with
+    code, etc.) — callers should treat that as "don't populate the legacy
+    column."
+
+    Returns the enum member name (e.g. "DOLLAR"), not a MetricUnit instance,
+    so this module stays import-free of node.py. Callers do
+    `MetricUnit[name]` at the call site.
+    """
+    if unit is None:
+        return None
+    # Compound units have no legacy equivalent.
+    if "numerator" in unit:
+        return None
+    kind = unit.get("kind")
+    code = unit.get("code")
+    if kind == "unitless":
+        return "UNITLESS"
+    if kind == "percentage":
+        return "PERCENTAGE"
+    if kind == "proportion":
+        return "PROPORTION"
+    if kind == "currency":
+        return "DOLLAR" if code == "USD" else None
+    if kind == "time":
+        # Reverse of _LEGACY_NAME_TO_STRUCTURED for the time kind.
+        for legacy_name, structured in _LEGACY_NAME_TO_STRUCTURED.items():
+            if structured == {"kind": "time", "code": code}:
+                return legacy_name
+        return None
+    # count, data_size — no legacy equivalent.
+    return None

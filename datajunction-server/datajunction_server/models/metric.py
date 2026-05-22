@@ -42,6 +42,11 @@ class Metric(BaseModel):
 
     dimensions: List[DimensionAttributeOutput]
     metric_metadata: Optional[MetricMetadataOutput] = None
+    # Structured metric-level unit, derived from the metric's output column.
+    # `metric_metadata.unit` remains the legacy flat-string field for
+    # back-compat; `unit` is the structured shape and is the source of truth
+    # going forward. `None` when no unit is set, regardless of input shape.
+    unit: Optional[Dict] = None
     required_dimensions: List[str]
 
     incompatible_druid_functions: List[str]
@@ -88,6 +93,7 @@ class Metric(BaseModel):
             expression=str(query_ast.select.projection[0]),
             dimensions=dims,
             metric_metadata=node.current.metric_metadata,
+            unit=(node.current.columns[0].unit if node.current.columns else None),
             required_dimensions=[dim.name for dim in node.current.required_dimensions],
             incompatible_druid_functions=incompatible_druid_functions,
             measures=measures,

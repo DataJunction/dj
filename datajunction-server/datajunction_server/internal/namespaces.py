@@ -1445,7 +1445,14 @@ def _has_column_customizations(col: dict) -> bool:
         "attributes",
         [],
     )
-    return has_custom_display or has_attributes or has_description or has_partition
+    has_unit = bool(col.get("unit"))
+    return (
+        has_custom_display
+        or has_attributes
+        or has_description
+        or has_partition
+        or has_unit
+    )
 
 
 def _merge_columns_preserving_comments(existing_list, new_list, is_cube=False):
@@ -1737,9 +1744,18 @@ def _node_spec_to_yaml_dict(node_spec, include_all_columns=False) -> dict:
 
     # Filter columns to only include meaningful customizations
     # Special case for cubes: ALWAYS only export columns with partitions
+    # Special case for metrics: the metric's output column has a generated
+    # name and its unit is emitted at the metric spec top level via the
+    # `unit:` field. Suppress per-column unit on metric exports to avoid
+    # double-emission with the metric-level `unit:`.
     # For other nodes: respect include_all_columns flag to preserve comments
     if "columns" in data and data["columns"] is not None:
         is_cube = data.get("node_type") == "cube"
+        is_metric = data.get("node_type") == "metric"
+
+        if is_metric:
+            for col in data["columns"]:
+                col.pop("unit", None)
 
         # Cubes: always filter to only partitions (even when preserving comments)
         # Other nodes: only filter when include_all_columns=False

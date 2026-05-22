@@ -6,11 +6,14 @@ import pytest
 from pydantic import TypeAdapter, ValidationError
 
 from datajunction_server.models.deployment import ColumnSpec
+from datajunction_server.models.node import MetricUnit
 from datajunction_server.models.unit import (
     AtomicUnit,
     CompoundUnit,
     Unit,
     UnitKind,
+    legacy_unit_to_structured,
+    structured_to_legacy_unit_name,
 )
 
 _unit_adapter: TypeAdapter[Unit] = TypeAdapter(Unit)
@@ -206,3 +209,119 @@ class TestColumnSpecUnit:
         assert dumped["unit"] == {"kind": "currency", "code": "USD"}
         roundtripped = ColumnSpec.model_validate(dumped)
         assert roundtripped == spec
+
+
+class TestLegacyUnitTranslation:
+    """
+    Coverage for `legacy_unit_to_structured` and `structured_to_legacy_unit_name`.
+    """
+
+    @pytest.mark.parametrize(
+        ("legacy", "structured"),
+        [
+            (MetricUnit.UNKNOWN, None),
+            (MetricUnit.UNITLESS, {"kind": "unitless"}),
+            (MetricUnit.PERCENTAGE, {"kind": "percentage"}),
+            (MetricUnit.PROPORTION, {"kind": "proportion"}),
+            (MetricUnit.DOLLAR, {"kind": "currency", "code": "USD"}),
+            (MetricUnit.MILLISECOND, {"kind": "time", "code": "ms"}),
+            (MetricUnit.SECOND, {"kind": "time", "code": "s"}),
+            (MetricUnit.MINUTE, {"kind": "time", "code": "min"}),
+            (MetricUnit.HOUR, {"kind": "time", "code": "h"}),
+            (MetricUnit.DAY, {"kind": "time", "code": "d"}),
+            (MetricUnit.WEEK, {"kind": "time", "code": "wk"}),
+            (MetricUnit.MONTH, {"kind": "time", "code": "mo"}),
+            (MetricUnit.YEAR, {"kind": "time", "code": "yr"}),
+        ],
+    )
+    def test_forward_translation_matches_table(
+        self,
+        legacy: MetricUnit,
+        structured: dict | None,
+    ) -> None:
+        assert legacy_unit_to_structured(legacy) == structured
+
+    def test_forward_translation_handles_none(self) -> None:
+        assert legacy_unit_to_structured(None) is None
+
+    def test_forward_translation_bit_byte_unused(self) -> None:
+        # BIT / BYTE have zero rows in production and are intentionally
+        # absent from the translation table. They map to None — callers
+        # treat that the same as UNKNOWN.
+        assert legacy_unit_to_structured(MetricUnit.BIT) is None
+        assert legacy_unit_to_structured(MetricUnit.BYTE) is None
+
+    @pytest.mark.parametrize(
+        ("structured", "legacy_name"),
+        [
+            ({"kind": "unitless"}, "UNITLESS"),
+            ({"kind": "percentage"}, "PERCENTAGE"),
+            ({"kind": "proportion"}, "PROPORTION"),
+            ({"kind": "currency", "code": "USD"}, "DOLLAR"),
+            ({"kind": "time", "code": "ms"}, "MILLISECOND"),
+            ({"kind": "time", "code": "s"}, "SECOND"),
+            ({"kind": "time", "code": "min"}, "MINUTE"),
+            ({"kind": "time", "code": "h"}, "HOUR"),
+            ({"kind": "time", "code": "d"}, "DAY"),
+            ({"kind": "time", "code": "wk"}, "WEEK"),
+            ({"kind": "time", "code": "mo"}, "MONTH"),
+            ({"kind": "time", "code": "yr"}, "YEAR"),
+        ],
+    )
+    def test_reverse_translation_matches_table(
+        self,
+        structured: dict,
+        legacy_name: str,
+    ) -> None:
+        assert structured_to_legacy_unit_name(structured) == legacy_name
+
+    @pytest.mark.parametrize(
+        "structured",
+        [
+            None,
+            {"kind": "currency", "code": "EUR"},  # non-USD
+            {"kind": "currency", "code": None},  # currency with no code
+            {"kind": "data_size", "code": "MB"},  # no legacy equivalent
+            {"kind": "count", "code": "clicks"},  # no legacy equivalent
+            {"kind": "count"},  # no legacy equivalent
+            {
+                "numerator": {"kind": "count"},
+                "denominator": {"kind": "time", "code": "s"},
+            },  # compound
+            # time with a code that exists in the new vocabulary but not
+            # in any legacy enum member (today there is no such code, but
+            # this guards against future additions to TIME_CODES that
+            # aren't reflected in _LEGACY_NAME_TO_STRUCTURED).
+            {"kind": "time", "code": "fortnight"},
+        ],
+    )
+    def test_reverse_translation_returns_none_for_inexpressible(
+        self,
+        structured: dict | None,
+    ) -> None:
+        assert structured_to_legacy_unit_name(structured) is None
+
+    @pytest.mark.parametrize(
+        "legacy",
+        [
+            MetricUnit.UNITLESS,
+            MetricUnit.PERCENTAGE,
+            MetricUnit.PROPORTION,
+            MetricUnit.DOLLAR,
+            MetricUnit.MILLISECOND,
+            MetricUnit.SECOND,
+            MetricUnit.MINUTE,
+            MetricUnit.HOUR,
+            MetricUnit.DAY,
+            MetricUnit.WEEK,
+            MetricUnit.MONTH,
+            MetricUnit.YEAR,
+        ],
+    )
+    def test_round_trip_legacy_to_structured_to_legacy(
+        self,
+        legacy: MetricUnit,
+    ) -> None:
+        structured = legacy_unit_to_structured(legacy)
+        assert structured is not None
+        assert structured_to_legacy_unit_name(structured) == legacy.name
