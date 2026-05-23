@@ -3524,9 +3524,10 @@ class DeploymentOrchestrator:
             if new_revision.columns:  # pragma: no branch
                 new_revision.columns[0].display_name = new_revision.display_name
 
-            # PR 2 back-compat: bridge legacy metric_metadata.unit and
-            # structured columns[0].unit so users on either input shape
-            # end up with both fields populated where expressible.
+            # Bridge legacy metric_metadata.unit and structured
+            # columns[0].unit so users on either input shape end up with
+            # both fields populated where expressible. See
+            # `_reconcile_metric_unit` for the full precedence rules.
             output_col = new_revision.columns[0] if new_revision.columns else None
             self._reconcile_metric_unit(metric_spec, output_col)
 
@@ -3643,11 +3644,12 @@ class DeploymentOrchestrator:
         output_col: Column | None,
     ) -> MetricUnit | None:
         """
-        Compute the value to write to `metricmetadata.unit` (legacy DB
-        column) given the canonical structured `output_col.unit`. This is
-        the dual-write that preserves rollback safety: if PR 4 is reverted,
-        the legacy column still holds the right value for everything the
-        legacy enum can represent.
+        Compute the value to write to the legacy `metricmetadata.unit` DB
+        column given the canonical structured `output_col.unit`. Dual-writing
+        the legacy column keeps it in sync with `column.unit` so:
+          - API consumers reading `metric_metadata.unit` keep seeing values.
+          - A code rollback to a release that reads only the legacy column
+            still finds the right data for everything the enum can express.
 
         Returns None when the structured value has no legacy equivalent
         (non-USD currencies, compound units, data sizes, count with code) —

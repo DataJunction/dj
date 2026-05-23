@@ -215,12 +215,12 @@ Unit = Annotated[
 # nodes. The new structured `Unit` lives on every column. These functions
 # translate between the two so that:
 #   - existing YAML / API input using the legacy `unit: <flat string>` keeps
-#     working (PR 2 wires this on the input side).
+#     parsing into the canonical `column.unit` storage.
 #   - the legacy `metricmetadata.unit` DB column can be dual-written from
-#     `column.unit` for rollback safety (PR 2 wires this on the storage side).
+#     `column.unit` to keep API consumers reading the legacy field happy.
 #   - the legacy `metric_metadata.unit` API field can be derived from
-#     `column.unit` for downstream consumers (PR 4 wires this on the output
-#     side; the reverse function lands here so it lives next to its inverse).
+#     `column.unit` for downstream consumers (the reverse function lands here
+#     so it lives next to its inverse).
 #
 # Translation is intentionally lossy in the reverse direction: structured
 # values the legacy enum can't represent (non-USD currencies, compound
@@ -245,7 +245,11 @@ _LEGACY_NAME_TO_STRUCTURED: dict[str, dict | None] = {
     "WEEK": {"kind": "time", "code": "wk"},
     "MONTH": {"kind": "time", "code": "mo"},
     "YEAR": {"kind": "time", "code": "yr"},
-    # BIT, BYTE intentionally omitted — unused in production data.
+    "BYTE": {"kind": "data_size", "code": "B"},
+    # BIT has no entry in DATA_SIZE_CODES (which uses byte-based units like
+    # B, KB, MB, ... and their binary cousins KiB, MiB). Bits are atypical
+    # in BI / data-platform metrics; if a user appears, add "b" to
+    # DATA_SIZE_CODES and {"BIT": {"kind": "data_size", "code": "b"}} here.
 }
 
 
@@ -291,11 +295,13 @@ def structured_to_legacy_unit_name(unit: dict | None) -> str | None:
         return "PROPORTION"
     if kind == "currency":
         return "DOLLAR" if code == "USD" else None
-    if kind == "time":
-        # Reverse of _LEGACY_NAME_TO_STRUCTURED for the time kind.
+    if kind in ("time", "data_size"):
+        # Reverse of _LEGACY_NAME_TO_STRUCTURED for kinds where multiple
+        # legacy enum members map by code.
+        target = {"kind": kind, "code": code}
         for legacy_name, structured in _LEGACY_NAME_TO_STRUCTURED.items():
-            if structured == {"kind": "time", "code": code}:
+            if structured == target:
                 return legacy_name
         return None
-    # count, data_size — no legacy equivalent.
+    # count — free-form code, no legacy equivalent.
     return None

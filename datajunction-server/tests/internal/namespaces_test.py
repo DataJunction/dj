@@ -462,8 +462,9 @@ class TestNodeSpecToYaml:
     def test_column_with_unit_is_exported(self):
         """A column whose only customization is a unit must still be exported.
 
-        Before PR 2's fix to `_has_column_customizations`, a unit-only column
-        was treated as "unmodified" and silently dropped from the YAML.
+        `_has_column_customizations` recognizes `unit` alongside display_name,
+        description, attributes, and partition; without that, a unit-only
+        column would be treated as "unmodified" and silently dropped.
         """
         spec = TransformSpec(
             name="ns.transforms.t",
