@@ -1,9 +1,7 @@
 """
-Legacy `unit:` YAML compatibility test.
-
-Verifies that a metric authored with the legacy flat-string form
-(`unit: dollar`) — the shape every existing pre-PR-2 YAML uses — continues
-to work end-to-end after PR 1, PR 2, and PR 2.5:
+End-to-end compatibility test for the legacy flat-string `unit:` form
+(e.g. `unit: dollar`) — the shape every metric YAML used before the unit
+lift to `column.unit`. Verifies:
 
   1. The YAML parses through `MetricSpec` without errors.
   2. The orchestrator's reconcile + derive helpers populate both the
@@ -14,8 +12,6 @@ to work end-to-end after PR 1, PR 2, and PR 2.5:
      dict), preserving the user's authoring intent for round-trip stability.
   4. `node_spec_to_yaml` emits `unit: dollar` (legacy string), not a
      structured dict, when the value is legacy-expressible.
-
-This is the "did legacy keep working?" smoke test for the unit lift.
 """
 
 from unittest.mock import MagicMock
@@ -36,9 +32,9 @@ from datajunction_server.models.unit import (
 )
 
 
-# A representative legacy metric YAML — the exact shape every pre-PR-2
-# user has on disk today. No `columns:` block. No structured `unit:`. Just
-# the flat-string field at the metric spec top level.
+# A representative legacy metric YAML — flat-string `unit:` at the metric
+# spec top level, no `columns:` block, no structured unit. This is the
+# shape every existing metric YAML uses.
 LEGACY_METRIC_YAML = """\
 name: legacy_compat.total_revenue
 node_type: metric

@@ -2676,7 +2676,7 @@ async def test_auto_register_sources_uses_sqlalchemy_for_system_catalog(
 
 
 # -------------------------------------------------------------------------
-# PR 2 — legacy/structured unit bridging in the orchestrator
+# Legacy/structured unit bridging in the orchestrator metric-deploy path.
 # -------------------------------------------------------------------------
 
 

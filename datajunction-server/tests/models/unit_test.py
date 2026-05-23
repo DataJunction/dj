@@ -244,12 +244,17 @@ class TestLegacyUnitTranslation:
     def test_forward_translation_handles_none(self) -> None:
         assert legacy_unit_to_structured(None) is None
 
-    def test_forward_translation_bit_byte_unused(self) -> None:
-        # BIT / BYTE have zero rows in production and are intentionally
-        # absent from the translation table. They map to None — callers
-        # treat that the same as UNKNOWN.
+    def test_forward_translation_byte_maps_to_data_size(self) -> None:
+        # BYTE has a clean structured equivalent under DATA_SIZE.
+        assert legacy_unit_to_structured(MetricUnit.BYTE) == {
+            "kind": "data_size",
+            "code": "B",
+        }
+
+    def test_forward_translation_bit_unmapped(self) -> None:
+        # BIT has no entry in DATA_SIZE_CODES (bytes-only) so it maps to
+        # None until/unless someone needs it.
         assert legacy_unit_to_structured(MetricUnit.BIT) is None
-        assert legacy_unit_to_structured(MetricUnit.BYTE) is None
 
     @pytest.mark.parametrize(
         ("structured", "legacy_name"),
@@ -266,6 +271,7 @@ class TestLegacyUnitTranslation:
             ({"kind": "time", "code": "wk"}, "WEEK"),
             ({"kind": "time", "code": "mo"}, "MONTH"),
             ({"kind": "time", "code": "yr"}, "YEAR"),
+            ({"kind": "data_size", "code": "B"}, "BYTE"),
         ],
     )
     def test_reverse_translation_matches_table(
@@ -281,7 +287,7 @@ class TestLegacyUnitTranslation:
             None,
             {"kind": "currency", "code": "EUR"},  # non-USD
             {"kind": "currency", "code": None},  # currency with no code
-            {"kind": "data_size", "code": "MB"},  # no legacy equivalent
+            {"kind": "data_size", "code": "MB"},  # only BYTE has legacy form
             {"kind": "count", "code": "clicks"},  # no legacy equivalent
             {"kind": "count"},  # no legacy equivalent
             {
@@ -316,6 +322,7 @@ class TestLegacyUnitTranslation:
             MetricUnit.WEEK,
             MetricUnit.MONTH,
             MetricUnit.YEAR,
+            MetricUnit.BYTE,
         ],
     )
     def test_round_trip_legacy_to_structured_to_legacy(

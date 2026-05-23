@@ -583,11 +583,12 @@ async def create_node_revision(
     if node_revision.type == NodeType.METRIC:
         if node_revision.columns:
             node_revision.columns[0].display_name = node_revision.display_name
-            # Bridge legacy metric_metadata.unit onto columns[0].unit so the
-            # direct create-metric endpoint produces the same DB state as the
-            # deployment orchestrator path (PR 2). Without this, metrics
-            # created via /nodes/metric/ have no column.unit, while the same
-            # node copied via branch fast-path does — causing spec drift.
+            # Bridge legacy metric_metadata.unit onto columns[0].unit so this
+            # endpoint produces the same DB state as the deployment
+            # orchestrator. Without this, metrics created here have no
+            # column.unit while the same node copied via branch fast-path
+            # (which routes through the orchestrator) does — causing spec
+            # drift that surfaces as cube column inheritance mismatches.
             if (
                 node_revision.metric_metadata
                 and node_revision.metric_metadata.unit
