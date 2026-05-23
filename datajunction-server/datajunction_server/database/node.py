@@ -174,6 +174,36 @@ def _build_search_score(
     return relevance * branch_boost * popularity
 
 
+def _resolve_metric_unit_for_spec(
+    col_unit: dict | None,
+    legacy_from_md: "Any | None",
+) -> "Tuple[Any | None, dict | None]":
+    """
+    Decide which of (legacy enum, structured dict) to populate on a MetricSpec
+    when round-tripping a metric back from the DB.
+
+    Rules (preserves authoring intent on round-trip):
+      - No structured `column.unit` → emit only the legacy field (whatever was
+        in metric_metadata.unit), structured stays None.
+      - Structured `column.unit` is legacy-expressible (USD, percentage, time
+        codes, etc.) → keep the legacy field as authoritative so `unit: dollar`
+        round-trips as `unit: dollar`, not `unit: {kind: currency, code: USD}`.
+        Structured stays None.
+      - Structured `column.unit` is NOT legacy-expressible (EUR, compound,
+        count-with-code, data_size) → populate structured, null the legacy so
+        nothing tries to dual-emit.
+
+    Returns (legacy_for_spec, structured_for_spec).
+    """
+    from datajunction_server.models.unit import structured_to_legacy_unit_name
+
+    if col_unit is None:
+        return legacy_from_md, None
+    if structured_to_legacy_unit_name(col_unit) is None:
+        return None, col_unit
+    return legacy_from_md, None
+
+
 class NodeRelationship(Base):
     """
     Join table for self-referential many-to-many relationships between nodes.
@@ -545,15 +575,6 @@ class Node(Base):
 
         # Metric-specific
         if self.type == NodeType.METRIC:
-            # Prefer the structured column unit on export when it can't be
-            # expressed as a legacy enum (non-USD currency, compound, count
-            # with code, data_size, etc.). Otherwise fall back to the
-            # legacy metric_metadata.unit so round-trip preserves the
-            # author's original `unit: dollar` shape.
-            from datajunction_server.models.unit import (
-                structured_to_legacy_unit_name,
-            )
-
             col_unit = (
                 self.current.columns[0].unit
                 if self.current.columns and self.current.columns[0].unit
@@ -564,16 +585,10 @@ class Node(Base):
                 if self.current.metric_metadata and self.current.metric_metadata.unit
                 else None
             )
-            structured_spec: dict | None = None
-            legacy_spec = legacy_from_md
-            if col_unit is not None:
-                if structured_to_legacy_unit_name(col_unit) is None:
-                    # Not legacy-expressible — use structured form, drop
-                    # the legacy field to avoid double-emit.
-                    structured_spec = col_unit
-                    legacy_spec = None
-                # If legacy-expressible, keep legacy_from_md (preserves
-                # original `unit: dollar` shape on round-trip).
+            legacy_spec, structured_spec = _resolve_metric_unit_for_spec(
+                col_unit,
+                legacy_from_md,
+            )
 
             extra_kwargs.update(
                 required_dimensions=sorted(

@@ -583,6 +583,25 @@ async def create_node_revision(
     if node_revision.type == NodeType.METRIC:
         if node_revision.columns:
             node_revision.columns[0].display_name = node_revision.display_name
+            # Bridge legacy metric_metadata.unit onto columns[0].unit so the
+            # direct create-metric endpoint produces the same DB state as the
+            # deployment orchestrator path (PR 2). Without this, metrics
+            # created via /nodes/metric/ have no column.unit, while the same
+            # node copied via branch fast-path does — causing spec drift.
+            if (
+                node_revision.metric_metadata
+                and node_revision.metric_metadata.unit
+                and node_revision.columns[0].unit is None
+            ):
+                from datajunction_server.models.unit import (
+                    legacy_unit_to_structured,
+                )
+
+                structured = legacy_unit_to_structured(
+                    node_revision.metric_metadata.unit,
+                )
+                if structured is not None:
+                    node_revision.columns[0].unit = structured
     node_revision.catalog_id = catalog_id
     return node_revision
 
