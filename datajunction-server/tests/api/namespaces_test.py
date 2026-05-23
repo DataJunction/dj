@@ -854,6 +854,7 @@ async def test_export_namespaces_deployment(client_with_roads: AsyncClient):
                 "display_name": "Num Repair Orders",
                 "name": "${prefix}num_repair_orders",
                 "type": "bigint",
+                "unit": {"kind": "currency", "code": "USD"},
             },
             {
                 "attributes": [],
