@@ -9305,7 +9305,9 @@ class TestParentCteFilterLanding:
             json={
                 "name": "v3.alloc_with_sibling",
                 "query": (
-                    "SELECT * FROM ("
+                    "SELECT s.account_id, s.snapshot_utc_date, "
+                    "       s.alloc_value, s.sibling_value "
+                    "FROM ("
                     "  SELECT a.account_id, a.snapshot_utc_date, "
                     "         a.alloc_value, sib.sibling_value "
                     "  FROM v3.src_sibling_two_cols sib "
@@ -9401,7 +9403,7 @@ class TestParentCteFilterLanding:
             "/nodes/transform/",
             json={
                 "name": "v3.star_proj_xform",
-                "query": "SELECT * FROM v3.src_star_proj",
+                "query": ("SELECT account_id, utc_date, val_a FROM v3.src_star_proj"),
                 "mode": "published",
                 "primary_key": ["account_id", "utc_date"],
             },

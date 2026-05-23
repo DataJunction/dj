@@ -1605,22 +1605,37 @@ def _populate_scope_column_aliases(
             or physical_to_node.get(tbl_name)
         )
         if target_node and target_node.current:
-            if target_node.current.columns:
-                for col in target_node.current.columns:
-                    if col.name not in col_alias:
-                        col_alias[col.name] = (alias_name, col.name)
-            # Register dim-link-aware entries so filters that target
-            # a specific dim ref resolve to *this* table's alias,
-            # even when a sibling table in the same scope exposes
-            # the same bare column name.
             from datajunction_server.construction.build_v3.utils import get_short_name
 
+            # Dim-link-derived entries — for each dim the node
+            # explicitly links to, register a ``dim_pk_fqn → (alias,
+            # fk_col)`` entry.  This is the ONLY route column-aware
+            # retargeting uses to push filters into this scope; a
+            # bare-col fallback was tried but caused over-aggressive
+            # pushdown into tables that incidentally share a column
+            # name with the filter's dim but aren't actually linked
+            # to it (e.g. pushing ``alloc_utc_date BETWEEN ...`` into
+            # retention_revenue_d whose ``alloc_utc_date`` column
+            # isn't linked to the ``allocation_date`` dim — v2
+            # doesn't push there either).
             for link in target_node.current.dimension_links or []:
                 for dim_pk_fqn, fk_fqn in (link.foreign_keys_reversed or {}).items():
                     if not fk_fqn:  # pragma: no cover
                         continue
                     if dim_pk_fqn not in col_alias:  # pragma: no branch
                         col_alias[dim_pk_fqn] = (alias_name, get_short_name(fk_fqn))
+            # If the target IS itself a dimension node, register
+            # entries for its own primary-key columns pointing at
+            # this alias — without this, filters on the dim's own
+            # PK (e.g. ``observation_window.observation_window IN
+            # ('1-35')`` against the obs_window dim) wouldn't
+            # resolve since dim nodes don't have dim_links of
+            # their own.
+            if target_node.type == NodeType.DIMENSION and target_node.current.columns:
+                for col in target_node.current.columns:
+                    dim_pk_fqn = f"{target_node.name}{SEPARATOR}{col.name}"
+                    if dim_pk_fqn not in col_alias:
+                        col_alias[dim_pk_fqn] = (alias_name, col.name)
     elif isinstance(expr, ast.Query):
         alias_obj = getattr(expr, "alias", None)
         if alias_obj is None or not hasattr(alias_obj, "name"):  # pragma: no cover
@@ -1653,24 +1668,23 @@ def _rewrite_filter_for_scope(
     """Parse a filter fresh and qualify each dim-ref column using the
     scope's resolver map.
 
-    The resolver map keys may be either a fully-qualified dim ref
-    (e.g. ``common.dimensions.xp.allocation_snapshot_date.dateint``)
-    or a bare column name (e.g. ``snapshot_utc_date``).  Each value
-    is ``(alias, emit_col_name)`` — the alias to qualify the column
-    with, and the column name to emit (often the same as the bare
-    key, but the dim-ref form's emit_col_name is the FK column of
-    the linked table, which may differ from the dim PK column name).
+    The resolver map keys are fully-qualified dim refs (e.g.
+    ``common.dimensions.xp.allocation_snapshot_date.dateint``)
+    populated from each FROM-side node's ``dimension_links``.  Each
+    value is ``(alias, emit_col_name)`` — the alias to qualify the
+    column with, and the FK column on the linked table.
 
-    Lookup precedence per filter column:
+    Filter columns whose dim ref isn't present in the map are
+    silently skipped (the filter as a whole still pushes if other
+    columns resolve).  Bare-column fallback is intentionally not
+    used: if a node doesn't have an explicit dim_link to the
+    filter's dim, pushing the filter there could be semantically
+    wrong (e.g. incidentally matching ``alloc_utc_date`` on a
+    retention table whose date semantics differ from the
+    allocation source).
 
-    1. **Dim-ref FQN** (e.g. ``common.dimensions.xp.A.B``) — preferred,
-       since dim_links provide unambiguous routing even when sibling
-       tables in the scope share the same bare column name.
-    2. **Bare column** (resolved via ``filter_column_aliases``) —
-       fallback for columns not covered by an explicit dim link.
-
-    Returns ``None`` when any column is unresolvable in this scope —
-    atomic per filter to mirror the primary-rewrite behavior.
+    Returns ``None`` when no column resolves — atomic per filter
+    to mirror the primary-rewrite behavior.
     """
     if not column_to_alias:
         return None
@@ -1682,12 +1696,7 @@ def _rewrite_filter_for_scope(
             continue
         resolution = column_to_alias.get(full)
         if resolution is None:
-            bare_col = filter_column_aliases.get(full)
-            if bare_col is None:
-                continue
-            resolution = column_to_alias.get(bare_col)
-            if resolution is None:
-                return None
+            continue
         target_alias, emit_col = resolution
         new_name = ast.Name(emit_col, namespace=ast.Name(target_alias))
         rewrites.append((col, ast.Column(name=new_name)))
