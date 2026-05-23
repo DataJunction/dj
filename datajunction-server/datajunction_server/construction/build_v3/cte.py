@@ -1144,6 +1144,19 @@ def _resolve_pushdown_filters_for_cte(
     if not node_output_cols:  # pragma: no cover
         return [], set()
 
+    # Per-CTE alias resolution: each node may have its own dim links pointing
+    # different columns at the same dim ref (e.g. fact maps measure_date to
+    # ``instance_start_utc_date`` while a related dim transform maps the same
+    # dim to its own ``calendar_date`` column).  The parent-derived
+    # ``filter_column_aliases`` would only push to the parent's column, so
+    # dim CTEs whose local columns are named differently are missed.
+    # Consult the current node's own ``dimension_links`` and override the
+    # parent's mapping where the node has its own link for the dim.
+    effective_aliases = {
+        **filter_column_aliases,
+        **_build_local_dim_aliases(node),
+    }
+
     target_select = cast(ast.Select, cte_query.select)
     alias_to_table = _build_source_alias_map(cte_query)
     results: list[tuple[ast.Select, ast.Expression]] = []
@@ -1151,7 +1164,7 @@ def _resolve_pushdown_filters_for_cte(
     for filter_str in pushdown_filters:
         rewritten = _rewrite_filter_for_select(
             filter_str,
-            filter_column_aliases,
+            effective_aliases,
             node_output_cols,
             target_select,
         )
@@ -1186,6 +1199,36 @@ def _resolve_pushdown_filters_for_cte(
                 )
                 results.append((enclosing_select, cloned))
     return results, consumed
+
+
+def _build_local_dim_aliases(node: "Node") -> dict[str, str]:
+    """Build a ``{dim_ref → local_column_name}`` map from a node's own
+    authored ``dimension_links``.
+
+    The dim ref keys match the form used in user filter strings (e.g.
+    ``common.dimensions.xp.measure_date.dateint``) so they can directly
+    override entries in the parent-derived ``filter_column_aliases``.
+    Values are the bare short name of the node's FK column.
+
+    This is the per-CTE complement to the parent-derived alias map: when
+    a dim CTE has its own link that maps a dim ref to a column with a
+    *different* local name than the parent uses, this lets the CTE-level
+    pushdown resolve to its own column instead of looking for the
+    parent's column name (which it doesn't have).
+    """
+    result: dict[str, str] = {}
+    if not node.current or not node.current.dimension_links:
+        return result
+    from datajunction_server.construction.build_v3.utils import get_short_name
+
+    for link in node.current.dimension_links:
+        # ``foreign_keys_reversed`` maps dim PK columns → node FK columns.
+        # Both sides are fully-qualified (``<node>.<col>``) identifiers.
+        for dim_col_fqn, fk_fqn in (link.foreign_keys_reversed or {}).items():
+            if not fk_fqn:  # pragma: no cover
+                continue
+            result[dim_col_fqn] = get_short_name(fk_fqn)
+    return result
 
 
 def _build_source_alias_map(cte_query: ast.Query) -> dict[str, str]:
