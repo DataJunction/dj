@@ -8884,7 +8884,8 @@ class TestParentCteFilterLanding:
 
     @pytest.mark.asyncio
     async def test_filter_pushes_into_dim_cte_via_local_link(
-        self, client_with_build_v3,
+        self,
+        client_with_build_v3,
     ):
         """Each CTE consults its OWN dim links for pushdown, not just the
         parent's.
@@ -8983,8 +8984,7 @@ class TestParentCteFilterLanding:
                 "dimension_node": "v3.shared_date_dim",
                 "join_type": "inner",
                 "join_on": (
-                    "v3.dim_transform_dual.column_b "
-                    "= v3.shared_date_dim.dateint"
+                    "v3.dim_transform_dual.column_b = v3.shared_date_dim.dateint"
                 ),
             },
         )
@@ -8997,9 +8997,7 @@ class TestParentCteFilterLanding:
             "/nodes/transform/",
             json={
                 "name": "v3.fact_transform_dual",
-                "query": (
-                    "SELECT account_id, column_a, value FROM v3.src_fact_dual"
-                ),
+                "query": ("SELECT account_id, column_a, value FROM v3.src_fact_dual"),
                 "mode": "published",
                 "primary_key": ["account_id"],
             },
@@ -9011,8 +9009,7 @@ class TestParentCteFilterLanding:
                 "dimension_node": "v3.shared_date_dim",
                 "join_type": "inner",
                 "join_on": (
-                    "v3.fact_transform_dual.column_a "
-                    "= v3.shared_date_dim.dateint"
+                    "v3.fact_transform_dual.column_a = v3.shared_date_dim.dateint"
                 ),
             },
         )
