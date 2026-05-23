@@ -8459,11 +8459,16 @@ class TestParentCteFilterLanding:
         assert response.status_code == 200, response.json()
         sql = get_first_grain_group(response.json())["sql"]
         # Parent CTE body is a UNION ALL.  DJ pushes the
-        # ``event_date >= 20260101`` filter into BOTH arms via
-        # column-aware retargeting against each arm's FROM —
-        # safe here because the arms share the same source
-        # (events_setop) and neither arm has an existing WHERE
-        # that would conflict with the predicate.  The
+        # pushable ``event_date`` filter into the PRIMARY arm
+        # only — column-aware retargeting at the secondary arm
+        # only fires for filters whose dim is explicitly linked
+        # to the arm's source node (or whose target IS the dim
+        # itself), and ``events_setop`` is a plain source with
+        # no dim_link to the filter's date dim.  This
+        # conservative policy avoids the v2-divergent
+        # over-pushdown that bare-column matching would cause
+        # by incidentally firing on tables that don't actually
+        # have a dim_link to the filter's dim.  The
         # ``branch = 'a'`` filter can't push (arm 1 projects
         # ``branch`` as the literal ``'a'``, a non-column
         # projection that's unsafe to inline) so it stays at
@@ -8479,7 +8484,6 @@ class TestParentCteFilterLanding:
                 UNION ALL
                 SELECT account_id, event_date, value, 'b' AS branch
                 FROM default.v3.events_setop
-                WHERE events_setop.event_date >= 20260101
             )
             SELECT t1.branch, SUM(t1.value) value_sum_HASH
             FROM v3_events_union t1
