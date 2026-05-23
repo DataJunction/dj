@@ -8881,3 +8881,199 @@ class TestParentCteFilterLanding:
             """,
             normalize_aliases=True,
         )
+
+    @pytest.mark.asyncio
+    async def test_filter_pushes_into_dim_cte_via_local_link(
+        self, client_with_build_v3,
+    ):
+        """Each CTE consults its OWN dim links for pushdown, not just the
+        parent's.
+
+        When a fact and a separately-linked dim each map the same dim ref
+        to differently-named local columns, the parent-derived alias map
+        only knows the fact's column.  The dim CTE has its own column
+        for the same dim, but pushdown used to miss it.  This test pins
+        the per-CTE alias resolution that consults each node's own
+        ``dimension_links``.
+
+        Shape: a single dim node ``v3.shared_date_dim`` is linked by
+        both a fact (``column_a → shared_date_dim.dateint``) and a
+        separate dim transform (``column_b → shared_date_dim.dateint``).
+        A filter on ``shared_date_dim.dateint`` must land in both CTEs,
+        using each one's own local column name.
+        """
+        client = client_with_build_v3
+
+        # The shared dim node.
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_shared_date",
+                "description": "shared date source",
+                "columns": [{"name": "dateint", "type": "int"}],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "shared_date",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        resp = await client.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.shared_date_dim",
+                "description": "shared date dim",
+                "query": "SELECT dateint FROM v3.src_shared_date",
+                "mode": "published",
+                "primary_key": ["dateint"],
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        # Fact source.
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_fact_dual",
+                "description": "fact",
+                "columns": [
+                    {"name": "account_id", "type": "int"},
+                    {"name": "column_a", "type": "int"},
+                    {"name": "value", "type": "double"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "fact_dual",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        # Dim-transform source: links shared_date_dim via ``column_b``,
+        # NOT ``column_a`` — different local column name from the fact.
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_dim_dual",
+                "description": "dim",
+                "columns": [
+                    {"name": "account_id", "type": "int"},
+                    {"name": "column_b", "type": "int"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "dim_dual",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        resp = await client.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.dim_transform_dual",
+                "query": "SELECT account_id, column_b FROM v3.src_dim_dual",
+                "mode": "published",
+                "primary_key": ["account_id", "column_b"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        resp = await client.post(
+            "/nodes/v3.dim_transform_dual/link",
+            json={
+                "dimension_node": "v3.shared_date_dim",
+                "join_type": "inner",
+                "join_on": (
+                    "v3.dim_transform_dual.column_b "
+                    "= v3.shared_date_dim.dateint"
+                ),
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        # Fact transform: links to shared_date_dim via column_a, AND
+        # links to the dim_transform_dual via account_id for the dim
+        # join.
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.fact_transform_dual",
+                "query": (
+                    "SELECT account_id, column_a, value FROM v3.src_fact_dual"
+                ),
+                "mode": "published",
+                "primary_key": ["account_id"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        resp = await client.post(
+            "/nodes/v3.fact_transform_dual/link",
+            json={
+                "dimension_node": "v3.shared_date_dim",
+                "join_type": "inner",
+                "join_on": (
+                    "v3.fact_transform_dual.column_a "
+                    "= v3.shared_date_dim.dateint"
+                ),
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        resp = await client.post(
+            "/nodes/v3.fact_transform_dual/link",
+            json={
+                "dimension_node": "v3.dim_transform_dual",
+                "join_type": "inner",
+                "join_on": (
+                    "v3.fact_transform_dual.account_id "
+                    "= v3.dim_transform_dual.account_id"
+                ),
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.fact_dual_total",
+                "query": "SELECT SUM(value) FROM v3.fact_transform_dual",
+                "mode": "published",
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.fact_dual_total"],
+                "dimensions": ["v3.dim_transform_dual.column_b"],
+                "filters": ["v3.shared_date_dim.dateint = 20260101"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        # The filter on ``shared_date_dim.dateint`` is pushed into both
+        # CTEs, each using its OWN local column name: the fact CTE
+        # filters ``column_a`` (its own FK to the dim), and the dim
+        # CTE filters ``column_b`` (its own FK to the same dim).  This
+        # is the per-CTE alias resolution: each node consults its own
+        # ``dimension_links`` rather than relying solely on the
+        # parent's alias map.
+        assert_sql_equal(
+            sql,
+            """
+            WITH v3_dim_transform_dual AS (
+              SELECT account_id, column_b
+              FROM default.v3.dim_dual
+              WHERE column_b = 20260101
+            ),
+            v3_fact_transform_dual AS (
+              SELECT account_id, column_a, value
+              FROM default.v3.fact_dual
+              WHERE column_a = 20260101
+            )
+            SELECT t2.column_b, SUM(t1.value) value_sum_HASH
+            FROM v3_fact_transform_dual t1
+            INNER JOIN v3_dim_transform_dual t2 ON t1.account_id = t2.account_id
+            GROUP BY t2.column_b
+            """,
+            normalize_aliases=True,
+        )
