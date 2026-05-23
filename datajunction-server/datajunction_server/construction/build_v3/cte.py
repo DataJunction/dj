@@ -1113,6 +1113,7 @@ def _resolve_pushdown_filters_for_cte(
     cte_query: ast.Query,
     pushdown_filters: list[str],
     filter_column_aliases: dict[str, str],
+    ctx: Optional["BuildContext"] = None,
 ) -> tuple[list[tuple[ast.Select, ast.Expression]], set[str]]:
     """Determine which user filters can be pushed into this CTE.
 
@@ -1158,9 +1159,21 @@ def _resolve_pushdown_filters_for_cte(
     }
 
     target_select = cast(ast.Select, cte_query.select)
-    alias_to_table = _build_source_alias_map(cte_query)
     results: list[tuple[ast.Select, ast.Expression]] = []
     consumed: set[str] = set()
+
+    # Pre-compute a column->alias map for every distinct Select scope
+    # inside the CTE body.  Each scope's map says: "for a bare column
+    # name X, which alias provides it in this scope's FROM tree?"
+    # Used by the retargeting walk below to inject the filter at inner
+    # scopes (nested subqueries) with correct per-scope qualifiers —
+    # e.g. ``observation_window`` resolves to the CROSS-joined dim's
+    # alias while ``alloc_group_id`` resolves to the fact's alias, even
+    # though both share the same parent qualifier in the outer scope.
+    scope_column_aliases = (
+        _build_all_scope_column_alias_maps(cte_query, ctx) if ctx else {}
+    )
+
     for filter_str in pushdown_filters:
         rewritten = _rewrite_filter_for_select(
             filter_str,
@@ -1173,31 +1186,28 @@ def _resolve_pushdown_filters_for_cte(
         results.append((target_select, rewritten))
         consumed.add(filter_str)
 
-        # Additionally walk every other reference to the same physical
-        # source tables inside the CTE body and inject a retargeted
-        # copy of the filter at each one's enclosing Select.  This
-        # matches the upstream-pushdown path's ``_resolve_pushdown_targets``
-        # behavior so that the direct-link path is just as thorough:
-        # a transform whose source body references the same fact table
-        # twice (e.g. once at top level, once inside a LEFT JOIN's
-        # nested subquery) gets the filter applied to BOTH references,
-        # not just the top-level alias.
-        for primary_alias in _qualifier_aliases(rewritten):
-            physical_table = alias_to_table.get(primary_alias)
-            if not physical_table:  # pragma: no cover
+        # Column-aware retargeting: walk every other distinct Select
+        # scope inside the body.  For each, try to rebuild the filter
+        # using that scope's column->alias map so each column gets
+        # qualified by whichever alias in that scope actually exposes
+        # it (Table aliases via ctx.nodes, subquery aliases via the
+        # subquery's projection output names).  Inject if all of the
+        # filter's columns are resolvable in the scope.  Matches v2's
+        # source-wrapping pattern where every reference to a source
+        # table got the same set of partition-eligible predicates,
+        # while keeping cross-scope qualifier safety (different ``a``
+        # aliases in different subqueries don't get conflated).
+        for inner_select, col_to_alias in scope_column_aliases.items():
+            if inner_select is target_select:
                 continue
-            for ref_alias, enclosing_select in _find_table_refs(
-                cte_query,
-                physical_table,
-            ):
-                if ref_alias == primary_alias and enclosing_select is target_select:
-                    continue  # already covered by the primary injection
-                cloned = _retarget_filter_qualifier(
-                    rewritten,
-                    primary_alias,
-                    ref_alias,
-                )
-                results.append((enclosing_select, cloned))
+            inner_rewrite = _rewrite_filter_for_scope(
+                filter_str,
+                effective_aliases,
+                col_to_alias,
+            )
+            if inner_rewrite is None:
+                continue
+            results.append((inner_select, inner_rewrite))
     return results, consumed
 
 
@@ -1231,96 +1241,150 @@ def _build_local_dim_aliases(node: "Node") -> dict[str, str]:
     return result
 
 
-def _build_source_alias_map(cte_query: ast.Query) -> dict[str, str]:
-    """Walk every ``ast.Table`` in the CTE body and build an
-    ``alias → physical_table_name`` map.
-
-    For aliased refs (``Table AS a``) the key is the alias name.  For bare
-    refs (no alias) the key is the table's short name — matching how the
-    SQL parser surfaces them when looking up column qualifications.
-
-    Multiple Table refs sharing the same alias is rare and the last-write
-    wins here.  Callers use this map only to look up the physical table a
-    qualified column reference belongs to, so collisions only matter when
-    the same alias is reused for two different tables in distinct
-    subqueries — a pathological shape DJ doesn't optimize for.
-    """
-    result: dict[str, str] = {}
-    for tbl in cte_query.find_all(ast.Table):
-        try:
-            tbl_name = tbl.name.identifier(quotes=False)
-        except Exception:  # pragma: no cover
-            continue
-        alias = tbl.alias.name if tbl.alias else tbl_name.split(SEPARATOR)[-1]
-        result[alias] = tbl_name
-    return result
-
-
-def _find_table_refs(
+def _build_all_scope_column_alias_maps(
     cte_query: ast.Query,
-    physical_table_name: str,
-) -> list[tuple[str, ast.Select]]:
-    """Find every ``ast.Table`` reference to ``physical_table_name`` in
-    the CTE body and return ``(alias, enclosing_select)`` per match.
+    ctx: "BuildContext",
+) -> dict[ast.Select, dict[str, str]]:
+    """For every distinct ``ast.Select`` scope reachable through the
+    target Select's FROM subtree (subqueries inside JOINs, nested
+    derived tables, etc.), build a ``{column_name → alias}`` map.
 
-    Used by :func:`_resolve_pushdown_filters_for_cte` to inject a filter
-    not just at the CTE's top-level Select but also at every nested
-    subquery that scans the same physical source table.
+    Crucially, this only walks the **primary Select's FROM subtree**,
+    not chained UNION/INTERSECT/EXCEPT arms reached via ``set_op.right``.
+    Transform authors often use asymmetric set-op arms — one arm
+    deliberately filtered, another acting as an unfiltered backstop —
+    and we don't want column-aware retargeting to override that intent
+    by pushing the filter into every arm.  The primary arm gets the
+    full retargeting; secondary arms are left alone (matching v2 and
+    the existing primary-Select-only set-op pushdown policy).
+
+    For each FROM entry inside the walked subtree:
+
+    - **``ast.Table``** with alias ``a`` (or table short-name if no
+      alias): look up its columns via ``ctx.nodes`` (handling both
+      direct node-name match and the dot-to-underscore CTE-name form
+      DJ emits in generated SQL).
+    - **Subquery** (``ast.Query`` aliased as ``s``): walk the
+      subquery's projection for output column names.
+
+    First-write-wins on collisions.  Used by
+    :func:`_resolve_pushdown_filters_for_cte` for column-aware
+    retargeting: each scope can qualify the same filter differently
+    based on which alias actually exposes each column there.
     """
-    results: list[tuple[str, ast.Select]] = []
-    for tbl in cte_query.find_all(ast.Table):
-        try:
-            tbl_name = tbl.name.identifier(quotes=False)
-        except Exception:  # pragma: no cover
+    result: dict[ast.Select, dict[str, str]] = {}
+    target_select = cte_query.select
+    if not isinstance(target_select, ast.Select):  # pragma: no cover
+        return result
+
+    cte_name_to_node = {get_cte_name(n.name): n for n in ctx.nodes.values()}
+
+    # Collect target_select plus every Select inside its FROM subtree.
+    # find_all() over the FROM avoids crossing into set-op arms via
+    # target_select.set_op.right — those arms get the primary-arm-only
+    # policy from the existing logic.
+    selects: list[ast.Select] = [target_select]
+    if target_select.from_:
+        for inner in target_select.from_.find_all(ast.Select):
+            if isinstance(inner, ast.Select):  # pragma: no branch
+                selects.append(inner)
+
+    seen: set[int] = set()
+    for sel in selects:
+        if id(sel) in seen:
             continue
-        if tbl_name != physical_table_name:
+        seen.add(id(sel))
+        col_alias: dict[str, str] = {}
+        if not sel.from_:  # pragma: no cover
+            result[sel] = col_alias
             continue
-        alias = tbl.alias.name if tbl.alias else tbl_name.split(SEPARATOR)[-1]
-        enclosing: Optional[ast.Select] = None
-        cur = getattr(tbl, "parent", None)
-        while cur is not None:  # pragma: no branch
-            if isinstance(cur, ast.Select):
-                enclosing = cur
-                break
-            cur = getattr(cur, "parent", None)
-        if enclosing is not None:  # pragma: no branch
-            results.append((alias, enclosing))
-    return results
-
-
-def _qualifier_aliases(filter_ast: ast.Expression) -> set[str]:
-    """Return the set of distinct qualifier aliases used in ``filter_ast``.
-
-    A column like ``a.snapshot_utc_date`` contributes ``"a"`` to the set;
-    bare column references contribute nothing.
-    """
-    result: set[str] = set()
-    for col in filter_ast.find_all(ast.Column):
-        if col.name and col.name.namespace:
-            result.add(col.name.namespace.name)
+        for relation in sel.from_.relations:
+            sides = [relation.primary, *(j.right for j in relation.extensions)]
+            for expr in sides:
+                _populate_scope_column_aliases(expr, col_alias, ctx, cte_name_to_node)
+        result[sel] = col_alias
     return result
 
 
-def _retarget_filter_qualifier(
-    filter_ast: ast.Expression,
-    old_alias: str,
-    new_alias: str,
-) -> ast.Expression:
-    """Deepcopy ``filter_ast`` and rewrite every column qualified by
-    ``old_alias`` to be qualified by ``new_alias`` instead.
+def _populate_scope_column_aliases(
+    expr: object,
+    col_alias: dict[str, str],
+    ctx: "BuildContext",
+    cte_name_to_node: dict[str, "Node"],
+) -> None:
+    """Helper: add this FROM-side expression's columns to a scope's
+    column->alias map.  Handles Tables (via ctx.nodes lookup) and
+    subqueries (via projection walk)."""
+    if isinstance(expr, ast.Table):
+        try:
+            tbl_name = expr.name.identifier(quotes=False)
+        except Exception:  # pragma: no cover
+            return
+        alias_name = expr.alias.name if expr.alias else tbl_name.split(SEPARATOR)[-1]
+        # Try direct lookup, then reverse-CTE-name lookup.
+        target_node = ctx.nodes.get(tbl_name) or cte_name_to_node.get(tbl_name)
+        if target_node and target_node.current and target_node.current.columns:
+            for col in target_node.current.columns:
+                if col.name not in col_alias:
+                    col_alias[col.name] = alias_name
+    elif isinstance(expr, ast.Query):
+        alias_obj = getattr(expr, "alias", None)
+        if alias_obj is None or not hasattr(alias_obj, "name"):  # pragma: no cover
+            return
+        alias_name = alias_obj.name
+        inner_sel = expr.select
+        if not isinstance(inner_sel, ast.Select):  # pragma: no cover
+            return
+        for proj in inner_sel.projection:
+            output_name = _projection_output_name(proj)
+            if output_name and output_name not in col_alias:
+                col_alias[output_name] = alias_name
 
-    Used to clone a primary-Select-targeted filter for injection at a
-    sibling reference to the same physical source table.  The cloned
-    filter uses the sibling's alias so column references resolve in the
-    sibling's scope.
+
+def _projection_output_name(proj: object) -> Optional[str]:
+    """Extract the output column name of a projection element."""
+    alias = getattr(proj, "alias", None)
+    if alias is not None and hasattr(alias, "name"):
+        return alias.name
+    if isinstance(proj, ast.Column) and proj.name:
+        return proj.name.name
+    return None  # pragma: no cover
+
+
+def _rewrite_filter_for_scope(
+    filter_str: str,
+    filter_column_aliases: dict[str, str],
+    column_to_alias: dict[str, str],
+) -> Optional[ast.Expression]:
+    """Parse a filter fresh and qualify each dim-ref column using the
+    scope's ``{column → alias}`` map.
+
+    Returns the rewritten filter AST, or ``None`` when any of the
+    filter's dim refs can't be resolved in this scope's columns.
+    Atomic per filter: if a single column is unreachable in this scope,
+    the whole filter is skipped (mirrors the primary-rewrite behavior
+    that bails on a partial OR-predicate).
     """
-    cloned = deepcopy(filter_ast)
-    for col in cloned.find_all(ast.Column):
-        if col.name is None or not col.name.namespace:  # pragma: no cover
+    if not column_to_alias:
+        return None
+    filter_ast = parse_filter(filter_str)
+    rewrites: list[tuple[ast.Column, ast.Column]] = []
+    for col in filter_ast.find_all(ast.Column):
+        full = get_column_full_name(col)
+        if not full or full not in filter_column_aliases:
             continue
-        if col.name.namespace.name == old_alias:  # pragma: no branch
-            col.name = ast.Name(col.name.name, namespace=ast.Name(new_alias))
-    return cloned
+        bare_col = filter_column_aliases[full]
+        target_alias = column_to_alias.get(bare_col)
+        if target_alias is None:
+            return None  # column not resolvable in this scope
+        new_name = ast.Name(bare_col, namespace=ast.Name(target_alias))
+        rewrites.append((col, ast.Column(name=new_name)))
+    if not rewrites:
+        return None
+    for old_col, new_col in rewrites:
+        if old_col.parent is not None:  # pragma: no branch
+            old_col.parent.replace(old_col, new_col, copy=False)
+    return filter_ast
 
 
 def _cte_has_set_operation(cte_query: ast.Query) -> bool:
@@ -1744,6 +1808,7 @@ def collect_node_ctes(
                 query_ast,
                 pushdown.filters,
                 pushdown.column_aliases,
+                ctx,
             )
             for target_select, filter_ast in injections:
                 inject_filter_into_select(target_select, filter_ast)

@@ -9074,3 +9074,123 @@ class TestParentCteFilterLanding:
             """,
             normalize_aliases=True,
         )
+
+    @pytest.mark.asyncio
+    async def test_subquery_alias_shadows_nested_table_alias(
+        self,
+        client_with_build_v3,
+    ):
+        """Scope-correct alias resolution.
+
+        Transform body uses ``(subquery) AS a`` as the outer FROM, while
+        a *different* inner subquery deeper down has ``some_source AS a``
+        (the same alias name, but it's an alias for a real Table this
+        time).  A filter on ``a.<col>`` at the outer scope must NOT
+        cause the retargeting walk to inject a clone into the inner
+        subquery — the two ``a`` aliases live in different scopes and
+        refer to different things.
+
+        Pre-fix, ``_build_source_alias_map`` walked
+        ``find_all(ast.Table)`` across the whole body and saw the inner
+        ``a → some_source`` mapping, then incorrectly retargeted the
+        outer filter into the inner subquery's WHERE — producing
+        ``a.some_col`` where ``a`` (in that scope) doesn't have
+        ``some_col``.
+        """
+        client = client_with_build_v3
+
+        # Inner-most source: the real Table that the deeper subquery
+        # aliases as ``a``.
+        src_inner = await _setup_events_source(
+            client,
+            "scope_inner",
+            "scope_inner_events",
+        )
+
+        # Mid-transform: aliases src_inner as ``a`` AND CROSS-joins a
+        # date dim to expose a ``window_label`` column.  This is the
+        # transform whose ``a`` (inner) collides with the outer
+        # transform's subquery alias.
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_window_labels",
+                "description": "window labels",
+                "columns": [{"name": "window_label", "type": "string"}],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "window_labels",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.scope_mid_transform",
+                "query": (
+                    "SELECT a.account_id, a.event_date, a.value, w.window_label "
+                    f"FROM {src_inner} AS a "
+                    "CROSS JOIN v3.src_window_labels AS w"
+                ),
+                "mode": "published",
+                "primary_key": ["account_id", "event_date", "window_label"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+
+        # Outer transform: aliases scope_mid_transform as ``a`` (a
+        # subquery alias, not a Table).  The outer body filters /
+        # projects from this ``a``.  Pre-fix, the retargeting walk
+        # incorrectly conflated the outer ``a`` (subquery) with the
+        # inner ``a`` (Table aliasing scope_inner_events).
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.scope_outer_transform",
+                "query": (
+                    "SELECT a.account_id, a.event_date, a.value, a.window_label "
+                    "FROM v3.scope_mid_transform AS a"
+                ),
+                "mode": "published",
+                "primary_key": ["account_id", "event_date", "window_label"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.scope_outer_count",
+                "query": "SELECT COUNT(*) FROM v3.scope_outer_transform",
+                "mode": "published",
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.scope_outer_count"],
+                "dimensions": ["v3.scope_outer_transform.account_id"],
+                "filters": [
+                    "v3.scope_outer_transform.window_label = 'demo'",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+
+        # The filter must NOT be injected inside the mid-transform's
+        # CTE body where ``a`` is an alias for ``scope_inner_events``
+        # — that table doesn't have ``window_label`` and the resulting
+        # SQL would fail at engine resolution.
+        assert "a.window_label = 'demo'" not in (
+            sql.split("v3_scope_mid_transform AS (")[1].split(")")[0]
+            if "v3_scope_mid_transform AS (" in sql
+            else ""
+        ), (
+            f"Filter incorrectly injected into mid-transform's CTE "
+            f"where ``a`` references scope_inner_events (which has no "
+            f"window_label):\n{sql}"
+        )
