@@ -8458,16 +8458,16 @@ class TestParentCteFilterLanding:
         )
         assert response.status_code == 200, response.json()
         sql = get_first_grain_group(response.json())["sql"]
-        # Parent CTE body is a UNION ALL.  DJ pushes the pushable
-        # filter into the PRIMARY arm only (matches v2 behavior).
-        # Subsequent UNION'd arms are left untouched so the author's
-        # asymmetric-arm semantics (e.g. one arm acting as an
-        # unfiltered backstop) survive intact.  The
-        # ``event_date >= 20260101`` filter pushes into arm 1 and is
-        # marked consumed → dropped from outer WHERE.  The
+        # Parent CTE body is a UNION ALL.  DJ pushes the
+        # ``event_date >= 20260101`` filter into BOTH arms via
+        # column-aware retargeting against each arm's FROM —
+        # safe here because the arms share the same source
+        # (events_setop) and neither arm has an existing WHERE
+        # that would conflict with the predicate.  The
         # ``branch = 'a'`` filter can't push (arm 1 projects
-        # ``branch`` as the literal ``'a'``, a non-column projection
-        # that's unsafe to inline) so it stays at outer WHERE.
+        # ``branch`` as the literal ``'a'``, a non-column
+        # projection that's unsafe to inline) so it stays at
+        # outer WHERE.
         assert_sql_equal(
             sql,
             """
@@ -8479,6 +8479,7 @@ class TestParentCteFilterLanding:
                 UNION ALL
                 SELECT account_id, event_date, value, 'b' AS branch
                 FROM default.v3.events_setop
+                WHERE events_setop.event_date >= 20260101
             )
             SELECT t1.branch, SUM(t1.value) value_sum_HASH
             FROM v3_events_union t1
@@ -9194,3 +9195,443 @@ class TestParentCteFilterLanding:
             f"where ``a`` references scope_inner_events (which has no "
             f"window_label):\n{sql}"
         )
+
+    @pytest.mark.asyncio
+    async def test_filter_disambiguates_joined_tables_via_dim_link(
+        self,
+        client_with_build_v3,
+    ):
+        """When an inner subquery's FROM has two Tables exposing the
+        same bare column, the filter must route to the Table whose
+        ``dimension_link`` references the filter's dim — not a
+        first-write-wins arbitrary pick.
+
+        Regression from a real Netflix XP query: an inner subquery
+        had ``subscription_lifecycle_cohort_d rev JOIN
+        allocation_core_d a2 ON ...`` where BOTH tables expose
+        ``snapshot_utc_date``.  The filter
+        ``allocation_snapshot_date.dateint = X`` is supposed to
+        constrain allocation_core_d (a2) since that's the linked
+        table; first-write-wins picked ``rev`` instead, sending
+        the predicate to the wrong table and changing result
+        semantics.  This test pins the dim-link-aware routing.
+        """
+        client = client_with_build_v3
+
+        # Allocation source — linked to the alloc-date dim.
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_alloc_two_cols",
+                "description": "alloc",
+                "columns": [
+                    {"name": "account_id", "type": "int"},
+                    {"name": "snapshot_utc_date", "type": "int"},
+                    {"name": "alloc_value", "type": "double"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "alloc_two_cols",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        # Sibling source — also exposes ``snapshot_utc_date`` but is
+        # NOT linked to the alloc-date dim.  This is the collision
+        # source: both this and v3.src_alloc_two_cols project a
+        # column named ``snapshot_utc_date``, so a naive bare-col
+        # lookup is ambiguous.
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_sibling_two_cols",
+                "description": "sibling",
+                "columns": [
+                    {"name": "account_id", "type": "int"},
+                    {"name": "snapshot_utc_date", "type": "int"},
+                    {"name": "sibling_value", "type": "double"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "sibling_two_cols",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        # Alloc-date dim, linked from v3.src_alloc_two_cols only.
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_alloc_dim_dates",
+                "description": "alloc-date PK",
+                "columns": [{"name": "dateint", "type": "int"}],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "alloc_dim_dates",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        resp = await client.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.alloc_date_dim",
+                "query": "SELECT dateint FROM v3.src_alloc_dim_dates",
+                "mode": "published",
+                "primary_key": ["dateint"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        resp = await client.post(
+            "/nodes/v3.src_alloc_two_cols/link",
+            json={
+                "dimension_node": "v3.alloc_date_dim",
+                "join_type": "inner",
+                "join_on": (
+                    "v3.src_alloc_two_cols.snapshot_utc_date "
+                    "= v3.alloc_date_dim.dateint"
+                ),
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        # Transform: inner subquery JOINs both sources, exposing the
+        # collision.  Top-level wraps the join in a derived table so
+        # the filter routing happens at the inner Select's scope.
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.alloc_with_sibling",
+                "query": (
+                    "SELECT * FROM ("
+                    "  SELECT a.account_id, a.snapshot_utc_date, "
+                    "         a.alloc_value, sib.sibling_value "
+                    "  FROM v3.src_sibling_two_cols sib "
+                    "  JOIN v3.src_alloc_two_cols a "
+                    "    ON a.account_id = sib.account_id"
+                    ") s"
+                ),
+                "mode": "published",
+                "primary_key": ["account_id", "snapshot_utc_date"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.alloc_with_sibling_total",
+                "query": "SELECT SUM(alloc_value) FROM v3.alloc_with_sibling",
+                "mode": "published",
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.alloc_with_sibling_total"],
+                "dimensions": ["v3.alloc_with_sibling.account_id"],
+                "filters": ["v3.alloc_date_dim.dateint = 20260520"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        # Filter routes to ``a`` (allocation table) via the dim
+        # link, NOT to ``sib`` (sibling table) — even though sib is
+        # processed first in the inner subquery's FROM and would
+        # otherwise win first-write-wins.
+        assert "a.snapshot_utc_date = 20260520" in sql, (
+            f"Filter not routed to allocation table via dim link:\n{sql}"
+        )
+        assert "sib.snapshot_utc_date = 20260520" not in sql, (
+            f"Filter mis-routed to sibling table that has no dim link:\n{sql}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_filter_not_injected_at_subquery_only_from_scope(
+        self,
+        client_with_build_v3,
+    ):
+        """A Select whose direct FROM has ONLY subquery aliases (no
+        Tables) must not receive column-aware filter injection.
+
+        At such scopes the only candidate aliases are the OUTER's
+        aliases for inner subqueries.  Pushing a filter qualified
+        by one of those aliases triggers the existing outer-join
+        safety wrap, which ANDs the filter into the inner
+        subquery's WHERE *without* retargeting the qualifier —
+        producing a reference like ``numerator.utc_date`` inside
+        a body that doesn't have a ``numerator`` alias, which
+        fails at engine resolution.
+
+        Regression from a real XP search-session query where the
+        metric body was ``SELECT ... FROM (denom subq) AS
+        denominator LEFT JOIN (num subq) AS numerator USING (...)``
+        and column-aware retargeting at the outer Select picked
+        ``numerator`` (because the denominator subquery's
+        projection was ``SELECT *``, which doesn't register any
+        column→alias entry), then pushed the filter inside the
+        numerator subquery with a stale qualifier.
+        """
+        client = client_with_build_v3
+
+        # A Star-projecting transform — its projection is ``SELECT *``
+        # which contributes no column→alias entries when DJ walks
+        # it as a subquery side, so first-write-wins favors the
+        # OTHER side of the join.
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_star_proj",
+                "columns": [
+                    {"name": "account_id", "type": "int"},
+                    {"name": "utc_date", "type": "int"},
+                    {"name": "val_a", "type": "double"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "star_proj_tbl",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.star_proj_xform",
+                "query": "SELECT * FROM v3.src_star_proj",
+                "mode": "published",
+                "primary_key": ["account_id", "utc_date"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+
+        # A LEFT-side fact for the join — has utc_date too.
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_left_fact",
+                "columns": [
+                    {"name": "account_id", "type": "int"},
+                    {"name": "utc_date", "type": "int"},
+                    {"name": "val_l", "type": "double"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "left_fact_tbl",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.left_fact_xform",
+                "query": ("SELECT account_id, utc_date, val_l FROM v3.src_left_fact"),
+                "mode": "published",
+                "primary_key": ["account_id", "utc_date"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+
+        # Outer transform whose FROM is ``(subq) LEFT JOIN (subq)
+        # USING (...)``: both sides are subquery aliases, no
+        # direct Table.  Column-aware retargeting at this Select
+        # must be skipped.
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.subq_only_join",
+                "query": (
+                    "SELECT l.account_id, l.utc_date, l.val_l, r.val_a "
+                    "FROM v3.left_fact_xform l "
+                    "LEFT JOIN v3.star_proj_xform r "
+                    "  ON l.account_id = r.account_id "
+                    " AND l.utc_date = r.utc_date"
+                ),
+                "mode": "published",
+                "primary_key": ["account_id", "utc_date"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.subq_only_join_total",
+                "query": "SELECT SUM(val_l) FROM v3.subq_only_join",
+                "mode": "published",
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.subq_only_join_total"],
+                "dimensions": ["v3.subq_only_join.account_id"],
+                "filters": ["v3.subq_only_join.utc_date = 20260520"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        # The filter must NOT appear with the right-side subquery's
+        # alias (``r``) inside the star-projecting transform's CTE
+        # body — that's the scope where ``r`` doesn't exist and
+        # the SQL would fail at resolution.
+        star_cte_body = (
+            sql.split("v3_star_proj_xform AS (")[1].split("),")[0]
+            if "v3_star_proj_xform AS (" in sql
+            else ""
+        )
+        assert "r.utc_date" not in star_cte_body, (
+            f"Stale outer alias ``r`` injected inside the inner "
+            f"CTE body where it doesn't resolve:\n{sql}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_filter_skips_arms_of_wrapped_union_inside_derived_table(
+        self,
+        client_with_build_v3,
+    ):
+        """A UNION ALL nested inside a derived table (whose outer
+        Select already constrains the union's output) must NOT
+        receive per-arm filter pushdown — the outer WHERE already
+        handles the constraint, and arm-level pushdown diverges
+        from v2.
+
+        Contrast with :meth:`test_filter_lands_when_parent_cte_is_setop`
+        where the CTE body IS the UNION (no wrapping derived
+        table); there the only place the filter can land is into
+        the arms, so it does.  The structural distinction is
+        whether the UNION is the top of ``cte_query.select`` (then
+        arms get pushdown) or nested inside a Query within
+        ``target_select.from_`` (then the outer WHERE owns the
+        constraint and arms are left alone).
+
+        Regression from a real XP ads-allocation query where
+        DJ_v3 was injecting per-arm WHEREs into a UNION wrapped
+        as ``(...) AS alloc CROSS JOIN dim WHERE ...`` even
+        though the outer WHERE already filtered the union output.
+        """
+        client = client_with_build_v3
+
+        # Two parallel sources that both feed a UNION inside the
+        # alloc transform.  Identical columns so the UNION
+        # type-checks.
+        for name, table in (
+            ("v3.src_alloc_p1", "alloc_p1"),
+            ("v3.src_alloc_p2", "alloc_p2"),
+        ):
+            resp = await client.post(
+                "/nodes/source/",
+                json={
+                    "name": name,
+                    "description": f"alloc partition {table}",
+                    "columns": [
+                        {"name": "account_id", "type": "int"},
+                        {"name": "test_id", "type": "int"},
+                        {"name": "snapshot_date", "type": "int"},
+                    ],
+                    "mode": "published",
+                    "catalog": "default",
+                    "schema_": "v3",
+                    "table": table,
+                },
+            )
+            assert resp.status_code in (200, 201), resp.json()
+
+        # A tiny spine dim CROSS-joined into the UNION wrap.
+        await _setup_window_dim(client)
+
+        # Alloc transform: UNION ALL of two sources wrapped in
+        # a derived table, then CROSS-joined to the obs_window
+        # spine.  The outer WHERE on the transform body is what
+        # constrains the union's output — arm-level pushdown is
+        # redundant.
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.alloc_wrapped_union",
+                "query": (
+                    "SELECT alloc.account_id, alloc.test_id, "
+                    "       alloc.snapshot_date, w.window "
+                    "FROM ("
+                    "  SELECT account_id, test_id, snapshot_date "
+                    "    FROM v3.src_alloc_p1 "
+                    "  UNION ALL "
+                    "  SELECT account_id, test_id, snapshot_date "
+                    "    FROM v3.src_alloc_p2"
+                    ") AS alloc "
+                    "CROSS JOIN v3.obs_window_dim AS w"
+                ),
+                "mode": "published",
+                "primary_key": ["account_id", "test_id", "window"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.alloc_wrapped_union_count",
+                "query": "SELECT COUNT(*) FROM v3.alloc_wrapped_union",
+                "mode": "published",
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.alloc_wrapped_union_count"],
+                "dimensions": ["v3.alloc_wrapped_union.account_id"],
+                "filters": [
+                    "v3.alloc_wrapped_union.test_id = 42",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+
+        # Slice out the alloc CTE body for the per-arm check.
+        cte_marker = "v3_alloc_wrapped_union AS ("
+        if cte_marker in sql:
+            cte_body = sql.split(cte_marker, 1)[1]
+            # Stop at the next CTE boundary or the SELECT after
+            # the CTE list.  Conservatively take everything up to
+            # the first standalone ``),\n`` followed by a name and
+            # ``AS (`` — or fall back to the rest if no such
+            # boundary is found.
+            cte_body = cte_body.split("\n),\n", 1)[0]
+        else:  # pragma: no cover
+            cte_body = sql
+        # The two UNION-arm FROMs must NOT each have their own
+        # WHERE injected with the user filter — only the outer
+        # CTE-level WHERE should carry it.
+        p1_chunk = (
+            cte_body.split("FROM default.v3.alloc_p1", 1)[1].split("UNION", 1)[0]
+            if "FROM default.v3.alloc_p1" in cte_body
+            else ""
+        )
+        p2_chunk = (
+            cte_body.split("FROM default.v3.alloc_p2", 1)[1].split(") AS alloc", 1)[0]
+            if "FROM default.v3.alloc_p2" in cte_body
+            else ""
+        )
+        assert "test_id = 42" not in p1_chunk and "test_id IN (42)" not in p1_chunk, (
+            f"Per-arm pushdown leaked into the first UNION arm — "
+            f"the outer wrapping WHERE already constrains it:\n{sql}"
+        )
+        assert "test_id = 42" not in p2_chunk and "test_id IN (42)" not in p2_chunk, (
+            f"Per-arm pushdown leaked into the second UNION arm — "
+            f"the outer wrapping WHERE already constrains it:\n{sql}"
+        )
+        # The outer wrapping WHERE on the CTE body must still
+        # carry the filter — the constraint isn't dropped, just
+        # not duplicated into the arms.
+        assert (
+            "alloc.test_id = 42" in cte_body
+            or "test_id = 42" in cte_body
+            or "test_id IN (42)" in cte_body
+        ), f"Filter dropped from outer wrapping WHERE entirely:\n{sql}"
