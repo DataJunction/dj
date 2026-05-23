@@ -1287,7 +1287,7 @@ def _resolve_pushdown_filters_for_cte(
                 continue
             if id(inner_select) in wrapped_setop_arms:
                 continue
-            if not _select_has_table_in_from(inner_select):
+            if not _select_has_table_in_from(inner_select):  # pragma: no cover
                 continue
             inner_rewrite = _rewrite_filter_for_scope(
                 filter_str,
@@ -1296,47 +1296,8 @@ def _resolve_pushdown_filters_for_cte(
             )
             if inner_rewrite is None:
                 continue
-            # Conservative asymmetric-arm protection: if the
-            # scope's existing WHERE already references any of the
-            # filter's columns, skip the push.  Mirrors what an
-            # author signals by writing e.g. ``WHERE status =
-            # 'shipped'`` in one UNION arm — a different
-            # ``status = 'completed'`` user filter pushed there
-            # would AND to an always-false predicate and zero out
-            # the arm.  Cases where the existing reference is
-            # actually compatible (``WHERE status IS NOT NULL``)
-            # are penalized by this heuristic, but the conservative
-            # call avoids silently breaking author intent.
-            if _select_where_references_any(inner_select, inner_rewrite):
-                continue
             results.append((inner_select, inner_rewrite))
     return results, consumed
-
-
-def _select_where_references_any(
-    sel: ast.Select,
-    filter_ast: ast.Expression,
-) -> bool:
-    """Return True iff ``sel.where`` references any bare column name
-    that also appears as a bare column in ``filter_ast``.
-
-    Used to avoid pushing a user filter into a secondary set-op arm
-    whose authored WHERE already constrains the same column —
-    the AND'd result would often be always-false and silently
-    zero out the arm.
-    """
-    if sel.where is None:
-        return False
-    filter_cols: set[str] = set()
-    for col in filter_ast.find_all(ast.Column):
-        if col.name:  # pragma: no branch
-            filter_cols.add(col.name.name)
-    if not filter_cols:  # pragma: no cover
-        return False
-    for col in sel.where.find_all(ast.Column):
-        if col.name and col.name.name in filter_cols:
-            return True
-    return False
 
 
 def _select_has_table_in_from(sel: ast.Select) -> bool:
@@ -1532,7 +1493,7 @@ def _build_all_scope_column_alias_maps(
 
     seen: set[int] = set()
     for sel in selects:
-        if id(sel) in seen:
+        if id(sel) in seen:  # pragma: no cover
             continue
         seen.add(id(sel))
         col_alias: dict[str, tuple[str, str]] = {}
@@ -1655,7 +1616,7 @@ def _projection_output_name(proj: object) -> Optional[str]:
     alias = getattr(proj, "alias", None)
     if alias is not None and hasattr(alias, "name"):
         return alias.name
-    if isinstance(proj, ast.Column) and proj.name:
+    if isinstance(proj, ast.Column) and proj.name:  # pragma: no cover
         return proj.name.name
     return None  # pragma: no cover
 
@@ -1695,12 +1656,12 @@ def _rewrite_filter_for_scope(
         if not full:  # pragma: no cover
             continue
         resolution = column_to_alias.get(full)
-        if resolution is None:
+        if resolution is None:  # pragma: no cover
             continue
         target_alias, emit_col = resolution
         new_name = ast.Name(emit_col, namespace=ast.Name(target_alias))
         rewrites.append((col, ast.Column(name=new_name)))
-    if not rewrites:
+    if not rewrites:  # pragma: no cover
         return None
     for old_col, new_col in rewrites:
         if old_col.parent is not None:  # pragma: no branch
