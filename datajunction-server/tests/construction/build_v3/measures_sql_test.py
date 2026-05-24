@@ -9881,12 +9881,13 @@ class TestParentCteFilterLanding:
         body = response.json()
         gg = get_first_grain_group(body)
         sql = gg["sql"]
+        raw_gg = body["grain_groups"][0]
 
         # Find the component name (hash-suffixed) emitted for the
         # ``COUNT(DISTINCT account_id)`` decomposition.  It should
         # be present both as a registered component and as a SQL
         # column in the projection.
-        comp_names = [c["name"] for c in gg["components"]]
+        comp_names = [c["name"] for c in raw_gg["components"]]
         distinct_comp = next(
             (n for n in comp_names if n.startswith("account_id_distinct_")),
             None,

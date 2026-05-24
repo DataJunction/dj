@@ -4,6 +4,7 @@ CTE building and AST transformation utilities
 
 from __future__ import annotations
 
+import functools
 from copy import deepcopy
 from typing import Optional, cast
 
@@ -1961,6 +1962,111 @@ def _build_select_projection_map(
     return result
 
 
+@functools.lru_cache(maxsize=1)
+def _aggregate_function_names() -> frozenset[str]:
+    """Names (upper-cased) of every aggregate function known to DJ.
+
+    Derived from DJ's own function registry so we stay in sync with
+    new aggregates added there, rather than maintaining a parallel
+    hand-rolled list.
+    """
+    from datajunction_server.sql.functions import function_registry
+
+    return frozenset(
+        name
+        for name, cls in function_registry.items()
+        if getattr(cls, "is_aggregation", False)
+    )
+
+
+def _node_aggregates_on_column(
+    node: "Node",
+    bare_cols: set[str],
+    ctx: "BuildContext",
+) -> bool:
+    """Return True iff ``node``'s body contains an aggregate function
+    call whose arguments reference any column name in ``bare_cols``.
+
+    Used to detect aggregation barriers along the dep chain so that
+    filters on a column that is aggregated upstream are not pushed
+    past the aggregation (which would change result semantics).
+    """
+    if not node.current or not node.current.query:
+        return False
+    try:
+        qast = ctx.get_parsed_query(node)
+    except Exception:  # pragma: no cover
+        return False
+    for func in qast.find_all(ast.Function):
+        try:
+            fname = func.name.identifier(quotes=False).upper()
+        except Exception:  # pragma: no cover
+            continue
+        if fname not in _aggregate_function_names():
+            continue
+        for col in func.find_all(ast.Column):
+            if col.name and col.name.name in bare_cols:
+                return True
+    return False
+
+
+def _safe_pushdown_nodes_for_filter(
+    parent_node: "Node",
+    filter_str: str,
+    filter_column_aliases: dict[str, str],
+    ctx: "BuildContext",
+) -> set[str]:
+    """Return the set of upstream node names where pushing a given
+    filter is semantically safe.
+
+    BFS down the dep DAG from ``parent_node``.  At each CTE check
+    whether the node aggregates on the filter's bare column — if it
+    does, the CTE is an aggregation barrier and neither it nor any
+    of its dependencies are safe targets for this filter.  Otherwise
+    the CTE is safe and its deps are enqueued.
+    """
+    try:
+        filter_ast = parse_filter(filter_str)
+    except Exception:  # pragma: no cover
+        return {parent_node.name}
+    bare_cols: set[str] = set()
+    for col in filter_ast.find_all(ast.Column):
+        full = get_column_full_name(col)
+        if full and full in filter_column_aliases:  # pragma: no branch
+            bare_cols.add(filter_column_aliases[full])
+    if not bare_cols:  # pragma: no cover
+        return {parent_node.name}
+
+    safe: set[str] = set()
+    visited: set[str] = set()
+    queue: list["Node"] = [parent_node]
+
+    while queue:
+        node = queue.pop(0)
+        if node.name in visited:
+            continue
+        visited.add(node.name)
+        if _node_aggregates_on_column(node, bare_cols, ctx):
+            # Aggregation barrier — neither this node nor its deps
+            # are safe through this path.
+            continue
+        safe.add(node.name)
+        if not node.current or not node.current.query:
+            continue
+        try:
+            qast = ctx.get_parsed_query(node)
+        except Exception:  # pragma: no cover
+            continue
+        for ref in get_table_references_from_ast(qast):
+            ref_node = ctx.nodes.get(ref)
+            if ref_node is None or ref_node.type == NodeType.SOURCE:
+                continue
+            if ref_node.name not in visited:
+                queue.append(ref_node)
+
+    return safe
+
+
 def collect_node_ctes(
     ctx: BuildContext,
     nodes_to_include: list[Node],
@@ -2115,37 +2221,47 @@ def collect_node_ctes(
         if injected_filters and node.name in injected_filters:
             _inject_filter_into_where(query_ast, injected_filters[node.name])
 
-        # Pushdown is restricted to the parent CTE (the metric's
-        # direct source) and to dimension CTEs.  Pushing into
-        # upstream transform CTEs is unsafe: a transform may apply
-        # aggregations (e.g. ``MIN(utc_date) AS first_play_date``
-        # then renamed back to ``utc_date``) so a column with the
-        # same name at a downstream CTE has different semantics
-        # than at the upstream CTE.  Pushing a predicate past the
-        # aggregation barrier silently changes which rows feed the
-        # aggregation, and therefore changes the result.  DJ
-        # doesn't currently detect when an upstream transform's
-        # dim-link column is post-aggregation vs passthrough — so
-        # we conservatively skip cross-CTE pushdown into
-        # transforms.  Matches v2 behavior.  ``parent_node = None``
-        # preserves the unrestricted pre-v2-parity behavior for
-        # callers that haven't opted in yet.
-        if pushdown is not None and (
-            parent_node is None
-            or node is parent_node
-            or node.type == NodeType.DIMENSION
-        ):
-            injections, consumed = _resolve_pushdown_filters_for_cte(
-                node,
-                query_ast,
-                pushdown.filters,
-                pushdown.column_aliases,
-                ctx,
-            )
-            for target_select, filter_ast in injections:
-                inject_filter_into_select(target_select, filter_ast)
-            if consumed:
-                consumed_by_node[node.name] = consumed
+        # Pushdown into upstream transform CTEs is gated on a
+        # per-filter aggregation-barrier check.  A filter is only
+        # pushed into node N if there's a passthrough projection
+        # chain for the filter's column from ``parent_node`` down
+        # to N — equivalently, no intermediate CTE on the path
+        # rewrites the column via aggregation (e.g.
+        # ``MIN(utc_date) AS firstplay_date`` renamed back to
+        # ``utc_date``).  Pushing past such a barrier silently
+        # changes which rows feed the aggregation.  Parent itself
+        # and dimension CTEs are always allowed (no barrier
+        # concern at parent's own scope; dim CTEs are simple
+        # projections of their backing source).
+        if pushdown is not None:
+            if parent_node is None:
+                safe_filters_list = list(pushdown.filters)
+            elif node is parent_node or node.type == NodeType.DIMENSION:
+                safe_filters_list = list(pushdown.filters)
+            else:
+                safe_filters_list = [
+                    f
+                    for f in pushdown.filters
+                    if node.name
+                    in _safe_pushdown_nodes_for_filter(
+                        parent_node,
+                        f,
+                        pushdown.column_aliases,
+                        ctx,
+                    )
+                ]
+            if safe_filters_list:
+                injections, consumed = _resolve_pushdown_filters_for_cte(
+                    node,
+                    query_ast,
+                    safe_filters_list,
+                    pushdown.column_aliases,
+                    ctx,
+                )
+                for target_select, filter_ast in injections:
+                    inject_filter_into_select(target_select, filter_ast)
+                if consumed:
+                    consumed_by_node[node.name] = consumed
 
         ctes.append((cte_name, query_ast))
 
