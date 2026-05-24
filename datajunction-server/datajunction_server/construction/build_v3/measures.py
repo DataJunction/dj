@@ -1434,7 +1434,6 @@ def build_select_ast(
         )
         if all_filters
         else None,
-        parent_node=parent_node,
     )
     # Surface all CTE-consumed filters so the metrics layer's outer WHERE
     # can skip re-applying them on top of the aggregation CTEs.
