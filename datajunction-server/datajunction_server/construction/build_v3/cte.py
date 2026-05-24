@@ -1345,7 +1345,7 @@ def _select_has_table_in_from(sel: ast.Select) -> bool:
     for relation in sel.from_.relations:  # pragma: no branch
         sides = [relation.primary, *(j.right for j in relation.extensions)]
         for expr in sides:  # pragma: no branch
-            if isinstance(expr, ast.Table):
+            if isinstance(expr, ast.Table):  # pragma: no branch
                 return True
     return False  # pragma: no cover
 
