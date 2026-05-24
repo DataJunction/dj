@@ -1967,6 +1967,7 @@ def collect_node_ctes(
     needed_columns_by_node: Optional[dict[str, set[str]]] = None,
     injected_filters: Optional[dict[str, ast.Expression]] = None,
     pushdown: Optional[PushdownFilters] = None,
+    parent_node: Optional[Node] = None,
 ) -> tuple[list[tuple[str, ast.Query]], list[str], dict[str, set[str]]]:
     """
     Collect CTEs for all non-source nodes, recursively expanding table references.
@@ -2114,7 +2115,26 @@ def collect_node_ctes(
         if injected_filters and node.name in injected_filters:
             _inject_filter_into_where(query_ast, injected_filters[node.name])
 
-        if pushdown:
+        # Pushdown is restricted to the parent CTE (the metric's
+        # direct source) and to dimension CTEs.  Pushing into
+        # upstream transform CTEs is unsafe: a transform may apply
+        # aggregations (e.g. ``MIN(utc_date) AS first_play_date``
+        # then renamed back to ``utc_date``) so a column with the
+        # same name at a downstream CTE has different semantics
+        # than at the upstream CTE.  Pushing a predicate past the
+        # aggregation barrier silently changes which rows feed the
+        # aggregation, and therefore changes the result.  DJ
+        # doesn't currently detect when an upstream transform's
+        # dim-link column is post-aggregation vs passthrough — so
+        # we conservatively skip cross-CTE pushdown into
+        # transforms.  Matches v2 behavior.  ``parent_node = None``
+        # preserves the unrestricted pre-v2-parity behavior for
+        # callers that haven't opted in yet.
+        if pushdown is not None and (
+            parent_node is None
+            or node is parent_node
+            or node.type == NodeType.DIMENSION
+        ):
             injections, consumed = _resolve_pushdown_filters_for_cte(
                 node,
                 query_ast,

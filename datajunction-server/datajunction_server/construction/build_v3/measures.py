@@ -1434,6 +1434,7 @@ def build_select_ast(
         )
         if all_filters
         else None,
+        parent_node=parent_node,
     )
     # Surface all CTE-consumed filters so the metrics layer's outer WHERE
     # can skip re-applying them on top of the aggregation CTEs.
@@ -1929,12 +1930,31 @@ def build_grain_group_sql(
                 component_aliases[component.name] = component_alias
             continue
 
-        # Skip LIMITED aggregability components with no aggregation
-        # These are represented by grain columns instead.
-        # grain_alias was set by _make_component: plain column → column name,
-        # complex expression → component.name.
+        # LIMITED aggregability with no aggregation (e.g. COUNT DISTINCT).
+        # These are represented by grain columns rather than aggregated
+        # expressions.  grain_alias was set by _make_component: plain column
+        # → bare column name; complex expression (CASE, IF, …) →
+        # component.name.
+        #
+        # When grain_alias != component.name (plain-column case), the bare
+        # column is already in the projection as a grain column, but
+        # external consumers (e.g. XP/ABlaze) reference the component by
+        # its hash-suffixed name (the metric's published
+        # ``derived_expression``).  Emit an additional projection that
+        # aliases the bare column to the component name so the
+        # component-name reference resolves against the measures table.
+        # Internal metric SQL still uses ``component_aliases`` to bind to
+        # the bare column.
         if component.rule.type == Aggregability.LIMITED and not component.aggregation:
-            component_aliases[component.name] = component.grain_alias or component.name
+            grain_alias = component.grain_alias or component.name
+            component_aliases[component.name] = grain_alias
+            if grain_alias != component.name:
+                component_expressions.append(
+                    (component.name, make_column_ref(grain_alias)),
+                )
+                component_metadata.append(
+                    (component.name, component, metric_node),
+                )
             continue
 
         # Always use component.name for consistency - no special case for single-component

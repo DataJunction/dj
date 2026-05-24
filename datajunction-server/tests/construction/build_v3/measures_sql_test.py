@@ -9806,3 +9806,348 @@ class TestParentCteFilterLanding:
             """,
             normalize_aliases=True,
         )
+
+    @pytest.mark.asyncio
+    async def test_count_distinct_plain_column_component_in_output(
+        self,
+        client_with_build_v3,
+    ):
+        """A ``COUNT(DISTINCT account_id)`` metric's derived
+        expression references the component by its hash-suffixed
+        name (e.g. ``account_id_distinct_<hash>``), but for
+        plain-column DISTINCT components measures.py used to
+        register the bare column as the SQL alias and SKIP emitting
+        a hash-named projection — leaving downstream consumers
+        (XP/ABlaze) unable to resolve the column referenced in the
+        metric's published ``derived_expression``.
+
+        The fix emits an additional ``<bare_col> AS
+        <component_name>`` projection so the component-name
+        reference resolves against the measures table.  This test
+        pins both the SQL shape AND verifies that every column
+        referenced in the metric's derived_expression actually
+        appears as a column in the measures SQL output.
+        """
+        client = client_with_build_v3
+
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_distinct_events",
+                "columns": [
+                    {"name": "account_id", "type": "int"},
+                    {"name": "event_date", "type": "int"},
+                    {"name": "value", "type": "double"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "distinct_events",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.distinct_events_xform",
+                "query": (
+                    "SELECT account_id, event_date, value FROM v3.src_distinct_events"
+                ),
+                "mode": "published",
+                "primary_key": ["account_id", "event_date"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.distinct_account_count",
+                "query": (
+                    "SELECT COUNT(DISTINCT account_id) FROM v3.distinct_events_xform"
+                ),
+                "mode": "published",
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.distinct_account_count"],
+                "dimensions": ["v3.distinct_events_xform.event_date"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        body = response.json()
+        gg = get_first_grain_group(body)
+        sql = gg["sql"]
+
+        # Find the component name (hash-suffixed) emitted for the
+        # ``COUNT(DISTINCT account_id)`` decomposition.  It should
+        # be present both as a registered component and as a SQL
+        # column in the projection.
+        comp_names = [c["name"] for c in gg["components"]]
+        distinct_comp = next(
+            (n for n in comp_names if n.startswith("account_id_distinct_")),
+            None,
+        )
+        assert distinct_comp is not None, (
+            f"Expected an ``account_id_distinct_<hash>`` component "
+            f"in the metric decomposition; got {comp_names}"
+        )
+
+        assert_sql_equal(
+            sql,
+            f"""
+            WITH v3_distinct_events_xform AS (
+              SELECT account_id, event_date, value
+              FROM default.v3.distinct_events
+            )
+            SELECT t1.event_date,
+                   t1.account_id,
+                   t1.account_id AS {distinct_comp}
+            FROM v3_distinct_events_xform t1
+            GROUP BY t1.event_date, t1.account_id
+            """,
+            normalize_aliases=True,
+        )
+
+        # Every column referenced in the metric's derived
+        # expression / combiner must exist as a column in the
+        # measures SQL output, otherwise downstream (XP/ABlaze)
+        # can't evaluate the expression against the materialized
+        # measures table.
+        combiner = next(
+            f["combiner"]
+            for f in body["metric_formulas"]
+            if f["name"] == "v3.distinct_account_count"
+        )
+        output_col_names = {c["name"] for c in gg["columns"]}
+        # Extract bare identifiers from the combiner — anything
+        # that looks like a column reference.  Drop SQL keywords.
+        import re
+
+        SQL_KW = {
+            "COUNT",
+            "DISTINCT",
+            "SUM",
+            "AVG",
+            "MIN",
+            "MAX",
+            "CASE",
+            "WHEN",
+            "THEN",
+            "ELSE",
+            "END",
+            "IS",
+            "NOT",
+            "NULL",
+            "AND",
+            "OR",
+            "AS",
+            "TRUE",
+            "FALSE",
+        }
+        referenced = {
+            tok
+            for tok in re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\b", combiner)
+            if tok.upper() not in SQL_KW
+        }
+        # Each non-keyword identifier in the combiner must resolve
+        # against the measures SQL output columns.
+        missing = referenced - output_col_names
+        assert not missing, (
+            f"Derived expression references columns missing from "
+            f"the measures SQL output.\n"
+            f"  combiner: {combiner}\n"
+            f"  referenced: {sorted(referenced)}\n"
+            f"  output cols: {sorted(output_col_names)}\n"
+            f"  missing: {sorted(missing)}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_filter_does_not_push_past_upstream_aggregation_barrier(
+        self,
+        client_with_build_v3,
+    ):
+        """Filter pushdown must not cross an upstream transform's
+        aggregation barrier (e.g. ``MIN(utc_date) AS firstplay_date``
+        renamed back to ``utc_date``) — the column has the same
+        name at both layers but different semantics, and pushing
+        a predicate past the MIN changes which rows feed the
+        aggregation, silently inflating the result.
+
+        Real regression from a first-play metric where v3 pushed
+        ``utc_date BETWEEN ...`` into the upstream
+        ``profile_game_engagement`` CTE, turning
+        "lifetime-first-play in window" into "any in-window play"
+        — roughly doubling the metric.
+
+        Cross-CTE pushdown into upstream transform CTEs is now
+        gated on ``node is parent_node or node.type ==
+        DIMENSION``.  This test pins that the upstream transform's
+        WHERE only carries its authored predicate (no injected
+        date filter), while the parent CTE's WHERE correctly
+        carries the date filter.
+        """
+        client = client_with_build_v3
+
+        # Upstream transform with an aggregation that renames the
+        # filter column post-MIN.  Real-world shape: a per-account
+        # "first event date" derived from a per-account daily
+        # event source.
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_daily_events_agg",
+                "columns": [
+                    {"name": "account_id", "type": "int"},
+                    {"name": "title_id", "type": "int"},
+                    {"name": "utc_date", "type": "int"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "daily_events_agg",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        # Tiny date-dim that both the upstream transform and the
+        # parent transform link their ``utc_date`` column to.  This
+        # is what makes the bug reproducible: BOTH transforms have
+        # a dim_link to the same date dim, so the per-CTE
+        # pushdown loop independently routes the filter to both.
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_agg_barrier_date_dim",
+                "columns": [{"name": "dateint", "type": "int"}],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "agg_barrier_date",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        resp = await client.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.agg_barrier_date_dim",
+                "query": "SELECT dateint FROM v3.src_agg_barrier_date_dim",
+                "mode": "published",
+                "primary_key": ["dateint"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+
+        # Upstream transform with the aggregation barrier:
+        # MIN(utc_date) renamed back to utc_date.  Linked to the
+        # date dim via its raw ``utc_date`` column — this link
+        # is the trap; pre-fix DJ would route the date filter here
+        # past the MIN.
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.agg_barrier_firstplay",
+                "query": (
+                    "SELECT account_id, title_id, "
+                    "       MIN(utc_date) AS utc_date "
+                    "FROM v3.src_daily_events_agg "
+                    "GROUP BY account_id, title_id"
+                ),
+                "mode": "published",
+                "primary_key": ["account_id", "title_id"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        resp = await client.post(
+            "/nodes/v3.agg_barrier_firstplay/link",
+            json={
+                "dimension_node": "v3.agg_barrier_date_dim",
+                "join_type": "inner",
+                "join_on": (
+                    "v3.agg_barrier_firstplay.utc_date "
+                    "= v3.agg_barrier_date_dim.dateint"
+                ),
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        # Parent transform: reads from the upstream and exposes
+        # ``utc_date`` at the post-MIN semantics.  Filter must
+        # land at THIS CTE's WHERE, not in the upstream's WHERE.
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.agg_barrier_parent",
+                "query": (
+                    "SELECT account_id, title_id, utc_date, "
+                    "       1 AS firstplay_count "
+                    "FROM v3.agg_barrier_firstplay"
+                ),
+                "mode": "published",
+                "primary_key": ["account_id", "title_id"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        resp = await client.post(
+            "/nodes/v3.agg_barrier_parent/link",
+            json={
+                "dimension_node": "v3.agg_barrier_date_dim",
+                "join_type": "inner",
+                "join_on": (
+                    "v3.agg_barrier_parent.utc_date = v3.agg_barrier_date_dim.dateint"
+                ),
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.agg_barrier_total",
+                "query": ("SELECT SUM(firstplay_count) FROM v3.agg_barrier_parent"),
+                "mode": "published",
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.agg_barrier_total"],
+                "dimensions": ["v3.agg_barrier_parent.account_id"],
+                "filters": [
+                    "v3.agg_barrier_date_dim.dateint BETWEEN 20260101 AND 20260131",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+
+        # Filter lands at the parent CTE's WHERE (post-MIN
+        # semantics).  Upstream transform's WHERE remains empty —
+        # NOT injected with a date-range predicate that would
+        # change the MIN's input set.
+        assert_sql_equal(
+            sql,
+            """
+            WITH v3_agg_barrier_date_dim AS (
+              SELECT dateint
+              FROM default.v3.agg_barrier_date
+              WHERE dateint BETWEEN 20260101 AND 20260131
+            ),
+            v3_agg_barrier_firstplay AS (
+              SELECT account_id, title_id, MIN(utc_date) AS utc_date
+              FROM default.v3.daily_events_agg
+              GROUP BY account_id, title_id
+            ),
+            v3_agg_barrier_parent AS (
+              SELECT account_id, title_id, utc_date, 1 AS firstplay_count
+              FROM v3_agg_barrier_firstplay
+              WHERE utc_date BETWEEN 20260101 AND 20260131
+            )
+            SELECT t1.account_id, SUM(t1.firstplay_count) firstplay_count_sum_HASH
+            FROM v3_agg_barrier_parent t1
+            GROUP BY t1.account_id
+            """,
+            normalize_aliases=True,
+        )
