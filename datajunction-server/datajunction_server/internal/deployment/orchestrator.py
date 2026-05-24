@@ -89,6 +89,7 @@ from datajunction_server.models.node import (
 from datajunction_server.models.unit import (
     legacy_unit_to_structured,
     structured_to_legacy_unit_name,
+    unit_to_dict,
 )
 from datajunction_server.utils import (
     SEPARATOR,
@@ -3592,12 +3593,11 @@ class DeploymentOrchestrator:
             return  # pragma: no cover
 
         legacy = metric_spec.unit_enum
-        spec_structured = (
-            metric_spec.unit_structured.model_dump()
-            if metric_spec.unit_structured is not None
-            else None
-        )
-        column_structured = output_col.unit
+        spec_structured = unit_to_dict(metric_spec.unit_structured)
+        # column.unit comes from JSONB as a plain dict; canonicalize so a
+        # hand-rolled or legacy-translated value compares equal to the
+        # spec_structured shape regardless of code: None presence.
+        column_structured = unit_to_dict(output_col.unit)
 
         # (1) Metric-level structured input wins absolutely.
         if spec_structured is not None:
@@ -3676,7 +3676,7 @@ class DeploymentOrchestrator:
             display_name=col.display_name,
             description=col.description,
             order=order,
-            unit=col.unit.model_dump() if col.unit is not None else None,
+            unit=unit_to_dict(col.unit),
             attributes=[
                 ColumnAttribute(
                     attribute_type=self.registry.attributes.get(attr),

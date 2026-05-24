@@ -2754,12 +2754,7 @@ class TestReconcileMetricUnit:
         assert col.unit == {"kind": "unitless"}
 
     def test_metric_level_structured_overrides_legacy(self):
-        spec = self._make_spec()
-        spec.unit_structured = MagicMock()
-        spec.unit_structured.model_dump = lambda: {
-            "kind": "currency",
-            "code": "EUR",
-        }
+        spec = self._make_spec(unit={"kind": "currency", "code": "EUR"})
         spec.unit_enum = MetricUnit.DOLLAR  # ignored when structured is set
         col = self._make_col()
         DeploymentOrchestrator._reconcile_metric_unit(MagicMock(), spec, col)
@@ -2768,12 +2763,7 @@ class TestReconcileMetricUnit:
     def test_metric_level_structured_overrides_column_unit_with_warning(self, caplog):
         import logging
 
-        spec = self._make_spec()
-        spec.unit_structured = MagicMock()
-        spec.unit_structured.model_dump = lambda: {
-            "kind": "currency",
-            "code": "EUR",
-        }
+        spec = self._make_spec(unit={"kind": "currency", "code": "EUR"})
         col = self._make_col(unit={"kind": "percentage"})
         with caplog.at_level(
             logging.WARNING,
@@ -2788,10 +2778,8 @@ class TestReconcileMetricUnit:
         # When metric-level structured equals columns[].unit, no warning fires.
         import logging
 
-        spec = self._make_spec()
-        spec.unit_structured = MagicMock()
         same = {"kind": "currency", "code": "USD"}
-        spec.unit_structured.model_dump = lambda: dict(same)
+        spec = self._make_spec(unit=dict(same))
         col = self._make_col(unit=dict(same))
         with caplog.at_level(
             logging.WARNING,
@@ -2807,11 +2795,12 @@ class TestReconcileMetricUnit:
         import logging
 
         spec = self._make_spec(unit=MetricUnit.DOLLAR)
-        spec.unit_structured = MagicMock()
-        spec.unit_structured.model_dump = lambda: {
-            "kind": "currency",
-            "code": "EUR",
-        }
+        # Override the unit_structured field directly to simulate "both
+        # fields set" — production code wouldn't normally set both at once,
+        # but the reconcile path must handle it gracefully.
+        from datajunction_server.models.unit import AtomicUnit, UnitKind
+
+        spec.unit_structured = AtomicUnit(kind=UnitKind.CURRENCY, code="EUR")
         col = self._make_col()
         with caplog.at_level(
             logging.WARNING,

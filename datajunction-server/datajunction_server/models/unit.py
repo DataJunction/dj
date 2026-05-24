@@ -207,6 +207,39 @@ Unit = Annotated[
 ]
 
 
+def unit_to_dict(unit: "AtomicUnit | CompoundUnit | dict | None") -> dict | None:
+    """
+    Canonical JSON-friendly dict form of a Unit. Used by every storage and
+    comparison path so the on-disk shape is stable regardless of input:
+
+      - `mode="json"` so UnitKind enum members render as plain strings.
+      - `exclude_none=True` so `code: None` doesn't appear on dimensionless
+        kinds (unitless / percentage / proportion / count-without-code),
+        keeping shapes consistent with the legacy translation table.
+
+    Accepts either a Pydantic model or an already-dict input — the dict
+    path is a no-op pass-through after a defensive copy.
+    """
+    if unit is None:
+        return None
+    if isinstance(unit, BaseModel):
+        return unit.model_dump(mode="json", exclude_none=True)
+    # Already a dict; normalize by stripping any None values one level deep
+    # so a hand-rolled dict matches the canonical shape.
+    if isinstance(unit, dict):
+        return _strip_none(unit)
+    raise TypeError(  # pragma: no cover
+        f"unit_to_dict expected Unit | dict | None, got {type(unit).__name__}",
+    )
+
+
+def _strip_none(value: Any) -> Any:
+    """Drop None-valued keys recursively from a dict; pass through otherwise."""
+    if isinstance(value, dict):
+        return {k: _strip_none(v) for k, v in value.items() if v is not None}
+    return value
+
+
 # -------------------------------------------------------------------------
 # Legacy <-> structured translation.
 #

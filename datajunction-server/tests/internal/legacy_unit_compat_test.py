@@ -234,7 +234,7 @@ class TestAllLegacyUnitValuesRoundTrip:
         assert legacy is None
         assert structured == col_unit
 
-    def test_uppercase_legacy_input_accepted(self):
+    def test_uppercase_legacy_input_accepted(self):  # noqa: ANN201
         """Legacy parser accepts case-insensitive input (existing behavior)."""
         spec = MetricSpec(
             name="legacy_compat.m",
@@ -242,3 +242,176 @@ class TestAllLegacyUnitValuesRoundTrip:
             unit="DOLLAR",
         )
         assert spec.unit_enum == MetricUnit.DOLLAR
+
+
+class TestUnknownDoesNotLeak:
+    """
+    Code-review fix #1: `MetricUnit.UNKNOWN` is the DB-column default for
+    any metric that never had a unit authored. It must not leak as
+    `unit: unknown` in YAML re-exports or any output surface.
+    """
+
+    def test_metric_spec_unit_property_treats_unknown_as_none(self):
+        spec = MetricSpec(
+            name="m",
+            query="SELECT 1",
+            unit=MetricUnit.UNKNOWN,
+        )
+        # unit_enum is UNKNOWN internally, but the public `unit` view
+        # returns None — UNKNOWN is the legacy "no unit" sentinel.
+        assert spec.unit_enum == MetricUnit.UNKNOWN
+        assert spec.unit is None
+
+    def test_yaml_export_does_not_emit_unknown(self):
+        """Round-trip: a metric with the UNKNOWN sentinel must not produce
+        `unit: unknown` in YAML."""
+        from datajunction_server.internal.namespaces import node_spec_to_yaml
+
+        spec = MetricSpec(
+            name="m",
+            query="SELECT 1",
+            unit=MetricUnit.UNKNOWN,
+        )
+        output = node_spec_to_yaml(spec)
+        assert "unit:" not in output
+        assert "unknown" not in output
+
+
+class TestEqIgnoresInputShape:
+    """
+    Code-review fix #2: __eq__ must compare units by canonical form so
+    `unit: dollar` (legacy) and `unit: {kind: currency, code: USD}`
+    (structured) are equal for the same conceptual unit — preventing
+    spurious drift detection on redeploy / git-sync.
+    """
+
+    def test_legacy_and_structured_usd_compare_equal(self):
+        a = MetricSpec(name="m", query="SELECT 1", unit="dollar")
+        b = MetricSpec(
+            name="m",
+            query="SELECT 1",
+            unit={"kind": "currency", "code": "USD"},
+        )
+        assert a == b
+
+    def test_legacy_percentage_equals_structured_percentage(self):
+        a = MetricSpec(name="m", query="SELECT 1", unit="percentage")
+        b = MetricSpec(name="m", query="SELECT 1", unit={"kind": "percentage"})
+        assert a == b
+
+    def test_different_currencies_not_equal(self):
+        a = MetricSpec(name="m", query="SELECT 1", unit="dollar")
+        b = MetricSpec(
+            name="m",
+            query="SELECT 1",
+            unit={"kind": "currency", "code": "EUR"},
+        )
+        assert a != b
+
+    def test_no_unit_and_unknown_unit_compare_equal(self):
+        """UNKNOWN is the legacy "no unit" sentinel; treat it as equivalent
+        to no unit set on the other side."""
+        a = MetricSpec(name="m", query="SELECT 1")
+        b = MetricSpec(name="m", query="SELECT 1", unit=MetricUnit.UNKNOWN)
+        assert a == b
+
+
+class TestUnitToDictCanonicalShape:
+    """
+    Code-review fix #3: unit_to_dict produces a stable JSON-friendly dict
+    that drops None-valued keys, so storage is byte-identical regardless
+    of whether the input came via the structured (model_dump) path or the
+    legacy translation table.
+    """
+
+    def test_unitless_atomic_drops_code_key(self):
+        from datajunction_server.models.unit import (
+            AtomicUnit,
+            UnitKind,
+            unit_to_dict,
+        )
+
+        u = AtomicUnit(kind=UnitKind.UNITLESS)
+        # model_dump() default would emit {'kind': UnitKind.UNITLESS, 'code': None}.
+        # unit_to_dict yields a JSON-friendly, none-stripped form matching
+        # what the legacy translation table stores.
+        assert unit_to_dict(u) == {"kind": "unitless"}
+
+    def test_currency_with_code(self):
+        from datajunction_server.models.unit import (
+            AtomicUnit,
+            UnitKind,
+            unit_to_dict,
+        )
+
+        assert unit_to_dict(
+            AtomicUnit(kind=UnitKind.CURRENCY, code="USD"),
+        ) == {"kind": "currency", "code": "USD"}
+
+    def test_dict_input_passes_through_with_none_stripped(self):
+        from datajunction_server.models.unit import unit_to_dict
+
+        assert unit_to_dict({"kind": "unitless", "code": None}) == {"kind": "unitless"}
+        assert unit_to_dict(
+            {"kind": "currency", "code": "USD"},
+        ) == {"kind": "currency", "code": "USD"}
+
+    def test_none_returns_none(self):
+        from datajunction_server.models.unit import unit_to_dict
+
+        assert unit_to_dict(None) is None
+
+    def test_storage_paths_produce_identical_shape(self):
+        """The legacy-translation path and the structured-input path must
+        write the same JSONB shape for a conceptually identical unit."""
+        from datajunction_server.models.unit import (
+            AtomicUnit,
+            UnitKind,
+            legacy_unit_to_structured,
+            unit_to_dict,
+        )
+
+        legacy_shape = legacy_unit_to_structured(MetricUnit.UNITLESS)
+        structured_shape = unit_to_dict(AtomicUnit(kind=UnitKind.UNITLESS))
+        assert legacy_shape == structured_shape
+
+
+class TestBadDictErrorUx:
+    """
+    Code-review fix #4: a malformed structured `unit` dict must surface as
+    a clean `DJInvalidInputException` echoing the offending input, not a
+    raw Pydantic ValidationError that leaks internal field names.
+    """
+
+    @pytest.mark.parametrize(
+        "bad_unit",
+        [
+            {"kind": "bogus"},  # bad kind
+            {"kind": "time", "code": "seconds"},  # bad time code
+            {"kind": "currency", "code": "usd"},  # lowercase currency
+            {"foo": "bar"},  # no kind / numerator
+        ],
+    )
+    def test_bad_dict_raises_djinvalid_input(self, bad_unit):
+        from datajunction_server.errors import DJInvalidInputException
+
+        with pytest.raises(DJInvalidInputException) as exc_info:
+            MetricSpec(name="m", query="SELECT 1", unit=bad_unit)
+        # Message echoes the offending dict so users know what they sent.
+        assert "Invalid metric unit" in str(exc_info.value)
+        # Internal field name must not leak.
+        assert "unit_structured" not in str(exc_info.value)
+
+
+class TestFalsyInputGate:
+    """
+    Code-review fix #5: empty string / empty dict must be tolerated as
+    "no unit authored", matching the historical `if unit:` permissive gate.
+    """
+
+    @pytest.mark.parametrize("falsy", [None, "", {}])
+    def test_falsy_unit_treated_as_unset(self, falsy):
+        spec = MetricSpec(name="m", query="SELECT 1", unit=falsy)
+        assert spec.unit_enum is None
+        assert spec.unit_structured is None
+        assert spec.unit is None

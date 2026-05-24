@@ -4,10 +4,11 @@ from pydantic import (
     Field,
     PrivateAttr,
     ConfigDict,
+    TypeAdapter,
     model_validator,
 )
 
-from typing import Annotated, Any, Literal, Optional, Union
+from typing import Annotated, Any, ClassVar, Literal, Optional, Union
 from datajunction_server.models.partition import Granularity, PartitionType
 from datajunction_server.errors import (
     DJInvalidDeploymentConfig,
@@ -27,7 +28,11 @@ from datajunction_server.models.node import (
     NodeStatus,
     NodeType,
 )
-from datajunction_server.models.unit import Unit
+from datajunction_server.models.unit import (
+    Unit,
+    legacy_unit_to_structured,
+    unit_to_dict,
+)
 from datajunction_server.utils import SEPARATOR
 
 
@@ -456,25 +461,41 @@ class MetricSpec(NodeSpec):
     min_decimal_exponent: int | None = None
     max_decimal_exponent: int | None = None
 
+    # Class-level adapter used by __init__ to eagerly validate structured
+    # unit input. `ClassVar` keeps Pydantic from treating it as a field.
+    _unit_adapter: ClassVar[TypeAdapter] = TypeAdapter(Unit)
+
     def __init__(self, **data: Any):
         unit = data.pop("unit", None)
-        if unit is not None and unit != "":
-            if isinstance(unit, MetricUnit):
-                data["unit_enum"] = unit
-            elif isinstance(unit, str):
-                try:
-                    data["unit_enum"] = MetricUnit[unit.strip().upper()]
-                except KeyError:
-                    raise DJInvalidInputException(f"Invalid metric unit: {unit}")
-            elif isinstance(unit, dict):
-                # Structured form. Defer validation to the Unit discriminated
-                # union — the same code path ColumnSpec.unit uses.
-                data["unit_structured"] = unit
-            else:
+        # Empty string and empty dict both mean "no unit authored" — match
+        # the historical `if unit:` permissive gate so existing YAML files
+        # with `unit: ""` or `unit: {}` (e.g. template residue) keep parsing.
+        if unit is None or unit == "" or unit == {}:
+            pass
+        elif isinstance(unit, MetricUnit):
+            data["unit_enum"] = unit
+        elif isinstance(unit, str):
+            try:
+                data["unit_enum"] = MetricUnit[unit.strip().upper()]
+            except KeyError:
+                raise DJInvalidInputException(f"Invalid metric unit: {unit}")
+        elif isinstance(unit, dict):
+            # Validate eagerly so users get a clean DJInvalidInputException
+            # (with the offending dict echoed) instead of a noisy Pydantic
+            # ValidationError that leaks internal field names like
+            # `unit_structured.atomic.kind`.
+            try:
+                MetricSpec._unit_adapter.validate_python(unit)
+            except Exception as exc:
                 raise DJInvalidInputException(
-                    f"Metric unit must be a string or a structured dict; "
-                    f"got {type(unit).__name__}",
-                )
+                    f"Invalid metric unit {unit!r}: {exc}",
+                ) from exc
+            data["unit_structured"] = unit
+        else:
+            raise DJInvalidInputException(
+                f"Metric unit must be a string or a structured dict; "
+                f"got {type(unit).__name__}",
+            )
         super().__init__(**data)
 
     @property
@@ -492,11 +513,9 @@ class MetricSpec(NodeSpec):
         shape should read `column.unit` on the metric's output column.
         """
         if self.unit_structured is not None:
-            # mode="json" so UnitKind enum members render as plain strings.
-            # The dict is consumed by YAML and JSON serializers that don't
-            # know about the enum subclass.
-            return self.unit_structured.model_dump(mode="json")
-        if self.unit_enum is None:
+            # Canonical dict shape (JSON-friendly, no None values).
+            return unit_to_dict(self.unit_structured)
+        if self.unit_enum is None or self.unit_enum == MetricUnit.UNKNOWN:
             return None
         return self.unit_enum.value.name.lower()
 
@@ -504,6 +523,22 @@ class MetricSpec(NodeSpec):
         base = super().model_dump(**kwargs)
         base["unit"] = self.unit
         return base
+
+    def _canonical_unit(self) -> dict | None:
+        """
+        Reduce both legacy and structured inputs to the same canonical dict
+        form for equality comparisons. Returns None when the metric has no
+        unit (or only the UNKNOWN sentinel), the structured dict otherwise.
+        Two specs that author the same conceptual unit via different input
+        shapes (`unit: dollar` vs `unit: {kind: currency, code: USD}`) will
+        produce identical canonical forms — so __eq__ doesn't falsely report
+        drift between YAML and DB-roundtripped specs.
+        """
+        if self.unit_structured is not None:
+            return unit_to_dict(self.unit_structured)
+        if self.unit_enum is None or self.unit_enum == MetricUnit.UNKNOWN:
+            return None
+        return legacy_unit_to_structured(self.unit_enum)
 
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, MetricSpec):
@@ -513,7 +548,7 @@ class MetricSpec(NodeSpec):
             and self.query_ast.compare(other.query_ast)
             and (self.required_dimensions or []) == (other.required_dimensions or [])
             and eq_or_fallback(self.direction, other.direction, MetricDirection.NEUTRAL)
-            and eq_or_fallback(self.unit, other.unit, MetricUnit.UNKNOWN.value.name)
+            and self._canonical_unit() == other._canonical_unit()
             and self.significant_digits == other.significant_digits
             and self.min_decimal_exponent == other.min_decimal_exponent
             and self.max_decimal_exponent == other.max_decimal_exponent

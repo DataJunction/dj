@@ -67,6 +67,7 @@ from datajunction_server.models.deployment import (
 from datajunction_server.models.node import (
     DEFAULT_DRAFT_VERSION,
     BuildCriteria,
+    MetricUnit,
     NodeCursor,
     NodeMode,
     NodeStatus,
@@ -580,9 +581,14 @@ class Node(Base):
                 if self.current.columns and self.current.columns[0].unit
                 else None
             )
+            # `MetricUnit.UNKNOWN` is the DB-column default for any metric
+            # that never had a unit authored. Treat it as "no unit" so it
+            # doesn't leak as `unit: unknown` on YAML re-export.
             legacy_from_md = (
                 self.current.metric_metadata.unit
-                if self.current.metric_metadata and self.current.metric_metadata.unit
+                if self.current.metric_metadata
+                and self.current.metric_metadata.unit
+                and self.current.metric_metadata.unit != MetricUnit.UNKNOWN
                 else None
             )
             legacy_spec, structured_spec = _resolve_metric_unit_for_spec(
