@@ -9641,3 +9641,154 @@ class TestParentCteFilterLanding:
             or "test_id = 42" in cte_body
             or "test_id IN (42)" in cte_body
         ), f"Filter dropped from outer wrapping WHERE entirely:\n{sql}"
+
+    @pytest.mark.asyncio
+    async def test_alias_substitution_skips_subquery_alias_collision(
+        self,
+        client_with_build_v3,
+    ):
+        """Alias-substitution must NOT propagate a filter whose
+        primary qualifier is a *subquery* alias at the parent CTE's
+        target_select to a deeper scope where the same name happens
+        to be a Table alias for a different relation.
+
+        Real regression from an XP cs_contact-style transform whose
+        body wraps an inline derived table aliased ``a``:
+
+            FROM (SELECT a.test_id, a.account_id, obs_window.observation_window, ...
+                  FROM <alloc_cte> AS a CROSS JOIN obs_window_dim AS w
+                  WHERE ...) AS a
+            LEFT JOIN ...
+
+        Outer ``a`` is the derived table (exposes ``observation_window``
+        via the CROSS JOIN's projection).  Inner ``a`` is the alloc
+        CTE Table-reference (does NOT have ``observation_window``).
+        A user filter on ``observation_window`` resolves at
+        target_select to ``a.observation_window IN (...)``; without
+        this guard, alias-substitution would find the inner Table
+        aliased ``a`` and inject ``a.observation_window IN (...)``
+        there — invalid because the alloc CTE has no such column,
+        and Spark fails with
+        ``Column 'a.observation_window' does not exist``.
+
+        The fix only fires alias-substitution when the primary
+        qualifier is a *direct* Table alias at target_select; here
+        ``a`` is a subquery alias so alias-substitution is skipped,
+        and the inner scope is handled instead by column-aware
+        retargeting using the obs_window dim's self-PK entry
+        (``w.observation_window IN (...)``).
+        """
+        client = client_with_build_v3
+
+        # Inner fact source whose alias inside the transform body
+        # will collide with the derived table's alias.
+        src_inner = await _setup_events_source(
+            client,
+            "alias_collide",
+            "events_alias_collide",
+        )
+
+        # Dim source + dim node — provides ``window_label`` via
+        # CROSS JOIN inside the transform body.  Filter is on this
+        # dim's own PK so dim-self-PK push handles the inner scope.
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_alias_collide_labels",
+                "columns": [{"name": "window_label", "type": "string"}],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "alias_collide_labels",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        resp = await client.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.alias_collide_label_dim",
+                "query": "SELECT window_label FROM v3.src_alias_collide_labels",
+                "mode": "published",
+                "primary_key": ["window_label"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+
+        # Transform whose body is the cs_contact-style shape:
+        # an inline derived table aliased ``a`` whose inner FROM
+        # uses ``a`` for a different relation.  Pre-fix, the user
+        # filter on window_label gets the wrong qualifier injected
+        # at the inner scope.
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.alias_collide_xform",
+                "query": (
+                    "SELECT a.account_id, a.event_date, a.value, a.window_label "
+                    "FROM ("
+                    f"  SELECT a.account_id, a.event_date, a.value, w.window_label "
+                    f"  FROM {src_inner} AS a "
+                    "  CROSS JOIN v3.alias_collide_label_dim AS w"
+                    ") AS a"
+                ),
+                "mode": "published",
+                "primary_key": ["account_id", "event_date", "window_label"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.alias_collide_count",
+                "query": "SELECT COUNT(*) FROM v3.alias_collide_xform",
+                "mode": "published",
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.alias_collide_count"],
+                "dimensions": ["v3.alias_collide_xform.account_id"],
+                "filters": [
+                    "v3.alias_collide_label_dim.window_label = 'demo'",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+
+        # Outer WHERE qualifies window_label with ``a`` (the
+        # derived-table alias, which exposes the column via the
+        # CROSS JOIN's projection).  Inner derived-table scope
+        # qualifies it with ``w`` (the obs_window-style dim
+        # subquery alias, which IS the dim and has the column).
+        # The dim CTE itself also gets the filter at its own
+        # WHERE via dim self-PK push.  No ``a.window_label`` may
+        # appear inside the inner derived's body — that was the
+        # bug.
+        assert_sql_equal(
+            sql,
+            """
+            WITH v3_alias_collide_label_dim AS (
+              SELECT window_label
+              FROM default.v3.alias_collide_labels
+              WHERE window_label = 'demo'
+            ),
+            v3_alias_collide_xform AS (
+              SELECT a.account_id
+              FROM (
+                SELECT a.account_id, w.window_label
+                FROM default.v3.events_alias_collide AS a
+                CROSS JOIN v3_alias_collide_label_dim AS w
+                WHERE w.window_label = 'demo'
+              ) AS a
+              WHERE a.window_label = 'demo'
+            )
+            SELECT t1.account_id, COUNT(*) count_HASH
+            FROM v3_alias_collide_xform t1
+            GROUP BY t1.account_id
+            """,
+            normalize_aliases=True,
+        )
