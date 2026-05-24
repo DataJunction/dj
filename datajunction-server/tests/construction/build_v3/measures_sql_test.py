@@ -9883,30 +9883,34 @@ class TestParentCteFilterLanding:
         sql = gg["sql"]
         raw_gg = body["grain_groups"][0]
 
-        # Find the component name (hash-suffixed) emitted for the
-        # ``COUNT(DISTINCT account_id)`` decomposition.  It should
-        # be present both as a registered component and as a SQL
-        # column in the projection.
-        comp_names = [c["name"] for c in raw_gg["components"]]
-        distinct_comp = next(
-            (n for n in comp_names if n.startswith("account_id_distinct_")),
+        # The fix emits an extra ``<bare_col> AS account_id_distinct_<hash>``
+        # projection so the hash-suffixed component reference (used by
+        # downstream consumers like XP/ABlaze) resolves against the
+        # measures table.  Locate the hash-suffixed column in the
+        # response columns metadata to use in the SQL assertion.
+        distinct_col = next(
+            (
+                c["name"]
+                for c in raw_gg["columns"]
+                if c["name"].startswith("account_id_distinct_")
+            ),
             None,
         )
-        assert distinct_comp is not None, (
-            f"Expected an ``account_id_distinct_<hash>`` component "
-            f"in the metric decomposition; got {comp_names}"
+        assert distinct_col is not None, (
+            f"Expected an ``account_id_distinct_<hash>`` output column "
+            f"in the measures SQL; got cols={[c['name'] for c in raw_gg['columns']]}"
         )
 
         assert_sql_equal(
             sql,
             f"""
             WITH v3_distinct_events_xform AS (
-              SELECT account_id, event_date, value
+              SELECT account_id, event_date
               FROM default.v3.distinct_events
             )
             SELECT t1.event_date,
                    t1.account_id,
-                   t1.account_id AS {distinct_comp}
+                   t1.account_id {distinct_col}
             FROM v3_distinct_events_xform t1
             GROUP BY t1.event_date, t1.account_id
             """,
@@ -10131,18 +10135,13 @@ class TestParentCteFilterLanding:
         assert_sql_equal(
             sql,
             """
-            WITH v3_agg_barrier_date_dim AS (
-              SELECT dateint
-              FROM default.v3.agg_barrier_date
-              WHERE dateint BETWEEN 20260101 AND 20260131
-            ),
-            v3_agg_barrier_firstplay AS (
+            WITH v3_agg_barrier_firstplay AS (
               SELECT account_id, title_id, MIN(utc_date) AS utc_date
               FROM default.v3.daily_events_agg
               GROUP BY account_id, title_id
             ),
             v3_agg_barrier_parent AS (
-              SELECT account_id, title_id, utc_date, 1 AS firstplay_count
+              SELECT account_id, utc_date, 1 AS firstplay_count
               FROM v3_agg_barrier_firstplay
               WHERE utc_date BETWEEN 20260101 AND 20260131
             )
