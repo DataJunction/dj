@@ -1182,6 +1182,28 @@ def _resolve_pushdown_filters_for_cte(
         alias_tag = tbl.alias.name if tbl.alias else tbl_name.split(SEPARATOR)[-1]
         alias_to_phys.setdefault(alias_tag, tbl_name)
 
+    # Aliases of Tables in target_select's DIRECT FROM (not nested
+    # inside subqueries).  Alias-substitution may only fire for
+    # primary-rewrite qualifiers that resolve to one of these — if
+    # the primary qualifier is a subquery alias at target_select
+    # that happens to share a name with a deeper Table, propagating
+    # the filter into the deeper scope injects ``alias.col`` where
+    # ``alias`` means a different thing and ``col`` may not exist.
+    target_direct_table_aliases: set[str] = set()
+    if target_select.from_ is not None:  # pragma: no branch
+        for relation in target_select.from_.relations:
+            sides = [relation.primary, *(j.right for j in relation.extensions)]
+            for expr in sides:
+                if isinstance(expr, ast.Table):
+                    try:
+                        tbl_name = expr.name.identifier(quotes=False)
+                    except Exception:  # pragma: no cover
+                        continue
+                    alias_tag = (
+                        expr.alias.name if expr.alias else tbl_name.split(SEPARATOR)[-1]
+                    )
+                    target_direct_table_aliases.add(alias_tag)
+
     # Pre-compute a column->alias map for every distinct Select scope
     # inside the CTE body.  Each scope's map says: "for a bare column
     # name X, which alias provides it in this scope's FROM tree?"
@@ -1243,6 +1265,14 @@ def _resolve_pushdown_filters_for_cte(
         # share the bare column name.
         alias_subst_scopes: set[int] = set()
         for primary_alias in _qualifier_aliases(rewritten):
+            # Skip when the primary qualifier is a subquery alias at
+            # target_select (not a direct Table).  A coincidental
+            # name collision between the subquery alias and a Table
+            # alias deeper in the body would otherwise inject
+            # ``alias.col`` at the inner scope, where ``alias``
+            # refers to a Table that doesn't have ``col``.
+            if primary_alias not in target_direct_table_aliases:
+                continue
             physical = alias_to_phys.get(primary_alias)
             if not physical:  # pragma: no cover
                 continue
@@ -1315,7 +1345,7 @@ def _select_has_table_in_from(sel: ast.Select) -> bool:
     for relation in sel.from_.relations:  # pragma: no branch
         sides = [relation.primary, *(j.right for j in relation.extensions)]
         for expr in sides:  # pragma: no branch
-            if isinstance(expr, ast.Table):
+            if isinstance(expr, ast.Table):  # pragma: no branch
                 return True
     return False  # pragma: no cover
 
