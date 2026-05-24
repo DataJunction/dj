@@ -9908,20 +9908,15 @@ class TestParentCteFilterLanding:
 
         # Combiner in the response and the metric node's persisted
         # ``derived_expression`` both reference the hashed identity
-        # exactly — full equality so any drift (extra qualification,
-        # different name, accidental rewrite) breaks the test.
-        # Live SQL upper-cases the function name; the persisted
-        # ``derived_expression`` keeps the lowercase form from the
-        # original metric query.  SQL is case-insensitive for
-        # function names so this is fine semantically.
-        assert body["metric_formulas"][0]["combiner"] == (
-            f"COUNT( DISTINCT {hashed_col})"
-        )
+        # exactly.  Both currently upper-case the function name; the
+        # contract is *equality between the two* — if either side
+        # drifts (different qualification, different case-folding,
+        # accidental rewrite), this test fails.
+        expected_combiner = f"COUNT( DISTINCT {hashed_col})"
+        assert body["metric_formulas"][0]["combiner"] == expected_combiner
         metric_resp = await client.get("/metrics/v3.distinct_plain_count")
         assert metric_resp.status_code == 200
-        assert metric_resp.json()["derived_expression"] == (
-            f"count( DISTINCT {hashed_col})"
-        )
+        assert metric_resp.json()["derived_expression"] == expected_combiner
 
     @pytest.mark.asyncio
     async def test_count_distinct_in_merged_grain_group_projects_hashed_alias(
@@ -10032,12 +10027,11 @@ class TestParentCteFilterLanding:
             if "v3.merged_distinct_accounts" in g["metrics"]
         )
         cols = [c["name"] for c in gg["columns"]]
-        plain_hashed = next(n for n in cols if n.startswith("account_id_distinct_"))
+        plain_hashed = next(
+            n for n in cols if n.startswith("account_id_distinct_")
+        )
         complex_hashed = next(
-            n
-            for n in cols
-            if n.startswith("account_id_distinct_case_when_")
-            or (n.startswith("account_id_distinct_") and n != plain_hashed)
+            n for n in cols if n.startswith("is_active_account_id_distinct_")
         )
         amount_sum_hashed = next(n for n in cols if n.startswith("amount_sum_"))
 
@@ -10049,13 +10043,12 @@ class TestParentCteFilterLanding:
               FROM default.v3.merged_distinct_events
             )
             SELECT t1.event_date,
-                   t1.account_id,
                    CASE WHEN t1.is_active THEN t1.account_id ELSE NULL END {complex_hashed},
+                   t1.account_id,
                    SUM(t1.amount) {amount_sum_hashed},
                    t1.account_id {plain_hashed}
             FROM v3_merged_distinct_xform t1
-            GROUP BY t1.event_date, t1.account_id,
-                     CASE WHEN t1.is_active THEN t1.account_id ELSE NULL END
+            GROUP BY t1.event_date, {complex_hashed}, t1.account_id
             """,
             normalize_aliases=True,
         )
@@ -10064,7 +10057,7 @@ class TestParentCteFilterLanding:
             f["name"]: f["combiner"] for f in body["metric_formulas"]
         }
         assert combiners_by_metric == {
-            "v3.merged_distinct_accounts": f"count( DISTINCT {plain_hashed})",
-            "v3.merged_distinct_active_accounts": f"count( DISTINCT {complex_hashed})",
+            "v3.merged_distinct_accounts": f"COUNT( DISTINCT {plain_hashed})",
+            "v3.merged_distinct_active_accounts": f"COUNT( DISTINCT {complex_hashed})",
             "v3.merged_distinct_total_amount": f"SUM({amount_sum_hashed})",
         }
