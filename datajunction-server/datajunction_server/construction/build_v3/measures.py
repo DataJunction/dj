@@ -164,6 +164,48 @@ def _parse_type_string(type_str: str | None) -> ct.ColumnType | None:
     return _TYPE_STRING_MAP.get(normalized)
 
 
+def register_limited_component(
+    component: MetricComponent,
+    metric_node: Node,
+    component_aliases: dict[str, str],
+    component_expressions: list[tuple[str, ast.Expression]],
+    component_metadata: list[tuple[str, MetricComponent, Node]],
+) -> None:
+    """Register a LIMITED-aggregability component (e.g. COUNT DISTINCT)
+    in the measures-SQL projection.
+
+    The component's grain_alias (set by ``_make_component`` in
+    ``sql/decompose.py``) is the bare column for plain-column DISTINCT
+    and the hashed component name for complex expressions.
+
+    When the two differ (plain-column case), the bare column is already
+    in the projection as a grain column, but external consumers
+    (XP/ABlaze) reference the component by its hash-suffixed name —
+    that's what the metric's persisted ``derived_expression`` carries,
+    and v2 pre-agg materialization writes the column under the hashed
+    name too.  This helper emits an additional ``<bare> AS
+    <component.name>`` projection so the hashed reference resolves
+    against the live measures SQL output, and routes
+    ``component_aliases`` at the hashed name so downstream combiner
+    rewriters (metrics.py, cube_matcher) stay consistent.
+
+    Both the merged-grain-group path and the per-grain-group path in
+    ``build_grain_group_sql`` MUST go through this helper so the
+    contract stays in one place.
+    """
+    grain_alias = component.grain_alias or component.name
+    if grain_alias != component.name:
+        component_aliases[component.name] = component.name
+        component_expressions.append(
+            (component.name, make_column_ref(grain_alias)),
+        )
+        component_metadata.append(
+            (component.name, component, metric_node),
+        )
+    else:
+        component_aliases[component.name] = grain_alias
+
+
 def infer_component_type(
     component: MetricComponent,
     metric_type: str,
@@ -1910,11 +1952,12 @@ def build_grain_group_sql(
                 Aggregability.FULL,
             )
             if orig_agg == Aggregability.LIMITED:
-                # LIMITED: grain column is already in GROUP BY, no output needed.
-                # grain_alias was set by _make_component: plain column → column name,
-                # complex expression → component.name.
-                component_aliases[component.name] = (
-                    component.grain_alias or component.name
+                register_limited_component(
+                    component,
+                    metric_node,
+                    component_aliases,
+                    component_expressions,
+                    component_metadata,
                 )
                 continue
             else:
@@ -1929,12 +1972,14 @@ def build_grain_group_sql(
                 component_aliases[component.name] = component_alias
             continue
 
-        # Skip LIMITED aggregability components with no aggregation
-        # These are represented by grain columns instead.
-        # grain_alias was set by _make_component: plain column → column name,
-        # complex expression → component.name.
         if component.rule.type == Aggregability.LIMITED and not component.aggregation:
-            component_aliases[component.name] = component.grain_alias or component.name
+            register_limited_component(
+                component,
+                metric_node,
+                component_aliases,
+                component_expressions,
+                component_metadata,
+            )
             continue
 
         # Always use component.name for consistency - no special case for single-component

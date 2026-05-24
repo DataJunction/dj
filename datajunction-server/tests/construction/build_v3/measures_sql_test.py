@@ -9806,3 +9806,265 @@ class TestParentCteFilterLanding:
             """,
             normalize_aliases=True,
         )
+
+    @pytest.mark.asyncio
+    async def test_count_distinct_plain_column_projects_hashed_alias(
+        self,
+        client_with_build_v3,
+    ):
+        """``COUNT(DISTINCT plain_col)`` measures-SQL output must
+        project the column under BOTH the bare grain name AND the
+        hash-suffixed component identity (``<bare> AS <name>_distinct_<hash>``).
+
+        The metric's persisted ``derived_expression``, the v2 pre-agg
+        materialization column, and the cube column all reference the
+        hashed name as the canonical identity.  Without the extra
+        projection, downstream consumers (XP/ABlaze) reading the live
+        measures SQL output can't resolve the column the
+        ``derived_expression`` references.  The combiner in the
+        ``/sql/measures/v3`` response must also reference the hashed
+        name for consistency with the persisted expression.
+        """
+        client = client_with_build_v3
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_distinct_plain",
+                "columns": [
+                    {"name": "account_id", "type": "int"},
+                    {"name": "event_date", "type": "int"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "distinct_plain_events",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.distinct_plain_xform",
+                "query": ("SELECT account_id, event_date FROM v3.src_distinct_plain"),
+                "mode": "published",
+                "primary_key": ["account_id", "event_date"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.distinct_plain_count",
+                "query": (
+                    "SELECT COUNT(DISTINCT account_id) FROM v3.distinct_plain_xform"
+                ),
+                "mode": "published",
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.distinct_plain_count"],
+                "dimensions": ["v3.distinct_plain_xform.event_date"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        body = response.json()
+        gg = body["grain_groups"][0]
+
+        # Locate the hash-suffixed identity column emitted by the fix.
+        hashed_col = next(
+            (
+                c["name"]
+                for c in gg["columns"]
+                if c["name"].startswith("account_id_distinct_")
+            ),
+            None,
+        )
+        assert hashed_col is not None, (
+            f"Expected an ``account_id_distinct_<hash>`` output column; "
+            f"got {[c['name'] for c in gg['columns']]}"
+        )
+
+        # SQL projects BOTH ``t1.account_id`` (grain/dim usage) AND
+        # ``t1.account_id AS account_id_distinct_<hash>`` (identity).
+        assert_sql_equal(
+            gg["sql"],
+            f"""
+            WITH v3_distinct_plain_xform AS (
+              SELECT account_id, event_date
+              FROM default.v3.distinct_plain_events
+            )
+            SELECT t1.event_date,
+                   t1.account_id,
+                   t1.account_id {hashed_col}
+            FROM v3_distinct_plain_xform t1
+            GROUP BY t1.event_date, t1.account_id
+            """,
+            normalize_aliases=True,
+        )
+
+        # Combiner in the response and the metric node's persisted
+        # ``derived_expression`` both reference the hashed identity
+        # exactly — full equality so any drift (extra qualification,
+        # different name, accidental rewrite) breaks the test.
+        # Live SQL upper-cases the function name; the persisted
+        # ``derived_expression`` keeps the lowercase form from the
+        # original metric query.  SQL is case-insensitive for
+        # function names so this is fine semantically.
+        assert body["metric_formulas"][0]["combiner"] == (
+            f"COUNT( DISTINCT {hashed_col})"
+        )
+        metric_resp = await client.get("/metrics/v3.distinct_plain_count")
+        assert metric_resp.status_code == 200
+        assert metric_resp.json()["derived_expression"] == (
+            f"count( DISTINCT {hashed_col})"
+        )
+
+    @pytest.mark.asyncio
+    async def test_count_distinct_in_merged_grain_group_projects_hashed_alias(
+        self,
+        client_with_build_v3,
+    ):
+        """Same contract as the single-metric case must hold in the
+        ``is_merged=True`` grain-group path (multiple metrics with
+        mixed aggregabilities combined into one measures query).
+
+        Regression: the two LIMITED-component branches in
+        ``build_grain_group_sql`` were independent — fixing only the
+        non-merged path left the merged path emitting a bare-column
+        projection + bare-column combiner, breaking consistency for
+        cross-fact / multi-metric requests.  Both branches now route
+        through ``register_limited_component``; this test pins both
+        at once.
+        """
+        client = client_with_build_v3
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_merged_distinct",
+                "columns": [
+                    {"name": "account_id", "type": "int"},
+                    {"name": "event_date", "type": "int"},
+                    {"name": "is_active", "type": "boolean"},
+                    {"name": "amount", "type": "double"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "merged_distinct_events",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.merged_distinct_xform",
+                "query": (
+                    "SELECT account_id, event_date, is_active, amount "
+                    "FROM v3.src_merged_distinct"
+                ),
+                "mode": "published",
+                "primary_key": ["account_id", "event_date"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        # Plain-column DISTINCT (LIMITED, grain_alias=bare).
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.merged_distinct_accounts",
+                "query": (
+                    "SELECT COUNT(DISTINCT account_id) FROM v3.merged_distinct_xform"
+                ),
+                "mode": "published",
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        # Complex DISTINCT (LIMITED, grain_alias==component.name).
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.merged_distinct_active_accounts",
+                "query": (
+                    "SELECT COUNT(DISTINCT CASE WHEN is_active "
+                    "THEN account_id ELSE NULL END) "
+                    "FROM v3.merged_distinct_xform"
+                ),
+                "mode": "published",
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        # FULL aggregability metric — forces the grain group to merge
+        # across aggregability levels (drives is_merged=True).
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.merged_distinct_total_amount",
+                "query": "SELECT SUM(amount) FROM v3.merged_distinct_xform",
+                "mode": "published",
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": [
+                    "v3.merged_distinct_accounts",
+                    "v3.merged_distinct_active_accounts",
+                    "v3.merged_distinct_total_amount",
+                ],
+                "dimensions": ["v3.merged_distinct_xform.event_date"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        body = response.json()
+
+        # The merged grain group is the LIMITED one (FULL gets merged
+        # in at the LIMITED level).  Locate the hashed identity
+        # columns we'll substitute into the expected SQL & combiners.
+        gg = next(
+            g
+            for g in body["grain_groups"]
+            if "v3.merged_distinct_accounts" in g["metrics"]
+        )
+        cols = [c["name"] for c in gg["columns"]]
+        plain_hashed = next(n for n in cols if n.startswith("account_id_distinct_"))
+        complex_hashed = next(
+            n
+            for n in cols
+            if n.startswith("account_id_distinct_case_when_")
+            or (n.startswith("account_id_distinct_") and n != plain_hashed)
+        )
+        amount_sum_hashed = next(n for n in cols if n.startswith("amount_sum_"))
+
+        assert_sql_equal(
+            gg["sql"],
+            f"""
+            WITH v3_merged_distinct_xform AS (
+              SELECT account_id, event_date, is_active, amount
+              FROM default.v3.merged_distinct_events
+            )
+            SELECT t1.event_date,
+                   t1.account_id,
+                   CASE WHEN t1.is_active THEN t1.account_id ELSE NULL END {complex_hashed},
+                   SUM(t1.amount) {amount_sum_hashed},
+                   t1.account_id {plain_hashed}
+            FROM v3_merged_distinct_xform t1
+            GROUP BY t1.event_date, t1.account_id,
+                     CASE WHEN t1.is_active THEN t1.account_id ELSE NULL END
+            """,
+            normalize_aliases=True,
+        )
+
+        combiners_by_metric = {
+            f["name"]: f["combiner"] for f in body["metric_formulas"]
+        }
+        assert combiners_by_metric == {
+            "v3.merged_distinct_accounts": f"count( DISTINCT {plain_hashed})",
+            "v3.merged_distinct_active_accounts": f"count( DISTINCT {complex_hashed})",
+            "v3.merged_distinct_total_amount": f"SUM({amount_sum_hashed})",
+        }

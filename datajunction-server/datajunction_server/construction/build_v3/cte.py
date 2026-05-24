@@ -2114,11 +2114,11 @@ def collect_node_ctes(
         if injected_filters and node.name in injected_filters:
             _inject_filter_into_where(query_ast, injected_filters[node.name])
 
-        if pushdown is not None:
+        if pushdown:
             injections, consumed = _resolve_pushdown_filters_for_cte(
                 node,
                 query_ast,
-                list(pushdown.filters),
+                pushdown.filters,
                 pushdown.column_aliases,
                 ctx,
             )
