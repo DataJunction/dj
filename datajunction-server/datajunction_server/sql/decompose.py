@@ -1120,10 +1120,14 @@ class MetricComponentExtractor:
 
         if is_distinct:
             # DISTINCT aggregations can't be pre-aggregated, so keep original function
-            # Just replace column references with component names
+            # and reference the column under the same alias measures.py will
+            # project it as: ``grain_alias`` for plain-column DISTINCT
+            # (the bare column name), or the component name for complex
+            # expressions (where grain_alias falls back to component name).
+            distinct_ref = components[0].grain_alias or components[0].name
             combiner_ast: ast.Expression = ast.Function(
                 func.name,
-                args=[ast.Column(ast.Name(components[0].name))],
+                args=[ast.Column(ast.Name(distinct_ref))],
                 quantifier=ast.SetQuantifier.Distinct,
             )
         else:
