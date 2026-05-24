@@ -9736,6 +9736,20 @@ class TestParentCteFilterLanding:
             },
         )
         assert resp.status_code == 201, resp.json()
+        # Link the transform to the dim via its own ``window_label``
+        # column so the filter on the dim's PK can resolve.
+        resp = await client.post(
+            "/nodes/v3.alias_collide_xform/link",
+            json={
+                "dimension_node": "v3.alias_collide_label_dim",
+                "join_type": "inner",
+                "join_on": (
+                    "v3.alias_collide_xform.window_label "
+                    "= v3.alias_collide_label_dim.window_label"
+                ),
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
         resp = await client.post(
             "/nodes/metric/",
             json={
@@ -9777,9 +9791,9 @@ class TestParentCteFilterLanding:
               WHERE window_label = 'demo'
             ),
             v3_alias_collide_xform AS (
-              SELECT a.account_id
+              SELECT a.account_id, a.window_label
               FROM (
-                SELECT a.account_id, w.window_label
+                SELECT a.account_id, a.event_date, a.value, w.window_label
                 FROM default.v3.events_alias_collide AS a
                 CROSS JOIN v3_alias_collide_label_dim AS w
                 WHERE w.window_label = 'demo'
