@@ -242,9 +242,7 @@ class TestMetricsSQLDerived:
                 FROM default.v3.page_views
             ),
             order_details_0 AS (
-                SELECT t2.category,
-                       t1.order_id,
-                       t1.order_id order_id_distinct_f93d50ab
+                SELECT t2.category, t1.order_id
                 FROM v3_order_details t1
                 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
                 GROUP BY t2.category, t1.order_id
@@ -257,9 +255,7 @@ class TestMetricsSQLDerived:
                 GROUP BY category
             ),
             page_views_enriched_0 AS (
-                SELECT t2.category,
-                       t1.customer_id,
-                       t1.customer_id customer_id_distinct_dd4be7a5
+                SELECT t2.category, t1.customer_id
                 FROM v3_page_views_enriched t1
                 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
                 GROUP BY t2.category, t1.customer_id
@@ -330,13 +326,13 @@ class TestMetricsSQLDerived:
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             ),
             order_details_0 AS (
-                SELECT t1.status, t1.order_id, SUM(t1.line_total) line_total_sum_e1f61696, SUM(t1.quantity) quantity_sum_06b64d2e, t1.order_id order_id_distinct_f93d50ab
+                SELECT t1.status, t1.order_id, SUM(t1.line_total) line_total_sum_e1f61696, SUM(t1.quantity) quantity_sum_06b64d2e
                 FROM v3_order_details t1
                 GROUP BY t1.status, t1.order_id
             )
             SELECT order_details_0.status AS status,
-                   SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT(DISTINCT order_details_0.order_id_distinct_f93d50ab), 0) AS avg_order_value,
-                   SUM(order_details_0.quantity_sum_06b64d2e) / NULLIF(COUNT(DISTINCT order_details_0.order_id_distinct_f93d50ab), 0) AS avg_items_per_order
+                   SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT(DISTINCT order_details_0.order_id), 0) AS avg_order_value,
+                   SUM(order_details_0.quantity_sum_06b64d2e) / NULLIF(COUNT(DISTINCT order_details_0.order_id), 0) AS avg_items_per_order
             FROM order_details_0
             GROUP BY order_details_0.status
             """,
@@ -416,8 +412,7 @@ class TestMetricsSQLDerived:
             SELECT  t2.category,
                 t3.name name_customer,
                 t1.order_id,
-                SUM(t1.line_total) line_total_sum_e1f61696,
-                t1.order_id order_id_distinct_f93d50ab
+                SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             LEFT OUTER JOIN v3_customer t3 ON t1.customer_id = t3.customer_id
             GROUP BY  t2.category, t3.name, t1.order_id
@@ -426,8 +421,7 @@ class TestMetricsSQLDerived:
             SELECT  t2.category,
                 t3.name name_customer,
                 t1.customer_id,
-                COUNT(t1.view_id) view_id_count_f41e2db4,
-                t1.customer_id customer_id_distinct_dd4be7a5
+                COUNT(t1.view_id) view_id_count_f41e2db4
             FROM v3_page_views_enriched t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             LEFT OUTER JOIN v3_customer t3 ON t1.customer_id = t3.customer_id
             GROUP BY  t2.category, t3.name, t1.customer_id
@@ -435,8 +429,8 @@ class TestMetricsSQLDerived:
 
             SELECT  COALESCE(order_details_0.category, page_views_enriched_0.category) AS category,
                 COALESCE(order_details_0.name_customer, page_views_enriched_0.name_customer) AS name_customer,
-                CAST(COUNT( DISTINCT order_details_0.order_id_distinct_f93d50ab) AS DOUBLE) / NULLIF(COUNT( DISTINCT page_views_enriched_0.customer_id_distinct_dd4be7a5), 0) AS conversion_rate,
-                SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT page_views_enriched_0.customer_id_distinct_dd4be7a5), 0) AS revenue_per_visitor,
+                CAST(COUNT( DISTINCT order_details_0.order_id) AS DOUBLE) / NULLIF(COUNT( DISTINCT page_views_enriched_0.customer_id), 0) AS conversion_rate,
+                SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT page_views_enriched_0.customer_id), 0) AS revenue_per_visitor,
                 SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(SUM(page_views_enriched_0.view_id_count_f41e2db4), 0) AS revenue_per_page_view
             FROM order_details_0 FULL OUTER JOIN page_views_enriched_0 ON order_details_0.category = page_views_enriched_0.category AND order_details_0.name_customer = page_views_enriched_0.name_customer
             GROUP BY 1, 2
@@ -517,14 +511,13 @@ class TestMetricsSQLDerived:
             page_views_enriched_0 AS (
             SELECT  t2.category,
                 t1.session_id,
-                COUNT(t1.view_id) view_id_count_f41e2db4,
-                t1.session_id session_id_distinct_e7c26e39
+                COUNT(t1.view_id) view_id_count_f41e2db4
             FROM v3_page_views_enriched t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             GROUP BY  t2.category, t1.session_id
             )
 
             SELECT  page_views_enriched_0.category AS category,
-                SUM(page_views_enriched_0.view_id_count_f41e2db4) / NULLIF(COUNT( DISTINCT page_views_enriched_0.session_id_distinct_e7c26e39), 0) AS pages_per_session
+                SUM(page_views_enriched_0.view_id_count_f41e2db4) / NULLIF(COUNT( DISTINCT page_views_enriched_0.session_id), 0) AS pages_per_session
             FROM page_views_enriched_0
             GROUP BY  page_views_enriched_0.category
             """,
@@ -1426,8 +1419,7 @@ class TestMetricsSQLCrossFact:
                 t3.month,
                 t3.week,
                 t1.order_id,
-                SUM(t1.line_total) line_total_sum_e1f61696,
-                t1.order_id order_id_distinct_f93d50ab
+                SUM(t1.line_total) line_total_sum_e1f61696
               FROM v3_order_details t1
               LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
               LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
@@ -1438,7 +1430,7 @@ class TestMetricsSQLCrossFact:
                 order_details_0.category AS category,
                 order_details_0.month AS month,
                 order_details_0.week AS week,
-                COUNT(DISTINCT order_details_0.order_id_distinct_f93d50ab) AS order_count,
+                COUNT(DISTINCT order_details_0.order_id) AS order_count,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
               FROM order_details_0
               GROUP BY order_details_0.category, order_details_0.month, order_details_0.week
@@ -1447,7 +1439,7 @@ class TestMetricsSQLCrossFact:
               SELECT
                 order_details_0.category AS category,
                 order_details_0.week AS week,
-                COUNT(DISTINCT order_details_0.order_id_distinct_f93d50ab) AS order_count,
+                COUNT(DISTINCT order_details_0.order_id) AS order_count,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
               FROM order_details_0
               GROUP BY order_details_0.category, order_details_0.week
@@ -1627,7 +1619,7 @@ class TestMetricsSQLCrossFact:
                 GROUP BY t2.category
             ),
             page_views_enriched_0 AS (
-                SELECT t2.category, t1.customer_id, t1.customer_id customer_id_distinct_dd4be7a5
+                SELECT t2.category, t1.customer_id
                 FROM v3_page_views_enriched t1
                 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
                 GROUP BY t2.category, t1.customer_id
@@ -1691,14 +1683,13 @@ class TestDerivedAndBaseMetricsTogether:
               SELECT
                 t1.status,
                 t1.order_id,
-                SUM(t1.line_total) line_total_sum_e1f61696,
-                t1.order_id order_id_distinct_f93d50ab
+                SUM(t1.line_total) line_total_sum_e1f61696
               FROM v3_order_details t1
               GROUP BY  t1.status, t1.order_id
             )
             SELECT
               order_details_0.status AS status,
-              SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT order_details_0.order_id_distinct_f93d50ab), 0) AS avg_order_value,
+              SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT order_details_0.order_id), 0) AS avg_order_value,
               SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
             FROM order_details_0
             GROUP BY  order_details_0.status
@@ -2152,12 +2143,12 @@ class TestMetricsSQLNestedDerived:
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             ),
             order_details_0 AS (
-                SELECT t1.status, t1.order_id, SUM(t1.line_total) line_total_sum_e1f61696, t1.order_id order_id_distinct_f93d50ab
+                SELECT t1.status, t1.order_id, SUM(t1.line_total) line_total_sum_e1f61696
                 FROM v3_order_details t1
                 GROUP BY t1.status, t1.order_id
             )
             SELECT order_details_0.status AS status,
-                   SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT(DISTINCT order_details_0.order_id_distinct_f93d50ab), 0) / 50.0 * 100 AS aov_growth_index
+                   SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT(DISTINCT order_details_0.order_id), 0) / 50.0 * 100 AS aov_growth_index
             FROM order_details_0
             GROUP BY order_details_0.status
             """,
@@ -2217,7 +2208,7 @@ class TestMetricsSQLNestedDerived:
                 FROM default.v3.products
             ),
             order_details_0 AS (
-                SELECT t2.category, t3.week, t1.order_id, SUM(t1.line_total) line_total_sum_e1f61696, t1.order_id order_id_distinct_f93d50ab
+                SELECT t2.category, t3.week, t1.order_id, SUM(t1.line_total) line_total_sum_e1f61696
                 FROM v3_order_details t1
                 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
                 LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
@@ -2227,9 +2218,9 @@ class TestMetricsSQLNestedDerived:
                 SELECT
                     order_details_0.category AS category,
                     order_details_0.week AS week,
-                    COUNT(DISTINCT order_details_0.order_id_distinct_f93d50ab) AS order_count,
+                    COUNT(DISTINCT order_details_0.order_id) AS order_count,
                     SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue,
-                    SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT order_details_0.order_id_distinct_f93d50ab), 0) AS avg_order_value
+                    SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT order_details_0.order_id), 0) AS avg_order_value
                 FROM order_details_0
                 GROUP BY order_details_0.category, order_details_0.week
             )
@@ -2309,20 +2300,20 @@ class TestMetricsSQLNestedDerived:
                 FROM default.v3.page_views
             ),
             order_details_0 AS (
-                SELECT t2.category, t1.order_id, SUM(t1.line_total) line_total_sum_e1f61696, t1.order_id order_id_distinct_f93d50ab
+                SELECT t2.category, t1.order_id, SUM(t1.line_total) line_total_sum_e1f61696
                 FROM v3_order_details t1
                 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
                 GROUP BY t2.category, t1.order_id
             ),
             page_views_enriched_0 AS (
-                SELECT t2.category, t1.session_id, COUNT(t1.view_id) view_id_count_f41e2db4, t1.session_id session_id_distinct_e7c26e39
+                SELECT t2.category, t1.session_id, COUNT(t1.view_id) view_id_count_f41e2db4
                 FROM v3_page_views_enriched t1
                 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
                 GROUP BY t2.category, t1.session_id
             )
             SELECT COALESCE(order_details_0.category, page_views_enriched_0.category) AS category,
-                   SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT(DISTINCT order_details_0.order_id_distinct_f93d50ab), 0)
-                   / NULLIF(SUM(page_views_enriched_0.view_id_count_f41e2db4) / NULLIF(COUNT(DISTINCT page_views_enriched_0.session_id_distinct_e7c26e39), 0), 0) AS efficiency_ratio
+                   SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT(DISTINCT order_details_0.order_id), 0)
+                   / NULLIF(SUM(page_views_enriched_0.view_id_count_f41e2db4) / NULLIF(COUNT(DISTINCT page_views_enriched_0.session_id), 0), 0) AS efficiency_ratio
             FROM order_details_0
             FULL OUTER JOIN page_views_enriched_0 ON order_details_0.category = page_views_enriched_0.category
             GROUP BY 1
@@ -2692,8 +2683,7 @@ class TestMetricsSQLNestedDerived:
                 t2.category,
                 t3.week,
                 t1.order_id,
-                SUM(t1.line_total) line_total_sum_e1f61696,
-                t1.order_id order_id_distinct_f93d50ab
+                SUM(t1.line_total) line_total_sum_e1f61696
               FROM v3_order_details t1
               LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
               LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
@@ -2704,7 +2694,7 @@ class TestMetricsSQLNestedDerived:
                 order_details_0.date_id_order AS date_id_order,
                 order_details_0.category AS category,
                 order_details_0.week AS week,
-                COUNT(DISTINCT order_details_0.order_id_distinct_f93d50ab) AS order_count,
+                COUNT(DISTINCT order_details_0.order_id) AS order_count,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
               FROM order_details_0
               GROUP BY order_details_0.date_id_order, order_details_0.category, order_details_0.week
@@ -2713,7 +2703,7 @@ class TestMetricsSQLNestedDerived:
               SELECT
                 order_details_0.category AS category,
                 order_details_0.week AS week,
-                COUNT(DISTINCT order_details_0.order_id_distinct_f93d50ab) AS order_count,
+                COUNT(DISTINCT order_details_0.order_id) AS order_count,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
               FROM order_details_0
               GROUP BY order_details_0.category, order_details_0.week
@@ -2890,14 +2880,14 @@ class TestMetricsSQLCrossFactWindow:
                 FROM default.v3.page_views
             ),
             order_details_0 AS (
-                SELECT t2.category, t3.week, t1.order_id, t1.order_id order_id_distinct_f93d50ab
+                SELECT t2.category, t3.week, t1.order_id
                 FROM v3_order_details t1
                 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
                 LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
                 GROUP BY t2.category, t3.week, t1.order_id
             ),
             page_views_enriched_0 AS (
-                SELECT t2.category, t3.week, t1.customer_id, t1.customer_id customer_id_distinct_dd4be7a5
+                SELECT t2.category, t3.week, t1.customer_id
                 FROM v3_page_views_enriched t1
                 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
                 LEFT OUTER JOIN v3_date t3 ON t1.page_date = t3.date_id
@@ -2907,9 +2897,9 @@ class TestMetricsSQLCrossFactWindow:
                 SELECT
                     COALESCE(order_details_0.category, page_views_enriched_0.category) AS category,
                     COALESCE(order_details_0.week, page_views_enriched_0.week) AS week,
-                    COUNT(DISTINCT order_details_0.order_id_distinct_f93d50ab) AS order_count,
-                    COUNT(DISTINCT page_views_enriched_0.customer_id_distinct_dd4be7a5) AS visitor_count,
-                    CAST(COUNT(DISTINCT order_details_0.order_id_distinct_f93d50ab) AS DOUBLE) / NULLIF(COUNT(DISTINCT page_views_enriched_0.customer_id_distinct_dd4be7a5), 0) AS conversion_rate
+                    COUNT(DISTINCT order_details_0.order_id) AS order_count,
+                    COUNT(DISTINCT page_views_enriched_0.customer_id) AS visitor_count,
+                    CAST(COUNT(DISTINCT order_details_0.order_id) AS DOUBLE) / NULLIF(COUNT(DISTINCT page_views_enriched_0.customer_id), 0) AS conversion_rate
                 FROM order_details_0
                 FULL OUTER JOIN page_views_enriched_0 ON order_details_0.category = page_views_enriched_0.category AND order_details_0.week = page_views_enriched_0.week
                 GROUP BY 1, 2
@@ -3031,8 +3021,7 @@ class TestMetricsSQLCrossFactWindow:
             SELECT  COALESCE(t1.order_date, t3.date_id) AS date_id,
                 t2.category,
                 t3.week,
-                t1.order_id,
-                t1.order_id order_id_distinct_f93d50ab
+                t1.order_id
             FROM v3_order_details t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
             GROUP BY  COALESCE(t1.order_date, t3.date_id), t2.category, t3.week, t1.order_id
@@ -3041,8 +3030,7 @@ class TestMetricsSQLCrossFactWindow:
             SELECT  COALESCE(t1.page_date, t3.date_id) AS date_id,
                 t2.category,
                 t3.week,
-                t1.customer_id,
-                t1.customer_id customer_id_distinct_dd4be7a5
+                t1.customer_id
             FROM v3_page_views_enriched t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             LEFT OUTER JOIN v3_date t3 ON t1.page_date = t3.date_id
             GROUP BY  COALESCE(t1.page_date, t3.date_id), t2.category, t3.week, t1.customer_id
@@ -3051,9 +3039,9 @@ class TestMetricsSQLCrossFactWindow:
             SELECT  COALESCE(order_details_0.date_id, page_views_enriched_0.date_id) AS date_id,
                 COALESCE(order_details_0.category, page_views_enriched_0.category) AS category,
                 COALESCE(order_details_0.week, page_views_enriched_0.week) AS week,
-                COUNT( DISTINCT order_details_0.order_id_distinct_f93d50ab) AS order_count,
-                COUNT( DISTINCT page_views_enriched_0.customer_id_distinct_dd4be7a5) AS visitor_count,
-                CAST(COUNT( DISTINCT order_details_0.order_id_distinct_f93d50ab) AS DOUBLE) / NULLIF(COUNT( DISTINCT page_views_enriched_0.customer_id_distinct_dd4be7a5), 0) AS conversion_rate
+                COUNT( DISTINCT order_details_0.order_id) AS order_count,
+                COUNT( DISTINCT page_views_enriched_0.customer_id) AS visitor_count,
+                CAST(COUNT( DISTINCT order_details_0.order_id) AS DOUBLE) / NULLIF(COUNT( DISTINCT page_views_enriched_0.customer_id), 0) AS conversion_rate
             FROM order_details_0 FULL OUTER JOIN page_views_enriched_0 ON order_details_0.date_id = page_views_enriched_0.date_id AND order_details_0.category = page_views_enriched_0.category AND order_details_0.week = page_views_enriched_0.week
             GROUP BY  1, 2, 3
             )
@@ -3142,8 +3130,7 @@ class TestMetricsSQLCrossFactWindow:
                 t2.category,
                 t3.week,
                 t1.order_id,
-                SUM(t1.line_total) line_total_sum_e1f61696,
-                t1.order_id order_id_distinct_f93d50ab
+                SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
             GROUP BY  COALESCE(t1.order_date, t3.date_id), t2.category, t3.week, t1.order_id
@@ -3153,8 +3140,7 @@ class TestMetricsSQLCrossFactWindow:
                 t2.category,
                 t3.week,
                 t1.session_id,
-                COUNT(t1.view_id) view_id_count_f41e2db4,
-                t1.session_id session_id_distinct_e7c26e39
+                COUNT(t1.view_id) view_id_count_f41e2db4
             FROM v3_page_views_enriched t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             LEFT OUTER JOIN v3_date t3 ON t1.page_date = t3.date_id
             GROUP BY  COALESCE(t1.page_date, t3.date_id), t2.category, t3.week, t1.session_id
@@ -3163,13 +3149,13 @@ class TestMetricsSQLCrossFactWindow:
             SELECT  COALESCE(order_details_0.date_id, page_views_enriched_0.date_id) AS date_id,
                 COALESCE(order_details_0.category, page_views_enriched_0.category) AS category,
                 COALESCE(order_details_0.week, page_views_enriched_0.week) AS week,
-                COUNT( DISTINCT order_details_0.order_id_distinct_f93d50ab) AS order_count,
+                COUNT( DISTINCT order_details_0.order_id) AS order_count,
                 SUM(page_views_enriched_0.view_id_count_f41e2db4) AS page_view_count,
-                COUNT( DISTINCT page_views_enriched_0.session_id_distinct_e7c26e39) AS session_count,
+                COUNT( DISTINCT page_views_enriched_0.session_id) AS session_count,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue,
-                SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT order_details_0.order_id_distinct_f93d50ab), 0) AS avg_order_value,
-                SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT order_details_0.order_id_distinct_f93d50ab), 0) / NULLIF(SUM(page_views_enriched_0.view_id_count_f41e2db4) / NULLIF(COUNT( DISTINCT page_views_enriched_0.session_id_distinct_e7c26e39), 0), 0) AS efficiency_ratio,
-                SUM(page_views_enriched_0.view_id_count_f41e2db4) / NULLIF(COUNT( DISTINCT page_views_enriched_0.session_id_distinct_e7c26e39), 0) AS pages_per_session
+                SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT order_details_0.order_id), 0) AS avg_order_value,
+                SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT order_details_0.order_id), 0) / NULLIF(SUM(page_views_enriched_0.view_id_count_f41e2db4) / NULLIF(COUNT( DISTINCT page_views_enriched_0.session_id), 0), 0) AS efficiency_ratio,
+                SUM(page_views_enriched_0.view_id_count_f41e2db4) / NULLIF(COUNT( DISTINCT page_views_enriched_0.session_id), 0) AS pages_per_session
             FROM order_details_0 FULL OUTER JOIN page_views_enriched_0 ON order_details_0.date_id = page_views_enriched_0.date_id AND order_details_0.category = page_views_enriched_0.category AND order_details_0.week = page_views_enriched_0.week
             GROUP BY  1, 2, 3
             )
@@ -3258,8 +3244,7 @@ class TestMetricsSQLCrossFactWindow:
             SELECT  COALESCE(t1.order_date, t3.date_id) AS date_id,
                 t2.category,
                 t3.week,
-                t1.order_id,
-                t1.order_id order_id_distinct_f93d50ab
+                t1.order_id
             FROM v3_order_details t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
             GROUP BY  COALESCE(t1.order_date, t3.date_id), t2.category, t3.week, t1.order_id
@@ -3268,8 +3253,7 @@ class TestMetricsSQLCrossFactWindow:
             SELECT  COALESCE(t1.page_date, t3.date_id) AS date_id,
                 t2.category,
                 t3.week,
-                t1.customer_id,
-                t1.customer_id customer_id_distinct_dd4be7a5
+                t1.customer_id
             FROM v3_page_views_enriched t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             LEFT OUTER JOIN v3_date t3 ON t1.page_date = t3.date_id
             GROUP BY  COALESCE(t1.page_date, t3.date_id), t2.category, t3.week, t1.customer_id
@@ -3278,8 +3262,8 @@ class TestMetricsSQLCrossFactWindow:
             SELECT  COALESCE(order_details_0.date_id, page_views_enriched_0.date_id) AS date_id,
                 COALESCE(order_details_0.category, page_views_enriched_0.category) AS category,
                 COALESCE(order_details_0.week, page_views_enriched_0.week) AS week,
-                COUNT( DISTINCT order_details_0.order_id_distinct_f93d50ab) AS order_count,
-                COUNT( DISTINCT page_views_enriched_0.customer_id_distinct_dd4be7a5) AS visitor_count
+                COUNT( DISTINCT order_details_0.order_id) AS order_count,
+                COUNT( DISTINCT page_views_enriched_0.customer_id) AS visitor_count
             FROM order_details_0 FULL OUTER JOIN page_views_enriched_0 ON order_details_0.date_id = page_views_enriched_0.date_id AND order_details_0.category = page_views_enriched_0.category AND order_details_0.week = page_views_enriched_0.week
             GROUP BY  1, 2, 3
             ),
@@ -3399,8 +3383,7 @@ class TestMetricsSQLCrossFactWindow:
             SELECT  t2.category,
                 t3.week,
                 t1.session_id,
-                COUNT(t1.view_id) view_id_count_f41e2db4,
-                t1.session_id session_id_distinct_e7c26e39
+                COUNT(t1.view_id) view_id_count_f41e2db4
             FROM v3_page_views_enriched t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             LEFT OUTER JOIN v3_date t3 ON t1.page_date = t3.date_id
             GROUP BY  t2.category, t3.week, t1.session_id
@@ -3409,9 +3392,9 @@ class TestMetricsSQLCrossFactWindow:
             SELECT  COALESCE(order_details_0.category, page_views_enriched_0.category) AS category,
                 COALESCE(order_details_0.week, page_views_enriched_0.week) AS week,
                 SUM(page_views_enriched_0.view_id_count_f41e2db4) AS page_view_count,
-                COUNT( DISTINCT page_views_enriched_0.session_id_distinct_e7c26e39) AS session_count,
+                COUNT( DISTINCT page_views_enriched_0.session_id) AS session_count,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue,
-                SUM(page_views_enriched_0.view_id_count_f41e2db4) / NULLIF(COUNT( DISTINCT page_views_enriched_0.session_id_distinct_e7c26e39), 0) AS pages_per_session
+                SUM(page_views_enriched_0.view_id_count_f41e2db4) / NULLIF(COUNT( DISTINCT page_views_enriched_0.session_id), 0) AS pages_per_session
             FROM order_details_0 FULL OUTER JOIN page_views_enriched_0 ON order_details_0.category = page_views_enriched_0.category AND order_details_0.week = page_views_enriched_0.week
             GROUP BY  1, 2
             )
@@ -3622,14 +3605,13 @@ class TestMetricsSQLOrderByLimit:
             order_details_0 AS (
                 SELECT t1.status,
                        t1.order_id,
-                       SUM(t1.line_total) line_total_sum_e1f61696,
-                       t1.order_id order_id_distinct_f93d50ab
+                       SUM(t1.line_total) line_total_sum_e1f61696
                 FROM v3_order_details t1
                 GROUP BY t1.status, t1.order_id
             )
             SELECT order_details_0.status AS status,
                    SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue,
-                   COUNT(DISTINCT order_details_0.order_id_distinct_f93d50ab) AS order_count
+                   COUNT(DISTINCT order_details_0.order_id) AS order_count
             FROM order_details_0
             GROUP BY order_details_0.status
             ORDER BY status ASC, total_revenue DESC
@@ -5121,13 +5103,13 @@ class TestMetricsSQLEdgeCases:
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             ),
             order_details_0 AS (
-                SELECT t1.status, t1.order_id, SUM(t1.line_total) line_total_sum_e1f61696, t1.order_id order_id_distinct_f93d50ab
+                SELECT t1.status, t1.order_id, SUM(t1.line_total) line_total_sum_e1f61696
                 FROM v3_order_details t1
                 GROUP BY t1.status, t1.order_id
             )
             SELECT order_details_0.status AS status,
                    SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue,
-                   COUNT(DISTINCT order_details_0.order_id_distinct_f93d50ab) AS order_count
+                   COUNT(DISTINCT order_details_0.order_id) AS order_count
             FROM order_details_0
             GROUP BY order_details_0.status
             """,

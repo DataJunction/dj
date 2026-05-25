@@ -144,12 +144,12 @@ class TestDJSQLBasic:
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             ),
             order_details_0 AS (
-                SELECT t1.status, t1.order_id, SUM(t1.line_total) line_total_sum_e1f61696, t1.order_id order_id_distinct_f93d50ab
+                SELECT t1.status, t1.order_id, SUM(t1.line_total) line_total_sum_e1f61696
                 FROM v3_order_details t1
                 GROUP BY t1.status, t1.order_id
             )
             SELECT order_details_0.status AS status,
-                   SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT(DISTINCT order_details_0.order_id_distinct_f93d50ab), 0) AS avg_order_value
+                   SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT(DISTINCT order_details_0.order_id), 0) AS avg_order_value
             FROM order_details_0
             GROUP BY order_details_0.status
             """,

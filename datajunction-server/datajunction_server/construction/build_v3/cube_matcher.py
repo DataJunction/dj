@@ -486,19 +486,7 @@ def build_synthetic_grain_group(
 
         for comp in decomposed.components:
             if comp.name not in component_aliases:  # pragma: no branch
-                # Legacy compat: cubes materialized before LIMITED-DISTINCT
-                # gained its `<bare> AS <hashed>` projection had the column
-                # stored under the bare grain name (e.g. ``order_id``)
-                # rather than the hashed identity (``order_id_distinct_<hash>``).
-                # Try the hashed name first (current shape), then fall back
-                # to the grain_alias (legacy shape) before defaulting to
-                # ``comp.name``.  Keeps stale cube configs queryable until
-                # they're re-materialized.
-                cube_col_name = mat_col_lookup.get(comp.name)
-                if cube_col_name is None and comp.grain_alias:
-                    cube_col_name = mat_col_lookup.get(comp.grain_alias)
-                if cube_col_name is None:
-                    cube_col_name = comp.name
+                cube_col_name = mat_col_lookup.get(comp.name, comp.name)
                 component_aliases[comp.name] = cube_col_name
                 all_components.append(comp)
 
