@@ -668,16 +668,27 @@ async def test_count_distinct_complex_expression_keeps_hashed_name(
         "FROM parent_node",
     )
     extractor = MetricComponentExtractor(metric_rev.id)
-    measures, _ = await extractor.extract(session)
-    assert len(measures) == 1
-    comp = measures[0]
-    # Hash suffix preserved on complex DISTINCT.
-    assert comp.name.startswith("is_active_user_id_distinct_")
-    assert comp.name != "user_id"
-    assert comp.grain_alias == comp.name
-    assert comp.aggregation is None
-    assert comp.merge is None
-    assert comp.rule.type == Aggregability.LIMITED
+    measures, derived_sql = await extractor.extract(session)
+    expression = (
+        "CASE \n        WHEN is_active THEN user_id\n        ELSE NULL\n    END"
+    )
+    assert measures == [
+        MetricComponent(
+            name="is_active_user_id_distinct_62ecf94a",
+            expression=expression,
+            aggregation=None,
+            merge=None,
+            rule=AggregationRule(
+                type=Aggregability.LIMITED,
+                level=[expression],
+            ),
+            grain_alias="is_active_user_id_distinct_62ecf94a",
+        ),
+    ]
+    assert_sql_equal(
+        str(derived_sql),
+        "SELECT COUNT( DISTINCT is_active_user_id_distinct_62ecf94a) FROM parent_node",
+    )
 
 
 @pytest.mark.asyncio
