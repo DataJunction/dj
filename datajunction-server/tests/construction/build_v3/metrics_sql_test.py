@@ -250,7 +250,7 @@ class TestMetricsSQLDerived:
             order_details_0_agg AS (
                 SELECT
                   category,
-                  COUNT(DISTINCT order_id) order_id_distinct_f93d50ab
+                  COUNT(DISTINCT order_id) order_id
                 FROM order_details_0
                 GROUP BY category
             ),
@@ -262,12 +262,12 @@ class TestMetricsSQLDerived:
             ),
             page_views_enriched_0_agg AS (
                 SELECT  category,
-                    COUNT( DISTINCT customer_id) customer_id_distinct_dd4be7a5
+                    COUNT( DISTINCT customer_id) customer_id
                 FROM page_views_enriched_0
                 GROUP BY  category
             )
             SELECT COALESCE(order_details_0_agg.category, page_views_enriched_0_agg.category) AS category,
-                   CAST(MAX(order_details_0_agg.order_id_distinct_f93d50ab) AS DOUBLE) / NULLIF(MAX(page_views_enriched_0_agg.customer_id_distinct_dd4be7a5), 0) AS conversion_rate
+                   CAST(MAX(order_details_0_agg.order_id) AS DOUBLE) / NULLIF(MAX(page_views_enriched_0_agg.customer_id), 0) AS conversion_rate
             FROM order_details_0_agg
             FULL OUTER JOIN page_views_enriched_0_agg ON order_details_0_agg.category = page_views_enriched_0_agg.category
             GROUP BY 1
@@ -1625,14 +1625,14 @@ class TestMetricsSQLCrossFact:
                 GROUP BY t2.category, t1.customer_id
             ),
             page_views_enriched_0_agg AS (
-                SELECT category, COUNT(DISTINCT customer_id) customer_id_distinct_dd4be7a5
+                SELECT category, COUNT(DISTINCT customer_id) customer_id
                 FROM page_views_enriched_0
                 GROUP BY category
             )
             SELECT
                 COALESCE(order_details_0.category, page_views_enriched_0_agg.category) AS category,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue,
-                MAX(page_views_enriched_0_agg.customer_id_distinct_dd4be7a5) AS visitor_count
+                MAX(page_views_enriched_0_agg.customer_id) AS visitor_count
             FROM order_details_0
             FULL OUTER JOIN page_views_enriched_0_agg
                 ON order_details_0.category = page_views_enriched_0_agg.category
