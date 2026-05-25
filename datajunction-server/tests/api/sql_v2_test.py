@@ -1202,14 +1202,11 @@ async def create_metric_distinct_single_column(client: AsyncClient):
             "expression": "hard_hat_id",
             "grain_alias": "hard_hat_id",
             "merge": None,
-            "name": "hard_hat_id_distinct_ac37a223",
+            "name": "hard_hat_id",
             "rule": {"level": ["hard_hat_id"], "type": "limited"},
         },
     ]
-    assert (
-        metric_data["derived_expression"]
-        == "COUNT( DISTINCT hard_hat_id_distinct_ac37a223)"
-    )
+    assert metric_data["derived_expression"] == "COUNT( DISTINCT hard_hat_id)"
     return metric_name
 
 
@@ -1311,7 +1308,7 @@ async def test_measures_sql_agg_distinct_metric(
       default_DOT_repair_orders_fact_built.default_DOT_dispatcher_DOT_company_name,
       COUNT(price) AS price_count_935e7117,
       SUM(price) AS price_sum_935e7117,
-      hard_hat_id AS hard_hat_id_distinct_ac37a223,
+      hard_hat_id AS hard_hat_id,
       IF(hard_hat_id = 1, 1, 0) AS hard_hat_id_distinct_0291ee39
     FROM default_DOT_repair_orders_fact_built
     GROUP BY
@@ -1691,17 +1688,14 @@ class TestMeasuresSQLMetricDefinitionsWithDimensions:
                 "expression": "default.municipality_dim.contact_name",
                 "grain_alias": "contact_name",
                 "merge": None,
-                "name": "default_DOT_municipality_dim_DOT_contact_name_distinct_bc16351d",
+                "name": "contact_name",
                 "rule": {
                     "level": ["default.municipality_dim.contact_name"],
                     "type": "limited",
                 },
             },
         ]
-        assert (
-            data["derived_expression"]
-            == "COUNT( DISTINCT default_DOT_municipality_dim_DOT_contact_name_distinct_bc16351d)"
-        )
+        assert data["derived_expression"] == "COUNT( DISTINCT contact_name)"
         response = await module__client_with_roads.get(
             "/sql/measures/v2",
             params={
@@ -1752,7 +1746,7 @@ class TestMeasuresSQLMetricDefinitionsWithDimensions:
         )
         SELECT
           default_DOT_repair_orders_fact_built.default_DOT_municipality_dim_DOT_contact_name,
-          default_DOT_municipality_dim_DOT_contact_name AS default_DOT_municipality_dim_DOT_contact_name_distinct_bc16351d
+          default_DOT_municipality_dim_DOT_contact_name AS contact_name
         FROM default_DOT_repair_orders_fact_built
         GROUP BY
           default_DOT_repair_orders_fact_built.default_DOT_municipality_dim_DOT_contact_name,

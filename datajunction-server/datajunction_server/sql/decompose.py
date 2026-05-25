@@ -1159,35 +1159,45 @@ class MetricComponentExtractor:
             for a in func.args:
                 columns.extend(a.find_all(ast.Column))
 
-        # Build component name from columns in the expression
-        if is_distinct:
-            # DISTINCT uses column names + "_distinct"
-            base_name = amenable_col_names(columns) + "_distinct"
-        elif columns:
-            # Normal case: column names + suffix
-            base_name = amenable_col_names(columns) + comp_def.suffix
-        else:
-            # No columns (e.g., COUNT(*)) - use suffix without leading underscore
-            base_name = comp_def.suffix.lstrip("_") or "count"
-
-        short_hash = self._short_hash(expression, query_ast)
-        component_name = f"{base_name}_{short_hash}"
-
-        # For LIMITED (COUNT DISTINCT) components, compute the SQL alias that
-        # measures.py should use for the grain column.  Simple column args get the
-        # bare column name, whereas complex expressions (like IF, CASE etc) get
-        # component_name, so the alias is a stable identifier derived from the same logic.
-        grain_alias: str | None = None
-        if is_distinct:
-            _arg = (
-                cast(ast.Expression, func.args[comp_def.arg_index])
-                if comp_def.arg_index is not None
-                else None
-            )
+        # For plain-column DISTINCT (e.g. ``COUNT(DISTINCT account_id)``),
+        # name the component after the bare column itself — there's no
+        # expression ambiguity to disambiguate.  This keeps
+        # ``component.name`` aligned with the column already projected
+        # as a grain alias by measures.py: ``derived_expression`` and
+        # the live measures SQL output reference the same identifier,
+        # so external consumers (XP/ABlaze) can evaluate the persisted
+        # expression directly against the materialized table.
+        #
+        # Complex DISTINCT (CASE/IF over a column) and non-DISTINCT
+        # components still get a ``<base>_<hash>`` name — those need
+        # the hash to distinguish different expressions that share a
+        # column-name prefix.
+        plain_distinct_col: str | None = None
+        if is_distinct and comp_def.arg_index is not None:
+            _arg = cast(ast.Expression, func.args[comp_def.arg_index])
             if isinstance(_arg, ast.Column):
-                grain_alias = _arg.name.name
+                plain_distinct_col = _arg.name.name
+
+        if plain_distinct_col is not None:
+            component_name = plain_distinct_col
+            grain_alias: str | None = plain_distinct_col
+        else:
+            # Build component name from columns in the expression
+            if is_distinct:
+                # DISTINCT uses column names + "_distinct"
+                base_name = amenable_col_names(columns) + "_distinct"
+            elif columns:
+                # Normal case: column names + suffix
+                base_name = amenable_col_names(columns) + comp_def.suffix
             else:
-                grain_alias = component_name
+                # No columns (e.g., COUNT(*)) - use suffix without leading underscore
+                base_name = comp_def.suffix.lstrip("_") or "count"
+
+            short_hash = self._short_hash(expression, query_ast)
+            component_name = f"{base_name}_{short_hash}"
+            # Complex DISTINCT: grain alias equals the component name
+            # so the projection alias stays a stable identifier.
+            grain_alias = component_name if is_distinct else None
 
         # Build accumulate expression with template expansion
         accumulate_expr = self._expand_template(comp_def.accumulate, func.args)

@@ -4945,8 +4945,8 @@ class TestCubeMaterializeV2SuccessPaths:
             metric_combiners = data["metric_combiners"]
             assert metric_combiners == {
                 "v3.total_revenue": "SUM(line_total_sum_e1f61696)",
-                "v3.order_count": "COUNT( DISTINCT order_id_distinct_f93d50ab)",
-                "v3.avg_order_value": "SAFE_DIVIDE(SUM(line_total_sum_e1f61696), NULLIF(COUNT( DISTINCT order_id_distinct_f93d50ab), 0))",
+                "v3.order_count": "COUNT( DISTINCT order_id)",
+                "v3.avg_order_value": "SAFE_DIVIDE(SUM(line_total_sum_e1f61696), NULLIF(COUNT( DISTINCT order_id), 0))",
                 # wow_revenue_change now has:
                 # - PARTITION BY injected (for querying the materialized cube)
                 # - Dimension refs replaced with column aliases (week_order instead of v3.date.week[order])
