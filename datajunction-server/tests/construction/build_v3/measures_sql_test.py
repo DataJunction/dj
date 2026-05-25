@@ -9915,14 +9915,20 @@ class TestCountDistinctPlainColumnCoalesceJoin:
         )
         assert resp.status_code == 201, resp.json()
 
-        # Request the metric with the dim's country attribute as the
-        # grouping dimension — this forces the right-outer join at
-        # the measures-build layer and the COALESCE grain projection.
+        # Request the metric with BOTH the dim's account_id and
+        # country — the dim's account_id is exposed on both sides of
+        # the right-outer join, forcing measures-build to emit
+        # ``COALESCE(t1.account_id, t2.account_id) AS account_id`` as
+        # the grain projection.  This is the milo-style shape that
+        # broke the previous extra-projection fix.
         response = await client.get(
             "/sql/measures/v3/",
             params={
                 "metrics": ["v3.coalesce_distinct_accounts"],
-                "dimensions": ["v3.coalesce_account_dim.country"],
+                "dimensions": [
+                    "v3.coalesce_account_dim.account_id",
+                    "v3.coalesce_account_dim.country",
+                ],
             },
         )
         assert response.status_code == 200, response.json()
