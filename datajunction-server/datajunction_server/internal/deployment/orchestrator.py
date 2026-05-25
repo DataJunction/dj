@@ -3528,9 +3528,13 @@ class DeploymentOrchestrator:
             # Bridge legacy metric_metadata.unit and structured
             # columns[0].unit so users on either input shape end up with
             # both fields populated where expressible. See
-            # `_reconcile_metric_unit` for the full precedence rules.
+            # `_resolve_metric_unit` for the full precedence rules.
             output_col = new_revision.columns[0] if new_revision.columns else None
-            self._reconcile_metric_unit(metric_spec, output_col)
+            if output_col is not None:
+                output_col.unit = self._resolve_metric_unit(
+                    metric_spec,
+                    output_col.unit,
+                )
 
             legacy_unit = self._derive_legacy_unit_for_storage(
                 metric_spec,
@@ -3564,40 +3568,38 @@ class DeploymentOrchestrator:
                 new_revision.required_dimensions = required_dimensions
         return new_revision
 
-    def _reconcile_metric_unit(
+    def _resolve_metric_unit(
         self,
         metric_spec: MetricSpec,
-        output_col: Column | None,
-    ) -> None:
+        column_unit: dict | None,
+    ) -> dict | None:
         """
-        Resolve the canonical structured unit for a metric's output column
-        from the three possible input surfaces and write it to
-        `output_col.unit`.
+        Compute the canonical structured unit dict for a metric's output
+        column, reconciling the three possible input surfaces. Pure:
+        returns the value the caller should assign; no mutation.
 
         Input surfaces (highest priority first):
           1. `metric_spec.unit_structured` — top-level structured `unit:`
              at the metric spec level. Authored shape for the new model.
-          2. `output_col.unit` — structured value set via the explicit
+          2. `column_unit` — structured value set via the explicit
              `columns[<output>].unit` form. Supported for uniformity with
              non-metric nodes, but unusual on metrics (where the column
              name is auto-derived).
           3. `metric_spec.unit_enum` — legacy flat-string `unit: dollar`
              form. Translated via the legacy → structured table.
 
-        Conflict handling: if (1) is set together with (2), a warning is
-        logged naming the node; the metric-level structured value wins.
-        Combining (1) or (2) with (3) is normal — the structured value wins
-        and the legacy field becomes redundant scaffolding.
-        """
-        if output_col is None:
-            return  # pragma: no cover
+        Conflict handling: if (1) is set together with (2) or (3) and the
+        values disagree, a warning is logged naming the node.
 
+        Returns the canonical dict shape (None if no unit is set on any
+        surface).
+        """
         legacy = metric_spec.unit_enum
         spec_structured = unit_to_dict(metric_spec.unit_structured)
         # column.unit comes from JSONB as a plain dict; canonicalize so a
         # hand-rolled or legacy-translated value compares equal to the
         # spec_structured shape regardless of code: None presence.
-        column_structured = unit_to_dict(output_col.unit)
+        column_structured = unit_to_dict(column_unit)
 
         # (1) Metric-level structured input wins absolutely.
         if spec_structured is not None:
@@ -3618,8 +3620,7 @@ class DeploymentOrchestrator:
                     spec_structured,
                     legacy.name,
                 )
-            output_col.unit = spec_structured
-            return
+            return spec_structured
 
         # (2) columns[].unit fallback.
         if column_structured is not None:
@@ -3631,12 +3632,10 @@ class DeploymentOrchestrator:
                     legacy.name,
                     column_structured,
                 )
-            return
+            return column_structured
 
         # (3) Legacy translation.
-        translated = legacy_unit_to_structured(legacy)
-        if translated is not None:
-            output_col.unit = translated
+        return legacy_unit_to_structured(legacy)
 
     def _derive_legacy_unit_for_storage(
         self,
@@ -3660,8 +3659,8 @@ class DeploymentOrchestrator:
             name = structured_to_legacy_unit_name(structured)
             return MetricUnit[name] if name is not None else None
         # No structured unit — fall back to whatever the legacy spec field
-        # had (typically None at this point because _reconcile_metric_unit
-        # would have copied it onto the column).
+        # had (typically None at this point because the caller will have
+        # already assigned the resolved column.unit from _resolve_metric_unit).
         return metric_spec.unit_enum
 
     def _create_column_from_spec(

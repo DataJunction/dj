@@ -76,19 +76,25 @@ class TestLegacyYamlEndToEnd:
         assert spec.direction.value == "higher_is_better"
         assert spec.significant_digits == 2
 
-    def test_orchestrator_reconciles_legacy_onto_column(self, spec: MetricSpec):
-        """The reconcile step writes the structured value to columns[0].unit."""
-        col = _make_col()
-        DeploymentOrchestrator._reconcile_metric_unit(MagicMock(), spec, col)
-        # The legacy DOLLAR gets translated into the structured form on the column.
-        assert col.unit == {"kind": "currency", "code": "USD"}
+    def test_orchestrator_resolves_legacy_to_structured(self, spec: MetricSpec):
+        """The resolver translates the legacy DOLLAR into the structured form."""
+        resolved = DeploymentOrchestrator._resolve_metric_unit(
+            MagicMock(),
+            spec,
+            None,
+        )
+        assert resolved == {"kind": "currency", "code": "USD"}
 
     def test_orchestrator_derives_legacy_for_storage(self, spec: MetricSpec):
-        """After reconcile, the derive step returns MetricUnit.DOLLAR so the legacy
-        DB column is dual-written. This is what protects API consumers reading
-        `metric_metadata.unit`."""
-        col = _make_col()
-        DeploymentOrchestrator._reconcile_metric_unit(MagicMock(), spec, col)
+        """After resolution, the derive step returns MetricUnit.DOLLAR so the
+        legacy DB column is dual-written. This is what protects API consumers
+        reading `metric_metadata.unit`."""
+        resolved = DeploymentOrchestrator._resolve_metric_unit(
+            MagicMock(),
+            spec,
+            None,
+        )
+        col = _make_col(unit=resolved)
         legacy_enum = DeploymentOrchestrator._derive_legacy_unit_for_storage(
             MagicMock(),
             spec,
