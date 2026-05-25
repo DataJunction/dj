@@ -145,7 +145,7 @@ class TestMetricsSQLWithPreAggregation:
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT t1.status, t1.order_id
+            SELECT t1.status, t1.order_id, t1.order_id order_id_distinct_f93d50ab
             FROM v3_order_details t1
             GROUP BY t1.status, t1.order_id
             """,
@@ -173,12 +173,12 @@ class TestMetricsSQLWithPreAggregation:
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             ),
             order_details_0 AS (
-                SELECT t1.status, t1.order_id
+                SELECT t1.status, t1.order_id, t1.order_id order_id_distinct_f93d50ab
                 FROM v3_order_details t1
                 GROUP BY t1.status, t1.order_id
             )
             SELECT order_details_0.status AS status,
-                   COUNT(DISTINCT order_details_0.order_id) AS order_count
+                   COUNT(DISTINCT order_details_0.order_id_distinct_f93d50ab) AS order_count
             FROM order_details_0
             GROUP BY order_details_0.status
             """,
@@ -218,7 +218,7 @@ class TestMetricsSQLWithPreAggregation:
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT t1.status, t1.order_id, SUM(t1.line_total) line_total_sum_e1f61696
+            SELECT t1.status, t1.order_id, SUM(t1.line_total) line_total_sum_e1f61696, t1.order_id order_id_distinct_f93d50ab
             FROM v3_order_details t1
             GROUP BY t1.status, t1.order_id
             """,
@@ -246,12 +246,12 @@ class TestMetricsSQLWithPreAggregation:
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             ),
             order_details_0 AS (
-                SELECT t1.status, t1.order_id, SUM(t1.line_total) line_total_sum_e1f61696
+                SELECT t1.status, t1.order_id, SUM(t1.line_total) line_total_sum_e1f61696, t1.order_id order_id_distinct_f93d50ab
                 FROM v3_order_details t1
                 GROUP BY t1.status, t1.order_id
             )
             SELECT order_details_0.status AS status,
-                   SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT(DISTINCT order_details_0.order_id), 0) AS avg_order_value
+                   SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT(DISTINCT order_details_0.order_id_distinct_f93d50ab), 0) AS avg_order_value
             FROM order_details_0
             GROUP BY order_details_0.status
             """,
@@ -386,12 +386,12 @@ class TestMetricsSQLWithPreAggregation:
             WITH order_details_0 AS (
                 SELECT status,
                        SUM(line_total_sum_e1f61696) line_total_sum_e1f61696,
-                       order_id
+                       order_id_distinct_f93d50ab
                 FROM warehouse.preaggs.v3_order_metrics
-                GROUP BY status, order_id
+                GROUP BY status, order_id_distinct_f93d50ab
             )
             SELECT order_details_0.status AS status,
-                   SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT(DISTINCT order_details_0.order_id), 0) AS avg_order_value
+                   SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT(DISTINCT order_details_0.order_id_distinct_f93d50ab), 0) AS avg_order_value
             FROM order_details_0
             GROUP BY order_details_0.status
             """,
@@ -574,13 +574,13 @@ class TestCrossFactMetrics:
             GROUP BY  customer_id
             ),
             page_views_enriched_0 AS (
-            SELECT t1.customer_id
+            SELECT t1.customer_id, t1.customer_id customer_id_distinct_dd4be7a5
             FROM v3_page_views_enriched t1
             GROUP BY  t1.customer_id
             )
 
             SELECT  COALESCE(order_details_0.customer_id, page_views_enriched_0.customer_id) AS customer_id,
-                SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT page_views_enriched_0.customer_id), 0) AS revenue_per_visitor
+                SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT page_views_enriched_0.customer_id_distinct_dd4be7a5), 0) AS revenue_per_visitor
             FROM order_details_0 FULL OUTER JOIN page_views_enriched_0 ON order_details_0.customer_id = page_views_enriched_0.customer_id
             GROUP BY  1
             """,
@@ -655,12 +655,12 @@ class TestCrossFactMetrics:
             GROUP BY  customer_id
             ),
             page_views_enriched_0 AS (
-            SELECT  t1.customer_id
+            SELECT  t1.customer_id, t1.customer_id customer_id_distinct_dd4be7a5
             FROM v3_page_views_enriched t1
             GROUP BY  t1.customer_id
             )
             SELECT  COALESCE(order_details_0.customer_id, page_views_enriched_0.customer_id) AS customer_id,
-                SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT page_views_enriched_0.customer_id), 0) AS revenue_per_visitor
+                SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT page_views_enriched_0.customer_id_distinct_dd4be7a5), 0) AS revenue_per_visitor
             FROM order_details_0 FULL OUTER JOIN page_views_enriched_0 ON order_details_0.customer_id = page_views_enriched_0.customer_id
             GROUP BY  1
             """,
