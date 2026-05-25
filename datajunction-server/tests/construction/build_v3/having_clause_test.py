@@ -99,18 +99,17 @@ class TestHavingClauseBasic:
             order_details_0 AS (
               SELECT
                 t2.category,
-                t1.order_id,
-                t1.order_id order_id_distinct_f93d50ab
+                t1.order_id
               FROM v3_order_details t1
               LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
               GROUP BY  t2.category, t1.order_id
             )
             SELECT
               order_details_0.category AS category,
-              COUNT( DISTINCT order_details_0.order_id_distinct_f93d50ab) AS order_count
+              COUNT( DISTINCT order_details_0.order_id) AS order_count
             FROM order_details_0
             GROUP BY  order_details_0.category
-            HAVING  COUNT( DISTINCT order_details_0.order_id_distinct_f93d50ab) < 100
+            HAVING  COUNT( DISTINCT order_details_0.order_id) < 100
             """,
         )
 
@@ -195,18 +194,17 @@ class TestHavingClauseBasic:
             order_details_0 AS (
               SELECT
                 t2.category,
-                t1.order_id,
-                t1.order_id order_id_distinct_f93d50ab
+                t1.order_id
               FROM v3_order_details t1
               LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
               GROUP BY  t2.category, t1.order_id
             )
             SELECT
               order_details_0.category AS category,
-              COUNT( DISTINCT order_details_0.order_id_distinct_f93d50ab) AS order_count
+              COUNT( DISTINCT order_details_0.order_id) AS order_count
             FROM order_details_0
             GROUP BY  order_details_0.category
-            HAVING  COUNT(DISTINCT order_details_0.order_id_distinct_f93d50ab) = 50
+            HAVING  COUNT(DISTINCT order_details_0.order_id) = 50
             """,
         )
 
@@ -259,8 +257,7 @@ class TestHavingClauseMultipleFilters:
               SELECT
                 t2.category,
                 t1.order_id,
-                SUM(t1.line_total) line_total_sum_e1f61696,
-                t1.order_id order_id_distinct_f93d50ab
+                SUM(t1.line_total) line_total_sum_e1f61696
               FROM v3_order_details t1
               LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
               GROUP BY  t2.category, t1.order_id
@@ -268,12 +265,12 @@ class TestHavingClauseMultipleFilters:
             SELECT
               order_details_0.category AS category,
               SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue,
-              COUNT( DISTINCT order_details_0.order_id_distinct_f93d50ab) AS order_count
+              COUNT( DISTINCT order_details_0.order_id) AS order_count
             FROM order_details_0
             GROUP BY  order_details_0.category
             HAVING
               SUM(order_details_0.line_total_sum_e1f61696) > 5000
-              AND COUNT( DISTINCT order_details_0.order_id_distinct_f93d50ab) > 20
+              AND COUNT( DISTINCT order_details_0.order_id) > 20
             """,
         )
 
@@ -439,8 +436,7 @@ class TestHavingClauseMixedFilters:
                 t2.category,
                 t1.status,
                 t1.order_id,
-                SUM(t1.line_total) line_total_sum_e1f61696,
-                t1.order_id order_id_distinct_f93d50ab
+                SUM(t1.line_total) line_total_sum_e1f61696
               FROM v3_order_details t1
               LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
               WHERE  t2.category IN ('Electronics', 'Clothing')
@@ -450,11 +446,11 @@ class TestHavingClauseMixedFilters:
               order_details_0.category AS category,
               order_details_0.status AS status,
               SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue,
-              COUNT(DISTINCT order_details_0.order_id_distinct_f93d50ab) AS order_count
+              COUNT(DISTINCT order_details_0.order_id) AS order_count
             FROM order_details_0
             WHERE  order_details_0.category IN ('Electronics', 'Clothing') AND order_details_0.status = 'completed'
             GROUP BY  order_details_0.category, order_details_0.status
-            HAVING  SUM(order_details_0.line_total_sum_e1f61696) > 10000 AND COUNT( DISTINCT order_details_0.order_id_distinct_f93d50ab) >= 50
+            HAVING  SUM(order_details_0.line_total_sum_e1f61696) > 10000 AND COUNT( DISTINCT order_details_0.order_id) >= 50
             """,
         )
 
@@ -505,17 +501,16 @@ class TestHavingClauseWithDerivedMetrics:
               SELECT
                 t2.category,
                 t1.order_id,
-                SUM(t1.line_total) line_total_sum_e1f61696,
-                t1.order_id order_id_distinct_f93d50ab
+                SUM(t1.line_total) line_total_sum_e1f61696
               FROM v3_order_details t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
               GROUP BY  t2.category, t1.order_id
             )
             SELECT
               order_details_0.category AS category,
-              SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT order_details_0.order_id_distinct_f93d50ab), 0) AS avg_order_value
+              SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT order_details_0.order_id), 0) AS avg_order_value
             FROM order_details_0
             GROUP BY  order_details_0.category
-            HAVING  SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT order_details_0.order_id_distinct_f93d50ab), 0) > 100
+            HAVING  SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT order_details_0.order_id), 0) > 100
             """,
         )
 

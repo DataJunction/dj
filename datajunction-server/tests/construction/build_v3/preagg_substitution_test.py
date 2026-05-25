@@ -145,7 +145,7 @@ class TestMetricsSQLWithPreAggregation:
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT t1.status, t1.order_id, t1.order_id order_id_distinct_f93d50ab
+            SELECT t1.status, t1.order_id
             FROM v3_order_details t1
             GROUP BY t1.status, t1.order_id
             """,
@@ -173,12 +173,12 @@ class TestMetricsSQLWithPreAggregation:
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             ),
             order_details_0 AS (
-                SELECT t1.status, t1.order_id, t1.order_id order_id_distinct_f93d50ab
+                SELECT t1.status, t1.order_id
                 FROM v3_order_details t1
                 GROUP BY t1.status, t1.order_id
             )
             SELECT order_details_0.status AS status,
-                   COUNT(DISTINCT order_details_0.order_id_distinct_f93d50ab) AS order_count
+                   COUNT(DISTINCT order_details_0.order_id) AS order_count
             FROM order_details_0
             GROUP BY order_details_0.status
             """,
@@ -218,7 +218,7 @@ class TestMetricsSQLWithPreAggregation:
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT t1.status, t1.order_id, SUM(t1.line_total) line_total_sum_e1f61696, t1.order_id order_id_distinct_f93d50ab
+            SELECT t1.status, t1.order_id, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
             GROUP BY t1.status, t1.order_id
             """,
@@ -246,12 +246,12 @@ class TestMetricsSQLWithPreAggregation:
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             ),
             order_details_0 AS (
-                SELECT t1.status, t1.order_id, SUM(t1.line_total) line_total_sum_e1f61696, t1.order_id order_id_distinct_f93d50ab
+                SELECT t1.status, t1.order_id, SUM(t1.line_total) line_total_sum_e1f61696
                 FROM v3_order_details t1
                 GROUP BY t1.status, t1.order_id
             )
             SELECT order_details_0.status AS status,
-                   SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT(DISTINCT order_details_0.order_id_distinct_f93d50ab), 0) AS avg_order_value
+                   SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT(DISTINCT order_details_0.order_id), 0) AS avg_order_value
             FROM order_details_0
             GROUP BY order_details_0.status
             """,
@@ -386,12 +386,12 @@ class TestMetricsSQLWithPreAggregation:
             WITH order_details_0 AS (
                 SELECT status,
                        SUM(line_total_sum_e1f61696) line_total_sum_e1f61696,
-                       order_id_distinct_f93d50ab
+                       order_id
                 FROM warehouse.preaggs.v3_order_metrics
-                GROUP BY status, order_id_distinct_f93d50ab
+                GROUP BY status, order_id
             )
             SELECT order_details_0.status AS status,
-                   SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT(DISTINCT order_details_0.order_id_distinct_f93d50ab), 0) AS avg_order_value
+                   SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT(DISTINCT order_details_0.order_id), 0) AS avg_order_value
             FROM order_details_0
             GROUP BY order_details_0.status
             """,
@@ -574,13 +574,13 @@ class TestCrossFactMetrics:
             GROUP BY  customer_id
             ),
             page_views_enriched_0 AS (
-            SELECT t1.customer_id, t1.customer_id customer_id_distinct_dd4be7a5
+            SELECT t1.customer_id
             FROM v3_page_views_enriched t1
             GROUP BY  t1.customer_id
             )
 
             SELECT  COALESCE(order_details_0.customer_id, page_views_enriched_0.customer_id) AS customer_id,
-                SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT page_views_enriched_0.customer_id_distinct_dd4be7a5), 0) AS revenue_per_visitor
+                SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT page_views_enriched_0.customer_id), 0) AS revenue_per_visitor
             FROM order_details_0 FULL OUTER JOIN page_views_enriched_0 ON order_details_0.customer_id = page_views_enriched_0.customer_id
             GROUP BY  1
             """,
@@ -655,12 +655,12 @@ class TestCrossFactMetrics:
             GROUP BY  customer_id
             ),
             page_views_enriched_0 AS (
-            SELECT  t1.customer_id, t1.customer_id customer_id_distinct_dd4be7a5
+            SELECT  t1.customer_id
             FROM v3_page_views_enriched t1
             GROUP BY  t1.customer_id
             )
             SELECT  COALESCE(order_details_0.customer_id, page_views_enriched_0.customer_id) AS customer_id,
-                SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT page_views_enriched_0.customer_id_distinct_dd4be7a5), 0) AS revenue_per_visitor
+                SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT page_views_enriched_0.customer_id), 0) AS revenue_per_visitor
             FROM order_details_0 FULL OUTER JOIN page_views_enriched_0 ON order_details_0.customer_id = page_views_enriched_0.customer_id
             GROUP BY  1
             """,
@@ -913,94 +913,3 @@ class TestBuildGrainGroupFromPreaggErrorPaths:
         )
         # Only one component should appear in output despite two in input
         assert len(result.components) == 1
-
-    def test_aliases_legacy_bare_measure_col_to_hashed_component_name(self):
-        """build_grain_group_from_preagg aliases the pre-agg's measure
-        column to ``component.name`` when they differ.
-
-        Legacy v2 pre-aggs (materialized before plain-column
-        COUNT(DISTINCT) projected the hashed identity) carry the
-        column under the bare grain name (e.g. ``account_id``) while
-        the component identity is hashed (``account_id_distinct_<hash>``).
-        ``component_aliases`` and the CTE's output column must be the
-        hashed name so the persisted ``derived_expression`` resolves —
-        the pre-agg path emits ``<bare_col> AS <component.name>``.
-        """
-        from datajunction_server.database.availabilitystate import AvailabilityState
-
-        node = self._make_node()
-        # Plain-column COUNT(DISTINCT account_id) component: name is
-        # hashed identity, expression is the bare column, LIMITED with
-        # no aggregation, and merge is None.
-        component = MetricComponent(
-            name="account_id_distinct_abc123",
-            expression="account_id",
-            aggregation=None,
-            merge=None,
-            rule=AggregationRule(type=Aggregability.LIMITED),
-            grain_alias="account_id",
-        )
-        grain_group = GrainGroup(
-            parent_node=node,
-            aggregability=Aggregability.LIMITED,
-            grain_columns=[],
-            components=[(node, component)],
-        )
-
-        # Legacy pre-agg stores the measure under the BARE grain name.
-        # expr_hash matches the component so the measure is found.
-        expr_hash = compute_expression_hash("account_id")
-        measure = PreAggMeasure(
-            name="account_id",  # legacy bare-named column
-            expression="account_id",
-            aggregation=None,
-            merge=None,
-            rule=AggregationRule(type=Aggregability.LIMITED),
-            expr_hash=expr_hash,
-        )
-        avail = AvailabilityState(
-            catalog="wh",
-            schema_="preaggs",
-            table="legacy_tbl",
-            valid_through_ts=99999,
-        )
-        preagg = PreAggregation(
-            node_revision_id=1,
-            grain_columns=[],
-            measures=[measure],
-            sql="SELECT 1",
-            grain_group_hash="abc",
-            preagg_hash="def",
-            availability=avail,
-        )
-
-        result = build_grain_group_from_preagg(
-            self._make_ctx(),
-            grain_group,
-            preagg,
-            resolved_dimensions=[],
-            components_per_metric={},
-        )
-        # component_aliases routes the hashed identity at component.name
-        # (matching the live-build path) so downstream combiner
-        # rewriters reference the hashed column consistently.
-        assert result.component_aliases == {
-            "account_id_distinct_abc123": "account_id_distinct_abc123",
-        }
-        # The CTE output exposes ``account_id_distinct_abc123`` even
-        # though the pre-agg physically stores ``account_id``.
-        column_names = {c.name for c in result.columns}
-        assert "account_id_distinct_abc123" in column_names
-        assert "account_id" not in column_names
-        # The generated SQL selects the bare physical ``account_id``
-        # column from the legacy pre-agg and aliases it to the hashed
-        # identity.  ``assert_sql_equal`` ignores whitespace and the
-        # optional ``AS`` keyword in alias syntax.
-        assert_sql_equal(
-            str(result.query),
-            """
-            SELECT account_id account_id_distinct_abc123
-            FROM wh.preaggs.legacy_tbl
-            GROUP BY account_id
-            """,
-        )
