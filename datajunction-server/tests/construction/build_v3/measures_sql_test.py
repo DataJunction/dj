@@ -9806,3 +9806,160 @@ class TestParentCteFilterLanding:
             """,
             normalize_aliases=True,
         )
+
+
+class TestCountDistinctPlainColumnCoalesceJoin:
+    """Regression: ``COUNT(DISTINCT plain_col)`` measures SQL must stay
+    valid when the metric's parent transform is joined to a right-outer
+    dim that exposes the same column, producing a ``COALESCE(t1, t2)``
+    grain projection.
+
+    The previous fix path emitted an additional ``<bare> AS <hashed>``
+    projection referencing the raw left-side column.  That column was
+    not in ``GROUP BY COALESCE(t1, t2)`` and Spark rejected the SQL.
+
+    Under the decompose-level fix, plain-column DISTINCT uses the bare
+    column as the component identity, so the dim grain projection
+    (whatever expression it ends up being — bare, COALESCE, or CAST)
+    serves both roles.  No extra projection is emitted, the GROUP BY
+    naturally covers the grain expression, and the combiner
+    references the dim grain alias directly.
+    """
+
+    @pytest.mark.asyncio
+    async def test_count_distinct_with_right_outer_dim_join(
+        self,
+        client_with_build_v3,
+    ):
+        client = client_with_build_v3
+        # Event source with account_id.
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_coalesce_events",
+                "columns": [
+                    {"name": "account_id", "type": "int"},
+                    {"name": "event_date", "type": "int"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "coalesce_events",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        # Account source acting as the dim source.
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_coalesce_accounts",
+                "columns": [
+                    {"name": "account_id", "type": "int"},
+                    {"name": "country", "type": "string"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "coalesce_accounts",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        # Parent transform for the metric.
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.coalesce_events_xform",
+                "query": ("SELECT account_id, event_date FROM v3.src_coalesce_events"),
+                "mode": "published",
+                "primary_key": ["account_id", "event_date"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        # Dimension exposing account_id + country.
+        resp = await client.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.coalesce_account_dim",
+                "query": ("SELECT account_id, country FROM v3.src_coalesce_accounts"),
+                "mode": "published",
+                "primary_key": ["account_id"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        # Right-outer link forces the dim side preserved, the
+        # transform side nullable, and the grain projection becomes
+        # ``COALESCE(t1.account_id, t2.account_id) AS account_id`` at
+        # measures-build time.
+        resp = await client.post(
+            "/nodes/v3.coalesce_events_xform/link/",
+            json={
+                "dimension_node": "v3.coalesce_account_dim",
+                "join_type": "right",
+                "join_on": (
+                    "v3.coalesce_events_xform.account_id = "
+                    "v3.coalesce_account_dim.account_id"
+                ),
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        # The metric: COUNT(DISTINCT account_id) on the events transform.
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.coalesce_distinct_accounts",
+                "query": (
+                    "SELECT COUNT(DISTINCT account_id) FROM v3.coalesce_events_xform"
+                ),
+                "mode": "published",
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+
+        # Request the metric with the dim's country attribute as the
+        # grouping dimension — this forces the right-outer join at
+        # the measures-build layer and the COALESCE grain projection.
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.coalesce_distinct_accounts"],
+                "dimensions": ["v3.coalesce_account_dim.country"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        body = response.json()
+        gg = body["grain_groups"][0]
+
+        # Combiner references the bare grain alias — same column as the
+        # dim grain projection.  ``component.name`` is the bare column
+        # name under the decompose-level fix.
+        assert body["metric_formulas"][0]["combiner"] == ("COUNT( DISTINCT account_id)")
+
+        # Exactly one projection for the COUNT(DISTINCT) grain — no
+        # extra ``<bare> AS <hashed>`` column.  The grain projection
+        # uses COALESCE because of the right-outer join.
+        col_names = [c["name"] for c in gg["columns"]]
+        assert col_names.count("account_id") == 1
+        # No hashed-name column appears for the plain DISTINCT component.
+        assert not any(n.startswith("account_id_distinct_") for n in col_names), (
+            col_names
+        )
+
+        # Spot the COALESCE in the SQL — the grain projection
+        # absorbed the outer-join NULL semantics.
+        sql = gg["sql"]
+        assert "COALESCE" in sql, sql
+        # The raw ``t1.account_id`` reference is only inside the
+        # COALESCE — not as a standalone projection that would break
+        # GROUP BY validation.
+        assert "t1.account_id account_id_distinct" not in sql, sql
+
+        # Cross-check: the persisted derived_expression and the
+        # combiner both reference the bare column — so XP can
+        # evaluate the expression against the live SQL output.
+        metric_resp = await client.get(
+            "/metrics/v3.coalesce_distinct_accounts",
+        )
+        assert metric_resp.status_code == 200
+        assert metric_resp.json()["derived_expression"] == (
+            "COUNT( DISTINCT account_id)"
+        )
