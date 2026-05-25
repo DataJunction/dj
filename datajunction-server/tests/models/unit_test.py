@@ -211,6 +211,98 @@ class TestColumnSpecUnit:
         assert roundtripped == spec
 
 
+class TestUnitTypeDecorator:
+    """
+    The SQLAlchemy TypeDecorator converts between JSONB dicts and Unit
+    pydantic instances at the ORM boundary. Read paths return typed
+    `Unit`; write paths accept either `Unit` or `dict` and canonicalize.
+    """
+
+    def test_process_bind_param_accepts_unit_model(self) -> None:
+        from datajunction_server.models.unit import (
+            AtomicUnit,
+            UnitKind,
+            UnitTypeDecorator,
+        )
+
+        dec = UnitTypeDecorator()
+        u = AtomicUnit(kind=UnitKind.CURRENCY, code="USD")
+        assert dec.process_bind_param(u, None) == {
+            "kind": "currency",
+            "code": "USD",
+        }
+
+    def test_process_bind_param_accepts_raw_dict(self) -> None:
+        from datajunction_server.models.unit import UnitTypeDecorator
+
+        dec = UnitTypeDecorator()
+        assert dec.process_bind_param(
+            {"kind": "unitless", "code": None},
+            None,
+        ) == {"kind": "unitless"}
+
+    def test_process_bind_param_none_passthrough(self) -> None:
+        from datajunction_server.models.unit import UnitTypeDecorator
+
+        dec = UnitTypeDecorator()
+        assert dec.process_bind_param(None, None) is None
+
+    def test_process_result_value_atomic(self) -> None:
+        from datajunction_server.models.unit import (
+            AtomicUnit,
+            UnitKind,
+            UnitTypeDecorator,
+        )
+
+        dec = UnitTypeDecorator()
+        result = dec.process_result_value(
+            {"kind": "currency", "code": "USD"},
+            None,
+        )
+        assert isinstance(result, AtomicUnit)
+        assert result.kind == UnitKind.CURRENCY
+        assert result.code == "USD"
+
+    def test_process_result_value_compound(self) -> None:
+        from datajunction_server.models.unit import (
+            CompoundUnit,
+            UnitTypeDecorator,
+        )
+
+        dec = UnitTypeDecorator()
+        result = dec.process_result_value(
+            {
+                "numerator": {"kind": "count"},
+                "denominator": {"kind": "time", "code": "s"},
+            },
+            None,
+        )
+        assert isinstance(result, CompoundUnit)
+        assert result.numerator.code is None
+        assert result.denominator.code == "s"
+
+    def test_process_result_value_none_passthrough(self) -> None:
+        from datajunction_server.models.unit import UnitTypeDecorator
+
+        dec = UnitTypeDecorator()
+        assert dec.process_result_value(None, None) is None
+
+    def test_round_trip_idempotent(self) -> None:
+        """write(read(write(x))) == write(x) — canonical shape is stable."""
+        from datajunction_server.models.unit import (
+            AtomicUnit,
+            UnitKind,
+            UnitTypeDecorator,
+        )
+
+        dec = UnitTypeDecorator()
+        original = AtomicUnit(kind=UnitKind.UNITLESS)
+        wire1 = dec.process_bind_param(original, None)
+        unit_back = dec.process_result_value(wire1, None)
+        wire2 = dec.process_bind_param(unit_back, None)
+        assert wire1 == wire2 == {"kind": "unitless"}
+
+
 class TestLegacyUnitTranslation:
     """
     Coverage for `legacy_unit_to_structured` and `structured_to_legacy_unit_name`.

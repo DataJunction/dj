@@ -176,12 +176,16 @@ def _build_search_score(
 
 
 def _resolve_metric_unit_for_spec(
-    col_unit: dict | None,
+    col_unit: "Any | None",
     legacy_from_md: "Any | None",
 ) -> "Tuple[Any | None, dict | None]":
     """
     Decide which of (legacy enum, structured dict) to populate on a MetricSpec
     when round-tripping a metric back from the DB.
+
+    Accepts `col_unit` as either a `Unit` Pydantic instance (the typed shape
+    returned by `UnitTypeDecorator`) or a plain dict (in-memory test
+    fixtures, or untyped paths). Internally normalizes via `unit_to_dict`.
 
     Rules (preserves authoring intent on round-trip):
       - No structured `column.unit` → emit only the legacy field (whatever was
@@ -194,14 +198,18 @@ def _resolve_metric_unit_for_spec(
         count-with-code, data_size) → populate structured, null the legacy so
         nothing tries to dual-emit.
 
-    Returns (legacy_for_spec, structured_for_spec).
+    Returns (legacy_for_spec, structured_for_spec_dict).
     """
-    from datajunction_server.models.unit import structured_to_legacy_unit_name
+    from datajunction_server.models.unit import (
+        structured_to_legacy_unit_name,
+        unit_to_dict,
+    )
 
-    if col_unit is None:
+    col_unit_dict = unit_to_dict(col_unit)
+    if col_unit_dict is None:
         return legacy_from_md, None
-    if structured_to_legacy_unit_name(col_unit) is None:
-        return None, col_unit
+    if structured_to_legacy_unit_name(col_unit_dict) is None:
+        return None, col_unit_dict
     return legacy_from_md, None
 
 

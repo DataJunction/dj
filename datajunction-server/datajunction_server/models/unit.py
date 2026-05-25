@@ -13,8 +13,12 @@ from enum import Enum
 from typing import TYPE_CHECKING, Annotated, Any, Union
 
 from pydantic import BaseModel, Discriminator, Tag, model_validator
+from sqlalchemy import TypeDecorator
+from sqlalchemy.dialects.postgresql import JSONB
 
 if TYPE_CHECKING:
+    from pydantic import TypeAdapter
+
     from datajunction_server.models.node import MetricUnit
 
 
@@ -240,6 +244,51 @@ def _strip_none(value: Any) -> Any:
     return value
 
 
+# Type adapter used by the SQLAlchemy TypeDecorator to validate JSONB rows
+# into Unit instances on read. Built once at module load.
+_UNIT_ADAPTER: "TypeAdapter[Unit]" = None  # type: ignore[assignment]
+
+
+def _get_unit_adapter():
+    """Lazy accessor — defer TypeAdapter construction until first use so
+    importing `unit.py` stays cheap and avoids any circular-import risk."""
+    global _UNIT_ADAPTER
+    if _UNIT_ADAPTER is None:
+        from pydantic import TypeAdapter
+
+        _UNIT_ADAPTER = TypeAdapter(Unit)
+    return _UNIT_ADAPTER
+
+
+class UnitTypeDecorator(TypeDecorator):
+    """
+    SQLAlchemy TypeDecorator that bridges the structured ``Unit`` pydantic
+    model and the underlying JSONB storage for ``column.unit``.
+
+    On write: accepts a ``Unit`` instance or a raw dict and normalizes to
+    the canonical JSONB shape via ``unit_to_dict``.
+
+    On read: validates the JSONB dict into a ``Unit`` (``AtomicUnit`` or
+    ``CompoundUnit``) so callers get typed access — ``.kind``, ``.code``,
+    ``.label()`` — without stringly-typed dict lookups.
+
+    Mirrors the existing ``ColumnTypeDecorator`` pattern. Cheaper than the
+    SQL-type variant because the decoded value is small and Pydantic 2's
+    Rust-backed validator handles it in microseconds.
+    """
+
+    impl = JSONB
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        return unit_to_dict(value)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        return _get_unit_adapter().validate_python(value)
+
+
 # -------------------------------------------------------------------------
 # Legacy <-> structured translation.
 #
@@ -301,18 +350,21 @@ def legacy_unit_to_structured(
     return _LEGACY_NAME_TO_STRUCTURED.get(legacy.name)
 
 
-def structured_to_legacy_unit_name(unit: dict | None) -> str | None:
+def structured_to_legacy_unit_name(
+    unit: "AtomicUnit | CompoundUnit | dict | None",
+) -> str | None:
     """
-    Translate a structured `Unit` dict back to the legacy `MetricUnit.name`
-    when expressible. Returns None when the structured value has no legacy
-    equivalent (non-USD currencies, compound units, data sizes, count with
-    code, etc.) — callers should treat that as "don't populate the legacy
-    column."
+    Translate a structured `Unit` (Pydantic model or already-dict) back to
+    the legacy `MetricUnit.name` when expressible. Returns None when the
+    structured value has no legacy equivalent (non-USD currencies, compound
+    units, data sizes, count with code, etc.) — callers should treat that
+    as "don't populate the legacy column."
 
     Returns the enum member name (e.g. "DOLLAR"), not a MetricUnit instance,
     so this module stays import-free of node.py. Callers do
     `MetricUnit[name]` at the call site.
     """
+    unit = unit_to_dict(unit)
     if unit is None:
         return None
     # Compound units have no legacy equivalent.

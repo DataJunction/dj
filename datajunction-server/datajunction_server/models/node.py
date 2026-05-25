@@ -793,6 +793,14 @@ class ColumnOutput(BaseModel):
     def extract_type(cls, raw):
         return str(raw)
 
+    @field_validator("unit", mode="before")
+    def _canonicalize_unit(cls, raw):
+        """Accept either a typed Unit (from the SQLAlchemy decorator) or a
+        raw dict; emit the canonical JSON-friendly dict shape on output."""
+        from datajunction_server.models.unit import unit_to_dict
+
+        return unit_to_dict(raw)
+
 
 class SourceColumnOutput(BaseModel):
     """
