@@ -913,3 +913,94 @@ class TestBuildGrainGroupFromPreaggErrorPaths:
         )
         # Only one component should appear in output despite two in input
         assert len(result.components) == 1
+
+    def test_aliases_legacy_bare_measure_col_to_hashed_component_name(self):
+        """build_grain_group_from_preagg aliases the pre-agg's measure
+        column to ``component.name`` when they differ.
+
+        Legacy v2 pre-aggs (materialized before plain-column
+        COUNT(DISTINCT) projected the hashed identity) carry the
+        column under the bare grain name (e.g. ``account_id``) while
+        the component identity is hashed (``account_id_distinct_<hash>``).
+        ``component_aliases`` and the CTE's output column must be the
+        hashed name so the persisted ``derived_expression`` resolves —
+        the pre-agg path emits ``<bare_col> AS <component.name>``.
+        """
+        from datajunction_server.database.availabilitystate import AvailabilityState
+
+        node = self._make_node()
+        # Plain-column COUNT(DISTINCT account_id) component: name is
+        # hashed identity, expression is the bare column, LIMITED with
+        # no aggregation, and merge is None.
+        component = MetricComponent(
+            name="account_id_distinct_abc123",
+            expression="account_id",
+            aggregation=None,
+            merge=None,
+            rule=AggregationRule(type=Aggregability.LIMITED),
+            grain_alias="account_id",
+        )
+        grain_group = GrainGroup(
+            parent_node=node,
+            aggregability=Aggregability.LIMITED,
+            grain_columns=[],
+            components=[(node, component)],
+        )
+
+        # Legacy pre-agg stores the measure under the BARE grain name.
+        # expr_hash matches the component so the measure is found.
+        expr_hash = compute_expression_hash("account_id")
+        measure = PreAggMeasure(
+            name="account_id",  # legacy bare-named column
+            expression="account_id",
+            aggregation=None,
+            merge=None,
+            rule=AggregationRule(type=Aggregability.LIMITED),
+            expr_hash=expr_hash,
+        )
+        avail = AvailabilityState(
+            catalog="wh",
+            schema_="preaggs",
+            table="legacy_tbl",
+            valid_through_ts=99999,
+        )
+        preagg = PreAggregation(
+            node_revision_id=1,
+            grain_columns=[],
+            measures=[measure],
+            sql="SELECT 1",
+            grain_group_hash="abc",
+            preagg_hash="def",
+            availability=avail,
+        )
+
+        result = build_grain_group_from_preagg(
+            self._make_ctx(),
+            grain_group,
+            preagg,
+            resolved_dimensions=[],
+            components_per_metric={},
+        )
+        # component_aliases routes the hashed identity at component.name
+        # (matching the live-build path) so downstream combiner
+        # rewriters reference the hashed column consistently.
+        assert result.component_aliases == {
+            "account_id_distinct_abc123": "account_id_distinct_abc123",
+        }
+        # The CTE output exposes ``account_id_distinct_abc123`` even
+        # though the pre-agg physically stores ``account_id``.
+        column_names = {c.name for c in result.columns}
+        assert "account_id_distinct_abc123" in column_names
+        assert "account_id" not in column_names
+        # The generated SQL selects the bare physical ``account_id``
+        # column from the legacy pre-agg and aliases it to the hashed
+        # identity.  ``assert_sql_equal`` ignores whitespace and the
+        # optional ``AS`` keyword in alias syntax.
+        assert_sql_equal(
+            str(result.query),
+            """
+            SELECT account_id account_id_distinct_abc123
+            FROM wh.preaggs.legacy_tbl
+            GROUP BY account_id
+            """,
+        )
