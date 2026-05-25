@@ -164,6 +164,43 @@ def _parse_type_string(type_str: str | None) -> ct.ColumnType | None:
     return _TYPE_STRING_MAP.get(normalized)
 
 
+def register_limited_component(
+    component: MetricComponent,
+    metric_node: Node,
+    component_aliases: dict[str, str],
+    component_expressions: list[tuple[str, ast.Expression]],
+    component_metadata: list[tuple[str, MetricComponent, Node]],
+) -> None:
+    """Register a LIMITED component (e.g. ``COUNT(DISTINCT)``).
+
+    For plain-column DISTINCT, ``grain_alias`` is the bare column and
+    differs from ``component.name`` (the hashed identity).  Emit an
+    extra ``<bare> AS <component.name>`` projection so the hashed name
+    is addressable alongside the bare grain column, and route
+    ``component_aliases`` at the hashed name so combiner rewriters
+    stay consistent.  Both call sites in ``build_grain_group_sql`` must
+    use this helper to keep the contract in one place.
+    """
+    # The preagg-read path assumes LIMITED.merge is None to skip
+    # re-aggregation; a future LIMITED+merge variant would wrap the
+    # merge over the bare grain column and produce wrong SQL.
+    assert component.merge is None, (
+        f"LIMITED component {component.name!r} has merge={component.merge!r}; "
+        f"update the preagg-read path in combiners.py before adding this."
+    )
+    grain_alias = component.grain_alias or component.name
+    if grain_alias != component.name:
+        component_aliases[component.name] = component.name
+        component_expressions.append(
+            (component.name, make_column_ref(grain_alias)),
+        )
+        component_metadata.append(
+            (component.name, component, metric_node),
+        )
+    else:
+        component_aliases[component.name] = grain_alias
+
+
 def infer_component_type(
     component: MetricComponent,
     metric_type: str,
@@ -1747,10 +1784,14 @@ def build_grain_group_from_preagg(
                 f"Component {component.name} not found in pre-agg {preagg.id}",
             )
 
-        # Always use the measure column name (component hash) as the output alias
-        # This ensures consistency with the non-preagg path
-        output_alias = measure_col
-
+        # Always alias the output as ``component.name`` (the hashed
+        # identity) so the CTE's output column name matches the
+        # metric's persisted ``derived_expression`` regardless of how
+        # the pre-agg physically stored it.  Legacy pre-aggs
+        # materialized before the LIMITED-DISTINCT change carry the
+        # column under the bare grain name; we read that bare column
+        # and alias it back to the hashed identity here.
+        output_alias = component.name
         component_aliases[component.name] = output_alias
 
         col_ref = ast.Column(name=ast.Name(measure_col))
@@ -1765,11 +1806,17 @@ def build_grain_group_from_preagg(
             aliased = ast.Alias(child=agg_expr, alias=ast.Name(output_alias))
             select_items.append(aliased)
         else:
-            # No merge - output grain column directly, add to GROUP BY
-            select_items.append(col_ref)
+            # No merge - output grain column directly, add to GROUP BY.
+            # Alias to ``component.name`` so the CTE output name is
+            # the hashed identity regardless of the pre-agg's stored
+            # column name.
+            if measure_col != output_alias:
+                select_items.append(
+                    ast.Alias(child=col_ref, alias=ast.Name(output_alias)),
+                )
+            else:
+                select_items.append(col_ref)
             grain_col_names.append(measure_col)
-            output_alias = measure_col
-            component_aliases[component.name] = output_alias
 
         # Get type from pre-agg columns
         col_type = preagg.get_column_type(measure_col, default="double")
@@ -1910,11 +1957,12 @@ def build_grain_group_sql(
                 Aggregability.FULL,
             )
             if orig_agg == Aggregability.LIMITED:
-                # LIMITED: grain column is already in GROUP BY, no output needed.
-                # grain_alias was set by _make_component: plain column → column name,
-                # complex expression → component.name.
-                component_aliases[component.name] = (
-                    component.grain_alias or component.name
+                register_limited_component(
+                    component,
+                    metric_node,
+                    component_aliases,
+                    component_expressions,
+                    component_metadata,
                 )
                 continue
             else:
@@ -1929,12 +1977,14 @@ def build_grain_group_sql(
                 component_aliases[component.name] = component_alias
             continue
 
-        # Skip LIMITED aggregability components with no aggregation
-        # These are represented by grain columns instead.
-        # grain_alias was set by _make_component: plain column → column name,
-        # complex expression → component.name.
         if component.rule.type == Aggregability.LIMITED and not component.aggregation:
-            component_aliases[component.name] = component.grain_alias or component.name
+            register_limited_component(
+                component,
+                metric_node,
+                component_aliases,
+                component_expressions,
+                component_metadata,
+            )
             continue
 
         # Always use component.name for consistency - no special case for single-component

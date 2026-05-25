@@ -92,7 +92,8 @@ async def test_direct_self_join_employee_manager(
         )
         SELECT
           t2.employee_name employee_name_manager,
-          t1.employee_id
+          t1.employee_id,
+          t1.employee_id employee_id_distinct_d13d9843
         FROM default_employee t1
         LEFT OUTER JOIN default_employee t2 ON t1.manager_employee_id = t2.employee_id
         GROUP BY
@@ -125,7 +126,8 @@ async def test_direct_self_join_employee_manager(
         employee_0 AS (
           SELECT
             t2.employee_name employee_name_manager,
-            t1.employee_id
+            t1.employee_id,
+            t1.employee_id employee_id_distinct_d13d9843
           FROM default_employee t1
           LEFT OUTER JOIN default_employee t2 ON t1.manager_employee_id = t2.employee_id
           GROUP BY
@@ -133,7 +135,7 @@ async def test_direct_self_join_employee_manager(
         )
         SELECT
           employee_0.employee_name_manager AS employee_name_manager,
-          COUNT(DISTINCT employee_0.employee_id) AS employee_count
+          COUNT(DISTINCT employee_0.employee_id_distinct_d13d9843) AS employee_count
         FROM employee_0
         GROUP BY
           employee_0.employee_name_manager

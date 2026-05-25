@@ -89,12 +89,12 @@ class TestSetOperationTransforms:
               WHERE status = 'shipped'
             ),
             orders_unified_0 AS (
-              SELECT t1.status, t1.order_id
+              SELECT t1.status, t1.order_id, t1.order_id order_id_distinct_a853fcda
               FROM v3_orders_unified t1
               GROUP BY t1.status, t1.order_id
             )
             SELECT orders_unified_0.status AS status,
-              COUNT(DISTINCT orders_unified_0.order_id) AS unified_order_count
+              COUNT(DISTINCT orders_unified_0.order_id_distinct_a853fcda) AS unified_order_count
             FROM orders_unified_0
             GROUP BY orders_unified_0.status
             """,
@@ -138,12 +138,12 @@ class TestSetOperationTransforms:
               WHERE status = 'shipped'
             ),
             orders_unified_0 AS (
-              SELECT t1.status, t1.order_id
+              SELECT t1.status, t1.order_id, t1.order_id order_id_distinct_a853fcda
               FROM v3_orders_unified t1
               GROUP BY t1.status, t1.order_id
             )
             SELECT orders_unified_0.status AS status,
-              COUNT(DISTINCT orders_unified_0.order_id) AS unified_order_count
+              COUNT(DISTINCT orders_unified_0.order_id_distinct_a853fcda) AS unified_order_count
             FROM orders_unified_0
             WHERE orders_unified_0.status = 'completed'
             GROUP BY orders_unified_0.status
@@ -276,7 +276,7 @@ class TestSetOperationTransforms:
                 FROM default.v3.orders_us
                 WHERE src_orders_us.order_date >= 20260101
             )
-            SELECT t1.status, t1.order_id
+            SELECT t1.status, t1.order_id, t1.order_id order_id_distinct_3d2cb4c8
             FROM v3_orders_global t1
             GROUP BY t1.status, t1.order_id
             """,

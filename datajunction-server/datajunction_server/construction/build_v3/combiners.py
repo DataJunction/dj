@@ -846,12 +846,17 @@ def _build_grain_group_from_preagg_table(
         if col.semantic_type in ("metric_component", "measure", "metric"):
             col_ref = ast.Column(name=ast.Name(col.name))
 
-            # Find the component to get the merge function
+            # Find the component to get the merge function.  The third
+            # clause matches legacy pre-agg / grain-group shapes where
+            # the LIMITED-DISTINCT column lived under the bare grain
+            # name (before the `<bare> AS <hashed>` projection landed) —
+            # keeps re-aggregation correct against stale materializations.
             merge_func = None
             for comp in original_gg.components:
                 if (  # pragma: no branch
                     comp.name == col.name
                     or original_gg.component_aliases.get(comp.name) == col.name
+                    or comp.grain_alias == col.name
                 ):
                     merge_func = comp.merge
                     break
