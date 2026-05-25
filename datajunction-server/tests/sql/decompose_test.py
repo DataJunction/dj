@@ -609,6 +609,13 @@ async def test_count(session: AsyncSession, create_metric):
 async def test_count_distinct_rate(session: AsyncSession, create_metric):
     """
     Test decomposition for a metric that uses count distinct.
+
+    Plain-column ``COUNT(DISTINCT col)`` keeps ``col`` as ``component.name``
+    (no hash) — there's no expression ambiguity to disambiguate, and the
+    bare name matches the column already projected as the grain alias in
+    measures SQL.  ``derived_expression`` then references the same column
+    that the live SQL output exposes, so external evaluators can resolve
+    it directly.
     """
     metric_rev = await create_metric(
         "SELECT COUNT(DISTINCT user_id) / COUNT(action) FROM parent_node",
@@ -617,7 +624,7 @@ async def test_count_distinct_rate(session: AsyncSession, create_metric):
     measures, derived_sql = await extractor.extract(session)
     expected_measures = [
         MetricComponent(
-            name="user_id_distinct_7f092f23",
+            name="user_id",
             expression="user_id",
             aggregation=None,
             merge=None,
@@ -638,9 +645,39 @@ async def test_count_distinct_rate(session: AsyncSession, create_metric):
     assert measures == expected_measures
     assert_sql_equal(
         str(derived_sql),
-        "SELECT COUNT( DISTINCT user_id_distinct_7f092f23) / "
+        "SELECT COUNT( DISTINCT user_id) / "
         "NULLIF(SUM(action_count_50d753fd), 0) FROM parent_node",
     )
+
+
+@pytest.mark.asyncio
+async def test_count_distinct_complex_expression_keeps_hashed_name(
+    session: AsyncSession,
+    create_metric,
+):
+    """
+    ``COUNT(DISTINCT <expression>)`` over a non-Column argument keeps
+    the hashed ``<base>_distinct_<hash>`` component name — the hash
+    disambiguates different expressions that share a column-name
+    prefix, and there's no bare column to alias the projection under.
+    ``grain_alias`` equals ``component.name`` in this case so the
+    projection alias is the same stable identifier.
+    """
+    metric_rev = await create_metric(
+        "SELECT COUNT(DISTINCT CASE WHEN is_active THEN user_id ELSE NULL END) "
+        "FROM parent_node",
+    )
+    extractor = MetricComponentExtractor(metric_rev.id)
+    measures, _ = await extractor.extract(session)
+    assert len(measures) == 1
+    comp = measures[0]
+    # Hash suffix preserved on complex DISTINCT.
+    assert comp.name.startswith("is_active_user_id_distinct_")
+    assert comp.name != "user_id"
+    assert comp.grain_alias == comp.name
+    assert comp.aggregation is None
+    assert comp.merge is None
+    assert comp.rule.type == Aggregability.LIMITED
 
 
 @pytest.mark.asyncio
