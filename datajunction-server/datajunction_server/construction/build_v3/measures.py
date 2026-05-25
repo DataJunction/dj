@@ -171,45 +171,22 @@ def register_limited_component(
     component_expressions: list[tuple[str, ast.Expression]],
     component_metadata: list[tuple[str, MetricComponent, Node]],
 ) -> None:
-    """Register a LIMITED-aggregability component (e.g. COUNT DISTINCT)
-    in the measures-SQL projection.
+    """Register a LIMITED component (e.g. ``COUNT(DISTINCT)``).
 
-    The component's grain_alias (set by ``_make_component`` in
-    ``sql/decompose.py``) is the bare column for plain-column DISTINCT
-    and the hashed component name for complex expressions.
-
-    When the two differ (plain-column case), the bare column is already
-    in the projection as a grain column, but the component's
-    hash-suffixed name is the canonical identity — it's what the
-    metric's persisted ``derived_expression`` carries, and v2 pre-agg
-    materialization writes the column under the hashed name.  This
-    helper emits an additional ``<bare> AS <component.name>``
-    projection so the hashed reference resolves against the live
-    measures SQL output, and routes ``component_aliases`` at the
-    hashed name so downstream combiner rewriters (metrics.py,
-    cube_matcher) stay consistent.
-
-    Both the merged-grain-group path and the per-grain-group path in
-    ``build_grain_group_sql`` MUST go through this helper so the
-    contract stays in one place.
+    For plain-column DISTINCT, ``grain_alias`` is the bare column and
+    differs from ``component.name`` (the hashed identity).  Emit an
+    extra ``<bare> AS <component.name>`` projection so the hashed name
+    is addressable alongside the bare grain column, and route
+    ``component_aliases`` at the hashed name so combiner rewriters
+    stay consistent.  Both call sites in ``build_grain_group_sql`` must
+    use this helper to keep the contract in one place.
     """
-    # LIMITED-no-aggregation components currently always have
-    # ``merge=None`` (DISTINCT can't be pre-aggregated, see
-    # decompose.py:1199).  Downstream re-aggregation paths
-    # (combiners.py:_build_grain_group_from_preagg_table) rely on
-    # ``merge_func is None`` to skip wrapping the projection in a
-    # merge function — if a future LIMITED variant ever sets a non-
-    # None merge, that path would silently wrap the merge over the
-    # bare grain column, producing wrong SQL like
-    # ``HLL_UNION_AGG(account_id)``.  Fail loud here so the gap is
-    # discovered at the source rather than as a wrong-result bug.
+    # The preagg-read path assumes LIMITED.merge is None to skip
+    # re-aggregation; a future LIMITED+merge variant would wrap the
+    # merge over the bare grain column and produce wrong SQL.
     assert component.merge is None, (
-        f"LIMITED-aggregability component {component.name!r} has "
-        f"merge={component.merge!r}; the downstream pre-agg "
-        f"combiner path assumes LIMITED.merge is None to avoid "
-        f"wrapping a re-aggregation over a non-component column. "
-        f"Update both _build_grain_group_from_preagg_table and "
-        f"this helper if you're adding a LIMITED-with-merge variant."
+        f"LIMITED component {component.name!r} has merge={component.merge!r}; "
+        f"update the preagg-read path in combiners.py before adding this."
     )
     grain_alias = component.grain_alias or component.name
     if grain_alias != component.name:

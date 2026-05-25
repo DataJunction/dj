@@ -9842,18 +9842,11 @@ class TestParentCteFilterLanding:
         self,
         client_with_build_v3,
     ):
-        """``COUNT(DISTINCT plain_col)`` measures-SQL output must
-        project the column under BOTH the bare grain name AND the
-        hash-suffixed component identity (``<bare> AS <name>_distinct_<hash>``).
-
-        The metric's persisted ``derived_expression``, the v2 pre-agg
-        materialization column, and the cube column all reference the
-        hashed name as the canonical identity.  Without the extra
-        projection, downstream consumers reading the live measures SQL
-        output can't resolve the column the ``derived_expression``
-        references.  The combiner in the
-        ``/sql/measures/v3`` response must also reference the hashed
-        name for consistency with the persisted expression.
+        """For ``COUNT(DISTINCT plain_col)``, the measures SQL must
+        project the column under BOTH the bare grain name and the
+        hashed identity, AND the combiner and persisted
+        ``derived_expression`` must reference the hashed identity —
+        otherwise consumers can't resolve the column.
         """
         client = client_with_build_v3
         resp = await client.post(
@@ -9953,17 +9946,11 @@ class TestParentCteFilterLanding:
         self,
         client_with_build_v3,
     ):
-        """Same contract as the single-metric case must hold in the
-        ``is_merged=True`` grain-group path (multiple metrics with
-        mixed aggregabilities combined into one measures query).
-
-        Regression: the two LIMITED-component branches in
-        ``build_grain_group_sql`` were independent — fixing only the
-        non-merged path left the merged path emitting a bare-column
-        projection + bare-column combiner, breaking consistency for
-        cross-fact / multi-metric requests.  Both branches now route
-        through ``register_limited_component``; this test pins both
-        at once.
+        """Same contract in the ``is_merged=True`` path (mixed-
+        aggregability metrics in one query).  Pins that both LIMITED-
+        component branches in ``build_grain_group_sql`` route through
+        ``register_limited_component`` — the merged branch used to
+        skip the hashed projection independently.
         """
         client = client_with_build_v3
         resp = await client.post(
@@ -10112,17 +10099,10 @@ class TestParentCteFilterLanding:
         self,
         client_with_build_v3,
     ):
-        """When two metrics share the SAME LIMITED component (same
-        ``component.name``), ``register_limited_component`` must be
-        invoked exactly once — emitting a single ``<bare> AS <hashed>``
-        projection.  Duplicate emissions would produce SQL with two
-        identically-named columns, which Spark/Druid reject.
-
-        The dedup is currently held by ``seen_components`` in
-        ``build_grain_group_sql``; this test pins that contract end-
-        to-end.  Two metrics with the *same* ``COUNT(DISTINCT
-        account_id)`` body share the same component hash, so the
-        helper sees the component twice but only emits once.
+        """Two metrics that decompose to the same LIMITED component
+        must produce a single ``<bare> AS <hashed>`` projection, not
+        two — duplicate column names break SQL execution.  Dedup is
+        held by ``seen_components`` in ``build_grain_group_sql``.
         """
         client = client_with_build_v3
         resp = await client.post(
