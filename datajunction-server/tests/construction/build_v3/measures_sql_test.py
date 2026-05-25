@@ -1249,7 +1249,7 @@ class TestMeasuresSQLMultipleMetrics:
         ]
 
         # Columns: dimension grain column 3 raw metric columns
-        assert len(gg["columns"]) == 4
+        assert len(gg["columns"]) == 5
         assert gg["columns"][0] == {
             "name": "status",
             "type": "string",
@@ -1272,7 +1272,7 @@ class TestMeasuresSQLMultipleMetrics:
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT t1.status, t1.order_id, SUM(t1.line_total) line_total_sum_e1f61696, SUM(t1.quantity) quantity_sum_06b64d2e
+            SELECT t1.status, t1.order_id, SUM(t1.line_total) line_total_sum_e1f61696, SUM(t1.quantity) quantity_sum_06b64d2e, t1.order_id order_id_distinct_f93d50ab
             FROM v3_order_details t1
             GROUP BY t1.status, t1.order_id
             """,
@@ -1299,7 +1299,7 @@ class TestMeasuresSQLMultipleMetrics:
 
         # total_revenue component
         assert components[1] == {
-            "name": "order_id",
+            "name": "order_id_distinct_f93d50ab",
             "expression": "order_id",
             "aggregation": None,
             "merge": None,
@@ -1647,6 +1647,12 @@ class TestMeasuresSQLCrossFact:
                 "semantic_entity": "v3.page_views_enriched.session_id",
                 "semantic_type": "dimension",
             },
+            {
+                "name": "session_id_distinct_e7c26e39",
+                "type": "bigint",
+                "semantic_entity": "v3.session_count:session_id_distinct_e7c26e39",
+                "semantic_type": "metric_component",
+            },
         ]
         assert_sql_equal(
             gg_sessions["sql"],
@@ -1660,7 +1666,7 @@ class TestMeasuresSQLCrossFact:
                 SELECT product_id, category
                 FROM default.v3.products
             )
-            SELECT t2.category, t1.session_id
+            SELECT t2.category, t1.session_id, t1.session_id session_id_distinct_e7c26e39
             FROM v3_page_views_enriched t1
             LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             GROUP BY t2.category, t1.session_id
@@ -1721,6 +1727,12 @@ class TestMeasuresSQLCrossFact:
                 "semantic_entity": "v3.order_details.order_id",
                 "semantic_type": "dimension",
             },
+            {
+                "name": "order_id_distinct_f93d50ab",
+                "type": "bigint",
+                "semantic_entity": "v3.order_count:order_id_distinct_f93d50ab",
+                "semantic_type": "metric_component",
+            },
         ]
         # Joins order_details -> product for category dimension
         assert_sql_equal(
@@ -1736,7 +1748,7 @@ class TestMeasuresSQLCrossFact:
                 SELECT product_id, category
                 FROM default.v3.products
             )
-            SELECT t2.category, t1.order_id
+            SELECT t2.category, t1.order_id, t1.order_id order_id_distinct_f93d50ab
             FROM v3_order_details t1
             LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             GROUP BY t2.category, t1.order_id
@@ -1762,6 +1774,12 @@ class TestMeasuresSQLCrossFact:
                 "semantic_entity": "v3.page_views_enriched.customer_id",
                 "semantic_type": "dimension",
             },
+            {
+                "name": "customer_id_distinct_dd4be7a5",
+                "type": "bigint",
+                "semantic_entity": "v3.visitor_count:customer_id_distinct_dd4be7a5",
+                "semantic_type": "metric_component",
+            },
         ]
         # Joins page_views_enriched -> product for category dimension
         assert_sql_equal(
@@ -1776,7 +1794,7 @@ class TestMeasuresSQLCrossFact:
                 SELECT product_id, category
                 FROM default.v3.products
             )
-            SELECT t2.category, t1.customer_id
+            SELECT t2.category, t1.customer_id, t1.customer_id customer_id_distinct_dd4be7a5
             FROM v3_page_views_enriched t1
             LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             GROUP BY t2.category, t1.customer_id
@@ -1856,7 +1874,7 @@ class TestMeasuresSQLCrossFact:
                 SELECT product_id, category
                 FROM default.v3.products
             )
-            SELECT t2.category, t1.order_id, SUM(t1.line_total) line_total_sum_e1f61696
+            SELECT t2.category, t1.order_id, SUM(t1.line_total) line_total_sum_e1f61696, t1.order_id order_id_distinct_f93d50ab
             FROM v3_order_details t1
             LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             GROUP BY t2.category, t1.order_id
@@ -1882,7 +1900,7 @@ class TestMeasuresSQLCrossFact:
                 SELECT product_id, category
                 FROM default.v3.products
             )
-            SELECT t2.category, t1.customer_id, COUNT(t1.view_id) view_id_count_f41e2db4
+            SELECT t2.category, t1.customer_id, COUNT(t1.view_id) view_id_count_f41e2db4, t1.customer_id customer_id_distinct_dd4be7a5
             FROM v3_page_views_enriched t1
             LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             GROUP BY t2.category, t1.customer_id
@@ -2323,7 +2341,8 @@ class TestGrainColumnDimensionDedup:
         gg = response.json()["grain_groups"][0]
 
         # order_id must appear exactly once in the SELECT (not duplicated as both
-        # dimension column and grain column)
+        # dimension column and grain column). The hashed identity projection
+        # for the LIMITED component is still emitted.
         assert_sql_equal(
             gg["sql"],
             """
@@ -2332,7 +2351,7 @@ class TestGrainColumnDimensionDedup:
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT t1.status, t1.order_id
+            SELECT t1.status, t1.order_id, t1.order_id order_id_distinct_f93d50ab
             FROM v3_order_details t1
             GROUP BY t1.status, t1.order_id
             """,
@@ -2357,6 +2376,12 @@ class TestGrainColumnDimensionDedup:
                 "type": "int",
                 "semantic_entity": "v3.order_details.order_id",
                 "semantic_type": "dimension",
+            },
+            {
+                "name": "order_id_distinct_f93d50ab",
+                "type": "bigint",
+                "semantic_entity": "v3.order_count:order_id_distinct_f93d50ab",
+                "semantic_type": "metric_component",
             },
         ]
 
@@ -3173,7 +3198,8 @@ class TestCubeBasedTemporalFiltering:
               t1.order_date date_id,
               t1.order_id,
               SUM(t1.line_total) line_total_sum_e1f61696,
-              SUM(t1.quantity) quantity_sum_06b64d2e
+              SUM(t1.quantity) quantity_sum_06b64d2e,
+              t1.order_id order_id_distinct_f93d50ab
             FROM v3_order_details t1
             GROUP BY  t1.order_date, t1.order_id
             """,
@@ -4156,7 +4182,8 @@ class TestMeasuresSQLNestedDerived:
             SELECT
                 t1.status,
                 t1.order_id,
-                SUM(t1.line_total) line_total_sum_e1f61696
+                SUM(t1.line_total) line_total_sum_e1f61696,
+                t1.order_id order_id_distinct_f93d50ab
             FROM v3_order_details t1
             GROUP BY t1.status, t1.order_id
             """,
@@ -4214,7 +4241,8 @@ class TestMeasuresSQLNestedDerived:
                 t2.category,
                 t3.week,
                 t1.order_id,
-                SUM(t1.line_total) line_total_sum_e1f61696
+                SUM(t1.line_total) line_total_sum_e1f61696,
+                t1.order_id order_id_distinct_f93d50ab
             FROM v3_order_details t1
             LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
@@ -4280,7 +4308,8 @@ class TestMeasuresSQLNestedDerived:
             SELECT
                 t2.category,
                 t1.order_id,
-                SUM(t1.line_total) line_total_sum_e1f61696
+                SUM(t1.line_total) line_total_sum_e1f61696,
+                t1.order_id order_id_distinct_f93d50ab
             FROM v3_order_details t1
             LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             GROUP BY t2.category, t1.order_id
@@ -4305,7 +4334,8 @@ class TestMeasuresSQLNestedDerived:
             )
             SELECT  t2.category,
                 t1.session_id,
-                COUNT(t1.view_id) view_id_count_f41e2db4
+                COUNT(t1.view_id) view_id_count_f41e2db4,
+                t1.session_id session_id_distinct_e7c26e39
             FROM v3_page_views_enriched t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             GROUP BY  t2.category, t1.session_id
             """,
@@ -6402,7 +6432,7 @@ class TestFilterPushdownScope:
               ) AS wrap
               GROUP BY account_id, event_type
             )
-            SELECT t1.event_type, t1.account_id
+            SELECT t1.event_type, t1.account_id, t1.account_id account_id_distinct_ccca78c0
             FROM v3_events_nested t1
             GROUP BY t1.event_type, t1.account_id
             """,
@@ -6461,7 +6491,7 @@ class TestFilterPushdownScope:
               WHERE a1.audit_date >= 20260101
                 AND a2.audit_date >= 20260101
             )
-            SELECT t1.event_type, t1.account_id
+            SELECT t1.event_type, t1.account_id, t1.account_id account_id_distinct_efcd5b4d
             FROM v3_events_self_join t1
             GROUP BY t1.event_type, t1.account_id
             """,
@@ -6528,7 +6558,7 @@ class TestFilterPushdownScope:
               SELECT account_id, event_type
               FROM v3_events_with_cte__inner_cte inner_cte
             )
-            SELECT t1.event_type, t1.account_id
+            SELECT t1.event_type, t1.account_id, t1.account_id account_id_distinct_4062d29e
             FROM v3_events_with_cte t1
             GROUP BY t1.event_type, t1.account_id
             """,
@@ -6615,7 +6645,7 @@ class TestFilterPushdownScope:
                   AND log.audit_date >= 20260101
               )
             )
-            SELECT t1.event_type, t1.account_id
+            SELECT t1.event_type, t1.account_id, t1.account_id account_id_distinct_7a788b39
             FROM v3_events_exists t1
             GROUP BY t1.event_type, t1.account_id
             """,
@@ -6702,7 +6732,7 @@ class TestFilterPushdownScope:
                 WHERE deep.audit_date >= 20260101
               ) AS wrap
             )
-            SELECT t1.event_type, t1.account_id
+            SELECT t1.event_type, t1.account_id, t1.account_id account_id_distinct_49f58cc7
             FROM v3_events_union_nested t1
             GROUP BY t1.event_type, t1.account_id
             """,
@@ -6770,7 +6800,7 @@ class TestFilterPushdownScope:
                   AND inner_src.audit_date <= 20260131
               ) AS wrap
             )
-            SELECT t1.event_type, t1.account_id
+            SELECT t1.event_type, t1.account_id, t1.account_id account_id_distinct_233abbf9
             FROM v3_events_two_filters t1
             GROUP BY t1.event_type, t1.account_id
             """,
@@ -6835,7 +6865,7 @@ class TestFilterPushdownScope:
               )
               AND a.audit_date >= 20260101
             )
-            SELECT t1.event_type, t1.account_id
+            SELECT t1.event_type, t1.account_id, t1.account_id account_id_distinct_3d483180
             FROM v3_events_from_exists t1
             GROUP BY t1.event_type, t1.account_id
             """,
@@ -6887,7 +6917,7 @@ class TestFilterPushdownScope:
               FROM default.v3.audit_log_noalias
               WHERE src_audit_log_noalias.audit_date >= 20260101
             )
-            SELECT t1.event_type, t1.account_id
+            SELECT t1.event_type, t1.account_id, t1.account_id account_id_distinct_a0b1fd19
             FROM v3_events_no_alias t1
             GROUP BY t1.event_type, t1.account_id
             """,
@@ -6965,7 +6995,7 @@ class TestFilterPushdownScope:
                 WHERE log.audit_date >= 20260101
               )
             )
-            SELECT t1.event_type, t1.account_id
+            SELECT t1.event_type, t1.account_id, t1.account_id account_id_distinct_4e8747df
             FROM v3_events_having t1
             GROUP BY t1.event_type, t1.account_id
             """,
@@ -7040,7 +7070,7 @@ class TestFilterPushdownScope:
                  WHERE log.audit_date >= 20260101) AS max_id
               FROM default.v3.acct_scalar AS acc
             )
-            SELECT t1.event_type, t1.account_id
+            SELECT t1.event_type, t1.account_id, t1.account_id account_id_distinct_946a2255
             FROM v3_events_scalar t1
             GROUP BY t1.event_type, t1.account_id
             """,
@@ -7181,7 +7211,7 @@ class TestFilterPushdownScope:
               WHERE x.audit_date >= 20260101
                 AND y.audit_date >= 20260101
             )
-            SELECT t1.event_type, t1.account_id
+            SELECT t1.event_type, t1.account_id, t1.account_id account_id_distinct_ec521d7c
             FROM v3_events_two_upstreams t1
             GROUP BY t1.event_type, t1.account_id
             """,
@@ -7286,7 +7316,7 @@ class TestFilterPushdownScope:
               SELECT account_id, event_type
               FROM v3_events_with_date
             )
-            SELECT t1.event_type, t1.account_id
+            SELECT t1.event_type, t1.account_id, t1.account_id account_id_distinct_274a187b
             FROM v3_events_wrapping t1
             GROUP BY t1.event_type, t1.account_id
             """,
@@ -7385,7 +7415,7 @@ class TestFilterPushdownScope:
             v3_events_double_link_wrap AS (
               SELECT account_id, event_type FROM v3_events_double_link
             )
-            SELECT t1.event_type, t1.account_id
+            SELECT t1.event_type, t1.account_id, t1.account_id account_id_distinct_b9c0262f
             FROM v3_events_double_link_wrap t1
             GROUP BY t1.event_type, t1.account_id
             """,
@@ -9819,9 +9849,9 @@ class TestParentCteFilterLanding:
         The metric's persisted ``derived_expression``, the v2 pre-agg
         materialization column, and the cube column all reference the
         hashed name as the canonical identity.  Without the extra
-        projection, downstream consumers (XP/ABlaze) reading the live
-        measures SQL output can't resolve the column the
-        ``derived_expression`` references.  The combiner in the
+        projection, downstream consumers reading the live measures SQL
+        output can't resolve the column the ``derived_expression``
+        references.  The combiner in the
         ``/sql/measures/v3`` response must also reference the hashed
         name for consistency with the persisted expression.
         """
@@ -10027,13 +10057,28 @@ class TestParentCteFilterLanding:
             if "v3.merged_distinct_accounts" in g["metrics"]
         )
         cols = [c["name"] for c in gg["columns"]]
-        plain_hashed = next(
-            n for n in cols if n.startswith("account_id_distinct_")
-        )
-        complex_hashed = next(
+        # Pin uniqueness of each hashed identity so a future
+        # decompose-side naming change (e.g., a uniformity refactor
+        # that drops a column-name prefix) breaks the test rather
+        # than silently passing with both `next()` calls returning
+        # the same column.
+        plain_matches = [
+            n
+            for n in cols
+            if n.startswith("account_id_distinct_")
+            and not n.startswith("is_active_account_id_distinct_")
+        ]
+        complex_matches = [
             n for n in cols if n.startswith("is_active_account_id_distinct_")
-        )
-        amount_sum_hashed = next(n for n in cols if n.startswith("amount_sum_"))
+        ]
+        amount_matches = [n for n in cols if n.startswith("amount_sum_")]
+        assert len(plain_matches) == 1, plain_matches
+        assert len(complex_matches) == 1, complex_matches
+        assert len(amount_matches) == 1, amount_matches
+        plain_hashed = plain_matches[0]
+        complex_hashed = complex_matches[0]
+        amount_sum_hashed = amount_matches[0]
+        assert plain_hashed != complex_hashed
 
         assert_sql_equal(
             gg["sql"],
@@ -10060,4 +10105,108 @@ class TestParentCteFilterLanding:
             "v3.merged_distinct_accounts": f"COUNT( DISTINCT {plain_hashed})",
             "v3.merged_distinct_active_accounts": f"COUNT( DISTINCT {complex_hashed})",
             "v3.merged_distinct_total_amount": f"SUM({amount_sum_hashed})",
+        }
+
+    @pytest.mark.asyncio
+    async def test_count_distinct_dedup_across_shared_components(
+        self,
+        client_with_build_v3,
+    ):
+        """When two metrics share the SAME LIMITED component (same
+        ``component.name``), ``register_limited_component`` must be
+        invoked exactly once — emitting a single ``<bare> AS <hashed>``
+        projection.  Duplicate emissions would produce SQL with two
+        identically-named columns, which Spark/Druid reject.
+
+        The dedup is currently held by ``seen_components`` in
+        ``build_grain_group_sql``; this test pins that contract end-
+        to-end.  Two metrics with the *same* ``COUNT(DISTINCT
+        account_id)`` body share the same component hash, so the
+        helper sees the component twice but only emits once.
+        """
+        client = client_with_build_v3
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_dedup_distinct",
+                "columns": [
+                    {"name": "account_id", "type": "int"},
+                    {"name": "event_date", "type": "int"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "dedup_distinct_events",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.dedup_distinct_xform",
+                "query": "SELECT account_id, event_date FROM v3.src_dedup_distinct",
+                "mode": "published",
+                "primary_key": ["account_id", "event_date"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        # Two metrics with identical decomposition — both produce a
+        # COUNT(DISTINCT account_id) component with the same hash.
+        for name in ("v3.dedup_unique_accounts", "v3.dedup_distinct_accounts"):
+            resp = await client.post(
+                "/nodes/metric/",
+                json={
+                    "name": name,
+                    "query": (
+                        "SELECT COUNT(DISTINCT account_id) FROM v3.dedup_distinct_xform"
+                    ),
+                    "mode": "published",
+                },
+            )
+            assert resp.status_code == 201, resp.json()
+
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": [
+                    "v3.dedup_unique_accounts",
+                    "v3.dedup_distinct_accounts",
+                ],
+                "dimensions": ["v3.dedup_distinct_xform.event_date"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        body = response.json()
+        gg = body["grain_groups"][0]
+        cols = [c["name"] for c in gg["columns"]]
+
+        # The hashed identity column appears exactly once even though
+        # two metrics reference it.
+        hashed_matches = [n for n in cols if n.startswith("account_id_distinct_")]
+        assert len(hashed_matches) == 1, hashed_matches
+        hashed_col = hashed_matches[0]
+
+        assert_sql_equal(
+            gg["sql"],
+            f"""
+            WITH v3_dedup_distinct_xform AS (
+              SELECT account_id, event_date
+              FROM default.v3.dedup_distinct_events
+            )
+            SELECT t1.event_date,
+                   t1.account_id,
+                   t1.account_id {hashed_col}
+            FROM v3_dedup_distinct_xform t1
+            GROUP BY t1.event_date, t1.account_id
+            """,
+            normalize_aliases=True,
+        )
+
+        # Both metric formulas reference the same hashed column.
+        combiners_by_metric = {
+            f["name"]: f["combiner"] for f in body["metric_formulas"]
+        }
+        assert combiners_by_metric == {
+            "v3.dedup_unique_accounts": f"COUNT( DISTINCT {hashed_col})",
+            "v3.dedup_distinct_accounts": f"COUNT( DISTINCT {hashed_col})",
         }

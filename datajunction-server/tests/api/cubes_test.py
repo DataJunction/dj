@@ -4964,6 +4964,7 @@ class TestCubeMaterializeV2SuccessPaths:
                   order_id,
                   SUM(line_total_sum_e1f61696) line_total_sum_e1f61696,
                   hll_union_agg(customer_id_hll_23002251) customer_id_hll_23002251,
+                  order_id_distinct_f93d50ab,
                   week_order
                 FROM analytics.preaggs.v3_revenue_orders_by_week
                 GROUP BY  category, order_id, week_order
@@ -5002,6 +5003,14 @@ class TestCubeMaterializeV2SuccessPaths:
                     "semantic_entity": "v3.customer_count:customer_id_hll_23002251",
                     "semantic_type": "metric_component",
                     "type": "binary",
+                },
+                {
+                    "column": None,
+                    "name": "order_id_distinct_f93d50ab",
+                    "node": None,
+                    "semantic_entity": "v3.order_count:order_id_distinct_f93d50ab",
+                    "semantic_type": "metric_component",
+                    "type": "bigint",
                 },
                 {
                     "column": None,

@@ -179,20 +179,38 @@ def register_limited_component(
     and the hashed component name for complex expressions.
 
     When the two differ (plain-column case), the bare column is already
-    in the projection as a grain column, but external consumers
-    (XP/ABlaze) reference the component by its hash-suffixed name —
-    that's what the metric's persisted ``derived_expression`` carries,
-    and v2 pre-agg materialization writes the column under the hashed
-    name too.  This helper emits an additional ``<bare> AS
-    <component.name>`` projection so the hashed reference resolves
-    against the live measures SQL output, and routes
-    ``component_aliases`` at the hashed name so downstream combiner
-    rewriters (metrics.py, cube_matcher) stay consistent.
+    in the projection as a grain column, but the component's
+    hash-suffixed name is the canonical identity — it's what the
+    metric's persisted ``derived_expression`` carries, and v2 pre-agg
+    materialization writes the column under the hashed name.  This
+    helper emits an additional ``<bare> AS <component.name>``
+    projection so the hashed reference resolves against the live
+    measures SQL output, and routes ``component_aliases`` at the
+    hashed name so downstream combiner rewriters (metrics.py,
+    cube_matcher) stay consistent.
 
     Both the merged-grain-group path and the per-grain-group path in
     ``build_grain_group_sql`` MUST go through this helper so the
     contract stays in one place.
     """
+    # LIMITED-no-aggregation components currently always have
+    # ``merge=None`` (DISTINCT can't be pre-aggregated, see
+    # decompose.py:1199).  Downstream re-aggregation paths
+    # (combiners.py:_build_grain_group_from_preagg_table) rely on
+    # ``merge_func is None`` to skip wrapping the projection in a
+    # merge function — if a future LIMITED variant ever sets a non-
+    # None merge, that path would silently wrap the merge over the
+    # bare grain column, producing wrong SQL like
+    # ``HLL_UNION_AGG(account_id)``.  Fail loud here so the gap is
+    # discovered at the source rather than as a wrong-result bug.
+    assert component.merge is None, (
+        f"LIMITED-aggregability component {component.name!r} has "
+        f"merge={component.merge!r}; the downstream pre-agg "
+        f"combiner path assumes LIMITED.merge is None to avoid "
+        f"wrapping a re-aggregation over a non-component column. "
+        f"Update both _build_grain_group_from_preagg_table and "
+        f"this helper if you're adding a LIMITED-with-merge variant."
+    )
     grain_alias = component.grain_alias or component.name
     if grain_alias != component.name:
         component_aliases[component.name] = component.name
@@ -1789,10 +1807,14 @@ def build_grain_group_from_preagg(
                 f"Component {component.name} not found in pre-agg {preagg.id}",
             )
 
-        # Always use the measure column name (component hash) as the output alias
-        # This ensures consistency with the non-preagg path
-        output_alias = measure_col
-
+        # Always alias the output as ``component.name`` (the hashed
+        # identity) so the CTE's output column name matches the
+        # metric's persisted ``derived_expression`` regardless of how
+        # the pre-agg physically stored it.  Legacy pre-aggs
+        # materialized before the LIMITED-DISTINCT change carry the
+        # column under the bare grain name; we read that bare column
+        # and alias it back to the hashed identity here.
+        output_alias = component.name
         component_aliases[component.name] = output_alias
 
         col_ref = ast.Column(name=ast.Name(measure_col))
@@ -1807,11 +1829,17 @@ def build_grain_group_from_preagg(
             aliased = ast.Alias(child=agg_expr, alias=ast.Name(output_alias))
             select_items.append(aliased)
         else:
-            # No merge - output grain column directly, add to GROUP BY
-            select_items.append(col_ref)
+            # No merge - output grain column directly, add to GROUP BY.
+            # Alias to ``component.name`` so the CTE output name is
+            # the hashed identity regardless of the pre-agg's stored
+            # column name.
+            if measure_col != output_alias:
+                select_items.append(
+                    ast.Alias(child=col_ref, alias=ast.Name(output_alias)),
+                )
+            else:
+                select_items.append(col_ref)
             grain_col_names.append(measure_col)
-            output_alias = measure_col
-            component_aliases[component.name] = output_alias
 
         # Get type from pre-agg columns
         col_type = preagg.get_column_type(measure_col, default="double")
