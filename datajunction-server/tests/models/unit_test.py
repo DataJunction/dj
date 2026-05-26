@@ -351,29 +351,29 @@ class TestLegacyUnitTranslation:
         assert legacy_unit_to_structured(MetricUnit.BIT) is None
 
     @pytest.mark.parametrize(
-        ("structured", "legacy_name"),
+        ("structured", "expected"),
         [
-            ({"kind": "unitless"}, "UNITLESS"),
-            ({"kind": "percentage"}, "PERCENTAGE"),
-            ({"kind": "proportion"}, "PROPORTION"),
-            ({"kind": "currency", "code": "USD"}, "DOLLAR"),
-            ({"kind": "time", "code": "ms"}, "MILLISECOND"),
-            ({"kind": "time", "code": "s"}, "SECOND"),
-            ({"kind": "time", "code": "min"}, "MINUTE"),
-            ({"kind": "time", "code": "h"}, "HOUR"),
-            ({"kind": "time", "code": "d"}, "DAY"),
-            ({"kind": "time", "code": "wk"}, "WEEK"),
-            ({"kind": "time", "code": "mo"}, "MONTH"),
-            ({"kind": "time", "code": "yr"}, "YEAR"),
-            ({"kind": "data_size", "code": "B"}, "BYTE"),
+            ({"kind": "unitless"}, MetricUnit.UNITLESS),
+            ({"kind": "percentage"}, MetricUnit.PERCENTAGE),
+            ({"kind": "proportion"}, MetricUnit.PROPORTION),
+            ({"kind": "currency", "code": "USD"}, MetricUnit.DOLLAR),
+            ({"kind": "time", "code": "ms"}, MetricUnit.MILLISECOND),
+            ({"kind": "time", "code": "s"}, MetricUnit.SECOND),
+            ({"kind": "time", "code": "min"}, MetricUnit.MINUTE),
+            ({"kind": "time", "code": "h"}, MetricUnit.HOUR),
+            ({"kind": "time", "code": "d"}, MetricUnit.DAY),
+            ({"kind": "time", "code": "wk"}, MetricUnit.WEEK),
+            ({"kind": "time", "code": "mo"}, MetricUnit.MONTH),
+            ({"kind": "time", "code": "yr"}, MetricUnit.YEAR),
+            ({"kind": "data_size", "code": "B"}, MetricUnit.BYTE),
         ],
     )
     def test_reverse_translation_matches_table(
         self,
         structured: dict,
-        legacy_name: str,
+        expected: MetricUnit,
     ) -> None:
-        assert structured_to_legacy_unit(structured) == legacy_name
+        assert structured_to_legacy_unit(structured) == expected
 
     @pytest.mark.parametrize(
         "structured",
@@ -425,4 +425,4 @@ class TestLegacyUnitTranslation:
     ) -> None:
         structured = legacy_unit_to_structured(legacy)
         assert structured is not None
-        assert structured_to_legacy_unit(structured) == legacy.name
+        assert structured_to_legacy_unit(structured) == legacy

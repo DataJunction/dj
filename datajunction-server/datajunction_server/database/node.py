@@ -75,6 +75,8 @@ from datajunction_server.models.node import (
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionType
 from datajunction_server.models.unit import (
+    AtomicUnit,
+    CompoundUnit,
     _get_unit_adapter,
     structured_to_legacy_unit,
 )
@@ -180,9 +182,9 @@ def _build_search_score(
 
 
 def _resolve_metric_unit_for_spec(
-    col_unit: "Any | None",
-    legacy_from_md: "Any | None",
-) -> "Tuple[Any | None, Any | None]":
+    col_unit: "AtomicUnit | CompoundUnit | dict | None",
+    legacy_from_md: "MetricUnit | None",
+) -> "Tuple[MetricUnit | None, AtomicUnit | CompoundUnit | None]":
     """
     Decide which of (legacy enum, structured Unit) to populate on a MetricSpec
     when round-tripping a metric back from the DB.
@@ -197,12 +199,14 @@ def _resolve_metric_unit_for_spec(
         count-with-code, other data sizes) → populate structured, null the
         legacy so nothing tries to dual-emit.
 
-    Accepts either a `Unit` Pydantic instance (the typed shape returned by
-    `UnitTypeDecorator`) or a plain dict (in-memory test paths) and
-    normalizes via the same TypeAdapter the decorator uses on read.
+    Accepts `col_unit` as either a Unit Pydantic instance (the typed shape
+    returned by `UnitTypeDecorator`) or a plain dict (in-memory test paths
+    or untyped writes); normalizes via the adapter so the rest of the
+    function works on the Unit instance.
 
-    Returns (legacy_for_spec, structured_for_spec). The structured value is
-    a Unit instance; `MetricSpec.unit_structured` accepts it directly.
+    Returns `(legacy_for_spec, structured_for_spec)`:
+      - `legacy_for_spec` populates `MetricSpec.unit_enum`.
+      - `structured_for_spec` populates `MetricSpec.unit_structured`.
     """
     if col_unit is None:
         return legacy_from_md, None

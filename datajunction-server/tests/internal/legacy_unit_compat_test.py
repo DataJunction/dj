@@ -110,9 +110,9 @@ class TestLegacyYamlEndToEnd:
         migration table — guarantees both halves of the bridge agree."""
         structured = legacy_unit_to_structured(spec.unit_enum)
         assert structured == AtomicUnit(kind=UnitKind.CURRENCY, code="USD")
-        legacy_name = structured_to_legacy_unit(structured)
-        assert legacy_name == "DOLLAR"
-        assert MetricUnit[legacy_name] == spec.unit_enum
+        legacy = structured_to_legacy_unit(structured)
+        assert legacy == MetricUnit.DOLLAR
+        assert legacy == spec.unit_enum
 
     def test_yaml_export_emits_legacy_string(self, spec: MetricSpec):
         """node_spec_to_yaml emits `unit: dollar` (string), not a structured
@@ -174,7 +174,7 @@ class TestAllLegacyUnitValuesRoundTrip:
         structured = legacy_unit_to_structured(spec.unit_enum)
         assert structured is not None
         # Reverse translation returns the same enum member.
-        assert structured_to_legacy_unit(structured) == legacy_str.upper()
+        assert structured_to_legacy_unit(structured) == MetricUnit[legacy_str.upper()]
 
     def test_unknown_legacy_value_rejected(self):
         """Typos in legacy YAML still raise a clear error, not a silent pass."""

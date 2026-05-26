@@ -3524,7 +3524,7 @@ class DeploymentOrchestrator:
 
         if result.spec.node_type == NodeType.METRIC:
             metric_spec = cast(MetricSpec, result.spec)
-            output_col: Column | None = None
+            output_col: Column | None
             if new_revision.columns:  # pragma: no branch
                 output_col = new_revision.columns[0]
                 output_col.display_name = new_revision.display_name
@@ -3536,6 +3536,8 @@ class DeploymentOrchestrator:
                     metric_spec,
                     output_col.unit,
                 )
+            else:
+                output_col = None
 
             legacy_unit = self._derive_legacy_unit_for_storage(
                 metric_spec,
