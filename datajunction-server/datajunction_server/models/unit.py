@@ -12,7 +12,7 @@ import re
 from enum import Enum
 from typing import TYPE_CHECKING, Annotated, Any, Union
 
-from pydantic import BaseModel, Discriminator, Tag, model_validator
+from pydantic import BaseModel, ConfigDict, Discriminator, Tag, model_validator
 from sqlalchemy import TypeDecorator
 from sqlalchemy.dialects.postgresql import JSONB
 
@@ -101,6 +101,10 @@ class AtomicUnit(BaseModel):
     instance (currency code, time scale, count label, etc.).
     """
 
+    # Frozen so shared singletons (e.g., the legacy translation table) are
+    # safe to hand out without defensive copies.
+    model_config = ConfigDict(frozen=True)
+
     kind: UnitKind
     code: str | None = None
 
@@ -180,6 +184,8 @@ class CompoundUnit(BaseModel):
     A unit shaped as numerator / denominator, for rate-like quantities
     (CTR = clicks/impressions, QPS = queries/second, throughput = bytes/second).
     """
+
+    model_config = ConfigDict(frozen=True)
 
     numerator: AtomicUnit
     denominator: AtomicUnit
@@ -312,81 +318,92 @@ class UnitTypeDecorator(TypeDecorator):
 
 # Keyed by MetricUnit.name (not the enum member itself) so this module can
 # avoid importing node.py at module load. Callers translate to/from the enum
-# at the call site.
-_LEGACY_NAME_TO_STRUCTURED: dict[str, dict | None] = {
+# at the call site. Values are frozen Unit instances — safe to hand out
+# without defensive copies.
+_LEGACY_NAME_TO_STRUCTURED: "dict[str, AtomicUnit | None]" = {
     "UNKNOWN": None,
-    "UNITLESS": {"kind": "unitless"},
-    "PERCENTAGE": {"kind": "percentage"},
-    "PROPORTION": {"kind": "proportion"},
-    "DOLLAR": {"kind": "currency", "code": "USD"},
-    "MILLISECOND": {"kind": "time", "code": "ms"},
-    "SECOND": {"kind": "time", "code": "s"},
-    "MINUTE": {"kind": "time", "code": "min"},
-    "HOUR": {"kind": "time", "code": "h"},
-    "DAY": {"kind": "time", "code": "d"},
-    "WEEK": {"kind": "time", "code": "wk"},
-    "MONTH": {"kind": "time", "code": "mo"},
-    "YEAR": {"kind": "time", "code": "yr"},
-    "BYTE": {"kind": "data_size", "code": "B"},
+    "UNITLESS": AtomicUnit(kind=UnitKind.UNITLESS),
+    "PERCENTAGE": AtomicUnit(kind=UnitKind.PERCENTAGE),
+    "PROPORTION": AtomicUnit(kind=UnitKind.PROPORTION),
+    "DOLLAR": AtomicUnit(kind=UnitKind.CURRENCY, code="USD"),
+    "MILLISECOND": AtomicUnit(kind=UnitKind.TIME, code="ms"),
+    "SECOND": AtomicUnit(kind=UnitKind.TIME, code="s"),
+    "MINUTE": AtomicUnit(kind=UnitKind.TIME, code="min"),
+    "HOUR": AtomicUnit(kind=UnitKind.TIME, code="h"),
+    "DAY": AtomicUnit(kind=UnitKind.TIME, code="d"),
+    "WEEK": AtomicUnit(kind=UnitKind.TIME, code="wk"),
+    "MONTH": AtomicUnit(kind=UnitKind.TIME, code="mo"),
+    "YEAR": AtomicUnit(kind=UnitKind.TIME, code="yr"),
+    "BYTE": AtomicUnit(kind=UnitKind.DATA_SIZE, code="B"),
     # BIT has no entry in DATA_SIZE_CODES (which uses byte-based units like
     # B, KB, MB, ... and their binary cousins KiB, MiB). Bits are atypical
     # in BI / data-platform metrics; if a user appears, add "b" to
-    # DATA_SIZE_CODES and {"BIT": {"kind": "data_size", "code": "b"}} here.
+    # DATA_SIZE_CODES and {"BIT": AtomicUnit(kind=DATA_SIZE, code="b")} here.
 }
 
 
 def legacy_unit_to_structured(
     legacy: "MetricUnit | None",
-) -> dict | None:
+) -> "AtomicUnit | None":
     """
-    Translate a legacy `MetricUnit` enum value into a structured `Unit` dict.
+    Translate a legacy `MetricUnit` enum value into a structured `Unit`.
 
     Returns None for `MetricUnit.UNKNOWN` and for `None`, since both mean
-    "no unit set." Returns `{kind: unitless}` for `MetricUnit.UNITLESS`,
-    preserving the distinction between "explicitly no unit" and "not set."
+    "no unit set." Returns `AtomicUnit(kind=unitless)` for
+    `MetricUnit.UNITLESS`, preserving the distinction between "explicitly
+    no unit" and "not set."
     """
     if legacy is None:
         return None
     return _LEGACY_NAME_TO_STRUCTURED.get(legacy.name)
 
 
-def structured_to_legacy_unit_name(
+def structured_to_legacy_unit(
     unit: "AtomicUnit | CompoundUnit | dict | None",
-) -> str | None:
+) -> "MetricUnit | None":
     """
     Translate a structured `Unit` (Pydantic model or already-dict) back to
-    the legacy `MetricUnit.name` when expressible. Returns None when the
-    structured value has no legacy equivalent (non-USD currencies, compound
-    units, data sizes, count with code, etc.) — callers should treat that
-    as "don't populate the legacy column."
+    the legacy `MetricUnit` enum value when expressible. Returns None when
+    the structured value has no legacy equivalent (non-USD currencies,
+    compound units, data sizes other than BYTE, count with code, etc.) —
+    callers should treat that as "don't populate the legacy column."
 
-    Returns the enum member name (e.g. "DOLLAR"), not a MetricUnit instance,
-    so this module stays import-free of node.py. Callers do
-    `MetricUnit[name]` at the call site.
+    `MetricUnit` is imported locally to keep `models/unit.py` free of a
+    module-top dependency on `models/node.py`, where `MetricUnit` lives.
     """
-    unit = unit_to_dict(unit)
+    # Local import: `models/node.py` imports `unit_to_dict` from this module
+    # at module-load, so a top-level reverse import would cycle.
+    from datajunction_server.models.node import MetricUnit
+
     if unit is None:
         return None
-    # Compound units have no legacy equivalent.
-    if "numerator" in unit:
+    # Normalize dict input to a Unit instance for typed attribute access.
+    # A malformed dict (e.g., an unknown time code that slipped through a
+    # direct DB write) has no legacy equivalent — treat it as unmapped.
+    if isinstance(unit, dict):
+        try:
+            unit = _get_unit_adapter().validate_python(unit)
+        except Exception:
+            return None
+    if isinstance(unit, CompoundUnit):
         return None
-    kind = unit.get("kind")
-    code = unit.get("code")
-    if kind == "unitless":
-        return "UNITLESS"
-    if kind == "percentage":
-        return "PERCENTAGE"
-    if kind == "proportion":
-        return "PROPORTION"
-    if kind == "currency":
-        return "DOLLAR" if code == "USD" else None
-    if kind in ("time", "data_size"):
-        # Reverse of _LEGACY_NAME_TO_STRUCTURED for kinds where multiple
-        # legacy enum members map by code.
-        target = {"kind": kind, "code": code}
+    assert isinstance(unit, AtomicUnit)  # narrowed by isinstance above + adapter
+    kind = unit.kind
+    code = unit.code
+    if kind == UnitKind.UNITLESS:
+        return MetricUnit.UNITLESS
+    if kind == UnitKind.PERCENTAGE:
+        return MetricUnit.PERCENTAGE
+    if kind == UnitKind.PROPORTION:
+        return MetricUnit.PROPORTION
+    if kind == UnitKind.CURRENCY:
+        return MetricUnit.DOLLAR if code == "USD" else None
+    if kind in (UnitKind.TIME, UnitKind.DATA_SIZE):
+        # Reverse of _LEGACY_NAME_TO_STRUCTURED — direct equality on
+        # frozen Unit instances.
         for legacy_name, structured in _LEGACY_NAME_TO_STRUCTURED.items():
-            if structured == target:
-                return legacy_name
+            if structured == unit:
+                return MetricUnit[legacy_name]
         return None
     # count — free-form code, no legacy equivalent.
     return None

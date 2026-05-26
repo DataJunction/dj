@@ -27,8 +27,11 @@ from datajunction_server.internal.namespaces import node_spec_to_yaml
 from datajunction_server.models.deployment import MetricSpec
 from datajunction_server.models.node import MetricUnit
 from datajunction_server.models.unit import (
+    AtomicUnit,
+    UnitKind,
     legacy_unit_to_structured,
-    structured_to_legacy_unit_name,
+    structured_to_legacy_unit,
+    unit_to_dict,
 )
 
 
@@ -83,7 +86,7 @@ class TestLegacyYamlEndToEnd:
             spec,
             None,
         )
-        assert resolved == {"kind": "currency", "code": "USD"}
+        assert resolved == AtomicUnit(kind=UnitKind.CURRENCY, code="USD")
 
     def test_orchestrator_derives_legacy_for_storage(self, spec: MetricSpec):
         """After resolution, the derive step returns MetricUnit.DOLLAR so the
@@ -106,8 +109,8 @@ class TestLegacyYamlEndToEnd:
         """Legacy → structured → legacy is the identity for every value in the
         migration table — guarantees both halves of the bridge agree."""
         structured = legacy_unit_to_structured(spec.unit_enum)
-        assert structured == {"kind": "currency", "code": "USD"}
-        legacy_name = structured_to_legacy_unit_name(structured)
+        assert structured == AtomicUnit(kind=UnitKind.CURRENCY, code="USD")
+        legacy_name = structured_to_legacy_unit(structured)
         assert legacy_name == "DOLLAR"
         assert MetricUnit[legacy_name] == spec.unit_enum
 
@@ -171,7 +174,7 @@ class TestAllLegacyUnitValuesRoundTrip:
         structured = legacy_unit_to_structured(spec.unit_enum)
         assert structured is not None
         # Reverse translation returns the same enum member.
-        assert structured_to_legacy_unit_name(structured) == legacy_str.upper()
+        assert structured_to_legacy_unit(structured) == legacy_str.upper()
 
     def test_unknown_legacy_value_rejected(self):
         """Typos in legacy YAML still raise a clear error, not a silent pass."""
@@ -238,7 +241,8 @@ class TestAllLegacyUnitValuesRoundTrip:
             legacy_from_md=None,
         )
         assert legacy is None
-        assert structured == col_unit
+        # Helper returns a Unit instance; compare via canonical dict.
+        assert unit_to_dict(structured) == col_unit
 
     def test_uppercase_legacy_input_accepted(self):  # noqa: ANN201
         """Legacy parser accepts case-insensitive input (existing behavior)."""
@@ -369,7 +373,8 @@ class TestUnitToDictCanonicalShape:
 
     def test_storage_paths_produce_identical_shape(self):
         """The legacy-translation path and the structured-input path must
-        write the same JSONB shape for a conceptually identical unit."""
+        produce the same canonical value for a conceptually identical unit.
+        Comparing via unit_to_dict normalizes both Unit and dict inputs."""
         from datajunction_server.models.unit import (
             AtomicUnit,
             UnitKind,
@@ -377,9 +382,12 @@ class TestUnitToDictCanonicalShape:
             unit_to_dict,
         )
 
-        legacy_shape = legacy_unit_to_structured(MetricUnit.UNITLESS)
-        structured_shape = unit_to_dict(AtomicUnit(kind=UnitKind.UNITLESS))
-        assert legacy_shape == structured_shape
+        legacy = legacy_unit_to_structured(MetricUnit.UNITLESS)
+        structured = AtomicUnit(kind=UnitKind.UNITLESS)
+        # Frozen Unit equality directly:
+        assert legacy == structured
+        # And the JSONB-canonical dict shape matches too:
+        assert unit_to_dict(legacy) == unit_to_dict(structured)
 
 
 class TestBadDictErrorUx:

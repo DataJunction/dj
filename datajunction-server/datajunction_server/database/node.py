@@ -74,6 +74,10 @@ from datajunction_server.models.node import (
 )
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionType
+from datajunction_server.models.unit import (
+    _get_unit_adapter,
+    structured_to_legacy_unit,
+)
 from datajunction_server.naming import amenable_name
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import SEPARATOR, execute_with_retry
@@ -178,38 +182,34 @@ def _build_search_score(
 def _resolve_metric_unit_for_spec(
     col_unit: "Any | None",
     legacy_from_md: "Any | None",
-) -> "Tuple[Any | None, dict | None]":
+) -> "Tuple[Any | None, Any | None]":
     """
-    Decide which of (legacy enum, structured dict) to populate on a MetricSpec
+    Decide which of (legacy enum, structured Unit) to populate on a MetricSpec
     when round-tripping a metric back from the DB.
-
-    Accepts `col_unit` as either a `Unit` Pydantic instance (the typed shape
-    returned by `UnitTypeDecorator`) or a plain dict (in-memory test
-    fixtures, or untyped paths). Internally normalizes via `unit_to_dict`.
 
     Rules (preserves authoring intent on round-trip):
       - No structured `column.unit` → emit only the legacy field (whatever was
-        in metric_metadata.unit), structured stays None.
+        in metric_metadata.unit); structured stays None.
       - Structured `column.unit` is legacy-expressible (USD, percentage, time
-        codes, etc.) → keep the legacy field as authoritative so `unit: dollar`
-        round-trips as `unit: dollar`, not `unit: {kind: currency, code: USD}`.
-        Structured stays None.
+        codes, BYTE) → keep the legacy field as authoritative so `unit: dollar`
+        round-trips as `unit: dollar`, not the structured shape.
       - Structured `column.unit` is NOT legacy-expressible (EUR, compound,
-        count-with-code, data_size) → populate structured, null the legacy so
-        nothing tries to dual-emit.
+        count-with-code, other data sizes) → populate structured, null the
+        legacy so nothing tries to dual-emit.
 
-    Returns (legacy_for_spec, structured_for_spec_dict).
+    Accepts either a `Unit` Pydantic instance (the typed shape returned by
+    `UnitTypeDecorator`) or a plain dict (in-memory test paths) and
+    normalizes via the same TypeAdapter the decorator uses on read.
+
+    Returns (legacy_for_spec, structured_for_spec). The structured value is
+    a Unit instance; `MetricSpec.unit_structured` accepts it directly.
     """
-    from datajunction_server.models.unit import (
-        structured_to_legacy_unit_name,
-        unit_to_dict,
-    )
-
-    col_unit_dict = unit_to_dict(col_unit)
-    if col_unit_dict is None:
+    if col_unit is None:
         return legacy_from_md, None
-    if structured_to_legacy_unit_name(col_unit_dict) is None:
-        return None, col_unit_dict
+    if isinstance(col_unit, dict):
+        col_unit = _get_unit_adapter().validate_python(col_unit)
+    if structured_to_legacy_unit(col_unit) is None:
+        return None, col_unit
     return legacy_from_md, None
 
 

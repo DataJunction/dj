@@ -524,18 +524,18 @@ class MetricSpec(NodeSpec):
         base["unit"] = self.unit
         return base
 
-    def _canonical_unit(self) -> dict | None:
+    def _canonical_unit(self) -> "Unit | None":
         """
-        Reduce both legacy and structured inputs to the same canonical dict
-        form for equality comparisons. Returns None when the metric has no
-        unit (or only the UNKNOWN sentinel), the structured dict otherwise.
-        Two specs that author the same conceptual unit via different input
-        shapes (`unit: dollar` vs `unit: {kind: currency, code: USD}`) will
-        produce identical canonical forms — so __eq__ doesn't falsely report
-        drift between YAML and DB-roundtripped specs.
+        Reduce both legacy and structured inputs to the same canonical Unit
+        instance for equality comparisons. Returns None when the metric has
+        no unit (or only the UNKNOWN sentinel). Two specs that author the
+        same conceptual unit via different input shapes (`unit: dollar` vs
+        `unit: {kind: currency, code: USD}`) produce equal frozen Unit
+        instances — so __eq__ doesn't falsely report drift between YAML and
+        DB-roundtripped specs.
         """
         if self.unit_structured is not None:
-            return unit_to_dict(self.unit_structured)
+            return self.unit_structured
         if self.unit_enum is None or self.unit_enum == MetricUnit.UNKNOWN:
             return None
         return legacy_unit_to_structured(self.unit_enum)

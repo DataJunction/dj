@@ -2704,10 +2704,17 @@ class TestReconcileMetricUnit:
 
     @staticmethod
     def _resolve(spec: MetricSpec, column_unit: dict | None) -> dict | None:
-        return DeploymentOrchestrator._resolve_metric_unit(
-            MagicMock(),
-            spec,
-            column_unit,
+        """Resolve and convert to canonical dict so tests can assert against
+        plain dict literals. The resolver itself returns Unit; we coerce to
+        dict here for assertion readability."""
+        from datajunction_server.models.unit import unit_to_dict
+
+        return unit_to_dict(
+            DeploymentOrchestrator._resolve_metric_unit(
+                MagicMock(),
+                spec,
+                column_unit,
+            ),
         )
 
     def test_legacy_only_resolves_to_translated_dict(self):

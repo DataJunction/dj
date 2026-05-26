@@ -13,7 +13,8 @@ from datajunction_server.models.unit import (
     Unit,
     UnitKind,
     legacy_unit_to_structured,
-    structured_to_legacy_unit_name,
+    structured_to_legacy_unit,
+    unit_to_dict,
 )
 
 _unit_adapter: TypeAdapter[Unit] = TypeAdapter(Unit)
@@ -305,7 +306,7 @@ class TestUnitTypeDecorator:
 
 class TestLegacyUnitTranslation:
     """
-    Coverage for `legacy_unit_to_structured` and `structured_to_legacy_unit_name`.
+    Coverage for `legacy_unit_to_structured` and `structured_to_legacy_unit`.
     """
 
     @pytest.mark.parametrize(
@@ -331,14 +332,15 @@ class TestLegacyUnitTranslation:
         legacy: MetricUnit,
         structured: dict | None,
     ) -> None:
-        assert legacy_unit_to_structured(legacy) == structured
+        # Returns a Unit instance (or None); compare via canonical dict.
+        assert unit_to_dict(legacy_unit_to_structured(legacy)) == structured
 
     def test_forward_translation_handles_none(self) -> None:
         assert legacy_unit_to_structured(None) is None
 
     def test_forward_translation_byte_maps_to_data_size(self) -> None:
         # BYTE has a clean structured equivalent under DATA_SIZE.
-        assert legacy_unit_to_structured(MetricUnit.BYTE) == {
+        assert unit_to_dict(legacy_unit_to_structured(MetricUnit.BYTE)) == {
             "kind": "data_size",
             "code": "B",
         }
@@ -371,7 +373,7 @@ class TestLegacyUnitTranslation:
         structured: dict,
         legacy_name: str,
     ) -> None:
-        assert structured_to_legacy_unit_name(structured) == legacy_name
+        assert structured_to_legacy_unit(structured) == legacy_name
 
     @pytest.mark.parametrize(
         "structured",
@@ -397,7 +399,7 @@ class TestLegacyUnitTranslation:
         self,
         structured: dict | None,
     ) -> None:
-        assert structured_to_legacy_unit_name(structured) is None
+        assert structured_to_legacy_unit(structured) is None
 
     @pytest.mark.parametrize(
         "legacy",
@@ -423,4 +425,4 @@ class TestLegacyUnitTranslation:
     ) -> None:
         structured = legacy_unit_to_structured(legacy)
         assert structured is not None
-        assert structured_to_legacy_unit_name(structured) == legacy.name
+        assert structured_to_legacy_unit(structured) == legacy.name
