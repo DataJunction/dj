@@ -9969,3 +9969,124 @@ class TestCountDistinctPlainColumnCoalesceJoin:
         assert metric_resp.json()["derived_expression"] == (
             "COUNT( DISTINCT account_id)"
         )
+
+
+class TestDimCteFilterOnNonFkColumn:
+    """Regression: a filter on a dim's non-FK column (e.g. the integer
+    key column of a values-table dim, where the parent links via the
+    string/boolean label column) must resolve to the dim's own column
+    inside the dim CTE — not to the parent's FK column name.
+
+    Before the fix, ``filter_column_aliases`` mapped EVERY column of
+    the dim back to the parent's FK column (because the parent's
+    ``foreign_key_column_names`` doesn't distinguish per-target-column).
+    When the filter got pushed into the dim CTE itself, it was
+    rewritten using that parent-FK name, producing nonsense like
+    ``WHERE is_fraud IN (0)`` (string column, integer literal) instead
+    of ``WHERE is_fraud_key IN (0)``.
+    """
+
+    @pytest.mark.asyncio
+    async def test_filter_on_non_fk_dim_column_resolves_correctly(
+        self,
+        client_with_build_v3,
+    ):
+        client = client_with_build_v3
+        # Fact source.
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_nfk_events",
+                "columns": [
+                    {"name": "account_id", "type": "int"},
+                    {"name": "is_fraud", "type": "string"},
+                    {"name": "amount", "type": "double"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "nfk_events",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        # Transform on the fact source.
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.nfk_events_xform",
+                "query": (
+                    "SELECT account_id, is_fraud, amount "
+                    "FROM v3.src_nfk_events"
+                ),
+                "mode": "published",
+                "primary_key": ["account_id"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        # Dim with TWO columns: is_fraud_key (int) and is_fraud (string),
+        # mirroring the common.dimensions.xp.is_fraud shape.  The dim's
+        # PK is is_fraud_key but the join_on uses is_fraud (label match).
+        resp = await client.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.nfk_is_fraud_dim",
+                "query": (
+                    "SELECT t.is_fraud_key, t.is_fraud "
+                    "FROM (SELECT 0 AS is_fraud_key, 'false' AS is_fraud "
+                    "UNION ALL SELECT 1, 'true') t"
+                ),
+                "mode": "published",
+                "primary_key": ["is_fraud_key"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        # Link the transform's ``is_fraud`` column to the dim's ``is_fraud``
+        # (label-match link).  Parent's FK column on the transform is
+        # named ``is_fraud`` — the same name as one of the dim's columns.
+        resp = await client.post(
+            "/nodes/v3.nfk_events_xform/link/",
+            json={
+                "dimension_node": "v3.nfk_is_fraud_dim",
+                "join_type": "inner",
+                "join_on": (
+                    "v3.nfk_events_xform.is_fraud = "
+                    "v3.nfk_is_fraud_dim.is_fraud"
+                ),
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        # Metric on the transform.
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.nfk_total_amount",
+                "query": "SELECT SUM(amount) FROM v3.nfk_events_xform",
+                "mode": "published",
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+
+        # Filter on the DIM's non-FK column (is_fraud_key) — an int
+        # comparison.  The dim CTE's pushdown must resolve to the
+        # dim's own is_fraud_key column, not the parent's FK column
+        # name (which is ``is_fraud`` here).
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.nfk_total_amount"],
+                "dimensions": ["v3.nfk_is_fraud_dim.is_fraud"],
+                "filters": ["v3.nfk_is_fraud_dim.is_fraud_key IN (0)"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+
+        # The dim CTE must filter on its OWN ``is_fraud_key`` column.
+        # The pre-fix bug rewrote this to ``WHERE is_fraud IN (0)``,
+        # comparing a string column against an integer literal — silently
+        # empty result.
+        import re
+        assert "is_fraud_key IN (0)" in sql, sql
+        # No bare ``is_fraud`` (string column) compared against an int
+        # literal anywhere.
+        assert not re.search(r"\bis_fraud\s+IN\s+\(0\)", sql), sql

@@ -1436,9 +1436,27 @@ def _build_local_dim_aliases(node: "Node") -> dict[str, str]:
     parent's column name (which it doesn't have).
     """
     result: dict[str, str] = {}
-    if not node.current or not node.current.dimension_links:
+    if not node.current:
         return result
     from datajunction_server.construction.build_v3.utils import get_short_name
+
+    # When the CTE being processed IS itself a dimension node, any filter
+    # ref of the form ``<this_dim>.<col>`` resolves to the dim's own
+    # column.  Without this, the parent-derived ``filter_column_aliases``
+    # (built from the *parent's* outgoing dim_link, which maps every
+    # column of this dim back to the parent's single FK column) would
+    # mis-rewrite a filter targeting a non-FK column of this dim — e.g.
+    # ``common.dimensions.xp.is_fraud.is_fraud_key`` would resolve to
+    # the parent's FK ``is_fraud`` column, and the pushdown inside the
+    # dim's CTE would filter ``WHERE is_fraud IN (0)`` (string column,
+    # integer literal — silently wrong) instead of ``WHERE is_fraud_key
+    # IN (0)``.
+    if node.type == NodeType.DIMENSION and node.current.columns:
+        for col in node.current.columns:
+            result[f"{node.name}{SEPARATOR}{col.name}"] = col.name
+
+    if not node.current.dimension_links:
+        return result
 
     for link in node.current.dimension_links:
         # ``foreign_keys_reversed`` maps dim PK columns → node FK columns.
