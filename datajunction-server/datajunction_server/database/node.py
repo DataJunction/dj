@@ -210,10 +210,13 @@ def _resolve_metric_unit_for_spec(
     """
     if col_unit is None:
         return legacy_from_md, None
+    normalized: "AtomicUnit | CompoundUnit"
     if isinstance(col_unit, dict):
-        col_unit = _get_unit_adapter().validate_python(col_unit)
-    if structured_to_legacy_unit(col_unit) is None:
-        return None, col_unit
+        normalized = _get_unit_adapter().validate_python(col_unit)
+    else:
+        normalized = col_unit
+    if structured_to_legacy_unit(normalized) is None:
+        return None, normalized
     return legacy_from_md, None
 
 

@@ -3524,20 +3524,16 @@ class DeploymentOrchestrator:
 
         if result.spec.node_type == NodeType.METRIC:
             metric_spec = cast(MetricSpec, result.spec)
-            output_col: Column | None
+            output_col: Column | None = None
             if new_revision.columns:  # pragma: no branch
-                output_col = new_revision.columns[0]
-                output_col.display_name = new_revision.display_name
+                col: Column = new_revision.columns[0]
+                col.display_name = new_revision.display_name
                 # Bridge legacy metric_metadata.unit and structured
                 # columns[0].unit so users on either input shape end up
                 # with both fields populated where expressible. See
                 # `_resolve_metric_unit` for the precedence rules.
-                output_col.unit = self._resolve_metric_unit(
-                    metric_spec,
-                    output_col.unit,
-                )
-            else:
-                output_col = None
+                col.unit = self._resolve_metric_unit(metric_spec, col.unit)
+                output_col = col
 
             legacy_unit = self._derive_legacy_unit_for_storage(
                 metric_spec,
