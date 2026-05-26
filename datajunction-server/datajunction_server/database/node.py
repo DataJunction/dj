@@ -67,12 +67,19 @@ from datajunction_server.models.deployment import (
 from datajunction_server.models.node import (
     DEFAULT_DRAFT_VERSION,
     BuildCriteria,
+    MetricUnit,
     NodeCursor,
     NodeMode,
     NodeStatus,
 )
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionType
+from datajunction_server.models.unit import (
+    AtomicUnit,
+    CompoundUnit,
+    _get_unit_adapter,
+    structured_to_legacy_unit,
+)
 from datajunction_server.naming import amenable_name
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import SEPARATOR, execute_with_retry
@@ -172,6 +179,45 @@ def _build_search_score(
         1 + func.coalesce(child_count_col, 0),
     )
     return relevance * branch_boost * popularity
+
+
+def _resolve_metric_unit_for_spec(
+    col_unit: "AtomicUnit | CompoundUnit | dict | None",
+    legacy_from_md: "MetricUnit | None",
+) -> "Tuple[MetricUnit | None, AtomicUnit | CompoundUnit | None]":
+    """
+    Decide which of (legacy enum, structured Unit) to populate on a MetricSpec
+    when round-tripping a metric back from the DB.
+
+    Rules (preserves authoring intent on round-trip):
+      - No structured `column.unit` → emit only the legacy field (whatever was
+        in metric_metadata.unit); structured stays None.
+      - Structured `column.unit` is legacy-expressible (USD, percentage, time
+        codes, BYTE) → keep the legacy field as authoritative so `unit: dollar`
+        round-trips as `unit: dollar`, not the structured shape.
+      - Structured `column.unit` is NOT legacy-expressible (EUR, compound,
+        count-with-code, other data sizes) → populate structured, null the
+        legacy so nothing tries to dual-emit.
+
+    Accepts `col_unit` as either a Unit Pydantic instance (the typed shape
+    returned by `UnitTypeDecorator`) or a plain dict (in-memory test paths
+    or untyped writes); normalizes via the adapter so the rest of the
+    function works on the Unit instance.
+
+    Returns `(legacy_for_spec, structured_for_spec)`:
+      - `legacy_for_spec` populates `MetricSpec.unit_enum`.
+      - `structured_for_spec` populates `MetricSpec.unit_structured`.
+    """
+    if col_unit is None:
+        return legacy_from_md, None
+    normalized: "AtomicUnit | CompoundUnit"
+    if isinstance(col_unit, dict):
+        normalized = _get_unit_adapter().validate_python(col_unit)
+    else:
+        normalized = col_unit
+    if structured_to_legacy_unit(normalized) is None:
+        return None, normalized
+    return legacy_from_md, None
 
 
 class NodeRelationship(Base):
@@ -545,6 +591,26 @@ class Node(Base):
 
         # Metric-specific
         if self.type == NodeType.METRIC:
+            col_unit = (
+                self.current.columns[0].unit
+                if self.current.columns and self.current.columns[0].unit
+                else None
+            )
+            # `MetricUnit.UNKNOWN` is the DB-column default for any metric
+            # that never had a unit authored. Treat it as "no unit" so it
+            # doesn't leak as `unit: unknown` on YAML re-export.
+            legacy_from_md = (
+                self.current.metric_metadata.unit
+                if self.current.metric_metadata
+                and self.current.metric_metadata.unit
+                and self.current.metric_metadata.unit != MetricUnit.UNKNOWN
+                else None
+            )
+            legacy_spec, structured_spec = _resolve_metric_unit_for_spec(
+                col_unit,
+                legacy_from_md,
+            )
+
             extra_kwargs.update(
                 required_dimensions=sorted(
                     col.name for col in self.current.required_dimensions
@@ -552,12 +618,8 @@ class Node(Base):
                 direction=self.current.metric_metadata.direction
                 if self.current.metric_metadata
                 else None,
-                unit_enum=(
-                    self.current.metric_metadata.unit
-                    if self.current.metric_metadata
-                    and self.current.metric_metadata.unit
-                    else None
-                ),
+                unit_enum=legacy_spec,
+                unit_structured=structured_spec,
                 significant_digits=self.current.metric_metadata.significant_digits
                 if self.current.metric_metadata
                 else None,

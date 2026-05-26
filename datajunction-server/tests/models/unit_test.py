@@ -6,11 +6,15 @@ import pytest
 from pydantic import TypeAdapter, ValidationError
 
 from datajunction_server.models.deployment import ColumnSpec
+from datajunction_server.models.node import MetricUnit
 from datajunction_server.models.unit import (
     AtomicUnit,
     CompoundUnit,
     Unit,
     UnitKind,
+    legacy_unit_to_structured,
+    structured_to_legacy_unit,
+    unit_to_dict,
 )
 
 _unit_adapter: TypeAdapter[Unit] = TypeAdapter(Unit)
@@ -206,3 +210,219 @@ class TestColumnSpecUnit:
         assert dumped["unit"] == {"kind": "currency", "code": "USD"}
         roundtripped = ColumnSpec.model_validate(dumped)
         assert roundtripped == spec
+
+
+class TestUnitTypeDecorator:
+    """
+    The SQLAlchemy TypeDecorator converts between JSONB dicts and Unit
+    pydantic instances at the ORM boundary. Read paths return typed
+    `Unit`; write paths accept either `Unit` or `dict` and canonicalize.
+    """
+
+    def test_process_bind_param_accepts_unit_model(self) -> None:
+        from datajunction_server.models.unit import (
+            AtomicUnit,
+            UnitKind,
+            UnitTypeDecorator,
+        )
+
+        dec = UnitTypeDecorator()
+        u = AtomicUnit(kind=UnitKind.CURRENCY, code="USD")
+        assert dec.process_bind_param(u, None) == {
+            "kind": "currency",
+            "code": "USD",
+        }
+
+    def test_process_bind_param_accepts_raw_dict(self) -> None:
+        from datajunction_server.models.unit import UnitTypeDecorator
+
+        dec = UnitTypeDecorator()
+        assert dec.process_bind_param(
+            {"kind": "unitless", "code": None},
+            None,
+        ) == {"kind": "unitless"}
+
+    def test_process_bind_param_none_passthrough(self) -> None:
+        from datajunction_server.models.unit import UnitTypeDecorator
+
+        dec = UnitTypeDecorator()
+        assert dec.process_bind_param(None, None) is None
+
+    def test_process_result_value_atomic(self) -> None:
+        from datajunction_server.models.unit import (
+            AtomicUnit,
+            UnitKind,
+            UnitTypeDecorator,
+        )
+
+        dec = UnitTypeDecorator()
+        result = dec.process_result_value(
+            {"kind": "currency", "code": "USD"},
+            None,
+        )
+        assert isinstance(result, AtomicUnit)
+        assert result.kind == UnitKind.CURRENCY
+        assert result.code == "USD"
+
+    def test_process_result_value_compound(self) -> None:
+        from datajunction_server.models.unit import (
+            CompoundUnit,
+            UnitTypeDecorator,
+        )
+
+        dec = UnitTypeDecorator()
+        result = dec.process_result_value(
+            {
+                "numerator": {"kind": "count"},
+                "denominator": {"kind": "time", "code": "s"},
+            },
+            None,
+        )
+        assert isinstance(result, CompoundUnit)
+        assert result.numerator.code is None
+        assert result.denominator.code == "s"
+
+    def test_process_result_value_none_passthrough(self) -> None:
+        from datajunction_server.models.unit import UnitTypeDecorator
+
+        dec = UnitTypeDecorator()
+        assert dec.process_result_value(None, None) is None
+
+    def test_round_trip_idempotent(self) -> None:
+        """write(read(write(x))) == write(x) — canonical shape is stable."""
+        from datajunction_server.models.unit import (
+            AtomicUnit,
+            UnitKind,
+            UnitTypeDecorator,
+        )
+
+        dec = UnitTypeDecorator()
+        original = AtomicUnit(kind=UnitKind.UNITLESS)
+        wire1 = dec.process_bind_param(original, None)
+        unit_back = dec.process_result_value(wire1, None)
+        wire2 = dec.process_bind_param(unit_back, None)
+        assert wire1 == wire2 == {"kind": "unitless"}
+
+
+class TestLegacyUnitTranslation:
+    """
+    Coverage for `legacy_unit_to_structured` and `structured_to_legacy_unit`.
+    """
+
+    @pytest.mark.parametrize(
+        ("legacy", "structured"),
+        [
+            (MetricUnit.UNKNOWN, None),
+            (MetricUnit.UNITLESS, {"kind": "unitless"}),
+            (MetricUnit.PERCENTAGE, {"kind": "percentage"}),
+            (MetricUnit.PROPORTION, {"kind": "proportion"}),
+            (MetricUnit.DOLLAR, {"kind": "currency", "code": "USD"}),
+            (MetricUnit.MILLISECOND, {"kind": "time", "code": "ms"}),
+            (MetricUnit.SECOND, {"kind": "time", "code": "s"}),
+            (MetricUnit.MINUTE, {"kind": "time", "code": "min"}),
+            (MetricUnit.HOUR, {"kind": "time", "code": "h"}),
+            (MetricUnit.DAY, {"kind": "time", "code": "d"}),
+            (MetricUnit.WEEK, {"kind": "time", "code": "wk"}),
+            (MetricUnit.MONTH, {"kind": "time", "code": "mo"}),
+            (MetricUnit.YEAR, {"kind": "time", "code": "yr"}),
+        ],
+    )
+    def test_forward_translation_matches_table(
+        self,
+        legacy: MetricUnit,
+        structured: dict | None,
+    ) -> None:
+        # Returns a Unit instance (or None); compare via canonical dict.
+        assert unit_to_dict(legacy_unit_to_structured(legacy)) == structured
+
+    def test_forward_translation_handles_none(self) -> None:
+        assert legacy_unit_to_structured(None) is None
+
+    def test_forward_translation_byte_maps_to_data_size(self) -> None:
+        # BYTE has a clean structured equivalent under DATA_SIZE.
+        assert unit_to_dict(legacy_unit_to_structured(MetricUnit.BYTE)) == {
+            "kind": "data_size",
+            "code": "B",
+        }
+
+    def test_forward_translation_bit_unmapped(self) -> None:
+        # BIT has no entry in DATA_SIZE_CODES (bytes-only) so it maps to
+        # None until/unless someone needs it.
+        assert legacy_unit_to_structured(MetricUnit.BIT) is None
+
+    @pytest.mark.parametrize(
+        ("structured", "expected"),
+        [
+            ({"kind": "unitless"}, MetricUnit.UNITLESS),
+            ({"kind": "percentage"}, MetricUnit.PERCENTAGE),
+            ({"kind": "proportion"}, MetricUnit.PROPORTION),
+            ({"kind": "currency", "code": "USD"}, MetricUnit.DOLLAR),
+            ({"kind": "time", "code": "ms"}, MetricUnit.MILLISECOND),
+            ({"kind": "time", "code": "s"}, MetricUnit.SECOND),
+            ({"kind": "time", "code": "min"}, MetricUnit.MINUTE),
+            ({"kind": "time", "code": "h"}, MetricUnit.HOUR),
+            ({"kind": "time", "code": "d"}, MetricUnit.DAY),
+            ({"kind": "time", "code": "wk"}, MetricUnit.WEEK),
+            ({"kind": "time", "code": "mo"}, MetricUnit.MONTH),
+            ({"kind": "time", "code": "yr"}, MetricUnit.YEAR),
+            ({"kind": "data_size", "code": "B"}, MetricUnit.BYTE),
+        ],
+    )
+    def test_reverse_translation_matches_table(
+        self,
+        structured: dict,
+        expected: MetricUnit,
+    ) -> None:
+        assert structured_to_legacy_unit(structured) == expected
+
+    @pytest.mark.parametrize(
+        "structured",
+        [
+            None,
+            {"kind": "currency", "code": "EUR"},  # non-USD
+            {"kind": "currency", "code": None},  # currency with no code
+            {"kind": "data_size", "code": "MB"},  # only BYTE has legacy form
+            {"kind": "count", "code": "clicks"},  # no legacy equivalent
+            {"kind": "count"},  # no legacy equivalent
+            {
+                "numerator": {"kind": "count"},
+                "denominator": {"kind": "time", "code": "s"},
+            },  # compound
+            # time with a code that exists in the new vocabulary but not
+            # in any legacy enum member (today there is no such code, but
+            # this guards against future additions to TIME_CODES that
+            # aren't reflected in _LEGACY_NAME_TO_STRUCTURED).
+            {"kind": "time", "code": "fortnight"},
+        ],
+    )
+    def test_reverse_translation_returns_none_for_inexpressible(
+        self,
+        structured: dict | None,
+    ) -> None:
+        assert structured_to_legacy_unit(structured) is None
+
+    @pytest.mark.parametrize(
+        "legacy",
+        [
+            MetricUnit.UNITLESS,
+            MetricUnit.PERCENTAGE,
+            MetricUnit.PROPORTION,
+            MetricUnit.DOLLAR,
+            MetricUnit.MILLISECOND,
+            MetricUnit.SECOND,
+            MetricUnit.MINUTE,
+            MetricUnit.HOUR,
+            MetricUnit.DAY,
+            MetricUnit.WEEK,
+            MetricUnit.MONTH,
+            MetricUnit.YEAR,
+            MetricUnit.BYTE,
+        ],
+    )
+    def test_round_trip_legacy_to_structured_to_legacy(
+        self,
+        legacy: MetricUnit,
+    ) -> None:
+        structured = legacy_unit_to_structured(legacy)
+        assert structured is not None
+        assert structured_to_legacy_unit(structured) == legacy

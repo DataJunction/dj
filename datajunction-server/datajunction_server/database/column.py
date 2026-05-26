@@ -3,7 +3,6 @@
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
 from sqlalchemy import BigInteger, ForeignKey, Index, Integer, String
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from datajunction_server.database.attributetype import ColumnAttribute
@@ -11,6 +10,7 @@ from datajunction_server.database.base import Base
 from datajunction_server.models.attribute import ColumnAttributes
 from datajunction_server.models.base import labelize
 from datajunction_server.models.column import ColumnTypeDecorator
+from datajunction_server.models.unit import Unit, UnitTypeDecorator
 from datajunction_server.sql.parsing.types import ColumnType
 
 if TYPE_CHECKING:
@@ -46,9 +46,13 @@ class Column(Base):  # type: ignore
     type: Mapped[Optional[ColumnType]] = mapped_column(ColumnTypeDecorator)
     description: Mapped[Optional[str]] = mapped_column()
 
-    # Structured unit metadata. JSONB to accommodate atomic and compound shapes.
-    # Validated at the model layer via datajunction_server.models.unit.Unit.
-    unit: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    # Structured unit metadata. The TypeDecorator validates JSONB into a
+    # typed `Unit` (AtomicUnit | CompoundUnit) on read and canonicalizes
+    # Unit-or-dict input back to JSONB on write.
+    unit: Mapped[Optional[Unit]] = mapped_column(
+        UnitTypeDecorator,
+        nullable=True,
+    )
 
     dimension_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("node.id", ondelete="SET NULL", name="fk_column_dimension_id_node"),

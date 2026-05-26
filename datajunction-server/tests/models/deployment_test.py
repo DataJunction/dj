@@ -73,6 +73,79 @@ def test_metric_spec():
     assert not metric_spec.__eq__(other_metric_spec)
 
 
+def test_metric_spec_accepts_legacy_string_unit():
+    """Legacy `unit: dollar` (string) parses into unit_enum, leaves unit_structured None."""
+    spec = MetricSpec(name="m", query="SELECT 1", unit="dollar")
+    assert spec.unit_enum == MetricUnit.DOLLAR
+    assert spec.unit_structured is None
+    assert spec.unit == "dollar"
+
+
+def test_metric_spec_accepts_metric_unit_enum_directly():
+    spec = MetricSpec(name="m", query="SELECT 1", unit=MetricUnit.SECOND)
+    assert spec.unit_enum == MetricUnit.SECOND
+    assert spec.unit_structured is None
+    assert spec.unit == "second"
+
+
+def test_metric_spec_accepts_structured_unit_dict():
+    """Structured `unit: {kind: ..., code: ...}` parses into unit_structured."""
+    from datajunction_server.models.unit import AtomicUnit, UnitKind
+
+    spec = MetricSpec(
+        name="m",
+        query="SELECT 1",
+        unit={"kind": "currency", "code": "USD"},
+    )
+    assert spec.unit_enum is None
+    assert isinstance(spec.unit_structured, AtomicUnit)
+    assert spec.unit_structured.kind == UnitKind.CURRENCY
+    assert spec.unit_structured.code == "USD"
+    assert spec.unit == {"kind": "currency", "code": "USD"}
+
+
+def test_metric_spec_accepts_compound_unit_dict():
+    """Compound units round-trip through MetricSpec."""
+    from datajunction_server.models.unit import CompoundUnit
+
+    spec = MetricSpec(
+        name="m",
+        query="SELECT 1",
+        unit={
+            "numerator": {"kind": "count", "code": "clicks"},
+            "denominator": {"kind": "count", "code": "impressions"},
+        },
+    )
+    assert isinstance(spec.unit_structured, CompoundUnit)
+    assert spec.unit_structured.numerator.code == "clicks"
+    assert spec.unit_structured.denominator.code == "impressions"
+    assert spec.unit == {
+        "numerator": {"kind": "count", "code": "clicks"},
+        "denominator": {"kind": "count", "code": "impressions"},
+    }
+
+
+def test_metric_spec_rejects_unknown_legacy_string():
+    from datajunction_server.errors import DJInvalidInputException
+
+    with pytest.raises(DJInvalidInputException, match="Invalid metric unit"):
+        MetricSpec(name="m", query="SELECT 1", unit="dollars")
+
+
+def test_metric_spec_rejects_non_string_non_dict_unit():
+    from datajunction_server.errors import DJInvalidInputException
+
+    with pytest.raises(DJInvalidInputException, match="must be a string or"):
+        MetricSpec(name="m", query="SELECT 1", unit=42)
+
+
+def test_metric_spec_no_unit_set():
+    spec = MetricSpec(name="m", query="SELECT 1")
+    assert spec.unit_enum is None
+    assert spec.unit_structured is None
+    assert spec.unit is None
+
+
 def test_reference_link_spec():
     link_spec = DimensionReferenceLinkSpec(
         role="test_role",

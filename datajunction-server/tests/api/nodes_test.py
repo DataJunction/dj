@@ -2960,6 +2960,37 @@ class TestNodeCRUD:
         assert data["required_dimensions"] == ["repair_order_id"]
 
     @pytest.mark.asyncio
+    async def test_metric_unknown_unit_does_not_set_column_unit(
+        self,
+        client_with_roads: AsyncClient,
+    ):
+        """
+        MetricUnit.UNKNOWN maps to None in legacy_unit_to_structured, so setting
+        unit: "unknown" via metric_metadata must not write anything to column.unit.
+        Covers the structured-is-None branch in internal/nodes.py (line 604).
+        """
+        response = await client_with_roads.post(
+            "/nodes/metric/",
+            json={
+                "name": "default.test_unknown_unit_metric",
+                "description": "Test metric with unknown unit",
+                "query": "SELECT count(repair_order_id) FROM default.repair_orders",
+                "mode": "published",
+                "metric_metadata": {
+                    "unit": "unknown",
+                },
+            },
+        )
+        assert response.status_code in (200, 201)
+        node = response.json()
+        col = next(
+            c
+            for c in node["columns"]
+            if c["name"] == "default_DOT_test_unknown_unit_metric"
+        )
+        assert col.get("unit") is None
+
+    @pytest.mark.asyncio
     async def test_create_dimension_node_fails(
         self,
         catalog: Catalog,

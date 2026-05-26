@@ -44,7 +44,7 @@ from datajunction_server.models.deployment import (
     DimensionJoinLinkSpec,
     DimensionReferenceLinkSpec,
 )
-from datajunction_server.models.node import NodeStatus
+from datajunction_server.models.node import MetricUnit, NodeStatus
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.database.tag import Tag
@@ -2673,3 +2673,234 @@ async def test_auto_register_sources_uses_sqlalchemy_for_system_catalog(
     assert {"id", "name"} <= col_names
     # The query service must NOT have been called.
     mock_query_client.get_columns_for_tables_batch.assert_not_called()
+
+
+# -------------------------------------------------------------------------
+# Legacy/structured unit bridging in the orchestrator metric-deploy path.
+# -------------------------------------------------------------------------
+
+
+class TestReconcileMetricUnit:
+    """
+    Tests for `_resolve_metric_unit` and `_derive_legacy_unit_for_storage`.
+    These bridge the legacy `MetricSpec.unit_enum` (from YAML `unit: dollar`
+    or API `metric_metadata.unit`) and the structured `column.unit` so users
+    on either input shape end up with consistent storage.
+
+    Called as unbound methods with a MagicMock for self — the helpers don't
+    touch self state, they just operate on the spec and column.
+    """
+
+    @staticmethod
+    def _make_spec(unit: MetricUnit | dict | None = None) -> MetricSpec:
+        kwargs: dict = {
+            "name": "m",
+            "namespace": "default",
+            "query": "SELECT 1",
+        }
+        if unit is not None:
+            kwargs["unit"] = unit
+        return MetricSpec(**kwargs)
+
+    @staticmethod
+    def _resolve(spec: MetricSpec, column_unit: dict | None) -> dict | None:
+        """Resolve and convert to canonical dict so tests can assert against
+        plain dict literals. The resolver itself returns Unit; we coerce to
+        dict here for assertion readability."""
+        from datajunction_server.models.unit import unit_to_dict
+
+        return unit_to_dict(
+            DeploymentOrchestrator._resolve_metric_unit(
+                MagicMock(),
+                spec,
+                column_unit,
+            ),
+        )
+
+    def test_legacy_only_resolves_to_translated_dict(self):
+        spec = self._make_spec(unit=MetricUnit.DOLLAR)
+        assert self._resolve(spec, None) == {"kind": "currency", "code": "USD"}
+
+    def test_structured_only_resolves_to_column_unit(self):
+        spec = self._make_spec()  # no legacy unit
+        assert self._resolve(spec, {"kind": "percentage"}) == {"kind": "percentage"}
+
+    def test_both_set_structured_wins_and_warns(self, caplog):
+        import logging
+
+        spec = self._make_spec(unit=MetricUnit.DOLLAR)
+        with caplog.at_level(
+            logging.WARNING,
+            logger="datajunction_server.internal.deployment.orchestrator",
+        ):
+            resolved = self._resolve(spec, {"kind": "currency", "code": "EUR"})
+        assert resolved == {"kind": "currency", "code": "EUR"}
+        assert any(
+            "sets both metric_metadata.unit" in rec.message for rec in caplog.records
+        )
+
+    def test_neither_set_resolves_to_none(self):
+        spec = self._make_spec()
+        assert self._resolve(spec, None) is None
+
+    def test_unknown_legacy_resolves_to_none(self):
+        # MetricUnit.UNKNOWN translates to None — should not produce any unit.
+        spec = self._make_spec(unit=MetricUnit.UNKNOWN)
+        assert self._resolve(spec, None) is None
+
+    def test_unitless_legacy_preserves_distinction(self):
+        # UNITLESS → {kind: unitless} (explicitly no unit), not None.
+        spec = self._make_spec(unit=MetricUnit.UNITLESS)
+        assert self._resolve(spec, None) == {"kind": "unitless"}
+
+    def test_metric_level_structured_overrides_legacy(self):
+        spec = self._make_spec(unit={"kind": "currency", "code": "EUR"})
+        spec.unit_enum = MetricUnit.DOLLAR  # ignored when structured is set
+        assert self._resolve(spec, None) == {"kind": "currency", "code": "EUR"}
+
+    def test_metric_level_structured_overrides_column_unit_with_warning(self, caplog):
+        import logging
+
+        spec = self._make_spec(unit={"kind": "currency", "code": "EUR"})
+        with caplog.at_level(
+            logging.WARNING,
+            logger="datajunction_server.internal.deployment.orchestrator",
+        ):
+            resolved = self._resolve(spec, {"kind": "percentage"})
+        assert resolved == {"kind": "currency", "code": "EUR"}
+        assert any("metric-level value wins" in rec.message for rec in caplog.records)
+
+    def test_metric_level_structured_matching_column_unit_no_warning(self, caplog):
+        # When metric-level structured equals columns[].unit, no warning fires.
+        import logging
+
+        same = {"kind": "currency", "code": "USD"}
+        spec = self._make_spec(unit=dict(same))
+        with caplog.at_level(
+            logging.WARNING,
+            logger="datajunction_server.internal.deployment.orchestrator",
+        ):
+            resolved = self._resolve(spec, dict(same))
+        assert resolved == same
+        assert not any(
+            "metric-level value wins" in rec.message for rec in caplog.records
+        )
+
+    def test_metric_level_structured_warns_when_combined_with_legacy(self, caplog):
+        import logging
+
+        spec = self._make_spec(unit=MetricUnit.DOLLAR)
+        # Override the unit_structured field directly to simulate "both
+        # fields set" — production code wouldn't normally set both at once,
+        # but the resolver must handle it gracefully.
+        from datajunction_server.models.unit import AtomicUnit, UnitKind
+
+        spec.unit_structured = AtomicUnit(kind=UnitKind.CURRENCY, code="EUR")
+        with caplog.at_level(
+            logging.WARNING,
+            logger="datajunction_server.internal.deployment.orchestrator",
+        ):
+            resolved = self._resolve(spec, None)
+        assert resolved == {"kind": "currency", "code": "EUR"}
+        assert any(
+            "structured value wins" in rec.message and "legacy" in rec.message
+            for rec in caplog.records
+        )
+
+
+class TestDeriveLegacyUnitForStorage:
+    """
+    Tests for `_derive_legacy_unit_for_storage`, the reverse half of the
+    bridge: reads the canonical `column.unit` and returns the value to
+    dual-write to `metricmetadata.unit`. Returns None when the structured
+    value has no legacy equivalent.
+    """
+
+    @staticmethod
+    def _spec(unit: MetricUnit | None = None) -> MetricSpec:
+        kwargs: dict = {"name": "m", "namespace": "default", "query": "SELECT 1"}
+        if unit is not None:
+            kwargs["unit"] = unit
+        return MetricSpec(**kwargs)
+
+    @staticmethod
+    def _col(unit: dict | None) -> Column:
+        return Column(name="value", type=None, order=0, unit=unit)
+
+    def test_structured_with_legacy_equivalent_returns_enum(self):
+        col = self._col({"kind": "currency", "code": "USD"})
+        result = DeploymentOrchestrator._derive_legacy_unit_for_storage(
+            MagicMock(),
+            self._spec(),
+            col,
+        )
+        assert result == MetricUnit.DOLLAR
+
+    def test_non_usd_currency_returns_none(self):
+        col = self._col({"kind": "currency", "code": "EUR"})
+        result = DeploymentOrchestrator._derive_legacy_unit_for_storage(
+            MagicMock(),
+            self._spec(),
+            col,
+        )
+        assert result is None
+
+    def test_compound_returns_none(self):
+        col = self._col(
+            {
+                "numerator": {"kind": "count"},
+                "denominator": {"kind": "time", "code": "s"},
+            },
+        )
+        result = DeploymentOrchestrator._derive_legacy_unit_for_storage(
+            MagicMock(),
+            self._spec(),
+            col,
+        )
+        assert result is None
+
+    def test_data_size_returns_none(self):
+        col = self._col({"kind": "data_size", "code": "MB"})
+        result = DeploymentOrchestrator._derive_legacy_unit_for_storage(
+            MagicMock(),
+            self._spec(),
+            col,
+        )
+        assert result is None
+
+    def test_count_with_code_returns_none(self):
+        col = self._col({"kind": "count", "code": "clicks"})
+        result = DeploymentOrchestrator._derive_legacy_unit_for_storage(
+            MagicMock(),
+            self._spec(),
+            col,
+        )
+        assert result is None
+
+    def test_no_structured_falls_back_to_spec_legacy(self):
+        # When column.unit is None, fall back to whatever the legacy spec
+        # field held (covers the rare case where _reconcile didn't run).
+        col = self._col(None)
+        result = DeploymentOrchestrator._derive_legacy_unit_for_storage(
+            MagicMock(),
+            self._spec(unit=MetricUnit.HOUR),
+            col,
+        )
+        assert result == MetricUnit.HOUR
+
+    def test_no_structured_no_legacy_returns_none(self):
+        col = self._col(None)
+        result = DeploymentOrchestrator._derive_legacy_unit_for_storage(
+            MagicMock(),
+            self._spec(),
+            col,
+        )
+        assert result is None
+
+    def test_no_column_returns_spec_legacy(self):
+        result = DeploymentOrchestrator._derive_legacy_unit_for_storage(
+            MagicMock(),
+            self._spec(unit=MetricUnit.SECOND),
+            None,
+        )
+        assert result == MetricUnit.SECOND

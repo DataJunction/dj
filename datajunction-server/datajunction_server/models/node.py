@@ -32,6 +32,11 @@ from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import MaterializationConfigOutput
 from datajunction_server.models.node_type import NodeNameOutput, NodeType
 from datajunction_server.models.partition import PartitionOutput
+from datajunction_server.models.unit import (
+    AtomicUnit,
+    CompoundUnit,
+    unit_to_dict,
+)
 from datajunction_server.models.tag import TagMinimum, TagOutput
 from datajunction_server.models.user import UserNameOnly
 from datajunction_server.sql.parsing.types import ColumnType
@@ -792,6 +797,15 @@ class ColumnOutput(BaseModel):
     @field_validator("type", mode="before")
     def extract_type(cls, raw):
         return str(raw)
+
+    @field_validator("unit", mode="before")
+    def _canonicalize_unit(
+        cls,
+        raw: "AtomicUnit | CompoundUnit | dict | None",
+    ) -> dict | None:
+        """Accept either a typed Unit (from the SQLAlchemy decorator) or a
+        raw dict; emit the canonical JSON-friendly dict shape on output."""
+        return unit_to_dict(raw)
 
 
 class SourceColumnOutput(BaseModel):
