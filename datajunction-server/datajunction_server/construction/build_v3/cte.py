@@ -1436,9 +1436,21 @@ def _build_local_dim_aliases(node: "Node") -> dict[str, str]:
     parent's column name (which it doesn't have).
     """
     result: dict[str, str] = {}
-    if not node.current or not node.current.dimension_links:
+    if not node.current:  # pragma: no cover
         return result
     from datajunction_server.construction.build_v3.utils import get_short_name
+
+    # Inside a dim's own CTE, ``<this_dim>.<col>`` must resolve to the
+    # dim's own column — not to whatever the parent's link mapped it
+    # to.  Without this, a filter on the dim's PK gets resolved via
+    # the parent's FK column name, which can collide with a same-named
+    # but differently-typed column on the dim itself.
+    if node.type == NodeType.DIMENSION and node.current.columns:
+        for col in node.current.columns:
+            result[f"{node.name}{SEPARATOR}{col.name}"] = col.name
+
+    if not node.current.dimension_links:
+        return result
 
     for link in node.current.dimension_links:
         # ``foreign_keys_reversed`` maps dim PK columns → node FK columns.
