@@ -9999,7 +9999,9 @@ class TestDimCteFilterOnNonFkColumn:
                 "name": "v3.src_nfk_events",
                 "columns": [
                     {"name": "account_id", "type": "int"},
-                    {"name": "is_fraud", "type": "string"},
+                    # Mirrors Netflix prod: parent's FK column is an
+                    # int matching the dim's is_fraud_key PK.
+                    {"name": "is_fraud", "type": "int"},
                     {"name": "amount", "type": "double"},
                 ],
                 "mode": "published",
@@ -10014,18 +10016,14 @@ class TestDimCteFilterOnNonFkColumn:
             "/nodes/transform/",
             json={
                 "name": "v3.nfk_events_xform",
-                "query": (
-                    "SELECT account_id, is_fraud, amount "
-                    "FROM v3.src_nfk_events"
-                ),
+                "query": ("SELECT account_id, is_fraud, amount FROM v3.src_nfk_events"),
                 "mode": "published",
                 "primary_key": ["account_id"],
             },
         )
         assert resp.status_code == 201, resp.json()
         # Dim with TWO columns: is_fraud_key (int) and is_fraud (string),
-        # mirroring the common.dimensions.xp.is_fraud shape.  The dim's
-        # PK is is_fraud_key but the join_on uses is_fraud (label match).
+        # mirroring the common.dimensions.xp.is_fraud shape.
         resp = await client.post(
             "/nodes/dimension/",
             json={
@@ -10040,17 +10038,24 @@ class TestDimCteFilterOnNonFkColumn:
             },
         )
         assert resp.status_code == 201, resp.json()
-        # Link the transform's ``is_fraud`` column to the dim's ``is_fraud``
-        # (label-match link).  Parent's FK column on the transform is
-        # named ``is_fraud`` — the same name as one of the dim's columns.
+        # Link the transform's ``is_fraud`` column directly to the dim's
+        # ``is_fraud_key`` PK column.  This is the name-mismatch link
+        # shape from Netflix prod: parent's local column is named
+        # ``is_fraud`` (treated as the FK), but the link points at the
+        # dim's ``is_fraud_key`` PK.  The link's
+        # ``foreign_keys_reversed`` map then contains
+        # ``{dim.is_fraud_key → parent.is_fraud}``.  When a filter on
+        # ``dim.is_fraud_key`` is resolved, ``_resolve_filter_only_dim``
+        # picks up the parent's local FK column name (``is_fraud``),
+        # which collides with the dim's own ``is_fraud`` label column
+        # when the filter gets pushed inside the dim CTE.
         resp = await client.post(
             "/nodes/v3.nfk_events_xform/link/",
             json={
                 "dimension_node": "v3.nfk_is_fraud_dim",
-                "join_type": "inner",
+                "join_type": "left",
                 "join_on": (
-                    "v3.nfk_events_xform.is_fraud = "
-                    "v3.nfk_is_fraud_dim.is_fraud"
+                    "v3.nfk_events_xform.is_fraud = v3.nfk_is_fraud_dim.is_fraud_key"
                 ),
             },
         )
@@ -10081,12 +10086,33 @@ class TestDimCteFilterOnNonFkColumn:
         assert response.status_code == 200, response.json()
         sql = get_first_grain_group(response.json())["sql"]
 
-        # The dim CTE must filter on its OWN ``is_fraud_key`` column.
-        # The pre-fix bug rewrote this to ``WHERE is_fraud IN (0)``,
-        # comparing a string column against an integer literal — silently
-        # empty result.
+        # Isolate the dim CTE block and verify the filter inside it
+        # references the dim's own ``is_fraud_key`` (int PK), not the
+        # parent's FK column name (``is_fraud``).  Pre-fix, the parent-
+        # derived alias map mapped the filter to ``is_fraud`` and the
+        # rewrite inside the dim CTE compared the dim's STRING label
+        # column against an integer literal — silently returning empty.
         import re
-        assert "is_fraud_key IN (0)" in sql, sql
-        # No bare ``is_fraud`` (string column) compared against an int
-        # literal anywhere.
-        assert not re.search(r"\bis_fraud\s+IN\s+\(0\)", sql), sql
+
+        # Find the dim CTE body via balanced paren matching (the inner
+        # ``FROM (SELECT ...)`` subquery confuses naive regex
+        # matching).
+        start_marker = "v3_nfk_is_fraud_dim AS ("
+        start_idx = sql.find(start_marker)
+        assert start_idx >= 0, sql
+        depth = 1
+        i = start_idx + len(start_marker)
+        while i < len(sql) and depth > 0:
+            if sql[i] == "(":
+                depth += 1
+            elif sql[i] == ")":
+                depth -= 1
+            i += 1
+        dim_cte_body = sql[start_idx:i]
+        # The dim CTE's filter must be on ``is_fraud_key`` (the int
+        # PK), not on bare ``is_fraud`` (the dim's string label).
+        assert "is_fraud_key IN (0)" in dim_cte_body, dim_cte_body
+        assert not re.search(
+            r"\bis_fraud\s+IN\s+\(0\)",
+            dim_cte_body,
+        ), dim_cte_body

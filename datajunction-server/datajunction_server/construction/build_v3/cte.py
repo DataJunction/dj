@@ -1440,17 +1440,19 @@ def _build_local_dim_aliases(node: "Node") -> dict[str, str]:
         return result
     from datajunction_server.construction.build_v3.utils import get_short_name
 
-    # When the CTE being processed IS itself a dimension node, any filter
-    # ref of the form ``<this_dim>.<col>`` resolves to the dim's own
-    # column.  Without this, the parent-derived ``filter_column_aliases``
-    # (built from the *parent's* outgoing dim_link, which maps every
-    # column of this dim back to the parent's single FK column) would
-    # mis-rewrite a filter targeting a non-FK column of this dim — e.g.
-    # ``common.dimensions.xp.is_fraud.is_fraud_key`` would resolve to
-    # the parent's FK ``is_fraud`` column, and the pushdown inside the
-    # dim's CTE would filter ``WHERE is_fraud IN (0)`` (string column,
-    # integer literal — silently wrong) instead of ``WHERE is_fraud_key
-    # IN (0)``.
+    # When the CTE being processed IS itself a dimension node, filter
+    # refs of the form ``<this_dim>.<col>`` must resolve to the dim's
+    # OWN column name.  The parent-derived ``filter_column_aliases``
+    # would otherwise mis-rewrite filters that target the dim's PK
+    # column when the parent's link points at it: the FK mapping is
+    # ``{dim.pk_col → parent.fk_col}``, so a filter on ``dim.pk_col``
+    # gets resolved to ``parent.fk_col``.  When the parent's FK column
+    # happens to share a name with another column on the dim (e.g.
+    # parent ``is_fraud`` (int FK) shares a name with the dim's
+    # ``is_fraud`` (string label), where the actual link is
+    # ``parent.is_fraud = dim.is_fraud_key``), the pushed filter inside
+    # the dim CTE compares against the wrong column (the dim's string
+    # label vs. an int literal) and silently returns the wrong rows.
     if node.type == NodeType.DIMENSION and node.current.columns:
         for col in node.current.columns:
             result[f"{node.name}{SEPARATOR}{col.name}"] = col.name
