@@ -1157,45 +1157,73 @@ class DeploymentOrchestrator:
                     len(auto_registered_sources),
                 )
 
-                # Check which auto-registered sources actually need to be created
+                # Check which auto-registered sources actually need to be
+                # created. `include_inactive=True` so soft-deleted matches
+                # surface here — the (name, namespace) unique constraint
+                # spans them, and INSERT-ing on top would crash. Reactivate
+                # any deactivated matches and route them through the deploy
+                # update path so the fresh column schema gets applied.
                 auto_source_names = [
                     src.rendered_name for src in auto_registered_sources
                 ]
                 existing_auto_sources = await Node.get_by_names(
                     self.session,
                     auto_source_names,
+                    include_inactive=True,
                 )
                 existing_auto_source_names = {
                     node.name for node in existing_auto_sources
                 }
+                spec_by_name = {
+                    src.rendered_name: src for src in auto_registered_sources
+                }
 
-                # Only include sources that don't already exist
+                # Reactivate any soft-deleted matches. We hold the freshly
+                # introspected columns in `spec_by_name`, so adding the spec
+                # to `to_deploy` lets the deploy flow create a new revision
+                # against the existing node row (no INSERT into `node` —
+                # only `noderevision` — so the unique key on `node` is safe).
+                # `spec_by_name` is keyed by the same names that produced
+                # `auto_source_names`, so every existing_node.name is
+                # guaranteed to be in it; no defensive `in` check needed.
+                reactivated_specs: list[SourceSpec] = []
+                for existing_node in existing_auto_sources:
+                    if existing_node.deactivated_at is not None:
+                        logger.info(
+                            "Restoring previously-deactivated auto-registered source %s",
+                            existing_node.name,
+                        )
+                        existing_node.deactivated_at = None
+                        reactivated_specs.append(spec_by_name[existing_node.name])
+
+                # Only include sources that don't already exist as nodes
                 sources_to_create = [
                     src
                     for src in auto_registered_sources
                     if src.rendered_name not in existing_auto_source_names
                 ]
 
-                if sources_to_create:
+                new_specs = sources_to_create + reactivated_specs
+                if new_specs:
                     logger.info(
-                        "Adding %d new auto-registered sources to deployment spec (skipping %d that already exist)",
+                        "Adding %d auto-registered source(s) to deployment "
+                        "spec (%d new, %d reactivated); skipping %d that "
+                        "are already active",
+                        len(new_specs),
                         len(sources_to_create),
-                        len(auto_registered_sources) - len(sources_to_create),
+                        len(reactivated_specs),
+                        len(auto_registered_sources) - len(new_specs),
                     )
-                    # Prepend auto-registered sources so they're created first
-                    self.deployment_spec.nodes = (
-                        sources_to_create + self.deployment_spec.nodes
-                    )
-
-                    # Rebuild the deployment plan with the new sources included
+                    # Prepend so sources are created/refreshed first.
+                    self.deployment_spec.nodes = new_specs + self.deployment_spec.nodes
                     logger.info(
                         "Rebuilding deployment plan with auto-registered sources",
                     )
-                    to_deploy = sources_to_create + to_deploy
-                else:
-                    sources_to_create = []
+                    to_deploy = new_specs + to_deploy
 
-                # Add existing auto-registered sources to existing_specs so they can be found during link validation
+                # Add existing auto-registered sources to existing_specs so
+                # link validation finds them and the deploy plan routes
+                # them through update instead of create.
                 for existing_node in existing_auto_sources:
                     if existing_node.name not in existing_specs:  # pragma: no branch
                         existing_specs[

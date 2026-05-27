@@ -718,7 +718,7 @@ class Node(Base):
             selectinload(Node.tags),
         ]
         statement = statement.options(*options)
-        if not include_inactive:  # pragma: no cover
+        if not include_inactive:
             statement = statement.where(is_(Node.deactivated_at, None))
         result = await session.execute(statement)
         nodes = result.unique().scalars().all()

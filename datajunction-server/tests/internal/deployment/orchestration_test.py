@@ -1945,6 +1945,124 @@ async def test_create_deployment_plan_all_auto_sources_already_exist(
 
 
 @pytest.mark.asyncio
+async def test_create_deployment_plan_reactivates_deactivated_auto_source(
+    session,
+    current_user: User,
+):
+    """A previously-deactivated auto-registered source must be reactivated
+    instead of crashing on the (name, namespace) unique constraint.
+
+    Before this fix, the existence check filtered out soft-deleted nodes,
+    so the deploy tried to INSERT a row that already existed and Postgres
+    rejected with a UniqueViolation.
+    """
+    from datetime import datetime, timezone
+
+    session.add(NodeNamespace(namespace="test"))
+    catalog = Catalog(name="ext_cat2")
+    session.add(catalog)
+    await session.commit()
+
+    # Existing soft-deleted source node
+    deactivated_source = Node(
+        name="ext_cat2.s.t",
+        type="source",
+        current_version="v1.0",
+        created_by_id=current_user.id,
+        deactivated_at=datetime.now(timezone.utc),
+    )
+    session.add(deactivated_source)
+    deactivated_rev = NodeRevision(
+        name="ext_cat2.s.t",
+        type="source",
+        node=deactivated_source,
+        version="v1.0",
+        created_by_id=current_user.id,
+        schema_="s",
+        table="t",
+        catalog_id=catalog.id,
+    )
+    session.add(deactivated_rev)
+    await session.commit()
+
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        nodes=[TransformSpec(name="my_transform", query="SELECT 1")],
+        auto_register_sources=True,
+    )
+    context = MagicMock(autospec=DeploymentContext)
+    context.current_user = current_user
+    orchestrator = DeploymentOrchestrator(
+        deployment_id="test-deployment-reactivate",
+        deployment_spec=deployment_spec,
+        session=session,
+        context=context,
+    )
+
+    auto_source = SourceSpec(
+        name="ext_cat2.s.t",
+        catalog="ext_cat2",
+        schema="s",
+        table="t",
+        columns=[],
+    )
+    auto_source.namespace = None  # rendered_name matches the DB node
+
+    with patch.object(
+        orchestrator,
+        "check_external_deps",
+        side_effect=[(set(), [auto_source], []), (set(), [], [])],
+    ):
+        plan, _ = await orchestrator._create_deployment_plan()
+
+    # The soft-deleted node was found, reactivated, and added to
+    # existing_specs so downstream link/dep validation finds it.
+    assert "ext_cat2.s.t" in plan.existing_specs
+    await session.refresh(deactivated_source)
+    assert deactivated_source.deactivated_at is None, (
+        "Soft-deleted auto-registered source should be reactivated on deploy"
+    )
+
+
+@pytest.mark.asyncio
+async def test_node_get_by_names_include_inactive(
+    session,
+    current_user: User,
+):
+    """Node.get_by_names returns deactivated nodes only when include_inactive=True.
+    Guards the (previously uncovered) inactive filter so a future regression
+    in this contract would surface immediately."""
+    from datetime import datetime, timezone
+
+    session.add(NodeNamespace(namespace="test_inactive"))
+    catalog = Catalog(name="inactive_test_cat")
+    session.add(catalog)
+    await session.commit()
+
+    node = Node(
+        name="test_inactive.deactivated_node",
+        type="source",
+        current_version="v1.0",
+        created_by_id=current_user.id,
+        deactivated_at=datetime.now(timezone.utc),
+    )
+    session.add(node)
+    await session.commit()
+
+    # Default: deactivated node is filtered out
+    found_active = await Node.get_by_names(session, ["test_inactive.deactivated_node"])
+    assert found_active == []
+
+    # Explicit include_inactive=True: deactivated node is returned
+    found_all = await Node.get_by_names(
+        session,
+        ["test_inactive.deactivated_node"],
+        include_inactive=True,
+    )
+    assert [n.name for n in found_all] == ["test_inactive.deactivated_node"]
+
+
+@pytest.mark.asyncio
 async def test_validate_single_cube_with_invalid_metric(
     orchestrator,
 ):
