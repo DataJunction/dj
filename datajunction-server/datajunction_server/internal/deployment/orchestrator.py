@@ -1183,6 +1183,9 @@ class DeploymentOrchestrator:
                 # to `to_deploy` lets the deploy flow create a new revision
                 # against the existing node row (no INSERT into `node` —
                 # only `noderevision` — so the unique key on `node` is safe).
+                # `spec_by_name` is keyed by the same names that produced
+                # `auto_source_names`, so every existing_node.name is
+                # guaranteed to be in it; no defensive `in` check needed.
                 reactivated_specs: list[SourceSpec] = []
                 for existing_node in existing_auto_sources:
                     if existing_node.deactivated_at is not None:
@@ -1191,8 +1194,7 @@ class DeploymentOrchestrator:
                             existing_node.name,
                         )
                         existing_node.deactivated_at = None
-                        if existing_node.name in spec_by_name:
-                            reactivated_specs.append(spec_by_name[existing_node.name])
+                        reactivated_specs.append(spec_by_name[existing_node.name])
 
                 # Only include sources that don't already exist as nodes
                 sources_to_create = [
