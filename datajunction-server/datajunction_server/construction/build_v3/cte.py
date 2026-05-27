@@ -1436,7 +1436,7 @@ def _build_local_dim_aliases(node: "Node") -> dict[str, str]:
     parent's column name (which it doesn't have).
     """
     result: dict[str, str] = {}
-    if not node.current:
+    if not node.current:  # pragma: no cover
         return result
     from datajunction_server.construction.build_v3.utils import get_short_name
 
