@@ -143,21 +143,34 @@ class GraphQLErrorReporter(SchemaExtension):
             operation = str(path[0]) if path else "unknown"
             original = getattr(error, "original_error", None)
             error_type = type(original).__name__ if original else "GraphQLError"
-            logger.error(
-                "[GQL] status=error operation=%s operation_name=%s error_type=%s path=%s message=%s",
-                operation,
-                operation_name,
-                error_type,
-                path,
-                error.message,
-                exc_info=original,
-            )
+            # Parse/validation errors fail before execution: no path, no
+            # underlying Python exception. They are client mistakes (typo'd
+            # field, malformed query), not server faults — log at WARNING and
+            # tag them so Radar can filter them out of error budgets.
+            is_client_error = original is None and path is None
+            if is_client_error:
+                logger.warning(
+                    "[GQL] status=client_error operation_name=%s message=%s",
+                    operation_name,
+                    error.message,
+                )
+            else:
+                logger.error(
+                    "[GQL] status=error operation=%s operation_name=%s error_type=%s path=%s message=%s",
+                    operation,
+                    operation_name,
+                    error_type,
+                    path,
+                    error.message,
+                    exc_info=original,
+                )
             get_metrics_provider().counter(
                 "dj.graphql.errors",
                 tags={
                     "operation": operation,
                     "operation_name": operation_name,
                     "error_type": error_type,
+                    "severity": "client_error" if is_client_error else "server_error",
                 },
             )
 
