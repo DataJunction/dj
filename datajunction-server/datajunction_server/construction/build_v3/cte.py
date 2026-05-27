@@ -1440,19 +1440,11 @@ def _build_local_dim_aliases(node: "Node") -> dict[str, str]:
         return result
     from datajunction_server.construction.build_v3.utils import get_short_name
 
-    # When the CTE being processed IS itself a dimension node, filter
-    # refs of the form ``<this_dim>.<col>`` must resolve to the dim's
-    # OWN column name.  The parent-derived ``filter_column_aliases``
-    # would otherwise mis-rewrite filters that target the dim's PK
-    # column when the parent's link points at it: the FK mapping is
-    # ``{dim.pk_col → parent.fk_col}``, so a filter on ``dim.pk_col``
-    # gets resolved to ``parent.fk_col``.  When the parent's FK column
-    # happens to share a name with another column on the dim (e.g.
-    # parent ``is_fraud`` (int FK) shares a name with the dim's
-    # ``is_fraud`` (string label), where the actual link is
-    # ``parent.is_fraud = dim.is_fraud_key``), the pushed filter inside
-    # the dim CTE compares against the wrong column (the dim's string
-    # label vs. an int literal) and silently returns the wrong rows.
+    # Inside a dim's own CTE, ``<this_dim>.<col>`` must resolve to the
+    # dim's own column — not to whatever the parent's link mapped it
+    # to.  Without this, a filter on the dim's PK gets resolved via
+    # the parent's FK column name, which can collide with a same-named
+    # but differently-typed column on the dim itself.
     if node.type == NodeType.DIMENSION and node.current.columns:
         for col in node.current.columns:
             result[f"{node.name}{SEPARATOR}{col.name}"] = col.name

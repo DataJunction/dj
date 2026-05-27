@@ -9972,18 +9972,11 @@ class TestCountDistinctPlainColumnCoalesceJoin:
 
 
 class TestDimCteFilterOnNonFkColumn:
-    """Regression: a filter on a dim's non-FK column (e.g. the integer
-    key column of a values-table dim, where the parent links via the
-    string/boolean label column) must resolve to the dim's own column
-    inside the dim CTE — not to the parent's FK column name.
-
-    Before the fix, ``filter_column_aliases`` mapped EVERY column of
-    the dim back to the parent's FK column (because the parent's
-    ``foreign_key_column_names`` doesn't distinguish per-target-column).
-    When the filter got pushed into the dim CTE itself, it was
-    rewritten using that parent-FK name, producing nonsense like
-    ``WHERE is_fraud IN (0)`` (string column, integer literal) instead
-    of ``WHERE is_fraud_key IN (0)``.
+    """Regression: when the parent's FK column shares a name with a
+    non-PK column on the dim, a filter on the dim's PK column must
+    resolve to the dim's own column inside the dim CTE — not to the
+    parent's FK column name, which would silently collide with the
+    dim's same-named column and filter against the wrong data.
     """
 
     @pytest.mark.asyncio
@@ -9999,8 +9992,7 @@ class TestDimCteFilterOnNonFkColumn:
                 "name": "v3.src_nfk_events",
                 "columns": [
                     {"name": "account_id", "type": "int"},
-                    # Mirrors Netflix prod: parent's FK column is an
-                    # int matching the dim's is_fraud_key PK.
+                    # Int FK matching the dim's is_fraud_key PK.
                     {"name": "is_fraud", "type": "int"},
                     {"name": "amount", "type": "double"},
                 ],
@@ -10022,8 +10014,8 @@ class TestDimCteFilterOnNonFkColumn:
             },
         )
         assert resp.status_code == 201, resp.json()
-        # Dim with TWO columns: is_fraud_key (int) and is_fraud (string),
-        # mirroring the common.dimensions.xp.is_fraud shape.
+        # Values-table dim with is_fraud_key (int PK) and is_fraud
+        # (string label) — the shape that creates the name collision.
         resp = await client.post(
             "/nodes/dimension/",
             json={
@@ -10038,17 +10030,9 @@ class TestDimCteFilterOnNonFkColumn:
             },
         )
         assert resp.status_code == 201, resp.json()
-        # Link the transform's ``is_fraud`` column directly to the dim's
-        # ``is_fraud_key`` PK column.  This is the name-mismatch link
-        # shape from Netflix prod: parent's local column is named
-        # ``is_fraud`` (treated as the FK), but the link points at the
-        # dim's ``is_fraud_key`` PK.  The link's
-        # ``foreign_keys_reversed`` map then contains
-        # ``{dim.is_fraud_key → parent.is_fraud}``.  When a filter on
-        # ``dim.is_fraud_key`` is resolved, ``_resolve_filter_only_dim``
-        # picks up the parent's local FK column name (``is_fraud``),
-        # which collides with the dim's own ``is_fraud`` label column
-        # when the filter gets pushed inside the dim CTE.
+        # PK-match link with a name collision: parent's FK column is
+        # ``is_fraud``, but the link points at the dim's ``is_fraud_key``
+        # PK (and the dim ALSO has an ``is_fraud`` string-label column).
         resp = await client.post(
             "/nodes/v3.nfk_events_xform/link/",
             json={
@@ -10086,17 +10070,12 @@ class TestDimCteFilterOnNonFkColumn:
         assert response.status_code == 200, response.json()
         sql = get_first_grain_group(response.json())["sql"]
 
-        # Isolate the dim CTE block and verify the filter inside it
-        # references the dim's own ``is_fraud_key`` (int PK), not the
-        # parent's FK column name (``is_fraud``).  Pre-fix, the parent-
-        # derived alias map mapped the filter to ``is_fraud`` and the
-        # rewrite inside the dim CTE compared the dim's STRING label
-        # column against an integer literal — silently returning empty.
+        # Extract the dim CTE body via balanced-paren matching (the
+        # inner ``FROM (SELECT ...)`` confuses naive regex), then
+        # check the pushed filter targets the dim's PK, not the
+        # same-named string label.
         import re
 
-        # Find the dim CTE body via balanced paren matching (the inner
-        # ``FROM (SELECT ...)`` subquery confuses naive regex
-        # matching).
         start_marker = "v3_nfk_is_fraud_dim AS ("
         start_idx = sql.find(start_marker)
         assert start_idx >= 0, sql
@@ -10109,8 +10088,6 @@ class TestDimCteFilterOnNonFkColumn:
                 depth -= 1
             i += 1
         dim_cte_body = sql[start_idx:i]
-        # The dim CTE's filter must be on ``is_fraud_key`` (the int
-        # PK), not on bare ``is_fraud`` (the dim's string label).
         assert "is_fraud_key IN (0)" in dim_cte_body, dim_cte_body
         assert not re.search(
             r"\bis_fraud\s+IN\s+\(0\)",
