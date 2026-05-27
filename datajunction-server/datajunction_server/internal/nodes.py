@@ -2995,18 +2995,23 @@ async def mark_node_as_missing_parent(
     Returns:
         A tuple of (MissingParent object, list of downstream nodes)
     """
-    # Get or create MissingParent for this node
+    # `missingparent.name` has no unique constraint, so duplicates can
+    # exist. Reuse the first match; orphans get cleaned up later.
     missing_parent_result = await session.execute(
         select(MissingParent).where(MissingParent.name == node_name),
     )
-    missing_parent = missing_parent_result.scalar_one_or_none()
-    if not missing_parent:
+    existing_missing_parents = list(missing_parent_result.scalars().all())
+    if existing_missing_parents:
+        missing_parent = existing_missing_parents[0]
+        _logger.info(
+            f"MissingParent already exists for: {node_name} "
+            f"({len(existing_missing_parents)} row(s); using id={missing_parent.id})",
+        )
+    else:
         _logger.info(f"Creating MissingParent for node: {node_name}")
         missing_parent = MissingParent(name=node_name)
         session.add(missing_parent)
         await session.flush()  # Get the id
-    else:
-        _logger.info(f"MissingParent already exists for: {node_name}")
 
     # Find all downstream nodes and update them
     downstreams = await get_downstream_nodes(session, node_name)
@@ -3137,13 +3142,14 @@ async def activate_node(
         )
     node.deactivated_at = None  # type: ignore
 
-    # Get the MissingParent entry for this node (if it exists)
-    missing_parent_result = await session.execute(
+    # `missingparent.name` is non-unique, so duplicates can exist; clean
+    # up every match below.
+    missing_parents_result = await session.execute(
         select(MissingParent).where(MissingParent.name == name),
     )
-    missing_parent = missing_parent_result.scalar_one_or_none()
+    missing_parents = list(missing_parents_result.scalars().all())
     _logger.info(
-        f"Activating node {name}, missing_parent found: {missing_parent is not None}",
+        f"Activating node {name}, found {len(missing_parents)} MissingParent row(s)",
     )
 
     # Find downstream nodes that need revalidation
@@ -3174,11 +3180,13 @@ async def activate_node(
     for downstream in downstreams:
         _logger.info(f"Processing downstream: {downstream.name}")
 
-        # Remove from missing_parents and add back to parents
-        if (  # pragma: no branch
-            missing_parent and missing_parent in downstream.current.missing_parents
-        ):
-            downstream.current.missing_parents.remove(missing_parent)
+        # Remove from missing_parents and add back to parents. Iterate over
+        # all MissingParent rows with this name — different downstreams
+        # may be linked to different duplicates, so we clean up each
+        # downstream against the full set.
+        for missing_parent in missing_parents:
+            if missing_parent in downstream.current.missing_parents:
+                downstream.current.missing_parents.remove(missing_parent)
         # Re-link parent directly via INSERT...ON CONFLICT DO NOTHING. The
         # ORM collection approach is racy here: selectinload + autoflush
         # ordering can produce either a missed-row read (we append, then

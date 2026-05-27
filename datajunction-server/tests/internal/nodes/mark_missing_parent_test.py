@@ -354,7 +354,78 @@ async def test_activate_node_when_parent_already_in_parents(
     assert parent_count == 1
 
 
-# Note: Line 2923 in nodes.py (if element.node_revision) is defensive code
-# that cannot be realistically tested because the database has a NOT NULL
-# constraint on node_revision_id in the column table. The check is there for
-# safety but shouldn't be reachable in practice.
+@pytest.mark.asyncio
+async def test_activate_node_with_duplicate_missing_parents(
+    session: AsyncSession,
+    user: User,
+    parent_node: Node,
+    child_node: Node,
+    query_service_client,
+    background_tasks,
+):
+    """
+    `MissingParent.name` has no unique constraint and several creation sites
+    insert unconditionally, so a long-missing parent name can accumulate
+    duplicate rows over time. `activate_node` must tolerate this — the
+    earlier `scalar_one_or_none()` raised `MultipleResultsFound` whenever
+    duplicates existed, blocking any restore of the affected node.
+    """
+    from sqlalchemy import insert, select
+    from datajunction_server.database.node import (
+        MissingParent,
+        NodeMissingParents,
+    )
+
+    save_history = mock_save_history
+
+    # Simulate an accumulated history: multiple MissingParent rows with the
+    # same name, attached to the child via NodeMissingParents.
+    extra_missing_parents = []
+    for _ in range(3):
+        mp = MissingParent(name=parent_node.name)
+        session.add(mp)
+        extra_missing_parents.append(mp)
+    await session.flush()
+    for mp in extra_missing_parents:
+        await session.execute(
+            insert(NodeMissingParents).values(
+                missing_parent_id=mp.id,
+                referencing_node_id=child_node.current.id,
+            ),
+        )
+    await session.commit()
+
+    # Deactivate so we can restore.
+    await deactivate_node(
+        session=session,
+        name=parent_node.name,
+        current_user=user,
+        save_history=save_history,
+        query_service_client=query_service_client,
+        background_tasks=background_tasks,
+    )
+
+    # Activate — previously raised MultipleResultsFound from scalar_one_or_none().
+    await activate_node(
+        session=session,
+        name=parent_node.name,
+        current_user=user,
+        save_history=save_history,
+    )
+
+    # All duplicates should be cleaned up by delete_orphaned_missing_parents.
+    remaining = (
+        (
+            await session.execute(
+                select(MissingParent).where(
+                    MissingParent.name == parent_node.name,
+                ),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert remaining == [], (
+        f"Expected all duplicate MissingParent rows to be cleaned up, "
+        f"found {len(remaining)} still present"
+    )
