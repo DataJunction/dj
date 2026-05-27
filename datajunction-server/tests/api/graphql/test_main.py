@@ -93,6 +93,7 @@ def test_error_reporter_python_exception(spy_metrics):
                 "operation": "findNodes",
                 "operation_name": "LoadDashboard",
                 "error_type": "ValueError",
+                "severity": "server_error",
             },
         ),
     ]
@@ -101,9 +102,11 @@ def test_error_reporter_python_exception(spy_metrics):
     assert kwargs["exc_info"] is original
 
 
-def test_error_reporter_programmatic_error(spy_metrics):
-    """A spec-side error with no path / no original / no operation name tags as anonymous."""
-    error = GraphQLError("validation failed")
+def test_error_reporter_client_validation_error(spy_metrics):
+    """Parse/validation errors (no path, no original) are client errors — WARNING, not ERROR."""
+    error = GraphQLError(
+        "Cannot query field 'createdAt' on type 'NodeRevision'. Did you mean 'updatedAt'?",
+    )
 
     with patch("datajunction_server.api.graphql.main.logger") as mock_logger:
         _run_on_operation([error])
@@ -116,6 +119,30 @@ def test_error_reporter_programmatic_error(spy_metrics):
                 "operation": "unknown",
                 "operation_name": "anonymous",
                 "error_type": "GraphQLError",
+                "severity": "client_error",
+            },
+        ),
+    ]
+    mock_logger.error.assert_not_called()
+    mock_logger.warning.assert_called_once()
+
+
+def test_error_reporter_programmatic_error_with_path(spy_metrics):
+    """A spec-side error attached to a resolver path is still a server error."""
+    error = GraphQLError("something went wrong", path=["findNodes"])
+
+    with patch("datajunction_server.api.graphql.main.logger") as mock_logger:
+        _run_on_operation([error])
+
+    assert spy_metrics.counters == [
+        (
+            "dj.graphql.errors",
+            1,
+            {
+                "operation": "findNodes",
+                "operation_name": "anonymous",
+                "error_type": "GraphQLError",
+                "severity": "server_error",
             },
         ),
     ]
