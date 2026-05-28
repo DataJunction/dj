@@ -311,8 +311,12 @@ class Visitor:
         func = self.registry.get(type(ctx), None)
         if func is None:
             line, col = ctx.start.line, ctx.start.column
-            raise TypeError(
-                f"{line}:{col} No visitor registered for type {type(ctx).__name__}",
+            # Unimplemented grammar branch — surface as a parse error so the
+            # validation layer (which already catches DJParseException) returns
+            # a clean 422 instead of crashing with a 500.
+            raise DJParseException(
+                f"{line}:{col} Unsupported SQL syntax "
+                f"({type(ctx).__name__.removesuffix('Context')})",
             )
         result = func(ctx)
 
@@ -901,6 +905,29 @@ def _(ctx: sbp.RelationContext):
     primary_relation = visit(ctx.relationPrimary())
     extensions = visit(ctx.relationExtension()) if ctx.relationExtension() else []
     return ast.Relation(primary_relation, extensions)
+
+
+@visit.register
+def _(ctx: sbp.AliasedRelationContext):
+    # Parenthesized relation, optionally aliased: `( relation ) [AS] alias`.
+    inner = visit(ctx.relation())
+    table_alias = ctx.tableAlias()
+    alias_ident, _cols = visit(table_alias) if table_alias else (None, [])
+    # Only single-primary, no-join parenthesizations can carry an alias today —
+    # ast.Relation has no alias field, so a multi-relation join group like
+    # `(a JOIN b) AS x` would need an AST extension. Surface that as a parse
+    # error rather than silently dropping the alias.
+    if inner.extensions:
+        line, col = ctx.start.line, ctx.start.column
+        raise DJParseException(
+            f"{line}:{col} Aliasing a parenthesized join group is not supported",
+        )
+    primary = inner.primary
+    if alias_ident and hasattr(primary, "set_alias"):
+        primary = primary.set_alias(alias_ident)
+        if table_alias.AS() and hasattr(primary, "set_as"):
+            primary = primary.set_as(True)
+    return primary
 
 
 @visit.register
