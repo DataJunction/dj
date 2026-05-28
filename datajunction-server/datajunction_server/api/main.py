@@ -174,9 +174,8 @@ def configure_app(app: FastAPI) -> None:
     ) -> JSONResponse:
         """
         Catch-all for non-DJException errors. Logs the exception with its
-        real class name and the offending route so Radar fingerprints show
-        e.g. "Unhandled MultipleResultsFound in POST /nodes/foo/restore"
-        instead of the generic "Exception in ASGI application" emitted by
+        real class name and the offending route (e.g. "Unhandled MultipleResultsFound
+        in POST /nodes/foo/restore" instead of the generic exception emitted by
         Starlette's default handler when an unhandled exception escapes.
 
         Returns the same 500 body FastAPI's default handler would have
