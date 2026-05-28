@@ -360,8 +360,6 @@ async def test_activate_node_with_duplicate_missing_parents(
     user: User,
     parent_node: Node,
     child_node: Node,
-    query_service_client,
-    background_tasks,
 ):
     """
     `MissingParent.name` has no unique constraint and several creation sites
@@ -369,49 +367,38 @@ async def test_activate_node_with_duplicate_missing_parents(
     duplicate rows over time. `activate_node` must tolerate this — the
     earlier `scalar_one_or_none()` raised `MultipleResultsFound` whenever
     duplicates existed, blocking any restore of the affected node.
+
+    Setup attaches one duplicate to the child and leaves two unattached,
+    so the cleanup loop's inner check fires both True and False.
     """
-    from sqlalchemy import insert, select
-    from datajunction_server.database.node import (
-        MissingParent,
-        NodeMissingParents,
-    )
+    from datetime import datetime, timezone
+
+    from sqlalchemy import select
+    from datajunction_server.database.node import MissingParent
 
     save_history = mock_save_history
 
-    # Simulate an accumulated history: multiple MissingParent rows with the
-    # same name. Only some are attached to this child via NodeMissingParents;
-    # the rest are duplicates created for other (now-gone) referencing
-    # nodes. The activate_node loop must tolerate both — its inner `if mp
-    # in downstream.missing_parents` exercises the False branch on the
-    # unattached duplicates.
-    extra_missing_parents = []
+    # Mark the parent deactivated so activate_node will proceed.
+    parent_node.deactivated_at = datetime.now(timezone.utc)
+    session.add(parent_node)
+
+    # Three duplicate MissingParent rows for the same name. Attach only
+    # the first to the child via the ORM relationship; the other two are
+    # leftover rows from other (now-gone) referencing nodes. (Attaching
+    # via the relationship — not a raw INSERT into NodeMissingParents —
+    # ensures SQLAlchemy tracks the join row so .remove() in activate_node
+    # emits the corresponding DELETE.)
+    mps = []
     for _ in range(3):
         mp = MissingParent(name=parent_node.name)
         session.add(mp)
-        extra_missing_parents.append(mp)
-    await session.flush()
-    # Attach the first two to the child; leave the third unattached so the
-    # cleanup loop hits the "not in this downstream" branch.
-    for mp in extra_missing_parents[:2]:
-        await session.execute(
-            insert(NodeMissingParents).values(
-                missing_parent_id=mp.id,
-                referencing_node_id=child_node.current.id,
-            ),
-        )
+        mps.append(mp)
+    child_node.current.missing_parents.append(mps[0])
     await session.commit()
 
-    # Deactivate so we can restore.
-    await deactivate_node(
-        session=session,
-        name=parent_node.name,
-        current_user=user,
-        save_history=save_history,
-        query_service_client=query_service_client,
-        background_tasks=background_tasks,
-    )
-
     # Activate — previously raised MultipleResultsFound from scalar_one_or_none().
+    # Inner loop iterates all 3 MPs against the child's [mp0]:
+    #   mp0 -> True (remove); mp1 -> False; mp2 -> False.
     await activate_node(
         session=session,
         name=parent_node.name,
