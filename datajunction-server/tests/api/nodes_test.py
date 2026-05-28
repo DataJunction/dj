@@ -714,6 +714,29 @@ class TestNodeCRUD:
         ]
 
     @pytest.mark.asyncio
+    async def test_deleting_nonexistent_node_returns_404(
+        self,
+        client_with_basic: AsyncClient,
+    ):
+        """
+        DELETE on an unknown node must return 404, not 500. Previously
+        `deactivate_node` looked the node up without `raise_if_not_exists` and
+        then dereferenced `None` on `node.deactivated_at`, producing an
+        AttributeError 500.
+        """
+        response = await client_with_basic.delete("/nodes/basic.does_not_exist/")
+        assert response.status_code == 404
+        assert response.json()["message"] == (
+            "A node with name `basic.does_not_exist` does not exist."
+        )
+
+        # And the same on a node that was already deleted.
+        response = await client_with_basic.delete("/nodes/basic.source.users/")
+        assert response.status_code == 200
+        response = await client_with_basic.delete("/nodes/basic.source.users/")
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
     async def test_deleting_source_upstream_from_metric(
         self,
         client: AsyncClient,
