@@ -167,6 +167,34 @@ def configure_app(app: FastAPI) -> None:
             response.delete_cookie(LOGGED_IN_FLAG_COOKIE)
         return response
 
+    @app.exception_handler(Exception)
+    async def unhandled_exception_handler(
+        request: Request,
+        exc: Exception,
+    ) -> JSONResponse:
+        """
+        Catch-all for non-DJException errors. Logs the exception with its
+        real class name and the offending route so Radar fingerprints show
+        e.g. "Unhandled MultipleResultsFound in POST /nodes/foo/restore"
+        instead of the generic "Exception in ASGI application" emitted by
+        Starlette's default handler when an unhandled exception escapes.
+
+        Returns the same 500 body FastAPI's default handler would have
+        returned, so client behavior is unchanged. Returning a Response
+        (rather than re-raising) prevents Starlette / uvicorn from emitting
+        their own duplicate log entry on the way out.
+        """
+        _logger.exception(
+            "Unhandled %s in %s %s",
+            type(exc).__name__,
+            request.method,
+            request.url.path,
+        )
+        return JSONResponse(
+            status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+            content={"detail": "Internal Server Error"},
+        )
+
     # Only mount github auth router if a github client id and secret are configured
     if all(
         [
