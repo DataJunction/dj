@@ -15,6 +15,8 @@ from fastapi.responses import JSONResponse
 from fastapi_cache import FastAPICache
 from fastapi_cache.backends.inmemory import InMemoryBackend
 from starlette.middleware.cors import CORSMiddleware
+from starlette.requests import ClientDisconnect
+from starlette.responses import Response
 
 from datajunction_server.instrumentation.middleware import DJInstrumentationMiddleware
 
@@ -146,6 +148,20 @@ def configure_app(app: FastAPI) -> None:
     from datajunction_server.mcp.transport import mount_mcp
 
     mount_mcp(app)
+
+    @app.exception_handler(ClientDisconnect)
+    async def client_disconnect_handler(
+        request: Request,
+        exc: ClientDisconnect,
+    ) -> Response:
+        # Client closed the connection before we finished reading the body.
+        # Not a server fault — log at WARNING so it doesn't page.
+        _logger.warning(
+            "Client disconnected before request body was read: %s %s",
+            request.method,
+            request.url.path,
+        )
+        return Response(status_code=HTTPStatus.NO_CONTENT)
 
     @app.exception_handler(DJException)
     async def dj_exception_handler(
