@@ -246,3 +246,37 @@ def test_parse_dangling_join_raises_djparse_not_attribute_error():
     """
     with pytest.raises(DJParseException):
         parse(bad_sql)
+
+
+def test_aliased_relation_single_primary():
+    """`JOIN (t) alias` — parenthesized single relation with alias — must parse
+    and treat the inner table as if aliased directly. Previously raised
+    ``TypeError: No visitor registered for type AliasedRelationContext``."""
+    query_ast = parse(
+        "SELECT d.col FROM foo CROSS JOIN (bar) d",
+    )
+    rendered = str(query_ast)
+    assert "bar" in rendered
+    assert " d" in rendered or "AS d" in rendered
+
+
+def test_aliased_relation_join_group_rejected():
+    """`(a JOIN b) AS x` — aliasing a parenthesized join group — isn't yet
+    representable in the AST and must surface as a ``DJParseException`` rather
+    than crashing."""
+    with pytest.raises(DJParseException, match="join group"):
+        parse(
+            "SELECT * FROM (a CROSS JOIN b) AS x",
+        )
+
+
+def test_unsupported_grammar_branch_surfaces_djparse():
+    """An unknown/unimplemented grammar branch must raise ``DJParseException``,
+    not ``TypeError`` — otherwise the validator's parse-error catch misses it
+    and the request returns 500."""
+    # An empty grouping `()` in a relation position triggers an unhandled
+    # context. Whatever the exact shape, a parser visitor gap must be a parse
+    # error from the user's perspective.
+    bad_sql = "SELECT * FROM foo CROSS JOIN ()"
+    with pytest.raises(DJParseException):
+        parse(bad_sql)
