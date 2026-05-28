@@ -75,7 +75,18 @@ export default function ManageDimensionLinksDialog({
         djClient.unlinkDimension(node.name, column.name, dim),
       );
 
-      await Promise.all([...addPromises, ...removePromises]);
+      const results = await Promise.all([...addPromises, ...removePromises]);
+      const failures = results.filter(
+        r => !(r.status === 200 || r.status === 201),
+      );
+      if (failures.length > 0) {
+        const message =
+          failures[0].json?.message ||
+          failures[0].json?.detail ||
+          'Failed to update FK links';
+        setStatus({ failure: message });
+        return;
+      }
 
       setStatus({ success: 'FK links updated successfully!' });
       setTimeout(() => {
