@@ -354,7 +354,71 @@ async def test_activate_node_when_parent_already_in_parents(
     assert parent_count == 1
 
 
-# Note: Line 2923 in nodes.py (if element.node_revision) is defensive code
-# that cannot be realistically tested because the database has a NOT NULL
-# constraint on node_revision_id in the column table. The check is there for
-# safety but shouldn't be reachable in practice.
+@pytest.mark.asyncio
+async def test_activate_node_with_duplicate_missing_parents(
+    session: AsyncSession,
+    user: User,
+    parent_node: Node,
+    child_node: Node,
+):
+    """
+    `MissingParent.name` has no unique constraint and several creation sites
+    insert unconditionally, so a long-missing parent name can accumulate
+    duplicate rows over time. `activate_node` must tolerate this — the
+    earlier `scalar_one_or_none()` raised `MultipleResultsFound` whenever
+    duplicates existed, blocking any restore of the affected node.
+
+    Setup attaches one duplicate to the child and leaves two unattached,
+    so the cleanup loop's inner check fires both True and False.
+    """
+    from datetime import datetime, timezone
+
+    from sqlalchemy import select
+    from datajunction_server.database.node import MissingParent
+
+    save_history = mock_save_history
+
+    # Mark the parent deactivated so activate_node will proceed.
+    parent_node.deactivated_at = datetime.now(timezone.utc)
+    session.add(parent_node)
+
+    # Three duplicate MissingParent rows for the same name. Attach only
+    # the first to the child via the ORM relationship; the other two are
+    # leftover rows from other (now-gone) referencing nodes. (Attaching
+    # via the relationship — not a raw INSERT into NodeMissingParents —
+    # ensures SQLAlchemy tracks the join row so .remove() in activate_node
+    # emits the corresponding DELETE.)
+    mps = []
+    for _ in range(3):
+        mp = MissingParent(name=parent_node.name)
+        session.add(mp)
+        mps.append(mp)
+    child_node.current.missing_parents.append(mps[0])
+    await session.commit()
+
+    # Activate — previously raised MultipleResultsFound from scalar_one_or_none().
+    # Inner loop iterates all 3 MPs against the child's [mp0]:
+    #   mp0 -> True (remove); mp1 -> False; mp2 -> False.
+    await activate_node(
+        session=session,
+        name=parent_node.name,
+        current_user=user,
+        save_history=save_history,
+    )
+
+    # All duplicates should be cleaned up by delete_orphaned_missing_parents.
+    remaining = (
+        (
+            await session.execute(
+                select(MissingParent).where(
+                    MissingParent.name == parent_node.name,
+                ),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert remaining == [], (
+        f"Expected all duplicate MissingParent rows to be cleaned up, "
+        f"found {len(remaining)} still present"
+    )
