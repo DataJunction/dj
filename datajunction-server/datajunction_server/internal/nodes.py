@@ -526,8 +526,7 @@ async def create_node_revision(
         if node_revision.mode == NodeMode.DRAFT:
             node_revision.status = NodeStatus.INVALID
         else:
-            raise DJException(
-                http_status_code=HTTPStatus.BAD_REQUEST,
+            raise DJInvalidInputException(
                 errors=node_validator.errors,
             )
     else:
@@ -2055,8 +2054,7 @@ async def create_new_revision_from_existing(
             if new_mode == NodeMode.DRAFT:
                 new_revision.status = NodeStatus.INVALID
             else:
-                raise DJException(
-                    http_status_code=HTTPStatus.BAD_REQUEST,
+                raise DJInvalidInputException(
                     errors=node_validator.errors,
                 )
 

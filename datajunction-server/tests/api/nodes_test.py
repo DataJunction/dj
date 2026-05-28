@@ -1101,7 +1101,7 @@ class TestNodeCRUD:
                 "required_dimensions": ["testdld.messages.foo"],
             },
         )
-        assert response.status_code == 400
+        assert response.status_code == 422
         assert response.json() == {
             "message": "Node definition contains references to "
             "columns as required dimensions that are not on parent nodes.",
@@ -2603,7 +2603,7 @@ class TestNodeCRUD:
             json=create_invalid_transform_node_payload,
         )
         data = response.json()
-        assert response.status_code == 400
+        assert response.status_code == 422
         assert data["message"].startswith(
             "Node definition contains references to nodes that do not exist",
         )
