@@ -3072,7 +3072,7 @@ async def deactivate_node(
     """
     Deactivates a node and propagates to all downstreams.
     """
-    node = await Node.get_by_name(session, name)
+    node = await Node.get_by_name(session, name, raise_if_not_exists=True)
 
     # Mark node as missing parent and update downstream nodes
     # For deactivation, we keep parent relationships intact so upstream queries can still find them
