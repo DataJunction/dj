@@ -1593,6 +1593,33 @@ async def test_exists_func(session: AsyncSession):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "lambda_expr",
+    [
+        # The lambda parameter `x` is never referenced inside the body.
+        # Previously crashed with IndexError because the list comprehension
+        # matching `x` against body columns returned [] and was then [0]-indexed.
+        "x -> true",
+        # Constant non-true predicate, still no reference to `x`.
+        "x -> 1 = 1",
+    ],
+)
+async def test_exists_lambda_unreferenced_param(
+    session: AsyncSession,
+    lambda_expr: str,
+):
+    """`exists`'s lambda may legally have a body that doesn't reference its
+    single parameter; compile_lambda must tolerate this rather than crash
+    on `[match_list][0]` when no body columns match the param name.
+    """
+    query = parse(f"SELECT exists(array(1, 2, 3), {lambda_expr})")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
+
+
+@pytest.mark.asyncio
 async def test_explode_outer_func(session: AsyncSession):
     """
     Test the `explode_outer` function
@@ -1786,6 +1813,31 @@ async def test_forall_func(session: AsyncSession):
     # assert not exc.errors
     assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
     assert query.select.projection[1].type == ct.BooleanType()  # type: ignore
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "lambda_expr",
+    [
+        # Lambda parameter `x` never referenced — previously raised IndexError.
+        "x -> true",
+        # Constant non-true predicate, still no reference to `x`.
+        "x -> 1 = 1",
+    ],
+)
+async def test_forall_lambda_unreferenced_param(
+    session: AsyncSession,
+    lambda_expr: str,
+):
+    """`forall`'s lambda may legally have a body that doesn't reference its
+    single parameter; compile_lambda must tolerate this rather than crash
+    on `[match_list][0]` when no body columns match the param name.
+    """
+    query = parse(f"SELECT forall(array(1, 2, 3), {lambda_expr})")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
 
 
 @pytest.mark.asyncio
@@ -2701,6 +2753,43 @@ async def test_map_filter_func(session: AsyncSession):
     await query.compile(ctx)
     assert query.select.projection[0].type == ct.MapType(  # type: ignore
         key_type=ct.IntegerType(),
+        value_type=ct.IntegerType(),
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "lambda_expr",
+    [
+        # Only `v` is referenced in the body — `k` (position 0) never appears
+        # as a column inside the lambda. Previously raised KeyError: 0.
+        "(k, v) -> v > 0",
+        # Only `k` is referenced — `v` (position 1) never appears as a column.
+        # Previously raised KeyError: 1.
+        "(k, v) -> length(k) > 3",
+        # Neither lambda parameter is referenced; constant predicate is a
+        # legal Spark expression, must not crash compile_lambda.
+        "(k, v) -> true",
+    ],
+)
+async def test_map_filter_lambda_unreferenced_params(
+    session: AsyncSession,
+    lambda_expr: str,
+):
+    """`map_filter`'s lambda may reference only one (or neither) of its two
+    parameters; compile_lambda must tolerate the unreferenced slot rather
+    than KeyError on the integer index into `lambda_arg_cols`. The result
+    type still comes from the input map's `MapType` regardless of which
+    params the body uses.
+    """
+    query = parse(
+        f"SELECT map_filter(map('a', 1, 'bb', 2, 'ccc', 3), {lambda_expr})",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert query.select.projection[0].type == ct.MapType(  # type: ignore
+        key_type=ct.StringType(),
         value_type=ct.IntegerType(),
     )
 
