@@ -2700,6 +2700,43 @@ async def test_map_filter_func(session: AsyncSession):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "lambda_expr",
+    [
+        # Only `v` is referenced in the body — `k` (position 0) never appears
+        # as a column inside the lambda. Previously raised KeyError: 0.
+        "(k, v) -> v > 0",
+        # Only `k` is referenced — `v` (position 1) never appears as a column.
+        # Previously raised KeyError: 1.
+        "(k, v) -> length(k) > 3",
+        # Neither lambda parameter is referenced; constant predicate is a
+        # legal Spark expression, must not crash compile_lambda.
+        "(k, v) -> true",
+    ],
+)
+async def test_map_filter_lambda_unreferenced_params(
+    session: AsyncSession,
+    lambda_expr: str,
+):
+    """`map_filter`'s lambda may reference only one (or neither) of its two
+    parameters; compile_lambda must tolerate the unreferenced slot rather
+    than KeyError on the integer index into `lambda_arg_cols`. The result
+    type still comes from the input map's `MapType` regardless of which
+    params the body uses.
+    """
+    query = parse(
+        f"SELECT map_filter(map('a', 1, 'bb', 2, 'ccc', 3), {lambda_expr})",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert query.select.projection[0].type == ct.MapType(  # type: ignore
+        key_type=ct.StringType(),
+        value_type=ct.IntegerType(),
+    )
+
+
+@pytest.mark.asyncio
 async def test_map_from_arrays_func(session: AsyncSession):
     """
     Test the `map_from_arrays` function

@@ -3274,8 +3274,13 @@ class MapFilter(Function):
             for col in func.expr.find_all(ast.Column)
             if col.alias_or_name.name in identifiers
         }
-        lambda_arg_cols[0].add_type(expr.type.key.type)
-        lambda_arg_cols[1].add_type(expr.type.value.type)
+        # The lambda body may legally reference only one (or neither) of the
+        # two parameters; only annotate types for the slots that actually
+        # appear as column references inside the body.
+        if 0 in lambda_arg_cols:
+            lambda_arg_cols[0].add_type(expr.type.key.type)
+        if 1 in lambda_arg_cols:
+            lambda_arg_cols[1].add_type(expr.type.value.type)
 
 
 @MapFilter.register  # type: ignore
