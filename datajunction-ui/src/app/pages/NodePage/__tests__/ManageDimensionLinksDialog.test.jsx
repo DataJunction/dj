@@ -6,8 +6,36 @@ import {
   screen,
   act,
 } from '@testing-library/react';
+import { useFormikContext } from 'formik';
 import ManageDimensionLinksDialog from '../ManageDimensionLinksDialog';
 import DJClientContext from '../../../providers/djclient';
+
+// Stub FormikSelect with a plain multi-select so tests can drive the field
+// without wrestling react-select's pointer-event quirks.
+vi.mock('../../AddEditNodePage/FormikSelect', () => ({
+  FormikSelect: ({ selectOptions, formikFieldName }) => {
+    const { values, setFieldValue } = useFormikContext();
+    return (
+      <select
+        data-testid={`mock-select-${formikFieldName}`}
+        multiple
+        value={values[formikFieldName] || []}
+        onChange={e =>
+          setFieldValue(
+            formikFieldName,
+            Array.from(e.target.selectedOptions, opt => opt.value),
+          )
+        }
+      >
+        {selectOptions.map(opt => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+    );
+  },
+}));
 
 // Mock window.location.reload
 delete window.location;
@@ -364,6 +392,81 @@ describe('<ManageDimensionLinksDialog />', () => {
       const requiredErrors = getAllByText('Required');
       expect(requiredErrors.length).toBeGreaterThan(0);
     });
+  });
+
+  it('shows success message when FK link save succeeds', async () => {
+    mockDjClient.DataJunctionAPI.linkDimension.mockResolvedValue({
+      status: 201,
+      json: { message: 'ok' },
+    });
+
+    const { getByLabelText, getByText, getByTestId } = render(
+      <DJClientContext.Provider value={mockDjClient}>
+        <ManageDimensionLinksDialog {...defaultProps} />
+      </DJClientContext.Provider>,
+    );
+
+    fireEvent.click(getByLabelText('ManageDimensionLinksToggle'));
+
+    await waitFor(() => {
+      expect(getByTestId('mock-select-fkDimensions')).toBeInTheDocument();
+    });
+
+    const select = getByTestId('mock-select-fkDimensions');
+    await act(async () => {
+      fireEvent.change(select, { target: { value: 'default.dim1' } });
+    });
+
+    await act(async () => {
+      fireEvent.click(getByText('Save'));
+    });
+
+    await waitFor(() => {
+      expect(getByTestId('success')).toHaveTextContent(
+        'FK links updated successfully!',
+      );
+    });
+    expect(mockDjClient.DataJunctionAPI.linkDimension).toHaveBeenCalledWith(
+      'default.node1',
+      'test_column',
+      'default.dim1',
+    );
+  });
+
+  it('surfaces server error message when FK link save fails', async () => {
+    mockDjClient.DataJunctionAPI.linkDimension.mockResolvedValue({
+      status: 422,
+      json: {
+        message:
+          'Dimension default.dim1 has a compound primary key (a, b); a single-column FK link cannot join it correctly.',
+      },
+    });
+
+    const { getByLabelText, getByText, getByTestId, queryByTestId } = render(
+      <DJClientContext.Provider value={mockDjClient}>
+        <ManageDimensionLinksDialog {...defaultProps} />
+      </DJClientContext.Provider>,
+    );
+
+    fireEvent.click(getByLabelText('ManageDimensionLinksToggle'));
+
+    await waitFor(() => {
+      expect(getByTestId('mock-select-fkDimensions')).toBeInTheDocument();
+    });
+
+    const select = getByTestId('mock-select-fkDimensions');
+    await act(async () => {
+      fireEvent.change(select, { target: { value: 'default.dim1' } });
+    });
+
+    await act(async () => {
+      fireEvent.click(getByText('Save'));
+    });
+
+    await waitFor(() => {
+      expect(getByTestId('failure')).toHaveTextContent('compound primary key');
+    });
+    expect(queryByTestId('success')).not.toBeInTheDocument();
   });
 
   it('closes modal when clicking backdrop', async () => {

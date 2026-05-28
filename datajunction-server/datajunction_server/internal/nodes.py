@@ -50,7 +50,6 @@ from datajunction_server.database.user import User
 from datajunction_server.database.measure import FrozenMeasure
 from datajunction_server.sql.decompose import MetricComponentExtractor
 from datajunction_server.errors import (
-    DJActionNotAllowedException,
     DJDoesNotExistException,
     DJError,
     DJException,
@@ -2626,8 +2625,17 @@ async def upsert_simple_dimension_link(
         raise DJInvalidInputException(f"Node {node.name} is not of type dimension!")  # type: ignore
     primary_key_columns = dimension_node.current.primary_key()  # type: ignore
     if len(primary_key_columns) > 1:
-        raise DJActionNotAllowedException(  # pragma: no cover
-            "Cannot use this endpoint to link a dimension with a compound primary key.",
+        raise DJInvalidInputException(
+            f"Dimension {dimension} has a compound primary key "
+            f"({', '.join(c.name for c in primary_key_columns)}); a single-column "
+            "FK link cannot join it correctly. Use the complex dimension link "
+            "endpoint with an explicit multi-column join expression.",
+        )
+    if not primary_key_columns and not dimension_column:
+        raise DJInvalidInputException(
+            f"Dimension {dimension} has no primary key defined. Either set a "
+            "primary key attribute on the dimension's column, or provide an "
+            "explicit `dimension_column` to join on.",
         )
 
     target_column = await get_column(session, node.current, column)  # type: ignore
@@ -2648,12 +2656,11 @@ async def upsert_simple_dimension_link(
                 " These column types are incompatible and the dimension cannot be linked",
             )
 
+    join_column = dimension_column or primary_key_columns[0].name  # type: ignore
     link_input = JoinLinkInput(
         dimension_node=dimension,
         join_type=JoinType.LEFT,
-        join_on=(
-            f"{name}.{column} = {dimension_node.name}.{primary_key_columns[0].name}"  # type: ignore
-        ),
+        join_on=(f"{name}.{column} = {dimension_node.name}.{join_column}"),  # type: ignore
     )
     return await upsert_complex_dimension_link(
         session,
