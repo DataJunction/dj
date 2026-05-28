@@ -2159,8 +2159,14 @@ async def test_inline_func(session: AsyncSession):
     """
     # This test assumes there's a table with a column of type ARRAY<STRUCT<a: INT, b: STRING>>
     query = parse(
-        "SELECT inline(col1), inline_outer(array(struct(1, 'a'), struct(2, 'b')))"
-        " FROM (SELECT (array(struct('a', 1, 'b', '222'))) AS col1)",
+        "SELECT inline(col1), "
+        "inline_outer(array("
+        "struct(1 AS f1, 'a' AS f2), "
+        "struct(2 AS f1, 'b' AS f2)"
+        ")) "
+        "FROM (SELECT (array(struct("
+        "'a' AS k1, 1 AS v1, 'b' AS k2, '222' AS v2"
+        "))) AS col1)",
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
@@ -2720,7 +2726,12 @@ async def test_map_from_entries_func(session: AsyncSession):
     """
     Test the `map_from_entries` function
     """
-    query = parse("SELECT map_from_entries(array(struct(1, 'a'), struct(2, 'b')))")
+    query = parse(
+        "SELECT map_from_entries(array("
+        "struct(1 AS k, 'a' AS v), "
+        "struct(2 AS k, 'b' AS v)"
+        "))",
+    )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
     await query.compile(ctx)
