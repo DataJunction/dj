@@ -228,3 +228,21 @@ def test_antlr4_decimal_at_eof():
     # Decimal with scientific notation at EOF (normalized to 150.0)
     query_ast = parse("SELECT 1.5E2")
     assert "150.0" in str(query_ast)
+
+
+def test_parse_dangling_join_raises_djparse_not_attribute_error():
+    """Malformed SQL where ANTLR recovers without surfacing a syntax error
+    (e.g. a dangling ``LEFT JOIN`` with no table) used to crash the visitor
+    with ``AttributeError: 'NoneType' object has no attribute 'start'`` and
+    log as a server error. It must now surface as ``DJParseException`` so
+    the request returns 4xx instead.
+    """
+    bad_sql = """
+    SELECT a.x
+    FROM foo a
+      LEFT JOIN bar b ON a.id = b.id
+      LEFT JOIN
+      LEFT JOIN baz c ON a.id = c.id
+    """
+    with pytest.raises(DJParseException):
+        parse(bad_sql)

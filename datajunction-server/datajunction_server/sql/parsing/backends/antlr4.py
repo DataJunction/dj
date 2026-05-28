@@ -250,6 +250,24 @@ def parse(sql: Optional[str]) -> ast.Query:
             return cast(ast.Query, parse_rule(sql, "singleStatement"))
         except SqlParsingError as exc:
             raise DJParseException(message=f"Error parsing SQL `{sql}`: {exc}") from exc
+        except DJParseException:
+            raise
+        except Exception as exc:
+            # ANTLR's default error strategy can recover from syntax errors
+            # without surfacing them (producing a partial tree with None
+            # children), which then crashes the visitor with e.g. an
+            # AttributeError. Treat any such failure as a client-facing
+            # parse error rather than a server error, but log it at
+            # WARNING so visitor bugs unrelated to malformed input remain
+            # visible.
+            logger.warning(
+                "Unexpected %s while parsing SQL (treating as parse error): %s",
+                type(exc).__name__,
+                exc,
+            )
+            raise DJParseException(
+                message=f"Error parsing SQL `{sql}`: {type(exc).__name__}: {exc}",
+            ) from exc
     finally:
         from datajunction_server.instrumentation.provider import get_metrics_provider  # noqa: PLC0415
 
