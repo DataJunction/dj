@@ -455,7 +455,7 @@ async def _execute_metrics_query(
         submitted_query=generated_sql.sql,
         async_=False,
     )
-    result = query_service_client.submit_query(query_create)
+    result = await query_service_client.submit_query(query_create)
     if result.results.root:
         result.results.root[0].columns = generated_sql.columns or []  # type: ignore
     return result, generated_sql
