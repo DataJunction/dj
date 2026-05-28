@@ -3,11 +3,14 @@ Tests for FastAPI app wiring in `datajunction_server.api.main`.
 """
 
 import logging
+from http import HTTPStatus
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from httpx import ASGITransport, AsyncClient
+from starlette.requests import ClientDisconnect
 
 from datajunction_server.errors import DJException
 
@@ -129,3 +132,25 @@ async def test_dj_exception_handler_still_wins_over_generic(caplog):
     body = response.json()
     # DJException's to_dict produces a structured "message" field.
     assert body.get("message") == "bad input"
+
+
+@pytest.mark.asyncio
+async def test_client_disconnect_handler_logs_warning() -> None:
+    """``ClientDisconnect`` is logged at WARNING and returns 204 instead of
+    bubbling up as a 500 server error.
+    """
+    from datajunction_server.api.main import app
+
+    handler = app.exception_handlers[ClientDisconnect]
+
+    request = MagicMock()
+    request.method = "POST"
+    request.url.path = "/graphql"
+
+    with patch("datajunction_server.api.main._logger") as mock_logger:
+        response = await handler(request, ClientDisconnect())
+
+    assert response.status_code == HTTPStatus.NO_CONTENT
+    mock_logger.warning.assert_called_once()
+    mock_logger.error.assert_not_called()
+    mock_logger.exception.assert_not_called()
