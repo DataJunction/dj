@@ -1511,7 +1511,7 @@ async def test_create_invalid_metric(module__client_with_roads: AsyncClient):
         },
     )
     data = response.json()
-    assert response.status_code == 400
+    assert response.status_code == 422
     assert (
         "Metric definition references missing columns: non_existent_column"
         in data["message"]
