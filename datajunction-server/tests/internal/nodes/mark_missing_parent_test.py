@@ -379,14 +379,20 @@ async def test_activate_node_with_duplicate_missing_parents(
     save_history = mock_save_history
 
     # Simulate an accumulated history: multiple MissingParent rows with the
-    # same name, attached to the child via NodeMissingParents.
+    # same name. Only some are attached to this child via NodeMissingParents;
+    # the rest are duplicates created for other (now-gone) referencing
+    # nodes. The activate_node loop must tolerate both — its inner `if mp
+    # in downstream.missing_parents` exercises the False branch on the
+    # unattached duplicates.
     extra_missing_parents = []
     for _ in range(3):
         mp = MissingParent(name=parent_node.name)
         session.add(mp)
         extra_missing_parents.append(mp)
     await session.flush()
-    for mp in extra_missing_parents:
+    # Attach the first two to the child; leave the third unattached so the
+    # cleanup loop hits the "not in this downstream" branch.
+    for mp in extra_missing_parents[:2]:
         await session.execute(
             insert(NodeMissingParents).values(
                 missing_parent_id=mp.id,
