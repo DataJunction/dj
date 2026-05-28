@@ -2159,8 +2159,14 @@ async def test_inline_func(session: AsyncSession):
     """
     # This test assumes there's a table with a column of type ARRAY<STRUCT<a: INT, b: STRING>>
     query = parse(
-        "SELECT inline(col1), inline_outer(array(struct(1, 'a'), struct(2, 'b')))"
-        " FROM (SELECT (array(struct('a', 1, 'b', '222'))) AS col1)",
+        "SELECT inline(col1), "
+        "inline_outer(array("
+        "struct(1 AS f1, 'a' AS f2), "
+        "struct(2 AS f1, 'b' AS f2)"
+        ")) "
+        "FROM (SELECT (array(struct("
+        "'a' AS k1, 1 AS v1, 'b' AS k2, '222' AS v2"
+        "))) AS col1)",
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
@@ -2720,7 +2726,12 @@ async def test_map_from_entries_func(session: AsyncSession):
     """
     Test the `map_from_entries` function
     """
-    query = parse("SELECT map_from_entries(array(struct(1, 'a'), struct(2, 'b')))")
+    query = parse(
+        "SELECT map_from_entries(array("
+        "struct(1 AS k, 'a' AS v), "
+        "struct(2 AS k, 'b' AS v)"
+        "))",
+    )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
     await query.compile(ctx)
@@ -2984,6 +2995,48 @@ async def test_named_struct_func(session: AsyncSession):
     assert query.select.projection[0].type == ct.StructType(  # type: ignore
         ct.NestedField(name="name", field_type=ct.StringType()),  # type: ignore
         ct.NestedField(name="age", field_type=ct.IntegerType()),  # type: ignore
+    )
+
+
+@pytest.mark.asyncio
+async def test_struct_with_aliased_fields(session: AsyncSession):
+    """Each STRUCT argument with an `AS <name>` produces a typed NestedField."""
+    query = parse(
+        "SELECT struct(1 AS id, 'foo' AS name) AS s",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.StructType(  # type: ignore
+        ct.NestedField(name="id", field_type=ct.IntegerType()),  # type: ignore
+        ct.NestedField(name="name", field_type=ct.StringType()),  # type: ignore
+    )
+
+
+@pytest.mark.asyncio
+async def test_struct_rejects_unaliased_field(session: AsyncSession):
+    """A STRUCT argument without an alias must be rejected with a clear error.
+
+    The error message names the field position and echoes the offending
+    expression so the author can identify which struct() to fix.
+    """
+    # Two valid struct calls followed by one with a bare column reference.
+    query = parse(
+        "SELECT "
+        "struct(1 AS id, 'foo' AS name) AS s1, "
+        "struct(col_a) AS s2 "
+        "FROM (SELECT 1 AS col_a) t",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    with pytest.raises(DJParseException) as exc_info:
+        _ = query.select.projection[1].type  # type: ignore[union-attr]
+    assert str(exc_info.value) == (
+        "STRUCT field at position 0 has no alias. Every STRUCT argument "
+        "must be aliased with `AS <name>` so the resulting field is "
+        "addressable downstream. Offending expression: t.col_a"
     )
 
 
