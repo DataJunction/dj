@@ -1593,6 +1593,33 @@ async def test_exists_func(session: AsyncSession):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "lambda_expr",
+    [
+        # The lambda parameter `x` is never referenced inside the body.
+        # Previously crashed with IndexError because the list comprehension
+        # matching `x` against body columns returned [] and was then [0]-indexed.
+        "x -> true",
+        # Constant non-true predicate, still no reference to `x`.
+        "x -> 1 = 1",
+    ],
+)
+async def test_exists_lambda_unreferenced_param(
+    session: AsyncSession,
+    lambda_expr: str,
+):
+    """`exists`'s lambda may legally have a body that doesn't reference its
+    single parameter; compile_lambda must tolerate this rather than crash
+    on `[match_list][0]` when no body columns match the param name.
+    """
+    query = parse(f"SELECT exists(array(1, 2, 3), {lambda_expr})")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
+
+
+@pytest.mark.asyncio
 async def test_explode_outer_func(session: AsyncSession):
     """
     Test the `explode_outer` function
@@ -1786,6 +1813,31 @@ async def test_forall_func(session: AsyncSession):
     # assert not exc.errors
     assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
     assert query.select.projection[1].type == ct.BooleanType()  # type: ignore
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "lambda_expr",
+    [
+        # Lambda parameter `x` never referenced — previously raised IndexError.
+        "x -> true",
+        # Constant non-true predicate, still no reference to `x`.
+        "x -> 1 = 1",
+    ],
+)
+async def test_forall_lambda_unreferenced_param(
+    session: AsyncSession,
+    lambda_expr: str,
+):
+    """`forall`'s lambda may legally have a body that doesn't reference its
+    single parameter; compile_lambda must tolerate this rather than crash
+    on `[match_list][0]` when no body columns match the param name.
+    """
+    query = parse(f"SELECT forall(array(1, 2, 3), {lambda_expr})")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
 
 
 @pytest.mark.asyncio
