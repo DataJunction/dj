@@ -4276,15 +4276,17 @@ class Struct(Function):
 
 @Struct.register  # type: ignore
 def infer_type(*args: ct.ColumnType) -> ct.StructType:
-    return ct.StructType(
-        *[
-            ct.NestedField(
-                name=arg.alias.name if hasattr(arg, "alias") else f"col{idx}",
-                field_type=arg.type,
+    fields = []
+    for idx, arg in enumerate(args):
+        alias = getattr(arg, "alias", None)
+        if alias is None:
+            raise DJParseException(
+                f"STRUCT field at position {idx} has no alias. Every STRUCT "
+                f"argument must be aliased with `AS <name>` so the resulting "
+                f"field is addressable downstream. Offending expression: {arg}",
             )
-            for idx, arg in enumerate(args)
-        ],
-    )
+        fields.append(ct.NestedField(name=alias.name, field_type=arg.type))
+    return ct.StructType(*fields)
 
 
 class Substring(Function):

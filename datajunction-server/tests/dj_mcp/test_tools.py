@@ -1208,7 +1208,7 @@ async def test_execute_metrics_query_full_round_trip(
     submitted: list = []
 
     class _FakeQueryServiceClient:
-        def submit_query(self, query_create):
+        async def submit_query(self, query_create):
             submitted.append(query_create)
             return _stub_dataset([["a", 1]], ["dim", "amount"])
 
@@ -1293,7 +1293,7 @@ async def test_execute_metrics_query_empty_results_skips_column_inject(
         root: list = []
 
     class _FakeQueryServiceClient:
-        def submit_query(self, query_create):
+        async def submit_query(self, query_create):
             r = MagicMock()
             r.results = _EmptyResults()
             r.state = "FINISHED"
