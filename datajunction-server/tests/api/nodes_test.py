@@ -4710,6 +4710,139 @@ class TestValidateNodes:
         )
 
     @pytest.mark.asyncio
+    async def test_link_dimension_compound_pk_rejected(
+        self,
+        client_example_loader,
+    ):
+        """
+        Linking a dimension that has a compound primary key via the simple
+        column-level endpoint must fail with a clear error rather than
+        producing a one-column join (which would silently fan out) or
+        crashing with IndexError.
+        """
+        custom_client = await client_example_loader(["ACCOUNT_REVENUE"])
+        response = await custom_client.post(
+            "/nodes/dimension/",
+            json={
+                "description": "Compound-PK payment type dim",
+                "query": (
+                    "SELECT id, payment_type_name, payment_type_classification "
+                    "FROM default.payment_type_table"
+                ),
+                "mode": "published",
+                "name": "default.payment_type_compound",
+                "primary_key": ["id", "payment_type_name"],
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+        response = await custom_client.post(
+            "/nodes/default.revenue/columns/payment_type/"
+            "?dimension=default.payment_type_compound",
+        )
+        assert response.status_code == 422
+        assert "compound primary key" in response.json()["message"]
+
+        # Supplying dimension_column doesn't bypass the check — a single-column
+        # join still can't correctly link a compound-PK dimension.
+        response = await custom_client.post(
+            "/nodes/default.revenue/columns/payment_type/"
+            "?dimension=default.payment_type_compound&dimension_column=id",
+        )
+        assert response.status_code == 422
+        assert "compound primary key" in response.json()["message"]
+
+    @pytest.mark.asyncio
+    async def test_link_dimension_no_pk_requires_dimension_column(
+        self,
+        client_example_loader,
+    ):
+        """
+        A dimension with no primary key attribute set can't be auto-joined.
+        Without `dimension_column` we should return a clean 422 — not crash
+        with IndexError. With an explicit `dimension_column` the link should
+        succeed and use that column on the dimension side of the join.
+        """
+        custom_client = await client_example_loader(["ACCOUNT_REVENUE"])
+        response = await custom_client.post(
+            "/nodes/dimension/",
+            json={
+                "description": "Payment type dim, PK attribute cleared below",
+                "query": (
+                    "SELECT id, payment_type_name, payment_type_classification "
+                    "FROM default.payment_type_table"
+                ),
+                "mode": "published",
+                "name": "default.payment_type_no_pk",
+                "primary_key": ["id"],
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+        # Server requires a PK at create time, so create with one then clear
+        # the primary_key attribute to simulate a dim with no PK attribute set.
+        response = await custom_client.post(
+            "/nodes/default.payment_type_no_pk/columns/id/attributes/",
+            json=[],
+        )
+        assert response.status_code in (200, 201), response.json()
+
+        response = await custom_client.post(
+            "/nodes/default.revenue/columns/payment_type/"
+            "?dimension=default.payment_type_no_pk",
+        )
+        assert response.status_code == 422
+        assert "no primary key" in response.json()["message"]
+
+        response = await custom_client.post(
+            "/nodes/default.revenue/columns/payment_type/"
+            "?dimension=default.payment_type_no_pk&dimension_column=id",
+        )
+        assert response.status_code in (200, 201), response.json()
+
+        node = (await custom_client.get("/nodes/default.revenue")).json()
+        link = next(
+            link
+            for link in node["dimension_links"]
+            if link["dimension"]["name"] == "default.payment_type_no_pk"
+        )
+        assert link["join_sql"] == (
+            "default.revenue.payment_type = default.payment_type_no_pk.id"
+        )
+
+    @pytest.mark.asyncio
+    async def test_link_dimension_uses_provided_dimension_column(
+        self,
+        client_example_loader,
+    ):
+        """
+        When the caller supplies `dimension_column` on a dim that also has a
+        primary key, the join must be built against the supplied column —
+        not the primary key (which was silently the case before).
+        """
+        custom_client = await client_example_loader(["ACCOUNT_REVENUE"])
+        # default.payment_type's PK is `id`. We override with payment_type_name
+        # (compatible type) and verify the join_sql reflects the override.
+        # `default.revenue.payment_type` is int, so first widen its type by
+        # picking a compatible column on the revenue side: `account_type` (string).
+        response = await custom_client.post(
+            "/nodes/default.revenue/columns/account_type/"
+            "?dimension=default.payment_type"
+            "&dimension_column=payment_type_name",
+        )
+        assert response.status_code in (200, 201), response.json()
+
+        node = (await custom_client.get("/nodes/default.revenue")).json()
+        link = next(
+            link
+            for link in node["dimension_links"]
+            if link["dimension"]["name"] == "default.payment_type"
+        )
+        assert link["join_sql"] == (
+            "default.revenue.account_type = default.payment_type.payment_type_name"
+        )
+
+    @pytest.mark.asyncio
     async def test_update_node_with_dimension_links(
         self,
         client_with_roads: AsyncClient,
