@@ -25,7 +25,7 @@ def _install_unhandled_handler(app: FastAPI) -> None:
         request: Request,
         exc: Exception,
     ) -> JSONResponse:
-        logging.getLogger("datajunction_server.api.main").exception(
+        logging.getLogger("datajunction_server.api.main").error(
             "Unhandled %s in %s %s",
             type(exc).__name__,
             request.method,

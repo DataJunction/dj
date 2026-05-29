@@ -199,7 +199,11 @@ def configure_app(app: FastAPI) -> None:
         (rather than re-raising) prevents Starlette / uvicorn from emitting
         their own duplicate log entry on the way out.
         """
-        _logger.exception(
+        # Use error() not exception() — exc_info=True causes the Sentry
+        # logging integration to fire a second issue on top of the one
+        # OTel's ExceptionHandlerMiddleware already created via
+        # span.record_exception(exc) before this handler ran.
+        _logger.error(
             "Unhandled %s in %s %s",
             type(exc).__name__,
             request.method,
