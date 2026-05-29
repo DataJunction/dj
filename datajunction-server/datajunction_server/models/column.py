@@ -81,8 +81,15 @@ class ColumnTypeDecorator(TypeDecorator):
             return value
         try:
             return _parse_column_type(value)
-        except Exception:  # pragma: no cover
-            return value  # pragma: no cover
+        except Exception:
+            # Stored type isn't antlr-parseable (e.g. legacy rows with
+            # type='unknown'). Returning the raw string breaks downstream
+            # callers that expect a ColumnType (e.g. is_compatible(),
+            # arithmetic op type resolution). Fall back to UnknownType so
+            # the contract holds.
+            from datajunction_server.sql.parsing.types import UnknownType
+
+            return UnknownType()
 
 
 class ColumnAttributeInput(BaseModel):
