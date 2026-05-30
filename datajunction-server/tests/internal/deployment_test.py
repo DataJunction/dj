@@ -522,6 +522,33 @@ async def test_deploy_delete_node_failure(
     )
 
 
+async def test_deploy_delete_node_reraises_session_fatal(
+    session: AsyncSession,
+    current_user: User,
+    categories: Node,
+):
+    """
+    A SQLAlchemy session-fatal error (e.g. PendingRollbackError from a killed
+    connection mid-deployment) must propagate out of _deploy_delete_node so
+    the outer savepoint unwinds, instead of being swallowed into a FAILED
+    DeploymentResult that lets the loop keep churning on a dead session.
+    """
+    from sqlalchemy.exc import PendingRollbackError
+
+    await default_attribute_types(session)
+    orchestrator = create_orchestrator(session, current_user, [])
+    with patch(
+        "datajunction_server.internal.deployment.orchestrator.hard_delete_node",
+        new=AsyncMock(
+            side_effect=PendingRollbackError(
+                "Can't reconnect until invalid savepoint transaction is rolled back",
+            ),
+        ),
+    ):
+        with pytest.raises(PendingRollbackError):
+            await orchestrator._deploy_delete_node(categories.name)
+
+
 def test_find_upstreams_for_derived_metric():
     """
     Test that derived metrics (metrics with no FROM clause referencing other metrics)

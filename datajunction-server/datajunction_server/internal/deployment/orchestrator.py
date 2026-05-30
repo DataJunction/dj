@@ -7,8 +7,23 @@ from dataclasses import dataclass, field
 from typing import cast
 
 from sqlalchemy import func, or_, select, inspect as sa_inspect
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload, defer, load_only, noload
+
+
+def _is_session_fatal(exc: BaseException) -> bool:
+    """
+    Whether ``exc`` indicates the SQLAlchemy session can no longer be used.
+
+    Once we see one of these inside the per-entity loops, the savepoint is
+    invalid and every subsequent ``session.execute(...)`` will raise the same
+    error — continuing the loop just produces a cascade of identical FAILED
+    results and hides the original cause. Callers should re-raise so the
+    outer savepoint unwinds cleanly.
+    """
+    return isinstance(exc, SQLAlchemyError)
+
 
 from datajunction_server.api.helpers import (
     get_node_namespace,
@@ -2678,6 +2693,14 @@ class DeploymentOrchestrator:
                 message=f"Node {name} has been removed.",
             )
         except Exception as exc:
+            if _is_session_fatal(exc):
+                logger.error(
+                    "Aborting deployment: session-fatal error while deleting "
+                    "node %s (%s). Subsequent ops cannot run on this session.",
+                    name,
+                    type(exc).__name__,
+                )
+                raise
             logger.exception(exc)
             return DeploymentResult(
                 name=name,
@@ -2745,6 +2768,14 @@ class DeploymentOrchestrator:
                     ),
                 )
             except Exception as exc:  # pragma: no cover
+                if _is_session_fatal(exc):
+                    logger.error(
+                        "Aborting deployment: session-fatal error while "
+                        "deleting namespace %s (%s).",
+                        ns,
+                        type(exc).__name__,
+                    )
+                    raise
                 logger.exception(exc)
                 results.append(
                     DeploymentResult(

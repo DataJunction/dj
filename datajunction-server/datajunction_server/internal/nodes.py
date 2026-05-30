@@ -51,6 +51,7 @@ from datajunction_server.database.measure import FrozenMeasure
 from datajunction_server.sql.decompose import MetricComponentExtractor
 from datajunction_server.errors import (
     DJDoesNotExistException,
+    DJInternalErrorException,
     DJError,
     DJException,
     DJInvalidInputException,
@@ -1189,6 +1190,12 @@ async def update_any_node(
 
     if node.type == NodeType.CUBE:  # type: ignore
         node = await Node.get_cube_by_name(session, name)
+        if node is None or node.current is None:
+            raise DJInternalErrorException(
+                f"Cube `{name}` has no resolvable current revision "
+                f"(current_version={getattr(node, 'current_version', None)!r}); "
+                "this indicates a dangling current_version pointer in the database.",
+            )
         node_revision = await update_cube_node(
             session,
             node.current,  # type: ignore
