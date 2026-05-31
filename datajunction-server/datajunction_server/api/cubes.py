@@ -228,6 +228,11 @@ async def cube_materialization_info(
     To request metrics from the materialized cube, use the metrics' measures metadata.
     """
     node = await Node.get_cube_by_name(session, name)
+    if not node or not node.current:
+        raise DJNodeNotFound(
+            message=f"Cube node `{name}` does not exist.",
+            http_status_code=404,
+        )
     temporal_partitions = node.current.temporal_partition_columns()  # type: ignore
     if len(temporal_partitions) != 1:
         raise DJInvalidInputException(
