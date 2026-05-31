@@ -271,6 +271,15 @@ class TestTags:
         assert response.status_code == 201
         await self.create_another_tag(client_with_dbt)
 
+        # Tagging a nonexistent node should 404 cleanly (not AttributeError)
+        response = await client_with_dbt.post(
+            "/nodes/default.does_not_exist/tags/?tag_names=sales_report",
+        )
+        assert response.status_code == 404
+        assert response.json()["message"] == (
+            "A node with name `default.does_not_exist` does not exist."
+        )
+
         # Trying tag a node with a nonexistent tag should fail
         response = await client_with_dbt.post(
             "/nodes/default.items_sold_count/tags?tag_names=random_tag",
