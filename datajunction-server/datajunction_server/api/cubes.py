@@ -227,7 +227,7 @@ async def cube_materialization_info(
     materialized dataset. This allows us to reconstruct metrics SQL from the dataset when needed.
     To request metrics from the materialized cube, use the metrics' measures metadata.
     """
-    node = await Node.get_cube_by_name(session, name)
+    node = await Node.get_cube_by_name(session, name, with_metric_current=True)
     if not node or not node.current:
         raise DJNodeNotFound(
             message=f"Cube node `{name}` does not exist.",
