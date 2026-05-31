@@ -732,6 +732,7 @@ class Node(Base):
         session: AsyncSession,
         name: str,
         for_measures_sql: bool = False,
+        with_metric_current: bool = False,
     ) -> Optional["Node"]:
         """
         Get a cube by name.
@@ -746,6 +747,11 @@ class Node(Base):
                 and column attributes. Use this when the cube is fed directly into
                 `build_measures_sql(..., matched_cube=...)`. Default False preserves
                 existing callers' behavior.
+            with_metric_current: If True, also eager-load Node.current for each
+                metric node referenced via cube_elements. Needed when the caller
+                accesses metric.current (e.g. for display_name) inside an async
+                context. Avoided by default because it adds a selectin query per
+                cube.
         """
         options: list[ExecutableOption]
         if for_measures_sql:
@@ -783,6 +789,11 @@ class Node(Base):
                 ),
             ]
         else:
+            metric_node_options = (
+                [selectinload(NodeRevision.node).selectinload(Node.current)]
+                if with_metric_current
+                else [selectinload(NodeRevision.node)]
+            )
             options = [
                 joinedload(Node.current).options(
                     selectinload(NodeRevision.availability),
@@ -793,9 +804,7 @@ class Node(Base):
                     ),
                     selectinload(NodeRevision.cube_elements)
                     .selectinload(Column.node_revision)
-                    .options(
-                        selectinload(NodeRevision.node),
-                    ),
+                    .options(*metric_node_options),
                 ),
                 joinedload(Node.tags),
             ]
