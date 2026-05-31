@@ -205,6 +205,24 @@ async def test_resolve_silent_for_fast_resolvers():
     mock_logger.warning.assert_not_called()
 
 
+def test_dj_schema_suppresses_default_error_logger():
+    """
+    DJSchema.process_errors must be a no-op so the strawberry.execution
+    logger doesn't double-log every GraphQL error at ERROR level — that's
+    exactly what previously promoted client validation errors back to
+    ERROR in Radar even after the GraphQLErrorReporter WARNING fix.
+    """
+    import logging
+    from datajunction_server.api.graphql.main import schema
+
+    error = GraphQLError("Cannot query field 'foo' on type 'Node'.")
+
+    with patch.object(logging.getLogger("strawberry.execution"), "error") as mock_log:
+        schema.process_errors([error])
+
+    mock_log.assert_not_called()
+
+
 @pytest.mark.asyncio
 @patch("datajunction_server.api.graphql.main.create_node_by_name_loader")
 @patch("datajunction_server.api.graphql.main.get_settings")

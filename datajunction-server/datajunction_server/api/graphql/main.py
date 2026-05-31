@@ -306,6 +306,20 @@ class Query:
     )
 
 
-schema = strawberry.Schema(query=Query, extensions=[GraphQLErrorReporter])
+class DJSchema(strawberry.Schema):
+    """
+    Suppress Strawberry's default ``process_errors`` so the only thing
+    logging GraphQL errors is ``GraphQLErrorReporter``. The default
+    implementation logs every error (including client-side parse and
+    validation failures) at ERROR via the ``strawberry.execution`` logger,
+    which double-logs and floods Radar with WARN-level user mistakes
+    re-promoted to ERROR.
+    """
+
+    def process_errors(self, errors, execution_context=None):
+        return
+
+
+schema = DJSchema(query=Query, extensions=[GraphQLErrorReporter])
 
 graphql_app = GraphQLRouter(schema, context_getter=get_context)
