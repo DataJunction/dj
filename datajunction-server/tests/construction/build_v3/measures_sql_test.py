@@ -119,6 +119,19 @@ class TestMeasuresSQLEndpoint:
         assert response.status_code >= 400
 
     @pytest.mark.asyncio
+    async def test_metrics_v3_no_metrics_raises_422(self, client_with_build_v3):
+        """GET /sql/metrics/v3/ with no metrics must return 422, not a 500 IndexError."""
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": [],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+        assert response.status_code == 422
+        assert "metric" in response.json()["message"].lower()
+
+    @pytest.mark.asyncio
     async def test_nonexistent_metric_raises_error(self, client_with_build_v3):
         """Test that nonexistent metric raises an error."""
         response = await client_with_build_v3.get(
