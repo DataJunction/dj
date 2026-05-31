@@ -3882,7 +3882,10 @@ async def test_cube_materialization_info_nonexistent_cube(
         "/cubes/default.nonexistent_cube/materialization",
     )
     assert response.status_code == 404
-    assert response.json()["message"] == "Cube node `default.nonexistent_cube` does not exist."
+    assert (
+        response.json()["message"]
+        == "Cube node `default.nonexistent_cube` does not exist."
+    )
 
 
 @pytest.mark.asyncio
