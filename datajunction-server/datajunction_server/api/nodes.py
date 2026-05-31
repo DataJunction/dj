@@ -1063,7 +1063,11 @@ async def tags_node(
     access_checker.add_request_by_node_name(name, ResourceAction.WRITE)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
-    node = await Node.get_by_name(session=session, name=name)
+    node = await Node.get_by_name(
+        session=session,
+        name=name,
+        raise_if_not_exists=True,
+    )
     existing_tags = {tag.name for tag in node.tags}  # type: ignore
     if not tag_names:
         tag_names = []  # pragma: no cover
