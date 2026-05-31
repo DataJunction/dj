@@ -3482,6 +3482,33 @@ async def test_date_add(session: AsyncSession):
 
 
 @pytest.mark.asyncio
+async def test_date_trunc(session: AsyncSession):
+    """
+    Test `date_trunc`
+    """
+    query = parse("SELECT date_trunc('day', CURRENT_TIMESTAMP())")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.TimestampType()  # type: ignore
+
+    query = parse("SELECT date_trunc('month', CURRENT_DATE())")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.DateType()  # type: ignore
+
+    query = parse("SELECT date_trunc('year', '2020-01-01')")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.TimestampType()  # type: ignore
+
+
+@pytest.mark.asyncio
 async def test_replace(session: AsyncSession):
     """
     Test `replace`
