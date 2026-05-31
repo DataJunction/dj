@@ -2886,8 +2886,36 @@ async def create_new_revision_for_dimension_link_update(
     """
     Create a new revision for the node to capture the dimension link changes in a new version
     """
-    new_revision = copy_existing_node_revision(node.current, current_user)
-    new_revision.version = str(Version.parse(node.current_version).next_minor_version())
+    # Lock the node row and re-read current_version atomically to prevent two concurrent
+    # requests from computing the same next version and hitting uq_noderevision_version.
+    fresh_version = (
+        await session.execute(
+            select(Node.current_version).where(Node.id == node.id).with_for_update(),
+        )
+    ).scalar_one()
+
+    # Load the NodeRevision at the locked version with all sub-relationships needed by
+    # copy_existing_node_revision. This handles the case where another concurrent request
+    # already bumped current_version between when we originally loaded `node` and now.
+    current_revision = (
+        (
+            await session.execute(
+                select(NodeRevision)
+                .where(
+                    NodeRevision.node_id == node.id,
+                    NodeRevision.version == fresh_version,
+                )
+                .options(*NodeRevision.default_load_options()),
+            )
+        )
+        .unique()
+        .scalar_one()
+    )
+
+    node.current_version = fresh_version
+
+    new_revision = copy_existing_node_revision(current_revision, current_user)
+    new_revision.version = str(Version.parse(fresh_version).next_minor_version())
     node.current_version = new_revision.version
     new_revision.node = node
 
