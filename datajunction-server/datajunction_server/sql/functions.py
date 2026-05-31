@@ -1721,6 +1721,36 @@ def infer_type(
     return ct.DateType()
 
 
+class DateTrunc(Function):
+    """
+    date_trunc(unit, expr) - Truncates a date/timestamp to the specified unit.
+    """
+
+
+@DateTrunc.register  # type: ignore
+def infer_type(
+    unit: ct.StringType,
+    expr: ct.TimestampType,
+) -> ct.TimestampType:
+    return ct.TimestampType()
+
+
+@DateTrunc.register  # type: ignore
+def infer_type(
+    unit: ct.StringType,
+    expr: ct.DateType,
+) -> ct.DateType:
+    return ct.DateType()
+
+
+@DateTrunc.register  # type: ignore
+def infer_type(
+    unit: ct.StringType,
+    expr: ct.StringType,
+) -> ct.TimestampType:
+    return ct.TimestampType()
+
+
 class Day(Function):
     """
     Returns the day of the month for a specified date.
