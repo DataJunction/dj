@@ -701,10 +701,17 @@ async def derive_frozen_measures(node_revision_id: int) -> list[FrozenMeasure]:
     on completion. The deployment path uses ``derive_frozen_measures_bulk``
     instead to batch DB work across all metrics in a single transaction.
     """
-    async with session_context() as session:
-        result = await _derive_frozen_measures_impl(node_revision_id, session)
-        await session.commit()
-        return result
+    try:
+        async with session_context() as session:
+            result = await _derive_frozen_measures_impl(node_revision_id, session)
+            await session.commit()
+            return result
+    except Exception:
+        _logger.exception(
+            "Error deriving frozen measures for node revision %s",
+            node_revision_id,
+        )
+        return []
 
 
 async def _derive_frozen_measures_impl(
@@ -1663,13 +1670,19 @@ async def propagate_update_downstream(
     """
     Background task to propagate the updated node's changes to all of its downstream children.
     """
-    async with session_context() as session:
-        await _propagate_update_downstream(
-            session=session,
-            node=node,
-            current_user=current_user,
-            save_history=save_history,
-            cache=cache,
+    try:
+        async with session_context() as session:
+            await _propagate_update_downstream(
+                session=session,
+                node=node,
+                current_user=current_user,
+                save_history=save_history,
+                cache=cache,
+            )
+    except Exception:
+        _logger.exception(
+            "Error propagating update of node %s downstream",
+            node.name,
         )
 
 
@@ -2160,25 +2173,33 @@ async def save_column_level_lineage(node_revision_id: int):
     """
     Saves the column-level lineage for a node revision
     """
-    async with session_context() as session:
-        statement = (
-            select(NodeRevision)
-            .where(NodeRevision.id == node_revision_id)
-            .options(
-                selectinload(NodeRevision.columns),
+    try:
+        async with session_context() as session:
+            statement = (
+                select(NodeRevision)
+                .where(NodeRevision.id == node_revision_id)
+                .options(
+                    selectinload(NodeRevision.columns),
+                )
             )
+            node_revision = (
+                (await session.execute(statement)).unique().scalar_one_or_none()
+            )
+            if node_revision:  # pragma: no cover
+                column_level_lineage = await get_column_level_lineage(
+                    session,
+                    node_revision,
+                )
+                node_revision.lineage = [
+                    lineage.model_dump() for lineage in column_level_lineage
+                ]
+                session.add(node_revision)
+                await session.commit()
+    except Exception:
+        _logger.exception(
+            "Error saving column-level lineage for node revision %s",
+            node_revision_id,
         )
-        node_revision = (await session.execute(statement)).unique().scalar_one_or_none()
-        if node_revision:  # pragma: no cover
-            column_level_lineage = await get_column_level_lineage(
-                session,
-                node_revision,
-            )
-            node_revision.lineage = [
-                lineage.model_dump() for lineage in column_level_lineage
-            ]
-            session.add(node_revision)
-            await session.commit()
 
 
 async def save_query_ast(  # pragma: no cover

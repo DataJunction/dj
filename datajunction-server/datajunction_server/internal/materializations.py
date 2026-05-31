@@ -345,13 +345,19 @@ async def schedule_materialization_jobs_bg(
     """
     Schedule a materialization job in the background.
     """
-    async with session_context() as session:
-        await schedule_materialization_jobs(
-            session=session,
-            node_revision_id=node_revision_id,
-            materialization_names=materialization_names,
-            query_service_client=query_service_client,
-            request_headers=request_headers,
+    try:
+        async with session_context() as session:
+            await schedule_materialization_jobs(
+                session=session,
+                node_revision_id=node_revision_id,
+                materialization_names=materialization_names,
+                query_service_client=query_service_client,
+                request_headers=request_headers,
+            )
+    except Exception:
+        _logger.exception(
+            "Error scheduling materialization jobs for node revision %s",
+            node_revision_id,
         )
 
 
