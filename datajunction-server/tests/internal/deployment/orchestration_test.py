@@ -2025,6 +2025,82 @@ async def test_create_deployment_plan_reactivates_deactivated_auto_source(
 
 
 @pytest.mark.asyncio
+async def test_create_deployment_plan_acquires_advisory_lock_for_autoreg(
+    session,
+    current_user: User,
+):
+    """Auto-register acquires a per-source advisory lock before the
+    include_inactive existence check, serializing concurrent deployments
+    that reference the same missing source.
+
+    Without the lock, two concurrent transactions both miss each other's
+    not-yet-committed write and queue duplicate INSERTs that collide on
+    `unique_node_namespace_name`.
+    """
+    session.add(NodeNamespace(namespace="test_lock"))
+    catalog = Catalog(name="lock_cat")
+    session.add(catalog)
+    await session.commit()
+
+    deployment_spec = DeploymentSpec(
+        namespace="test_lock",
+        nodes=[TransformSpec(name="my_transform", query="SELECT 1")],
+        auto_register_sources=True,
+    )
+    context = MagicMock(autospec=DeploymentContext)
+    context.current_user = current_user
+    orchestrator = DeploymentOrchestrator(
+        deployment_id="test-deployment-lock",
+        deployment_spec=deployment_spec,
+        session=session,
+        context=context,
+    )
+
+    # Two missing sources to verify per-source locks and sorted order.
+    src_b = SourceSpec(
+        name="lock_cat.s.b",
+        catalog="lock_cat",
+        schema="s",
+        table="b",
+        columns=[],
+    )
+    src_b.namespace = None
+    src_a = SourceSpec(
+        name="lock_cat.s.a",
+        catalog="lock_cat",
+        schema="s",
+        table="a",
+        columns=[],
+    )
+    src_a.namespace = None
+
+    # Spy on session.execute to capture advisory-lock calls.
+    real_execute = session.execute
+    lock_calls: list[str] = []
+
+    async def spy_execute(stmt, params=None, *args, **kwargs):
+        sql_str = str(stmt).lower()
+        if "pg_advisory_xact_lock" in sql_str and params and "key" in params:
+            lock_calls.append(params["key"])
+        return await real_execute(stmt, params, *args, **kwargs)
+
+    with patch.object(session, "execute", side_effect=spy_execute):
+        with patch.object(
+            orchestrator,
+            "check_external_deps",
+            # Pass sources in NON-sorted order to verify they get sorted.
+            side_effect=[(set(), [src_b, src_a], []), (set(), [], [])],
+        ):
+            await orchestrator._create_deployment_plan()
+
+    # Both source names had their lock acquired, in sorted order.
+    assert lock_calls == [
+        "dj:autoreg:lock_cat.s.a",
+        "dj:autoreg:lock_cat.s.b",
+    ], f"Expected sorted lock acquisition; got {lock_calls}"
+
+
+@pytest.mark.asyncio
 async def test_node_get_by_names_include_inactive(
     session,
     current_user: User,

@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import cast
 
-from sqlalchemy import func, or_, select, inspect as sa_inspect
+from sqlalchemy import func, or_, select, text, inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload, defer, load_only, noload
 
@@ -1166,6 +1166,23 @@ class DeploymentOrchestrator:
                 auto_source_names = [
                     src.rendered_name for src in auto_registered_sources
                 ]
+
+                # Acquire a transaction-scoped advisory lock per source name
+                # to serialize concurrent auto-register flows for the same
+                # source. Without this, two deployments referencing the same
+                # missing source race: each one's include_inactive lookup
+                # misses the other's not-yet-committed write, both queue an
+                # INSERT, and they collide on `unique_node_namespace_name`.
+                # Sort the names so multiple sources are acquired in
+                # deterministic order, preventing deadlocks across
+                # transactions that reference overlapping sets of sources.
+                # Locks auto-release at COMMIT/ROLLBACK.
+                for source_name in sorted(auto_source_names):
+                    await self.session.execute(
+                        text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+                        {"key": f"dj:autoreg:{source_name}"},
+                    )
+
                 existing_auto_sources = await Node.get_by_names(
                     self.session,
                     auto_source_names,
