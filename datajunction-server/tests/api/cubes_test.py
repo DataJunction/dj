@@ -3871,6 +3871,24 @@ async def test_cube_materialization_metadata(
 
 
 @pytest.mark.asyncio
+async def test_cube_materialization_info_nonexistent_cube(
+    client_with_repairs_cube: AsyncClient,
+):
+    """
+    Requesting materialization info for a cube that does not exist should return 404,
+    not a 500 AttributeError on node.current.
+    """
+    response = await client_with_repairs_cube.get(
+        "/cubes/default.nonexistent_cube/materialization",
+    )
+    assert response.status_code == 404
+    assert (
+        response.json()["message"]
+        == "Cube node `default.nonexistent_cube` does not exist."
+    )
+
+
+@pytest.mark.asyncio
 async def test_get_all_cubes(
     client_with_repairs_cube: AsyncClient,
 ):
