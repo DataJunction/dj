@@ -36,6 +36,7 @@ from datajunction_server.construction.build_v3.types import (
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.database.partition import Partition
 from datajunction_server.models.decompose import Aggregability
 from datajunction_server.models.node_type import NodeType
@@ -255,6 +256,12 @@ async def resolve_dialect_and_engine_for_metrics(
                     catalog_name=avail_catalog_name,
                     cube=cube,
                 )
+
+    if not metrics:
+        raise DJInvalidInputException(
+            "At least one metric is required.",
+            http_status_code=422,
+        )
 
     # Fallback: use first metric's catalog's default engine
     node = await Node.get_by_name(
