@@ -62,6 +62,59 @@ class TagSpec(BaseModel):
     tag_metadata: dict | None = None
 
 
+class HierarchyLevelSpec(BaseModel):
+    """
+    Specification for a single level within a hierarchy.
+    """
+
+    name: str
+    dimension_node: str
+    grain_columns: list[str] | None = None
+
+    def rendered_dimension_node(self, namespace: str | None) -> str:
+        """Return the dimension_node name with namespace prefix applied."""
+        return (
+            render_prefixes(self.dimension_node, namespace)
+            if namespace
+            else self.dimension_node
+        )
+
+
+class NamespacedSpec(BaseModel):
+    """
+    Base class for specs that carry a namespace and need a rendered_name.
+
+    Both HierarchySpec and NodeSpec share identical name/namespace fields and
+    rendered_name logic; this base class deduplts that to avoid drift.
+    """
+
+    name: str
+
+    # Not user-supplied, gets injected by DeploymentSpec.set_namespaces
+    namespace: str | None = Field(default=None, exclude=True)
+
+    @property
+    def rendered_name(self) -> str:
+        if self.namespace:
+            if "${prefix}" in self.name:
+                return render_prefixes(self.name, self.namespace)
+            prefix = f"{self.namespace}{SEPARATOR}"
+            if self.name.startswith(prefix):
+                return self.name  # already fully qualified
+            return f"{prefix}{self.name}"
+        return self.name
+
+
+class HierarchySpec(NamespacedSpec):
+    """
+    Specification for a dimensional hierarchy.
+    """
+
+    display_name: str | None = None
+    description: str | None = None
+    levels: list[HierarchyLevelSpec] = Field(default_factory=list, min_length=2)
+
+
 class PartitionSpec(BaseModel):
     """
     Represents a partition
@@ -226,16 +279,11 @@ def render_prefixes(parameterized_string: str, prefix: str | None = None) -> str
     )
 
 
-class NodeSpec(BaseModel):
+class NodeSpec(NamespacedSpec):
     """
     Specification of a node as declared in a deployment.
     The name is relative and will be hydrated with the deployment namespace.
     """
-
-    name: str
-
-    # Not user-supplied, gets injected
-    namespace: str | None = Field(default=None, exclude=True)
 
     node_type: NodeType
     owners: list[str] = Field(default_factory=list)
@@ -265,7 +313,10 @@ class NodeSpec(BaseModel):
         if self.namespace:
             if "${prefix}" in self.name:  # pragma: no cover
                 return render_prefixes(self.name, self.namespace)
-            return f"{self.namespace}{SEPARATOR}{self.name}"
+            prefix = f"{self.namespace}{SEPARATOR}"
+            if self.name.startswith(prefix):
+                return self.name  # already fully qualified
+            return f"{prefix}{self.name}"
         return self.name
 
     @property
@@ -771,6 +822,7 @@ class DeploymentSpec(BaseModel):
     namespace: str
     nodes: list[NodeUnion] = Field(default_factory=list)
     tags: list[TagSpec] = Field(default_factory=list)
+    hierarchies: list[HierarchySpec] = Field(default_factory=list)
     source: DeploymentSource | None = None  # CI/CD provenance tracking
     git_config: NamespaceGitConfig | None = None  # Git branch management config
     force: bool = Field(
@@ -824,6 +876,9 @@ class DeploymentSpec(BaseModel):
                 for link in node.dimension_links:
                     if not link.namespace:
                         link.namespace = self.namespace
+        for hierarchy in self.hierarchies:
+            if not hierarchy.namespace:
+                hierarchy.namespace = self.namespace
         return self
 
 

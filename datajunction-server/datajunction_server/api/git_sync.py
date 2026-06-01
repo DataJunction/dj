@@ -16,7 +16,7 @@ from typing import List, Optional
 
 import yaml
 from fastapi import BackgroundTasks, Depends, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import get_node_namespace
@@ -193,7 +193,6 @@ async def _fetch_deployment_spec_from_git(
     )
 
     # Extract and parse YAML files
-    nodes: List[dict] = []
     with tempfile.TemporaryDirectory() as tmpdir:
         with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:gz") as tar:
             tar.extractall(tmpdir)
@@ -217,27 +216,31 @@ async def _fetch_deployment_spec_from_git(
                 message=f"Path '{git_path}' not found in repository at ref '{ref}'",
             )
 
-        # Parse all YAML files (skip dj.yaml project file)
+        # Parse all YAML files, routing by type: hierarchy vs nodes
+        nodes: List[dict] = []
+        hierarchies: List[dict] = []
         for yaml_file in files_dir.rglob("*.yaml"):
             if yaml_file.name == "dj.yaml":
                 continue
             try:
                 with open(yaml_file, "r", encoding="utf-8") as f:
-                    node = yaml.safe_load(f)
-                if isinstance(node, dict) and "name" in node:
-                    nodes.append(node)
-                    _logger.debug("Loaded node spec: %s", node.get("name"))
+                    spec = yaml.safe_load(f)
+                if not isinstance(spec, dict) or "name" not in spec:
+                    continue
+                if spec.get("type") == "hierarchy" and "node_type" not in spec:
+                    hierarchies.append(spec)
+                    _logger.debug("Loaded hierarchy spec: %s", spec.get("name"))
+                else:
+                    nodes.append(spec)
+                    _logger.debug("Loaded node spec: %s", spec.get("name"))
             except Exception as e:
-                _logger.warning(
-                    "Skipping invalid YAML file %s: %s",
-                    yaml_file,
-                    e,
-                )
+                _logger.warning("Skipping invalid YAML file %s: %s", yaml_file, e)
                 continue
 
     _logger.info(
-        "Fetched %d node specs from git: %s @ %s",
+        "Fetched %d node specs and %d hierarchy specs from git: %s @ %s",
         len(nodes),
+        len(hierarchies),
         repo_path,
         ref[:12] if len(ref) > 12 else ref,
     )
@@ -246,6 +249,7 @@ async def _fetch_deployment_spec_from_git(
         "namespace": namespace,
         "nodes": nodes,
         "tags": [],
+        "hierarchies": hierarchies,
     }
 
 
@@ -857,9 +861,11 @@ async def sync_namespace_from_git(
             message=f"Failed to fetch from git: {e.message}",
         ) from e
 
-    if not deployment_spec_dict.get("nodes"):
+    if not deployment_spec_dict.get("nodes") and not deployment_spec_dict.get(
+        "hierarchies",
+    ):
         raise DJInvalidInputException(
-            message=f"No node definitions found in repository '{github_repo_path}' "
+            message=f"No node or hierarchy definitions found in repository '{github_repo_path}' "
             f"at branch '{git_branch}'"
             + (f" in path '{git_path}'" if git_path else ""),
         )
@@ -876,7 +882,10 @@ async def sync_namespace_from_git(
 
     # 6. Deploy using existing orchestrator
     deployment_id = str(uuid.uuid4())
-    deployment_spec = DeploymentSpec(**deployment_spec_dict)
+    try:
+        deployment_spec = DeploymentSpec(**deployment_spec_dict)
+    except ValidationError as e:
+        raise DJInvalidInputException(message=str(e)) from e
 
     orchestrator = DeploymentOrchestrator(
         deployment_id=deployment_id,

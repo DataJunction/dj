@@ -4964,7 +4964,9 @@ columns:
             )
 
             assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
-            assert "No node definitions found" in response.json()["message"]
+            assert (
+                "No node or hierarchy definitions found" in response.json()["message"]
+            )
 
     @pytest.mark.asyncio
     async def test_sync_from_git_source_records_branch_and_sha(
@@ -5422,3 +5424,547 @@ columns:
             assert data["status"] == "success"
             assert data["source"]["commit_author_name"] is None
             assert data["source"]["commit_author_email"] is None
+
+    @pytest.mark.asyncio
+    async def test_sync_from_git_hierarchy_only_push_applies_hierarchies(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Hierarchy-only pushes (no node changes) must not be silently dropped.
+
+        Regression test for: _setup_hierarchies was gated on plan.to_deploy,
+        so a push with only hierarchy changes never applied them.
+        Two pushes: first creates the dimension nodes, second has only a hierarchy.
+        """
+        await client_with_service_setup.post("/namespaces/hier_only_ns")
+        await client_with_service_setup.patch(
+            "/namespaces/hier_only_ns/git",
+            json={"github_repo_path": "myorg/myrepo", "git_branch": "main"},
+        )
+
+        # Single-dimension node — same node referenced at two grains
+        # (single-dimension hierarchies skip the inter-level link check)
+        dim_date_yaml = """
+name: ${prefix}dim_date
+node_type: dimension
+query: "SELECT date_id, month_id FROM default.raw_dates"
+"""
+        # First push: create the dimension node
+        first_tarball = create_mock_tarball({"dim_date.yaml": dim_date_yaml})
+        with patch("datajunction_server.api.git_sync.GitHubService") as mock_cls:
+            mock_gh = MagicMock()
+            mock_gh.resolve_ref_to_sha = AsyncMock(return_value="sha000")
+            mock_gh.get_commit_author = AsyncMock(
+                return_value=("Bot", "bot@example.com"),
+            )
+            mock_gh.download_archive = AsyncMock(return_value=first_tarball)
+            mock_cls.return_value = mock_gh
+            r = await client_with_service_setup.post(
+                "/namespaces/hier_only_ns/sync-from-git",
+            )
+            assert r.status_code == HTTPStatus.OK, r.text
+
+        # Second push: same node YAML (no node changes) plus a new hierarchy
+        hierarchy_yaml = """
+type: hierarchy
+name: hier_only_date_hierarchy
+levels:
+  - name: month
+    dimension_node: hier_only_ns.dim_date
+    grain_columns: [month_id]
+  - name: day
+    dimension_node: hier_only_ns.dim_date
+    grain_columns: [date_id]
+"""
+        second_tarball = create_mock_tarball(
+            {
+                "dim_date.yaml": dim_date_yaml,
+                "hier_only_date_hierarchy.yaml": hierarchy_yaml,
+            },
+        )
+        with patch("datajunction_server.api.git_sync.GitHubService") as mock_cls:
+            mock_gh = MagicMock()
+            mock_gh.resolve_ref_to_sha = AsyncMock(return_value="sha001")
+            mock_gh.get_commit_author = AsyncMock(
+                return_value=("Bot", "bot@example.com"),
+            )
+            mock_gh.download_archive = AsyncMock(return_value=second_tarball)
+            mock_cls.return_value = mock_gh
+            response = await client_with_service_setup.post(
+                "/namespaces/hier_only_ns/sync-from-git",
+            )
+
+        assert response.status_code == HTTPStatus.OK, response.text
+        hier_response = await client_with_service_setup.get(
+            "/hierarchies/hier_only_ns.hier_only_date_hierarchy",
+        )
+        assert hier_response.status_code == HTTPStatus.OK
+        data = hier_response.json()
+        assert data["name"] == "hier_only_ns.hier_only_date_hierarchy"
+        assert len(data["levels"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_sync_from_git_hierarchy_with_single_level_rejected(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """A hierarchy YAML with fewer than 2 levels must be rejected, not silently accepted.
+
+        Regression test for: HierarchySpec.levels had no min_length=2 constraint,
+        allowing 1-level hierarchies that POST /hierarchies correctly rejects.
+        """
+        await client_with_service_setup.post("/namespaces/single_level_ns")
+        await client_with_service_setup.patch(
+            "/namespaces/single_level_ns/git",
+            json={"github_repo_path": "myorg/myrepo", "git_branch": "main"},
+        )
+
+        # Hierarchy with only one level — invalid per HierarchyCreateRequest rules
+        hierarchy_yaml = """
+type: hierarchy
+name: bad_hierarchy
+levels:
+  - name: only_level
+    dimension_node: single_level_ns.dim_date
+    grain_columns: [date_id]
+"""
+        node_yaml = """
+name: ${prefix}dim_date
+node_type: dimension
+query: "SELECT date_id FROM default.raw_dates"
+"""
+        tarball = create_mock_tarball(
+            {
+                "dim_date.yaml": node_yaml,
+                "bad_hierarchy.yaml": hierarchy_yaml,
+            },
+        )
+
+        with patch("datajunction_server.api.git_sync.GitHubService") as mock_cls:
+            mock_gh = MagicMock()
+            mock_gh.resolve_ref_to_sha = AsyncMock(return_value="sha002")
+            mock_gh.get_commit_author = AsyncMock(
+                return_value=("Bot", "bot@example.com"),
+            )
+            mock_gh.download_archive = AsyncMock(return_value=tarball)
+            mock_cls.return_value = mock_gh
+
+            response = await client_with_service_setup.post(
+                "/namespaces/single_level_ns/sync-from-git",
+            )
+
+        # The deployment itself may succeed (node deploys), but the hierarchy must not be created
+        hier_response = await client_with_service_setup.get(
+            "/hierarchies/single_level_ns.bad_hierarchy",
+        )
+        assert hier_response.status_code == HTTPStatus.NOT_FOUND
+
+    @pytest.mark.asyncio
+    async def test_sync_from_git_hierarchies_in_subdirectory_are_loaded(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Hierarchy files nested under hierarchies/ subdirectories must be loaded.
+
+        Regression test for: hierarchy loop used glob() (depth-1 only) while the
+        node exclusion used is_relative_to() (recursive), causing files at
+        hierarchies/subdir/foo.yaml to be silently dropped from both collections.
+        """
+        await client_with_service_setup.post("/namespaces/nested_hier_ns")
+        await client_with_service_setup.patch(
+            "/namespaces/nested_hier_ns/git",
+            json={"github_repo_path": "myorg/myrepo", "git_branch": "main"},
+        )
+
+        node_yaml = """
+name: ${prefix}dim_date
+node_type: dimension
+query: "SELECT date_id, month_id, year_id FROM default.raw_dates"
+"""
+        hierarchy_yaml = """
+type: hierarchy
+name: nested_date_hierarchy
+levels:
+  - name: year
+    dimension_node: nested_hier_ns.dim_date
+    grain_columns: [year_id]
+  - name: month
+    dimension_node: nested_hier_ns.dim_date
+    grain_columns: [year_id, month_id]
+  - name: day
+    dimension_node: nested_hier_ns.dim_date
+    grain_columns: [year_id, month_id, date_id]
+"""
+        # Hierarchy YAML is inside a subdirectory (no longer requires hierarchies/ dir)
+        tarball = create_mock_tarball(
+            {
+                "dim_date.yaml": node_yaml,
+                "time/nested_date_hierarchy.yaml": hierarchy_yaml,
+            },
+        )
+
+        with patch("datajunction_server.api.git_sync.GitHubService") as mock_cls:
+            mock_gh = MagicMock()
+            mock_gh.resolve_ref_to_sha = AsyncMock(return_value="sha003")
+            mock_gh.get_commit_author = AsyncMock(
+                return_value=("Bot", "bot@example.com"),
+            )
+            mock_gh.download_archive = AsyncMock(return_value=tarball)
+            mock_cls.return_value = mock_gh
+
+            response = await client_with_service_setup.post(
+                "/namespaces/nested_hier_ns/sync-from-git",
+            )
+
+        assert response.status_code == HTTPStatus.OK, response.text
+        # Hierarchy must have been parsed and is present in the response
+        hier_response = await client_with_service_setup.get(
+            "/hierarchies/nested_hier_ns.nested_date_hierarchy",
+        )
+        assert hier_response.status_code == HTTPStatus.OK
+        assert hier_response.json()["name"] == "nested_hier_ns.nested_date_hierarchy"
+
+    @pytest.mark.asyncio
+    async def test_sync_from_git_hierarchy_update_replaces_levels(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """A second push that changes an existing hierarchy's levels must update it.
+
+        Exercises the update branch of _setup_hierarchies (clear + re-add), not just create.
+        """
+        await client_with_service_setup.post("/namespaces/hier_update_ns")
+        await client_with_service_setup.patch(
+            "/namespaces/hier_update_ns/git",
+            json={"github_repo_path": "myorg/myrepo", "git_branch": "main"},
+        )
+
+        dim_yaml = """
+name: ${prefix}dim_date
+node_type: dimension
+query: "SELECT date_id, month_id FROM default.raw_dates"
+"""
+        v1_hierarchy_yaml = """
+type: hierarchy
+name: updateable_hierarchy
+levels:
+  - name: month
+    dimension_node: hier_update_ns.dim_date
+    grain_columns: [month_id]
+  - name: day
+    dimension_node: hier_update_ns.dim_date
+    grain_columns: [date_id]
+"""
+        # First push: create hierarchy with 2 levels
+        first_tarball = create_mock_tarball(
+            {
+                "dim_date.yaml": dim_yaml,
+                "updateable_hierarchy.yaml": v1_hierarchy_yaml,
+            },
+        )
+        with patch("datajunction_server.api.git_sync.GitHubService") as mock_cls:
+            mock_gh = MagicMock()
+            mock_gh.resolve_ref_to_sha = AsyncMock(return_value="sha010")
+            mock_gh.get_commit_author = AsyncMock(
+                return_value=("Bot", "bot@example.com"),
+            )
+            mock_gh.download_archive = AsyncMock(return_value=first_tarball)
+            mock_cls.return_value = mock_gh
+            r = await client_with_service_setup.post(
+                "/namespaces/hier_update_ns/sync-from-git",
+            )
+            assert r.status_code == HTTPStatus.OK, r.text
+
+        data = (
+            await client_with_service_setup.get(
+                "/hierarchies/hier_update_ns.updateable_hierarchy",
+            )
+        ).json()
+        assert len(data["levels"]) == 2
+
+        # Second push: updated hierarchy with 3 levels (add year)
+        v2_hierarchy_yaml = """
+type: hierarchy
+name: updateable_hierarchy
+levels:
+  - name: year
+    dimension_node: hier_update_ns.dim_date
+    grain_columns: [year_id]
+  - name: month
+    dimension_node: hier_update_ns.dim_date
+    grain_columns: [month_id]
+  - name: day
+    dimension_node: hier_update_ns.dim_date
+    grain_columns: [date_id]
+"""
+        v2_dim_yaml = """
+name: ${prefix}dim_date
+node_type: dimension
+query: "SELECT date_id, month_id, year_id FROM default.raw_dates"
+"""
+        second_tarball = create_mock_tarball(
+            {
+                "dim_date.yaml": v2_dim_yaml,
+                "updateable_hierarchy.yaml": v2_hierarchy_yaml,
+            },
+        )
+        with patch("datajunction_server.api.git_sync.GitHubService") as mock_cls:
+            mock_gh = MagicMock()
+            mock_gh.resolve_ref_to_sha = AsyncMock(return_value="sha011")
+            mock_gh.get_commit_author = AsyncMock(
+                return_value=("Bot", "bot@example.com"),
+            )
+            mock_gh.download_archive = AsyncMock(return_value=second_tarball)
+            mock_cls.return_value = mock_gh
+            r = await client_with_service_setup.post(
+                "/namespaces/hier_update_ns/sync-from-git",
+            )
+            assert r.status_code == HTTPStatus.OK, r.text
+
+        data = (
+            await client_with_service_setup.get(
+                "/hierarchies/hier_update_ns.updateable_hierarchy",
+            )
+        ).json()
+        assert len(data["levels"]) == 3
+        assert [lvl["name"] for lvl in data["levels"]] == ["year", "month", "day"]
+
+    @pytest.mark.asyncio
+    async def test_sync_from_git_hierarchy_files_not_treated_as_nodes(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Files under hierarchies/ must be excluded from node deployment.
+
+        A hierarchy YAML has a 'name' key, so without the exclusion it would be
+        picked up as a node spec and cause a deployment error.
+        """
+        await client_with_service_setup.post("/namespaces/hier_excl_ns")
+        await client_with_service_setup.patch(
+            "/namespaces/hier_excl_ns/git",
+            json={"github_repo_path": "myorg/myrepo", "git_branch": "main"},
+        )
+
+        dim_yaml = """
+name: ${prefix}dim_date
+node_type: dimension
+query: "SELECT date_id, month_id FROM default.raw_dates"
+"""
+        # Hierarchy YAML has type: hierarchy — routed to hierarchy path, not node path
+        hierarchy_yaml = """
+type: hierarchy
+name: excl_test_hierarchy
+levels:
+  - name: month
+    dimension_node: hier_excl_ns.dim_date
+    grain_columns: [month_id]
+  - name: day
+    dimension_node: hier_excl_ns.dim_date
+    grain_columns: [date_id]
+"""
+        tarball = create_mock_tarball(
+            {
+                "dim_date.yaml": dim_yaml,
+                "excl_test_hierarchy.yaml": hierarchy_yaml,
+            },
+        )
+
+        with patch("datajunction_server.api.git_sync.GitHubService") as mock_cls:
+            mock_gh = MagicMock()
+            mock_gh.resolve_ref_to_sha = AsyncMock(return_value="sha020")
+            mock_gh.get_commit_author = AsyncMock(
+                return_value=("Bot", "bot@example.com"),
+            )
+            mock_gh.download_archive = AsyncMock(return_value=tarball)
+            mock_cls.return_value = mock_gh
+            response = await client_with_service_setup.post(
+                "/namespaces/hier_excl_ns/sync-from-git",
+            )
+
+        assert response.status_code == HTTPStatus.OK, response.text
+        results = response.json()["results"]
+        # Only the dim_date node should appear in deployment results — not the hierarchy
+        result_names = [r["name"] for r in results]
+        assert not any("excl_test_hierarchy" in n for n in result_names)
+        # Hierarchy was still deployed correctly via the hierarchy path
+        hier_response = await client_with_service_setup.get(
+            "/hierarchies/hier_excl_ns.excl_test_hierarchy",
+        )
+        assert hier_response.status_code == HTTPStatus.OK
+
+    @pytest.mark.asyncio
+    async def test_sync_from_git_invalid_hierarchy_preserves_existing(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Failing hierarchy validation must NOT delete the pre-existing hierarchy.
+
+        Regression test for: deletion was staged before validation, so a fully-
+        invalid push would wipe the existing hierarchy from the namespace before
+        discovering the spec was broken.
+        """
+        await client_with_service_setup.post("/namespaces/hier_preserve_ns")
+        await client_with_service_setup.patch(
+            "/namespaces/hier_preserve_ns/git",
+            json={"github_repo_path": "myorg/myrepo", "git_branch": "main"},
+        )
+
+        # First push: create a valid hierarchy (single-dimension, no link check needed)
+        dim_yaml = """
+name: ${prefix}dim_date
+node_type: dimension
+query: "SELECT date_id, month_id FROM default.raw_dates"
+"""
+        valid_hierarchy_yaml = """
+type: hierarchy
+name: existing_hier
+levels:
+  - name: month
+    dimension_node: hier_preserve_ns.dim_date
+    grain_columns: [month_id]
+  - name: day
+    dimension_node: hier_preserve_ns.dim_date
+    grain_columns: [date_id]
+"""
+        first_tarball = create_mock_tarball(
+            {
+                "dim_date.yaml": dim_yaml,
+                "existing_hier.yaml": valid_hierarchy_yaml,
+            },
+        )
+        with patch("datajunction_server.api.git_sync.GitHubService") as mock_cls:
+            mock_gh = MagicMock()
+            mock_gh.resolve_ref_to_sha = AsyncMock(return_value="sha_preserve_001")
+            mock_gh.get_commit_author = AsyncMock(
+                return_value=("Bot", "bot@example.com"),
+            )
+            mock_gh.download_archive = AsyncMock(return_value=first_tarball)
+            mock_cls.return_value = mock_gh
+            r = await client_with_service_setup.post(
+                "/namespaces/hier_preserve_ns/sync-from-git",
+            )
+            assert r.status_code == HTTPStatus.OK, r.text
+
+        # Confirm hierarchy was created
+        assert (
+            await client_with_service_setup.get(
+                "/hierarchies/hier_preserve_ns.existing_hier",
+            )
+        ).status_code == HTTPStatus.OK
+
+        # Second push: a hierarchy spec that references a nonexistent dimension node
+        # (will fail validation) — the existing hierarchy must survive.
+        invalid_hierarchy_yaml = """
+type: hierarchy
+name: existing_hier
+levels:
+  - name: level_a
+    dimension_node: hier_preserve_ns.nonexistent_dim
+    grain_columns: [col_a]
+  - name: level_b
+    dimension_node: hier_preserve_ns.nonexistent_dim
+    grain_columns: [col_b]
+"""
+        second_tarball = create_mock_tarball(
+            {
+                "existing_hier.yaml": invalid_hierarchy_yaml,
+            },
+        )
+        with patch("datajunction_server.api.git_sync.GitHubService") as mock_cls:
+            mock_gh = MagicMock()
+            mock_gh.resolve_ref_to_sha = AsyncMock(return_value="sha_preserve_002")
+            mock_gh.get_commit_author = AsyncMock(
+                return_value=("Bot", "bot@example.com"),
+            )
+            mock_gh.download_archive = AsyncMock(return_value=second_tarball)
+            mock_cls.return_value = mock_gh
+            r2 = await client_with_service_setup.post(
+                "/namespaces/hier_preserve_ns/sync-from-git",
+            )
+            assert r2.status_code == HTTPStatus.OK, r2.text
+
+        # The existing hierarchy must still be present (validation failure = no delete)
+        survive_response = await client_with_service_setup.get(
+            "/hierarchies/hier_preserve_ns.existing_hier",
+        )
+        assert survive_response.status_code == HTTPStatus.OK
+
+    @pytest.mark.asyncio
+    async def test_sync_from_git_node_type_hierarchy_routed_to_nodes(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """A YAML with both type: hierarchy AND node_type must be routed to nodes, not hierarchies.
+
+        Regression test for: the routing check only tested spec.get("type") == "hierarchy"
+        without verifying the absence of node_type, so a node YAML that happened to set
+        type: hierarchy (a valid node field) would be misrouted to the hierarchy path.
+        """
+        await client_with_service_setup.post("/namespaces/routing_test_ns")
+        await client_with_service_setup.patch(
+            "/namespaces/routing_test_ns/git",
+            json={"github_repo_path": "myorg/myrepo", "git_branch": "main"},
+        )
+
+        # A YAML that has BOTH type: hierarchy AND node_type: dimension
+        # This should be treated as a node spec, not a hierarchy spec.
+        ambiguous_yaml = """
+name: ${prefix}dim_with_type
+node_type: dimension
+type: hierarchy
+query: "SELECT date_id FROM default.raw_dates"
+"""
+        tarball = create_mock_tarball({"dim_with_type.yaml": ambiguous_yaml})
+        with patch("datajunction_server.api.git_sync.GitHubService") as mock_cls:
+            mock_gh = MagicMock()
+            mock_gh.resolve_ref_to_sha = AsyncMock(return_value="sha_routing_001")
+            mock_gh.get_commit_author = AsyncMock(
+                return_value=("Bot", "bot@example.com"),
+            )
+            mock_gh.download_archive = AsyncMock(return_value=tarball)
+            mock_cls.return_value = mock_gh
+            response = await client_with_service_setup.post(
+                "/namespaces/routing_test_ns/sync-from-git",
+            )
+
+        assert response.status_code == HTTPStatus.OK, response.text
+        results = response.json()["results"]
+        result_names = [r["name"] for r in results]
+        # The spec must have been routed to the node path, not ignored as a hierarchy
+        assert any("dim_with_type" in n for n in result_names)
+
+
+class TestHierarchySpecRenderedName:
+    """Unit tests for HierarchySpec.rendered_name double-prefix guard."""
+
+    def test_rendered_name_no_double_prefix(self):
+        """HierarchySpec.rendered_name must not double-prefix an already-qualified name.
+
+        Regression test for: rendered_name blindly prepended namespace+SEPARATOR without
+        checking whether the name already started with that prefix.
+        """
+        from datajunction_server.models.deployment import HierarchySpec
+
+        spec = HierarchySpec(
+            name="common.date_hier",
+            levels=[
+                {"name": "year", "dimension_node": "common.year_dim"},
+                {"name": "month", "dimension_node": "common.month_dim"},
+            ],
+        )
+        spec.namespace = "common"
+        assert spec.rendered_name == "common.date_hier"
+
+    def test_rendered_name_adds_prefix_when_missing(self):
+        """rendered_name should still prefix an unqualified name."""
+        from datajunction_server.models.deployment import HierarchySpec
+
+        spec = HierarchySpec(
+            name="date_hier",
+            levels=[
+                {"name": "year", "dimension_node": "common.year_dim"},
+                {"name": "month", "dimension_node": "common.month_dim"},
+            ],
+        )
+        spec.namespace = "common"
+        assert spec.rendered_name == "common.date_hier"

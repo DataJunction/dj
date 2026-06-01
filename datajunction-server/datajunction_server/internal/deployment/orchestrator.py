@@ -26,6 +26,8 @@ from datajunction_server.database.metricmetadata import MetricMetadata
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import MissingParent, NodeRelationship
 from datajunction_server.database.partition import Partition
+from datajunction_server.database.hierarchy import Hierarchy, HierarchyLevel
+from datajunction_server.models.hierarchy import HierarchyLevelInput
 from datajunction_server.database.tag import Tag
 from datajunction_server.database.user import User, OAuthProvider
 from datajunction_server.instrumentation.provider import get_metrics_provider
@@ -431,7 +433,7 @@ class DeploymentOrchestrator:
                 )
             self.deployed_results.extend(pre_results)
 
-        if deployment_plan.is_empty():
+        if deployment_plan.is_empty() and not self.deployment_spec.hierarchies:
             return DeploymentExecuteResult(
                 results=await self._handle_no_changes(),
                 downstream_impacts=[],
@@ -883,6 +885,135 @@ class DeploymentOrchestrator:
             await self.session.flush()  # Get IDs but don't commit
         return existing_tags
 
+    async def _setup_hierarchies(self) -> None:
+        """
+        Upsert all hierarchies defined in the deployment spec.
+        Hierarchies are namespace-scoped: their stored name is rendered_name
+        (i.e., namespace.hierarchy_name).
+        This phase runs unconditionally (not gated on plan.to_deploy) so that
+        hierarchy-only pushes — where no node changes are detected — are still applied.
+        Runs after dimension links so referenced dimension nodes are guaranteed to exist.
+        Validation delegates to Hierarchy.validate_levels so the same rules apply
+        as the POST /hierarchies endpoint (including dimension-link cardinality checks).
+        """
+        if not self.deployment_spec.hierarchies:
+            return
+
+        specs = self.deployment_spec.hierarchies
+        spec_rendered_names = {spec.rendered_name for spec in specs}
+
+        # Scope existing-hierarchy fetch to the current namespace
+        existing_hierarchies = {
+            h.name: h
+            for h in await Hierarchy.get_by_namespace(
+                self.session,
+                self.deployment_spec.namespace,
+            )
+        }
+
+        # Bulk-fetch dimension node IDs for level insertion (scalars only — no full graph)
+        all_dim_node_names = list(
+            {
+                lvl.rendered_dimension_node(spec.namespace)
+                for spec in specs
+                for lvl in spec.levels
+            },
+        )
+        dimension_nodes = {
+            node.name: node
+            for node in await Node.get_by_names(
+                self.session,
+                all_dim_node_names,
+                options=[load_only(Node.id, Node.name, Node.type)],
+            )
+        }
+
+        # Validate using the same logic as POST /hierarchies (includes link cardinality).
+        # Validation runs BEFORE any deletions so that a fully-invalid push does not
+        # wipe existing hierarchies from the namespace.
+        valid_specs = []
+        for spec in specs:
+            level_inputs = [
+                HierarchyLevelInput(
+                    name=lvl.name,
+                    dimension_node=lvl.rendered_dimension_node(spec.namespace),
+                    grain_columns=lvl.grain_columns,
+                )
+                for lvl in spec.levels
+            ]
+            # Pass the pre-fetched dimension_nodes to avoid N+1 DB round-trips
+            validation_errors, _ = await Hierarchy.validate_levels(
+                self.session,
+                level_inputs,
+                existing_nodes=dimension_nodes,
+            )
+            if validation_errors:
+                self.errors.append(
+                    DJError(
+                        code=ErrorCode.INVALID_DIMENSION,
+                        message=f"Hierarchy '{spec.rendered_name}' validation failed: "
+                        f"{'; '.join(validation_errors)}",
+                    ),
+                )
+            else:
+                valid_specs.append(spec)
+
+        # Compute deletions after validation:
+        # - Remove hierarchies that have been dropped from the spec entirely.
+        # - Remove hierarchies whose spec passed validation (safe to replace).
+        # - Keep hierarchies whose spec failed validation (preserve existing data).
+        names_with_valid_specs = {spec.rendered_name for spec in valid_specs}
+        to_delete = [
+            h
+            for name, h in existing_hierarchies.items()
+            if name not in spec_rendered_names  # removed from repo
+            or name in names_with_valid_specs  # has valid replacement
+        ]
+        for h in to_delete:
+            await self.session.delete(h)
+
+        # Upsert valid hierarchies, collecting (hierarchy_obj, spec) for level insertion
+        to_add_levels = []
+        for spec in valid_specs:
+            existing = existing_hierarchies.get(spec.rendered_name)
+            if existing:
+                if spec.display_name is not None:
+                    existing.display_name = spec.display_name
+                if spec.description is not None:
+                    existing.description = spec.description
+                existing.levels.clear()
+                self.session.add(existing)
+                to_add_levels.append((existing, spec))
+            else:
+                hierarchy = Hierarchy(
+                    name=spec.rendered_name,
+                    display_name=spec.display_name,
+                    description=spec.description,
+                    created_by_id=self.context.current_user.id,
+                )
+                hierarchy.levels = []  # initialize collection to avoid lazy-load on append
+                self.session.add(hierarchy)
+                to_add_levels.append((hierarchy, spec))
+
+        # Flush to issue DELETEs for cleared levels and get IDs for new hierarchies.
+        # Then append new levels directly to the collection so that the ORM's
+        # delete-orphan cascade does not interfere with the newly added objects.
+        await self.session.flush()
+        for hierarchy, spec in to_add_levels:
+            for idx, lvl in enumerate(spec.levels):
+                rendered_dim_node = lvl.rendered_dimension_node(spec.namespace)
+                hierarchy.levels.append(
+                    HierarchyLevel(
+                        name=lvl.name,
+                        dimension_node_id=dimension_nodes[rendered_dim_node].id,
+                        level_order=idx,
+                        grain_columns=lvl.grain_columns,
+                    ),
+                )
+
+        await self.session.flush()
+        logger.info("Upserted %d hierarchies", len(valid_specs))
+
     async def _setup_owners(self):
         """
         Validate that all owners defined in the deployment spec exist.
@@ -1330,6 +1461,12 @@ class DeploymentOrchestrator:
             with timer.phase("derive measures") as p:
                 derived = await self._derive_measures_for_deployed_metrics()
                 p.append(f"{derived} metrics")
+
+        # Hierarchies are globally scoped and run unconditionally so that
+        # hierarchy-only pushes (no node changes) are not silently dropped.
+        with timer.phase("deploy hierarchies"):
+            await self._setup_hierarchies()
+        await self._update_deployment_status()
 
         # Run impact propagation before deletions so deleted nodes'
         # children are still reachable via NodeRelationship.
