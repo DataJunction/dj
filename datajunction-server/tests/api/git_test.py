@@ -5549,7 +5549,7 @@ query: "SELECT date_id FROM default.raw_dates"
             mock_gh.download_archive = AsyncMock(return_value=tarball)
             mock_cls.return_value = mock_gh
 
-            response = await client_with_service_setup.post(
+            await client_with_service_setup.post(
                 "/namespaces/single_level_ns/sync-from-git",
             )
 
