@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
 from datajunction_server.database.node import Node, NodeRevision, NodeRelationship
+from datajunction_server.internal.nodes import bump_cube_versions
 from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.internal.deployment.dimension_reachability import (
     DimensionReachability,
@@ -125,8 +126,6 @@ async def propagate_impact(
     # Only bumps cubes downstream of *changed* nodes — deleted-node downstreams
     # become invalid and don't need a version bump.
     if current_user and save_history and changed_node_names:
-        from datajunction_server.internal.nodes import bump_cube_versions
-
         name_to_node = {n.name: n for n in ctx.visited_nodes_by_id.values()}
         cube_downstreams = [
             name_to_node[r.name]
