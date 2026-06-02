@@ -156,6 +156,7 @@ export default function NodeMaterializationTab({
             alignItems: 'center',
             justifyContent: 'flex-end',
             marginBottom: '20px',
+            paddingTop: '16px',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
