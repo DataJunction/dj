@@ -5028,13 +5028,17 @@ class TestValidateNodes:
         get a minor version bump so that version-gated downstream consumers see
         the change and regenerate any derived artifacts.
         """
-        from tests.api.cubes_test import make_a_test_cube
-
-        await make_a_test_cube(
-            client_with_roads,
-            "default.propagation_cube",
-            with_materialization=False,
+        response = await client_with_roads.post(
+            "/nodes/cube/",
+            json={
+                "name": "default.propagation_cube",
+                "metrics": ["default.avg_repair_price", "default.num_repair_orders"],
+                "dimensions": ["default.hard_hat.state"],
+                "description": "Cube for version-bump propagation test",
+                "mode": "published",
+            },
         )
+        assert response.status_code < 400, response.json()
 
         # Record the cube's version before touching any upstream metric
         response = await client_with_roads.get(
