@@ -158,11 +158,7 @@ export function NodePage() {
       // Other nodes (transform, metric, dimension) use pre-aggregations tab
       tabToDisplay =
         node?.type === 'cube' ? (
-          <NodeMaterializationTab
-            node={node}
-            djClient={djClient}
-            readOnly={!!gitConfig?.git_only}
-          />
+          <NodeMaterializationTab node={node} djClient={djClient} />
         ) : (
           <NodePreAggregationsTab node={node} />
         );
