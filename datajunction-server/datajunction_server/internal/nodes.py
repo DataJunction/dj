@@ -1791,7 +1791,32 @@ async def _propagate_update_downstream(
     # A cube's element list doesn't change when an upstream metric's SQL
     # changes, so update_cube_node's diff logic won't fire. Create a new
     # minor revision so callers that gate on version ID see the change.
-    for cube in cube_downstreams:
+    await bump_cube_versions(
+        session,
+        cube_downstreams,
+        current_user,
+        save_history,
+        upstream_node_name=node.name,
+        upstream_node_version=node.current_version,
+    )
+
+
+async def bump_cube_versions(
+    session: AsyncSession,
+    cubes: List[Node],
+    current_user: User,
+    save_history: Callable,
+    upstream_node_name: str = "",
+    upstream_node_version: str = "",
+) -> None:
+    """
+    Create a new minor-version revision for each cube in ``cubes``.
+
+    A cube's element list is unchanged when an upstream metric's SQL changes,
+    so the normal diff-based update path produces no version bump. This function
+    forces one, ensuring any version-gated downstream consumer sees the change.
+    """
+    for cube in cubes:
         cube_node = await Node.get_cube_by_name(session, cube.name)
         if not cube_node or not cube_node.current:
             continue
@@ -1828,11 +1853,11 @@ async def _propagate_update_downstream(
                     details={
                         "version": new_cube_revision.version,
                         "upstream": {
-                            "node": node.name,
-                            "version": node.current_version,
+                            "node": upstream_node_name,
+                            "version": upstream_node_version,
                         },
-                        "reason": f"Caused by update of `{node.name}` to "
-                        f"{node.current_version}",
+                        "reason": f"Caused by update of `{upstream_node_name}` to "
+                        f"{upstream_node_version}",
                     },
                     pre={"version": current_rev.version},
                     post={"version": new_cube_revision.version},
@@ -1847,7 +1872,7 @@ async def _propagate_update_downstream(
             cube.name,
             current_rev.version,
             new_cube_revision.version,
-            node.name,
+            upstream_node_name,
         )
 
 
