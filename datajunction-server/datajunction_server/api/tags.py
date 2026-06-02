@@ -7,12 +7,12 @@ from typing import Callable, List, Optional
 from fastapi import Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import noload
 
 from datajunction_server.api.helpers import get_save_history
-from datajunction_server.database import Node
+from datajunction_server.database import Node, NodeRevision
 from datajunction_server.database.history import History
-from datajunction_server.database.tag import Tag
+from datajunction_server.database.tag import Tag, TagNodeRelationship
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJAlreadyExistsException, DJDoesNotExistException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
@@ -204,26 +204,36 @@ async def list_nodes_for_a_tag(
     Find nodes tagged with the tag, filterable by node type.
     """
     statement = (
-        select(Tag)
+        select(NodeRevision)
+        .join(Node, NodeRevision.node_id == Node.id)
+        .where(NodeRevision.version == Node.current_version)
+        .join(TagNodeRelationship, TagNodeRelationship.node_id == Node.id)
+        .join(Tag, Tag.id == TagNodeRelationship.tag_id)
         .where(Tag.name == name)
-        .options(joinedload(Tag.nodes).options(joinedload(Node.current)))
+        .where(Node.deactivated_at.is_(None))
+        .order_by(Node.name)
+        # Suppress NodeRevision's default eager loads — NodeMinimumDetail
+        # doesn't read these relationships.
+        .options(
+            noload(NodeRevision.node),
+            noload(NodeRevision.created_by),
+            noload(NodeRevision.catalog),
+        )
     )
-    tag = (await session.execute(statement)).unique().scalars().one_or_none()
-    if not tag:
+    if node_type:
+        statement = statement.where(Node.type == node_type)
+
+    revisions = (await session.execute(statement)).scalars().all()
+    if revisions:
+        return list(revisions)
+
+    # Distinguish unknown tag (404) from tag-with-no-matching-nodes (empty list).
+    tag_exists = (
+        await session.execute(select(Tag.id).where(Tag.name == name))
+    ).scalar_one_or_none() is not None
+    if not tag_exists:
         raise DJDoesNotExistException(
             message=f"A tag with name `{name}` does not exist.",
             http_status_code=404,
         )
-    if not node_type:
-        return sorted(
-            [node.current for node in tag.nodes if not node.deactivated_at],
-            key=lambda x: x.name,
-        )
-    return sorted(
-        [
-            node.current
-            for node in tag.nodes
-            if node.type == node_type and not node.deactivated_at
-        ],
-        key=lambda x: x.name,
-    )
+    return []
