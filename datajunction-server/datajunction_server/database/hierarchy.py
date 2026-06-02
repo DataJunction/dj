@@ -161,20 +161,6 @@ class Hierarchy(Base):  # type: ignore
         return list(result.scalars().all())
 
     @classmethod
-    async def get_by_names(
-        cls,
-        session: AsyncSession,
-        names: list[str],
-    ) -> list["Hierarchy"]:
-        """Bulk-fetch hierarchies by name with levels loaded."""
-        if not names:
-            return []
-        result = await session.execute(
-            select(cls).options(selectinload(cls.levels)).where(cls.name.in_(names)),
-        )
-        return list(result.scalars().all())
-
-    @classmethod
     async def get_using_dimension(
         cls,
         session: AsyncSession,

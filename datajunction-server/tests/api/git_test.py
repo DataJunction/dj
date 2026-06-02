@@ -5647,6 +5647,8 @@ query: "SELECT date_id, month_id FROM default.raw_dates"
         v1_hierarchy_yaml = """
 type: hierarchy
 name: updateable_hierarchy
+display_name: Old Display Name
+description: Old description
 levels:
   - name: month
     dimension_node: hier_update_ns.dim_date
@@ -5686,6 +5688,8 @@ levels:
         v2_hierarchy_yaml = """
 type: hierarchy
 name: updateable_hierarchy
+display_name: New Display Name
+description: New description
 levels:
   - name: year
     dimension_node: hier_update_ns.dim_date
@@ -5728,6 +5732,8 @@ query: "SELECT date_id, month_id, year_id FROM default.raw_dates"
         ).json()
         assert len(data["levels"]) == 3
         assert [lvl["name"] for lvl in data["levels"]] == ["year", "month", "day"]
+        assert data["display_name"] == "New Display Name"
+        assert data["description"] == "New description"
 
     @pytest.mark.asyncio
     async def test_sync_from_git_hierarchy_files_not_treated_as_nodes(
@@ -5968,3 +5974,46 @@ class TestHierarchySpecRenderedName:
         )
         spec.namespace = "common"
         assert spec.rendered_name == "common.date_hier"
+
+    def test_rendered_name_with_prefix_placeholder(self):
+        """rendered_name resolves ${prefix} when present in name."""
+        from datajunction_server.models.deployment import HierarchySpec
+
+        spec = HierarchySpec(
+            name="${prefix}date_hier",
+            levels=[
+                {"name": "year", "dimension_node": "common.year_dim"},
+                {"name": "month", "dimension_node": "common.month_dim"},
+            ],
+        )
+        spec.namespace = "common"
+        assert spec.rendered_name == "common.date_hier"
+
+    def test_rendered_name_no_namespace(self):
+        """rendered_name returns bare name when namespace is not set."""
+        from datajunction_server.models.deployment import HierarchySpec
+
+        spec = HierarchySpec(
+            name="date_hier",
+            levels=[
+                {"name": "year", "dimension_node": "common.year_dim"},
+                {"name": "month", "dimension_node": "common.month_dim"},
+            ],
+        )
+        assert spec.rendered_name == "date_hier"
+
+    def test_deployment_spec_skips_namespace_injection_when_already_set(self):
+        """set_namespaces must not overwrite a namespace that is already set on a HierarchySpec."""
+        from datajunction_server.models.deployment import DeploymentSpec, HierarchySpec
+
+        spec = HierarchySpec(
+            name="other.date_hier",
+            levels=[
+                {"name": "year", "dimension_node": "other.year_dim"},
+                {"name": "month", "dimension_node": "other.month_dim"},
+            ],
+        )
+        spec.namespace = "other"
+        deployment = DeploymentSpec(namespace="common", nodes=[], hierarchies=[spec])
+        # Namespace was already set to "other"; set_namespaces must not overwrite it
+        assert deployment.hierarchies[0].namespace == "other"

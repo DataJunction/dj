@@ -143,6 +143,24 @@ class TestHierarchiesAPI:
         )
         assert get_response.status_code == HTTPStatus.OK
 
+    async def test_create_hierarchy_requires_namespace_prefix(
+        self,
+        client_with_basic: AsyncClient,
+    ):
+        """Hierarchy names without a namespace prefix must be rejected."""
+        response = await client_with_basic.post(
+            "/hierarchies/",
+            json={
+                "name": "bare_hierarchy",
+                "levels": [
+                    {"name": "year", "dimension_node": "default.year_dim"},
+                    {"name": "month", "dimension_node": "default.month_dim"},
+                ],
+            },
+        )
+        assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+        assert "namespace-prefixed" in response.json()["message"]
+
     async def test_create_hierarchy_duplicate_name(
         self,
         client_with_basic: AsyncClient,
