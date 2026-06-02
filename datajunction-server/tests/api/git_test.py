@@ -5735,6 +5735,48 @@ query: "SELECT date_id, month_id, year_id FROM default.raw_dates"
         assert data["display_name"] == "New Display Name"
         assert data["description"] == "New description"
 
+        # Third push: same levels, no display_name/description — covers the
+        # spec.display_name is None and spec.description is None branches in _setup_hierarchies
+        v3_hierarchy_yaml = """
+type: hierarchy
+name: updateable_hierarchy
+levels:
+  - name: year
+    dimension_node: hier_update_ns.dim_date
+    grain_columns: [year_id]
+  - name: month
+    dimension_node: hier_update_ns.dim_date
+    grain_columns: [month_id]
+  - name: day
+    dimension_node: hier_update_ns.dim_date
+    grain_columns: [date_id]
+"""
+        third_tarball = create_mock_tarball(
+            {
+                "dim_date.yaml": v2_dim_yaml,
+                "updateable_hierarchy.yaml": v3_hierarchy_yaml,
+            },
+        )
+        with patch("datajunction_server.api.git_sync.GitHubService") as mock_cls:
+            mock_gh = MagicMock()
+            mock_gh.resolve_ref_to_sha = AsyncMock(return_value="sha012")
+            mock_gh.get_commit_author = AsyncMock(
+                return_value=("Bot", "bot@example.com"),
+            )
+            mock_gh.download_archive = AsyncMock(return_value=third_tarball)
+            mock_cls.return_value = mock_gh
+            r = await client_with_service_setup.post(
+                "/namespaces/hier_update_ns/sync-from-git",
+            )
+            assert r.status_code == HTTPStatus.OK, r.text
+
+        data = (
+            await client_with_service_setup.get(
+                "/hierarchies/hier_update_ns.updateable_hierarchy",
+            )
+        ).json()
+        assert len(data["levels"]) == 3
+
     @pytest.mark.asyncio
     async def test_sync_from_git_hierarchy_files_not_treated_as_nodes(
         self,
