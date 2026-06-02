@@ -1462,11 +1462,10 @@ class DeploymentOrchestrator:
                 derived = await self._derive_measures_for_deployed_metrics()
                 p.append(f"{derived} metrics")
 
-        # Hierarchies are globally scoped and run unconditionally so that
-        # hierarchy-only pushes (no node changes) are not silently dropped.
+        # Hierarchies run unconditionally so that hierarchy-only pushes
+        # (no node changes) are not silently dropped.
         with timer.phase("deploy hierarchies"):
             await self._setup_hierarchies()
-        await self._update_deployment_status()
 
         # Run impact propagation before deletions so deleted nodes'
         # children are still reachable via NodeRelationship.
