@@ -5021,39 +5021,37 @@ class TestValidateNodes:
     @pytest.mark.asyncio
     async def test_propagate_update_bumps_dependent_cube_version(
         self,
-        client_with_repairs_cube: AsyncClient,
+        client_with_roads: AsyncClient,
     ):
         """
         When a metric's query changes, every cube that depends on that metric must
-        get a minor version bump. AMC gates Maestro workflow pushes on the DJ cube
-        version ID, so without this bump the materialization YAML is never regenerated
-        even though the effective SQL changed (e.g. avg→sum in a pre-aggregation).
+        get a minor version bump so that version-gated downstream consumers see
+        the change and regenerate any derived artifacts.
         """
         from tests.api.cubes_test import make_a_test_cube
 
         await make_a_test_cube(
-            client_with_repairs_cube,
+            client_with_roads,
             "default.propagation_cube",
             with_materialization=False,
         )
 
         # Record the cube's version before touching any upstream metric
-        response = await client_with_repairs_cube.get(
+        response = await client_with_roads.get(
             "/nodes/default.propagation_cube/",
         )
         assert response.status_code == 200
         version_before = response.json()["version"]
 
-        # Update an upstream metric's query — this is the avg→sum style change that
-        # should bubble up to bump the cube's version via _bump_dependent_cube_versions
-        response = await client_with_repairs_cube.patch(
+        # Patch an upstream metric's query to simulate a SQL change
+        response = await client_with_roads.patch(
             "/nodes/default.avg_repair_price/",
             json={"query": "SELECT SUM(price) FROM default.repair_order_details"},
         )
         assert response.status_code == 200
 
         # The cube version must have incremented
-        response = await client_with_repairs_cube.get(
+        response = await client_with_roads.get(
             "/nodes/default.propagation_cube/",
         )
         assert response.status_code == 200

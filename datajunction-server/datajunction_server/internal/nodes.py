@@ -1822,23 +1822,15 @@ async def bump_cube_versions(
             continue
         current_rev = cube_node.current
 
-        create_cube = CreateCubeNode(
-            name=current_rev.name,
-            display_name=current_rev.display_name,
-            description=current_rev.description,
-            metrics=[m.name for m in current_rev.cube_metrics()],
-            dimensions=current_rev.cube_dimensions(),
-            mode=current_rev.mode,
-            filters=current_rev.cube_filters or [],
-            custom_metadata=current_rev.custom_metadata,
-        )
-
         with session.no_autoflush:
-            new_cube_revision = await create_cube_node_revision(
-                session,
-                create_cube,
-                current_user,
-            )
+            # Copy the existing revision directly so column partition settings
+            # (granularity, format, type) are preserved exactly. Using
+            # create_cube_node_revision would rebuild columns from scratch and
+            # lose those settings, breaking materialization SQL generation.
+            new_cube_revision = copy_existing_node_revision(current_rev, current_user)
+            new_cube_revision.cube_elements = current_rev.cube_elements
+            new_cube_revision.cube_filters = current_rev.cube_filters
+            new_cube_revision.materializations = []
             old_version = Version.parse(current_rev.version)
             new_cube_revision.version = str(old_version.next_minor_version())
             new_cube_revision.node = current_rev.node
