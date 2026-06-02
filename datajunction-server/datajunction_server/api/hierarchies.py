@@ -10,7 +10,7 @@ from typing import Callable, List, cast
 from fastapi import Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from datajunction_server.api.helpers import get_save_history
+from datajunction_server.api.helpers import get_save_history, get_node_namespace
 from datajunction_server.database.hierarchy import (
     Hierarchy,
     HierarchyLevel,
@@ -179,6 +179,18 @@ async def create_hierarchy(
     """
     Create a new hierarchy definition.
     """
+    # Validate that the hierarchy name is namespace-prefixed
+    if "." not in hierarchy_data.name:
+        raise DJInvalidInputException(
+            message=f"Hierarchy name '{hierarchy_data.name}' must be namespace-prefixed "
+            f"(e.g. 'my_namespace.{hierarchy_data.name}')",
+        )
+    # Hierarchy name convention: "{namespace}.{local_name}" where local_name is
+    # a single dotless segment (same convention as nodes).  rsplit(".", 1) gives
+    # the namespace prefix regardless of how many dots the namespace itself contains.
+    namespace_prefix = hierarchy_data.name.rsplit(".", 1)[0]
+    await get_node_namespace(session, namespace_prefix, raise_if_not_exists=True)
+
     # Check if hierarchy already exists
     existing = await Hierarchy.get_by_name(session, hierarchy_data.name)
     if existing:

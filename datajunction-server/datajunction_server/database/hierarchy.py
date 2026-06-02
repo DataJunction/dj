@@ -144,6 +144,23 @@ class Hierarchy(Base):  # type: ignore
         return list(result.scalars().all())
 
     @classmethod
+    async def get_by_namespace(
+        cls,
+        session: AsyncSession,
+        namespace: str,
+    ) -> list["Hierarchy"]:
+        """Fetch all hierarchies owned by a namespace (name starts with 'namespace.')."""
+        result = await session.execute(
+            select(cls)
+            .options(selectinload(cls.levels))
+            .where(
+                cls.name.like(f"{namespace}.%"),
+                ~cls.name.like(f"{namespace}.%.%"),
+            ),
+        )
+        return list(result.scalars().all())
+
+    @classmethod
     async def get_using_dimension(
         cls,
         session: AsyncSession,
@@ -163,12 +180,16 @@ class Hierarchy(Base):  # type: ignore
         cls,
         session: AsyncSession,
         levels: list[HierarchyLevelInput],
+        existing_nodes: dict[str, Node] | None = None,
     ) -> tuple[list[str], dict[str, Node]]:
         """
         Validate hierarchy level definitions and return any validation errors.
+
+        If ``existing_nodes`` is provided (a pre-fetched name→Node mapping), it
+        is used directly instead of issuing a new DB query — avoiding N+1 fetches
+        when the caller has already bulk-loaded the relevant dimension nodes.
         """
         errors = []
-        existing_nodes: dict[str, Node] = {}
 
         # Check for unique level names
         names = [level.name for level in levels]
@@ -177,10 +198,11 @@ class Hierarchy(Base):  # type: ignore
 
         # Resolve dimension node names to IDs and validate they exist (single DB call)
         dimension_node_names = [level.dimension_node for level in levels]
-        existing_nodes = {
-            node.name: node
-            for node in await Node.get_by_names(session, dimension_node_names)
-        }
+        if existing_nodes is None:
+            existing_nodes = {
+                node.name: node
+                for node in await Node.get_by_names(session, dimension_node_names)
+            }
 
         # Check each level's dimension node and resolve to IDs
         for level in levels:

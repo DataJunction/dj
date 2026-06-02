@@ -63,7 +63,7 @@ def basic_nodes():
     metric_node = MetricSpec(
         name="example.metric_node",
         node_type=NodeType.METRIC,
-        query="SELECT SUM(value) FROM ${prefix}example.transform_node",
+        query="SELECT SUM(value) FROM example.transform_node",
     )
     dimension_node = DimensionSpec(
         name="example.dimension_node",
@@ -74,8 +74,8 @@ def basic_nodes():
     cube_node = CubeSpec(
         name="example.cube_node",
         node_type=NodeType.CUBE,
-        metrics=["${prefix}example.metric_node"],
-        dimensions=["${prefix}example.dimension_node.category"],
+        metrics=["example.metric_node"],
+        dimensions=["example.dimension_node.category"],
     )
     return [transform_node, source_node, metric_node, dimension_node, cube_node]
 

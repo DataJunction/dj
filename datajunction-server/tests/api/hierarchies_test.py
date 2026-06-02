@@ -107,7 +107,7 @@ class TestHierarchiesAPI:
         dimensions, _ = time_dimensions
 
         hierarchy_data = {
-            "name": "api_test_hierarchy",
+            "name": "default.api_test_hierarchy",
             "display_name": "API Test Hierarchy",
             "description": "A hierarchy created via API test",
             "levels": [
@@ -133,27 +133,48 @@ class TestHierarchiesAPI:
         assert response.status_code == HTTPStatus.CREATED
         data = response.json()
 
-        assert data["name"] == "api_test_hierarchy"
+        assert data["name"] == "default.api_test_hierarchy"
         assert data["display_name"] == "API Test Hierarchy"
         assert len(data["levels"]) == 3
 
         # Verify the hierarchy can be retrieved
-        get_response = await client_with_basic.get("/hierarchies/api_test_hierarchy")
+        get_response = await client_with_basic.get(
+            "/hierarchies/default.api_test_hierarchy",
+        )
         assert get_response.status_code == HTTPStatus.OK
+
+    async def test_create_hierarchy_requires_namespace_prefix(
+        self,
+        client_with_basic: AsyncClient,
+    ):
+        """Hierarchy names without a namespace prefix must be rejected."""
+        response = await client_with_basic.post(
+            "/hierarchies/",
+            json={
+                "name": "bare_hierarchy",
+                "levels": [
+                    {"name": "year", "dimension_node": "default.year_dim"},
+                    {"name": "month", "dimension_node": "default.month_dim"},
+                ],
+            },
+        )
+        assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+        assert "namespace-prefixed" in response.json()["message"]
 
     async def test_create_hierarchy_duplicate_name(
         self,
         client_with_basic: AsyncClient,
-        calendar_hierarchy: Hierarchy,
         time_dimensions: tuple[dict[str, Node], dict[str, NodeRevision]],
+        time_dimension_links,
+        month_year_link,
     ):
         """Test creating a hierarchy with a duplicate name."""
         dimensions, _ = time_dimensions
 
         hierarchy_data = {
-            "name": "calendar_hierarchy",  # Same name as existing
+            "name": "default.dup_calendar_hierarchy",
             "display_name": "Duplicate Calendar",
-            "description": "This should fail",
+            "description": "First creation",
             "levels": [
                 {
                     "name": "year",
@@ -166,6 +187,14 @@ class TestHierarchiesAPI:
             ],
         }
 
+        # First creation should succeed
+        first_response = await client_with_basic.post(
+            "/hierarchies/",
+            json=hierarchy_data,
+        )
+        assert first_response.status_code == HTTPStatus.CREATED
+
+        # Second creation with same name should fail
         response = await client_with_basic.post(
             "/hierarchies/",
             json=hierarchy_data,
@@ -178,7 +207,7 @@ class TestHierarchiesAPI:
     ):
         """Test creating a hierarchy with non-existent dimension node."""
         hierarchy_data = {
-            "name": "invalid_hierarchy",
+            "name": "default.invalid_hierarchy",
             "display_name": "Invalid Hierarchy",
             "description": "This should fail",
             "levels": [
@@ -507,7 +536,7 @@ class TestHierarchiesAPI:
 
         # Create a hierarchy
         hierarchy_data = {
-            "name": "history_test",
+            "name": "default.history_test",
             "display_name": "History Test",
             "levels": [
                 {
@@ -533,13 +562,15 @@ class TestHierarchiesAPI:
         }
 
         update_response = await client_with_basic.put(
-            "/hierarchies/history_test",
+            "/hierarchies/default.history_test",
             json=update_data,
         )
         assert update_response.status_code == HTTPStatus.OK
 
         # Delete the hierarchy
-        delete_response = await client_with_basic.delete("/hierarchies/history_test")
+        delete_response = await client_with_basic.delete(
+            "/hierarchies/default.history_test",
+        )
         assert delete_response.status_code == HTTPStatus.NO_CONTENT
 
         # Query the History table to verify all operations were tracked
@@ -547,7 +578,7 @@ class TestHierarchiesAPI:
             select(History)
             .where(
                 History.entity_type == EntityType.HIERARCHY,
-                History.entity_name == "history_test",
+                History.entity_name == "default.history_test",
             )
             .order_by(History.created_at),
         )
@@ -559,10 +590,10 @@ class TestHierarchiesAPI:
         # Verify CREATE entry
         create_entry = history[0]
         assert create_entry.activity_type == ActivityType.CREATE
-        assert create_entry.entity_name == "history_test"
+        assert create_entry.entity_name == "default.history_test"
         assert create_entry.entity_type == EntityType.HIERARCHY
         assert create_entry.user == "dj"
-        assert create_entry.post["name"] == "history_test"
+        assert create_entry.post["name"] == "default.history_test"
         assert create_entry.post["display_name"] == "History Test"
         assert len(create_entry.post["levels"]) == 2
         assert create_entry.pre == {}
@@ -570,7 +601,7 @@ class TestHierarchiesAPI:
         # Verify UPDATE entry
         update_entry = history[1]
         assert update_entry.activity_type == ActivityType.UPDATE
-        assert update_entry.entity_name == "history_test"
+        assert update_entry.entity_name == "default.history_test"
         assert update_entry.pre["description"] is None
         assert (
             update_entry.post["description"] == "Updated description for history test"
@@ -579,8 +610,8 @@ class TestHierarchiesAPI:
         # Verify DELETE entry
         delete_entry = history[2]
         assert delete_entry.activity_type == ActivityType.DELETE
-        assert delete_entry.entity_name == "history_test"
-        assert delete_entry.pre["name"] == "history_test"
+        assert delete_entry.entity_name == "default.history_test"
+        assert delete_entry.pre["name"] == "default.history_test"
         assert len(delete_entry.pre["levels"]) == 2
         assert delete_entry.post == {}
 
@@ -694,3 +725,41 @@ class TestHierarchiesAPI:
         assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
         data = response.json()
         assert "Node 'default.year_source' is not a dimension node" in data["message"]
+
+
+class TestHierarchyGetByNamespace:
+    """Tests for Hierarchy.get_by_namespace — verifies LIKE over-match is fixed."""
+
+    async def test_get_by_namespace_excludes_child_namespaces(
+        self,
+        session: AsyncSession,
+        current_user,
+    ):
+        """get_by_namespace('default') must NOT return hierarchies from 'default.child'.
+
+        Regression test for: the original LIKE('{ns}.%') pattern matched
+        'default.child.some_hier' as well as 'default.some_hier'.
+        The fix adds ~LIKE('{ns}.%.%') to restrict to exactly one dotless segment.
+        """
+        from datajunction_server.database.hierarchy import Hierarchy
+
+        # Create a hierarchy in the 'default' namespace
+        parent_hier = Hierarchy(
+            name="default.parent_hier",
+            display_name="Parent Hierarchy",
+            created_by_id=current_user.id,
+        )
+        # Create a hierarchy in the child namespace 'default.child'
+        child_hier = Hierarchy(
+            name="default.child.child_hier",
+            display_name="Child Hierarchy",
+            created_by_id=current_user.id,
+        )
+        session.add_all([parent_hier, child_hier])
+        await session.commit()
+
+        result = await Hierarchy.get_by_namespace(session, "default")
+        result_names = {h.name for h in result}
+
+        assert "default.parent_hier" in result_names
+        assert "default.child.child_hier" not in result_names
