@@ -1701,29 +1701,32 @@ async def _propagate_update_downstream(
     - new columns: won't affect downstream nodes
     """
     _logger.info("Propagating update of node %s downstream", node.name)
-    downstreams = await get_downstream_nodes(
+    all_downstreams = await get_downstream_nodes(
         session,
         node.name,
         include_deactivated=False,
-        include_cubes=False,
+        include_cubes=True,
     )
-    downstreams = topological_sort(downstreams)
+    non_cube_downstreams = topological_sort(
+        [n for n in all_downstreams if n.type != NodeType.CUBE],
+    )
+    cube_downstreams = [n for n in all_downstreams if n.type == NodeType.CUBE]
     _logger.info(
-        "Node %s updated — revalidating %s downstreams",
+        "Node %s updated — revalidating %s downstreams, bumping %s cubes",
         node.name,
-        len(downstreams),
+        len(non_cube_downstreams),
+        len(cube_downstreams),
     )
 
-    # The downstreams need to be sorted topologically in order for the updates to be done
-    # in the right order. Otherwise it is possible for a leaf node like a metric to be updated
-    # before its upstreams are updated.
-    for idx, downstream in enumerate(downstreams):
+    # Revalidate non-cube downstreams in topological order so parents are
+    # processed before their children.
+    for idx, downstream in enumerate(non_cube_downstreams):
         original_node_revision = downstream.current
         previous_status = original_node_revision.status
         _logger.info(
             "[%s/%s] Revalidating downstream %s due to update of node %s",
             idx + 1,
-            len(downstreams),
+            len(non_cube_downstreams),
             downstream.name,
             node.name,
         )
@@ -1784,6 +1787,68 @@ async def _propagate_update_downstream(
                 session=session,
             )
         await session.commit()
+
+    # A cube's element list doesn't change when an upstream metric's SQL
+    # changes, so update_cube_node's diff logic won't fire. Create a new
+    # minor revision so callers that gate on version ID see the change.
+    for cube in cube_downstreams:
+        cube_node = await Node.get_cube_by_name(session, cube.name)
+        if not cube_node or not cube_node.current:
+            continue
+        current_rev = cube_node.current
+
+        create_cube = CreateCubeNode(
+            name=current_rev.name,
+            display_name=current_rev.display_name,
+            description=current_rev.description,
+            metrics=[m.name for m in current_rev.cube_metrics()],
+            dimensions=current_rev.cube_dimensions(),
+            mode=current_rev.mode,
+            filters=current_rev.cube_filters or [],
+            custom_metadata=current_rev.custom_metadata,
+        )
+
+        with session.no_autoflush:
+            new_cube_revision = await create_cube_node_revision(
+                session,
+                create_cube,
+                current_user,
+            )
+            old_version = Version.parse(current_rev.version)
+            new_cube_revision.version = str(old_version.next_minor_version())
+            new_cube_revision.node = current_rev.node
+            new_cube_revision.node.current_version = new_cube_revision.version
+
+            await save_history(
+                event=History(
+                    entity_type=EntityType.NODE,
+                    entity_name=new_cube_revision.name,
+                    node=new_cube_revision.name,
+                    activity_type=ActivityType.UPDATE,
+                    details={
+                        "version": new_cube_revision.version,
+                        "upstream": {
+                            "node": node.name,
+                            "version": node.current_version,
+                        },
+                        "reason": f"Caused by update of `{node.name}` to "
+                        f"{node.current_version}",
+                    },
+                    pre={"version": current_rev.version},
+                    post={"version": new_cube_revision.version},
+                    user=current_user.username,
+                ),
+                session=session,
+            )
+
+        await session.commit()
+        _logger.info(
+            "Bumped cube %s from %s to %s due to upstream change of %s",
+            cube.name,
+            current_rev.version,
+            new_cube_revision.version,
+            node.name,
+        )
 
 
 def copy_existing_node_revision(old_revision: NodeRevision, current_user: User):

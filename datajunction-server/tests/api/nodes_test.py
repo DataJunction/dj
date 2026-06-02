@@ -5019,6 +5019,51 @@ class TestValidateNodes:
         assert data["status"] in ("valid", "invalid")
 
     @pytest.mark.asyncio
+    async def test_propagate_update_bumps_dependent_cube_version(
+        self,
+        client_with_repairs_cube: AsyncClient,
+    ):
+        """
+        When a metric's query changes, every cube that depends on that metric must
+        get a minor version bump. AMC gates Maestro workflow pushes on the DJ cube
+        version ID, so without this bump the materialization YAML is never regenerated
+        even though the effective SQL changed (e.g. avg→sum in a pre-aggregation).
+        """
+        from tests.api.cubes_test import make_a_test_cube
+
+        await make_a_test_cube(
+            client_with_repairs_cube,
+            "default.propagation_cube",
+            with_materialization=False,
+        )
+
+        # Record the cube's version before touching any upstream metric
+        response = await client_with_repairs_cube.get(
+            "/nodes/default.propagation_cube/",
+        )
+        assert response.status_code == 200
+        version_before = response.json()["version"]
+
+        # Update an upstream metric's query — this is the avg→sum style change that
+        # should bubble up to bump the cube's version via _bump_dependent_cube_versions
+        response = await client_with_repairs_cube.patch(
+            "/nodes/default.avg_repair_price/",
+            json={"query": "SELECT SUM(price) FROM default.repair_order_details"},
+        )
+        assert response.status_code == 200
+
+        # The cube version must have incremented
+        response = await client_with_repairs_cube.get(
+            "/nodes/default.propagation_cube/",
+        )
+        assert response.status_code == 200
+        version_after = response.json()["version"]
+        assert version_after != version_before, (
+            f"Cube version should have bumped when upstream metric changed "
+            f"(was {version_before}, still {version_after})"
+        )
+
+    @pytest.mark.asyncio
     async def test_update_dimension_remove_pk_column(
         self,
         client_with_roads: AsyncClient,
