@@ -1791,9 +1791,11 @@ async def _propagate_update_downstream(
     # A cube's element list doesn't change when an upstream metric's SQL
     # changes, so update_cube_node's diff logic won't fire. Create a new
     # minor revision so callers that gate on version ID see the change.
+    # Extract names before the non-cube commits above expire the objects.
+    cube_names = [cube.name for cube in cube_downstreams]
     await bump_cube_versions(
         session,
-        cube_downstreams,
+        cube_names,
         current_user,
         save_history,
         upstream_node_name=node.name,
@@ -1803,21 +1805,24 @@ async def _propagate_update_downstream(
 
 async def bump_cube_versions(
     session: AsyncSession,
-    cubes: List[Node],
+    cubes: List[str],
     current_user: User,
     save_history: Callable,
     upstream_node_name: str = "",
     upstream_node_version: str = "",
 ) -> None:
     """
-    Create a new minor-version revision for each cube in ``cubes``.
+    Create a new minor-version revision for each cube name in ``cubes``.
 
     A cube's element list is unchanged when an upstream metric's SQL changes,
     so the normal diff-based update path produces no version bump. This function
     forces one, ensuring any version-gated downstream consumer sees the change.
+
+    Accepts cube names (not Node objects) so callers can extract names before
+    any session commits that would expire the Node identity-map entries.
     """
-    for cube in cubes:
-        cube_node = await Node.get_cube_by_name(session, cube.name)
+    for cube_name in cubes:
+        cube_node = await Node.get_cube_by_name(session, cube_name)
         if not cube_node or not cube_node.current:
             continue
         current_rev = cube_node.current
@@ -1861,7 +1866,7 @@ async def bump_cube_versions(
         await session.commit()
         _logger.info(
             "Bumped cube %s from %s to %s due to upstream change of %s",
-            cube.name,
+            cube_name,
             current_rev.version,
             new_cube_revision.version,
             upstream_node_name,

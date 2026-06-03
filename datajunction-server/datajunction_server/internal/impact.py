@@ -126,16 +126,11 @@ async def propagate_impact(
     # Only bumps cubes downstream of *changed* nodes — deleted-node downstreams
     # become invalid and don't need a version bump.
     if current_user and save_history and changed_node_names:
-        name_to_node = {n.name: n for n in ctx.visited_nodes_by_id.values()}
-        cube_downstreams = [
-            name_to_node[r.name]
-            for r in results
-            if r.node_type == NodeType.CUBE and r.name in name_to_node
-        ]
-        if cube_downstreams:
+        cube_names = [r.name for r in results if r.node_type == NodeType.CUBE]
+        if cube_names:
             await bump_cube_versions(
                 session,
-                cube_downstreams,
+                cube_names,
                 current_user,
                 save_history,
             )
