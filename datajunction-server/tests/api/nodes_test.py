@@ -1130,7 +1130,7 @@ class TestNodeCRUD:
             "columns as required dimensions that are not on parent nodes.",
             "errors": [
                 {
-                    "code": 206,
+                    "code": "INVALID_COLUMN",
                     "message": "Node definition contains references to columns "
                     "as required dimensions that are not on parent nodes.",
                     "debug": {"invalid_required_dimensions": ["testdld.messages.foo"]},
@@ -2661,7 +2661,7 @@ class TestNodeCRUD:
             ),
             "errors": [
                 {
-                    "code": 302,
+                    "code": "TYPE_INFERENCE",
                     "message": (
                         "Incompatible types in binary operation NOW() - "
                         "foo.bar.hard_hats.hire_date + 1. Got left timestamp, right int."
@@ -4421,7 +4421,7 @@ class TestValidateNodes:
             for e in data["errors"]
             if e
             == {
-                "code": 301,
+                "code": "MISSING_PARENT",
                 "message": "Node definition contains references to nodes that do not exist: "
                 "large_revenue_payments_only",
                 "debug": {"missing_parents": ["large_revenue_payments_only"]},
@@ -4484,7 +4484,7 @@ class TestValidateNodes:
         assert data["status"] == "invalid"
         assert data["errors"] == [
             {
-                "code": 201,
+                "code": "INVALID_SQL_QUERY",
                 "message": (
                     "Error parsing SQL `SUPER invalid SQL query`: "
                     "('Parse error 1:0:', \"mismatched input 'SUPER' expecting "
@@ -4539,7 +4539,7 @@ class TestValidateNodes:
             ],
             "errors": [
                 {
-                    "code": 301,
+                    "code": "MISSING_PARENT",
                     "message": "Node definition contains references to nodes that do not exist: "
                     "node_that_does_not_exist",
                     "debug": {"missing_parents": ["node_that_does_not_exist"]},
@@ -4588,7 +4588,7 @@ class TestValidateNodes:
         assert data["missing_parents"] == ["node_that_does_not_exist"]
         assert data["errors"] == [
             {
-                "code": 301,
+                "code": "MISSING_PARENT",
                 "context": "",
                 "debug": {"missing_parents": ["node_that_does_not_exist"]},
                 "message": "Node definition contains references to nodes that do not exist: "

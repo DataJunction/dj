@@ -3644,7 +3644,7 @@ class TestMetricsSQLOrderByLimit:
             "message": expected_message,
             "errors": [
                 {
-                    "code": 208,
+                    "code": "INVALID_ORDER_BY",
                     "message": expected_message,
                     "debug": None,
                     "context": "",
@@ -3679,7 +3679,7 @@ class TestMetricsSQLOrderByLimit:
             "message": expected_message,
             "errors": [
                 {
-                    "code": 208,
+                    "code": "INVALID_ORDER_BY",
                     "message": expected_message,
                     "debug": None,
                     "context": "",
@@ -3720,8 +3720,18 @@ class TestMetricsSQLOrderByLimit:
         assert response.json() == {
             "message": f"{msg_a}\n{msg_b}",
             "errors": [
-                {"code": 208, "message": msg_a, "debug": None, "context": ""},
-                {"code": 208, "message": msg_b, "debug": None, "context": ""},
+                {
+                    "code": "INVALID_ORDER_BY",
+                    "message": msg_a,
+                    "debug": None,
+                    "context": "",
+                },
+                {
+                    "code": "INVALID_ORDER_BY",
+                    "message": msg_b,
+                    "debug": None,
+                    "context": "",
+                },
             ],
             "warnings": [],
         }

@@ -169,7 +169,7 @@ async def test_create_invalid_cube(module__client_with_account_revenue: AsyncCli
         "Did you mean to add a dimension attribute?",
         "errors": [
             {
-                "code": 204,
+                "code": "NODE_TYPE_ERROR",
                 "context": "",
                 "debug": None,
                 "message": "Node default.account_type of type dimension cannot be added to a "
@@ -195,7 +195,7 @@ async def test_create_invalid_cube(module__client_with_account_revenue: AsyncCli
     assert data == {
         "errors": [
             {
-                "code": 601,
+                "code": "INVALID_DIMENSION",
                 "context": "",
                 "debug": None,
                 "message": "The dimension attribute `default.payment_type.payment_type_name` "
@@ -500,7 +500,7 @@ async def test_invalid_cube(module__client_with_roads: AsyncClient):
     assert response.json() == {
         "errors": [
             {
-                "code": 601,
+                "code": "INVALID_DIMENSION",
                 "context": "",
                 "debug": None,
                 "message": "The dimension attribute `default.contractor.company_name` is not "
@@ -553,7 +553,7 @@ async def test_create_cube_failures(
         "message": "The following metric nodes were not found: default.metric_that_doesnt_exist",
         "errors": [
             {
-                "code": 203,
+                "code": "UNKNOWN_NODE",
                 "context": "",
                 "debug": None,
                 "message": "The following metric nodes were not found: "

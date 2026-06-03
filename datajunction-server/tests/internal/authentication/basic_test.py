@@ -146,7 +146,7 @@ async def test_fail_on_user_already_exists(client: AsyncClient):
         "message": "User dj1 already exists.",
         "errors": [
             {
-                "code": 2,
+                "code": "ALREADY_EXISTS",
                 "message": "User dj1 already exists.",
                 "debug": None,
                 "context": "",

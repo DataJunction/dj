@@ -135,7 +135,7 @@ async def test_query_parameters_measures_sql(
     )
     assert response.json()[0]["errors"] == [
         {
-            "code": 303,
+            "code": "MISSING_PARAMETER",
             "message": "Missing value for parameter: default.hard_hat.hard_hat_id",
             "debug": None,
             "context": "",
@@ -193,7 +193,7 @@ async def test_query_parameters_metrics_sql(
     )
     assert response.json()["errors"] == [
         {
-            "code": 303,
+            "code": "MISSING_PARAMETER",
             "message": "Missing value for parameter: default.hard_hat.hard_hat_id",
             "debug": None,
             "context": "",

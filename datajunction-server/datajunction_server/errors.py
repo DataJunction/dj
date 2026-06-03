@@ -5,6 +5,7 @@ Errors and warnings.
 from http import HTTPStatus
 from typing import Any, Dict, List, Literal, Optional, TypedDict
 
+from pydantic import field_serializer
 from pydantic.main import BaseModel
 
 from datajunction_server.enum import IntEnum
@@ -85,7 +86,7 @@ class DJErrorType(TypedDict):
     Type for serialized errors.
     """
 
-    code: int
+    code: str
     message: str
     debug: Optional[DebugType]
 
@@ -99,6 +100,13 @@ class DJError(BaseModel):
     message: str
     debug: Optional[Dict[str, Any]] = None
     context: str = ""
+
+    @field_serializer("code")
+    def serialize_code(self, code: ErrorCode) -> str:
+        # Serialize as the symbolic name (e.g. "INVALID_SQL_QUERY") rather than
+        # the integer value. The names are far more useful to UI/CLI consumers
+        # and obviate the need for clients to maintain a parallel int→name map.
+        return code.name
 
     def __str__(self) -> str:
         """
