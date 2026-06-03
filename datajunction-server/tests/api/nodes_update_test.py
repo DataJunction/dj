@@ -50,7 +50,7 @@ async def test_update_source_node(
                 "activity_type": "update",
                 "created_at": mock.ANY,
                 "details": {
-                    "changes": {"updated_columns": []},
+                    "changes": {"updated_columns": ["total_amount_nationwide"]},
                     "reason": "Caused by update of `default.repair_order_details` to "
                     "v2.0",
                     "upstream": {
@@ -73,7 +73,10 @@ async def test_update_source_node(
                 "created_at": mock.ANY,
                 "details": {
                     "changes": {
-                        "updated_columns": [],
+                        "updated_columns": [
+                            "avg_repair_amount_in_region",
+                            "total_amount_in_region",
+                        ],
                     },
                     "reason": "Caused by update of `default.repair_order_details` to v2.0",
                     "upstream": {
@@ -95,7 +98,7 @@ async def test_update_source_node(
                 "activity_type": "update",
                 "created_at": mock.ANY,
                 "details": {
-                    "changes": {"updated_columns": []},
+                    "changes": {"updated_columns": ["default_DOT_avg_repair_price"]},
                     "reason": "Caused by update of `default.repair_order_details` to "
                     "v2.0",
                     "upstream": {
@@ -118,7 +121,9 @@ async def test_update_source_node(
                 "created_at": mock.ANY,
                 "details": {
                     "changes": {
-                        "updated_columns": [],
+                        "updated_columns": [
+                            "default_DOT_regional_repair_efficiency",
+                        ],
                     },
                     "reason": "Caused by update of `default.repair_order_details` to "
                     "v2.0",

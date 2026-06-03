@@ -1732,6 +1732,10 @@ async def _propagate_update_downstream(
             session,
             current_user=current_user,
             save_history=save_history,
+            # propagate_update_downstream writes its own richer history event
+            # below (with upstream context); skip the inner one to avoid
+            # duplicate audit rows for the same revision bump.
+            record_revision_bump_event=False,
         )
 
         # Reset the upstreams DAG cache of any downstream nodes
@@ -1917,6 +1921,55 @@ async def create_node_from_inactive(
     return None
 
 
+def _build_columns_for_revision_update(
+    old_revision: NodeRevision,
+    data: "UpdateNode | None",
+    node_type: NodeType,
+) -> list[Column]:
+    """
+    Build the columns list for a new NodeRevision when updating an existing
+    node, preserving user-supplied metadata (display_name, description, unit,
+    partition) from columns of the same name on the old revision.
+
+    The patch payload (``data.columns``) carries name/type/dimension/attributes
+    — but not the full set of column fields. Constructing Column rows only
+    from the payload silently wipes metadata that wasn't part of the patch.
+    """
+    if data is None or not data.columns:
+        return [col.copy() for col in old_revision.columns]
+
+    old_by_name = {col.name: col for col in old_revision.columns}
+    columns: list[Column] = []
+    for idx, column_data in enumerate(data.columns):
+        name = (
+            column_data.name.lower()
+            if node_type != NodeType.METRIC
+            else column_data.name
+        )
+        existing = old_by_name.get(name)
+        partition = None
+        if existing is not None and existing.partition is not None:
+            partition = Partition(
+                type_=existing.partition.type_,
+                granularity=existing.partition.granularity,
+                format=existing.partition.format,
+            )
+        columns.append(
+            Column(
+                name=name,
+                type=column_data.type,
+                dimension_column=column_data.dimension,
+                attributes=column_data.attributes or [],
+                order=idx,
+                display_name=existing.display_name if existing else None,
+                description=existing.description if existing else None,
+                unit=existing.unit if existing else None,
+                partition=partition,
+            ),
+        )
+    return columns
+
+
 async def create_new_revision_from_existing(
     session: AsyncSession,
     old_revision: NodeRevision,
@@ -2002,20 +2055,17 @@ async def create_new_revision_from_existing(
         ),
         query=(data.query if data and data.query else old_revision.query),
         type=old_revision.type,
-        columns=[
-            Column(
-                name=column_data.name.lower()
-                if node.type != NodeType.METRIC
-                else column_data.name,
-                type=column_data.type,
-                dimension_column=column_data.dimension,
-                attributes=column_data.attributes or [],
-                order=idx,
-            )
-            for idx, column_data in enumerate(data.columns)
-        ]
-        if data and data.columns
-        else [col.copy() for col in old_revision.columns],
+        # Preserve user-supplied column metadata (display_name, description,
+        # unit, partition) from the previous revision when the PATCH payload
+        # supplies a column with the same name. Constructing a bare Column
+        # here previously wiped those fields and forced consumers (UI, dj
+        # push, sync jobs) to repopulate them on every refresh — see the
+        # equivalent fix in revalidate_node for the same antipattern.
+        columns=_build_columns_for_revision_update(
+            old_revision,
+            data,
+            node.type,
+        ),
         catalog=old_revision.catalog,
         schema_=old_revision.schema_,
         table=old_revision.table,
@@ -3321,9 +3371,16 @@ async def revalidate_node(
     save_history: Callable,
     update_query_ast: bool = False,
     background_tasks: BackgroundTasks = None,
+    record_revision_bump_event: bool = True,
 ) -> NodeValidator:
     """
-    Revalidate a single existing node and update its status appropriately
+    Revalidate a single existing node and update its status appropriately.
+
+    ``record_revision_bump_event`` controls whether this function emits a
+    history event when it creates a new revision. Callers that already write
+    their own (richer) event for the same revision bump — notably
+    ``propagate_update_downstream`` — pass False to avoid duplicate audit
+    rows for the same version change.
     """
     node = await Node.get_by_name(
         session,
@@ -3446,26 +3503,41 @@ async def revalidate_node(
             to_remove.add(link)  # pragma: no cover
             await session.delete(link)  # pragma: no cover
 
-    # Check if any columns have been updated
-    updated_columns = False
-    for idx, col in enumerate(node_validator.columns):
-        if existing_col := existing_columns.get(col.name):
-            # Update type if changed
-            if existing_col.type != col.type:
-                existing_col.type = col.type
-                updated_columns = True
-            # Set order if not already set (based on position in validated columns)
-            if existing_col.order is None:  # pragma: no branch
-                existing_col.order = idx
-                updated_columns = True
-        else:
-            # New column - add with order
-            col.order = idx
-            node.current.columns.append(col)  # type: ignore  # pragma: no cover
-            updated_columns = True  # pragma: no cover
+    # Detect column changes from the validator. We DON'T mutate node.current
+    # here — if any changes are detected we fork into a new revision below
+    # and apply the mutations there, so the previous revision's stored
+    # columns remain a faithful snapshot of what was committed at that
+    # version. Track *why* the validator decided a column changed so the
+    # history event can explain the bump.
+    type_changes: list[dict] = []
+    order_fixed: list[str] = []
+    added_columns: list[str] = []
+    for col in node_validator.columns:
+        existing_col = existing_columns.get(col.name)
+        if existing_col is None:
+            added_columns.append(col.name)
+            continue
+        if existing_col.type != col.type:
+            type_changes.append(
+                {
+                    "column": col.name,
+                    "from": str(existing_col.type),
+                    "to": str(col.type),
+                },
+            )
+        if existing_col.order is None:
+            order_fixed.append(col.name)
+    updated_columns = bool(type_changes or order_fixed or added_columns)
 
     _logger.info(
-        f"Columns updated: {updated_columns} for node {node.name} (current version: {node.current.version})",
+        "Columns updated: %s for node %s (current version: %s) — "
+        "type_changes=%s, order_fixed=%s, added_columns=%s",
+        updated_columns,
+        node.name,
+        node.current.version,
+        type_changes,
+        order_fixed,
+        added_columns,
     )
     # Only create a new revision if the columns have been updated
     if updated_columns:  # type: ignore
@@ -3498,17 +3570,73 @@ async def revalidate_node(
             for lineage in await get_column_level_lineage(session, new_revision)
         ]
 
-        # Save which columns were modified and update the columns with the changes
+        # Save which columns were modified vs the previous revision. Compare
+        # against node.current — not new_revision — because new_revision.columns
+        # is the deep copy that's about to be overwritten by the merge below,
+        # while node.current is the unmodified pre-fork snapshot. Pre-refactor
+        # this compared against new_revision and got the same answer only
+        # because node.current had been mutated in place; with the in-place
+        # mutation removed, the right baseline is node.current.
         node_validator.updated_columns = node_validator.modified_columns(
-            new_revision,  # type: ignore
+            node.current,  # type: ignore
         )
-        new_revision.columns = node_validator.columns
+        # Build new_revision.columns in validator order. Existing columns
+        # come from the deep copy (preserving description / display_name /
+        # unit / partition); brand-new columns come straight from the
+        # validator output. Type and order fixes are applied here — not on
+        # node.current — so the previous revision's stored columns remain a
+        # faithful snapshot of what was committed at that version.
+        #
+        # Columns missing from validator output (e.g., the query changed to
+        # SELECT fewer fields) are dropped naturally by rebuilding the list.
+        copied_by_name = {col.name: col for col in new_revision.columns}
+        merged_columns: list[Column] = []
+        for idx, validator_col in enumerate(node_validator.columns):
+            copied = copied_by_name.get(validator_col.name)
+            if copied is not None:
+                if copied.type != validator_col.type:
+                    copied.type = validator_col.type
+                if copied.order is None:
+                    copied.order = idx
+                merged_columns.append(copied)
+            else:
+                validator_col.order = idx
+                merged_columns.append(validator_col)
+        new_revision.columns = merged_columns
 
         # Save the new revision of the child
         node.current_version = new_revision.version  # type: ignore
         new_revision.node_id = node.id  # type: ignore
         session.add(node)
         session.add(new_revision)
+
+        # Record the revision bump so the audit trail reflects revalidate-
+        # driven version changes, not just deploy-driven ones, and explains
+        # *which* validator-detected differences triggered it (type changes,
+        # missing column orders, new columns). Skip when the caller will
+        # write its own (richer) event for the same bump.
+        if record_revision_bump_event:
+            history_details: dict = {
+                "version": new_revision.version,
+                "reason": "revalidate",
+            }
+            if type_changes:
+                history_details["type_changes"] = type_changes
+            if order_fixed:
+                history_details["order_fixed"] = order_fixed
+            if added_columns:
+                history_details["added_columns"] = added_columns
+            await save_history(
+                event=History(
+                    entity_type=EntityType.NODE,
+                    entity_name=node.name,  # type: ignore
+                    node=node.name,  # type: ignore
+                    activity_type=ActivityType.UPDATE,
+                    details=history_details,
+                    user=current_user.username,
+                ),
+                session=session,
+            )
     await session.commit()
     await session.refresh(node.current)  # type: ignore
     await session.refresh(node, ["current"])

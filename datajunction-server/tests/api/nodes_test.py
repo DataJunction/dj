@@ -2,6 +2,7 @@
 Tests for the nodes API.
 """
 
+import asyncio
 import re
 from typing import Any, Dict
 from unittest import mock
@@ -5762,6 +5763,655 @@ class TestValidateNodes:
         assert len(node_data["columns"]) == 2
         column_names = [col["name"] for col in node_data["columns"]]
         assert set(column_names) == {"repair_order_id", "dispatcher_id"}
+
+    @pytest.mark.asyncio
+    async def test_revalidate_preserves_column_metadata(
+        self,
+        client_with_roads: AsyncClient,
+        session: AsyncSession,
+    ):
+        """When revalidation triggers a new revision, user-supplied column
+        metadata (description, display_name) on the old revision must survive
+        the bump. Previously revalidate_node wholesale-replaced new_revision
+        columns with the validator's bare columns, wiping descriptions.
+        """
+        response = await client_with_roads.post(
+            "/nodes/transform/",
+            json={
+                "name": "default.test_meta_preserved",
+                "query": "SELECT repair_order_id, dispatcher_id FROM default.repair_orders",
+                "description": "Test transform",
+                "mode": "published",
+            },
+        )
+        assert response.status_code == 201
+
+        # Seed descriptions and display_names on the current revision's columns
+        # to simulate user-supplied metadata.
+        await session.execute(
+            text(
+                """
+                UPDATE "column"
+                SET description = 'desc-' || name,
+                    display_name = 'Display ' || name
+                WHERE node_revision_id IN (
+                    SELECT id FROM noderevision WHERE name = 'default.test_meta_preserved'
+                )
+                """,
+            ),
+        )
+        # Also clear the order so revalidate detects a change and creates a
+        # new revision (matching the existing test_revalidate_sets_column_order
+        # trigger).
+        await session.execute(
+            text(
+                """
+                UPDATE "column"
+                SET "order" = NULL
+                WHERE node_revision_id IN (
+                    SELECT id FROM noderevision WHERE name = 'default.test_meta_preserved'
+                )
+                """,
+            ),
+        )
+        await session.commit()
+        session.expire_all()
+
+        result = await client_with_roads.post(
+            "/nodes/default.test_meta_preserved/validate/",
+        )
+        assert result.status_code == 200
+        assert result.json()["status"] == "valid"
+
+        node_data = (
+            await client_with_roads.get("/nodes/default.test_meta_preserved/")
+        ).json()
+        cols_by_name = {col["name"]: col for col in node_data["columns"]}
+        assert set(cols_by_name) == {"repair_order_id", "dispatcher_id"}
+        for col_name, col in cols_by_name.items():
+            assert col["description"] == f"desc-{col_name}", (
+                f"description was wiped on revalidation for {col_name}: "
+                f"got {col['description']!r}"
+            )
+            assert col["display_name"] == f"Display {col_name}", (
+                f"display_name was wiped on revalidation for {col_name}: "
+                f"got {col['display_name']!r}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_revalidate_preserves_column_metadata_post_deployment(
+        self,
+        client_with_roads: AsyncClient,
+        session: AsyncSession,
+    ):
+        """End-to-end: a node deployed via POST /deployments with user-supplied
+        column descriptions must keep those descriptions across a subsequent
+        revalidate_node call.
+
+        Production pattern: dj-arc CI deploys → descriptions land in
+        revision N. Some external POST /nodes/{name}/validate/ (or a PATCH on
+        an upstream that schedules propagate_update_downstream) fires
+        revalidate_node, which used to wipe descriptions when it bumped to
+        revision N+1. This test exercises that full sequence: deploy via the
+        modern deployments API, then revalidate, and assert descriptions
+        survive.
+        """
+        # Use a fresh namespace so the deployment doesn't try to delete the
+        # client_with_roads fixture's existing nodes in 'default'.
+        ns = "meta_preserve_test"
+        deployment_spec = {
+            "namespace": ns,
+            "nodes": [
+                {
+                    "node_type": "source",
+                    "name": "src",
+                    "catalog": "default",
+                    "schema": "test",
+                    "table": "src",
+                    "columns": [
+                        {"name": "repair_order_id", "type": "int"},
+                        {"name": "dispatcher_id", "type": "int"},
+                    ],
+                },
+                {
+                    "node_type": "transform",
+                    "name": "test_deploy_meta",
+                    "query": "SELECT repair_order_id, dispatcher_id FROM ${prefix}src",
+                    "description": "Transform deployed with column metadata",
+                    "mode": "published",
+                    "columns": [
+                        {
+                            "name": "repair_order_id",
+                            "type": "int",
+                            "display_name": "Repair Order ID",
+                            "description": "The repair order identifier",
+                        },
+                        {
+                            "name": "dispatcher_id",
+                            "type": "int",
+                            "display_name": "Dispatcher ID",
+                            "description": "The dispatcher's identifier",
+                        },
+                    ],
+                },
+            ],
+        }
+
+        deploy_response = await client_with_roads.post(
+            "/deployments",
+            json=deployment_spec,
+        )
+        assert deploy_response.status_code in (200, 201), deploy_response.text
+        deployment_id = deploy_response.json()["uuid"]
+        # Wait for deployment to complete.
+        status_data = None
+        for _ in range(30):
+            status_response = await client_with_roads.get(
+                f"/deployments/{deployment_id}",
+            )
+            status_data = status_response.json()
+            if status_data["status"] in ("success", "failed"):
+                break
+            await asyncio.sleep(0.1)
+        assert status_data is not None and status_data["status"] == "success", (
+            f"Deployment did not succeed: {status_data}"
+        )
+
+        # Confirm descriptions landed in the deploy.
+        node_after_deploy = (
+            await client_with_roads.get("/nodes/meta_preserve_test.test_deploy_meta/")
+        ).json()
+        post_deploy_descriptions = {
+            col["name"]: col["description"] for col in node_after_deploy["columns"]
+        }
+        assert post_deploy_descriptions == {
+            "repair_order_id": "The repair order identifier",
+            "dispatcher_id": "The dispatcher's identifier",
+        }, f"Deploy did not land descriptions: {post_deploy_descriptions}"
+
+        # Force revalidate_node to detect a column change so it creates a new
+        # revision (same trigger as test_revalidate_sets_column_order_when_missing).
+        await session.execute(
+            text(
+                """
+                UPDATE "column"
+                SET "order" = NULL
+                WHERE node_revision_id IN (
+                    SELECT id FROM noderevision WHERE name = 'meta_preserve_test.test_deploy_meta'
+                )
+                """,
+            ),
+        )
+        await session.commit()
+        session.expire_all()
+
+        result = await client_with_roads.post(
+            "/nodes/meta_preserve_test.test_deploy_meta/validate/",
+        )
+        assert result.status_code == 200
+        assert result.json()["status"] == "valid"
+
+        # Descriptions must still be present on the new revision.
+        node_after_validate = (
+            await client_with_roads.get("/nodes/meta_preserve_test.test_deploy_meta/")
+        ).json()
+        post_validate_descriptions = {
+            col["name"]: col["description"] for col in node_after_validate["columns"]
+        }
+        assert post_validate_descriptions == post_deploy_descriptions, (
+            f"Revalidation wiped descriptions deployed via the deployment API. "
+            f"Before: {post_deploy_descriptions}, after: {post_validate_descriptions}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_revalidate_writes_history_event(
+        self,
+        client_with_roads: AsyncClient,
+        session: AsyncSession,
+    ):
+        """revalidate_node must record a history event when it creates a new
+        revision. Without it, /history?node=<name> only shows deploy-driven
+        updates and silently masks revalidate-driven version bumps (UI
+        validate, downstream propagation, manual /validate calls).
+        """
+        response = await client_with_roads.post(
+            "/nodes/transform/",
+            json={
+                "name": "default.test_revalidate_history",
+                "query": "SELECT repair_order_id FROM default.repair_orders",
+                "description": "Test transform",
+                "mode": "published",
+            },
+        )
+        assert response.status_code == 201
+
+        # Force revalidate_node to create a new revision (same trigger as the
+        # column-order-cleared tests above).
+        await session.execute(
+            text(
+                """
+                UPDATE "column"
+                SET "order" = NULL
+                WHERE node_revision_id IN (
+                    SELECT id FROM noderevision WHERE name = 'default.test_revalidate_history'
+                )
+                """,
+            ),
+        )
+        await session.commit()
+        session.expire_all()
+
+        history_before = (
+            await client_with_roads.get(
+                "/history?node=default.test_revalidate_history",
+            )
+        ).json()
+
+        result = await client_with_roads.post(
+            "/nodes/default.test_revalidate_history/validate/",
+        )
+        assert result.status_code == 200
+        assert result.json()["status"] == "valid"
+
+        history_after = (
+            await client_with_roads.get(
+                "/history?node=default.test_revalidate_history",
+            )
+        ).json()
+
+        # An additional history event was emitted by revalidate_node
+        # specifically (reason: revalidate) when it bumped the revision.
+        revalidate_events = [
+            e
+            for e in history_after
+            if e.get("activity_type") == "update"
+            and (e.get("details") or {}).get("reason") == "revalidate"
+        ]
+        assert len(revalidate_events) >= 1, (
+            f"Expected a revalidate-reason history event after revision bump; "
+            f"got events: {history_after}"
+        )
+        # The event details explain WHY the validator bumped the revision —
+        # in this case, by recording which columns had their missing order
+        # backfilled. Without this the audit trail says "revalidate happened"
+        # but not "this is what it changed".
+        details = revalidate_events[0]["details"]
+        assert details.get("order_fixed"), (
+            f"Expected order_fixed in revalidate event details; got {details}"
+        )
+        assert set(details["order_fixed"]) == {"repair_order_id"}, (
+            f"Expected order_fixed to list the column whose order was cleared; "
+            f"got {details}"
+        )
+        assert len(history_after) > len(history_before)
+
+    @pytest.mark.asyncio
+    async def test_revalidate_via_propagation_writes_one_history_event(
+        self,
+        client_with_roads: AsyncClient,
+        session: AsyncSession,
+    ):
+        """revalidate_node accepts ``record_revision_bump_event`` so that
+        callers which write their own (richer) history event don't end up
+        with two audit rows per downstream version bump.
+
+        ``propagate_update_downstream`` already records an UPDATE event with
+        upstream context for each downstream it bumps; the inner revalidate
+        event would duplicate that row.
+        """
+        from datajunction_server.database.user import User
+        from datajunction_server.internal.nodes import revalidate_node
+
+        async def capture_history(event, session):  # type: ignore
+            captured.append(event)
+
+        captured: list = []
+
+        response = await client_with_roads.post(
+            "/nodes/transform/",
+            json={
+                "name": "default.test_one_event_only",
+                "query": "SELECT repair_order_id FROM default.repair_orders",
+                "description": "Test transform",
+                "mode": "published",
+            },
+        )
+        assert response.status_code == 201
+
+        # Force the revalidate code path to create a new revision.
+        await session.execute(
+            text(
+                """
+                UPDATE "column"
+                SET "order" = NULL
+                WHERE node_revision_id IN (
+                    SELECT id FROM noderevision WHERE name = 'default.test_one_event_only'
+                )
+                """,
+            ),
+        )
+        await session.commit()
+        session.expire_all()
+
+        user = (
+            await session.execute(select(User).where(User.username == "dj"))
+        ).scalar_one()
+
+        await revalidate_node(
+            name="default.test_one_event_only",
+            session=session,
+            current_user=user,
+            save_history=capture_history,
+            record_revision_bump_event=False,
+        )
+
+        # The opt-out caller path emits no inner history event.
+        revalidate_events = [
+            e
+            for e in captured
+            if getattr(e, "activity_type", None) == "update"
+            and (getattr(e, "details", None) or {}).get("reason") == "revalidate"
+        ]
+        assert revalidate_events == [], (
+            f"Expected no revalidate-reason history event when "
+            f"record_revision_bump_event=False; got {revalidate_events}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_update_node_preserves_column_metadata(
+        self,
+        client_with_roads: AsyncClient,
+        session: AsyncSession,
+    ):
+        """PATCH /nodes/{name} with a columns payload must preserve
+        user-supplied metadata (description, display_name, unit, partition)
+        on surviving columns, even when those fields aren't in the payload.
+
+        The PATCH path goes through ``update_any_node`` →
+        ``create_new_revision_from_existing``, which previously built fresh
+        Column objects with only name/type/dimension/attributes/order —
+        silently wiping the rest. This is the same antipattern that
+        ``revalidate_node`` had; the fix mirrors the merge-by-name pattern.
+        """
+        response = await client_with_roads.post(
+            "/nodes/source/",
+            json={
+                "name": "default.test_patch_meta",
+                "node_type": "source",
+                "catalog": "default",
+                "schema_": "test",
+                "table": "patch_meta",
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "name", "type": "string"},
+                ],
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+
+        await session.execute(
+            text(
+                """
+                UPDATE "column"
+                SET description = 'desc-' || name,
+                    display_name = 'Display ' || name
+                WHERE node_revision_id IN (
+                    SELECT id FROM noderevision WHERE name = 'default.test_patch_meta'
+                )
+                """,
+            ),
+        )
+        await session.commit()
+        session.expire_all()
+
+        # PATCH with a columns payload that doesn't repeat description/display_name.
+        patch_response = await client_with_roads.patch(
+            "/nodes/default.test_patch_meta/",
+            json={
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "name", "type": "string"},
+                    {"name": "extra", "type": "string"},
+                ],
+            },
+        )
+        assert patch_response.status_code == 200, patch_response.text
+
+        node_after = (
+            await client_with_roads.get("/nodes/default.test_patch_meta/")
+        ).json()
+        cols_by_name = {col["name"]: col for col in node_after["columns"]}
+
+        # Surviving columns retain their seeded metadata.
+        for col_name in ("id", "name"):
+            assert cols_by_name[col_name]["description"] == f"desc-{col_name}", (
+                f"description was wiped on PATCH for {col_name}: "
+                f"{cols_by_name[col_name]}"
+            )
+            assert cols_by_name[col_name]["display_name"] == f"Display {col_name}", (
+                f"display_name was wiped on PATCH for {col_name}: "
+                f"{cols_by_name[col_name]}"
+            )
+
+        # Newly added columns have no preserved metadata (correct — there's
+        # nothing to preserve), but they're still present.
+        assert "extra" in cols_by_name
+
+    @pytest.mark.asyncio
+    async def test_update_node_preserves_column_partition(
+        self,
+        client_with_roads: AsyncClient,
+        session: AsyncSession,
+    ):
+        """PATCH /nodes with a columns payload must deep-copy the existing
+        column's partition onto the new revision so partition metadata
+        isn't silently dropped.
+        """
+        response = await client_with_roads.post(
+            "/nodes/source/",
+            json={
+                "name": "default.test_patch_partition",
+                "node_type": "source",
+                "catalog": "default",
+                "schema_": "test",
+                "table": "patch_partition",
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "event_date", "type": "date"},
+                ],
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+
+        # Seed a partition on event_date.
+        await session.execute(
+            text(
+                """
+                INSERT INTO partition (type_, granularity, format, column_id)
+                SELECT 'TEMPORAL', 'DAY', 'yyyyMMdd', c.id
+                FROM "column" c
+                JOIN noderevision nr ON c.node_revision_id = nr.id
+                WHERE nr.name = 'default.test_patch_partition' AND c.name = 'event_date'
+                """,
+            ),
+        )
+        await session.commit()
+        session.expire_all()
+
+        # PATCH with a columns payload that doesn't repeat the partition.
+        patch_response = await client_with_roads.patch(
+            "/nodes/default.test_patch_partition/",
+            json={
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "event_date", "type": "date"},
+                ],
+            },
+        )
+        assert patch_response.status_code == 200, patch_response.text
+
+        node_after = (
+            await client_with_roads.get("/nodes/default.test_patch_partition/")
+        ).json()
+        cols_by_name = {col["name"]: col for col in node_after["columns"]}
+        partition = cols_by_name["event_date"]["partition"]
+        assert partition is not None, (
+            f"partition was wiped on PATCH: {cols_by_name['event_date']}"
+        )
+        assert partition["type_"] == "temporal"
+        assert partition["granularity"] == "day"
+
+    @pytest.mark.asyncio
+    async def test_patch_column_fields_are_categorized(self):
+        """Every Column field must be categorized as either preserved-on-PATCH,
+        settable-via-PATCH, or infrastructure. This is the meta-guard that
+        catches the failure mode of this PR's bug at the source: someone adds
+        a new Column field and forgets to thread it through
+        ``_build_columns_for_revision_update``.
+
+        When this test fails for an uncategorized field, the maintainer must
+        make a deliberate choice and update both the categorization sets here
+        AND ``_build_columns_for_revision_update`` (or the PATCH payload
+        schema, ``SourceColumnOutput``).
+        """
+        from sqlalchemy import inspect as sa_inspect
+
+        # Fields PATCH must preserve when the payload doesn't repeat them.
+        # Adding to this set requires also updating
+        # ``_build_columns_for_revision_update`` to copy from the existing column.
+        preserved_scalars = {"display_name", "description", "unit"}
+        preserved_relationships = {"partition"}
+
+        # Fields the PATCH payload (SourceColumnOutput) lets the user set.
+        # Adding to this set requires also updating ``SourceColumnOutput``
+        # and ``_build_columns_for_revision_update``'s constructor args.
+        settable_scalars = {"name", "type", "order", "dimension_id", "dimension_column"}
+        settable_relationships = {"attributes", "dimension"}
+
+        # FK plumbing / backrefs / admin-managed fields not touched by PATCH.
+        infrastructure_scalars = {
+            "id",
+            "node_revision_id",
+            "partition_id",
+            "measure_id",
+        }
+        infrastructure_relationships = {"node_revision", "measure"}
+
+        all_scalars = {c.key for c in sa_inspect(Column).columns}
+        all_relationships = {r.key for r in sa_inspect(Column).mapper.relationships}
+
+        categorized_scalars = (
+            preserved_scalars | settable_scalars | infrastructure_scalars
+        )
+        uncategorized_scalars = all_scalars - categorized_scalars
+        assert uncategorized_scalars == set(), (
+            f"Column has uncategorized scalar field(s) {uncategorized_scalars}. "
+            "Decide one: (a) PATCH preserves it — add to `preserved_scalars` "
+            "here AND to `_build_columns_for_revision_update` (copy from "
+            "`existing`); (b) PATCH sets it — add to `settable_scalars` here, "
+            "to `SourceColumnOutput`, and as a constructor arg in "
+            "`_build_columns_for_revision_update`; or (c) it's plumbing — "
+            "add to `infrastructure_scalars` here."
+        )
+
+        categorized_relationships = (
+            preserved_relationships
+            | settable_relationships
+            | infrastructure_relationships
+        )
+        uncategorized_relationships = all_relationships - categorized_relationships
+        assert uncategorized_relationships == set(), (
+            f"Column has uncategorized relationship(s) {uncategorized_relationships}. "
+            "Decide one: preserved on PATCH (add to `preserved_relationships` "
+            "AND to `_build_columns_for_revision_update`), settable via PATCH "
+            "(add to `settable_relationships` AND to `SourceColumnOutput`), or "
+            "infrastructure (add to `infrastructure_relationships`)."
+        )
+
+    @pytest.mark.asyncio
+    async def test_patch_preserves_all_metadata_fields(
+        self,
+        client_with_roads: AsyncClient,
+        session: AsyncSession,
+    ):
+        """Seed every preserved-on-PATCH field on a column, PATCH with just
+        name/type, and assert each survives. Companion to
+        ``test_patch_column_fields_are_categorized`` — that test asserts the
+        categorization is complete; this one asserts the categorization holds
+        end-to-end through ``_build_columns_for_revision_update``.
+        """
+        response = await client_with_roads.post(
+            "/nodes/source/",
+            json={
+                "name": "default.test_patch_all_meta",
+                "node_type": "source",
+                "catalog": "default",
+                "schema_": "test",
+                "table": "patch_all_meta",
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "event_date", "type": "date"},
+                ],
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+
+        # Seed every preserved-on-PATCH scalar field plus the partition
+        # relationship on event_date.
+        await session.execute(
+            text(
+                """
+                UPDATE "column"
+                SET description = 'seeded-desc',
+                    display_name = 'Seeded Display',
+                    unit = '{"kind": "currency", "code": "USD"}'::jsonb
+                WHERE node_revision_id IN (
+                    SELECT id FROM noderevision WHERE name = 'default.test_patch_all_meta'
+                ) AND name = 'event_date'
+                """,
+            ),
+        )
+        await session.execute(
+            text(
+                """
+                INSERT INTO partition (type_, granularity, format, column_id)
+                SELECT 'TEMPORAL', 'DAY', 'yyyyMMdd', c.id
+                FROM "column" c
+                JOIN noderevision nr ON c.node_revision_id = nr.id
+                WHERE nr.name = 'default.test_patch_all_meta' AND c.name = 'event_date'
+                """,
+            ),
+        )
+        await session.commit()
+        session.expire_all()
+
+        # PATCH with name+type only — every preserved field must survive.
+        patch_response = await client_with_roads.patch(
+            "/nodes/default.test_patch_all_meta/",
+            json={
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "event_date", "type": "date"},
+                ],
+            },
+        )
+        assert patch_response.status_code == 200, patch_response.text
+
+        node_after = (
+            await client_with_roads.get("/nodes/default.test_patch_all_meta/")
+        ).json()
+        col = {c["name"]: c for c in node_after["columns"]}["event_date"]
+
+        assert col["description"] == "seeded-desc", col
+        assert col["display_name"] == "Seeded Display", col
+        assert col["unit"] == {"kind": "currency", "code": "USD"}, col
+        assert col["partition"] is not None, col
+        assert col["partition"]["type_"] == "temporal"
+        assert col["partition"]["granularity"] == "day"
+        assert col["partition"]["format"] == "yyyyMMdd"
 
 
 @pytest.mark.asyncio
