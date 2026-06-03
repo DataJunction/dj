@@ -1715,6 +1715,9 @@ async def _propagate_update_downstream(
         [n for n in all_downstreams if n.type != NodeType.CUBE],
     )
     cube_downstreams = [n for n in all_downstreams if n.type == NodeType.CUBE]
+    # Extract names now — commits in the loop below expire the Node objects,
+    # and accessing .name on an expired async-session object raises MissingGreenlet.
+    cube_names = [cube.name for cube in cube_downstreams]
     _logger.info(
         "Node %s updated — revalidating %s downstreams, bumping %s cubes",
         node_name,
@@ -1795,8 +1798,6 @@ async def _propagate_update_downstream(
     # A cube's element list doesn't change when an upstream metric's SQL
     # changes, so update_cube_node's diff logic won't fire. Create a new
     # minor revision so callers that gate on version ID see the change.
-    # Extract names before the non-cube commits above expire the objects.
-    cube_names = [cube.name for cube in cube_downstreams]
     await bump_cube_versions(
         session,
         cube_names,
