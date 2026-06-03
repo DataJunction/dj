@@ -6230,7 +6230,7 @@ class TestValidateNodes:
             text(
                 """
                 INSERT INTO partition (type_, granularity, format, column_id)
-                SELECT 'TEMPORAL', 'day', 'yyyyMMdd', c.id
+                SELECT 'TEMPORAL', 'DAY', 'yyyyMMdd', c.id
                 FROM "column" c
                 JOIN noderevision nr ON c.node_revision_id = nr.id
                 WHERE nr.name = 'default.test_patch_partition' AND c.name = 'event_date'
