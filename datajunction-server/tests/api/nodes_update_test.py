@@ -73,7 +73,10 @@ async def test_update_source_node(
                 "created_at": mock.ANY,
                 "details": {
                     "changes": {
-                        "updated_columns": [],
+                        "updated_columns": [
+                            "avg_repair_amount_in_region",
+                            "total_amount_in_region",
+                        ],
                     },
                     "reason": "Caused by update of `default.repair_order_details` to v2.0",
                     "upstream": {
