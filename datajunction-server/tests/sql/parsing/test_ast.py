@@ -1145,7 +1145,7 @@ async def test_ast_subscript_handling(session: AsyncSession):
   w.a[1]['a'] as a_,
   w.a[1]['b'] as b_
 FROM VALUES
-  (array(named_struct('a', 1, 'b', 2)), array(named_struct('a', 300, 'b', 20))) AS w(a)"""
+  (array(named_struct('a', 1, 'b', 2), named_struct('a', 300, 'b', 20))) AS w(a)"""
     query = parse(str(query_str))
     assert str(parse(str(query))) == str(parse(str(query_str)))
     exc = DJException()
@@ -1427,7 +1427,8 @@ def test_values_clause_trailing_comma_rejected():
 
 
 def test_values_clause_alias_arity_mismatch_rejected():
-    """Explicit column alias count must match the VALUES row width."""
+    """Explicit column alias count must match the VALUES row width — Spark
+    rejects this and DJ used to silently truncate, masking author typos."""
     with pytest.raises(
         DJParseException,
         match=r"VALUES clause has 2 column\(s\) but alias `t` declares 1",

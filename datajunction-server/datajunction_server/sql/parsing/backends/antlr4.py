@@ -403,6 +403,10 @@ def _(ctx: sbp.InlineTableContext):
             f"got widths {sorted(row_widths)}.",
         )
     row_width = next(iter(row_widths))
+    # An explicit column-alias list must match the row arity. Spark rejects
+    # mismatches outright; DJ used to silently truncate via zip(columns, row),
+    # masking typos like `(arr1, arr2) AS w(a)` when the author meant a single
+    # `array(struct1, struct2) AS w(a)`.
     if columns and len(columns) != row_width:
         raise DJParseException(
             f"VALUES clause has {row_width} column(s) but alias `{alias}` "
