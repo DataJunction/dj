@@ -1377,7 +1377,8 @@ async def update_node_with_query(
 
     background_tasks.add_task(
         propagate_update_downstream,
-        node,
+        node.name,  # type: ignore
+        node.current_version,  # type: ignore
         current_user=current_user,
         save_history=save_history,
         cache=cache,
@@ -1662,7 +1663,8 @@ async def update_cube_node(
 
 
 async def propagate_update_downstream(
-    node: Node,
+    node_name: str,
+    node_current_version: str,
     current_user: User,
     save_history: Callable,
     cache: Cache | None = None,
@@ -1674,7 +1676,8 @@ async def propagate_update_downstream(
         async with session_context() as session:
             await _propagate_update_downstream(
                 session=session,
-                node=node,
+                node_name=node_name,
+                node_current_version=node_current_version,
                 current_user=current_user,
                 save_history=save_history,
                 cache=cache,
@@ -1682,13 +1685,14 @@ async def propagate_update_downstream(
     except Exception:
         _logger.exception(
             "Error propagating update of node %s downstream",
-            node.name,
+            node_name,
         )
 
 
 async def _propagate_update_downstream(
     session: AsyncSession,
-    node: Node,
+    node_name: str,
+    node_current_version: str,
     current_user: User,
     save_history: Callable,
     cache: Cache | None = None,
@@ -1700,10 +1704,10 @@ async def _propagate_update_downstream(
     - altered column types: may invalidate downstream nodes
     - new columns: won't affect downstream nodes
     """
-    _logger.info("Propagating update of node %s downstream", node.name)
+    _logger.info("Propagating update of node %s downstream", node_name)
     all_downstreams = await get_downstream_nodes(
         session,
-        node.name,
+        node_name,
         include_deactivated=False,
         include_cubes=True,
     )
@@ -1713,7 +1717,7 @@ async def _propagate_update_downstream(
     cube_downstreams = [n for n in all_downstreams if n.type == NodeType.CUBE]
     _logger.info(
         "Node %s updated — revalidating %s downstreams, bumping %s cubes",
-        node.name,
+        node_name,
         len(non_cube_downstreams),
         len(cube_downstreams),
     )
@@ -1728,7 +1732,7 @@ async def _propagate_update_downstream(
             idx + 1,
             len(non_cube_downstreams),
             downstream.name,
-            node.name,
+            node_name,
         )
         node_validator = await revalidate_node(
             downstream.name,
@@ -1745,7 +1749,7 @@ async def _propagate_update_downstream(
                 _logger.info(
                     "Clearing upstream cache for node %s due to update of node %s (cache key: %s)",
                     downstream.name,
-                    node.name,
+                    node_name,
                     upstream_cache_key,
                 )
                 cache.delete(upstream_cache_key)
@@ -1768,11 +1772,11 @@ async def _propagate_update_downstream(
                             ),
                         },
                         "upstream": {
-                            "node": node.name,
-                            "version": node.current_version,
+                            "node": node_name,
+                            "version": node_current_version,
                         },
-                        "reason": f"Caused by update of `{node.name}` to "
-                        f"{node.current_version}",
+                        "reason": f"Caused by update of `{node_name}` to "
+                        f"{node_current_version}",
                     },
                     pre={
                         "status": previous_status,
@@ -1798,8 +1802,8 @@ async def _propagate_update_downstream(
         cube_names,
         current_user,
         save_history,
-        upstream_node_name=node.name,
-        upstream_node_version=node.current_version,
+        upstream_node_name=node_name,
+        upstream_node_version=node_current_version,
     )
 
 
