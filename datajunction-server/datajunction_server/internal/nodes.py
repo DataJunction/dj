@@ -1831,6 +1831,11 @@ async def bump_cube_versions(
             continue
         current_rev = cube_node.current
 
+        # Load relationships not covered by get_cube_by_name's default eager-load
+        # before entering no_autoflush. Lazy-loading inside an async session raises
+        # MissingGreenlet; explicit refresh is the correct async pattern.
+        await session.refresh(current_rev, ["parents", "dimension_links"])
+
         with session.no_autoflush:
             # Copy the existing revision directly so column partition settings
             # (granularity, format, type) are preserved exactly. Using
