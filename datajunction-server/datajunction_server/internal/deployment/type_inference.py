@@ -260,13 +260,13 @@ def _resolve_inline_table(query: ast.Query) -> OutputColumns:
             return BooleanType()
         return UnknownType()
 
+    # The parser enforces that every row has the same arity as the alias
+    # column list, so it's safe to index `row[i]` without bounds-checking.
     result: OutputColumns = []
     for i, name in enumerate(col_names):
         col_type: ColumnType = UnknownType()
         saw_only_null = True
         for row in select.values:
-            if i >= len(row):
-                continue
             inferred = _literal_type(row[i])
             if inferred is None:
                 continue  # NULL — try next row
