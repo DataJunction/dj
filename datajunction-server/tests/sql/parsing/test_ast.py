@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.errors import DJException
 from datajunction_server.sql.parsing import ast, types
 from datajunction_server.sql.parsing.backends.antlr4 import parse
+from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from tests.sql.utils import compare_query_strings
 
 
@@ -1144,7 +1145,7 @@ async def test_ast_subscript_handling(session: AsyncSession):
   w.a[1]['a'] as a_,
   w.a[1]['b'] as b_
 FROM VALUES
-  (array(named_struct('a', 1, 'b', 2)), array(named_struct('a', 300, 'b', 20))) AS w(a)"""
+  (array(named_struct('a', 1, 'b', 2), named_struct('a', 300, 'b', 20))) AS w(a)"""
     query = parse(str(query_str))
     assert str(parse(str(query))) == str(parse(str(query_str)))
     exc = DJException()
@@ -1401,6 +1402,38 @@ def test_values_clause_explicit_column_aliases():
     assert inner_q.alias.name == "v"
     col_names = [col.name.name for col in inner_q.select._columns]
     assert col_names == ["a", "b"], f"Expected ['a', 'b'], got {col_names}"
+
+
+def test_values_clause_trailing_comma_rejected():
+    """
+    A stray trailing comma in a VALUES list used to slip through because `AS` is
+    a nonReserved keyword and got parsed as a phantom single-column row. The
+    InlineTable visitor now rejects row-width mismatches.
+    """
+    sql = """SELECT
+      CAST(country_id AS BIGINT) AS country_id
+      , country_name
+    FROM VALUES
+      (1, 'US'),
+      (2, 'CA'),
+      (3, 'MX'),
+      (4, 'BR'),
+    AS t(country_id, country_name)"""
+    with pytest.raises(
+        DJParseException,
+        match=r"All rows in a VALUES clause must have the same number of columns",
+    ):
+        parse(sql)
+
+
+def test_values_clause_alias_arity_mismatch_rejected():
+    """Explicit column alias count must match the VALUES row width — Spark
+    rejects this and DJ used to silently truncate, masking author typos."""
+    with pytest.raises(
+        DJParseException,
+        match=r"VALUES clause has 2 column\(s\) but alias `t` declares 1",
+    ):
+        parse("SELECT * FROM VALUES (1, 'a'), (2, 'b') AS t(only_one)")
 
 
 def test_struct_column_name_two_level():
