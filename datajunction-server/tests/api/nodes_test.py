@@ -6045,6 +6045,159 @@ class TestValidateNodes:
         )
         assert len(history_after) > len(history_before)
 
+    @pytest.mark.asyncio
+    async def test_revalidate_via_propagation_writes_one_history_event(
+        self,
+        client_with_roads: AsyncClient,
+        session: AsyncSession,
+    ):
+        """revalidate_node accepts ``record_revision_bump_event`` so that
+        callers which write their own (richer) history event don't end up
+        with two audit rows per downstream version bump.
+
+        ``propagate_update_downstream`` already records an UPDATE event with
+        upstream context for each downstream it bumps; the inner revalidate
+        event would duplicate that row.
+        """
+        from datajunction_server.database.user import User
+        from datajunction_server.internal.nodes import revalidate_node
+
+        async def capture_history(event, session):  # type: ignore
+            captured.append(event)
+
+        captured: list = []
+
+        response = await client_with_roads.post(
+            "/nodes/transform/",
+            json={
+                "name": "default.test_one_event_only",
+                "query": "SELECT repair_order_id FROM default.repair_orders",
+                "description": "Test transform",
+                "mode": "published",
+            },
+        )
+        assert response.status_code == 201
+
+        # Force the revalidate code path to create a new revision.
+        await session.execute(
+            text(
+                """
+                UPDATE "column"
+                SET "order" = NULL
+                WHERE node_revision_id IN (
+                    SELECT id FROM noderevision WHERE name = 'default.test_one_event_only'
+                )
+                """,
+            ),
+        )
+        await session.commit()
+        session.expire_all()
+
+        user = (
+            await session.execute(select(User).where(User.username == "dj"))
+        ).scalar_one()
+
+        await revalidate_node(
+            name="default.test_one_event_only",
+            session=session,
+            current_user=user,
+            save_history=capture_history,
+            record_revision_bump_event=False,
+        )
+
+        # The opt-out caller path emits no inner history event.
+        revalidate_events = [
+            e
+            for e in captured
+            if getattr(e, "activity_type", None) == "update"
+            and (getattr(e, "details", None) or {}).get("reason") == "revalidate"
+        ]
+        assert revalidate_events == [], (
+            f"Expected no revalidate-reason history event when "
+            f"record_revision_bump_event=False; got {revalidate_events}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_update_node_preserves_column_metadata(
+        self,
+        client_with_roads: AsyncClient,
+        session: AsyncSession,
+    ):
+        """PATCH /nodes/{name} with a columns payload must preserve
+        user-supplied metadata (description, display_name, unit, partition)
+        on surviving columns, even when those fields aren't in the payload.
+
+        The PATCH path goes through ``update_any_node`` →
+        ``create_new_revision_from_existing``, which previously built fresh
+        Column objects with only name/type/dimension/attributes/order —
+        silently wiping the rest. This is the same antipattern that
+        ``revalidate_node`` had; the fix mirrors the merge-by-name pattern.
+        """
+        response = await client_with_roads.post(
+            "/nodes/source/",
+            json={
+                "name": "default.test_patch_meta",
+                "node_type": "source",
+                "catalog": "default",
+                "schema_": "test",
+                "table": "patch_meta",
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "name", "type": "string"},
+                ],
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+
+        await session.execute(
+            text(
+                """
+                UPDATE "column"
+                SET description = 'desc-' || name,
+                    display_name = 'Display ' || name
+                WHERE node_revision_id IN (
+                    SELECT id FROM noderevision WHERE name = 'default.test_patch_meta'
+                )
+                """,
+            ),
+        )
+        await session.commit()
+        session.expire_all()
+
+        # PATCH with a columns payload that doesn't repeat description/display_name.
+        patch_response = await client_with_roads.patch(
+            "/nodes/default.test_patch_meta/",
+            json={
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "name", "type": "string"},
+                    {"name": "extra", "type": "string"},
+                ],
+            },
+        )
+        assert patch_response.status_code == 200, patch_response.text
+
+        node_after = (
+            await client_with_roads.get("/nodes/default.test_patch_meta/")
+        ).json()
+        cols_by_name = {col["name"]: col for col in node_after["columns"]}
+
+        # Surviving columns retain their seeded metadata.
+        for col_name in ("id", "name"):
+            assert cols_by_name[col_name]["description"] == f"desc-{col_name}", (
+                f"description was wiped on PATCH for {col_name}: "
+                f"{cols_by_name[col_name]}"
+            )
+            assert cols_by_name[col_name]["display_name"] == f"Display {col_name}", (
+                f"display_name was wiped on PATCH for {col_name}: "
+                f"{cols_by_name[col_name]}"
+            )
+
+        # Newly added columns have no preserved metadata (correct — there's
+        # nothing to preserve), but they're still present.
+        assert "extra" in cols_by_name
+
 
 @pytest.mark.asyncio
 async def test_node_similarity(
