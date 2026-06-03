@@ -3570,9 +3570,15 @@ async def revalidate_node(
             for lineage in await get_column_level_lineage(session, new_revision)
         ]
 
-        # Save which columns were modified and update the columns with the changes
+        # Save which columns were modified vs the previous revision. Compare
+        # against node.current — not new_revision — because new_revision.columns
+        # is the deep copy that's about to be overwritten by the merge below,
+        # while node.current is the unmodified pre-fork snapshot. Pre-refactor
+        # this compared against new_revision and got the same answer only
+        # because node.current had been mutated in place; with the in-place
+        # mutation removed, the right baseline is node.current.
         node_validator.updated_columns = node_validator.modified_columns(
-            new_revision,  # type: ignore
+            node.current,  # type: ignore
         )
         # Build new_revision.columns in validator order. Existing columns
         # come from the deep copy (preserving description / display_name /
