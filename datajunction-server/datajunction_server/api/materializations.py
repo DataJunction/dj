@@ -113,7 +113,11 @@ async def upsert_materialization(
             message=f"Cannot set materialization config for source node `{node_name}`!",
         )
     if node.type == NodeType.CUBE:  # type: ignore
-        node = await Node.get_cube_by_name(session, node_name)
+        node = await Node.get_cube_by_name(
+            session,
+            node_name,
+            with_metric_current=True,
+        )
     _logger.info(
         "Upserting materialization for node=%s version=%s",
         node.name,  # type: ignore
