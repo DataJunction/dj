@@ -3503,35 +3503,31 @@ async def revalidate_node(
             to_remove.add(link)  # pragma: no cover
             await session.delete(link)  # pragma: no cover
 
-    # Check if any columns have been updated. Track *why* the validator
-    # decided a column changed so the history event can explain the bump
-    # (otherwise revalidate-driven version bumps look mysterious in the
-    # audit trail).
-    updated_columns = False
+    # Detect column changes from the validator. We DON'T mutate node.current
+    # here — if any changes are detected we fork into a new revision below
+    # and apply the mutations there, so the previous revision's stored
+    # columns remain a faithful snapshot of what was committed at that
+    # version. Track *why* the validator decided a column changed so the
+    # history event can explain the bump.
     type_changes: list[dict] = []
     order_fixed: list[str] = []
     added_columns: list[str] = []
-    for idx, col in enumerate(node_validator.columns):
-        if existing_col := existing_columns.get(col.name):
-            if existing_col.type != col.type:
-                type_changes.append(
-                    {
-                        "column": col.name,
-                        "from": str(existing_col.type),
-                        "to": str(col.type),
-                    },
-                )
-                existing_col.type = col.type
-                updated_columns = True
-            if existing_col.order is None:  # pragma: no branch
-                order_fixed.append(col.name)
-                existing_col.order = idx
-                updated_columns = True
-        else:
-            col.order = idx
-            node.current.columns.append(col)  # type: ignore  # pragma: no cover
-            added_columns.append(col.name)  # pragma: no cover
-            updated_columns = True  # pragma: no cover
+    for col in node_validator.columns:
+        existing_col = existing_columns.get(col.name)
+        if existing_col is None:
+            added_columns.append(col.name)
+            continue
+        if existing_col.type != col.type:
+            type_changes.append(
+                {
+                    "column": col.name,
+                    "from": str(existing_col.type),
+                    "to": str(col.type),
+                },
+            )
+        if existing_col.order is None:
+            order_fixed.append(col.name)
+    updated_columns = bool(type_changes or order_fixed or added_columns)
 
     _logger.info(
         "Columns updated: %s for node %s (current version: %s) — "
@@ -3578,23 +3574,29 @@ async def revalidate_node(
         node_validator.updated_columns = node_validator.modified_columns(
             new_revision,  # type: ignore
         )
-        # Reorder/prune new_revision.columns to match the validator's output
-        # set, keeping the deep-copied columns (and their user-supplied
-        # description/display_name/unit/partition) intact. The first loop
-        # above already mutated type/order onto node.current.columns and
-        # appended any new columns, then copy_existing_node_revision deep-
-        # copied that state into new_revision.columns — so every column the
-        # validator returned is guaranteed to be present here.
+        # Build new_revision.columns in validator order. Existing columns
+        # come from the deep copy (preserving description / display_name /
+        # unit / partition); brand-new columns come straight from the
+        # validator output. Type and order fixes are applied here — not on
+        # node.current — so the previous revision's stored columns remain a
+        # faithful snapshot of what was committed at that version.
         #
-        # Wholesale-replacing with node_validator.columns previously wiped
-        # all user metadata; columns missing from validator output (e.g.,
-        # query changed to SELECT fewer fields) are dropped here naturally
-        # because they won't appear in merged_columns.
-        old_col_by_name = {col.name: col for col in new_revision.columns}
-        new_revision.columns = [
-            old_col_by_name[validator_col.name]
-            for validator_col in node_validator.columns
-        ]
+        # Columns missing from validator output (e.g., the query changed to
+        # SELECT fewer fields) are dropped naturally by rebuilding the list.
+        copied_by_name = {col.name: col for col in new_revision.columns}
+        merged_columns: list[Column] = []
+        for idx, validator_col in enumerate(node_validator.columns):
+            copied = copied_by_name.get(validator_col.name)
+            if copied is not None:
+                if copied.type != validator_col.type:
+                    copied.type = validator_col.type
+                if copied.order is None:
+                    copied.order = idx
+                merged_columns.append(copied)
+            else:
+                validator_col.order = idx
+                merged_columns.append(validator_col)
+        new_revision.columns = merged_columns
 
         # Save the new revision of the child
         node.current_version = new_revision.version  # type: ignore
