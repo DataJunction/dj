@@ -6263,6 +6263,156 @@ class TestValidateNodes:
         assert partition["type_"] == "temporal"
         assert partition["granularity"] == "day"
 
+    @pytest.mark.asyncio
+    async def test_patch_column_fields_are_categorized(self):
+        """Every Column field must be categorized as either preserved-on-PATCH,
+        settable-via-PATCH, or infrastructure. This is the meta-guard that
+        catches the failure mode of this PR's bug at the source: someone adds
+        a new Column field and forgets to thread it through
+        ``_build_columns_for_revision_update``.
+
+        When this test fails for an uncategorized field, the maintainer must
+        make a deliberate choice and update both the categorization sets here
+        AND ``_build_columns_for_revision_update`` (or the PATCH payload
+        schema, ``SourceColumnOutput``).
+        """
+        from sqlalchemy import inspect as sa_inspect
+
+        # Fields PATCH must preserve when the payload doesn't repeat them.
+        # Adding to this set requires also updating
+        # ``_build_columns_for_revision_update`` to copy from the existing column.
+        preserved_scalars = {"display_name", "description", "unit"}
+        preserved_relationships = {"partition"}
+
+        # Fields the PATCH payload (SourceColumnOutput) lets the user set.
+        # Adding to this set requires also updating ``SourceColumnOutput``
+        # and ``_build_columns_for_revision_update``'s constructor args.
+        settable_scalars = {"name", "type", "order", "dimension_id", "dimension_column"}
+        settable_relationships = {"attributes", "dimension"}
+
+        # FK plumbing / backrefs / admin-managed fields not touched by PATCH.
+        infrastructure_scalars = {
+            "id",
+            "node_revision_id",
+            "partition_id",
+            "measure_id",
+        }
+        infrastructure_relationships = {"node_revision", "measure"}
+
+        all_scalars = {c.key for c in sa_inspect(Column).columns}
+        all_relationships = {r.key for r in sa_inspect(Column).mapper.relationships}
+
+        categorized_scalars = (
+            preserved_scalars | settable_scalars | infrastructure_scalars
+        )
+        uncategorized_scalars = all_scalars - categorized_scalars
+        assert uncategorized_scalars == set(), (
+            f"Column has uncategorized scalar field(s) {uncategorized_scalars}. "
+            "Decide one: (a) PATCH preserves it — add to `preserved_scalars` "
+            "here AND to `_build_columns_for_revision_update` (copy from "
+            "`existing`); (b) PATCH sets it — add to `settable_scalars` here, "
+            "to `SourceColumnOutput`, and as a constructor arg in "
+            "`_build_columns_for_revision_update`; or (c) it's plumbing — "
+            "add to `infrastructure_scalars` here."
+        )
+
+        categorized_relationships = (
+            preserved_relationships
+            | settable_relationships
+            | infrastructure_relationships
+        )
+        uncategorized_relationships = all_relationships - categorized_relationships
+        assert uncategorized_relationships == set(), (
+            f"Column has uncategorized relationship(s) {uncategorized_relationships}. "
+            "Decide one: preserved on PATCH (add to `preserved_relationships` "
+            "AND to `_build_columns_for_revision_update`), settable via PATCH "
+            "(add to `settable_relationships` AND to `SourceColumnOutput`), or "
+            "infrastructure (add to `infrastructure_relationships`)."
+        )
+
+    @pytest.mark.asyncio
+    async def test_patch_preserves_all_metadata_fields(
+        self,
+        client_with_roads: AsyncClient,
+        session: AsyncSession,
+    ):
+        """Seed every preserved-on-PATCH field on a column, PATCH with just
+        name/type, and assert each survives. Companion to
+        ``test_patch_column_fields_are_categorized`` — that test asserts the
+        categorization is complete; this one asserts the categorization holds
+        end-to-end through ``_build_columns_for_revision_update``.
+        """
+        response = await client_with_roads.post(
+            "/nodes/source/",
+            json={
+                "name": "default.test_patch_all_meta",
+                "node_type": "source",
+                "catalog": "default",
+                "schema_": "test",
+                "table": "patch_all_meta",
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "event_date", "type": "date"},
+                ],
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+
+        # Seed every preserved-on-PATCH scalar field plus the partition
+        # relationship on event_date.
+        await session.execute(
+            text(
+                """
+                UPDATE "column"
+                SET description = 'seeded-desc',
+                    display_name = 'Seeded Display',
+                    unit = '{"kind": "currency", "code": "USD"}'::jsonb
+                WHERE node_revision_id IN (
+                    SELECT id FROM noderevision WHERE name = 'default.test_patch_all_meta'
+                ) AND name = 'event_date'
+                """,
+            ),
+        )
+        await session.execute(
+            text(
+                """
+                INSERT INTO partition (type_, granularity, format, column_id)
+                SELECT 'TEMPORAL', 'DAY', 'yyyyMMdd', c.id
+                FROM "column" c
+                JOIN noderevision nr ON c.node_revision_id = nr.id
+                WHERE nr.name = 'default.test_patch_all_meta' AND c.name = 'event_date'
+                """,
+            ),
+        )
+        await session.commit()
+        session.expire_all()
+
+        # PATCH with name+type only — every preserved field must survive.
+        patch_response = await client_with_roads.patch(
+            "/nodes/default.test_patch_all_meta/",
+            json={
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "event_date", "type": "date"},
+                ],
+            },
+        )
+        assert patch_response.status_code == 200, patch_response.text
+
+        node_after = (
+            await client_with_roads.get("/nodes/default.test_patch_all_meta/")
+        ).json()
+        col = {c["name"]: c for c in node_after["columns"]}["event_date"]
+
+        assert col["description"] == "seeded-desc", col
+        assert col["display_name"] == "Seeded Display", col
+        assert col["unit"] == {"kind": "currency", "code": "USD"}, col
+        assert col["partition"] is not None, col
+        assert col["partition"]["type_"] == "temporal"
+        assert col["partition"]["granularity"] == "day"
+        assert col["partition"]["format"] == "yyyyMMdd"
+
 
 @pytest.mark.asyncio
 async def test_node_similarity(
