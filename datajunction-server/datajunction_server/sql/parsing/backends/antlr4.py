@@ -391,8 +391,25 @@ def _(ctx: sbp.InlineTableContext):
     args = visit(ctx.expression())
     alias, columns = visit(ctx.tableAlias())
 
-    # Generate default column aliases if they weren't specified
-    col_args = args[0] if isinstance(args[0], list) else args
+    rows = [[value] if not isinstance(value, list) else value for value in args]
+
+    # Every row must have the same arity. Catches malformed VALUES like a stray
+    # trailing comma that the grammar otherwise tolerates because `AS` is a
+    # nonReserved keyword and gets parsed as a phantom single-column row.
+    row_widths = {len(row) for row in rows}
+    if len(row_widths) > 1:
+        raise DJParseException(
+            "All rows in a VALUES clause must have the same number of columns; "
+            f"got widths {sorted(row_widths)}.",
+        )
+    row_width = next(iter(row_widths))
+    if columns and len(columns) != row_width:
+        raise DJParseException(
+            f"VALUES clause has {row_width} column(s) but alias `{alias}` "
+            f"declares {len(columns)}.",
+        )
+
+    col_args = rows[0]
     inline_table_columns = (
         [ast.Column(col, _type=value.type) for col, value in zip(columns, col_args)]
         if columns
@@ -405,7 +422,7 @@ def _(ctx: sbp.InlineTableContext):
         name=alias,
         _columns=inline_table_columns,
         explicit_columns=len(columns) > 0,
-        values=[[value] if not isinstance(value, list) else value for value in args],
+        values=rows,
     )
 
 
