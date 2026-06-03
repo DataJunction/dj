@@ -6198,6 +6198,71 @@ class TestValidateNodes:
         # nothing to preserve), but they're still present.
         assert "extra" in cols_by_name
 
+    @pytest.mark.asyncio
+    async def test_update_node_preserves_column_partition(
+        self,
+        client_with_roads: AsyncClient,
+        session: AsyncSession,
+    ):
+        """PATCH /nodes with a columns payload must deep-copy the existing
+        column's partition onto the new revision so partition metadata
+        isn't silently dropped.
+        """
+        response = await client_with_roads.post(
+            "/nodes/source/",
+            json={
+                "name": "default.test_patch_partition",
+                "node_type": "source",
+                "catalog": "default",
+                "schema_": "test",
+                "table": "patch_partition",
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "event_date", "type": "date"},
+                ],
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+
+        # Seed a partition on event_date.
+        await session.execute(
+            text(
+                """
+                INSERT INTO partition (type_, granularity, format, column_id)
+                SELECT 'TEMPORAL', 'day', 'yyyyMMdd', c.id
+                FROM "column" c
+                JOIN noderevision nr ON c.node_revision_id = nr.id
+                WHERE nr.name = 'default.test_patch_partition' AND c.name = 'event_date'
+                """,
+            ),
+        )
+        await session.commit()
+        session.expire_all()
+
+        # PATCH with a columns payload that doesn't repeat the partition.
+        patch_response = await client_with_roads.patch(
+            "/nodes/default.test_patch_partition/",
+            json={
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "event_date", "type": "date"},
+                ],
+            },
+        )
+        assert patch_response.status_code == 200, patch_response.text
+
+        node_after = (
+            await client_with_roads.get("/nodes/default.test_patch_partition/")
+        ).json()
+        cols_by_name = {col["name"]: col for col in node_after["columns"]}
+        partition = cols_by_name["event_date"]["partition"]
+        assert partition is not None, (
+            f"partition was wiped on PATCH: {cols_by_name['event_date']}"
+        )
+        assert partition["type_"] == "temporal"
+        assert partition["granularity"] == "day"
+
 
 @pytest.mark.asyncio
 async def test_node_similarity(

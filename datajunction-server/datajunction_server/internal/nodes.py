@@ -3578,28 +3578,23 @@ async def revalidate_node(
         node_validator.updated_columns = node_validator.modified_columns(
             new_revision,  # type: ignore
         )
-        # Merge validator-supplied type/order onto the existing columns so
-        # user-supplied metadata (description, display_name, unit, partition,
-        # attributes beyond what the validator infers) survives the revision
-        # bump. Wholesale-replacing with node_validator.columns wipes that
-        # metadata, which causes the deploy → revalidate cycle to oscillate
-        # column descriptions on/off across revisions.
+        # Reorder/prune new_revision.columns to match the validator's output
+        # set, keeping the deep-copied columns (and their user-supplied
+        # description/display_name/unit/partition) intact. The first loop
+        # above already mutated type/order onto node.current.columns and
+        # appended any new columns, then copy_existing_node_revision deep-
+        # copied that state into new_revision.columns — so every column the
+        # validator returned is guaranteed to be present here.
+        #
+        # Wholesale-replacing with node_validator.columns previously wiped
+        # all user metadata; columns missing from validator output (e.g.,
+        # query changed to SELECT fewer fields) are dropped here naturally
+        # because they won't appear in merged_columns.
         old_col_by_name = {col.name: col for col in new_revision.columns}
-        merged_columns: list[Column] = []
-        for idx, validator_col in enumerate(node_validator.columns):
-            old_col = old_col_by_name.get(validator_col.name)
-            if old_col is not None:
-                old_col.type = validator_col.type
-                if validator_col.order is not None:
-                    old_col.order = validator_col.order
-                elif old_col.order is None:
-                    old_col.order = idx
-                merged_columns.append(old_col)
-            else:
-                if validator_col.order is None:
-                    validator_col.order = idx
-                merged_columns.append(validator_col)
-        new_revision.columns = merged_columns
+        new_revision.columns = [
+            old_col_by_name[validator_col.name]
+            for validator_col in node_validator.columns
+        ]
 
         # Save the new revision of the child
         node.current_version = new_revision.version  # type: ignore
