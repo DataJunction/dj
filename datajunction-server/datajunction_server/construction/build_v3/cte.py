@@ -1114,6 +1114,7 @@ def _resolve_pushdown_filters_for_cte(
     pushdown_filters: list[str],
     filter_column_aliases: dict[str, str],
     ctx: Optional["BuildContext"] = None,
+    outer_only_refs: Optional[set[str]] = None,
 ) -> tuple[list[tuple[ast.Select, ast.Expression]], set[str]]:
     """Determine which user filters can be pushed into this CTE.
 
@@ -1153,10 +1154,25 @@ def _resolve_pushdown_filters_for_cte(
     # dim CTEs whose local columns are named differently are missed.
     # Consult the current node's own ``dimension_links`` and override the
     # parent's mapping where the node has its own link for the dim.
+    local_aliases = _build_local_dim_aliases(node)
     effective_aliases = {
         **filter_column_aliases,
-        **_build_local_dim_aliases(node),
+        **local_aliases,
     }
+
+    # Refs that resolve only to a joined dimension's bare attribute name must
+    # not be pushed into this CTE unless the CTE legitimately exposes that
+    # attribute — i.e. it is the dimension's own node, or it has a dim link
+    # whose FK/PK maps the ref to a real local column.  Both of those show up
+    # in ``local_aliases``; anything else stays in the outer WHERE only, so we
+    # block it here (matching ``_rewrite_filter_for_scope``'s dim-link-aware
+    # policy).  Role-qualified refs are safe when their role-stripped base
+    # resolves locally (e.g. a multi-hop dim's own CTE).
+    blocked_refs: set[str] = set()
+    for ref in outer_only_refs or set():
+        base = ref.split("[")[0]
+        if ref not in local_aliases and base not in local_aliases:
+            blocked_refs.add(ref)
 
     target_select = cast(ast.Select, cte_query.select)
     results: list[tuple[ast.Select, ast.Expression]] = []
@@ -1249,6 +1265,7 @@ def _resolve_pushdown_filters_for_cte(
             effective_aliases,
             node_output_cols,
             target_select,
+            blocked_refs,
         )
         if rewritten is not None:
             results.append((target_select, rewritten))
@@ -1766,6 +1783,7 @@ def _rewrite_filter_for_select(
     filter_column_aliases: dict[str, str],
     cte_output_cols: set[str],
     cte_select: ast.Select,
+    blocked_refs: set[str] | None = None,
 ) -> ast.Expression | None:
     """Rewrite a dimension filter for injection into a specific Select.
 
@@ -1787,11 +1805,31 @@ def _rewrite_filter_for_select(
     ref's column isn't exposed by this Select, the whole filter is skipped —
     pushing a partial OR-predicate into the wrong scope produces invalid SQL.
 
+    ``blocked_refs`` lists dimension refs that resolve only to a joined
+    dimension's bare attribute name and so must never be pushed into this CTE
+    (the same-named local column is the raw FK value, not the attribute).  A
+    filter referencing any blocked ref is skipped entirely (returns None) so
+    the predicate stays in the post-join outer WHERE — never partially pushed.
+
     Returns the rewritten filter AST, or None when the filter can't be
     safely pushed into this Select.
     """
+    blocked_refs = blocked_refs or set()
     projection_map = _build_select_projection_map(cte_select)
     filter_ast = parse_filter(filter_str)
+
+    # Outer-only refs (joined-dimension attributes that resolve only to a bare
+    # column name) must never be pushed into this CTE — a same-named local
+    # column is the raw FK value, not the attribute.  If the filter touches
+    # one, bail entirely so the predicate stays in the post-join outer WHERE;
+    # a partial push would either bind to the wrong column or leave the rest
+    # of an OR-predicate dangling.  Role-qualified refs surface here as their
+    # role-stripped base column, which is what ``blocked_refs`` is keyed on.
+    if blocked_refs:
+        for col in filter_ast.find_all(ast.Column):
+            ref = get_column_full_name(col)
+            if ref and (ref in blocked_refs or ref.split("[")[0] in blocked_refs):
+                return None
 
     # First pass: plan the rewrites by walking the AST.  Role-qualified refs
     # appear as Subscript(Column(base), Column/Lambda(role)) and are handled
@@ -2106,6 +2144,7 @@ def collect_node_ctes(
                 pushdown.filters,
                 pushdown.column_aliases,
                 ctx,
+                pushdown.outer_only_refs,
             )
             for target_select, filter_ast in injections:
                 inject_filter_into_select(target_select, filter_ast)

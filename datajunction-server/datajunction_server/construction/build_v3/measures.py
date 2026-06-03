@@ -639,6 +639,41 @@ def build_filter_column_aliases(
     return aliases
 
 
+def outer_only_filter_refs(
+    resolved_dimensions: list[ResolvedDimension],
+) -> set[str]:
+    """Dimension refs whose filter may only be applied *after* the join.
+
+    A **joined** (non-local) dimension resolves, in
+    :func:`build_filter_column_aliases`, to the dimension's bare column name.
+    That bare name is correct for the outer WHERE — where it is qualified with
+    the dimension's own post-join table alias — but it must never be pushed
+    into an upstream transform/source CTE under that name: a same-named column
+    there is the raw foreign-key value, not the dimension's attribute, so the
+    predicate would silently bind to the wrong column (and, when the two have
+    different types, match nothing).
+
+    Every joined dimension ref is reported.  Pushdown refuses them for
+    non-dimension CTEs, but the genuinely safe paths still apply: a filter on
+    the dimension's *own* CTE resolves through the dimension columns in
+    ``_build_local_dim_aliases``, and a filter on the join key resolves to the
+    parent's FK column through ``foreign_keys_reversed`` — both override this
+    restriction where the ref maps to a real local column.
+
+    Both the role-qualified ref (``v3.location.country[customer->home]``) and
+    its role-stripped base (``v3.location.country``) are included so callers
+    can match either form.
+    """
+    refs: set[str] = set()
+    for resolved_dim in resolved_dimensions:
+        if resolved_dim.is_local:
+            continue
+        refs.add(resolved_dim.original_ref)
+        if "[" in resolved_dim.original_ref:
+            refs.add(resolved_dim.original_ref.split("[")[0])
+    return refs
+
+
 def build_outer_where(
     filters: list[str],
     filter_column_aliases: dict[str, str],
@@ -1404,12 +1439,14 @@ def build_select_ast(
     # Build outer WHERE clause from filters
     where_clause: Optional[ast.Expression] = None
     filter_column_aliases: dict[str, str] = {}
+    pushdown_outer_only_refs: set[str] = set()
     if all_filters:
         filter_column_aliases = build_filter_column_aliases(
             ctx,
             resolved_dimensions,
             parent_node,
         )
+        pushdown_outer_only_refs = outer_only_filter_refs(resolved_dimensions)
         where_clause = build_outer_where(
             all_filters,
             filter_column_aliases,
@@ -1431,6 +1468,7 @@ def build_select_ast(
         pushdown=PushdownFilters(
             filters=all_filters,
             column_aliases=filter_column_aliases,
+            outer_only_refs=pushdown_outer_only_refs,
         )
         if all_filters
         else None,
