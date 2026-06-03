@@ -5763,6 +5763,80 @@ class TestValidateNodes:
         column_names = [col["name"] for col in node_data["columns"]]
         assert set(column_names) == {"repair_order_id", "dispatcher_id"}
 
+    @pytest.mark.asyncio
+    async def test_revalidate_preserves_column_metadata(
+        self,
+        client_with_roads: AsyncClient,
+        session: AsyncSession,
+    ):
+        """When revalidation triggers a new revision, user-supplied column
+        metadata (description, display_name) on the old revision must survive
+        the bump. Previously revalidate_node wholesale-replaced new_revision
+        columns with the validator's bare columns, wiping descriptions.
+        """
+        response = await client_with_roads.post(
+            "/nodes/transform/",
+            json={
+                "name": "default.test_meta_preserved",
+                "query": "SELECT repair_order_id, dispatcher_id FROM default.repair_orders",
+                "description": "Test transform",
+                "mode": "published",
+            },
+        )
+        assert response.status_code == 201
+
+        # Seed descriptions and display_names on the current revision's columns
+        # to simulate user-supplied metadata.
+        await session.execute(
+            text(
+                """
+                UPDATE "column"
+                SET description = 'desc-' || name,
+                    display_name = 'Display ' || name
+                WHERE node_revision_id IN (
+                    SELECT id FROM noderevision WHERE name = 'default.test_meta_preserved'
+                )
+                """,
+            ),
+        )
+        # Also clear the order so revalidate detects a change and creates a
+        # new revision (matching the existing test_revalidate_sets_column_order
+        # trigger).
+        await session.execute(
+            text(
+                """
+                UPDATE "column"
+                SET "order" = NULL
+                WHERE node_revision_id IN (
+                    SELECT id FROM noderevision WHERE name = 'default.test_meta_preserved'
+                )
+                """,
+            ),
+        )
+        await session.commit()
+        session.expire_all()
+
+        result = await client_with_roads.post(
+            "/nodes/default.test_meta_preserved/validate/",
+        )
+        assert result.status_code == 200
+        assert result.json()["status"] == "valid"
+
+        node_data = (
+            await client_with_roads.get("/nodes/default.test_meta_preserved/")
+        ).json()
+        cols_by_name = {col["name"]: col for col in node_data["columns"]}
+        assert set(cols_by_name) == {"repair_order_id", "dispatcher_id"}
+        for col_name, col in cols_by_name.items():
+            assert col["description"] == f"desc-{col_name}", (
+                f"description was wiped on revalidation for {col_name}: "
+                f"got {col['description']!r}"
+            )
+            assert col["display_name"] == f"Display {col_name}", (
+                f"display_name was wiped on revalidation for {col_name}: "
+                f"got {col['display_name']!r}"
+            )
+
 
 @pytest.mark.asyncio
 async def test_node_similarity(
