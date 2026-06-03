@@ -14,6 +14,31 @@ import {
 } from './djNodeBadges';
 import { djEditorExtensions } from './djEditorTheme';
 
+// Friendly labels for the most common DJ error codes the validate endpoint
+// returns from a node query. Falls back to a title-cased version of the code.
+const ERROR_CODE_LABELS = {
+  INVALID_SQL_QUERY: 'Invalid SQL',
+  TYPE_INFERENCE: 'Type inference',
+  INVALID_COLUMN: 'Invalid column',
+  INVALID_ARGUMENTS_TO_FUNCTION: 'Invalid function arguments',
+  MISSING_COLUMNS: 'Missing columns',
+  UNKNOWN_NODE: 'Unknown node',
+  MISSING_PARENT: 'Missing parent',
+  NODE_TYPE_ERROR: 'Node type',
+  NOT_IMPLEMENTED_ERROR: 'Not implemented',
+};
+
+const errorLabel = code => {
+  if (code === undefined || code === null || code === '') return 'Error';
+  const key = String(code);
+  if (ERROR_CODE_LABELS[key]) return ERROR_CODE_LABELS[key];
+  return key
+    .toLowerCase()
+    .split('_')
+    .map(word => (word ? word[0].toUpperCase() + word.slice(1) : ''))
+    .join(' ');
+};
+
 export const NodeQueryField = ({ djClient, value }) => {
   // Schema is `{ [nodeName]: string[] }` — passed to @codemirror/lang-sql so
   // it can offer table + column autocompletion. Must be an OBJECT, not array,
@@ -27,6 +52,11 @@ export const NodeQueryField = ({ djClient, value }) => {
   const registeredTables = React.useRef(new Set());
   // useRef so the onChange closure always sees the latest catalog list
   const knownCatalogsRef = React.useRef([]);
+
+  // Query-level validation errors (parse failures, type-inference failures, etc.)
+  // surfaced from /nodes/validate's `errors` field. Rendered as a banner under
+  // the editor so the user sees *why* their SQL is invalid, not just that it is.
+  const [queryErrors, setQueryErrors] = React.useState([]);
 
   // Per-`catalog.schema.table` registration status, surfaced as badges in
   // the editor. Mirrored into a ref so the CodeMirror extension (built once,
@@ -132,6 +162,7 @@ export const NodeQueryField = ({ djClient, value }) => {
     const json = response?.json || {};
     const deps = json.dependencies || [];
     const missing = json.missing_parents || [];
+    setQueryErrors(Array.isArray(json.errors) ? json.errors : []);
     // Update the ref synchronously in one shot before dispatching, so the
     // ViewPlugin only redraws once even though we set many keys.
     const next = { ...tableStatusRef.current };
@@ -255,6 +286,20 @@ export const NodeQueryField = ({ djClient, value }) => {
         name="query"
         id="Query"
       />
+      {queryErrors.length > 0 && (
+        <div className="query-validation-errors" role="alert">
+          {queryErrors.map((err, idx) => (
+            <div key={idx} className="query-validation-error">
+              <span className="query-validation-error-code">
+                {errorLabel(err.code)}
+              </span>
+              <span className="query-validation-error-message">
+                {err.message}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
       <div role="button" tabIndex={0} className="relative flex bg-[#282a36]">
         <CodeMirror
           id={'query'}

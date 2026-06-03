@@ -210,6 +210,33 @@ form {
       overflow-wrap: anywhere !important;
     }
   }
+  .query-validation-errors {
+    margin: 4px 0 12px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .query-validation-error {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 6px 10px;
+    background: #fdecea;
+    border: 1px solid #f5c2c0;
+    border-radius: 4px;
+    color: #8a1f11;
+    font-size: 0.9em;
+  }
+  .query-validation-error-code {
+    font-family: monospace;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+  .query-validation-error-message {
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
   .MetricQueryInput {
     height: 200px;
   }
