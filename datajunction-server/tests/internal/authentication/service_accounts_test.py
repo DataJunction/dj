@@ -73,7 +73,7 @@ async def test_create_sa_with_non_user_identity(module__client: AsyncClient):
     assert create_resp.status_code == 401
     error = create_resp.json()
     assert error["errors"][0] == {
-        "code": 400,
+        "code": "AUTHENTICATION_ERROR",
         "context": "",
         "debug": None,
         "message": "Only users can create service accounts",
@@ -139,7 +139,7 @@ async def test_service_account_login_invalid_client_id(module__client: AsyncClie
     assert resp.status_code == 401
     error = resp.json()
     assert error["errors"][0] == {
-        "code": 403,
+        "code": "USER_NOT_FOUND",
         "context": "",
         "debug": None,
         "message": "Service account `non-existent-id` not found",
@@ -193,7 +193,7 @@ async def test_service_account_login_invalid_secret(module__client: AsyncClient)
     assert resp.status_code == 401
     error = resp.json()
     assert error["errors"][0] == {
-        "code": 402,
+        "code": "INVALID_LOGIN_CREDENTIALS",
         "context": "",
         "debug": None,
         "message": "Invalid service account credentials",

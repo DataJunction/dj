@@ -1159,7 +1159,7 @@ async def test_measures_sql_errors(
     data = response.json()
     assert data[0]["errors"] == [
         {
-            "code": 208,
+            "code": "INVALID_ORDER_BY",
             "message": "['default.dispatcher.company_name'] is not a valid ORDER BY request",
             "debug": {
                 "node_revision": "default.repair_orders_fact",
@@ -1647,7 +1647,7 @@ class TestMeasuresSQLMetricDefinitionsWithDimensions:
         data = response.json()
         assert data[0]["errors"] == [
             {
-                "code": 205,
+                "code": "INVALID_DIMENSION_JOIN",
                 "context": mock.ANY,
                 "debug": None,
                 "message": "This dimension attribute cannot be joined in: "

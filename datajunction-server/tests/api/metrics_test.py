@@ -753,7 +753,7 @@ async def test_raise_common_dimensions_metric_not_found(
     assert response.json() == {
         "errors": [
             {
-                "code": 203,
+                "code": "UNKNOWN_NODE",
                 "context": "",
                 "debug": None,
                 "message": "Metric nodes not found: default.foo,default.bar",

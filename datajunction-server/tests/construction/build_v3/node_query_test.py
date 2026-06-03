@@ -1205,7 +1205,7 @@ async def test_sql_orderby_unknown_column_raises(
         "message": expected_message,
         "errors": [
             {
-                "code": 208,
+                "code": "INVALID_ORDER_BY",
                 "message": expected_message,
                 "debug": None,
                 "context": "",
@@ -1321,7 +1321,7 @@ async def test_sql_with_filter_on_nonexistent_column_on_local_node(
         "message": expected_message,
         "errors": [
             {
-                "code": 206,
+                "code": "INVALID_COLUMN",
                 "message": expected_message,
                 "debug": None,
                 "context": "",
@@ -1357,7 +1357,7 @@ async def test_sql_with_filter_on_nonexistent_column_on_joined_dim(
         "message": expected_message,
         "errors": [
             {
-                "code": 206,
+                "code": "INVALID_COLUMN",
                 "message": expected_message,
                 "debug": None,
                 "context": "",

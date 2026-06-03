@@ -44,8 +44,16 @@ export const ColumnsSelect = ({
           json.columns.map(col => ({ value: col.name, label: col.name })),
         );
         setValidationError(null);
-      } else if (json?.message) {
-        setValidationError(json.message);
+      } else {
+        // Prefer the structured per-error messages (e.g. parse failures with
+        // INVALID_SQL_QUERY) over the generic `Node X is invalid.` summary.
+        const detailed = Array.isArray(json?.errors)
+          ? json.errors
+              .map(e => e.message)
+              .filter(Boolean)
+              .join('\n')
+          : '';
+        setValidationError(detailed || json?.message || null);
         setAvailableColumns([]);
       }
     } catch (error) {
