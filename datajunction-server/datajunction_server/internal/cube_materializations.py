@@ -12,7 +12,9 @@ from datajunction_server.construction.build_v3.types import (
     DecomposedMetricInfo,
     GrainGroupSQL,
 )
-from datajunction_server.database.node import Column, NodeRevision
+from sqlalchemy import select
+
+from datajunction_server.database.node import Column, Node, NodeRevision
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.column import SemanticType
 from datajunction_server.models.cube_materialization import (
@@ -451,6 +453,24 @@ async def build_cube_materialization(
         for measures_query in measures_queries
         for metric, measures in measures_query.metrics.items()  # type: ignore
     }
+    # Resolve metric display names via a single query so this builder is
+    # self-contained — callers don't need to pre-load Node.current on each
+    # metric (otherwise metric.current.display_name lazy-loads and trips
+    # MissingGreenlet under AsyncSession).
+    cube_metrics = current_revision.cube_metrics()
+    metric_names = [m.name for m in cube_metrics]
+    display_name_rows = (
+        await session.execute(
+            select(Node.name, NodeRevision.display_name)
+            .join(
+                NodeRevision,
+                (NodeRevision.node_id == Node.id)
+                & (NodeRevision.version == Node.current_version),
+            )
+            .where(Node.name.in_(metric_names)),
+        )
+    ).all()
+    metric_display_names = dict(display_name_rows)
     config = DruidCubeConfig(
         cube=NodeNameVersion(
             name=current_revision.name,
@@ -462,7 +482,7 @@ async def build_cube_materialization(
                 metric=NodeNameVersion(
                     name=metric.name,
                     version=metric.current_version,
-                    display_name=metric.current.display_name,
+                    display_name=metric_display_names[metric.name],
                 ),
                 required_measures=[
                     MeasureKey(
@@ -476,7 +496,7 @@ async def build_cube_materialization(
                     metrics_mapping.get(metric.name)[1][1],  # type: ignore
                 ),
             )
-            for metric in current_revision.cube_metrics()
+            for metric in cube_metrics
         ],
         dimensions=current_revision.cube_node_dimensions,
         measures_materializations=measures_materializations,
