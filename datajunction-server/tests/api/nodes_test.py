@@ -2,6 +2,7 @@
 Tests for the nodes API.
 """
 
+import asyncio
 import re
 from typing import Any, Dict
 from unittest import mock
@@ -5836,6 +5837,213 @@ class TestValidateNodes:
                 f"display_name was wiped on revalidation for {col_name}: "
                 f"got {col['display_name']!r}"
             )
+
+    @pytest.mark.asyncio
+    async def test_revalidate_preserves_column_metadata_post_deployment(
+        self,
+        client_with_roads: AsyncClient,
+        session: AsyncSession,
+    ):
+        """End-to-end: a node deployed via POST /deployments with user-supplied
+        column descriptions must keep those descriptions across a subsequent
+        revalidate_node call.
+
+        Production pattern: dj-arc CI deploys → descriptions land in
+        revision N. Some external POST /nodes/{name}/validate/ (or a PATCH on
+        an upstream that schedules propagate_update_downstream) fires
+        revalidate_node, which used to wipe descriptions when it bumped to
+        revision N+1. This test exercises that full sequence: deploy via the
+        modern deployments API, then revalidate, and assert descriptions
+        survive.
+        """
+        # Use a fresh namespace so the deployment doesn't try to delete the
+        # client_with_roads fixture's existing nodes in 'default'.
+        ns = "meta_preserve_test"
+        deployment_spec = {
+            "namespace": ns,
+            "nodes": [
+                {
+                    "node_type": "source",
+                    "name": "src",
+                    "catalog": "default",
+                    "schema": "test",
+                    "table": "src",
+                    "columns": [
+                        {"name": "repair_order_id", "type": "int"},
+                        {"name": "dispatcher_id", "type": "int"},
+                    ],
+                },
+                {
+                    "node_type": "transform",
+                    "name": "test_deploy_meta",
+                    "query": "SELECT repair_order_id, dispatcher_id FROM ${prefix}src",
+                    "description": "Transform deployed with column metadata",
+                    "mode": "published",
+                    "columns": [
+                        {
+                            "name": "repair_order_id",
+                            "type": "int",
+                            "display_name": "Repair Order ID",
+                            "description": "The repair order identifier",
+                        },
+                        {
+                            "name": "dispatcher_id",
+                            "type": "int",
+                            "display_name": "Dispatcher ID",
+                            "description": "The dispatcher's identifier",
+                        },
+                    ],
+                },
+            ],
+        }
+
+        deploy_response = await client_with_roads.post(
+            "/deployments",
+            json=deployment_spec,
+        )
+        assert deploy_response.status_code in (200, 201), deploy_response.text
+        deployment_id = deploy_response.json()["uuid"]
+        # Wait for deployment to complete.
+        status_data = None
+        for _ in range(30):
+            status_response = await client_with_roads.get(
+                f"/deployments/{deployment_id}",
+            )
+            status_data = status_response.json()
+            if status_data["status"] in ("success", "failed"):
+                break
+            await asyncio.sleep(0.1)
+        assert status_data is not None and status_data["status"] == "success", (
+            f"Deployment did not succeed: {status_data}"
+        )
+
+        # Confirm descriptions landed in the deploy.
+        node_after_deploy = (
+            await client_with_roads.get("/nodes/meta_preserve_test.test_deploy_meta/")
+        ).json()
+        post_deploy_descriptions = {
+            col["name"]: col["description"] for col in node_after_deploy["columns"]
+        }
+        assert post_deploy_descriptions == {
+            "repair_order_id": "The repair order identifier",
+            "dispatcher_id": "The dispatcher's identifier",
+        }, f"Deploy did not land descriptions: {post_deploy_descriptions}"
+
+        # Force revalidate_node to detect a column change so it creates a new
+        # revision (same trigger as test_revalidate_sets_column_order_when_missing).
+        await session.execute(
+            text(
+                """
+                UPDATE "column"
+                SET "order" = NULL
+                WHERE node_revision_id IN (
+                    SELECT id FROM noderevision WHERE name = 'meta_preserve_test.test_deploy_meta'
+                )
+                """,
+            ),
+        )
+        await session.commit()
+        session.expire_all()
+
+        result = await client_with_roads.post(
+            "/nodes/meta_preserve_test.test_deploy_meta/validate/",
+        )
+        assert result.status_code == 200
+        assert result.json()["status"] == "valid"
+
+        # Descriptions must still be present on the new revision.
+        node_after_validate = (
+            await client_with_roads.get("/nodes/meta_preserve_test.test_deploy_meta/")
+        ).json()
+        post_validate_descriptions = {
+            col["name"]: col["description"] for col in node_after_validate["columns"]
+        }
+        assert post_validate_descriptions == post_deploy_descriptions, (
+            f"Revalidation wiped descriptions deployed via the deployment API. "
+            f"Before: {post_deploy_descriptions}, after: {post_validate_descriptions}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_revalidate_writes_history_event(
+        self,
+        client_with_roads: AsyncClient,
+        session: AsyncSession,
+    ):
+        """revalidate_node must record a history event when it creates a new
+        revision. Without it, /history?node=<name> only shows deploy-driven
+        updates and silently masks revalidate-driven version bumps (UI
+        validate, downstream propagation, manual /validate calls).
+        """
+        response = await client_with_roads.post(
+            "/nodes/transform/",
+            json={
+                "name": "default.test_revalidate_history",
+                "query": "SELECT repair_order_id FROM default.repair_orders",
+                "description": "Test transform",
+                "mode": "published",
+            },
+        )
+        assert response.status_code == 201
+
+        # Force revalidate_node to create a new revision (same trigger as the
+        # column-order-cleared tests above).
+        await session.execute(
+            text(
+                """
+                UPDATE "column"
+                SET "order" = NULL
+                WHERE node_revision_id IN (
+                    SELECT id FROM noderevision WHERE name = 'default.test_revalidate_history'
+                )
+                """,
+            ),
+        )
+        await session.commit()
+        session.expire_all()
+
+        history_before = (
+            await client_with_roads.get(
+                "/history?node=default.test_revalidate_history",
+            )
+        ).json()
+
+        result = await client_with_roads.post(
+            "/nodes/default.test_revalidate_history/validate/",
+        )
+        assert result.status_code == 200
+        assert result.json()["status"] == "valid"
+
+        history_after = (
+            await client_with_roads.get(
+                "/history?node=default.test_revalidate_history",
+            )
+        ).json()
+
+        # An additional history event was emitted by revalidate_node
+        # specifically (reason: revalidate) when it bumped the revision.
+        revalidate_events = [
+            e
+            for e in history_after
+            if e.get("activity_type") == "update"
+            and (e.get("details") or {}).get("reason") == "revalidate"
+        ]
+        assert len(revalidate_events) >= 1, (
+            f"Expected a revalidate-reason history event after revision bump; "
+            f"got events: {history_after}"
+        )
+        # The event details explain WHY the validator bumped the revision —
+        # in this case, by recording which columns had their missing order
+        # backfilled. Without this the audit trail says "revalidate happened"
+        # but not "this is what it changed".
+        details = revalidate_events[0]["details"]
+        assert details.get("order_fixed"), (
+            f"Expected order_fixed in revalidate event details; got {details}"
+        )
+        assert set(details["order_fixed"]) == {"repair_order_id"}, (
+            f"Expected order_fixed to list the column whose order was cleared; "
+            f"got {details}"
+        )
+        assert len(history_after) > len(history_before)
 
 
 @pytest.mark.asyncio

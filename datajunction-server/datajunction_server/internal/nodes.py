@@ -3446,26 +3446,45 @@ async def revalidate_node(
             to_remove.add(link)  # pragma: no cover
             await session.delete(link)  # pragma: no cover
 
-    # Check if any columns have been updated
+    # Check if any columns have been updated. Track *why* the validator
+    # decided a column changed so the history event can explain the bump
+    # (otherwise revalidate-driven version bumps look mysterious in the
+    # audit trail).
     updated_columns = False
+    type_changes: list[dict] = []
+    order_fixed: list[str] = []
+    added_columns: list[str] = []
     for idx, col in enumerate(node_validator.columns):
         if existing_col := existing_columns.get(col.name):
-            # Update type if changed
             if existing_col.type != col.type:
+                type_changes.append(
+                    {
+                        "column": col.name,
+                        "from": str(existing_col.type),
+                        "to": str(col.type),
+                    },
+                )
                 existing_col.type = col.type
                 updated_columns = True
-            # Set order if not already set (based on position in validated columns)
             if existing_col.order is None:  # pragma: no branch
+                order_fixed.append(col.name)
                 existing_col.order = idx
                 updated_columns = True
         else:
-            # New column - add with order
             col.order = idx
             node.current.columns.append(col)  # type: ignore  # pragma: no cover
+            added_columns.append(col.name)  # pragma: no cover
             updated_columns = True  # pragma: no cover
 
     _logger.info(
-        f"Columns updated: {updated_columns} for node {node.name} (current version: {node.current.version})",
+        "Columns updated: %s for node %s (current version: %s) — "
+        "type_changes=%s, order_fixed=%s, added_columns=%s",
+        updated_columns,
+        node.name,
+        node.current.version,
+        type_changes,
+        order_fixed,
+        added_columns,
     )
     # Only create a new revision if the columns have been updated
     if updated_columns:  # type: ignore
@@ -3530,6 +3549,32 @@ async def revalidate_node(
         new_revision.node_id = node.id  # type: ignore
         session.add(node)
         session.add(new_revision)
+
+        # Record the revision bump so the audit trail reflects revalidate-
+        # driven version changes, not just deploy-driven ones, and explains
+        # *which* validator-detected differences triggered it (type changes,
+        # missing column orders, new columns).
+        history_details: dict = {
+            "version": new_revision.version,
+            "reason": "revalidate",
+        }
+        if type_changes:
+            history_details["type_changes"] = type_changes
+        if order_fixed:
+            history_details["order_fixed"] = order_fixed
+        if added_columns:
+            history_details["added_columns"] = added_columns
+        await save_history(
+            event=History(
+                entity_type=EntityType.NODE,
+                entity_name=node.name,  # type: ignore
+                node=node.name,  # type: ignore
+                activity_type=ActivityType.UPDATE,
+                details=history_details,
+                user=current_user.username,
+            ),
+            session=session,
+        )
     await session.commit()
     await session.refresh(node.current)  # type: ignore
     await session.refresh(node, ["current"])
