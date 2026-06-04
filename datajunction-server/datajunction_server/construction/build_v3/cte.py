@@ -1250,66 +1250,38 @@ def _resolve_pushdown_filters_for_cte(
             node_output_cols,
             target_select,
         )
-        if rewritten is None:
-            continue
-        results.append((target_select, rewritten))
-        consumed.add(filter_str)
+        if rewritten is not None:
+            results.append((target_select, rewritten))
+            consumed.add(filter_str)
 
-        # First pass — alias-substitution by physical table.  For
-        # every alias used in the primary rewrite, find sibling
-        # Table references to the same physical source and inject a
-        # retargeted copy at each enclosing Select.  Preferred over
-        # column-aware retargeting because it unambiguously routes
-        # the filter to the same physical source the primary
-        # rewrite came from, even when sibling tables in the scope
-        # share the bare column name.
+        # First pass — alias-substitution by physical table.
         alias_subst_scopes: set[int] = set()
-        for primary_alias in _qualifier_aliases(rewritten):
-            # Skip when the primary qualifier is a subquery alias at
-            # target_select (not a direct Table).  A coincidental
-            # name collision between the subquery alias and a Table
-            # alias deeper in the body would otherwise inject
-            # ``alias.col`` at the inner scope, where ``alias``
-            # refers to a Table that doesn't have ``col``.
-            if primary_alias not in target_direct_table_aliases:
-                continue
-            physical = alias_to_phys.get(primary_alias)
-            if not physical:  # pragma: no cover
-                continue
-            for ref_alias, enclosing_select in _find_table_refs(
-                cte_query,
-                physical,
-            ):
-                if ref_alias == primary_alias and enclosing_select is target_select:
+        if rewritten is not None:
+            for primary_alias in _qualifier_aliases(rewritten):
+                if primary_alias not in target_direct_table_aliases:
                     continue
-                cloned = _retarget_filter_qualifier(
-                    rewritten,
-                    primary_alias,
-                    ref_alias,
-                )
-                results.append((enclosing_select, cloned))
-                alias_subst_scopes.add(id(enclosing_select))
+                physical = alias_to_phys.get(primary_alias)
+                if not physical:  # pragma: no cover
+                    continue
+                for ref_alias, enclosing_select in _find_table_refs(
+                    cte_query,
+                    physical,
+                ):
+                    if ref_alias == primary_alias and enclosing_select is target_select:
+                        continue
+                    cloned = _retarget_filter_qualifier(
+                        rewritten,
+                        primary_alias,
+                        ref_alias,
+                    )
+                    results.append((enclosing_select, cloned))
+                    alias_subst_scopes.add(id(enclosing_select))
 
-        # Second pass — column-aware retargeting.  Walk every other
-        # Select scope inside the body and rebuild the filter using
-        # that scope's resolver map.  Handles cases the
-        # alias-substitution pass can't reach (CROSS-joined dim
-        # subqueries with different physical sources, source-table
-        # references that share columns with the primary).
-        #
-        # Skipped at scopes whose direct FROM contains ONLY
-        # subquery aliases and no Tables — at such scopes the
-        # only candidate aliases are the OUTER alias of inner
-        # subqueries, and pushing a filter qualified by one of
-        # those triggers the existing
-        # ``_try_push_filter_into_outer_join_side`` outer-join
-        # safety wrap, which ANDs the filter into the inner
-        # subquery's WHERE without retargeting — producing a
-        # qualifier that's invalid inside the subquery
-        # (e.g. ``numerator.utc_date`` referenced inside the
-        # body of a subquery the OUTER calls ``numerator``).
-        # Also skipped at scopes already handled by
-        # alias-substitution to avoid duplicate injections.
+        # Second pass — column-aware retargeting into nested scopes.
+        # Runs regardless of primary success: a filter column may exist
+        # in a nested scope even when absent from the CTE's declared
+        # output (e.g. a transform that CROSS JOINs a dimension and
+        # aggregates its column away without projecting it).
         for inner_select, col_to_alias in scope_column_aliases.items():
             if inner_select is target_select:
                 continue
@@ -1327,6 +1299,8 @@ def _resolve_pushdown_filters_for_cte(
             if inner_rewrite is None:
                 continue
             results.append((inner_select, inner_rewrite))
+            consumed.add(filter_str)
+
     return results, consumed
 
 
