@@ -1112,3 +1112,131 @@ class TestFilterPushdownCrossJoinAggregatesColumnAway:
             """,
             normalize_aliases=True,
         )
+
+
+class TestFilterPushdownViaSourceFKLinkAtTopLevel:
+    """
+    Regression: when a transform reads from a source whose FK dimension link
+    maps the filter column, and the transform does NOT project that column,
+    the filter must still be pushed into the transform's WHERE clause.
+
+    This mirrors the exp_alloc / allocation_snapshot_date pattern: the source
+    table has snapshot_utc_date as a FK to a snapshot dimension.  The transform
+    wraps the source without projecting snapshot_date, so the primary rewrite
+    fails.  The second pass previously skipped target_select entirely; the fix
+    allows it when primary failed, so the FK link found in the source's scope
+    map is used to inject the filter at the transform's top-level WHERE.
+    """
+
+    @pytest.mark.asyncio
+    async def test_fk_filter_pushed_via_source_link_when_not_projected(
+        self,
+        client_with_build_v3,
+    ):
+        client = client_with_build_v3
+
+        # Source with a snapshot_date FK column (analogous to allocation_core_d)
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_snapped_events",
+                "columns": [
+                    {"name": "account_id", "type": "int"},
+                    {"name": "value", "type": "double"},
+                    {"name": "report_date", "type": "int"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "snapped_events",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        # Snapshot dimension (analogous to allocation_snapshot_date)
+        resp = await client.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.snap_date_dim",
+                "query": "SELECT dateint FROM v3.src_snapped_events GROUP BY dateint",
+                "mode": "published",
+                "primary_key": ["dateint"],
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        # Add FK link on the SOURCE node: report_date → snap_date_dim.dateint.
+        # This is the pattern: the source exposes the snapshot column as a FK
+        # so _populate_scope_column_aliases can find it when processing the
+        # transform's top-level FROM.
+        resp = await client.post(
+            "/nodes/v3.src_snapped_events/link/",
+            json={
+                "dimension_node": "v3.snap_date_dim",
+                "join_type": "left",
+                "join_on": "v3.src_snapped_events.report_date = v3.snap_date_dim.dateint",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        # Transform: reads from source but only projects account_id and total —
+        # report_date is NOT in the output.  Primary rewrite fails; the filter
+        # must reach the transform's WHERE via the second pass on target_select.
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.event_summary",
+                "query": (
+                    "SELECT a.account_id, SUM(a.value) AS total "
+                    "FROM v3.src_snapped_events AS a "
+                    "GROUP BY a.account_id"
+                ),
+                "mode": "published",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        # Also link the transform so the filter is recognised in filter_column_aliases
+        resp = await client.post(
+            "/nodes/v3.event_summary/link/",
+            json={
+                "dimension_node": "v3.snap_date_dim",
+                "join_type": "left",
+                "join_on": "v3.event_summary.report_date = v3.snap_date_dim.dateint",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.total_event_value",
+                "query": "SELECT SUM(total) FROM v3.event_summary",
+                "mode": "published",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_event_value"],
+                "filters": ["v3.snap_date_dim.dateint = 20240101"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            get_first_grain_group(response.json())["sql"],
+            """
+            WITH v3_event_summary AS (
+              SELECT a.account_id,
+                SUM(a.value) AS total
+              FROM default.v3.snapped_events AS a
+              WHERE a.report_date = 20240101
+              GROUP BY a.account_id
+            )
+            SELECT SUM(t1.total) total_sum_HASH
+            FROM v3_event_summary t1
+            """,
+            normalize_aliases=True,
+        )

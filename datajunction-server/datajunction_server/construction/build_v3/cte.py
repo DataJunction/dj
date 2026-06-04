@@ -1277,14 +1277,13 @@ def _resolve_pushdown_filters_for_cte(
                     results.append((enclosing_select, cloned))
                     alias_subst_scopes.add(id(enclosing_select))
 
-        # Second pass — column-aware retargeting into nested scopes.
-        # Runs regardless of primary success: a filter column may exist
-        # in a nested scope even when absent from the CTE's declared
-        # output (e.g. a transform that CROSS JOINs a dimension and
-        # aggregates its column away without projecting it).
+        # Second pass — column-aware retargeting.
+        # Runs regardless of primary success.  Includes target_select when
+        # primary failed: FK-linked source tables read at the top level (not
+        # in a nested subquery) only appear in the target_select scope map.
         for inner_select, col_to_alias in scope_column_aliases.items():
-            if inner_select is target_select:
-                continue
+            if inner_select is target_select and rewritten is not None:
+                continue  # primary already handled target_select
             if id(inner_select) in alias_subst_scopes:
                 continue
             if id(inner_select) in wrapped_setop_arms:
