@@ -109,13 +109,21 @@ def _make_ctx(nodes, parent_map):
     return ctx
 
 
-def _make_gg(parent_name, columns=None, grain=None, metrics=None, query=None):
+def _make_gg(
+    parent_name,
+    columns=None,
+    grain=None,
+    metrics=None,
+    query=None,
+    components=None,
+):
     gg = MagicMock(spec=GrainGroupSQL)
     gg.parent_name = parent_name
     gg.columns = columns or []
     gg.grain = grain or []
     gg.metrics = metrics or []
     gg.sql = query or "SELECT 1"
+    gg.components = components or []
     return gg
 
 
@@ -325,3 +333,102 @@ class TestV3GrainGroupToMeasuresQuery:
             )
 
         assert result.upstream_tables == []
+
+    @pytest.mark.asyncio
+    async def test_derived_metric_registered_when_components_covered(self, session):
+        """
+        A derived metric (e.g. ``aht = total_handle_secs / num_answered``) is not
+        listed in ``gg.metrics`` but its components are present in ``gg.components``.
+        The adapter should register the derived metric on the grain group so the
+        materialization config can emit a ``CubeMetric`` for it.
+        """
+        fact_rev = MagicMock()
+        fact_rev.name = "cs.fact"
+        fact_rev.version = "v1.0"
+        fact_rev.display_name = "CS Fact"
+        fact_node = _make_node("cs.fact", NodeType.TRANSFORM, fact_rev)
+
+        ctx = _make_ctx(
+            nodes={"cs.fact": fact_node},
+            parent_map={"cs.fact": []},
+        )
+
+        comp_handle = SimpleNamespace(name="total_handle_secs")
+        comp_answered = SimpleNamespace(name="num_answered")
+
+        base_info = MagicMock()
+        base_info.components = [comp_answered]
+        base_info.derived_ast = "SELECT SUM(num_answered) FROM cs.fact"
+
+        derived_info = MagicMock()
+        derived_info.components = [comp_handle, comp_answered]
+        derived_info.derived_ast = (
+            "SELECT SUM(total_handle_secs) / SUM(num_answered) FROM cs.fact"
+        )
+
+        gg = _make_gg(
+            parent_name="cs.fact",
+            columns=[],
+            grain=[],
+            metrics=["cs.num_answered"],
+            components=[comp_handle, comp_answered],
+        )
+
+        with patch("datajunction_server.utils.refresh_if_needed", AsyncMock()):
+            result = await _v3_grain_group_to_measures_query(
+                session,
+                gg,
+                ctx,
+                decomposed_metrics={
+                    "cs.num_answered": base_info,
+                    "cs.aht": derived_info,
+                },
+            )
+
+        assert set(result.metrics) == {"cs.num_answered", "cs.aht"}
+        assert result.metrics["cs.aht"][0] == [comp_handle, comp_answered]
+        assert result.metrics["cs.aht"][1] == (
+            "SELECT SUM(total_handle_secs) / SUM(num_answered) FROM cs.fact"
+        )
+
+    @pytest.mark.asyncio
+    async def test_derived_metric_skipped_when_components_not_covered(self, session):
+        """
+        A derived metric whose components are NOT all in ``gg.components`` must
+        not be registered on this grain group — it belongs to a different one.
+        """
+        fact_rev = MagicMock()
+        fact_rev.name = "cs.fact"
+        fact_rev.version = "v1.0"
+        fact_rev.display_name = "CS Fact"
+        fact_node = _make_node("cs.fact", NodeType.TRANSFORM, fact_rev)
+
+        ctx = _make_ctx(
+            nodes={"cs.fact": fact_node},
+            parent_map={"cs.fact": []},
+        )
+
+        comp_a = SimpleNamespace(name="comp_a")
+        comp_b = SimpleNamespace(name="comp_b")
+
+        derived_info = MagicMock()
+        derived_info.components = [comp_a, comp_b]
+        derived_info.derived_ast = "SELECT comp_a / comp_b FROM cs.fact"
+
+        gg = _make_gg(
+            parent_name="cs.fact",
+            columns=[],
+            grain=[],
+            metrics=[],
+            components=[comp_a],
+        )
+
+        with patch("datajunction_server.utils.refresh_if_needed", AsyncMock()):
+            result = await _v3_grain_group_to_measures_query(
+                session,
+                gg,
+                ctx,
+                decomposed_metrics={"cs.derived": derived_info},
+            )
+
+        assert result.metrics == {}

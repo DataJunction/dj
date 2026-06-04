@@ -294,6 +294,20 @@ async def _v3_grain_group_to_measures_query(
             " ".join(str(info.derived_ast).split()),
         )
 
+    # Derived metrics aren't in ``gg.metrics`` but are computed downstream
+    # from emitted components. Attach them to whichever grain group covers
+    # all their components.
+    gg_component_names = {c.name for c in gg.components}
+    for metric_name, info in decomposed_metrics.items():
+        if metric_name in metrics:
+            continue
+        component_names = {c.name for c in info.components}
+        if component_names and component_names.issubset(gg_component_names):
+            metrics[metric_name] = (
+                info.components,
+                " ".join(str(info.derived_ast).split()),
+            )
+
     columns_raw = [_v3_col_to_model_column(c) for c in gg.columns]
     # For measure columns v3's semantic_name is "namespace.metric:component" which
     # gives the wrong node/column when split on ".". Normalize them to the v2 shape
@@ -471,6 +485,14 @@ async def build_cube_materialization(
         )
     ).all()
     metric_display_names = dict(display_name_rows)
+
+    missing_from_build = [m.name for m in cube_metrics if m.name not in metrics_mapping]
+    if missing_from_build:  # pragma: no cover
+        raise DJInvalidInputException(
+            f"Cube `{current_revision.name}` has metric(s) that the v3 "
+            f"measures-SQL builder did not return: {missing_from_build}. "
+            f"Built metrics: {sorted(metrics_mapping)}.",
+        )
     config = DruidCubeConfig(
         cube=NodeNameVersion(
             name=current_revision.name,
