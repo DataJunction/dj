@@ -1160,18 +1160,29 @@ def _resolve_pushdown_filters_for_cte(
         **local_aliases,
     }
 
-    # Refs that resolve only to a joined dimension's bare attribute name must
-    # not be pushed into this CTE unless the CTE legitimately exposes that
-    # attribute — i.e. it is the dimension's own node, or it has a dim link
-    # whose FK/PK maps the ref to a real local column.  Both of those show up
-    # in ``local_aliases``; anything else stays in the outer WHERE only, so we
-    # block it here (matching ``_rewrite_filter_for_scope``'s dim-link-aware
-    # policy).  Role-qualified refs are safe when their role-stripped base
-    # resolves locally (e.g. a multi-hop dim's own CTE).
+    # Block a filter ref only when its resolved bare column is an FK column on
+    # this node (i.e. the node has a dimension link that uses that column as a
+    # FK) but the ref itself has no local mapping — meaning the filter targets
+    # a dim's non-PK attribute whose name collides with the FK integer column,
+    # which would produce a type mismatch.  Only FK columns from dimension
+    # links qualify; the node's own output columns (added to local_aliases by
+    # #2179 for dimension nodes) are the genuine attribute and are not blocked.
+    fk_col_names: set[str] = set()
+    if node.current and node.current.dimension_links:
+        from datajunction_server.construction.build_v3.utils import get_short_name
+
+        for _link in node.current.dimension_links:
+            for _dim_col_fqn, _fk_fqn in (_link.foreign_keys_reversed or {}).items():
+                if _fk_fqn:
+                    fk_col_names.add(get_short_name(_fk_fqn))
+
     blocked_refs: set[str] = set()
     for ref in outer_only_refs or set():
         base = ref.split("[")[0]
-        if ref not in local_aliases and base not in local_aliases:
+        if ref in local_aliases or base in local_aliases:
+            continue  # properly mapped locally — safe to push
+        bare_col = effective_aliases.get(ref) or effective_aliases.get(base)
+        if bare_col and bare_col in fk_col_names:
             blocked_refs.add(ref)
 
     target_select = cast(ast.Select, cte_query.select)
