@@ -1158,7 +1158,7 @@ class TestFilterPushdownViaSourceFKLinkAtTopLevel:
             "/nodes/dimension/",
             json={
                 "name": "v3.snap_date_dim",
-                "query": "SELECT dateint FROM v3.src_snapped_events GROUP BY dateint",
+                "query": "SELECT report_date AS dateint FROM v3.src_snapped_events GROUP BY report_date",
                 "mode": "published",
                 "primary_key": ["dateint"],
             },
@@ -1192,17 +1192,6 @@ class TestFilterPushdownViaSourceFKLinkAtTopLevel:
                     "GROUP BY a.account_id"
                 ),
                 "mode": "published",
-            },
-        )
-        assert resp.status_code in (200, 201), resp.json()
-
-        # Also link the transform so the filter is recognised in filter_column_aliases
-        resp = await client.post(
-            "/nodes/v3.event_summary/link/",
-            json={
-                "dimension_node": "v3.snap_date_dim",
-                "join_type": "left",
-                "join_on": "v3.event_summary.report_date = v3.snap_date_dim.dateint",
             },
         )
         assert resp.status_code in (200, 201), resp.json()
