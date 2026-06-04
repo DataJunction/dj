@@ -1173,7 +1173,7 @@ def _resolve_pushdown_filters_for_cte(
 
         for _link in node.current.dimension_links:
             for _dim_col_fqn, _fk_fqn in (_link.foreign_keys_reversed or {}).items():
-                if _fk_fqn:
+                if _fk_fqn:  # pragma: no branch
                     fk_col_names.add(get_short_name(_fk_fqn))
 
     blocked_refs: set[str] = set()
