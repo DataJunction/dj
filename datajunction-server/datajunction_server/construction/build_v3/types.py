@@ -184,10 +184,17 @@ class PushdownFilters:
         column_aliases: Map from dimension ref to bare column name.  Identity
             for most dimensions (``category`` → ``category``), but differs when
             a FK rename is involved (``date_id`` → ``order_date``).
+        outer_only_refs: Dimension refs that resolve only to a joined
+            dimension's bare attribute name and so must not be pushed into an
+            upstream transform/source CTE under that name (the same-named
+            column there is the raw FK value, not the attribute).  Such a
+            filter still pushes into the dimension's *own* CTE and lands in the
+            outer WHERE.  See ``outer_only_filter_refs``.
     """
 
     filters: list[str]
     column_aliases: dict[str, str]
+    outer_only_refs: set[str] = field(default_factory=set)
 
 
 @dataclass
