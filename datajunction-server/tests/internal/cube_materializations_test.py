@@ -109,13 +109,21 @@ def _make_ctx(nodes, parent_map):
     return ctx
 
 
-def _make_gg(parent_name, columns=None, grain=None, metrics=None, query=None):
+def _make_gg(
+    parent_name,
+    columns=None,
+    grain=None,
+    metrics=None,
+    query=None,
+    components=None,
+):
     gg = MagicMock(spec=GrainGroupSQL)
     gg.parent_name = parent_name
     gg.columns = columns or []
     gg.grain = grain or []
     gg.metrics = metrics or []
     gg.sql = query or "SELECT 1"
+    gg.components = components or []
     return gg
 
 
