@@ -1042,6 +1042,19 @@ class TestFilterPushdownCrossJoinAggregatesColumnAway:
         )
         assert resp.status_code in (200, 201), resp.json()
 
+        # Link entity_report to the dimension so DJ can resolve the filter.
+        resp = await client.post(
+            "/nodes/v3.entity_report/link/",
+            json={
+                "dimension_node": "v3.time_window_dim",
+                "join_type": "left",
+                "join_on": (
+                    "v3.entity_report.window_id = v3.time_window_dim.window_id"
+                ),
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
         resp = await client.post(
             "/nodes/metric/",
             json={
