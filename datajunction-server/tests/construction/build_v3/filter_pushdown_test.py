@@ -1005,11 +1005,12 @@ class TestFilterPushdownCrossJoinAggregatesColumnAway:
         )
         assert resp.status_code in (200, 201), resp.json()
 
-        # Inner transform: CROSS JOINs time_window_dim and uses window_size
-        # for a MAX computation, but does NOT project window_id.
-        # This is the pattern that was broken: the primary rewrite fails
-        # (window_id absent from this node's output), so without the fix the
-        # second pass was skipped and the filter never reached the inner scope.
+        # Inner transform: mirrors the exp_meta pattern exactly.
+        # CROSS JOINs with an inline subquery reading the dim directly —
+        # uses window_size for the MAX but does NOT project window_id.
+        # The primary rewrite fails (window_id not in output), so without
+        # the fix the second pass was skipped and the filter never reached
+        # the inner CROSS JOIN scope.
         resp = await client.post(
             "/nodes/transform/",
             json={
@@ -1018,7 +1019,10 @@ class TestFilterPushdownCrossJoinAggregatesColumnAway:
                     "SELECT e.entity_id, "
                     "MAX(e.base_value + w.window_size) AS max_bound "
                     "FROM v3.src_entity_facts AS e "
-                    "CROSS JOIN v3.time_window_dim AS w "
+                    "CROSS JOIN ("
+                    "SELECT window_id, window_size "
+                    "FROM v3.time_window_dim"
+                    ") AS w "
                     "GROUP BY e.entity_id"
                 ),
                 "mode": "published",
@@ -1073,17 +1077,38 @@ class TestFilterPushdownCrossJoinAggregatesColumnAway:
             },
         )
         assert response.status_code == 200, response.json()
-        sql = get_first_grain_group(response.json())["sql"]
-
-        # The filter must appear inside entity_window_config's CTE —
-        # specifically in the inner CROSS JOIN scope where time_window_dim is
-        # scanned as a direct Table.  Without the fix the second pass was
-        # skipped when the primary rewrite failed, so this assertion would fail.
-        inner_cte_start = sql.find("v3_entity_window_config AS (")
-        assert inner_cte_start != -1, "entity_window_config CTE not found in SQL"
-        inner_cte = sql[inner_cte_start : sql.find("\n)", inner_cte_start) + 2]
-        assert "window_id" in inner_cte and "7day" in inner_cte, (
-            "Filter window_id IN ('7day') was not pushed into the inner "
-            "CROSS JOIN scope of entity_window_config — the second pass "
-            "did not fire when the primary rewrite failed."
+        # The fix: filter is injected into the inner CROSS JOIN subquery of
+        # entity_window_config even though window_id is not in its output.
+        # Without the fix (second pass gated on primary success), the filter
+        # would be absent from the inner scope and all windows would be used.
+        assert_sql_equal(
+            get_first_grain_group(response.json())["sql"],
+            """
+            WITH
+            v3_time_window_dim AS (
+              SELECT window_id, window_size
+              FROM default.v3.time_window
+              WHERE window_id IN ('7day')
+            ),
+            v3_entity_window_config AS (
+              SELECT e.entity_id,
+                MAX(e.base_value + w.window_size) AS max_bound
+              FROM default.v3.entity_facts AS e
+              CROSS JOIN (
+                SELECT window_id, window_size
+                FROM v3_time_window_dim
+                WHERE v3_time_window_dim.window_id IN ('7day')
+              ) AS w
+              GROUP BY e.entity_id
+            ),
+            v3_entity_report AS (
+              SELECT c.entity_id, w.window_id
+              FROM v3_entity_window_config AS c
+              CROSS JOIN v3_time_window_dim AS w
+              WHERE w.window_id IN ('7day')
+            )
+            SELECT COUNT(t1.entity_id) entity_id_count_HASH
+            FROM v3_entity_report t1
+            """,
+            normalize_aliases=True,
         )
