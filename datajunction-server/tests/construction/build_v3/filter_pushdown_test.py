@@ -937,3 +937,140 @@ class TestDimCteFilterOnNonFkColumn:
             """,
             normalize_aliases=True,
         )
+
+
+class TestFilterPushdownCrossJoinAggregatesColumnAway:
+    """
+    Regression: when a transform CROSS JOINs a dimension and aggregates its
+    key column away (never projects it), a filter on that key must still be
+    pushed into the inner CROSS JOIN subquery via the second pass.
+
+    Without the fix the loop did ``if rewritten is None: continue``, skipping
+    the second pass entirely.  The filter landed only in the outer transform's
+    CTE (which *does* project the column) but was silently dropped for the
+    inner transform that does not — causing the CROSS JOIN to return all
+    window rows instead of the requested one, multiplying every metric by the
+    number of window rows.
+    """
+
+    @pytest.mark.asyncio
+    async def test_filter_pushed_into_inner_cross_join_when_column_not_in_output(
+        self,
+        client_with_build_v3,
+    ):
+        client = client_with_build_v3
+
+        # Dimension: time_window with (window_id PK, window_size)
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_time_window",
+                "columns": [
+                    {"name": "window_id", "type": "string"},
+                    {"name": "window_size", "type": "int"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "time_window",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        resp = await client.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.time_window_dim",
+                "query": "SELECT window_id, window_size FROM v3.src_time_window",
+                "mode": "published",
+                "primary_key": ["window_id"],
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        # Fact source
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_entity_facts",
+                "columns": [
+                    {"name": "entity_id", "type": "int"},
+                    {"name": "base_value", "type": "int"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "entity_facts",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        # Inner transform: CROSS JOINs time_window_dim and uses window_size
+        # for a MAX computation, but does NOT project window_id.
+        # This is the pattern that was broken: the primary rewrite fails
+        # (window_id absent from this node's output), so without the fix the
+        # second pass was skipped and the filter never reached the inner scope.
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.entity_window_config",
+                "query": (
+                    "SELECT e.entity_id, "
+                    "MAX(e.base_value + w.window_size) AS max_bound "
+                    "FROM v3.src_entity_facts AS e "
+                    "CROSS JOIN v3.time_window_dim AS w "
+                    "GROUP BY e.entity_id"
+                ),
+                "mode": "published",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        # Outer transform: projects window_id, which puts it into
+        # filter_column_aliases so the pushdown system recognises the filter.
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.entity_report",
+                "query": (
+                    "SELECT c.entity_id, c.max_bound, w.window_id "
+                    "FROM v3.entity_window_config AS c "
+                    "CROSS JOIN v3.time_window_dim AS w"
+                ),
+                "mode": "published",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.entity_count",
+                "query": "SELECT COUNT(entity_id) FROM v3.entity_report",
+                "mode": "published",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.entity_count"],
+                "filters": ["v3.time_window_dim.window_id IN ('7day')"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+
+        # The filter must appear inside entity_window_config's CTE —
+        # specifically in the inner CROSS JOIN scope where time_window_dim is
+        # scanned as a direct Table.  Without the fix the second pass was
+        # skipped when the primary rewrite failed, so this assertion would fail.
+        inner_cte_start = sql.find("v3_entity_window_config AS (")
+        assert inner_cte_start != -1, "entity_window_config CTE not found in SQL"
+        inner_cte = sql[inner_cte_start : sql.find("\n)", inner_cte_start) + 2]
+        assert "window_id" in inner_cte and "7day" in inner_cte, (
+            "Filter window_id IN ('7day') was not pushed into the inner "
+            "CROSS JOIN scope of entity_window_config — the second pass "
+            "did not fire when the primary rewrite failed."
+        )
