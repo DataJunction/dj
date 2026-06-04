@@ -294,12 +294,9 @@ async def _v3_grain_group_to_measures_query(
             " ".join(str(info.derived_ast).split()),
         )
 
-    # ``gg.metrics`` only lists metrics whose aggregation happens inside this
-    # grain group. Derived metrics like ``aht = total_handle_secs / num_answered``
-    # are still part of the cube but are computed downstream from already-emitted
-    # components. Register them on the grain group that covers all of their
-    # components so ``build_cube_materialization`` can emit a CubeMetric entry
-    # for them.
+    # Derived metrics aren't in ``gg.metrics`` but are computed downstream
+    # from emitted components. Attach them to whichever grain group covers
+    # all their components.
     gg_component_names = {c.name for c in gg.components}
     for metric_name, info in decomposed_metrics.items():
         if metric_name in metrics:
