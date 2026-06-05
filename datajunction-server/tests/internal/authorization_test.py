@@ -585,6 +585,95 @@ class TestAuthorizationService:
 
 
 @pytest.mark.asyncio
+class TestAdminBypass:
+    """Tests for the admin break-glass bypass in RBACAuthorizationService."""
+
+    async def test_admin_bypasses_restrictive_policy(self, mocker):
+        """An admin is approved for everything, even under restrictive policy."""
+        mock_settings = mocker.patch(
+            "datajunction_server.internal.access.authorization.service.settings",
+        )
+        mock_settings.default_access_policy = "restrictive"
+
+        service = RBACAuthorizationService()
+        auth_context = AuthContext(
+            user_id=1,
+            username="root",
+            oauth_provider="basic",
+            role_assignments=[],
+            is_admin=True,
+        )
+        requests = [
+            ResourceRequest(
+                verb=ResourceAction.MANAGE,
+                access_object=Resource(
+                    name="anything.at.all",
+                    resource_type=ResourceType.NODE,
+                ),
+            ),
+            ResourceRequest(
+                verb=ResourceAction.WRITE,
+                access_object=Resource(
+                    name="finance",
+                    resource_type=ResourceType.NAMESPACE,
+                ),
+            ),
+        ]
+        decisions = service.authorize(auth_context, requests)
+        assert all(decision.approved for decision in decisions)
+        assert all(decision.reason == "admin" for decision in decisions)
+
+    async def test_non_admin_denied_under_restrictive(self, mocker):
+        """A non-admin with no grants is denied under restrictive policy."""
+        mock_settings = mocker.patch(
+            "datajunction_server.internal.access.authorization.service.settings",
+        )
+        mock_settings.default_access_policy = "restrictive"
+
+        service = RBACAuthorizationService()
+        auth_context = AuthContext(
+            user_id=2,
+            username="bob",
+            oauth_provider="basic",
+            role_assignments=[],
+            is_admin=False,
+        )
+        requests = [
+            ResourceRequest(
+                verb=ResourceAction.WRITE,
+                access_object=Resource(
+                    name="finance.revenue",
+                    resource_type=ResourceType.NODE,
+                ),
+            ),
+        ]
+        decisions = service.authorize(auth_context, requests)
+        assert decisions[0].approved is False
+
+    async def test_auth_context_from_user_carries_is_admin(
+        self,
+        default_user: User,
+        session: AsyncSession,
+    ):
+        """AuthContext.from_user reflects the user's is_admin flag."""
+        admin = User(
+            username="admin-user",
+            kind=PrincipalKind.USER,
+            oauth_provider="basic",
+            is_admin=True,
+        )
+        session.add(admin)
+        await session.commit()
+
+        admin = await get_user(username="admin-user", session=session)
+        auth_context = await AuthContext.from_user(session, admin)
+        assert auth_context.is_admin is True
+
+        non_admin_context = await AuthContext.from_user(session, default_user)
+        assert non_admin_context.is_admin is False
+
+
+@pytest.mark.asyncio
 class TestGroupBasedPermissions:
     """Tests for group-based role assignments."""
 

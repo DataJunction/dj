@@ -46,6 +46,7 @@ class AuthContext:
     username: str
     oauth_provider: Optional[str]
     role_assignments: List[RoleAssignment]  # Direct + groups, flattened
+    is_admin: bool = False
 
     @classmethod
     async def from_user(
@@ -76,6 +77,7 @@ class AuthContext:
             username=user.username,
             oauth_provider=user.oauth_provider,
             role_assignments=assignments,
+            is_admin=bool(user.is_admin),
         )
 
     @classmethod
