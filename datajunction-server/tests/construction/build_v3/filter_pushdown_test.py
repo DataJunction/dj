@@ -1231,6 +1231,131 @@ class TestFilterPushdownViaSourceFKLinkAtTopLevel:
         )
 
 
+class TestFilterPushdownToMultipleSiblingTransforms:
+    """Regression: when a source node with an FK dimension link has multiple
+    child transforms, the snapshot filter must be pushed into ALL of them.
+
+    Previously _resolve_pushdown_targets returned early after the first
+    matching child, so only whichever sibling happened to be processed first
+    received the filter; the others were silently skipped.  This mirrors the
+    exp_alloc / payments_member pattern where both transforms read
+    allocation_core_d but only one was getting the snapshot_utc_date pin.
+    """
+
+    @pytest.mark.asyncio
+    async def test_fk_filter_pushed_to_all_sibling_transforms(
+        self,
+        client_with_build_v3,
+    ):
+        client = client_with_build_v3
+
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_multi_child",
+                "columns": [
+                    {"name": "account_id", "type": "int"},
+                    {"name": "amount", "type": "double"},
+                    {"name": "snap_date", "type": "int"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "multi_child_src",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        resp = await client.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.snap_dim",
+                "query": "SELECT snap_date AS dateint FROM v3.src_multi_child GROUP BY snap_date",
+                "mode": "published",
+                "primary_key": ["dateint"],
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        resp = await client.post(
+            "/nodes/v3.src_multi_child/link/",
+            json={
+                "dimension_node": "v3.snap_dim",
+                "join_type": "left",
+                "join_on": "v3.src_multi_child.snap_date = v3.snap_dim.dateint",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        # Two sibling transforms — neither projects snap_date.
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.child_a",
+                "query": (
+                    "SELECT a.account_id, SUM(a.amount) AS total_a "
+                    "FROM v3.src_multi_child AS a "
+                    "GROUP BY a.account_id"
+                ),
+                "mode": "published",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.child_b",
+                "query": (
+                    "SELECT b.account_id, SUM(b.amount) AS total_b "
+                    "FROM v3.src_multi_child AS b "
+                    "GROUP BY b.account_id"
+                ),
+                "mode": "published",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.metric_a",
+                "query": "SELECT SUM(total_a) FROM v3.child_a",
+                "mode": "published",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.metric_b",
+                "query": "SELECT SUM(total_b) FROM v3.child_b",
+                "mode": "published",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.metric_a", "v3.metric_b"],
+                "filters": ["v3.snap_dim.dateint = 20240101"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        # Each metric may land in its own grain group; collect all SQL.
+        all_sql = " ".join(gg["sql"] for gg in response.json().get("grain_groups", []))
+        # Both sibling transforms must have the snapshot filter injected.
+        assert "a.snap_date = 20240101" in all_sql, (
+            "snapshot filter missing from v3_child_a CTE"
+        )
+        assert "b.snap_date = 20240101" in all_sql, (
+            "snapshot filter missing from v3_child_b CTE — "
+            "upstream pushdown stopped at the first sibling"
+        )
+
+
 class TestDimLabelFilterNameCollision:
     """Regression: a filter on a lookup dimension's *label* attribute whose
     name collides with an upstream transform's foreign-key column must NOT be

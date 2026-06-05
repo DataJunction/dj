@@ -441,7 +441,8 @@ def _resolve_pushdown_targets(
     """
     if linked_node.type != NodeType.SOURCE:
         return [(linked_node.name, None, None)]
-    for child_name in children_of(linked_node.name):  # pragma: no branch
+    all_targets: list[tuple[str, Optional[str], Optional["ast.Select"]]] = []
+    for child_name in children_of(linked_node.name):
         child = ctx.nodes.get(child_name)
         if (
             child is None
@@ -449,7 +450,7 @@ def _resolve_pushdown_targets(
             or not child.current
             or not child.current.query
         ):
-            continue  # pragma: no cover
+            continue
         try:
             child_query = ctx.get_parsed_query(child)
         except Exception:  # pragma: no cover
@@ -462,7 +463,7 @@ def _resolve_pushdown_targets(
         # match so a self-join (two refs to the same source) produces
         # two filter injections, one per alias.
         matches: list[tuple[str, "ast.Select"]] = []
-        for tbl in child_query.find_all(ast.Table):  # pragma: no branch
+        for tbl in child_query.find_all(ast.Table):
             try:
                 tbl_name = tbl.name.identifier(quotes=False)
             except Exception:  # pragma: no cover
@@ -477,16 +478,17 @@ def _resolve_pushdown_targets(
                 continue  # pragma: no cover
             matches.append((alias, containing_select))
         if not matches:
-            continue  # pragma: no cover
+            continue
         # Optimization: a single match in the top-level Select of a
         # non-set-op body can reuse the normal CTE-WHERE injection path
         # (it targets that same Select).
         if len(matches) == 1:
             alias, sel = matches[0]
             if sel is top_select and top_select.set_op is None:
-                return [(child.name, alias, None)]
-        return [(child.name, alias, sel) for alias, sel in matches]
-    return []  # pragma: no cover
+                all_targets.append((child.name, alias, None))
+                continue
+        all_targets.extend((child.name, alias, sel) for alias, sel in matches)
+    return all_targets
 
 
 def _enclosing_select(node: ast.Node) -> Optional["ast.Select"]:
