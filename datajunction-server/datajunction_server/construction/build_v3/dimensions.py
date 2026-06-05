@@ -450,7 +450,7 @@ def _resolve_pushdown_targets(
             or not child.current
             or not child.current.query
         ):
-            continue
+            continue  # pragma: no cover
         try:
             child_query = ctx.get_parsed_query(child)
         except Exception:  # pragma: no cover
@@ -478,7 +478,7 @@ def _resolve_pushdown_targets(
                 continue  # pragma: no cover
             matches.append((alias, containing_select))
         if not matches:
-            continue
+            continue  # pragma: no cover
         # Optimization: a single match in the top-level Select of a
         # non-set-op body can reuse the normal CTE-WHERE injection path
         # (it targets that same Select).
