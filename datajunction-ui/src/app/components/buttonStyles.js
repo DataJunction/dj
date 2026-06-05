@@ -1,6 +1,3 @@
-// Border props stay longhand: swapping the `border` shorthand for `borderColor`
-// on rerender (as the hover handlers do) triggers a React warning.
-
 export const secondaryButtonStyle = {
   height: '28px',
   padding: '0 10px',

@@ -51,7 +51,6 @@ export default function Tooltip({
           }}
         >
           {content}
-          {/* Caret sits on the edge nearest the trigger. */}
           <span
             style={{
               position: 'absolute',
