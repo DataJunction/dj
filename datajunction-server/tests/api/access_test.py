@@ -47,6 +47,26 @@ class NamespaceOnlyAuthorizationService(AuthorizationService):
         return decisions
 
 
+class ExecuteDenyingAuthorizationService(AuthorizationService):
+    """
+    Authorization service that approves everything except EXECUTE.
+
+    Models a read-only user: they can view metadata but cannot run queries.
+    """
+
+    name = "deny_execute"
+
+    def authorize(self, auth_context, requests):
+        return [
+            access.AccessDecision(
+                request=request,
+                approved=request.access_object
+                and request.verb != access.ResourceAction.EXECUTE,
+            )
+            for request in requests
+        ]
+
+
 class PartialNodeAuthorizationService(AuthorizationService):
     """
     Authorization service that allows access to specific namespaces and nodes.
@@ -139,6 +159,56 @@ class TestDataAccessControl:
         assert "Access denied to" in data["message"]
         assert "foo.bar" in data["message"]
         assert response.status_code == HTTPStatus.FORBIDDEN
+
+
+class TestExecuteAccessControl:
+    """
+    Test that running queries requires the EXECUTE action.
+    """
+
+    @pytest.mark.asyncio
+    async def test_get_node_data_requires_execute(
+        self,
+        module__client_with_examples: AsyncClient,
+        mocker,
+    ) -> None:
+        """A read-only user (no EXECUTE) cannot run node data queries."""
+
+        def get_deny_execute_service():
+            return ExecuteDenyingAuthorizationService()
+
+        mocker.patch(
+            "datajunction_server.internal.access.authorization.validator.get_authorization_service",
+            get_deny_execute_service,
+        )
+        response = await module__client_with_examples.get("/data/basic.num_comments/")
+        data = response.json()
+        assert response.status_code == HTTPStatus.FORBIDDEN
+        assert "Access denied" in data["message"]
+        assert "basic.num_comments" in data["message"]
+
+    @pytest.mark.asyncio
+    async def test_get_metrics_data_requires_execute(
+        self,
+        module__client_with_examples: AsyncClient,
+        mocker,
+    ) -> None:
+        """A read-only user (no EXECUTE) cannot run metrics data queries."""
+
+        def get_deny_execute_service():
+            return ExecuteDenyingAuthorizationService()
+
+        mocker.patch(
+            "datajunction_server.internal.access.authorization.validator.get_authorization_service",
+            get_deny_execute_service,
+        )
+        response = await module__client_with_examples.get(
+            "/data/",
+            params={"metrics": ["basic.num_comments"]},
+        )
+        data = response.json()
+        assert response.status_code == HTTPStatus.FORBIDDEN
+        assert "Access denied" in data["message"]
 
 
 class TestNamespaceAccessControl:

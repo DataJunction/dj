@@ -63,6 +63,25 @@ settings = get_settings()
 router = SecureAPIRouter(tags=["data"])
 
 
+async def enforce_execute(
+    access_checker: AccessChecker,
+    node_names: List[str],
+) -> None:
+    """
+    Require EXECUTE on every node a query is being run against.
+
+    EXECUTE implies READ in the permission hierarchy, so this also covers the
+    cache-hit path where SQL is not rebuilt and the build-time READ checks would
+    otherwise be skipped.
+    """
+    for node_name in node_names:
+        access_checker.add_request_by_node_name(
+            node_name,
+            access.ResourceAction.EXECUTE,
+        )
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
+
 @router.post("/data/{node_name}/availability/", name="Add Availability State to Node")
 async def add_availability_state(
     node_name: str,
@@ -281,10 +300,13 @@ async def get_data(
     engine_version: Optional[str] = None,
     background_tasks: BackgroundTasks,
     cache: Cache = Depends(get_cache),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> QueryWithResults:
     """
     Gets data for a node
     """
+    await enforce_execute(access_checker, [node_name])
+
     request_headers = dict(request.headers)
     query_cache_manager = QueryCacheManager(
         cache=cache,
@@ -356,10 +378,13 @@ async def get_data_stream_for_node(
     engine_version: Optional[str] = None,
     background_tasks: BackgroundTasks,
     cache: Cache = Depends(get_cache),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> QueryWithResults:
     """
     Return data for a node using server side events
     """
+    await enforce_execute(access_checker, [node_name])
+
     request_headers = dict(request.headers)
     node = cast(
         Node,
@@ -461,6 +486,7 @@ async def get_data_for_metrics(
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> QueryWithResults:
     """
     Return data for a set of metrics with dimensions and filters.
@@ -470,6 +496,8 @@ async def get_data_for_metrics(
     - Cube matching for materialized tables
     - Grain group joins for metrics from different facts
     """
+    await enforce_execute(access_checker, metrics)
+
     request_headers = dict(request.headers)
 
     # Resolve dialect and engine in a single lookup (avoids duplicate cube matching).
@@ -545,6 +573,7 @@ async def get_data_stream_for_metrics(
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
     current_user: User = Depends(get_current_user),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> QueryWithResults:
     """
     Return data for a set of metrics with dimensions and filters using server sent events.
@@ -554,6 +583,8 @@ async def get_data_stream_for_metrics(
     - Cube matching for materialized tables
     - Grain group joins for metrics from different facts
     """
+    await enforce_execute(access_checker, metrics)
+
     request_headers = dict(request.headers)
 
     # Resolve dialect and engine in a single lookup (avoids duplicate cube matching)
