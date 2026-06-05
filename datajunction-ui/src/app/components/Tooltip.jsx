@@ -1,17 +1,5 @@
 import { useId, useState } from 'react';
 
-/**
- * Lightweight, accessible tooltip.
- *
- * Unlike the native `title` attribute (slow to appear, unstyled, and invisible
- * to keyboard/touch users), this shows quickly on hover *and* keyboard focus,
- * is announced to assistive tech via `aria-describedby`, and can be styled.
- *
- * Usage:
- *   <Tooltip content="Download all nodes as YAML">
- *     <button>…</button>
- *   </Tooltip>
- */
 export default function Tooltip({
   content,
   placement = 'bottom',
@@ -36,7 +24,6 @@ export default function Tooltip({
       onFocus={show}
       onBlur={hide}
     >
-      {/* Link the trigger to the tooltip for screen readers */}
       <span aria-describedby={visible ? tooltipId : undefined}>{children}</span>
       {visible && (
         <span
@@ -64,9 +51,7 @@ export default function Tooltip({
           }}
         >
           {content}
-          {/* Caret pointing back at the trigger. When the tooltip is below
-              the trigger (placement="bottom"), the caret sits on its top edge;
-              when above, on its bottom edge. */}
+          {/* Caret sits on the edge nearest the trigger. */}
           <span
             style={{
               position: 'absolute',

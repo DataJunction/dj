@@ -1,14 +1,5 @@
-/**
- * Shared styling for the namespace toolbar action buttons.
- *
- * Centralizing these keeps the header's actions (Git Settings, Sync to Git,
- * Create PR, Export YAML, …) visually parallel so the toolbar reads as a set of
- * peer actions rather than a grab-bag of one-off buttons.
- *
- * Border properties are kept in longhand form on purpose: React warns when a
- * rerender swaps the `border` shorthand for a `borderColor` longhand (or vice
- * versa) on the same element, which happens once we mutate colors on hover.
- */
+// Border props stay longhand: swapping the `border` shorthand for `borderColor`
+// on rerender (as the hover handlers do) triggers a React warning.
 
 export const secondaryButtonStyle = {
   height: '28px',
@@ -42,7 +33,6 @@ export const dangerButtonStyle = {
   borderColor: '#fecaca',
 };
 
-/** Hover in/out handlers for the white "secondary" buttons. */
 export const onSecondaryHover = e => {
   e.currentTarget.style.color = '#1e293b';
   e.currentTarget.style.borderColor = '#cbd5e1';
@@ -55,7 +45,6 @@ export const onSecondaryOut = e => {
   e.currentTarget.style.backgroundColor = '#ffffff';
 };
 
-/** Hover in/out handlers for the red "danger" button (Delete Branch). */
 export const onDangerHover = e => {
   e.currentTarget.style.backgroundColor = '#fef2f2';
   e.currentTarget.style.borderColor = '#fca5a5';
