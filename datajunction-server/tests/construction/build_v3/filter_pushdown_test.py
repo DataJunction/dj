@@ -1232,15 +1232,12 @@ class TestFilterPushdownViaSourceFKLinkAtTopLevel:
 
 
 class TestFilterPushdownToMultipleSiblingTransforms:
-    """Regression: when a source node with an FK dimension link has multiple
-    child transforms, the snapshot filter must be pushed into ALL of them.
+    """Regression: FK dimension filter must reach all sibling transforms that
+    read the same source, not just the first one found.
 
-    Previously _resolve_pushdown_targets returned early after the first
-    matching child, so only whichever sibling happened to be processed first
-    received the filter; the others were silently skipped.  This mirrors the
-    exp_alloc / payments_member pattern where both transforms read
-    allocation_core_d but only one was getting the snapshot_utc_date pin.
-    """
+    Both sibling transforms are upstream of the same metric so they land in
+    the same grain group — exactly mirroring the prod pattern where multiple
+    transforms read from the same snapshot source table."""
 
     @pytest.mark.asyncio
     async def test_fk_filter_pushed_to_all_sibling_transforms(
@@ -1287,7 +1284,7 @@ class TestFilterPushdownToMultipleSiblingTransforms:
         )
         assert resp.status_code in (200, 201), resp.json()
 
-        # Two sibling transforms — neither projects snap_date.
+        # Two sibling transforms reading from the same source — neither projects snap_date.
         resp = await client.post(
             "/nodes/transform/",
             json={
@@ -1316,11 +1313,17 @@ class TestFilterPushdownToMultipleSiblingTransforms:
         )
         assert resp.status_code in (200, 201), resp.json()
 
+        # A single parent transform that joins both siblings — this makes both
+        # sibling CTEs appear in the same grain group, matching the prod pattern.
         resp = await client.post(
-            "/nodes/metric/",
+            "/nodes/transform/",
             json={
-                "name": "v3.metric_a",
-                "query": "SELECT SUM(total_a) FROM v3.child_a",
+                "name": "v3.combined",
+                "query": (
+                    "SELECT a.account_id, a.total_a, b.total_b "
+                    "FROM v3.child_a AS a "
+                    "JOIN v3.child_b AS b ON a.account_id = b.account_id"
+                ),
                 "mode": "published",
             },
         )
@@ -1329,8 +1332,8 @@ class TestFilterPushdownToMultipleSiblingTransforms:
         resp = await client.post(
             "/nodes/metric/",
             json={
-                "name": "v3.metric_b",
-                "query": "SELECT SUM(total_b) FROM v3.child_b",
+                "name": "v3.combined_total",
+                "query": "SELECT SUM(total_a + total_b) FROM v3.combined",
                 "mode": "published",
             },
         )
@@ -1339,20 +1342,35 @@ class TestFilterPushdownToMultipleSiblingTransforms:
         response = await client.get(
             "/sql/measures/v3/",
             params={
-                "metrics": ["v3.metric_a", "v3.metric_b"],
+                "metrics": ["v3.combined_total"],
                 "filters": ["v3.snap_dim.dateint = 20240101"],
             },
         )
         assert response.status_code == 200, response.json()
-        # Each metric may land in its own grain group; collect all SQL.
-        all_sql = " ".join(gg["sql"] for gg in response.json().get("grain_groups", []))
-        # Both sibling transforms must have the snapshot filter injected.
-        assert "a.snap_date = 20240101" in all_sql, (
-            "snapshot filter missing from v3_child_a CTE"
-        )
-        assert "b.snap_date = 20240101" in all_sql, (
-            "snapshot filter missing from v3_child_b CTE — "
-            "upstream pushdown stopped at the first sibling"
+        assert_sql_equal(
+            get_first_grain_group(response.json())["sql"],
+            """
+            WITH v3_child_a AS (
+              SELECT a.account_id, SUM(a.amount) AS total_a
+              FROM default.v3.multi_child_src AS a
+              WHERE a.snap_date = 20240101
+              GROUP BY a.account_id
+            ),
+            v3_child_b AS (
+              SELECT b.account_id, SUM(b.amount) AS total_b
+              FROM default.v3.multi_child_src AS b
+              WHERE b.snap_date = 20240101
+              GROUP BY b.account_id
+            ),
+            v3_combined AS (
+              SELECT a.total_a, b.total_b
+              FROM v3_child_a AS a
+              JOIN v3_child_b AS b ON a.account_id = b.account_id
+            )
+            SELECT SUM(t1.total_a + t1.total_b) total_a_total_b_sum_HASH
+            FROM v3_combined t1
+            """,
+            normalize_aliases=True,
         )
 
 
