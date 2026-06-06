@@ -1045,6 +1045,114 @@ owners:
 
 ---
 
+## Decomposing a Query into DJ Nodes
+
+Users often arrive with an existing SQL query they've drafted in a notebook,
+dashboard, or one-off analysis, and want to express it as DJ nodes. Don't
+generate YAML on the first pass — propose a structured decomposition, get
+critique, iterate on the shape, then produce files. This avoids throwing
+away nodes when the structure needs adjusting.
+
+### The workflow
+
+**1. Parse the query mechanically.** From the user's SQL, extract:
+- **Aggregates** (`SUM`, `COUNT`, `COUNT DISTINCT`, `MIN`, `MAX`, `AVG`,
+  `APPROX_COUNT_DISTINCT`, percentile/window aggregates) → each is a
+  **candidate base metric**.
+- **FROM / JOIN tables** → candidate parent nodes (transforms or dimensions).
+- **GROUP BY columns, JOIN-bound columns, top-level WHERE columns** →
+  candidate **dimension link** targets.
+- **Top-level SELECT expressions that combine the aggregates** (ratios,
+  sums-of-sums, computed expressions) → candidate **derived metrics**.
+
+**2. Resolve parents against existing nodes first.** For each candidate
+parent table or dimension, check whether DJ already has an authoritative
+node for it. Prefer building on existing nodes — every additional transform
+fragments the catalog. When a referenced table isn't in any git-backed
+namespace, flag it: the user may want to author the parent first (or
+reconsider the source) rather than create a sibling node.
+
+**3. Treat every JOIN as a candidate dimension link, not a baked-in join.**
+The DJ idiom is to express joins as `dimension_links:` on the fact's
+transform — *not* to hardcode them inside the metric's query. Dim links
+make the join optional: consumers slice by that dim only when asked. A
+hardcoded JOIN forces every metric query that touches the fact to pay the
+join cost even when nobody's slicing by that dim. See "Dimension Links"
+section above for the mechanics.
+
+**4. Apply the reusability rule.** Even if the user's query has aggregates
+*only* inside a ratio expression, decompose them: one named base metric
+per aggregate, then a derived metric for the ratio. Resist skipping this
+when "the user only cares about the final number" — the rest of the org
+benefits from the named base metrics being discoverable and reusable.
+See "Derived Metrics" section above for the composition pattern.
+
+**5. Handle WHERE clauses correctly.** A `WHERE` in the user's query is
+one of two things:
+- A **dimensional filter** the consumer should apply at query time → keep
+  it out of the metric definition entirely.
+- **Part of the metric's identity** → bake it into the aggregate as
+  `CASE WHEN`, not as a `WHERE` on the metric's query. The `CASE WHEN`
+  form lets the metric coexist with a broader-population sibling on the
+  same fact; a `WHERE` permanently constrains scope. Reflect the scope in
+  the metric name (`active_signups`, not `signups`).
+
+**6. Name things meaningfully.** Propose readable, business-meaningful
+names (`total_signup_revenue`, `num_active_accounts`) — not the hashed
+shapes (`signup_price_sum_abc123`) that show up in internal materializations.
+
+**7. Check for duplicates before producing YAML.** For each proposed
+metric / transform / dimension name, check whether something with the same
+name (or doing the same thing under a different name) already exists in
+the catalog. Reuse rather than recreate; rename when the names collide
+but the semantics differ.
+
+**8. Propose, don't produce.** Present the decomposition as a structured
+list (parents, base metrics, derived metrics, dim links, file placement)
+and ask the user to critique the shape. Only after they confirm, generate
+YAML files.
+
+### Worked example: ratio decomposition
+
+User's query:
+
+```sql
+SELECT
+  cell_id,
+  SUM(signup_plan_usd_price)
+  / SUM(CASE WHEN subscrn_id IS NOT NULL THEN 1 ELSE 0 END) AS asp
+FROM acquisition.signup_funnel_base
+GROUP BY cell_id
+```
+
+Decomposition:
+
+```
+Parent transform:
+  Reuse: acquisition.signup_funnel_base  (existing)
+
+Base metrics (one per aggregate):
+  1. total_signup_revenue = SUM(signup_plan_usd_price)
+  2. num_signups          = SUM(CASE WHEN subscrn_id IS NOT NULL THEN 1 ELSE 0 END)
+
+Derived metric:
+  1. avg_signup_price = total_signup_revenue / NULLIF(num_signups, 0)
+
+Dimension links:
+  - cell_id → common.dimensions.xp.ab_test_cell  (existing shared dim)
+```
+
+Why this shape is worth the extra metric nodes: downstream tools
+(re-aggregations, cubes, ad-hoc queries) re-aggregate the materialized
+output. Three independent metrics roll up correctly across any
+dimensional slice — sum the numerator, sum the denominator, then divide.
+A single pre-divided ratio doesn't compose: when consumers re-aggregate
+the materialized output, the numerator and denominator can drift apart
+across slices in subtle ways (especially when NULL rows are dropped from
+one but not the other).
+
+---
+
 ## Repo-Backed Workflow
 
 ### Overview
