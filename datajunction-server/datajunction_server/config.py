@@ -219,6 +219,16 @@ class Settings(BaseSettings):  # pragma: no cover
     # permissive. Applied before the default_access_policy fallback.
     default_access_role: Optional[str] = None
 
+    # Scoped restrictive policy for per-action, per-namespace enforcement.
+    # Each entry is "action:scope_type:scope_value", e.g. "write:namespace:finance.*".
+    # A request matching any entry is denied unless an explicit grant allows it,
+    # regardless of default_access_policy. Anything not matched follows
+    # default_access_policy. This enables write governance scoped to specific
+    # namespaces (e.g. restrict write/delete/manage on one namespace while reads
+    # and all other namespaces stay permissive). List each mutating action
+    # explicitly; the permission hierarchy is not applied to these entries.
+    restrictive_scopes: List[str] = []
+
     # Interval in seconds with which to expire caching of any indexes
     index_cache_expire: int = 60
 

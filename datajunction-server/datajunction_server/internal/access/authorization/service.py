@@ -174,8 +174,9 @@ class RBACAuthorizationService(AuthorizationService):
         Convert ResourceRequest to AccessDecision.
 
         Gathers all applicable scopes (explicit grants + default-access role)
-        and approves if any grants the request. Otherwise falls back to the
-        configured default_access_policy.
+        and approves if any grants the request. With no explicit grant, a
+        request under a configured restrictive scope is denied; otherwise it
+        falls back to the configured default_access_policy.
         """
         granted = any(
             self._scope_grants_permission(
@@ -188,6 +189,12 @@ class RBACAuthorizationService(AuthorizationService):
         )
         if granted:
             return AccessDecision(request=request, approved=True)
+        if self.request_is_restricted(request):
+            return AccessDecision(
+                request=request,
+                approved=False,
+                reason="restrictive scope (explicit grant required)",
+            )
         return AccessDecision(
             request=request,
             approved=(settings.default_access_policy == "permissive"),
@@ -289,24 +296,82 @@ class RBACAuthorizationService(AuthorizationService):
         if action not in granted_actions:
             return False
 
+        return cls._resource_in_scope(
+            scope.scope_type,
+            scope.scope_value,
+            resource_type,
+            resource_name,
+        )
+
+    @classmethod
+    def _resource_in_scope(
+        cls,
+        scope_type: ResourceType,
+        scope_value: str,
+        resource_type: ResourceType,
+        resource_name: str,
+    ) -> bool:
+        """
+        Check if a resource falls within a (scope_type, scope_value) boundary,
+        ignoring actions. Handles global ("*"/empty), same-type pattern matching,
+        and the namespace-covers-node cross-type case.
+        """
         # Handle global access (empty string, None, or "*" scope_value)
-        if not scope.scope_value or scope.scope_value == "" or scope.scope_value == "*":
-            # Global scope matches any resource of the same type
-            return scope.scope_type == resource_type
+        if not scope_value or scope_value == "*":
+            return scope_type == resource_type
 
         # Same resource type - use pattern matching
-        if scope.scope_type == resource_type:
-            return cls.resource_matches_pattern(resource_name, scope.scope_value)
+        if scope_type == resource_type:
+            return cls.resource_matches_pattern(resource_name, scope_value)
 
         # Cross-resource-type: namespace scope can cover nodes
-        if (
-            scope.scope_type == ResourceType.NAMESPACE
-            and resource_type == ResourceType.NODE
-        ):
-            # Check if node name matches the namespace pattern
-            return cls.resource_matches_pattern(resource_name, scope.scope_value)
+        if scope_type == ResourceType.NAMESPACE and resource_type == ResourceType.NODE:
+            return cls.resource_matches_pattern(resource_name, scope_value)
 
         # No match
+        return False
+
+    @classmethod
+    def _restrictive_rules(cls) -> List[tuple]:
+        """
+        Parse settings.restrictive_scopes into (action, scope_type, scope_value)
+        tuples. Malformed entries are ignored.
+        """
+        rules: List[tuple] = []
+        for raw in getattr(settings, "restrictive_scopes", []) or []:
+            parts = raw.split(":")
+            if len(parts) != 3:  # pragma: no cover
+                continue
+            action_str, type_str, scope_value = parts
+            try:
+                rules.append(
+                    (
+                        ResourceAction(action_str),
+                        ResourceType(type_str),
+                        scope_value,
+                    ),
+                )
+            except ValueError:  # pragma: no cover
+                continue
+        return rules
+
+    @classmethod
+    def request_is_restricted(cls, request: ResourceRequest) -> bool:
+        """
+        Whether a request falls under a configured restrictive scope, meaning it
+        is denied by default (requires an explicit grant). Action match is exact
+        here (no hierarchy), so each restricted action must be listed explicitly.
+        """
+        for action, scope_type, scope_value in cls._restrictive_rules():
+            if action != request.verb:
+                continue
+            if cls._resource_in_scope(
+                scope_type,
+                scope_value,
+                request.access_object.resource_type,
+                request.access_object.name,
+            ):
+                return True
         return False
 
 

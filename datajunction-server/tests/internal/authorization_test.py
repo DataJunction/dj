@@ -862,6 +862,137 @@ class TestDefaultAccessRole:
 
 
 @pytest.mark.asyncio
+class TestRestrictiveScopes:
+    """Tests for per-action, per-namespace restrictive scopes (write governance)."""
+
+    SERVICE_SETTINGS = (
+        "datajunction_server.internal.access.authorization.service.settings"
+    )
+
+    async def test_restrictive_write_scope_denies_ungranted_writes(
+        self,
+        default_user: User,
+        session: AsyncSession,
+        mocker,
+    ):
+        """Writes under a restrictive scope are denied; reads and other namespaces stay open."""
+        svc = mocker.patch(self.SERVICE_SETTINGS)
+        svc.authorization_provider = "rbac"
+        svc.default_access_policy = "permissive"
+        svc.restrictive_scopes = ["write:namespace:finance.*"]
+
+        user = await get_user(username=default_user.username, session=session)
+        access_checker = AccessChecker(
+            auth_context=await AuthContext.from_user(user=user, session=session),
+        )
+        access_checker.add_requests(
+            [
+                ResourceRequest(
+                    verb=ResourceAction.WRITE,
+                    access_object=Resource(
+                        name="finance.revenue",
+                        resource_type=ResourceType.NODE,
+                    ),
+                ),
+                ResourceRequest(
+                    verb=ResourceAction.READ,
+                    access_object=Resource(
+                        name="finance.revenue",
+                        resource_type=ResourceType.NODE,
+                    ),
+                ),
+                ResourceRequest(
+                    verb=ResourceAction.WRITE,
+                    access_object=Resource(
+                        name="growth.signups",
+                        resource_type=ResourceType.NODE,
+                    ),
+                ),
+            ],
+        )
+        results = await access_checker.check(on_denied=AccessDenialMode.RETURN)
+        assert results[0].approved is False  # write on finance.* restricted
+        assert results[1].approved is True  # read not restricted (permissive)
+        assert results[2].approved is True  # write on a non-restricted namespace
+
+    async def test_explicit_grant_overrides_restrictive_scope(
+        self,
+        default_user: User,
+        session: AsyncSession,
+        mocker,
+    ):
+        """An explicit grant still allows a write inside a restrictive scope."""
+        role = Role(name="finance-writer", created_by_id=default_user.id)
+        session.add(role)
+        await session.flush()
+        session.add(
+            RoleScope(
+                role_id=role.id,
+                action=ResourceAction.WRITE,
+                scope_type=ResourceType.NAMESPACE,
+                scope_value="finance.*",
+            ),
+        )
+        session.add(
+            RoleAssignment(
+                principal_id=default_user.id,
+                role_id=role.id,
+                granted_by_id=default_user.id,
+            ),
+        )
+        await session.commit()
+
+        svc = mocker.patch(self.SERVICE_SETTINGS)
+        svc.authorization_provider = "rbac"
+        svc.default_access_policy = "permissive"
+        svc.restrictive_scopes = ["write:namespace:finance.*"]
+
+        user = await get_user(username=default_user.username, session=session)
+        access_checker = AccessChecker(
+            auth_context=await AuthContext.from_user(user=user, session=session),
+        )
+        access_checker.add_request(
+            ResourceRequest(
+                verb=ResourceAction.WRITE,
+                access_object=Resource(
+                    name="finance.revenue",
+                    resource_type=ResourceType.NODE,
+                ),
+            ),
+        )
+        results = await access_checker.check(on_denied=AccessDenialMode.RETURN)
+        assert results[0].approved is True
+
+    async def test_no_restrictive_scopes_is_permissive(
+        self,
+        default_user: User,
+        session: AsyncSession,
+        mocker,
+    ):
+        """With no restrictive scopes configured, permissive baseline applies."""
+        svc = mocker.patch(self.SERVICE_SETTINGS)
+        svc.authorization_provider = "rbac"
+        svc.default_access_policy = "permissive"
+        svc.restrictive_scopes = []
+
+        user = await get_user(username=default_user.username, session=session)
+        access_checker = AccessChecker(
+            auth_context=await AuthContext.from_user(user=user, session=session),
+        )
+        access_checker.add_request(
+            ResourceRequest(
+                verb=ResourceAction.WRITE,
+                access_object=Resource(
+                    name="finance.revenue",
+                    resource_type=ResourceType.NODE,
+                ),
+            ),
+        )
+        results = await access_checker.check(on_denied=AccessDenialMode.RETURN)
+        assert results[0].approved is True
+
+
+@pytest.mark.asyncio
 class TestGroupBasedPermissions:
     """Tests for group-based role assignments."""
 
