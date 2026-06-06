@@ -153,6 +153,14 @@ async def create_node_namespace(
     status_code=200,
 )
 async def list_namespaces(
+    git_backed: Optional[bool] = Query(
+        default=None,
+        description=(
+            "Filter to namespaces by git backing. ``true`` returns only "
+            "namespaces with a ``github_repo_path`` set, ``false`` returns "
+            "only those without, omitted returns all."
+        ),
+    ),
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
 ) -> List[NamespaceOutput]:
@@ -166,6 +174,10 @@ async def list_namespaces(
         .where(NodeNamespace.deactivated_at.is_(None))
         .group_by(NodeNamespace.namespace)
     )
+    if git_backed is True:
+        statement = statement.where(NodeNamespace.github_repo_path.is_not(None))
+    elif git_backed is False:
+        statement = statement.where(NodeNamespace.github_repo_path.is_(None))
 
     result = await session.execute(statement)
     results = result.all()
@@ -180,6 +192,8 @@ async def list_namespaces(
         NamespaceOutput(
             namespace=ns.namespace,
             num_nodes=num_nodes or 0,
+            github_repo_path=ns.github_repo_path,
+            git_branch=ns.git_branch,
         )
         for ns, num_nodes in results
         if ns.namespace in approved_namespaces

@@ -1172,11 +1172,14 @@ LineageColumn.model_rebuild()
 
 class NamespaceOutput(BaseModel):
     """
-    Output for a namespace that includes the number of nodes.
+    Output for a namespace that includes the number of nodes and (when set)
+    its git repository configuration.
     """
 
     namespace: str
     num_nodes: int
+    github_repo_path: Optional[str] = None
+    git_branch: Optional[str] = None
 
 
 class BranchNamespaceOutput(BaseModel):
