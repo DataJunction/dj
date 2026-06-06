@@ -1105,11 +1105,36 @@ async def test_list_all_namespaces_access_limited(
 
     assert response.status_code in (200, 201)
     assert response.json() == [
-        {"namespace": "dbt.dimension", "num_nodes": 1},
-        {"namespace": "dbt.source", "num_nodes": 0},
-        {"namespace": "dbt.source.jaffle_shop", "num_nodes": 2},
-        {"namespace": "dbt.source.stripe", "num_nodes": 1},
-        {"namespace": "dbt.transform", "num_nodes": 1},
+        {
+            "namespace": "dbt.dimension",
+            "num_nodes": 1,
+            "github_repo_path": None,
+            "git_branch": None,
+        },
+        {
+            "namespace": "dbt.source",
+            "num_nodes": 0,
+            "github_repo_path": None,
+            "git_branch": None,
+        },
+        {
+            "namespace": "dbt.source.jaffle_shop",
+            "num_nodes": 2,
+            "github_repo_path": None,
+            "git_branch": None,
+        },
+        {
+            "namespace": "dbt.source.stripe",
+            "num_nodes": 1,
+            "github_repo_path": None,
+            "git_branch": None,
+        },
+        {
+            "namespace": "dbt.transform",
+            "num_nodes": 1,
+            "github_repo_path": None,
+            "git_branch": None,
+        },
     ]
 
 
