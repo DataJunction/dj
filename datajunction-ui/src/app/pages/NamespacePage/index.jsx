@@ -8,6 +8,12 @@ import Explorer from '../NamespacePage/Explorer';
 import AddNodeDropdown from '../../components/AddNodeDropdown';
 import NodeListActions from '../../components/NodeListActions';
 import NamespaceHeader from '../../components/NamespaceHeader';
+import Tooltip from '../../components/Tooltip';
+import {
+  secondaryButtonStyle,
+  onSecondaryHover,
+  onSecondaryOut,
+} from '../../components/buttonStyles';
 import LoadingIcon from '../../icons/LoadingIcon';
 import CompactSelect from './CompactSelect';
 import { NodeBadge, NodeLink } from '../../components/NodeComponents';
@@ -1145,65 +1151,54 @@ export function NamespacePage() {
                 namespace={namespace}
                 onGitConfigLoaded={setGitConfig}
               >
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const response = await fetch(
-                      `${getDJUrl()}/namespaces/${namespace}/export/yaml`,
-                      { method: 'POST', credentials: 'include' },
-                    );
-                    if (!response.ok) {
-                      return;
-                    }
-                    const blob = await response.blob();
-                    const url = URL.createObjectURL(blob);
-                    const link = document.createElement('a');
-                    const safeName = namespace.replace(/\./g, '_');
-                    link.href = url;
-                    link.download = `${safeName}_export.zip`;
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                    URL.revokeObjectURL(url);
-                  }}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    fontSize: '13px',
-                    fontWeight: '500',
-                    color: '#475569',
-                    background: 'none',
-                    border: 'none',
-                    padding: 0,
-                    borderRadius: '6px',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease',
-                    margin: '0.5em 0px 0px 1em',
-                  }}
-                  onMouseOver={e => {
-                    e.currentTarget.style.color = '#333333';
-                  }}
-                  onMouseOut={e => {
-                    e.currentTarget.style.color = '#475569';
-                  }}
-                  title="Export namespace to YAML"
-                >
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
+                {namespace && (
+                  <Tooltip
+                    content={`Download every node in "${namespace}" as a YAML project (.zip) you can version in git and re-deploy with the DJ client.`}
                   >
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                    <polyline points="7 10 12 15 17 10"></polyline>
-                    <line x1="12" y1="15" x2="12" y2="3"></line>
-                  </svg>
-                </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const response = await fetch(
+                          `${getDJUrl()}/namespaces/${namespace}/export/yaml`,
+                          { method: 'POST', credentials: 'include' },
+                        );
+                        if (!response.ok) {
+                          return;
+                        }
+                        const blob = await response.blob();
+                        const url = URL.createObjectURL(blob);
+                        const link = document.createElement('a');
+                        const safeName = namespace.replace(/\./g, '_');
+                        link.href = url;
+                        link.download = `${safeName}_export.zip`;
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                        URL.revokeObjectURL(url);
+                      }}
+                      style={secondaryButtonStyle}
+                      onMouseOver={onSecondaryHover}
+                      onMouseOut={onSecondaryOut}
+                      aria-label="Export namespace to YAML"
+                    >
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                      </svg>
+                      Export YAML
+                    </button>
+                  </Tooltip>
+                )}
                 {showEditControls && <AddNodeDropdown namespace={namespace} />}
               </NamespaceHeader>
 
