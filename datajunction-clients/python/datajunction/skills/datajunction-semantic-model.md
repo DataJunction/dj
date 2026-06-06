@@ -1,9 +1,9 @@
 ---
-name: datajunction-model
+name: datajunction-semantic-model
 description: |
-  Activate this skill for DataJunction (DJ) modeling decisions — choosing
-  the right node shape (fact, dimension, transform, metric, cube), turning
-  a draft SQL query into well-designed nodes, and the cross-cutting
+  Activate this skill for DataJunction (DJ) semantic modeling decisions —
+  choosing the right node shape (fact, dimension, transform, metric, cube),
+  turning a draft SQL query into well-designed nodes, and the cross-cutting
   conventions (ownership, naming, namespace organization). Format-agnostic
   modeling guidance; for YAML schemas and the repo-backed authoring flow,
   invoke `datajunction-repo`; for direct API examples, invoke
@@ -23,7 +23,7 @@ description: |
 user-invocable: false
 ---
 
-# DataJunction Modeling
+# DataJunction Semantic Modeling
 
 Use this skill when designing how something gets expressed as DJ nodes — independent of whether you'll write the result as YAML files in a repo or POST it to the DJ API.
 

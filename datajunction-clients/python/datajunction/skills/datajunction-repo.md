@@ -5,7 +5,7 @@ description: |
   in a git repository — the repo-backed workflow. Covers YAML schemas per
   node type, branch-based development, temporal partitions on cubes, and
   the full PR-driven deployment flow. For modeling decisions (how to
-  structure metrics, decomposition workflow), invoke `datajunction-model`.
+  structure metrics, decomposition workflow), invoke `datajunction-semantic-model`.
   For direct API authoring, invoke `datajunction-api`. For concepts,
   invoke `datajunction`.
   Keywords:
@@ -22,7 +22,7 @@ user-invocable: false
 
 YAML-and-git authoring for DJ. Use this skill when working in a repo-backed namespace — node definitions are YAML files, changes go through PRs, CI/CD deploys.
 
-For modeling decisions (whether to make something a metric, dim, or transform; how to decompose a query), see `datajunction-model`. This skill assumes the modeling decisions are made and you're translating them into YAML.
+For modeling decisions (whether to make something a metric, dim, or transform; how to decompose a query), see `datajunction-semantic-model`. This skill assumes the modeling decisions are made and you're translating them into YAML.
 
 ## Overview
 
@@ -39,28 +39,58 @@ DataJunction supports **repo-backed namespaces** where node definitions are stor
 
 ## Repository Structure
 
-The repository should follow this structure:
+**There is no required layout under `nodes/`.** DJ walks the tree recursively (`rglob("nodes/**/*.yaml")`) and takes the namespace from each YAML's `name:` field. The folder path is purely organizational. Files can be flat, nested by type, nested by domain, or any mix — DJ doesn't care, and reorganizing later is a free `git mv`.
+
+That said, you should still *choose* a layout for your repo so contributors know where to add things. A few common patterns:
+
+**By node type** (good when most contributors are adding metrics across one domain):
 
 ```
-dj-finance/
-├── nodes/
-│   ├── sources/
-│   │   ├── transactions.yaml
-│   │   └── users.yaml
-│   ├── dimensions/
-│   │   ├── date.yaml
-│   │   └── user.yaml
-│   ├── metrics/
-│   │   ├── revenue.yaml
-│   │   └── user_count.yaml
-│   └── transforms/
-│       └── clean_transactions.yaml
-├── cubes/
-│   └── revenue_cube.yaml
-└── README.md
+nodes/
+  sources/transactions.yaml
+  dimensions/user.yaml
+  metrics/revenue.yaml
+  transforms/clean_transactions.yaml
+cubes/revenue_cube.yaml
 ```
 
-Folder layout under `nodes/` is purely organizational — DJ's namespace comes from the YAML's `name:` field, not the path. Reorganizing files later is a free `git mv`.
+**By domain** (good when multiple teams/areas share one repo):
+
+```
+nodes/
+  billing/
+    sources/payments.yaml
+    transforms/payment_events_clean.yaml
+    metrics/monthly_revenue.yaml
+  user_events/
+    transforms/sessions.yaml
+    metrics/dau.yaml
+```
+
+**Flat** (small projects, <30 nodes):
+
+```
+nodes/
+  transactions.yaml
+  user.yaml
+  revenue.yaml
+```
+
+### Deciding on a layout
+
+**For an existing repo:** look at the current `nodes/` tree and match it. Consistency within a repo matters more than any specific scheme. Don't introduce a new style alongside an established one.
+
+**For a new repo:** ask the user a few questions before committing to a layout:
+- How many contributors / teams will use this repo?
+- Roughly how many nodes do you expect (10? 100? 1000?)
+- Are most nodes going to be metrics on top of a few shared transforms, or many independent fact/dim chains?
+
+Defaults from those answers:
+- 1 team + <30 nodes → flat is fine
+- 1 team + larger → by node type
+- Multiple teams → by domain, with optional type subdirs inside each domain folder when a domain itself grows past ~30 nodes
+
+The right call almost never matters as much as it feels like it does — folder layout has zero effect on deployed namespaces, so optimize for "where would a new contributor look for X" and accept that you'll reorganize as the repo grows.
 
 ---
 
@@ -272,7 +302,7 @@ owners:
 mode: published
 ```
 
-**Important metric rules** (see `datajunction-model` for full discussion):
+**Important metric rules** (see `datajunction-semantic-model` for full discussion):
 - ✅ **ALWAYS specify owners** — critical for governance
 - ❌ **No WHERE clauses** in metric queries (use CASE WHEN instead)
 - ✅ **Include required_dimensions** for time-based metrics

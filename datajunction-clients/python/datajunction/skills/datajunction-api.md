@@ -4,7 +4,7 @@ description: |
   Activate this skill when authoring DataJunction (DJ) nodes via the REST
   API directly (curl, HTTP clients) — typically for exploration, ad-hoc
   prototyping, or namespaces that aren't repo-backed. For modeling
-  decisions and the decomposition workflow, invoke `datajunction-model`.
+  decisions and the decomposition workflow, invoke `datajunction-semantic-model`.
   For repo-backed YAML authoring (the production path), invoke
   `datajunction-repo`. For concepts, invoke `datajunction`.
   Keywords:
@@ -19,7 +19,7 @@ user-invocable: false
 
 Direct REST API authoring for DJ nodes. Use this skill for quick exploration, prototyping, or working in namespaces that don't use the repo-backed workflow.
 
-For the modeling work upstream of any authoring (decomposition, naming, ratio decomposition, etc.), see `datajunction-model`. For the production-path equivalent of these patterns in YAML, see `datajunction-repo`.
+For the modeling work upstream of any authoring (decomposition, naming, ratio decomposition, etc.), see `datajunction-semantic-model`. For the production-path equivalent of these patterns in YAML, see `datajunction-repo`.
 
 ## When to Use the API Approach
 
@@ -92,7 +92,7 @@ SELECT <aggregation_expression> AS <metric_name>
 FROM <single_node>
 ```
 
-Metrics select a **single expression** from a **single source, transform, or dimension node**. They cannot contain WHERE clauses — use CASE WHEN instead. See `datajunction-model` for the modeling rationale.
+Metrics select a **single expression** from a **single source, transform, or dimension node**. They cannot contain WHERE clauses — use CASE WHEN instead. See `datajunction-semantic-model` for the modeling rationale.
 
 ### Metric Metadata Fields
 
@@ -166,7 +166,7 @@ curl -b ~/.dj/cookies.txt -X POST $DJ_URL/nodes/metric/ \
   }'
 ```
 
-**Ratio over base metrics** (decompose first, then derive — see `datajunction-model`):
+**Ratio over base metrics** (decompose first, then derive — see `datajunction-semantic-model`):
 ```bash
 # Step 1: create the base metrics (one curl each)
 curl -X POST $DJ_URL/nodes/metric/ -d '{
