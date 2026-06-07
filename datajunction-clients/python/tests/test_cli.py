@@ -1950,7 +1950,7 @@ def test_setup_claude_overwrite_existing(tmp_path, monkeypatch):
     assert "---\nname: datajunction" in new_content
 
     output = mock_stdout.getvalue()
-    assert "Skill installed" in output
+    assert "Skills installed" in output
 
 
 def test_setup_claude_custom_dj_url(tmp_path, monkeypatch):
@@ -2006,9 +2006,9 @@ def test_setup_claude_mcp_config_merge(tmp_path, monkeypatch):
 
 
 def test_setup_claude_skill_content_verification(tmp_path, monkeypatch):
-    """Test that the installed skill has correct content"""
+    """Test that each installed skill has its expected content."""
     claude_dir = tmp_path / ".claude"
-    skills_dir = claude_dir / "skills" / "datajunction"
+    skills_root = claude_dir / "skills"
     claude_dir.mkdir()
 
     monkeypatch.setenv("HOME", str(tmp_path))
@@ -2022,17 +2022,26 @@ def test_setup_claude_skill_content_verification(tmp_path, monkeypatch):
 
         dj_cli.main()
 
-    # Verify skill content includes key sections
-    skill_file = skills_dir / "SKILL.md"
-    content = skill_file.read_text()
+    # Core concepts skill carries the vocabulary
+    core = (skills_root / "datajunction" / "SKILL.md").read_text()
+    assert "DataJunction" in core
+    assert "semantic layer" in core
+    assert "dimension link" in core
+    assert "Star Schema" in core
+    assert "Node Status" in core
 
-    # Check for essential sections
-    assert "DataJunction" in content
-    assert "semantic layer" in content
-    assert "dimension link" in content
-    assert "Temporal Partitions" in content  # Verify our recent additions
-    assert "owners:" in content  # Verify ownership section
-    assert "Git Repository" in content  # Verify git info documentation
+    # Repo skill carries YAML schemas + partitions
+    repo = (skills_root / "datajunction-repo" / "SKILL.md").read_text()
+    assert "Temporal Partitions" in repo
+    assert "YAML" in repo
+
+    # Semantic-model skill carries ownership guidance
+    model = (skills_root / "datajunction-semantic-model" / "SKILL.md").read_text()
+    assert "owners" in model.lower()
+
+    # API skill carries git-backed namespace check
+    api = (skills_root / "datajunction-api" / "SKILL.md").read_text()
+    assert "git_only" in api or "Repo-Backed" in api
 
 
 def test_setup_claude_no_config_path(tmp_path, monkeypatch):
