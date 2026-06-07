@@ -5,7 +5,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from rich import box
 from rich.console import Console, Group
@@ -1620,52 +1620,115 @@ class DJCLI:
                 output_dir.mkdir(parents=True, exist_ok=True)
 
                 console.print(
-                    "[bold]📚 Installing DJ skill[/bold]\n",
+                    "[bold]📚 Installing DJ skills[/bold]\n",
                 )
 
-                # Load bundled skill from package
-                dir_name = "datajunction"
-                skill_dir = output_dir / dir_name
-                skill_file = skill_dir / "SKILL.md"
-
-                console.print(f"Installing [cyan]{dir_name}[/cyan]...")
-
-                # Find bundled skill file
                 from datajunction import __version__ as dj_version
                 from importlib.resources import files
 
-                try:
-                    # Read bundled skill markdown using importlib.resources (Python 3.9+)
-                    skill_file_path = files("datajunction").joinpath(
-                        "skills/datajunction.md",
-                    )
-                    bundled_skill = skill_file_path.read_text(encoding="utf-8")
+                # All bundled DJ skills. ``datajunction`` is the core concepts
+                # skill (always loaded); the others are audience-specific
+                # extensions that compose on top of it.
+                bundled_skills: list[dict[str, Any]] = [
+                    {
+                        "name": "datajunction",
+                        "filename": "datajunction.md",
+                        "description": "Core DataJunction concepts and vocabulary",
+                        "keywords": [
+                            "DataJunction",
+                            "DJ",
+                            "semantic layer",
+                            "dimension link",
+                            "star schema",
+                            "node types",
+                        ],
+                    },
+                    {
+                        "name": "datajunction-query",
+                        "filename": "datajunction-query.md",
+                        "description": "Querying DJ metrics via MCP tools and APIs",
+                        "keywords": [
+                            "query metric",
+                            "generate SQL",
+                            "get metric data",
+                            "search_nodes",
+                            "build_metric_sql",
+                            "common dimensions",
+                        ],
+                    },
+                    {
+                        "name": "datajunction-semantic-model",
+                        "filename": "datajunction-semantic-model.md",
+                        "description": "DJ semantic modeling: query-to-nodes decomposition, ratio decomposition, naming, ownership",
+                        "keywords": [
+                            "semantic modeling",
+                            "decompose query",
+                            "ratio metric",
+                            "derived metric",
+                            "base metric",
+                            "metric naming",
+                            "namespace organization",
+                            "node ownership",
+                        ],
+                    },
+                    {
+                        "name": "datajunction-repo",
+                        "filename": "datajunction-repo.md",
+                        "description": "Authoring DJ nodes via YAML in a git-backed repository",
+                        "keywords": [
+                            "YAML nodes",
+                            "repo-backed namespace",
+                            "feature branch",
+                            "git workflow",
+                            "cube YAML",
+                            "metric YAML",
+                            "temporal partition",
+                        ],
+                    },
+                    {
+                        "name": "datajunction-api",
+                        "filename": "datajunction-api.md",
+                        "description": "Direct REST API authoring of DJ nodes for exploration / prototyping",
+                        "keywords": [
+                            "DJ API",
+                            "REST API",
+                            "curl",
+                            "POST nodes",
+                            "API authoring",
+                            "prototyping",
+                        ],
+                    },
+                ]
 
-                    # Create directory
+                missing: list[str] = []
+                for skill in bundled_skills:
+                    dir_name = skill["name"]
+                    skill_dir = output_dir / dir_name
+                    skill_file = skill_dir / "SKILL.md"
+
+                    console.print(f"Installing [cyan]{dir_name}[/cyan]...")
+
+                    try:
+                        skill_file_path = files("datajunction").joinpath(
+                            f"skills/{skill['filename']}",
+                        )
+                        bundled_skill = skill_file_path.read_text(encoding="utf-8")
+                    except FileNotFoundError:  # pragma: no cover
+                        missing.append(skill["filename"])
+                        continue
+
                     skill_dir.mkdir(parents=True, exist_ok=True)
 
-                    # Write SKILL.md
                     with open(skill_file, "w") as f:
                         f.write(bundled_skill)
 
-                    # Write metadata
                     metadata_file = skill_dir / "metadata.json"
                     with open(metadata_file, "w") as f:
                         metadata = {
-                            "name": "datajunction",
+                            "name": skill["name"],
                             "version": dj_version,
-                            "description": "Comprehensive DataJunction semantic layer guide",
-                            "keywords": [
-                                "DataJunction",
-                                "DJ",
-                                "semantic layer",
-                                "dimension link",
-                                "metric",
-                                "SQL generation",
-                                "YAML nodes",
-                                "git workflow",
-                                "repo-backed namespace",
-                            ],
+                            "description": skill["description"],
+                            "keywords": skill["keywords"],
                             "metadata": {
                                 "source": "bundled",
                                 "dj_version": dj_version,
@@ -1681,13 +1744,14 @@ class DJCLI:
                         f"  [dim]└─ metadata.json (v{dj_version})[/dim]\n",
                     )
 
+                if missing:  # pragma: no cover
                     console.print(
-                        f"[bold green]✓ Skill installed to {output_dir}[/bold green]\n",
+                        f"[red]✗ Bundled skills not found: {', '.join(missing)}. "
+                        f"Please ensure datajunction is properly installed.[/red]",
                     )
-
-                except FileNotFoundError:  # pragma: no cover
+                else:
                     console.print(
-                        "[red]✗ Bundled skill not found. Please ensure datajunction is properly installed.[/red]",
+                        f"[bold green]✓ Skills installed to {output_dir}[/bold green]\n",
                     )
 
             # Install subagent if requested
@@ -1704,9 +1768,13 @@ name: dj
 description: >
   DataJunction semantic layer expert. Use proactively for any DataJunction
   or DJ work — querying metrics, exploring nodes and dimensions, building
-  SQL, understanding lineage, and semantic layer design.
+  SQL, understanding lineage, authoring metrics, and semantic layer design.
 skills:
   - datajunction
+  - datajunction-query
+  - datajunction-semantic-model
+  - datajunction-repo
+  - datajunction-api
 model: inherit
 ---
 """
