@@ -13,6 +13,7 @@ description: |
   - repo-backed namespace, repo-backed workflow
   - git workflow, branch development, feature branch
   - cube YAML, metric YAML, dimension YAML, transform YAML
+  - create metric, create dimension, create cube, build cube
   - temporal partition, partition pushdown
   - pre-commit, push.sh
 user-invocable: false

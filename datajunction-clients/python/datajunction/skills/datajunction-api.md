@@ -10,6 +10,7 @@ description: |
   Keywords:
   - DJ API, REST API, curl
   - POST nodes/metric, POST nodes/dimension
+  - create metric, create dimension, create cube
   - API approach, direct API changes
   - prototyping, exploration
 user-invocable: false

@@ -3,8 +3,10 @@ name: datajunction
 description: |
   Activate this skill whenever working with DataJunction (DJ) semantic layer.
   Core concepts and shared vocabulary used by every DJ workflow. For
-  querying metrics, invoke `datajunction-query`. For creating or modifying
-  nodes (API or repo-backed), invoke `datajunction-build`.
+  querying metrics, invoke `datajunction-query`. For modeling decisions
+  (what shape something should take), invoke `datajunction-semantic-model`.
+  For authoring nodes, invoke `datajunction-repo` (YAML in a git repo) or
+  `datajunction-api` (REST API for exploration / prototyping).
   Keywords:
   - DataJunction, DJ
   - semantic layer
@@ -12,6 +14,7 @@ description: |
   - star schema
   - node types
   - source, transform, dimension, metric, cube
+  - metric, metrics
   - mode, status, valid, invalid, draft, published
   - namespace
 user-invocable: false
@@ -31,8 +34,10 @@ DataJunction is a semantic layer that provides a unified interface to query metr
 - Materialization for performance optimization
 
 **Companion skills:**
-- `datajunction-query` — discovery, SQL generation, fetching data (consumer workflows)
-- `datajunction-build` — creating metrics/dimensions/transforms/cubes, query-to-DJ decomposition, repo-backed YAML workflow (author workflows)
+- `datajunction-query` — discovery, SQL generation, fetching data (consumer workflows; also covers the DJ web UI)
+- `datajunction-semantic-model` — modeling decisions: fact/dim/transform shape, query-to-DJ decomposition, ratio decomposition, ownership, naming
+- `datajunction-repo` — authoring DJ nodes via YAML in a git-backed repository
+- `datajunction-api` — authoring DJ nodes via the REST API (exploration / prototyping)
 
 ---
 
@@ -218,7 +223,7 @@ SELECT CAST(user_id AS bigint), CAST(revenue AS decimal(18,2))
 FROM finance.transactions
 ```
 
-For *metric*-specific constraints (no WHERE clauses, single-expression rule, cross-metric composition), see the `datajunction-build` skill.
+For *metric*-specific constraints (no WHERE clauses, single-expression rule, cross-metric composition), see the `datajunction-semantic-model` skill.
 
 ---
 

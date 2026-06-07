@@ -2,10 +2,12 @@
 name: datajunction-query
 description: |
   Activate this skill for querying DataJunction (DJ) — finding nodes,
-  generating SQL, fetching metric data, exploring lineage, and visualizing
-  results via DJ MCP tools and REST/GraphQL APIs. For core DJ concepts and
-  vocabulary, invoke `datajunction`. For creating or modifying nodes,
-  invoke `datajunction-build`.
+  generating SQL, fetching metric data, exploring lineage, visualizing
+  results — via the DJ UI, MCP tools, or REST/GraphQL APIs. For core DJ
+  concepts and vocabulary, invoke `datajunction`. For modeling decisions
+  (what shape something should take), invoke `datajunction-semantic-model`.
+  For authoring nodes, invoke `datajunction-repo` (YAML) or
+  `datajunction-api` (REST).
   Keywords:
   - query metric, query metrics
   - generate SQL, build metric SQL
@@ -15,12 +17,28 @@ description: |
   - get_common_dimensions, build_metric_sql, get_metric_data
   - visualize metrics
   - MCP tools, DJ API, GraphQL
+  - DJ UI, web UI, browse
 user-invocable: false
 ---
 
 # DataJunction Query
 
 Consumer-side workflow for DJ: find existing nodes, build SQL to query them, fetch data, visualize results. For the underlying concepts (node types, dimension links, star schema), invoke the `datajunction` skill.
+
+## DJ UI (Web)
+
+For interactive exploration — browsing namespaces, inspecting a node's lineage / SQL / available dimensions, building queries by clicking dimensions on/off — the DJ web UI is usually the fastest path. It's hosted at the same URL as the DJ server (e.g. `https://your-dj-server.example.com/`).
+
+**Use the UI when:**
+- The user wants to *look around* — browse what exists, read a node's description, explore lineage visually
+- They want to build a query interactively and copy the SQL out
+- They're sharing a node or query with a teammate (UI URLs are shareable links)
+
+**Use the MCP tools / API (below) when:**
+- You need programmatic access — pulling node names into a script, generating SQL as part of a workflow, fetching data into a notebook
+- The interaction is "give me this answer," not "let me explore"
+
+Suggest opening the UI when the user's question is exploratory and you don't yet know the right node name. Suggest MCP tools when you have a name in hand and need data, lineage, or generated SQL.
 
 ## Discovery & Exploration (Use MCP Tools)
 

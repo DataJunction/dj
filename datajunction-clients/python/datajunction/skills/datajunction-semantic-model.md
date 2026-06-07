@@ -13,6 +13,7 @@ description: |
   Keywords:
   - semantic modeling
   - decompose query, model query, query to nodes
+  - create metric, create dimension, create node, create cube, build cube
   - ratio metric, derived metric, base metric
   - composable metrics
   - metric query constraints
