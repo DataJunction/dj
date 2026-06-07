@@ -203,11 +203,13 @@ columns:
     display_name: "Status"
 
 dimension_links:
-  - dimension: common.dimensions.users
+  - type: join
+    dimension_node: common.dimensions.users
     join_type: left
     join_on: finance.transactions.user_id = common.dimensions.users.user_id
 
-  - dimension: common.dimensions.date
+  - type: join
+    dimension_node: common.dimensions.date
     join_type: left
     join_on: finance.transactions.transaction_date = common.dimensions.date.dateint
 
@@ -256,11 +258,13 @@ columns:
     display_name: "User Tier"
 
 dimension_links:
-  - dimension: common.dimensions.date
+  - type: join
+    dimension_node: common.dimensions.date
     join_type: left
     join_on: finance.user.signup_date = common.dimensions.date.dateint
 
-  - dimension: common.dimensions.country
+  - type: join
+    dimension_node: common.dimensions.country
     join_type: left
     join_on: finance.user.country_code = common.dimensions.country.country_code
 
@@ -357,11 +361,13 @@ columns:
       - dimension
 
 dimension_links:
-  - dimension: common.dimensions.users
+  - type: join
+    dimension_node: common.dimensions.users
     join_type: left
     join_on: finance.clean_transactions.user_id = common.dimensions.users.user_id
 
-  - dimension: common.dimensions.date
+  - type: join
+    dimension_node: common.dimensions.date
     join_type: left
     join_on: finance.clean_transactions.transaction_date = common.dimensions.date.dateint
 

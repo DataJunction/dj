@@ -40,7 +40,7 @@ Before authoring a new node, check whether an authoritative one already exists. 
 
 When you can't find a fit:
 - **Build on the closest existing parent** rather than creating a sibling source/transform that duplicates upstream logic.
-- **Refuse to build on non-git-backed namespaces.** Nodes without a source repo can change or disappear without review — depending on them silently couples your work to someone's UI session. Stick to git-backed namespaces (see `datajunction-query` for how to check).
+- **Refuse to build on non-git-backed namespaces.** Nodes without a source repo can change or disappear without review — depending on them silently couples your work to someone's UI session. Stick to git-backed namespaces (see `datajunction-api`'s "Checking if a Namespace Is Repo-Backed" section for how to verify).
 
 ### Every node has owners
 
@@ -83,7 +83,7 @@ namespace.node_name
 - ✅ `clean.user_events`
 - ❌ `revenue` (missing namespace)
 
-Names should be **readable and business-meaningful** — what a stakeholder would call this thing, not the column transformations behind it. `total_signup_revenue` over `sum_signup_plan_usd_price`. `avg_session_duration_secs` over `avg_session_dur`.
+Names should be **readable and business-meaningful** — what a stakeholder would call this thing, not the column transformations behind it. `total_revenue` over `sum_amount_usd`. `avg_session_duration_secs` over `avg_session_dur`.
 
 ### Namespace organization
 
@@ -116,11 +116,11 @@ DJ uses normalized star schema modeling. The decisions you make here shape every
 
 | Node | Used for | Examples |
 |---|---|---|
-| **Source** | Physical table in the warehouse | `prodhive.dse.transactions_table` |
+| **Source** | Physical table in the warehouse | `warehouse.finance.transactions_table` |
 | **Dimension** | An entity with attributes you'll slice by | `users`, `products`, `dates`, `regions`, `geo_country` |
-| **Transform** | Cleaned/derived fact data — the aggregable rows | `clean_transactions`, `daily_user_activity`, `signup_funnel_base` |
-| **Metric** | One aggregation expression over a transform | `total_revenue`, `num_signups`, `avg_session_duration` |
-| **Cube** | A curated set of metrics + dimensions for downstream consumers | `revenue_dashboard`, `signup_funnel_report` |
+| **Transform** | Cleaned/derived fact data — the aggregable rows | `clean_transactions`, `daily_user_activity`, `enriched_orders` |
+| **Metric** | One aggregation expression over a transform | `total_revenue`, `num_orders`, `avg_session_duration` |
+| **Cube** | A curated set of metrics + dimensions for downstream consumers | `revenue_dashboard`, `weekly_orders_report` |
 
 **When to author a transform vs use a source directly:**
 
@@ -131,9 +131,9 @@ DJ uses normalized star schema modeling. The decisions you make here shape every
 ### Grain is the most important decision in a fact
 
 What does *one row* in your fact transform represent?
-- "One row per signup" → grain is `subscrn_id`
-- "One row per signup per snapshot day" → grain is `(subscrn_id, snapshot_date)`
-- "One row per account per month" → grain is `(account_id, month)`
+- "One row per order" → grain is `order_id`
+- "One row per order per snapshot day" → grain is `(order_id, snapshot_date)`
+- "One row per customer per month" → grain is `(customer_id, month)`
 
 Grains don't mix in one fact. If you find yourself with two different grains in one transform, you have two facts trying to live in one node — split them.
 
@@ -196,25 +196,25 @@ This is the highest-leverage discipline in DJ metric modeling. Apply it even whe
 
 ❌ Less reusable — anonymous SQL blob:
 ```sql
-SELECT SUM(signup_price)
-       / NULLIF(SUM(CASE WHEN subscrn_id IS NOT NULL THEN 1 ELSE 0 END), 0)
-FROM acquisition.signup_funnel_base
+SELECT SUM(amount_usd)
+       / NULLIF(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END), 0)
+FROM finance.transactions
 ```
 
 ✅ Reusable — three named, discoverable, composable metrics:
 ```sql
--- metric: total_signup_revenue
-SELECT SUM(signup_price) FROM acquisition.signup_funnel_base
+-- metric: total_revenue
+SELECT SUM(amount_usd) FROM finance.transactions
 
--- metric: num_signups
-SELECT SUM(CASE WHEN subscrn_id IS NOT NULL THEN 1 ELSE 0 END)
-FROM acquisition.signup_funnel_base
+-- metric: num_completed_orders
+SELECT SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END)
+FROM finance.transactions
 
--- metric: avg_signup_price (derived)
-SELECT total_signup_revenue / NULLIF(num_signups, 0)
+-- metric: avg_order_value (derived)
+SELECT total_revenue / NULLIF(num_completed_orders, 0)
 ```
 
-Why: the bottom shape gives three named metrics anyone can find, query, and reuse. The top shape gives one — the base aggregates are anonymous SQL blobs nobody else can reference. Different teams asking "what's our total signup revenue?" can't find it; they'd have to know to read inside `avg_signup_price`'s query.
+Why: the bottom shape gives three named metrics anyone can find, query, and reuse. The top shape gives one — the base aggregates are anonymous SQL blobs nobody else can reference. Different teams asking "what's our total revenue?" can't find it; they'd have to know to read inside `avg_order_value`'s query.
 
 ### Metric patterns
 
@@ -352,28 +352,28 @@ User's query:
 
 ```sql
 SELECT
-  cell_id,
-  SUM(signup_plan_usd_price)
-  / SUM(CASE WHEN subscrn_id IS NOT NULL THEN 1 ELSE 0 END) AS asp
-FROM acquisition.signup_funnel_base
-GROUP BY cell_id
+  region_id,
+  SUM(amount_usd)
+  / SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS avg_order_value
+FROM finance.transactions
+GROUP BY region_id
 ```
 
 Decomposition:
 
 ```
 Parent transform:
-  Reuse: acquisition.signup_funnel_base  (existing)
+  Reuse: finance.transactions  (existing)
 
 Base metrics (one per aggregate):
-  1. total_signup_revenue = SUM(signup_plan_usd_price)
-  2. num_signups          = SUM(CASE WHEN subscrn_id IS NOT NULL THEN 1 ELSE 0 END)
+  1. total_revenue          = SUM(amount_usd)
+  2. num_completed_orders   = SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END)
 
 Derived metric:
-  1. avg_signup_price = total_signup_revenue / NULLIF(num_signups, 0)
+  1. avg_order_value = total_revenue / NULLIF(num_completed_orders, 0)
 
 Dimension links:
-  - cell_id → common.dimensions.xp.ab_test_cell  (existing shared dim)
+  - region_id → common.dimensions.region  (existing shared dim)
 ```
 
 Why this shape is worth the extra metric nodes: downstream tools re-aggregate the materialized output. Three independent metrics roll up correctly across any dimensional slice — sum the numerator, sum the denominator, then divide. A single pre-divided ratio doesn't compose: when consumers re-aggregate, the numerator and denominator can drift apart across slices in subtle ways (especially when NULL rows are dropped from one but not the other).

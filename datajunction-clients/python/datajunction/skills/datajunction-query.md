@@ -14,7 +14,7 @@ description: |
   - get metric data, fetch metric
   - available dimensions, common dimensions
   - search_nodes, get_node_details, get_node_lineage
-  - get_common_dimensions, build_metric_sql, get_metric_data
+  - get_common, build_metric_sql, get_metric_data
   - visualize metrics
   - MCP tools, DJ API, GraphQL
   - DJ UI, web UI, browse
@@ -71,12 +71,12 @@ Suggest opening the UI when the user's question is exploratory and you don't yet
 
 ### Check Common Dimensions
 
-**Use MCP tool**: `get_common_dimensions`
-- Find dimensions available across multiple metrics
+**Use MCP tool**: `get_common`
+- Find dimensions shared across multiple metrics, or metrics shared across multiple dimensions (bidirectional)
 - Essential before querying multiple metrics together
-- Returns only dimensions shared by ALL specified metrics
+- Returns only entries shared by ALL of the specified inputs
 
-**Example**: `get_common_dimensions(metric_names=["finance.total_revenue", "growth.daily_active_users"])`
+**Example**: `get_common(metrics=["finance.total_revenue", "growth.daily_active_users"])`
 
 **When to use**: Always check this before building queries with multiple metrics!
 
@@ -111,7 +111,6 @@ build_metric_sql(
   orderby=["core.date.date ASC"],
   limit=100,
   dialect="trino",
-  include_temporal_filters=True  # Enable automatic partition filtering (if cube has temporal partition)
 )
 ```
 
@@ -120,14 +119,20 @@ build_metric_sql(
 - Output columns with types
 - Cube name (if materialized cube used)
 
-**Performance tip**: Use `include_temporal_filters=True` when querying cubes with temporal partitions to enable automatic partition filtering.
+**Performance**: always pass a filter on a date/time dimension. When the upstream cube has a temporal partition declared on that dimension, DJ pushes the filter down to the partition column, limiting the data scanned. Without a time filter, queries scan the full underlying table.
+
+(Don't pass `include_temporal_filters=True` here — that's a parameter on `get_query_plan` for inspecting partition templates in materialization-plan SQL, not for live queries.)
 
 ### Get Metric Data
 
 **Use MCP tool**: `get_metric_data`
 - Execute query and get actual data
 - Returns query results as rows
-- **IMPORTANT**: Only works with materialized cubes (refuses expensive ad-hoc queries)
+- **Scan-cost guardrail**: materialized cubes always run; ad-hoc queries
+  (e.g. against Trino) run only if DJ's scan estimate is under the safety
+  threshold. Over-threshold queries are refused up front and the estimate
+  is surfaced so you can narrow the query (tighter date range, fewer
+  dimensions, lower limit) and retry.
 
 **Example**:
 ```
@@ -142,15 +147,18 @@ get_metric_data(
 
 **Best practices**:
 - Always set a reasonable `limit`
-- Use specific date range filters
+- Use specific date range filters — they drive partition pushdown and
+  keep the scan estimate below the guardrail threshold
 - Check common dimensions first for multi-metric queries
+- If you're not sure how heavy a query will be, run `get_query_plan`
+  first (see below) — it returns the scan estimate without executing
 
 ### Visualize Metrics
 
 **Use MCP tool**: `visualize_metrics`
 - Query metrics and generate ASCII chart visualization
 - Creates terminal-friendly charts (line, bar, scatter)
-- **IMPORTANT**: Requires materialized cube
+- Same scan-cost guardrails as `get_metric_data`
 
 **Example**:
 ```
@@ -168,6 +176,32 @@ visualize_metrics(
 - `line`: Time series (default)
 - `bar`: Categorical comparisons
 - `scatter`: Correlation analysis
+
+### Pre-Flight: Get Query Plan
+
+**Use MCP tool**: `get_query_plan`
+- Returns how DJ decomposes the requested metrics into grain groups and
+  components, AND the scan estimate, without executing anything
+- Use it before `get_metric_data` / `visualize_metrics` if you suspect
+  the query might be expensive — the same scan estimate that drives the
+  refusal guardrail is surfaced here, so you can iterate on filters
+  until the estimate is reasonable
+
+**Example**:
+```
+get_query_plan(
+  metrics=["finance.total_revenue"],
+  dimensions=["core.date.date"],
+  filters=["core.date.date >= '2024-01-01'"],
+)
+```
+
+**When to use**:
+- "Will this query work?" — check before fetching
+- "Why is this fetch refused?" — re-run the same args here to see the
+  estimate
+- "What grain group will this go through?" — useful for understanding
+  multi-metric queries
 
 ---
 

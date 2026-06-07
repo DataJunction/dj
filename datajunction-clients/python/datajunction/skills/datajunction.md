@@ -90,7 +90,8 @@ Dimension links define how nodes join to dimensions. They enable automatic join 
 **Basic structure:**
 ```yaml
 dimension_links:
-  - dimension: common.dimensions.users
+  - type: join
+    dimension_node: common.dimensions.users
     join_type: left              # Optional: left, right, inner (default: left)
     join_on: finance.transactions.user_id = common.dimensions.users.user_id
 ```
