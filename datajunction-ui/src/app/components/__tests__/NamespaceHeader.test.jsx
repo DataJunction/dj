@@ -612,8 +612,9 @@ describe('<NamespaceHeader />', () => {
     await waitFor(() => {
       expect(screen.getByText('Create PR')).toBeInTheDocument();
     });
-    // Delete Branch button only has an icon with title attribute
-    expect(screen.getByTitle('Delete Branch')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Delete branch' }),
+    ).toBeInTheDocument();
   });
 
   it('should open Create Branch modal when button is clicked', async () => {
@@ -1051,18 +1052,18 @@ describe('<NamespaceHeader />', () => {
     );
 
     await waitFor(() => {
-      // Delete Branch button in header only has icon with title attribute
-      expect(screen.getByTitle('Delete Branch')).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: 'Delete branch' }),
+      ).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByTitle('Delete Branch'));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete branch' }));
 
     await waitFor(() => {
       expect(screen.getByRole('checkbox')).toBeInTheDocument();
     });
 
-    // There are two buttons with "Delete Branch" - header icon and modal button
-    // Get all and click the last one (modal's submit button)
+    // The modal's submit button is named "Delete Branch"; click it.
     const deleteBranchButtons = screen.getAllByRole('button', {
       name: 'Delete Branch',
     });

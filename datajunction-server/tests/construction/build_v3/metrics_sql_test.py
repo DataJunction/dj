@@ -5232,7 +5232,7 @@ class TestMetricsSQLEdgeCases:
                 t2.category,
                 IF(t1.is_product_view = 1, t1.session_id, NULL) is_product_view_session_id_distinct_ee91aa40
               FROM v3_page_views_enriched t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
-              GROUP BY  t2.category, is_product_view_session_id_distinct_ee91aa40
+              GROUP BY  t2.category, IF(t1.is_product_view = 1, t1.session_id, NULL)
             )
             SELECT  page_views_enriched_0.category AS category,
                 COUNT( DISTINCT page_views_enriched_0.is_product_view_session_id_distinct_ee91aa40) AS product_session_count
@@ -5282,7 +5282,7 @@ class TestMetricsSQLEdgeCases:
                 IF(t1.is_product_view = 1, t1.session_id, NULL) is_product_view_session_id_distinct_ee91aa40,
                 SUM(t1.is_product_view) is_product_view_sum_eb3a4b41
               FROM v3_page_views_enriched t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
-              GROUP BY  t2.category, is_product_view_session_id_distinct_ee91aa40
+              GROUP BY  t2.category, IF(t1.is_product_view = 1, t1.session_id, NULL)
             )
             SELECT
               page_views_enriched_0.category AS category,
