@@ -2733,11 +2733,11 @@ async def test_is_derived_metric_field(
 
 
 @pytest.mark.asyncio
-async def test_find_cubes_name_only_with_tag_filter(
+async def test_find_cubes_scalar_only_with_tag_filter(
     client_with_roads: AsyncClient,
 ) -> None:
     """
-    Test the name-only fast path for cubeMetrics/cubeDimensions with a tag
+    Test the scalar-only fast path for cubeMetrics/cubeDimensions with a tag
     filter.  Exercises: tag ID pre-filter, raw column attachment, _DOT_
     metric identification, git info DataLoader, user load_only, and tag noload.
     """
@@ -2763,16 +2763,16 @@ async def test_find_cubes_name_only_with_tag_filter(
                 "default.hard_hat.city",
                 "default.hard_hat.state",
             ],
-            "description": "Name-only test cube",
+            "description": "Scalar-only test cube",
             "mode": "published",
-            "name": "default.name_only_cube",
+            "name": "default.scalar_only_cube",
         },
     )
     assert response.status_code < 400, response.json()
 
     # Tag the cube
     response = await client_with_roads.post(
-        "/nodes/default.name_only_cube/tags/?tag_names=cube_perf_test",
+        "/nodes/default.scalar_only_cube/tags/?tag_names=cube_perf_test",
     )
     assert response.status_code < 400, response.json()
 
@@ -2818,12 +2818,12 @@ async def test_find_cubes_name_only_with_tag_filter(
     assert len(data["data"]["findNodes"]) == 1
     cube = data["data"]["findNodes"][0]
 
-    assert cube["name"] == "default.name_only_cube"
+    assert cube["name"] == "default.scalar_only_cube"
     assert cube["createdBy"]["username"] == "dj"
     assert cube["tags"] == [{"name": "cube_perf_test"}]
     assert cube["currentVersion"] == "v1.0"
-    assert cube["current"]["description"] == "Name-only test cube"
-    assert cube["current"]["displayName"] == "Name Only Cube"
+    assert cube["current"]["description"] == "Scalar-only test cube"
+    assert cube["current"]["displayName"] == "Scalar Only Cube"
     assert cube["gitInfo"] is None  # No git config in test fixture
 
     metric_names = sorted(m["name"] for m in cube["current"]["cubeMetrics"])
@@ -3325,7 +3325,7 @@ async def test_cube_columns_and_cube_metrics_together(
 ) -> None:
     """
     Requesting ``columns { displayName }`` alongside ``cubeMetrics { name }``
-    on a cube must not crash. Regression for the case where the name-only
+    on a cube must not crash. Regression for the case where the scalar-only
     fast path overwrote ``current.columns`` with lightweight ``_RawColumn``
     stand-ins — which don't carry ``display_name`` — even though the client
     also asked for the full columns data.
@@ -3380,12 +3380,12 @@ async def test_cube_columns_and_cube_metrics_together(
 
 
 @pytest.mark.asyncio
-async def test_cube_name_only_fast_path_on_non_cube_node(
+async def test_cube_scalar_only_fast_path_on_non_cube_node(
     client_with_roads: AsyncClient,
 ) -> None:
     """
     Requesting ``cubeMetrics``/``cubeDimensions`` on a non-cube node engages
-    the name-only fast path but finds no cube nodes in the result — the raw
+    the scalar-only fast path but finds no cube nodes in the result — the raw
     column attachment should short-circuit cleanly rather than doing anything.
     """
     query = """
@@ -3394,7 +3394,10 @@ async def test_cube_name_only_fast_path_on_non_cube_node(
             name
             type
             current {
-                cubeMetrics { name }
+                cubeMetrics {
+                    name
+                    displayName
+                }
             }
         }
     }

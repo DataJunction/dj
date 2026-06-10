@@ -52,20 +52,53 @@ JoinType = strawberry.enum(JoinType_)
 JoinCardinality = strawberry.enum(JoinCardinality_)
 
 
-_DOT = "_DOT_"
-
-
-class _NameOnlyRevision:
+class _ScalarOnlyRevision:
     """
-    Minimal stand-in returned by the cube_metrics fast path when only ``name``
-    is requested.  A plain object is ~100x cheaper to construct than a full
-    ``DBNodeRevision`` ORM instance.
+    Minimal stand-in returned by the cube_metrics fast path when only plain
+    ``noderevision`` scalar fields are requested.  A plain object is ~100x
+    cheaper to construct than a full ``DBNodeRevision`` ORM instance and avoids
+    loading each metric's columns and their attributes.
+
+    Carries the scalar fields pre-fetched as raw rows by ``_attach_raw_columns``;
+    any field not in that fetch defaults to ``None``.
     """
 
-    __slots__ = ("name",)
+    __slots__ = (
+        "id",
+        "name",
+        "display_name",
+        "description",
+        "mode",
+        "version",
+        "status",
+        "updated_at",
+        "custom_metadata",
+        "type",
+    )
 
-    def __init__(self, name: str):
+    def __init__(
+        self,
+        name: str,
+        id=None,
+        display_name=None,
+        description=None,
+        mode=None,
+        version=None,
+        status=None,
+        updated_at=None,
+        custom_metadata=None,
+        type=None,
+    ):
+        self.id = id
         self.name = name
+        self.display_name = display_name
+        self.description = description
+        self.mode = mode
+        self.version = version
+        self.status = status
+        self.updated_at = updated_at
+        self.custom_metadata = custom_metadata
+        self.type = type
 
 
 @strawberry.enum
@@ -442,11 +475,16 @@ class NodeRevision:
             return []
         ordering = root.ordering()
 
-        # Name-only path: metric names pre-fetched by _attach_raw_columns.
-        if info.context.get("cube_name_only"):  # type: ignore
+        # Fast path: metric names + scalar fields pre-fetched by
+        # _attach_raw_columns. Avoids hydrating each metric's NodeRevision (and
+        # its columns + attributes) just to read plain scalar fields.
+        if info.context.get("cube_scalar_only"):  # type: ignore
             metric_names: set[str] = getattr(root, "_cube_metric_names", set())
+            metric_scalars: dict = getattr(root, "_cube_metric_scalars", {})
             stubs: list = [
-                _NameOnlyRevision(name=col.name)
+                _ScalarOnlyRevision(**metric_scalars[col.name])
+                if col.name in metric_scalars
+                else _ScalarOnlyRevision(name=col.name)
                 for col in root.columns
                 if col.name in metric_names
             ]
@@ -483,8 +521,8 @@ class NodeRevision:
         if root.type != NodeType.CUBE:
             return []
 
-        # Name-only path: metric names pre-fetched by _attach_raw_columns.
-        if info.context.get("cube_name_only"):  # type: ignore
+        # Scalar-only path: metric names pre-fetched by _attach_raw_columns.
+        if info.context.get("cube_scalar_only"):  # type: ignore
             metric_names: set[str] = getattr(root, "_cube_metric_names", set())
             ordering = root.ordering()
             return sorted(
