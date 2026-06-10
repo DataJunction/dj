@@ -416,8 +416,8 @@ def load_node_options(fields):
     else:
         options.append(noload(DBNode.revisions))
 
-    if fields.get("current"):
-        node_revision_options = load_node_revision_options(fields["current"])
+    if "current" in fields:
+        node_revision_options = load_node_revision_options(fields["current"] or {})
         options.append(joinedload(DBNode.current).options(*node_revision_options))
     else:
         options.append(noload(DBNode.current))
