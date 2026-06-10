@@ -4,21 +4,11 @@
 import logging
 import os
 import platform
-import warnings
 from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, TypedDict, Union
 from urllib.parse import urljoin
 
-try:
-    import pandas as pd
-except ImportError:  # pragma: no cover
-    warnings.warn(
-        (
-            "Optional dependency `pandas` not found, data retrieval"
-            "disabled. You can install pandas by running `pip install pandas`."
-        ),
-        ImportWarning,
-    )
+import pandas as pd
 import requests
 from requests.adapters import CaseInsensitiveDict, HTTPAdapter
 
@@ -271,7 +261,7 @@ class DJClient:
     @staticmethod
     def process_results(results) -> "pd.DataFrame":
         """
-        Return a pandas dataframe of the results if pandas is installed
+        Return a pandas dataframe of the results
         """
         if "results" in results and results["results"]:
             columns = results["results"][0]["columns"]

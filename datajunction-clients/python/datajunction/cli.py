@@ -601,10 +601,15 @@ class DJCLI:
                 )
                 return
 
-            # Handle error responses
-            if isinstance(result, dict) and "message" in result:
-                console.print(f"[bold red]ERROR:[/bold red] {result['message']}")
-                return
+            # Handle error responses and raw dict responses.
+            # data() / node_data() should return a DataFrame via process_results,
+            # but if the raw query response dict is returned instead, try to
+            # process it here rather than crashing on result.columns.
+            if isinstance(result, dict):
+                if "message" in result:
+                    console.print(f"[bold red]ERROR:[/bold red] {result['message']}")
+                    return
+                result = self.builder_client.process_results(result)
 
             # result should be a DataFrame (already limited by API)
             if format == "json":
