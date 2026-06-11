@@ -2,6 +2,7 @@
 Authorization service implementations for access control.
 """
 
+import logging
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -21,6 +22,8 @@ from datajunction_server.utils import (
     SEPARATOR,
     get_settings,
 )
+
+logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
@@ -121,6 +124,22 @@ class RBACAuthorizationService(AuthorizationService):
         Returns:
             Same list of requests with approved=True/False set
         """
+        # Break-glass: admins bypass all RBAC checks. Kept as a single explicit
+        # check (and logged for audit) so the bypass is easy to find and, if
+        # ever needed, to scope down to "admin bypasses grants but still
+        # respects X".
+        if auth_context.is_admin:
+            logger.info(
+                "Admin access bypass: user=%s (id=%s) approved %d request(s): %s",
+                auth_context.username,
+                auth_context.user_id,
+                len(requests),
+                ", ".join(str(request) for request in requests),
+            )
+            return [
+                AccessDecision(request=request, approved=True, reason="admin")
+                for request in requests
+            ]
         return [self._make_decision(auth_context, request) for request in requests]
 
     def _make_decision(
