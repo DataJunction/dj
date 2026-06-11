@@ -2346,6 +2346,57 @@ class TestGenerateCodeowners:
         assert "/revenue.metric.yaml alice@example.com" in content
         assert "no_owner" not in content
 
+    def test_default_owner_emitted_first(self, tmp_path):
+        """default_owner adds a leading `* <owner>` rule before per-file rules."""
+        from datajunction.deployment import DeploymentService
+
+        self._write_node(tmp_path, "revenue.metric.yaml", owners=["alice@example.com"])
+        output = tmp_path / "CODEOWNERS"
+
+        count = DeploymentService.build_codeowners(
+            tmp_path,
+            output=output,
+            default_owner="@org/team",
+        )
+
+        content = output.read_text()
+        lines = [ln for ln in content.splitlines() if ln and not ln.startswith("#")]
+        # The `*` rule comes before the per-file rule so per-file wins (last-match).
+        assert lines[0] == "* @org/team"
+        assert "/revenue.metric.yaml alice@example.com" in content
+        assert content.index("* @org/team") < content.index("/revenue.metric.yaml")
+        # count is per-file entries only, not the default rule
+        assert count == 1
+
+    def test_exclude_dir_falls_through_to_default(self, tmp_path):
+        """Nodes under an excluded dir get no per-file rule (team-owned via default)."""
+        from datajunction.deployment import DeploymentService
+
+        generated = tmp_path / "nodes" / "generated"
+        generated.mkdir(parents=True)
+        authored = tmp_path / "nodes"
+        self._write_node(generated, "account_d.yaml", owners=["bot@example.com"])
+        self._write_node(
+            authored,
+            "shoot_volume.metric.yaml",
+            owners=["alice@example.com"],
+        )
+
+        output = tmp_path / "CODEOWNERS"
+        count = DeploymentService.build_codeowners(
+            tmp_path,
+            output=output,
+            default_owner="@org/team",
+            exclude_dirs=["nodes/generated"],
+        )
+
+        content = output.read_text()
+        # Generated node is excluded -> no per-file rule, covered by the default.
+        assert "account_d.yaml" not in content
+        # Hand-authored node keeps its real owner.
+        assert "/nodes/shoot_volume.metric.yaml alice@example.com" in content
+        assert count == 1
+
     def test_dj_yaml_is_skipped(self, tmp_path):
         """dj.yaml project config must never appear in CODEOWNERS."""
         from datajunction.deployment import DeploymentService
@@ -2520,7 +2571,40 @@ class TestGenerateCodeowners:
             output=str(output),
             github_api_url=None,
             github_token_env="GITHUB_TOKEN",
+            default_owner=None,
+            exclude_dirs=None,
         )
+
+    def test_cli_generate_codeowners_default_owner_and_exclude(self, tmp_path):
+        """--default-owner and repeated --exclude are forwarded to build_codeowners."""
+        from datajunction.cli import DJCLI
+
+        cli = DJCLI(builder_client=mock.MagicMock())
+
+        with patch(
+            "datajunction.deployment.DeploymentService.build_codeowners",
+            return_value=0,
+        ) as mock_build:
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "dj",
+                    "generate-codeowners",
+                    str(tmp_path),
+                    "--default-owner",
+                    "@org/team",
+                    "--exclude",
+                    "nodes/generated",
+                    "--exclude",
+                    "nodes/legacy",
+                ],
+            ):
+                cli.run()
+
+        _, kwargs = mock_build.call_args
+        assert kwargs["default_owner"] == "@org/team"
+        assert kwargs["exclude_dirs"] == ["nodes/generated", "nodes/legacy"]
 
     def test_cli_generate_codeowners_github_flags(self, tmp_path):
         """--github-api-url and --github-token-env are forwarded to build_codeowners."""
