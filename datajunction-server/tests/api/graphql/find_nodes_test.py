@@ -3568,10 +3568,14 @@ async def test_find_nodes_paginated_total_count_no_matches(
     """
     ``totalCount`` is 0 when no nodes match (covers the early-return path
     inside ``count_by`` for filters that rule out every row).
+
+    An unresolvable dimension filter makes ``_build_filtered_node_statement``
+    return ``None`` (no rows can possibly match), so ``count_by`` short-circuits
+    to 0 without building a count query.
     """
     query = """
     {
-      findNodesPaginated(tags: ["__nonexistent_tag__"], limit: 5) {
+      findNodesPaginated(dimensions: ["default.__nonexistent_dimension__"], limit: 5) {
         totalCount
         edges { node { name } }
       }
