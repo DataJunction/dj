@@ -1,4 +1,5 @@
 import pytest
+import pytest_asyncio
 from . import assert_sql_equal
 
 
@@ -1523,6 +1524,177 @@ class TestMetricsSQLCrossFact:
                 "type": "double",
             },
         ]
+
+    @pytest.mark.asyncio
+    async def test_yoy_revenue_change(self, client_with_build_v3):
+        """Test year-over-year revenue change metric using LAG ordered by year dimension.
+
+        Exercises the same LAG window-function pattern as WoW/MoM but at yearly
+        granularity — the Y/Y comparison pattern where 2022 is compared to 2021,
+        2021 to 2020, etc.
+        """
+        r = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.yoy_revenue_change",
+                "description": "Year-over-year revenue change (%) - requires year dimension",
+                "query": """
+                    SELECT
+                        (v3.total_revenue - LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.year[order]))
+                        / NULLIF(LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.year[order]), 0) * 100
+                """,
+                "mode": "published",
+                "required_dimensions": ["v3.date.year[order]"],
+            },
+        )
+        assert r.status_code in (200, 201), r.json()
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.yoy_revenue_change"],
+                "dimensions": ["v3.date.year[order]", "v3.product.category"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH
+            v3_date AS (
+            SELECT  date_id,
+                year
+             FROM default.v3.dates
+            ),
+            v3_order_details AS (
+            SELECT  o.order_date,
+                oi.product_id,
+                oi.quantity * oi.unit_price AS line_total
+             FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+            SELECT  product_id,
+                category
+             FROM default.v3.products
+            ),
+            order_details_0 AS (
+            SELECT  t2.year year_order,
+                t3.category,
+                SUM(t1.line_total) line_total_sum_e1f61696
+             FROM v3_order_details t1
+             LEFT OUTER JOIN v3_date t2 ON t1.order_date = t2.date_id
+             LEFT OUTER JOIN v3_product t3 ON t1.product_id = t3.product_id
+             GROUP BY  t2.year, t3.category
+            ),
+            base_metrics AS (
+            SELECT  order_details_0.year_order AS year_order,
+                order_details_0.category AS category,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+             FROM order_details_0
+             GROUP BY  order_details_0.year_order, order_details_0.category
+            )
+
+            SELECT  base_metrics.year_order AS year_order,
+                base_metrics.category AS category,
+                (base_metrics.total_revenue - LAG(base_metrics.total_revenue, 1) OVER (
+                    PARTITION BY base_metrics.category
+                    ORDER BY base_metrics.year_order))
+                / NULLIF(LAG(base_metrics.total_revenue, 1) OVER (
+                    PARTITION BY base_metrics.category
+                    ORDER BY base_metrics.year_order), 0) * 100 AS yoy_revenue_change
+             FROM base_metrics
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_last_value_ending_fact_metric(self, client_with_build_v3):
+        """
+        Test LAST_VALUE window function in a metric expression, exercising the
+        ending-fact / snapshot pattern where time is not summed but instead the
+        last value within a partition is taken.
+
+        The metric partitions by v3.date.month and v3.product.category, ordered
+        by v3.date.date_id, so the LAST_VALUE within each (month, category)
+        window is the value on the final day of the month for that category.
+        """
+        r = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.month_end_revenue",
+                "description": "Revenue snapshot at the end of each month (ending-fact).",
+                "query": """
+                    SELECT
+                        LAST_VALUE(v3.total_revenue) OVER (
+                            PARTITION BY v3.date.month, v3.product.category
+                            ORDER BY v3.date.date_id
+                            ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+                        )
+                """,
+                "mode": "published",
+                "required_dimensions": ["v3.date.month"],
+            },
+        )
+        assert r.status_code in (200, 201), r.json()
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.month_end_revenue"],
+                "dimensions": ["v3.date.month", "v3.product.category"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        result = response.json()
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH
+            v3_date AS (
+            SELECT  date_id,
+                month
+             FROM default.v3.dates
+            ),
+            v3_order_details AS (
+            SELECT  o.order_date,
+                oi.product_id,
+                oi.quantity * oi.unit_price AS line_total
+             FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+            SELECT  product_id,
+                category
+             FROM default.v3.products
+            ),
+            order_details_0 AS (
+            SELECT  t2.month,
+                t3.category,
+                COALESCE(t1.order_date, t2.date_id) AS date_id,
+                SUM(t1.line_total) line_total_sum_e1f61696
+             FROM v3_order_details t1
+             LEFT OUTER JOIN v3_date t2 ON t1.order_date = t2.date_id
+             LEFT OUTER JOIN v3_product t3 ON t1.product_id = t3.product_id
+             GROUP BY  t2.month, t3.category, COALESCE(t1.order_date, t2.date_id)
+            ),
+            base_metrics AS (
+            SELECT  order_details_0.month AS month,
+                order_details_0.category AS category,
+                order_details_0.date_id AS date_id,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+             FROM order_details_0
+             GROUP BY  order_details_0.month, order_details_0.category, order_details_0.date_id
+            )
+
+            SELECT  base_metrics.month AS month,
+                base_metrics.category AS category,
+                base_metrics.date_id AS date_id,
+                LAST_VALUE(base_metrics.total_revenue) OVER (
+                    PARTITION BY base_metrics.month, base_metrics.category
+                    ORDER BY base_metrics.date_id
+                    ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+                ) AS month_end_revenue
+             FROM base_metrics
+            """,
+        )
 
     @pytest.mark.asyncio
     async def test_cross_fact_metrics_without_shared_dimensions_raises_error(
@@ -5291,4 +5463,256 @@ class TestMetricsSQLEdgeCases:
             FROM page_views_enriched_0
             GROUP BY  page_views_enriched_0.category
             """,
+        )
+
+
+class TestConformedSnapshotMetric:
+    """
+    Tests for a metric whose CASE expression compares two dimension columns.
+
+    Models a conformed snapshot / actuals-vs-forecast pattern:
+      - Each snapshot has a through_month cutoff
+      - SUM(CASE WHEN period.month <= snapshot.through_month THEN amount ELSE NULL END)
+      - DJ must join BOTH dimensions and resolve both columns for the CASE condition
+    """
+
+    @pytest_asyncio.fixture
+    async def conformed_client(self, client_with_service_setup):
+        """Set up snapshot dimension, actuals fact, and conformed metric inline."""
+        client = client_with_service_setup
+        await client.post("/namespaces/cs/")
+
+        for path, payload in [
+            (
+                "/nodes/source/",
+                {
+                    "name": "cs.src_snapshots",
+                    "catalog": "default",
+                    "schema_": "cs",
+                    "table": "snapshots",
+                    "columns": [
+                        {"name": "snapshot_id", "type": "int"},
+                        {"name": "through_month", "type": "int"},
+                    ],
+                    "mode": "published",
+                },
+            ),
+            (
+                "/nodes/dimension/",
+                {
+                    "name": "cs.snapshot",
+                    "query": "SELECT snapshot_id, through_month FROM cs.src_snapshots",
+                    "primary_key": ["snapshot_id"],
+                    "mode": "published",
+                },
+            ),
+            (
+                "/nodes/source/",
+                {
+                    "name": "cs.src_periods",
+                    "catalog": "default",
+                    "schema_": "cs",
+                    "table": "periods",
+                    "columns": [
+                        {"name": "period_id", "type": "int"},
+                        {"name": "month", "type": "int"},
+                    ],
+                    "mode": "published",
+                },
+            ),
+            (
+                "/nodes/dimension/",
+                {
+                    "name": "cs.period",
+                    "query": "SELECT period_id, month FROM cs.src_periods",
+                    "primary_key": ["period_id"],
+                    "mode": "published",
+                },
+            ),
+            (
+                "/nodes/source/",
+                {
+                    "name": "cs.src_costs",
+                    "catalog": "default",
+                    "schema_": "cs",
+                    "table": "costs",
+                    "columns": [
+                        {"name": "period_id", "type": "int"},
+                        {"name": "snapshot_id", "type": "int"},
+                        {"name": "amount", "type": "double"},
+                    ],
+                    "mode": "published",
+                },
+            ),
+            (
+                "/nodes/transform/",
+                {
+                    "name": "cs.costs",
+                    "query": "SELECT period_id, snapshot_id, amount FROM cs.src_costs",
+                    "mode": "published",
+                },
+            ),
+            (
+                "/nodes/cs.costs/link/",
+                {
+                    "dimension_node": "cs.period",
+                    "join_type": "left",
+                    "join_on": "cs.costs.period_id = cs.period.period_id",
+                },
+            ),
+            (
+                "/nodes/cs.costs/link/",
+                {
+                    "dimension_node": "cs.snapshot",
+                    "join_type": "left",
+                    "join_on": "cs.costs.snapshot_id = cs.snapshot.snapshot_id",
+                },
+            ),
+            # Base metric — FROM clause identifies the parent transform
+            (
+                "/nodes/metric/",
+                {
+                    "name": "cs.total_costs",
+                    "description": "Total cost amount — base metric.",
+                    "query": "SELECT SUM(amount) FROM cs.costs",
+                    "mode": "published",
+                },
+            ),
+        ]:
+            r = await client.post(path, json=payload)
+            assert r.status_code in (200, 201), f"{path}: {r.json()}"
+
+        return client
+
+    @pytest.mark.asyncio
+    async def test_base_metric_node_column_reference(self, conformed_client):
+        """
+        Baseline: SUM(node.column) correctly resolves a transform column and
+        joins both linked dimensions (period and snapshot) into the grain group.
+        """
+        response = await conformed_client.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["cs.total_costs"],
+                "dimensions": ["cs.period.month", "cs.snapshot.snapshot_id"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH
+            cs_costs AS (
+            SELECT  period_id,
+                snapshot_id,
+                amount
+             FROM default.cs.costs
+            ),
+            cs_period AS (
+            SELECT  period_id,
+                month
+             FROM default.cs.periods
+            ),
+            costs_0 AS (
+            SELECT  t2.month,
+                t1.snapshot_id,
+                SUM(t1.amount) amount_sum_HASH
+             FROM cs_costs t1
+             LEFT OUTER JOIN cs_period t2 ON t1.period_id = t2.period_id
+             GROUP BY  t2.month, t1.snapshot_id
+            )
+
+            SELECT  costs_0.month AS month,
+                costs_0.snapshot_id AS snapshot_id,
+                SUM(costs_0.amount_sum_HASH) AS total_costs
+             FROM costs_0
+             GROUP BY  costs_0.month, costs_0.snapshot_id
+            """,
+            normalize_aliases=True,
+        )
+
+    @pytest.mark.asyncio
+    async def test_case_cross_dimension_comparison(self, conformed_client):
+        """
+        SUM(CASE WHEN period.month <= snapshot.through_month THEN costs.amount ELSE NULL END)
+
+        This is the conformed snapshot pattern: the metric conditionally includes
+        cost rows based on a cross-dimension comparison (two dimension columns on
+        the same fact). DJ must join both dimensions and make both columns available
+        for the CASE condition.
+
+        Current behavior: the metric is created and SQL is generated, but
+        cs.snapshot.through_month is left as an unresolved reference inside the
+        CASE — DJ does not join cs_snapshot for dimension references that only
+        appear inside CASE branches. The generated SQL would fail at execution time.
+        """
+        client = conformed_client
+        r = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "cs.actuals_conformed",
+                "description": "Costs for periods on or before the snapshot cutoff month.",
+                "query": """
+                SELECT SUM(
+                    CASE WHEN cs.period.month <= cs.snapshot.through_month
+                         THEN amount
+                         ELSE NULL
+                    END
+                )
+                FROM cs.costs
+            """,
+                "mode": "published",
+            },
+        )
+        assert r.status_code in (200, 201), r.json()
+
+        response = await client.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["cs.actuals_conformed"],
+                "dimensions": ["cs.period.month", "cs.snapshot.snapshot_id"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        # DJ generates SQL and the metric creates successfully.
+        # However: cs.snapshot.through_month inside the CASE is left unresolved —
+        # DJ does not join cs_snapshot for dimension references that only appear
+        # inside CASE branch expressions. This SQL would fail at execution time.
+        # The correct SQL would join cs_snapshot and replace cs.snapshot.through_month
+        # with the aliased column from that join.
+        # TODO: fix DJ to resolve dimension references inside CASE branches.
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH
+            cs_costs AS (
+            SELECT  period_id,
+                snapshot_id,
+                amount
+             FROM default.cs.costs
+            ),
+            cs_period AS (
+            SELECT  period_id,
+                month
+             FROM default.cs.periods
+            ),
+            costs_0 AS (
+            SELECT  t2.month,
+                t1.snapshot_id,
+                SUM(CASE
+                    WHEN t2.month <= cs.snapshot.through_month THEN t1.amount
+                    ELSE NULL
+                END) cs_DOT_period_DOT_month_cs_DOT_snapshot_DOT_through_month_amount_sum_HASH
+             FROM cs_costs t1
+             LEFT OUTER JOIN cs_period t2 ON t1.period_id = t2.period_id
+             GROUP BY  t2.month, t1.snapshot_id
+            )
+
+            SELECT  costs_0.month AS month,
+                costs_0.snapshot_id AS snapshot_id,
+                SUM(costs_0.cs_DOT_period_DOT_month_cs_DOT_snapshot_DOT_through_month_amount_sum_HASH) AS actuals_conformed
+             FROM costs_0
+             GROUP BY  costs_0.month, costs_0.snapshot_id
+            """,
+            normalize_aliases=True,
         )
