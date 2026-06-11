@@ -744,6 +744,32 @@ def test_data_with_error_response(builder_client: DJBuilder, capsys):
     assert "Test error message from data API" in captured.out
 
 
+def test_data_with_raw_dict_response(builder_client: DJBuilder, capsys):
+    """
+    Test `dj data` handles a raw query response dict (no "message" key) by
+    passing it through process_results (covers line 612).
+    """
+    import pandas as pd
+
+    raw_response = {"results": [{"columns": [], "rows": []}], "errors": []}
+    mock_df = pd.DataFrame()
+    with patch.object(builder_client, "data", return_value=raw_response):
+        with mock.patch(
+            "datajunction._internal.DJClient.process_results",
+            return_value=mock_df,
+        ) as mock_process:
+            test_args = ["dj", "data", "--metrics", "some.metric"]
+            with patch.dict(
+                os.environ,
+                {"DJ_USER": "datajunction", "DJ_PWD": "datajunction"},
+                clear=False,
+            ):
+                with patch.object(sys, "argv", test_args):
+                    main(builder_client=builder_client)
+
+    mock_process.assert_called_once_with(raw_response)
+
+
 def test_data_with_limit(builder_client: DJBuilder):  # pylint: disable=redefined-outer-name
     """
     Test `dj data` with explicit --limit flag (covers effective_limit usage)
