@@ -379,6 +379,7 @@ class Node(Base):
             postgresql_using="btree",
             postgresql_ops={"identifier": "varchar_pattern_ops"},
         ),
+        Index("type_index", "type"),
     )
 
     id: Mapped[int] = mapped_column(
