@@ -1377,7 +1377,8 @@ async def update_node_with_query(
 
     background_tasks.add_task(
         propagate_update_downstream,
-        node,
+        node.name,  # type: ignore
+        node.current_version,  # type: ignore
         current_user=current_user,
         save_history=save_history,
         cache=cache,
@@ -1662,7 +1663,8 @@ async def update_cube_node(
 
 
 async def propagate_update_downstream(
-    node: Node,
+    node_name: str,
+    node_current_version: str,
     current_user: User,
     save_history: Callable,
     cache: Cache | None = None,
@@ -1674,7 +1676,8 @@ async def propagate_update_downstream(
         async with session_context() as session:
             await _propagate_update_downstream(
                 session=session,
-                node=node,
+                node_name=node_name,
+                node_current_version=node_current_version,
                 current_user=current_user,
                 save_history=save_history,
                 cache=cache,
@@ -1682,13 +1685,14 @@ async def propagate_update_downstream(
     except Exception:
         _logger.exception(
             "Error propagating update of node %s downstream",
-            node.name,
+            node_name,
         )
 
 
 async def _propagate_update_downstream(
     session: AsyncSession,
-    node: Node,
+    node_name: str,
+    node_current_version: str,
     current_user: User,
     save_history: Callable,
     cache: Cache | None = None,
@@ -1700,32 +1704,38 @@ async def _propagate_update_downstream(
     - altered column types: may invalidate downstream nodes
     - new columns: won't affect downstream nodes
     """
-    _logger.info("Propagating update of node %s downstream", node.name)
-    downstreams = await get_downstream_nodes(
+    _logger.info("Propagating update of node %s downstream", node_name)
+    all_downstreams = await get_downstream_nodes(
         session,
-        node.name,
+        node_name,
         include_deactivated=False,
-        include_cubes=False,
+        include_cubes=True,
     )
-    downstreams = topological_sort(downstreams)
+    non_cube_downstreams = topological_sort(
+        [n for n in all_downstreams if n.type != NodeType.CUBE],
+    )
+    cube_downstreams = [n for n in all_downstreams if n.type == NodeType.CUBE]
+    # Extract names now — commits in the loop below expire the Node objects,
+    # and accessing .name on an expired async-session object raises MissingGreenlet.
+    cube_names = [cube.name for cube in cube_downstreams]
     _logger.info(
-        "Node %s updated — revalidating %s downstreams",
-        node.name,
-        len(downstreams),
+        "Node %s updated — revalidating %s downstreams, bumping %s cubes",
+        node_name,
+        len(non_cube_downstreams),
+        len(cube_downstreams),
     )
 
-    # The downstreams need to be sorted topologically in order for the updates to be done
-    # in the right order. Otherwise it is possible for a leaf node like a metric to be updated
-    # before its upstreams are updated.
-    for idx, downstream in enumerate(downstreams):
+    # Revalidate non-cube downstreams in topological order so parents are
+    # processed before their children.
+    for idx, downstream in enumerate(non_cube_downstreams):
         original_node_revision = downstream.current
         previous_status = original_node_revision.status
         _logger.info(
             "[%s/%s] Revalidating downstream %s due to update of node %s",
             idx + 1,
-            len(downstreams),
+            len(non_cube_downstreams),
             downstream.name,
-            node.name,
+            node_name,
         )
         node_validator = await revalidate_node(
             downstream.name,
@@ -1746,7 +1756,7 @@ async def _propagate_update_downstream(
                 _logger.info(
                     "Clearing upstream cache for node %s due to update of node %s (cache key: %s)",
                     downstream.name,
-                    node.name,
+                    node_name,
                     upstream_cache_key,
                 )
                 cache.delete(upstream_cache_key)
@@ -1769,11 +1779,11 @@ async def _propagate_update_downstream(
                             ),
                         },
                         "upstream": {
-                            "node": node.name,
-                            "version": node.current_version,
+                            "node": node_name,
+                            "version": node_current_version,
                         },
-                        "reason": f"Caused by update of `{node.name}` to "
-                        f"{node.current_version}",
+                        "reason": f"Caused by update of `{node_name}` to "
+                        f"{node_current_version}",
                     },
                     pre={
                         "status": previous_status,
@@ -1788,6 +1798,93 @@ async def _propagate_update_downstream(
                 session=session,
             )
         await session.commit()
+
+    # A cube's element list doesn't change when an upstream metric's SQL
+    # changes, so update_cube_node's diff logic won't fire. Create a new
+    # minor revision so callers that gate on version ID see the change.
+    await bump_cube_versions(
+        session,
+        cube_names,
+        current_user,
+        save_history,
+        upstream_node_name=node_name,
+        upstream_node_version=node_current_version,
+    )
+
+
+async def bump_cube_versions(
+    session: AsyncSession,
+    cubes: List[str],
+    current_user: User,
+    save_history: Callable,
+    upstream_node_name: str = "",
+    upstream_node_version: str = "",
+) -> None:
+    """
+    Create a new minor-version revision for each cube name in ``cubes``.
+
+    A cube's element list is unchanged when an upstream metric's SQL changes,
+    so the normal diff-based update path produces no version bump. This function
+    forces one, ensuring any version-gated downstream consumer sees the change.
+
+    Accepts cube names (not Node objects) so callers can extract names before
+    any session commits that would expire the Node identity-map entries.
+    """
+    for cube_name in cubes:
+        cube_node = await Node.get_cube_by_name(session, cube_name)
+        if not cube_node or not cube_node.current:
+            continue
+        current_rev = cube_node.current
+
+        # Load relationships not covered by get_cube_by_name's default eager-load
+        # before entering no_autoflush. Lazy-loading inside an async session raises
+        # MissingGreenlet; explicit refresh is the correct async pattern.
+        await session.refresh(current_rev, ["parents", "dimension_links"])
+
+        with session.no_autoflush:
+            # Copy the existing revision directly so column partition settings
+            # (granularity, format, type) are preserved exactly. Using
+            # create_cube_node_revision would rebuild columns from scratch and
+            # lose those settings, breaking materialization SQL generation.
+            new_cube_revision = copy_existing_node_revision(current_rev, current_user)
+            new_cube_revision.cube_elements = current_rev.cube_elements
+            new_cube_revision.cube_filters = current_rev.cube_filters
+            new_cube_revision.materializations = []
+            old_version = Version.parse(current_rev.version)
+            new_cube_revision.version = str(old_version.next_minor_version())
+            new_cube_revision.node = current_rev.node
+            new_cube_revision.node.current_version = new_cube_revision.version
+
+            await save_history(
+                event=History(
+                    entity_type=EntityType.NODE,
+                    entity_name=new_cube_revision.name,
+                    node=new_cube_revision.name,
+                    activity_type=ActivityType.UPDATE,
+                    details={
+                        "version": new_cube_revision.version,
+                        "upstream": {
+                            "node": upstream_node_name,
+                            "version": upstream_node_version,
+                        },
+                        "reason": f"Caused by update of `{upstream_node_name}` to "
+                        f"{upstream_node_version}",
+                    },
+                    pre={"version": current_rev.version},
+                    post={"version": new_cube_revision.version},
+                    user=current_user.username,
+                ),
+                session=session,
+            )
+
+        await session.commit()
+        _logger.info(
+            "Bumped cube %s from %s to %s due to upstream change of %s",
+            cube_name,
+            current_rev.version,
+            new_cube_revision.version,
+            upstream_node_name,
+        )
 
 
 def copy_existing_node_revision(old_revision: NodeRevision, current_user: User):
