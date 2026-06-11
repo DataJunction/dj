@@ -41,7 +41,7 @@ jobs:
       - name: Install dependencies
         run: |
           pdm sync -d
-          cd ./datajunction-clients/python; pdm install -d -G pandas
+          cd ./datajunction-clients/python; pdm install -d
       - name: Python client integration tests
         run: cd datajunction-clients/python && make test PYTEST_ARGS="--integration -k test_integration"
 
