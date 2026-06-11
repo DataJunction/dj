@@ -107,7 +107,6 @@ async def _attach_raw_columns(session, nodes):
     # the metric NodeRevision's plain scalar fields. The cube element Column's
     # ``node_revision_id`` points at the metric revision, so a single extra join
     # gives us displayName/description/mode without hydrating any ORM objects.
-    # Metrics have _DOT_ in the element column name; dimensions don't.
     metric_result = await session.execute(
         sa_select(
             CubeRelationship.cube_id,
@@ -125,7 +124,6 @@ async def _attach_raw_columns(session, nodes):
         .join(DBNodeRevision, DBNodeRevision.id == Column.node_revision_id)
         .where(
             CubeRelationship.cube_id.in_(rev_ids),
-            Column.name.like("%\\_DOT\\_%"),
             DBNodeRevision.type == NodeType.METRIC,
         ),
     )
