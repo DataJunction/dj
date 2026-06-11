@@ -2,7 +2,7 @@
 
 import datetime
 from enum import Enum
-from typing import List, Optional
+from typing import Any, List, Optional
 
 import strawberry
 from strawberry.scalars import JSON
@@ -52,6 +52,48 @@ JoinType = strawberry.enum(JoinType_)
 JoinCardinality = strawberry.enum(JoinCardinality_)
 
 
+_CUBE_SCALAR_ONLY_FIELDS: frozenset = frozenset(
+    {
+        "name",
+        "id",
+        "display_name",
+        "description",
+        "mode",
+        "version",
+        "status",
+        "updated_at",
+        "custom_metadata",
+        "type",
+    },
+)
+
+
+def is_scalar_only(fields: Optional[dict[str, Any]]) -> bool:
+    """
+    Check if requested cube-metric fields are all plain noderevision scalars.
+    Such selections need no relationship loads, so they can be served from the
+    scalar fast path instead of hydrating full metric NodeRevision objects.
+
+    ``fields`` is the requested sub-selection map. ``None`` means the cube field
+    was not requested at all, which is trivially scalar-only (nothing forces the
+    full ORM path), so it returns ``True``.
+    """
+    return fields is None or set(fields.keys()).issubset(_CUBE_SCALAR_ONLY_FIELDS)
+
+
+def _raw_columns_ordering(raw_columns: list) -> dict:
+    """Column ordering for the cube fast path, mirroring ``NodeRevision.ordering``.
+
+    The fast path doesn't load the ORM ``columns`` relationship, so we derive the
+    same ``{dotted_name: order}`` mapping from the pre-fetched raw columns that
+    ``_attach_raw_columns`` attaches on ``_cube_raw_columns``.
+    """
+    return {
+        col.name.replace("_DOT_", "."): (col.order if col.order is not None else idx)
+        for idx, col in enumerate(raw_columns)
+    }
+
+
 class _ScalarOnlyRevision:
     """
     Minimal stand-in returned by the cube_metrics fast path when only plain
@@ -64,8 +106,8 @@ class _ScalarOnlyRevision:
     """
 
     __slots__ = (
-        "id",
         "name",
+        "id",
         "display_name",
         "description",
         "mode",
@@ -89,8 +131,8 @@ class _ScalarOnlyRevision:
         custom_metadata=None,
         type=None,
     ):
-        self.id = id
         self.name = name
+        self.id = id
         self.display_name = display_name
         self.description = description
         self.mode = mode
@@ -473,24 +515,29 @@ class NodeRevision:
         """
         if root.type != NodeType.CUBE:
             return []
-        ordering = root.ordering()
 
-        # Fast path: metric names + scalar fields pre-fetched by
-        # _attach_raw_columns. Avoids hydrating each metric's NodeRevision (and
-        # its columns + attributes) just to read plain scalar fields.
-        if info.context.get("cube_scalar_only"):  # type: ignore
+        # Fast path: raw columns + metric names + scalar fields pre-fetched by
+        # _attach_raw_columns onto separate attributes (``_cube_raw_columns`` etc.)
+        # so the real ``columns`` ORM relationship stays intact. Avoids hydrating
+        # each metric's NodeRevision (and its columns + attributes) just to read
+        # plain scalar fields.
+        if hasattr(root, "_cube_raw_columns") and is_scalar_only(extract_fields(info)):
             metric_names: set[str] = getattr(root, "_cube_metric_names", set())
             metric_scalars: dict = getattr(root, "_cube_metric_scalars", {})
+            # Ordering is derived from the raw columns (the ORM ``columns``
+            # relationship is intentionally not loaded on the fast path).
+            ordering = _raw_columns_ordering(root._cube_raw_columns)
             stubs: list = [
                 _ScalarOnlyRevision(**metric_scalars[col.name])
                 if col.name in metric_scalars
                 else _ScalarOnlyRevision(name=col.name)
-                for col in root.columns
+                for col in root._cube_raw_columns
                 if col.name in metric_names
             ]
             return sorted(stubs, key=lambda x: ordering[x.name])
 
         # Full path: node_revision loaded on each cube element
+        ordering = root.ordering()
         return sorted(
             [
                 node_revision
@@ -521,10 +568,13 @@ class NodeRevision:
         if root.type != NodeType.CUBE:
             return []
 
-        # Scalar-only path: metric names pre-fetched by _attach_raw_columns.
-        if info.context.get("cube_scalar_only"):  # type: ignore
+        # Scalar-only path: raw columns + metric names pre-fetched by
+        # _attach_raw_columns onto separate attributes (the real ``columns``
+        # relationship is left untouched).
+        if hasattr(root, "_cube_raw_columns") and is_scalar_only(extract_fields(info)):
             metric_names: set[str] = getattr(root, "_cube_metric_names", set())
-            ordering = root.ordering()
+            # Ordering derived from the raw columns (ORM ``columns`` not loaded).
+            ordering = _raw_columns_ordering(root._cube_raw_columns)
             return sorted(
                 [
                     DimensionAttribute(  # type: ignore
@@ -535,7 +585,7 @@ class NodeRevision:
                         type=str(col.type) if col.type else "",
                         properties=[],
                     )
-                    for col in root.columns
+                    for col in root._cube_raw_columns
                     if col.name not in metric_names
                 ],
                 key=lambda x: ordering.get(

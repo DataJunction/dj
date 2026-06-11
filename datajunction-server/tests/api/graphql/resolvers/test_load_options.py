@@ -259,6 +259,27 @@ class TestLoadNodeRevisionOptions:
         assert has_noload_for(options, "cube_elements")
         assert has_noload_for(options, "columns")
 
+    def test_scalar_only_cube_metrics_under_revisions_loads_cube_elements(self):
+        """The scalar-only fast path is current-only; revisions need the full load.
+
+        ``_attach_raw_columns`` only populates ``node.current``, so for the
+        ``revisions`` subtree (``is_current=False``) the scalar-only noload would
+        leave the resolver with neither ORM cube_elements nor attached raw
+        scalars — cubeMetrics would resolve empty. Revisions must therefore load
+        cube_elements as ORM objects even for a scalar-only selection.
+        """
+        fields = {
+            "cube_metrics": {
+                "name": {},
+                "description": {},
+                "display_name": {},
+            },
+        }
+        options = load_node_revision_options(fields, is_current=False)
+
+        assert has_selectinload_for(options, "cube_elements")
+        assert has_selectinload_for(options, "columns")
+
     def test_with_cube_metrics_query_field_is_not_scalar(self):
         """``query`` is a plain column but is intentionally not fast-pathed.
 
