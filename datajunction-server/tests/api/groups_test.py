@@ -5,6 +5,29 @@ Tests for groups API endpoints.
 import pytest
 from httpx import AsyncClient
 
+from datajunction_server.internal.access.authorization import AuthorizationService
+from datajunction_server.models import access
+
+VALIDATOR_AUTH_SERVICE = (
+    "datajunction_server.internal.access.authorization."
+    "validator.get_authorization_service"
+)
+
+
+class DenyManageAuthorizationService(AuthorizationService):
+    """Approves every action except MANAGE."""
+
+    name = "groups_test_deny_manage"
+
+    def authorize(self, auth_context, requests):
+        return [
+            access.AccessDecision(
+                request=request,
+                approved=request.verb != access.ResourceAction.MANAGE,
+            )
+            for request in requests
+        ]
+
 
 # Group Registration Tests
 
@@ -340,3 +363,51 @@ async def test_group_lifecycle(
     assert response.status_code == 200
     assert response.json()["username"] == "lifecycle-group"
     assert response.json()["email"] == "lifecycle@test.com"
+
+
+# MANAGE Enforcement Tests
+
+
+@pytest.mark.asyncio
+async def test_register_group_requires_manage(
+    module__client: AsyncClient,
+    mocker,
+) -> None:
+    """Registering a group requires a global MANAGE grant."""
+    mocker.patch(VALIDATOR_AUTH_SERVICE, lambda: DenyManageAuthorizationService())
+
+    response = await module__client.post(
+        "/groups/",
+        params={"username": "blocked-team"},
+    )
+    assert response.status_code == 403
+    assert "Access denied" in response.json()["message"]
+
+
+@pytest.mark.asyncio
+async def test_add_group_member_requires_manage(
+    module__client: AsyncClient,
+    mocker,
+) -> None:
+    """Editing group membership requires a global MANAGE grant."""
+    mocker.patch(VALIDATOR_AUTH_SERVICE, lambda: DenyManageAuthorizationService())
+
+    response = await module__client.post(
+        "/groups/some-team/members/",
+        params={"member_username": "dj"},
+    )
+    assert response.status_code == 403
+    assert "Access denied" in response.json()["message"]
+
+
+@pytest.mark.asyncio
+async def test_remove_group_member_requires_manage(
+    module__client: AsyncClient,
+    mocker,
+) -> None:
+    """Removing a group member requires a global MANAGE grant."""
+    mocker.patch(VALIDATOR_AUTH_SERVICE, lambda: DenyManageAuthorizationService())
+
+    response = await module__client.delete("/groups/some-team/members/dj")
+    assert response.status_code == 403
+    assert "Access denied" in response.json()["message"]
