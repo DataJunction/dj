@@ -2,10 +2,14 @@
 Authorization service implementations for access control.
 """
 
+import logging
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from functools import lru_cache
-from typing import List
+from typing import List, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from datajunction_server.database.rbac import RoleScope
 
 
 from datajunction_server.models.access import (
@@ -21,6 +25,8 @@ from datajunction_server.utils import (
     SEPARATOR,
     get_settings,
 )
+
+logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
@@ -121,7 +127,43 @@ class RBACAuthorizationService(AuthorizationService):
         Returns:
             Same list of requests with approved=True/False set
         """
+        # Break-glass: admins bypass all RBAC checks. Kept as a single explicit
+        # check (and logged for audit) so the bypass is easy to find and, if
+        # ever needed, to scope down to "admin bypasses grants but still
+        # respects X".
+        if auth_context.is_admin:
+            logger.info(
+                "Admin access bypass: user=%s (id=%s) approved %d request(s): %s",
+                auth_context.username,
+                auth_context.user_id,
+                len(requests),
+                ", ".join(str(request) for request in requests),
+            )
+            return [
+                AccessDecision(request=request, approved=True, reason="admin")
+                for request in requests
+            ]
         return [self._make_decision(auth_context, request) for request in requests]
+
+    @classmethod
+    def candidate_scopes(cls, auth_context: AuthContext) -> List["RoleScope"]:
+        """
+        Collect every scope that could grant a request for this context.
+
+        This is the union of the principal's own (non-expired) role scopes and
+        the configured default-access role's scopes. Collecting all candidates
+        up front (rather than short-circuiting source by source) keeps the
+        decision a single resolve step, leaving room for future deny/precedence
+        rules without restructuring.
+        """
+        scopes: List["RoleScope"] = []
+        now = datetime.now(timezone.utc)
+        for assignment in auth_context.role_assignments:
+            if assignment.expires_at and assignment.expires_at < now:
+                continue
+            scopes.extend(assignment.role.scopes)
+        scopes.extend(auth_context.default_scopes)
+        return scopes
 
     def _make_decision(
         self,
@@ -130,16 +172,32 @@ class RBACAuthorizationService(AuthorizationService):
     ) -> AccessDecision:
         """
         Convert ResourceRequest to AccessDecision.
+
+        Gathers all applicable scopes (explicit grants + default-access role)
+        and approves if any grants the request. With no explicit grant, a
+        request under a configured restrictive scope is denied; otherwise it
+        falls back to the configured default_access_policy.
         """
-        has_grant = self.has_permission(
-            assignments=auth_context.role_assignments,
-            action=request.verb,
-            resource_type=request.access_object.resource_type,
-            resource_name=request.access_object.name,
+        granted = any(
+            self._scope_grants_permission(
+                scope,
+                request.verb,
+                request.access_object.resource_type,
+                request.access_object.name,
+            )
+            for scope in self.candidate_scopes(auth_context)
         )
+        if granted:
+            return AccessDecision(request=request, approved=True)
+        if self.request_is_restricted(request):
+            return AccessDecision(
+                request=request,
+                approved=False,
+                reason="restrictive scope (explicit grant required)",
+            )
         return AccessDecision(
             request=request,
-            approved=(has_grant or settings.default_access_policy == "permissive"),
+            approved=(settings.default_access_policy == "permissive"),
         )
 
     @classmethod
@@ -238,24 +296,82 @@ class RBACAuthorizationService(AuthorizationService):
         if action not in granted_actions:
             return False
 
+        return cls._resource_in_scope(
+            scope.scope_type,
+            scope.scope_value,
+            resource_type,
+            resource_name,
+        )
+
+    @classmethod
+    def _resource_in_scope(
+        cls,
+        scope_type: ResourceType,
+        scope_value: str,
+        resource_type: ResourceType,
+        resource_name: str,
+    ) -> bool:
+        """
+        Check if a resource falls within a (scope_type, scope_value) boundary,
+        ignoring actions. Handles global ("*"/empty), same-type pattern matching,
+        and the namespace-covers-node cross-type case.
+        """
         # Handle global access (empty string, None, or "*" scope_value)
-        if not scope.scope_value or scope.scope_value == "" or scope.scope_value == "*":
-            # Global scope matches any resource of the same type
-            return scope.scope_type == resource_type
+        if not scope_value or scope_value == "*":
+            return scope_type == resource_type
 
         # Same resource type - use pattern matching
-        if scope.scope_type == resource_type:
-            return cls.resource_matches_pattern(resource_name, scope.scope_value)
+        if scope_type == resource_type:
+            return cls.resource_matches_pattern(resource_name, scope_value)
 
         # Cross-resource-type: namespace scope can cover nodes
-        if (
-            scope.scope_type == ResourceType.NAMESPACE
-            and resource_type == ResourceType.NODE
-        ):
-            # Check if node name matches the namespace pattern
-            return cls.resource_matches_pattern(resource_name, scope.scope_value)
+        if scope_type == ResourceType.NAMESPACE and resource_type == ResourceType.NODE:
+            return cls.resource_matches_pattern(resource_name, scope_value)
 
         # No match
+        return False
+
+    @classmethod
+    def _restrictive_rules(cls) -> List[tuple]:
+        """
+        Parse settings.restrictive_scopes into (action, scope_type, scope_value)
+        tuples. Malformed entries are ignored.
+        """
+        rules: List[tuple] = []
+        for raw in getattr(settings, "restrictive_scopes", []) or []:
+            parts = raw.split(":")
+            if len(parts) != 3:  # pragma: no cover
+                continue
+            action_str, type_str, scope_value = parts
+            try:
+                rules.append(
+                    (
+                        ResourceAction(action_str),
+                        ResourceType(type_str),
+                        scope_value,
+                    ),
+                )
+            except ValueError:  # pragma: no cover
+                continue
+        return rules
+
+    @classmethod
+    def request_is_restricted(cls, request: ResourceRequest) -> bool:
+        """
+        Whether a request falls under a configured restrictive scope, meaning it
+        is denied by default (requires an explicit grant). Action match is exact
+        here (no hierarchy), so each restricted action must be listed explicitly.
+        """
+        for action, scope_type, scope_value in cls._restrictive_rules():
+            if action != request.verb:
+                continue
+            if cls._resource_in_scope(
+                scope_type,
+                scope_value,
+                request.access_object.resource_type,
+                request.access_object.name,
+            ):
+                return True
         return False
 
 
