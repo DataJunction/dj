@@ -27,21 +27,12 @@ jobs:
             djrs-worker
             djrs-beat
             dj-trino
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v2
-        with:
-          python-version: ${{ matrix.python-version }}
-      - uses: pdm-project/setup-pdm@v3
-        name: Setup PDM
-        with:
-          python-version: ${{ matrix.python-version }}
-          architecture: x64
-          prerelease: true
-          enable-pep582: true
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
       - name: Install dependencies
         run: |
-          pdm sync -d
-          cd ./datajunction-clients/python; pdm install -d
+          cd ./datajunction-clients/python
+          uv sync --group test --extra mcp --python ${{ matrix.python-version }}
       - name: Python client integration tests
         run: cd datajunction-clients/python && make test PYTEST_ARGS="--integration -k test_integration"
 
