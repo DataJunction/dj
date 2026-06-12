@@ -3454,6 +3454,82 @@ async def test_cube_scalar_current_with_full_revisions_columns(
 
 
 @pytest.mark.asyncio
+async def test_cube_dimensions_role_stays_on_fast_path(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    ``cubeDimensions { name role type }`` must serve from the scalar-only fast
+    path: ``role`` is derivable from each raw column's ``dimension_column``, so it
+    should not force the full ORM cube_elements load.
+
+    Asserts the fast path is engaged (``_attach_raw_columns`` runs) and that the
+    resolved values are correct — including the role normalization (a missing
+    role serializes as ``""``, never ``null``, matching the full ORM path in
+    ``test_find_cubes_full_query``).
+
+    NOTE: this test must not also fire a *full*-path query against the same cube.
+    The test harness shares one ``AsyncSession`` across requests (see the
+    ``client_with_roads`` fixture, ``expire_on_commit=False``), so once the fast
+    path has ``noload``ed ``cube_elements`` on the cached revision, a later
+    full-path request reuses that instance with no elements loaded and resolves
+    empty. That's a fixture artifact (production uses a fresh session per
+    request); the full-path values are pinned by ``test_find_cubes_full_query``.
+    """
+    response = await client_with_roads.post(
+        "/nodes/cube/",
+        json={
+            "metrics": ["default.num_repair_orders", "default.avg_repair_price"],
+            "dimensions": ["default.hard_hat.city", "default.hard_hat.state"],
+            "description": "role fast-path test cube",
+            "mode": "published",
+            "name": "default.role_fast_path_cube",
+        },
+    )
+    assert response.status_code < 400, response.json()
+
+    # { name role type } — scalar-only: must hit the fast path (raw attach runs).
+    fast_query = """
+    {
+        findNodes(names: ["default.role_fast_path_cube"]) {
+            current {
+                cubeDimensions { name role type }
+            }
+        }
+    }
+    """
+    import datajunction_server.api.graphql.resolvers.nodes as nodes_module
+
+    raw_attach_calls = []
+    original_attach = nodes_module._attach_raw_columns
+
+    async def _spy_attach(session, result):
+        raw_attach_calls.append(len(result))
+        return await original_attach(session, result)
+
+    with mock.patch.object(nodes_module, "_attach_raw_columns", _spy_attach):
+        fast_response = await client_with_roads.post(
+            "/graphql",
+            json={"query": fast_query},
+        )
+    assert fast_response.status_code == 200
+    fast_data = fast_response.json()
+    assert "errors" not in fast_data, fast_data
+    # The raw-column attach ran -> the scalar-only fast path was taken, i.e. the
+    # added `role` field did NOT bump the selection onto the full ORM path.
+    assert raw_attach_calls, "expected _attach_raw_columns to run on the fast path"
+
+    dims = {
+        d["name"]: d
+        for d in fast_data["data"]["findNodes"][0]["current"]["cubeDimensions"]
+    }
+    assert set(dims) == {"default.hard_hat.city", "default.hard_hat.state"}
+    for dim in dims.values():
+        # role normalized to "" (not None) on the fast path, matching full path.
+        assert dim["role"] == ""
+        assert dim["type"] == "string"
+
+
+@pytest.mark.asyncio
 async def test_cube_metrics_under_revisions(
     client_with_roads: AsyncClient,
 ) -> None:

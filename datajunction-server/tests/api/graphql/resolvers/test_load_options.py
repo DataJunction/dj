@@ -317,9 +317,10 @@ class TestLoadNodeRevisionOptions:
 
     def test_with_cube_dimensions_scalar_only(self):
         """cube_dimensions with only raw-column-derivable fields uses fast path."""
-        # name/type/role are all reconstructable from the cube's raw columns,
-        # so cube_elements and ORM columns can be skipped.
-        fields = {"cube_dimensions": {"name": {}, "type": {}}}
+        # name/type/role are all reconstructable from the cube's raw columns
+        # (role from each column's ``dimension_column``), so cube_elements and
+        # ORM columns can be skipped.
+        fields = {"cube_dimensions": {"name": {}, "type": {}, "role": {}}}
         options = load_node_revision_options(fields)
 
         assert has_noload_for(options, "cube_elements")

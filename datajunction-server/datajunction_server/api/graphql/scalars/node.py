@@ -64,6 +64,7 @@ _CUBE_SCALAR_ONLY_FIELDS: frozenset = frozenset(
         "updated_at",
         "custom_metadata",
         "type",
+        "role",  # Derivable from each raw column's `dimension_column`
     },
 )
 
@@ -580,10 +581,10 @@ class NodeRevision:
                     DimensionAttribute(  # type: ignore
                         name=col.name + (col.dimension_column or ""),
                         attribute=None,
-                        role=col.dimension_column,
-                        _dimension_node=None,
-                        type=str(col.type) if col.type else "",
+                        role=col.dimension_column or "",
                         properties=[],
+                        type=str(col.type) if col.type else "",
+                        _dimension_node=None,
                     )
                     for col in root._cube_raw_columns
                     if col.name not in metric_names
