@@ -3,6 +3,7 @@ Validation logic for node specifications during deployment
 """
 
 import logging
+import re
 from dataclasses import dataclass, field
 import time
 from typing import Dict, List, Optional
@@ -479,7 +480,7 @@ class NodeSpecBulkValidator:
             if cross_fact_error is not None:
                 errors.append(cross_fact_error)  # pragma: no cover
 
-            hardcoded_ref_error = self._check_hardcoded_namespace_ref(spec, dep_names)
+            hardcoded_ref_error = self._check_hardcoded_namespace_ref(spec)
             if hardcoded_ref_error is not None:
                 errors.append(hardcoded_ref_error)
 
@@ -826,36 +827,45 @@ class NodeSpecBulkValidator:
             dependencies=[],
         )
 
-    def _check_hardcoded_namespace_ref(
-        self,
-        spec: NodeSpec,
-        dep_names: list[str],
-    ) -> DJError | None:
+    def _check_hardcoded_namespace_ref(self, spec: NodeSpec) -> DJError | None:
         """Detect hardcoded references to the current deployment namespace.
 
-        When a node is deployed to namespace X, any dependency whose name starts
-        with X + "." is a hardcoded self-reference that should use ${prefix}
-        instead.  After the branch is merged and cleaned up, these references
-        become dangling.
+        A correctly-written query references other nodes via ${prefix}, which is
+        substituted with the deployment namespace at render time. If the raw
+        query instead embeds the literal deployment namespace, that reference is
+        hardcoded and will break once the namespace is cleaned up (e.g. after a
+        branch is merged and its temporary namespace is removed).
 
-        Example: a metric deployed to myteam.feature_branch that references
-        myteam.feature_branch.transforms.some_transform — this will break once
+        We check the RAW query (with ${prefix} placeholders intact), not the
+        rendered query or extracted dependencies: after rendering, a correct
+        ${prefix}-based reference is indistinguishable from a hardcoded one
+        (both become "<namespace>.<...>"). The distinction only survives in the
+        raw query, where a correct reference contains "${prefix}" while a
+        hardcoded one contains the literal namespace.
+
+        Example: a metric deployed to myteam.feature_branch whose raw query says
+        FROM myteam.feature_branch.transforms.some_transform (instead of
+        FROM ${prefix}transforms.some_transform) breaks once
         myteam.feature_branch is removed post-merge.
         """
         ns = self.context.deployment_namespace
-        if not ns:
+        raw_query = getattr(spec, "query", None)
+        if not ns or not raw_query:
             return None
-        prefix = f"{ns}{SEPARATOR}"
-        hardcoded = [name for name in dep_names if name.startswith(prefix)]
-        if not hardcoded:
+        # Match the namespace literal followed by SEPARATOR, only at an
+        # identifier boundary so a namespace like "team_a" doesn't match
+        # "team_abc". The preceding char must not be an identifier char or dot.
+        pattern = re.compile(
+            r"(?<![A-Za-z0-9_.])" + re.escape(ns) + re.escape(SEPARATOR),
+        )
+        if not pattern.search(raw_query):
             return None
-        refs = ", ".join(hardcoded)
         return DJError(
             code=ErrorCode.INVALID_NAMESPACE,
             message=(
-                f"Node {spec.rendered_name!r} contains hardcoded reference(s) to "
-                f"the current deployment namespace ({ns!r}): {refs}. "
-                f"Use ${{prefix}} instead so the reference survives branch merges."
+                f"Node {spec.rendered_name!r} contains a hardcoded reference to "
+                f"the current deployment namespace ({ns!r}). Use ${{prefix}} "
+                f"instead so the reference survives branch merges."
             ),
         )
 

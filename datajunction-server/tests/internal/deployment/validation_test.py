@@ -1803,14 +1803,10 @@ class TestHardcodedNamespaceRefCheck:
         return NodeSpecBulkValidator(context)
 
     def test_hardcoded_self_ref_produces_error(self):
-        """A dep whose name starts with the deployment namespace is flagged."""
+        """A raw query embedding the literal deployment namespace is flagged."""
         validator = self._make_validator(
             deployment_namespace="myteam.feature_branch",
-            node_graph={
-                "myteam.feature_branch.metrics.total_revenue": [
-                    "myteam.feature_branch.transforms.revenue_fact",
-                ],
-            },
+            node_graph={},
         )
         spec = MetricSpec(
             name="total_revenue",
@@ -1819,24 +1815,35 @@ class TestHardcodedNamespaceRefCheck:
         )
         spec.namespace = "myteam.feature_branch"
 
-        dep_names = ["myteam.feature_branch.transforms.revenue_fact"]
-        error = validator._check_hardcoded_namespace_ref(spec, dep_names)
+        error = validator._check_hardcoded_namespace_ref(spec)
 
         assert error is not None
         assert error.code == ErrorCode.INVALID_NAMESPACE
         assert "myteam.feature_branch" in error.message
         assert "${prefix}" in error.message
-        assert "myteam.feature_branch.transforms.revenue_fact" in error.message
 
-    def test_cross_namespace_ref_is_allowed(self):
-        """A dep from a different namespace is fine — not flagged."""
+    def test_prefix_based_ref_is_allowed(self):
+        """A query using ${prefix} renders to the namespace but is NOT flagged."""
         validator = self._make_validator(
             deployment_namespace="myteam.feature_branch",
-            node_graph={
-                "myteam.feature_branch.metrics.total_revenue": [
-                    "shared.transforms.revenue_fact",
-                ],
-            },
+            node_graph={},
+        )
+        spec = MetricSpec(
+            name="total_revenue",
+            query="SELECT SUM(revenue) FROM ${prefix}transforms.revenue_fact",
+            mode="published",
+        )
+        spec.namespace = "myteam.feature_branch"
+
+        error = validator._check_hardcoded_namespace_ref(spec)
+
+        assert error is None
+
+    def test_cross_namespace_ref_is_allowed(self):
+        """A reference to a different namespace is fine — not flagged."""
+        validator = self._make_validator(
+            deployment_namespace="myteam.feature_branch",
+            node_graph={},
         )
         spec = MetricSpec(
             name="total_revenue",
@@ -1845,8 +1852,24 @@ class TestHardcodedNamespaceRefCheck:
         )
         spec.namespace = "myteam.feature_branch"
 
-        dep_names = ["shared.transforms.revenue_fact"]
-        error = validator._check_hardcoded_namespace_ref(spec, dep_names)
+        error = validator._check_hardcoded_namespace_ref(spec)
+
+        assert error is None
+
+    def test_namespace_prefix_substring_not_flagged(self):
+        """A namespace that is a string prefix of another isn't falsely matched."""
+        validator = self._make_validator(
+            deployment_namespace="team_a",
+            node_graph={},
+        )
+        spec = MetricSpec(
+            name="m",
+            query="SELECT SUM(x) FROM team_abc.transforms.t",
+            mode="published",
+        )
+        spec.namespace = "team_a"
+
+        error = validator._check_hardcoded_namespace_ref(spec)
 
         assert error is None
 
@@ -1861,13 +1884,12 @@ class TestHardcodedNamespaceRefCheck:
             query="SELECT SUM(x) FROM ns.transforms.t",
             mode="published",
         )
-        dep_names = ["ns.transforms.t"]
-        error = validator._check_hardcoded_namespace_ref(spec, dep_names)
+        error = validator._check_hardcoded_namespace_ref(spec)
 
         assert error is None
 
     def test_no_hardcoded_refs_no_error(self):
-        """No deps starting with the namespace → no error."""
+        """A query that doesn't mention the namespace → no error."""
         validator = self._make_validator(
             deployment_namespace="myteam.feature_branch",
             node_graph={},
@@ -1877,7 +1899,6 @@ class TestHardcodedNamespaceRefCheck:
             query="SELECT SUM(x) FROM other.ns.transforms.t",
             mode="published",
         )
-        dep_names = ["other.ns.transforms.t"]
-        error = validator._check_hardcoded_namespace_ref(spec, dep_names)
+        error = validator._check_hardcoded_namespace_ref(spec)
 
         assert error is None
