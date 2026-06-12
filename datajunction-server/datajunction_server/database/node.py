@@ -23,6 +23,7 @@ from sqlalchemy import (
     String,
     TypeDecorator,
     UniqueConstraint,
+    exists,
     select,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -378,6 +379,7 @@ class Node(Base):
             postgresql_using="btree",
             postgresql_ops={"identifier": "varchar_pattern_ops"},
         ),
+        Index("type_index", "type"),
     )
 
     id: Mapped[int] = mapped_column(
@@ -881,25 +883,6 @@ class Node(Base):
             order_by = Node.created_at
         NodeRevisionAlias = aliased(NodeRevision)
 
-        nodes_with_tags = []
-        if tags:
-            # Only fetch node IDs — no need to load full Tag/Node objects
-            # or their relationships (created_by, etc.)
-            statement = (
-                select(Node.id)
-                .join(
-                    TagNodeRelationship,
-                    Node.id == TagNodeRelationship.node_id,
-                )
-                .join(Tag, Tag.id == TagNodeRelationship.tag_id)
-                .where(Tag.name.in_(tags))
-            )
-            nodes_with_tags = list(
-                (await session.execute(statement)).scalars().all(),
-            )
-            if not nodes_with_tags:  # pragma: no cover
-                return None, NodeRevisionAlias, None, order_by
-
         # Filter by dimensions (supports node names or attributes)
         nodes_with_dimensions: list[str] | None = None
         if dimensions:
@@ -930,10 +913,17 @@ class Node(Base):
             statement = statement.where(
                 (Node.namespace.like(f"{namespace}.%")) | (Node.namespace == namespace),
             )
-        if nodes_with_tags:
+        if tags:
             statement = statement.where(
-                Node.id.in_(nodes_with_tags),
-            )  # pragma: no cover
+                exists(
+                    select(TagNodeRelationship.node_id)
+                    .join(Tag, Tag.id == TagNodeRelationship.tag_id)
+                    .where(
+                        TagNodeRelationship.node_id == Node.id,
+                        Tag.name.in_(tags),
+                    ),
+                ),
+            )
         if nodes_with_dimensions:
             statement = statement.where(
                 Node.name.in_(nodes_with_dimensions),

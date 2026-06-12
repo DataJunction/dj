@@ -8,11 +8,14 @@ from typing import Any, List, Optional
 from sqlalchemy import select as sa_select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer, joinedload, load_only, noload, selectinload
-from sqlalchemy.orm.attributes import set_committed_value
 from strawberry.types import Info
 
 from datajunction_server.errors import DJNodeNotFound
-from datajunction_server.api.graphql.scalars.node import NodeName, NodeSortField
+from datajunction_server.api.graphql.scalars.node import (
+    NodeName,
+    NodeSortField,
+    is_scalar_only,
+)
 from datajunction_server.api.graphql.scalars.sql import CubeDefinition
 from datajunction_server.api.graphql.utils import (
     dedupe_append,
@@ -31,16 +34,9 @@ from datajunction_server.internal.access.group_membership import (
 )
 from datajunction_server.models.node import NodeMode, NodeStatus, NodeType
 
-_CUBE_NAME_ONLY_FIELDS: frozenset[str] = frozenset({"name"})
-
-
-def _is_name_only(fields) -> bool:
-    """Check if requested fields are all derivable from column names alone."""
-    return fields is not None and set(fields.keys()).issubset(_CUBE_NAME_ONLY_FIELDS)
-
 
 class _RawColumn:
-    """Lightweight stand-in for Column ORM objects in the name-only path."""
+    """Lightweight stand-in for Column ORM objects in the scalar-only path."""
 
     __slots__ = ("name", "dimension_column", "type", "order")
 
@@ -84,27 +80,70 @@ async def _attach_raw_columns(session, nodes):
             _RawColumn(name, dim_col, col_type, order),
         )
 
-    # Fetch metric element names per cube via the cube join table.
-    # Metrics have _DOT_ in the element column name; dimensions don't.
+    # Fetch metric element names per cube via the cube join table, along with
+    # the metric NodeRevision's plain scalar fields. The cube element Column's
+    # ``node_revision_id`` points at the metric revision, so a single extra join
+    # gives us displayName/description/mode without hydrating any ORM objects.
     metric_result = await session.execute(
-        sa_select(CubeRelationship.cube_id, Column.name)
+        sa_select(
+            CubeRelationship.cube_id,
+            Column.name,
+            DBNodeRevision.id,
+            DBNodeRevision.display_name,
+            DBNodeRevision.description,
+            DBNodeRevision.mode,
+            DBNodeRevision.version,
+            DBNodeRevision.status,
+            DBNodeRevision.updated_at,
+            DBNodeRevision.custom_metadata,
+        )
         .join(Column, Column.id == CubeRelationship.cube_element_id)
+        .join(DBNodeRevision, DBNodeRevision.id == Column.node_revision_id)
         .where(
             CubeRelationship.cube_id.in_(rev_ids),
-            Column.name.like("%\\_DOT\\_%"),
+            DBNodeRevision.type == NodeType.METRIC,
         ),
     )
     metric_names_by_rev: dict[int, set[str]] = {}
-    for cube_id, elem_name in metric_result:
-        metric_names_by_rev.setdefault(cube_id, set()).add(
-            elem_name.replace("_DOT_", "."),
-        )
+    metric_scalars_by_rev: dict[int, dict[str, dict]] = {}
+    for (
+        cube_id,
+        elem_name,
+        rev_id,
+        display_name,
+        description,
+        mode,
+        version,
+        status,
+        updated_at,
+        custom_metadata,
+    ) in metric_result:
+        metric_name = elem_name.replace("_DOT_", ".")
+        metric_names_by_rev.setdefault(cube_id, set()).add(metric_name)
+        metric_scalars_by_rev.setdefault(cube_id, {})[metric_name] = {
+            "id": rev_id,
+            "name": metric_name,
+            "display_name": display_name,
+            "description": description,
+            "mode": mode,
+            "version": version,
+            "status": status,
+            "updated_at": updated_at,
+            "custom_metadata": custom_metadata,
+            "type": NodeType.METRIC,
+        }
 
-    # Inject raw columns and metric names into each cube revision
+    # Inject raw columns, metric names, and metric scalars into each cube
+    # revision on *separate* attributes. We must NOT overwrite ``current.columns``
+    # (the ORM relationship): ``node.current`` shares identity with the matching
+    # entry in ``node.revisions``, so clobbering it with ``_RawColumn`` stubs
+    # would break a sibling ``revisions { columns }`` selection. The cube_metrics
+    # /cube_dimensions fast paths read ``_cube_raw_columns`` instead.
     for node in cube_nodes:
         rev_id = node.current.id
-        set_committed_value(node.current, "columns", cols_by_rev.get(rev_id, []))
+        node.current._cube_raw_columns = cols_by_rev.get(rev_id, [])
         node.current._cube_metric_names = metric_names_by_rev.get(rev_id, set())
+        node.current._cube_metric_scalars = metric_scalars_by_rev.get(rev_id, {})
 
 
 async def _attach_git_info(info: Info, nodes: list[DBNode]) -> None:
@@ -140,13 +179,20 @@ async def _attach_git_info(info: Info, nodes: list[DBNode]) -> None:
         node._resolved_git_info = by_ns.get(node.namespace)  # type: ignore
 
 
-def _is_cube_name_only_request(current_fields: dict) -> bool:
-    """Check if the current revision fields only need cube metric/dimension names.
+def _is_cube_scalar_only_request(current_fields: dict) -> bool:
+    """Check if the current revision fields only need cube metric/dimensions scalars.
 
-    The fast path replaces ``current.columns`` with lightweight ``_RawColumn``
-    stand-ins, so it's only safe when the client hasn't also asked for
-    ``columns`` or ``primary_key`` — both of which read attributes
-    (``display_name`` etc.) that ``_RawColumn`` doesn't carry.
+    The fast path serves cube_metrics/cube_dimensions from raw rows attached by
+    ``_attach_raw_columns`` (on ``_cube_raw_columns`` etc.), so it's only useful
+    when the client hasn't also asked for ``columns`` or ``primary_key`` — those
+    need the full ORM ``Column`` objects, which the raw rows don't carry. (The
+    raw rows live on a separate attribute and never touch ``current.columns``,
+    so a sibling ``revisions { columns }`` selection is unaffected.)
+
+    ``cubeMetrics`` may request any plain ``noderevision`` scalar (name,
+    displayName, description, mode, …): those are pre-fetched as raw rows in
+    ``_attach_raw_columns``. ``cubeDimensions`` builds ``DimensionAttribute``
+    objects from the cube's own raw columns, so it stays name-derivable only.
     """
     cube_metric_fields = current_fields.get("cube_metrics")
     cube_dimension_fields = current_fields.get("cube_dimensions")
@@ -155,8 +201,8 @@ def _is_cube_name_only_request(current_fields: dict) -> bool:
         return False
     if "columns" in current_fields or "primary_key" in current_fields:
         return False
-    return (cube_metric_fields is None or _is_name_only(cube_metric_fields)) and (
-        cube_dimension_fields is None or _is_name_only(cube_dimension_fields)
+    return is_scalar_only(cube_metric_fields) and is_scalar_only(
+        cube_dimension_fields,
     )
 
 
@@ -199,10 +245,14 @@ async def find_nodes_by(
         )
         options = load_node_options(node_fields)
 
-        # Signal to cube resolvers whether the name-only fast path is active
+        # Decide whether to attach raw cube scalars to current below. The cube
+        # resolvers gate the fast path on the per-revision ``_cube_raw_columns``
+        # marker that ``_attach_raw_columns`` sets, NOT on request context: a
+        # single operation may have multiple aliased findNodes selections sharing
+        # one ``info.context``, so a context flag could be flipped by a sibling
+        # selection before this result's nested fields resolve.
         current_fields = node_fields.get("current") or {}
-        is_cube_name_only = _is_cube_name_only_request(current_fields)
-        info.context["cube_name_only"] = is_cube_name_only  # type: ignore
+        is_cube_scalar_only = _is_cube_scalar_only_request(current_fields)
 
         # When include_team is set with an ownedBy filter, expand to the user's
         # groups so nodes owned directly by the user OR by any of their groups
@@ -242,9 +292,9 @@ async def find_nodes_by(
             search=search,
         )
 
-        # For the name-only cube path, fetch column data as raw tuples instead
+        # For the scalar-only cube path, fetch column data as raw tuples instead
         # of ORM objects.  This avoids hydrating ~20k Column instances.
-        if is_cube_name_only and result:
+        if is_cube_scalar_only and result:
             await _attach_raw_columns(session, result)
 
         # Pre-resolve gitInfo at the parent level when requested. Per-item async
@@ -347,13 +397,16 @@ def load_node_options(fields):
     options = []
 
     if "revisions" in fields:
-        node_revision_options = load_node_revision_options(fields["revisions"])
+        node_revision_options = load_node_revision_options(
+            fields["revisions"],
+            is_current=False,
+        )
         options.append(joinedload(DBNode.revisions).options(*node_revision_options))
     else:
         options.append(noload(DBNode.revisions))
 
-    if fields.get("current"):
-        node_revision_options = load_node_revision_options(fields["current"])
+    if "current" in fields:
+        node_revision_options = load_node_revision_options(fields["current"] or {})
         options.append(joinedload(DBNode.current).options(*node_revision_options))
     else:
         options.append(noload(DBNode.current))
@@ -469,10 +522,15 @@ def build_cube_dimensions_node_revision_options():
     ]
 
 
-def load_node_revision_options(node_revision_fields):
+def load_node_revision_options(node_revision_fields, is_current: bool = True):
     """
     Based on the GraphQL query input fields, builds a list of node revision
     load options. Uses noload() to prevent lazy loading for unrequested fields.
+
+    ``is_current`` gates the cube scalar-only fast path: the raw column/scalar
+    attachment (``_attach_raw_columns``) only populates ``node.current``, so for
+    the ``revisions`` subtree we must keep loading ``cube_elements`` as ORM
+    objects, otherwise cubeMetrics/cubeDimensions resolve empty.
     """
     # Defer heavy columns not needed for most GraphQL queries
     options = [
@@ -501,14 +559,16 @@ def load_node_revision_options(node_revision_fields):
         node_revision_fields.get("cube_dimensions") if node_revision_fields else None
     )
 
-    # When cubeMetrics/cubeDimensions only need "name", we can skip loading
-    # both cube_elements AND columns as ORM objects — the resolver will use
-    # raw column data fetched post-query instead. Must match the fast-path
-    # predicate (_is_cube_name_only_request) so we don't noload
+    # When cubeMetrics/cubeDimensions only need plain scalar fields, we can skip
+    # loading both cube_elements AND columns as ORM objects — the resolver will
+    # use raw column/revision data fetched post-query instead. Must match the
+    # fast-path predicate (_is_cube_scalar_only_request) so we don't noload
     # cube_elements while also letting `_attach_raw_columns` be skipped.
-    all_name_only = is_cube_request and (
-        (cube_metric_fields is None or _is_name_only(cube_metric_fields))
-        and (cube_dimension_fields is None or _is_name_only(cube_dimension_fields))
+    all_scalar_only = (
+        is_current
+        and is_cube_request
+        and is_scalar_only(cube_metric_fields)
+        and is_scalar_only(cube_dimension_fields)
         and "columns" not in node_revision_fields
         and "primary_key" not in node_revision_fields
     )
@@ -528,7 +588,7 @@ def load_node_revision_options(node_revision_fields):
                 ),
             )
         options.append(selectinload(DBNodeRevision.columns).options(*col_opts))
-    elif is_cube_request and not all_name_only:
+    elif is_cube_request and not all_scalar_only:
         # Minimal ORM columns for cube element resolution
         options.append(
             selectinload(DBNodeRevision.columns).options(
@@ -545,7 +605,7 @@ def load_node_revision_options(node_revision_fields):
             ),
         )
     else:
-        # Name-only cube path: columns injected as raw tuples post-query
+        # Scalar-only cube path: columns injected as raw tuples post-query
         # via _attach_raw_columns. No cube request: not needed.
         options.append(noload(DBNodeRevision.columns))
 
@@ -602,8 +662,8 @@ def load_node_revision_options(node_revision_fields):
     # Handle cube_elements (only needed when cubeMetrics/cubeDimensions request
     # fields beyond just "name")
     if is_cube_request:
-        if all_name_only:
-            # Name-only: metric names fetched via raw query in
+        if all_scalar_only:
+            # Scalar-only: metric names fetched via raw query in
             # _attach_raw_columns; no need to load cube_elements ORM objects.
             options.append(noload(DBNodeRevision.cube_elements))
         else:
@@ -622,7 +682,11 @@ def load_node_revision_options(node_revision_fields):
                 noload(Column.measure),
             ]
 
-            if cube_metric_fields and not _is_name_only(cube_metric_fields):
+            if cube_metric_fields:
+                # Metrics requested (scalar-only or with relationships): load the
+                # metric NodeRevision's scalar columns without the dimensions-only
+                # ``load_only(id, name, type)`` restriction, which would otherwise
+                # drop fields like ``description`` on a scalar-only revisions query.
                 nested_options = build_cube_metrics_node_revision_options(
                     cube_metric_fields,
                 )
