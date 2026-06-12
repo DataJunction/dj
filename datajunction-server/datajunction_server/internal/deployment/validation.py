@@ -64,6 +64,7 @@ class ValidationContext:
     session: AsyncSession
     node_graph: Dict[str, List[str]]
     dependency_nodes: Dict[str, Node]
+    deployment_namespace: Optional[str] = None
 
 
 @dataclass
@@ -478,6 +479,10 @@ class NodeSpecBulkValidator:
             if cross_fact_error is not None:
                 errors.append(cross_fact_error)  # pragma: no cover
 
+            hardcoded_ref_error = self._check_hardcoded_namespace_ref(spec, dep_names)
+            if hardcoded_ref_error is not None:
+                errors.append(hardcoded_ref_error)
+
             return NodeValidationResult(
                 spec=spec,
                 status=NodeStatus.VALID if not errors else NodeStatus.INVALID,
@@ -821,6 +826,39 @@ class NodeSpecBulkValidator:
             dependencies=[],
         )
 
+    def _check_hardcoded_namespace_ref(
+        self,
+        spec: NodeSpec,
+        dep_names: list[str],
+    ) -> DJError | None:
+        """Detect hardcoded references to the current deployment namespace.
+
+        When a node is deployed to namespace X, any dependency whose name starts
+        with X + "." is a hardcoded self-reference that should use ${prefix}
+        instead.  After the branch is merged and cleaned up, these references
+        become dangling.
+
+        Example: a metric deployed to myteam.feature_branch that references
+        myteam.feature_branch.transforms.some_transform — this will break once
+        myteam.feature_branch is removed post-merge.
+        """
+        ns = self.context.deployment_namespace
+        if not ns:
+            return None
+        prefix = f"{ns}{SEPARATOR}"
+        hardcoded = [name for name in dep_names if name.startswith(prefix)]
+        if not hardcoded:
+            return None
+        refs = ", ".join(hardcoded)
+        return DJError(
+            code=ErrorCode.INVALID_NAMESPACE,
+            message=(
+                f"Node {spec.rendered_name!r} contains hardcoded reference(s) to "
+                f"the current deployment namespace ({ns!r}): {refs}. "
+                f"Use ${{prefix}} instead so the reference survives branch merges."
+            ),
+        )
+
     def process_validation(
         self,
         spec: NodeSpec,
@@ -842,6 +880,7 @@ async def bulk_validate_node_data(
     node_graph: Dict[str, List[str]],
     session: AsyncSession,
     dependency_nodes: Dict[str, Node],
+    deployment_namespace: Optional[str] = None,
 ) -> List[NodeValidationResult]:
     """
     Bulk validate node specifications.
@@ -863,6 +902,7 @@ async def bulk_validate_node_data(
         session=session,
         node_graph=node_graph,
         dependency_nodes=dependency_nodes,
+        deployment_namespace=deployment_namespace,
     )
     validator = NodeSpecBulkValidator(context)
 

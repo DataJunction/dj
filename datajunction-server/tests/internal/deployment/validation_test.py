@@ -1788,3 +1788,96 @@ class TestToColumnSpecsPreservesMetadata:
         # Explicit type should win
         assert result[0].type == "bigint"
         assert result[0].display_name == "User ID"
+
+
+class TestHardcodedNamespaceRefCheck:
+    """Tests for _check_hardcoded_namespace_ref."""
+
+    def _make_validator(self, deployment_namespace, node_graph, dependency_nodes=None):
+        context = ValidationContext(
+            session=MagicMock(),
+            node_graph=node_graph,
+            dependency_nodes=dependency_nodes or {},
+            deployment_namespace=deployment_namespace,
+        )
+        return NodeSpecBulkValidator(context)
+
+    def test_hardcoded_self_ref_produces_error(self):
+        """A dep whose name starts with the deployment namespace is flagged."""
+        validator = self._make_validator(
+            deployment_namespace="myteam.feature_branch",
+            node_graph={
+                "myteam.feature_branch.metrics.total_revenue": [
+                    "myteam.feature_branch.transforms.revenue_fact",
+                ],
+            },
+        )
+        spec = MetricSpec(
+            name="total_revenue",
+            query="SELECT SUM(revenue) FROM myteam.feature_branch.transforms.revenue_fact",
+            mode="published",
+        )
+        spec.namespace = "myteam.feature_branch"
+
+        dep_names = ["myteam.feature_branch.transforms.revenue_fact"]
+        error = validator._check_hardcoded_namespace_ref(spec, dep_names)
+
+        assert error is not None
+        assert error.code == ErrorCode.INVALID_NAMESPACE
+        assert "myteam.feature_branch" in error.message
+        assert "${prefix}" in error.message
+        assert "myteam.feature_branch.transforms.revenue_fact" in error.message
+
+    def test_cross_namespace_ref_is_allowed(self):
+        """A dep from a different namespace is fine — not flagged."""
+        validator = self._make_validator(
+            deployment_namespace="myteam.feature_branch",
+            node_graph={
+                "myteam.feature_branch.metrics.total_revenue": [
+                    "shared.transforms.revenue_fact",
+                ],
+            },
+        )
+        spec = MetricSpec(
+            name="total_revenue",
+            query="SELECT SUM(x) FROM shared.transforms.revenue_fact",
+            mode="published",
+        )
+        spec.namespace = "myteam.feature_branch"
+
+        dep_names = ["shared.transforms.revenue_fact"]
+        error = validator._check_hardcoded_namespace_ref(spec, dep_names)
+
+        assert error is None
+
+    def test_no_deployment_namespace_skips_check(self):
+        """When deployment_namespace is None (e.g. REST API path), check is skipped."""
+        validator = self._make_validator(
+            deployment_namespace=None,
+            node_graph={},
+        )
+        spec = MetricSpec(
+            name="my_metric",
+            query="SELECT SUM(x) FROM ns.transforms.t",
+            mode="published",
+        )
+        dep_names = ["ns.transforms.t"]
+        error = validator._check_hardcoded_namespace_ref(spec, dep_names)
+
+        assert error is None
+
+    def test_no_hardcoded_refs_no_error(self):
+        """No deps starting with the namespace → no error."""
+        validator = self._make_validator(
+            deployment_namespace="myteam.feature_branch",
+            node_graph={},
+        )
+        spec = MetricSpec(
+            name="my_metric",
+            query="SELECT SUM(x) FROM other.ns.transforms.t",
+            mode="published",
+        )
+        dep_names = ["other.ns.transforms.t"]
+        error = validator._check_hardcoded_namespace_ref(spec, dep_names)
+
+        assert error is None
