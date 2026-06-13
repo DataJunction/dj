@@ -1,6 +1,6 @@
 import logging
 
-from datajunction import DJBuilder, Project
+from datajunction import DJBuilder, DeploymentService
 from datajunction.exceptions import DJClientException
 from datajunction._internal import RequestsSessionWithEndpoint
 
@@ -35,14 +35,11 @@ for table in tables:
             logger.error("Error registering tables: %s", exc)
 logger.info("Finished registering DJ system metadata tables")
 
-logger.info("Loading DJ system nodes...")
-project = Project.load("nodes")
-logger.info("Finished loading DJ system nodes.")
-
-logger.info("Compiling DJ system nodes...")
-compiled_project = project.compile()
-logger.info("Finished compiling DJ system nodes.")
-
 logger.info("Deploying DJ system nodes...")
-compiled_project.deploy(client=dj)
+# Deployment is handled server-side: DeploymentService reconstructs a deployment
+# spec from the YAML files under `nodes/` and POSTs it to the `/deployments`
+# orchestrator. The explicit namespace (matching the project's `prefix:` in
+# dj.yaml) marks this as the bootstrap/system-seed case, which skips git config.
+service = DeploymentService(client=dj)
+service.push("nodes", namespace="system.dj")
 logger.info("Finished deploying DJ system nodes.")
