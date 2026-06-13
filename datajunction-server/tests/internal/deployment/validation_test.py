@@ -251,6 +251,42 @@ class TestValidateQuery:
                 )
 
     @pytest.mark.asyncio
+    async def test_validate_query_node_flags_hardcoded_namespace(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """Full validate_query_node path appends a hardcoded-namespace error.
+
+        Exercises the error-append branch in validate_query_node (not just the
+        helper) by running the whole validation flow on a transform whose raw
+        query embeds the literal deployment namespace.
+        """
+        context = ValidationContext(
+            session=session,
+            node_graph={"test.transform": ["test.parent"]},
+            dependency_nodes={parent_node.name: parent_node},
+            deployment_namespace="test",
+        )
+        validator = NodeSpecBulkValidator(context)
+        spec = TransformSpec(
+            name="transform",
+            query="SELECT id, name FROM test.parent",
+            description="A transform with a hardcoded namespace reference",
+            mode="published",
+        )
+        spec.namespace = "test"
+
+        result = validator.validate_query_node(spec)
+
+        assert result.status == NodeStatus.INVALID
+        namespace_errors = [
+            e for e in result.errors if e.code == ErrorCode.INVALID_NAMESPACE
+        ]
+        assert len(namespace_errors) == 1
+        assert "${prefix}" in namespace_errors[0].message
+
+    @pytest.mark.asyncio
     async def test_validate_query_node_with_skip_validation(
         self,
         validation_context: ValidationContext,
