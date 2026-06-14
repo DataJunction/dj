@@ -3915,6 +3915,19 @@ def infer_type(arg: ct.NumberType) -> ct.DoubleType:
     return ct.DoubleType()
 
 
+class Pmod(Function):
+    """
+    pmod(expr1, expr2) - Returns the positive value of expr1 mod expr2.
+    """
+
+    dialects = [Dialect.SPARK]
+
+
+@Pmod.register  # type: ignore
+def infer_type(expr1: ct.NumberType, expr2: ct.NumberType) -> ct.NumberType:
+    return expr1.type
+
+
 class Pow(Function):
     """
     Raises a base expression to the power of an exponent expression.
