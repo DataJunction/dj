@@ -783,3 +783,26 @@ async def test_infer_types_hashing(construction_session: AsyncSession):
         BigIntType(),
         BigIntType(),
     ]
+
+
+@pytest.mark.asyncio
+async def test_infer_types_pmod(construction_session: AsyncSession):
+    """
+    Test type inference for PMOD, which returns the positive modulo and
+    preserves the numeric type of its first argument.
+    """
+    query = parse(
+        """
+        SELECT
+          PMOD(id, 7),
+          PMOD(id, 2.5)
+        FROM dbt.source.jaffle_shop.customers
+        """,
+    )
+    exc = DJException()
+    ctx = CompileContext(session=construction_session, exception=exc)
+    await query.compile(ctx)
+    assert [exp.type for exp in query.select.projection] == [  # type: ignore
+        IntegerType(),
+        IntegerType(),
+    ]
