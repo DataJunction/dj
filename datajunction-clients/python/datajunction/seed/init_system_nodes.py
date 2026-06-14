@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 
 from datajunction import DJBuilder, DeploymentService
 from datajunction.exceptions import DJClientException
@@ -40,6 +41,9 @@ logger.info("Deploying DJ system nodes...")
 # spec from the YAML files under `nodes/` and POSTs it to the `/deployments`
 # orchestrator. The explicit namespace (matching the project's `prefix:` in
 # dj.yaml) marks this as the bootstrap/system-seed case, which skips git config.
+# Resolve the seed dir relative to this file so the script works regardless of
+# the caller's working directory.
+nodes_dir = Path(__file__).parent / "nodes"
 service = DeploymentService(client=dj)
-service.push("nodes", namespace="system.dj")
+service.push(nodes_dir, namespace="system.dj")
 logger.info("Finished deploying DJ system nodes.")
