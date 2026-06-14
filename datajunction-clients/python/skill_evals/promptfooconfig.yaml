@@ -1,0 +1,231 @@
+# Behavioral evals for the bundled DJ Claude skills.
+#
+# This is a LOCAL / on-demand tool — it makes real LLM calls, so it is NOT wired into
+# CI (public runners have no provider key). Run it when you want a quality check.
+#
+# Tokens — point the provider at any OpenAI-compatible endpoint via env (see .env.example):
+#     export OPENAI_API_KEY="sk-..."            # your key (default base: api.openai.com)
+#     # or an OpenAI-compatible gateway/proxy:
+#     export OPENAI_BASE_URL="http://your-endpoint/v1"
+#
+# Pick a model your endpoint serves via SKILL_EVAL_MODEL (default gpt-4o).
+#
+# Run:
+#   ./run.sh                          # sources .env, applies SKILL_EVAL_MODEL
+#   npx promptfoo@latest view
+
+description: DataJunction skill behavioral evals
+
+# The test provider is a small two-turn orchestrator (provider.py): some cases need a
+# proposal turn followed by a "now produce the YAML" turn (the semantic-model skill says
+# "propose, don't produce"). It reads the model from SKILL_EVAL_MODEL and the endpoint
+# from OPENAI_BASE_URL / OPENAI_API_KEY — so unlike the built-in openai provider it does
+# NOT need its id templated. The llm-rubric grader below stays a native openai:chat
+# provider (gpt-4o committed default — run.sh swaps it to SKILL_EVAL_MODEL locally).
+providers:
+  - id: file://provider.py
+    config:
+      temperature: 0
+
+prompts:
+  - file://skill_prompt.py:build_prompt
+
+defaultTest:
+  options:
+    # Grade llm-rubric with the same model (run.sh keeps this in sync via SKILL_EVAL_MODEL).
+    provider: openai:chat:gpt-4o
+
+tests:
+  # --- Authoring discipline (single turn → node YAML) -------------------------------
+
+  - description: Author a dimension node from a source table (datajunction-repo)
+    vars:
+      skill: datajunction-repo
+      expected_node_type: dimension
+      request: |
+        Author a DataJunction dimension node named `default.users` over the source
+        table `prod.analytics.users_table`, keyed by `user_id`, exposing `user_id`,
+        `country`, and `signup_date`. Output only the node YAML. Do not invent owners
+        or fields that weren't requested.
+    assert:
+      - type: python
+        value: file://assert_node.py
+      - type: llm-rubric
+        value: >
+          The output is a single DataJunction dimension node in YAML that a user could
+          deploy as-is: node_type is dimension, it declares a primary_key of user_id,
+          and its query selects user_id, country, and signup_date from
+          prod.analytics.users_table. It should not invent unrelated fields.
+
+  - description: Author a metric (semantic-model composed with repo for YAML)
+    vars:
+      skill: "datajunction-semantic-model,datajunction-repo"
+      expected_node_type: metric
+      request: |
+        Author a DataJunction metric node `default.num_users` that counts distinct
+        users from the node `default.users`. Output only the node YAML. Do not invent
+        owners or fields that weren't requested.
+    assert:
+      - type: python
+        value: file://assert_node.py
+      - type: llm-rubric
+        value: >
+          The output is a single DataJunction metric node in YAML: node_type is metric
+          and the query is a single aggregating SELECT over default.users (e.g.
+          COUNT(DISTINCT user_id)). It should be a metric, not a transform or dimension.
+
+  - description: Conditional filter uses CASE WHEN, not a WHERE clause
+    vars:
+      skill: "datajunction-semantic-model,datajunction-repo"
+      expected_node_type: metric
+      require_in_query: '(?i)CASE\s+WHEN'
+      forbid_in_query: '(?i)\bWHERE\b'
+      request: |
+        Author a DataJunction metric `finance.completed_revenue` that sums `amount_usd`
+        but only for rows where `status = 'completed'`, over the node
+        `finance.transactions`. Output only the node YAML. Do not invent owners or
+        fields that weren't requested.
+    assert:
+      - type: python
+        value: file://assert_node.py
+      - type: llm-rubric
+        value: >
+          A single DataJunction metric node. Crucially the filter is expressed as a
+          CASE WHEN inside the aggregate (SUM(CASE WHEN status = 'completed' THEN
+          amount_usd ELSE 0 END)) — NOT as a WHERE clause, which DJ metrics forbid. The
+          name should reflect the scoped population (e.g. completed_revenue).
+
+  - description: Metric naming is business-meaningful, not a column transformation
+    vars:
+      skill: "datajunction-semantic-model,datajunction-repo"
+      expected_node_type: metric
+      request: |
+        Author a DataJunction metric over the node `finance.transactions` that sums
+        `amount_usd` — the revenue in USD booked on each transaction. Output only the
+        node YAML. Do not invent owners or fields that weren't requested.
+    assert:
+      - type: python
+        value: file://assert_node.py
+      - type: llm-rubric
+        value: >
+          A single DataJunction metric node summing amount_usd. The metric name must be
+          readable and business-meaningful — what a stakeholder would call it, e.g.
+          total_revenue — NOT a name that just describes the column transformation like
+          sum_amount_usd or amount_usd_sum.
+
+  # --- Decomposition judgment (two-turn: propose, then produce YAML) ----------------
+
+  - description: Ratio query decomposes into named base metrics + a derived metric
+    vars:
+      skill: "datajunction-semantic-model,datajunction-repo"
+      require_derived_ratio: true
+      min_nodes_by_type:
+        metric: 3
+      followup: >
+        Looks good. Assume `finance.transactions` already exists as a transform and a
+        `region` dimension already exists. Produce the final deployment YAML for ONLY the
+        new metric nodes now (do not redefine finance.transactions or the region
+        dimension), as a single ```yaml block with a top-level `nodes:` list. Make
+        reasonable assumptions instead of asking questions.
+      request: |
+        I have this analytics query and want to express it as DataJunction nodes:
+
+            SELECT
+              region_id,
+              SUM(amount_usd)
+              / SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS avg_order_value
+            FROM finance.transactions
+            GROUP BY region_id
+
+        How should I model this in DJ? Walk me through the decomposition first.
+    assert:
+      - type: python
+        value: file://assert_deployment.py
+      - type: llm-rubric
+        value: >
+          Two turns separated by a "<<<TURN2-YAML>>>" marker. Turn 1 (before the marker)
+          is a STRUCTURED DECOMPOSITION PROPOSAL in prose/list form — it should NOT dump
+          deployable node YAML on this first pass. It must decompose the ratio into two
+          named base metrics (one per aggregate: total revenue = SUM(amount_usd), and a
+          count of completed orders) plus ONE derived metric (avg_order_value) that
+          references those base metrics by name rather than re-inlining the aggregates,
+          and it should treat region_id as a dimension, not a baked-in column. Turn 2
+          (after the marker) is the deployment YAML for that decomposition. Fail if turn 1
+          collapses everything into a single metric with the whole ratio inlined.
+
+  - description: Slice-by-dimension is modeled as a dimension link, not a JOIN
+    vars:
+      skill: "datajunction-semantic-model,datajunction-repo"
+      require_dimension_link: true
+      forbid_join: true
+      min_nodes_by_type:
+        dimension: 1
+        metric: 1
+      followup: >
+        Looks good. Assume the raw tables exist. Produce the final deployment YAML for
+        those nodes now (the dimension, the transform with its dimension link, and the
+        metric), as a single ```yaml block with a top-level `nodes:` list. Make
+        reasonable assumptions instead of asking questions.
+      request: |
+        I want total revenue sliced by customer country. Revenue lives in the transform
+        `finance.transactions` (one row per transaction; has `customer_id` and
+        `amount_usd`). Country lives in `core.customers` (keyed by `customer_id`, has a
+        `country` column). How should I model this in DJ so I can slice revenue by
+        country? Walk me through the decomposition first.
+    assert:
+      - type: python
+        value: file://assert_deployment.py
+      - type: llm-rubric
+        value: >
+          Two turns separated by a "<<<TURN2-YAML>>>" marker. The recommended model is:
+          country modeled as a DIMENSION node over core.customers, connected to
+          finance.transactions via a DIMENSION LINK on the transform, and total_revenue
+          as a plain aggregate metric over the transaction grain. It must NOT bake a JOIN
+          to core.customers into the metric or transform query — joins to dimensions
+          belong in dimension_links so the join is optional/slice-time. Turn 2 is the
+          deployment YAML reflecting that.
+
+  - description: Reusability rule holds even when the user asks for one metric
+    vars:
+      skill: "datajunction-semantic-model,datajunction-repo"
+      require_derived_ratio: true
+      min_nodes_by_type:
+        metric: 3
+      followup: >
+        Okay. Assume the transform `web.sessions` already exists. Produce the final
+        deployment YAML for whatever you'd recommend now, as a single ```yaml block with
+        a top-level `nodes:` list. Make reasonable assumptions instead of asking
+        questions.
+      request: |
+        I just want our checkout conversion rate — completed checkouts divided by
+        sessions, both countable from the transform `web.sessions`. Keep it simple, I
+        only care about the final rate, so just give me the one metric.
+    assert:
+      - type: python
+        value: file://assert_deployment.py
+      - type: llm-rubric
+        value: >
+          Despite the user asking for "just one metric", the skill should hold the
+          reusability line: it decomposes into two named base metrics (a count of
+          completed checkouts and a count of sessions) plus a derived conversion_rate
+          metric that references them — rather than a single metric with the whole ratio
+          as an anonymous SQL blob. It may briefly explain why named base metrics are
+          worth it. Fail if it simply produces one inlined ratio metric.
+
+  # --- Grain (single-turn judgment) ------------------------------------------------
+
+  - description: Mixed grains in one transform should be split into two
+    vars:
+      skill: datajunction-semantic-model
+      request: |
+        I'm planning to put order line items (one row per order line) AND daily account
+        balance snapshots (one row per account per day) into a single transform called
+        `finance.account_activity`. Is that a good idea, and how should I model it?
+    assert:
+      - type: llm-rubric
+        value: >
+          The answer identifies that these are TWO DIFFERENT GRAINS (order-line grain vs
+          account-per-day grain) and that grains must not mix in one fact/transform. It
+          recommends SPLITTING into two separate transforms (one per grain) rather than
+          combining them, consistent with "grain is the most important decision in a
+          fact". It should not endorse putting both grains in one node.
