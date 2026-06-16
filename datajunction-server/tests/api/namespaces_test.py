@@ -36,7 +36,9 @@ from datajunction_server.models.partition import PartitionType, Granularity
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.internal.access.authorization import (
     AuthorizationService,
 )
@@ -602,6 +604,45 @@ async def test_hard_delete_namespace(client_example_loader: AsyncClient):
     assert response.json() == {
         "errors": [],
         "message": "Namespace `jaffle_shop` does not exist.",
+        "warnings": [],
+    }
+
+
+@pytest.mark.asyncio
+async def test_hard_delete_nonexistent_namespace_under_git_root_404s(
+    client_with_roads: AsyncClient,
+    session: AsyncSession,
+) -> None:
+    """
+    Hard deleting a namespace that doesn't exist must 404 even when an ancestor
+    is a git-backed namespace.
+
+    Regression: ``get_git_info_for_namespace`` resolves git config by ancestor
+    inheritance, so for a missing namespace under a git-backed root it returns
+    ``is_default_branch=True`` (no branch namespace resolves, so ``branch is
+    None``, treated as the default branch). The endpoint's default-branch guard
+    then wrongly raised a 422 instead of a 404 — breaking branch-cleanup
+    pipelines that re-delete an already-removed branch namespace.
+    """
+    session.add(
+        NodeNamespace(
+            namespace="gitroot",
+            github_repo_path="org/repo",
+            default_branch="main",
+            parent_namespace=None,
+        ),
+    )
+    await session.commit()
+
+    # ``gitroot.feature_gone`` was never created (or already cleaned up). Its
+    # ancestor ``gitroot`` is git-backed, which used to trigger the false 422.
+    response = await client_with_roads.delete(
+        "/namespaces/gitroot.feature_gone/hard/?cascade=true",
+    )
+    assert response.status_code == 404, response.json()
+    assert response.json() == {
+        "errors": [],
+        "message": "Namespace `gitroot.feature_gone` does not exist.",
         "warnings": [],
     }
 
