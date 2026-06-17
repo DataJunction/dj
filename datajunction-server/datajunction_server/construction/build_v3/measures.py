@@ -1667,24 +1667,14 @@ def build_temporal_filter(
 
                 # Get the end expression (current logical timestamp) from cube's partition metadata
                 end_expr = partition_metadata.temporal_expression(interval=None)
-
-                if ctx.lookback_window and end_expr:
-                    # For lookback, generate BETWEEN filter using cube's partition metadata
-                    if start_expr := partition_metadata.temporal_expression(
-                        interval=ctx.lookback_window,
-                    ):  # pragma: no branch
-                        return ast.Between(
-                            expr=col_ref,
-                            low=start_expr,
-                            high=end_expr,
-                        ), parent_col_name
-                elif end_expr:  # pragma: no branch
-                    # No lookback - exact partition match
-                    return ast.BinaryOp(
-                        left=col_ref,
-                        right=end_expr,
-                        op=ast.BinaryOpKind.Eq,
-                    ), parent_col_name
+                start_expr = (
+                    partition_metadata.temporal_expression(interval=ctx.lookback_window)
+                    if ctx.lookback_window
+                    else None
+                )
+                filter_ast = build_lookback_filter(col_ref, start_expr, end_expr)
+                if filter_ast is not None:
+                    return filter_ast, parent_col_name
 
     return None, None  # pragma: no cover
 
