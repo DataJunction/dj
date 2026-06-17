@@ -105,3 +105,29 @@ def test_zero_fill_wraps_additive_measure():
     assert wrapped.name.name.upper() == "COALESCE"
     assert wrapped.args[0] is measure
     assert isinstance(wrapped.args[1], ast.Number) and wrapped.args[1].value == 0
+
+
+from datajunction_server.construction.build_v3.window_lookback import (
+    build_scan_bounds, build_output_restriction,
+)
+
+
+def test_build_scan_bounds_offsets_lower_only():
+    col = ast.Column(name=ast.Name("dateint"))
+    scan = build_scan_bounds(
+        col_ref=col,
+        low_expr=ast.Number(20240101),
+        high_expr=ast.Number(20240131),
+        offset_low_expr=ast.Number(20231205),
+    )
+    assert isinstance(scan, ast.Between)
+    assert scan.low.value == 20231205
+    assert scan.high.value == 20240131
+
+
+def test_build_output_restriction_reapplies_requested_predicate():
+    col = ast.Column(name=ast.Name("dateint"))
+    out = build_output_restriction(col, ast.Number(20240101), ast.Number(20240131))
+    assert isinstance(out, ast.Between)
+    assert out.low.value == 20240101
+    assert out.high.value == 20240131

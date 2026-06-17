@@ -82,3 +82,27 @@ def build_densify_join(
 def zero_fill(measure_expr: ast.Expression) -> ast.Function:
     """Wrap an additive measure in COALESCE(measure, 0) for densified gap rows."""
     return ast.Function(ast.Name("COALESCE"), args=[measure_expr, ast.Number(0)])
+
+
+def build_scan_bounds(
+    col_ref: ast.Expression,
+    low_expr: ast.Expression,
+    high_expr: ast.Expression,
+    offset_low_expr: ast.Expression,
+) -> ast.Between:
+    """
+    Scan filter for the densified series: BETWEEN (lower − N) AND upper.
+    `offset_low_expr` is the value N positions before the requested lower,
+    resolved by the caller against the sequence dimension's order.
+    """
+    return ast.Between(expr=col_ref, low=offset_low_expr, high=high_expr)
+
+
+def build_output_restriction(
+    col_ref: ast.Expression,
+    low_expr: ast.Expression,
+    high_expr: ast.Expression,
+) -> ast.Between:
+    """The originally-requested predicate, re-applied ABOVE the window so the
+    lookback rows used to seed the frame do not leak into the result."""
+    return ast.Between(expr=col_ref, low=low_expr, high=high_expr)
