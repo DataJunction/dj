@@ -116,7 +116,6 @@ def test_build_scan_bounds_offsets_lower_only():
     col = ast.Column(name=ast.Name("dateint"))
     scan = build_scan_bounds(
         col_ref=col,
-        low_expr=ast.Number(20240101),
         high_expr=ast.Number(20240131),
         offset_low_expr=ast.Number(20231205),
     )

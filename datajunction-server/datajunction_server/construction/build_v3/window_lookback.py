@@ -91,7 +91,6 @@ def zero_fill(measure_expr: ast.Expression) -> ast.Function:
 
 def build_scan_bounds(
     col_ref: ast.Expression,
-    low_expr: ast.Expression,
     high_expr: ast.Expression,
     offset_low_expr: ast.Expression,
 ) -> ast.Between:
@@ -501,7 +500,6 @@ def apply_live_window_lookback(ctx: "BuildContext") -> None:
 
                 scan_filter = build_scan_bounds(
                     make_column_ref(fk_col_name),
-                    low_expr,
                     high_expr,
                     offset_low,
                 )
@@ -584,6 +582,16 @@ def wrap_with_output_restriction(
             else ast.BinaryOp.And(where_expr, qualified)
         )
 
+    # Lift any ORDER BY / LIMIT off the inner windowed query and re-attach them
+    # to the OUTER wrapper, so they apply ABOVE the output restriction. Left in
+    # place they would order/limit the expanded ``[R - N, R]`` lookback scan
+    # BEFORE the restriction strips the seed rows -- starving the requested
+    # result of rows (LIMIT) and burying the final ordering inside a subquery.
+    lifted_organization = result.select.organization
+    lifted_limit = result.select.limit
+    result.select.organization = None
+    result.select.limit = None
+
     # The CTEs move to the outer query; the inner subquery carries only the
     # windowed SELECT, parenthesized and aliased so it renders as
     # ``(SELECT ... OVER ...) AS __windowed``.
@@ -596,5 +604,7 @@ def wrap_with_output_restriction(
         projection=[ast.Wildcard()],
         from_=ast.From(relations=[ast.Relation(primary=inner_query)]),
         where=where_expr,
+        organization=lifted_organization,
+        limit=lifted_limit,
     )
     return ast.Query(select=wrapper_select, ctes=result.ctes)

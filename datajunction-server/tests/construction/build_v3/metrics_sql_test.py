@@ -1,3 +1,5 @@
+import re
+
 import pytest
 from . import assert_sql_equal
 
@@ -2127,6 +2129,34 @@ class TestNonDecomposableMetrics:
         # The single-date predicate must still be re-applied ABOVE the window so
         # lookback rows do not leak into the output.
         assert "= 20240131" in sql
+
+    @pytest.mark.asyncio
+    async def test_trailing_window_limit_orderby_above_window(self, client_with_build_v3):
+        """LIMIT/ORDER BY must apply ABOVE the window output restriction, not inside the windowed subquery."""
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.trailing_7d_revenue"],
+                "dimensions": ["v3.date.date_id[order]"],
+                "filters": ["v3.date.date_id >= 20240125", "v3.date.date_id <= 20240131"],
+                "limit": "3",
+                "orderby": ["v3.date.date_id[order]"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        # Normalize whitespace so single-space heuristics match the rendered SQL
+        # (the printer emits two spaces after WHERE/SELECT).
+        sql = re.sub(r"\s+", " ", response.json()["sql"].upper())
+        # The LIMIT must be on the OUTER (wrapper) query, after the output restriction,
+        # so it counts only restricted rows -- not the expanded lookback scan.
+        # Heuristic: the final LIMIT must appear AFTER the wrapper's WHERE on __windowed.
+        where_pos = sql.rfind("__WINDOWED")
+        limit_pos = sql.rfind("LIMIT")
+        assert where_pos != -1, "expected the window wrapper to be present"
+        # The outermost LIMIT should come after the wrapper's WHERE restriction
+        assert limit_pos > sql.find("WHERE __WINDOWED"), (
+            f"LIMIT at {limit_pos} should be above the output restriction, sql=\n{response.json()['sql']}"
+        )
 
     @pytest.mark.asyncio
     async def test_trailing_window_range_live(self, client_with_build_v3):
