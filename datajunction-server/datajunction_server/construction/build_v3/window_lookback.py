@@ -230,6 +230,46 @@ def _order_filter_bounds(
     return None
 
 
+def _is_static_literal_bound(expr: Optional[ast.Expression]) -> bool:
+    """
+    True when ``expr`` is a static literal we can safely interpolate into the
+    offset subquery (see :func:`resolve_offset_low`, which renders the lower
+    bound via ``str(...)``) and reason about for reconciliation.
+
+    Only numbers and strings qualify. A non-literal bound (``func(col) = R``, a
+    column reference, an arithmetic expression, etc.) must NOT be stitched: we
+    cannot statically compare it against another bound nor splice it into the
+    ranked offset subquery, so the caller bails on expansion and leaves the
+    user's filters untouched.
+    """
+    return isinstance(expr, (ast.Number, ast.String))
+
+
+def _tighter_bound(
+    current: Optional[ast.Expression],
+    candidate: ast.Expression,
+    *,
+    keep_max: bool,
+) -> Optional[ast.Expression]:
+    """
+    Reconcile two same-side bounds to the TIGHTEST one. For a lower bound keep
+    the MAX (``keep_max=True``); for an upper bound keep the MIN. Comparison is
+    only defined for two ``ast.Number`` literals (compared on ``.value``).
+
+    Returns the retained bound, or ``None`` to signal "cannot compare
+    statically -> bail" when either side is not a comparable numeric literal.
+    The first observed bound (``current is None``) is accepted as-is, but only
+    if it is itself a comparable literal.
+    """
+    if current is None:
+        return candidate if isinstance(candidate, ast.Number) else None
+    if not isinstance(current, ast.Number) or not isinstance(candidate, ast.Number):
+        return None
+    if keep_max:
+        return current if current.value >= candidate.value else candidate
+    return current if current.value <= candidate.value else candidate
+
+
 def _dimension_physical_table(
     ctx: "BuildContext",
     dim_node,
@@ -354,20 +394,48 @@ def apply_live_window_lookback(ctx: "BuildContext") -> None:
         # expressed as TWO separate filter strings (``col >= A`` and
         # ``col <= B``); we collect partial bounds across all matching filters
         # and stitch them into a single ``[low, high]`` extent.
+        #
+        # Reconcile (rather than last-write-wins) across every matching filter:
+        # keep the TIGHTEST lower bound (MAX) and the TIGHTEST upper bound (MIN).
+        # If any bound is a non-literal expression, or two same-side literal
+        # bounds cannot be statically compared, BAIL on expansion for this order
+        # column -- leaving ALL its filters intact and un-consumed so the normal
+        # filter pushdown still enforces every constraint. We never pop a filter
+        # whose constraint we are not going to re-apply above the window.
         target_indices: list[int] = []
         low_expr: Optional[ast.Expression] = None
         high_expr: Optional[ast.Expression] = None
+        bail = False
         for idx, filter_str in enumerate(ctx.dimension_filters):
             filter_ast = parse_filter(filter_str)
             found = _order_filter_bounds(filter_ast, order_col_name)
             if found is None:
                 continue
             found_low, found_high = found
+            # Any non-literal bound on the order column poisons expansion: we
+            # cannot interpolate it into the offset subquery nor compare it.
+            if (found_low is not None and not _is_static_literal_bound(found_low)) or (
+                found_high is not None and not _is_static_literal_bound(found_high)
+            ):
+                bail = True
+                break
             if found_low is not None:
-                low_expr = found_low
+                reconciled = _tighter_bound(low_expr, found_low, keep_max=True)
+                if reconciled is None:
+                    bail = True
+                    break
+                low_expr = reconciled
             if found_high is not None:
-                high_expr = found_high
+                reconciled = _tighter_bound(high_expr, found_high, keep_max=False)
+                if reconciled is None:
+                    bail = True
+                    break
+                high_expr = reconciled
             target_indices.append(idx)
+
+        if bail:
+            # Leave every filter on this order column intact and un-consumed.
+            continue
 
         if not target_indices or low_expr is None or high_expr is None:
             # No fully-bounded predicate on the order column -> nothing to

@@ -2148,6 +2148,145 @@ class TestNonDecomposableMetrics:
         # ...and the requested range re-applied ABOVE the window (output restriction).
         assert "20240125" in sql and "20240131" in sql
 
+    @pytest.mark.asyncio
+    async def test_trailing_window_redundant_range_reconciled(
+        self,
+        client_with_build_v3,
+    ):
+        """Redundant-but-consistent lower bounds reconcile to the TIGHTEST one.
+
+        ``>= 20240101 AND >= 20240125 AND <= 20240131`` expands the scan using
+        the tighter lower (20240125) and the upper (20240131). The offset
+        subquery anchors its ranked lookback on the tighter lower bound, and the
+        output restriction enforces ``>= 20240125`` (which implies the looser
+        ``>= 20240101``) so nothing is silently dropped.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.trailing_7d_revenue"],
+                "dimensions": ["v3.date.date_id[order]"],
+                "filters": [
+                    "v3.date.date_id >= 20240101",
+                    "v3.date.date_id >= 20240125",
+                    "v3.date.date_id <= 20240131",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = response.json()["sql"].upper()
+        # The ranked offset subquery anchors on the TIGHTEST lower (20240125):
+        # it selects rows at or below the tighter lower bound to seed the frame.
+        assert "<= 20240125" in sql, (
+            "offset subquery must anchor on the tighter lower bound 20240125"
+        )
+        # The expanded scan's upper bound is the requested upper (20240131).
+        data_between = sql.replace("ROWS BETWEEN", "ROWS__FRAME")
+        assert "AND 20240131" in data_between, (
+            "expanded scan upper bound = requested range upper"
+        )
+        # The output restriction above the window enforces the tightest range
+        # [20240125, 20240131]; the looser 20240101 lower is dominated by
+        # 20240125 and must NOT survive as its own predicate (consuming it is
+        # safe because 20240125 implies it).
+        assert "BETWEEN 20240125 AND 20240131" in sql, (
+            "output restriction must enforce the tightest reconciled range"
+        )
+        assert "20240101" not in sql, (
+            "looser lower bound is dominated and must not be re-applied"
+        )
+
+    @pytest.mark.asyncio
+    async def test_trailing_window_non_literal_bound_bails(
+        self,
+        client_with_build_v3,
+    ):
+        """A non-literal/exotic bound on the order column bails on expansion.
+
+        The query must still return 200 and not crash: the window-lookback
+        adapter leaves the user's filters intact (normal filter pushdown), which
+        may "starve" the frame but is the documented safe fallback, not an error.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.trailing_7d_revenue"],
+                "dimensions": ["v3.date.date_id[order]"],
+                # A non-literal bound: the RHS is an arithmetic expression, not a
+                # static literal we can interpolate into the offset subquery.
+                "filters": ["v3.date.date_id = 20240130 + 1"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = response.json()["sql"]
+        assert sql, "expected a non-empty SQL body on the safe fallback"
+
+    @pytest.mark.asyncio
+    async def test_avg_window_rejected_live(self, client_with_build_v3):
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.avg_revenue_trailing_7d"],
+                "dimensions": ["v3.date.date_id[order]"],
+                "filters": ["v3.date.date_id = 20240131"],
+            },
+        )
+        assert response.status_code == 422, response.json()
+        assert "additive" in response.json()["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_avg_window_rejected_live_no_filter(self, client_with_build_v3):
+        """A window AVG must be rejected even with no filter constraining the
+        order column, since we cannot produce correct gap-fill semantics."""
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.avg_revenue_trailing_7d"],
+                "dimensions": ["v3.date.date_id[order]"],
+            },
+        )
+        assert response.status_code == 422, response.json()
+        assert "additive" in response.json()["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_non_window_metric_regression_unchanged(self, client_with_build_v3):
+        """The window-lookback code path is a no-op for plain non-window
+        queries: byte-for-byte identical golden SQL to the plain build."""
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.product.category"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        result = response.json()
+        assert result["sql"] == (
+            "WITH\n"
+            "v3_order_details AS (\n"
+            "SELECT  oi.product_id,\n"
+            "\toi.quantity * oi.unit_price AS line_total \n"
+            " FROM default.v3.orders o JOIN default.v3.order_items oi "
+            "ON o.order_id = oi.order_id\n"
+            "),\n"
+            "v3_product AS (\n"
+            "SELECT  product_id,\n"
+            "\tcategory \n"
+            " FROM default.v3.products\n"
+            "),\n"
+            "order_details_0 AS (\n"
+            "SELECT  t2.category,\n"
+            "\tSUM(t1.line_total) line_total_sum_e1f61696 \n"
+            " FROM v3_order_details t1 LEFT OUTER JOIN v3_product t2 "
+            "ON t1.product_id = t2.product_id \n"
+            " GROUP BY  t2.category\n"
+            ")\n\n"
+            "SELECT  order_details_0.category AS category,\n"
+            "\tSUM(order_details_0.line_total_sum_e1f61696) AS total_revenue \n"
+            " FROM order_details_0 \n"
+            " GROUP BY  order_details_0.category\n"
+        )
+
 
 class TestMetricsSQLNestedDerived:
     """
