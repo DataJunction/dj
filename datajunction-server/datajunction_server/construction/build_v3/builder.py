@@ -36,6 +36,7 @@ from datajunction_server.construction.build_v3.metrics import (
 )
 from datajunction_server.construction.build_v3.window_lookback import (
     apply_live_window_lookback,
+    densify_window_base_metrics,
     wrap_with_output_restriction,
 )
 from datajunction_server.construction.build_v3.types import (
@@ -584,6 +585,12 @@ async def build_metrics_sql(
             orderby,
             limit,
         )
+
+    # Densify the per-date grain relation the window reads (base_metrics) over
+    # the sequence dimension's complete date domain, 0-filling additive measures,
+    # so ROWS BETWEEN N PRECEDING counts calendar positions even when the fact is
+    # sparse. No-op unless lookback registered a densify spec.
+    densify_window_base_metrics(result.query, ctx)
 
     # Apply the live-window output restriction ABOVE the window (wraps the
     # windowed query in an outer SELECT). No-op unless lookback expanded a scan.

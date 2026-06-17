@@ -2179,6 +2179,33 @@ class TestNonDecomposableMetrics:
         assert "20240125" in sql and "20240131" in sql
 
     @pytest.mark.asyncio
+    async def test_trailing_window_densified_over_date_domain(self, client_with_build_v3):
+        """The window must read a dense date series: a spine LEFT join over the scan
+        range with the additive measure 0-filled, so ROWS = calendar positions even
+        when the fact is sparse."""
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.trailing_7d_revenue"],
+                "dimensions": ["v3.date.date_id[order]"],
+                "filters": ["v3.date.date_id >= 20240125", "v3.date.date_id <= 20240131"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = response.json()["sql"].upper()
+        # Densification: a LEFT JOIN to the date domain (spine) ...
+        assert "LEFT JOIN" in sql or "LEFT OUTER JOIN" in sql
+        # ... and additive measures 0-filled on gap rows.
+        assert "COALESCE" in sql
+        # The spine is the sequence dimension's physical date domain.
+        assert "DEFAULT.V3.DATES" in sql
+        # The spine restricts to the expanded scan range [offset_low, high]; the
+        # upper bound is the requested upper, so the densified series spans the
+        # full scan the window reads.
+        data_between = sql.replace("ROWS BETWEEN", "ROWS__FRAME")
+        assert "AND 20240131" in data_between
+
+    @pytest.mark.asyncio
     async def test_trailing_window_redundant_range_reconciled(
         self,
         client_with_build_v3,

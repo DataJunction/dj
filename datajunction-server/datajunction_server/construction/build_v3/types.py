@@ -131,6 +131,23 @@ class BuildContext:
         default_factory=list,
     )
 
+    # Live frame-aware window densification: specs for rewriting the
+    # ``base_metrics`` CTE (the per-date grain relation the window reads from)
+    # into a DENSE series. Each spec is
+    # ``(output_col_name, spine_physical_table, spine_key_col, offset_low_expr, high_expr)``
+    # where ``output_col_name`` is the order dimension's alias in ``base_metrics``
+    # (e.g. ``date_id_order``), ``spine_key_col`` is the sequence dimension's own
+    # column name in its physical table (e.g. ``date_id``), and ``[offset_low,
+    # high]`` is the expanded scan range. Populated by
+    # ``apply_live_window_lookback``; consumed by ``densify_window_base_metrics``.
+    # Densifying here (LEFT-joining the existing per-date aggregation onto the
+    # dimension's complete date domain, 0-filling additive measures) makes
+    # ``ROWS BETWEEN N PRECEDING`` count calendar positions rather than physical
+    # fact rows, which is only correct when every date in range has a row.
+    live_window_densify_specs: list[
+        tuple[str, str, str, "ast.Expression", "ast.Expression"]
+    ] = field(default_factory=list)
+
     def next_table_alias(self, base_name: str) -> str:
         """Generate a unique table alias."""
         self._table_alias_counter += 1

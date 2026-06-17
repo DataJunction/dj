@@ -542,6 +542,140 @@ def apply_live_window_lookback(ctx: "BuildContext") -> None:
             (output_col_name, output_restriction),
         )
 
+        # Record a densification spec so the per-date grain relation the window
+        # reads (the ``base_metrics`` CTE) can be rewritten into a DENSE series:
+        # the existing per-date aggregation LEFT-joined onto the sequence
+        # dimension's complete date domain over [offset_low, high], with additive
+        # measures 0-filled on gap rows. Without this, ``ROWS BETWEEN N PRECEDING``
+        # counts physical fact rows, so a sparse fact gives wrong trailing values.
+        ctx.live_window_densify_specs.append(
+            (output_col_name, dim_physical, order_col_name, offset_low, high_expr),
+        )
+
+
+def densify_window_base_metrics(
+    result: "ast.Query",
+    ctx: "BuildContext",
+) -> None:
+    """
+    Rewrite the ``base_metrics`` CTE (the per-date grain relation the live
+    window reads from) into a DENSE series so ``ROWS BETWEEN N PRECEDING``
+    counts calendar positions rather than physical fact rows.
+
+    For each densification spec recorded by :func:`apply_live_window_lookback`,
+    the existing ``base_metrics`` SELECT (the per-date aggregation) is wrapped as
+    an inner ``agg`` subquery and LEFT-joined onto a spine -- the sequence
+    dimension's complete date domain over the expanded scan range
+    ``[offset_low, high]``. The order dimension is projected from the spine (so
+    gap dates appear), and every additive measure is wrapped in
+    ``COALESCE(measure, 0)`` so missing dates contribute 0.
+
+    Resulting CTE shape::
+
+        base_metrics AS (
+          SELECT spine.<key> AS <order_col>, COALESCE(agg.<m>, 0) AS <m>, ...
+          FROM (SELECT DISTINCT <key> FROM <dim>
+                WHERE <key> BETWEEN <offset_low> AND <high>) spine
+          LEFT JOIN (<original base_metrics select>) agg
+                 ON spine.<key> = agg.<order_col>
+        )
+
+    No-op when no densification spec was registered.
+    """
+    if not ctx.live_window_densify_specs:
+        return
+
+    # Locate the base_metrics CTE by alias.
+    base_metrics_cte: Optional[ast.Query] = None
+    for cte in result.ctes:
+        if cte.alias is not None and cte.alias.name == "base_metrics":
+            base_metrics_cte = cte
+            break
+    if base_metrics_cte is None:  # pragma: no cover
+        return
+
+    spine_alias = "__spine"
+    agg_alias = "__agg"
+
+    for (
+        output_col_name,
+        spine_physical,
+        spine_key_col,
+        offset_low,
+        high_expr,
+    ) in ctx.live_window_densify_specs:
+        original_select = base_metrics_cte.select
+
+        # The inner per-date aggregation becomes the right side of the LEFT join,
+        # aliased ``__agg``.  Detach it from its CTE parent first so re-parenting
+        # is clean.
+        agg_query = ast.Query(select=original_select, ctes=[])
+        agg_query.parenthesized = True
+        agg_query.alias = ast.Name(agg_alias)
+        agg_query.as_ = True
+
+        # The spine: DISTINCT domain values of the sequence dimension over the
+        # expanded scan range.  Built with the dimension's physical table so it
+        # is self-contained (mirrors resolve_offset_low / the scan injection).
+        spine_query = parse(
+            f"SELECT DISTINCT {spine_key_col} FROM {spine_physical}",
+        ).select
+        spine_query.where = build_scan_bounds(
+            ast.Column(name=ast.Name(spine_key_col)),
+            high_expr,
+            offset_low,
+        )
+        spine_subquery = ast.Query(select=spine_query, ctes=[])
+        spine_subquery.parenthesized = True
+        spine_subquery.alias = ast.Name(spine_alias)
+        spine_subquery.as_ = True
+
+        # LEFT JOIN agg onto the spine on the order column (reuses
+        # build_densify_join): spine.<key> = agg.<order_col>.
+        spine_key = ast.Column(
+            name=ast.Name(spine_key_col),
+            _table=ast.Table(name=ast.Name(spine_alias)),
+        )
+        fact_key = ast.Column(
+            name=ast.Name(output_col_name),
+            _table=ast.Table(name=ast.Name(agg_alias)),
+        )
+        join = build_densify_join(agg_query, spine_key, fact_key)
+
+        # Rebuild the projection: the order dimension comes from the spine (so
+        # gap dates survive), every other (measure) column is 0-filled from agg.
+        new_projection: list[ast.Expression] = []
+        for proj in original_select.projection:
+            alias_name = proj.alias_or_name.name
+            if alias_name == output_col_name:
+                # Order dimension: take it from the spine domain.
+                col = ast.Column(
+                    name=ast.Name(spine_key_col),
+                    _table=ast.Table(name=ast.Name(spine_alias)),
+                )
+                aliased = col.set_alias(ast.Name(output_col_name))
+                aliased.set_as(True)
+                new_projection.append(aliased)
+            else:
+                # Additive measure: COALESCE(agg.<measure>, 0).
+                measure_ref = ast.Column(
+                    name=ast.Name(alias_name),
+                    _table=ast.Table(name=ast.Name(agg_alias)),
+                )
+                filled = zero_fill(measure_ref).set_alias(ast.Name(alias_name))
+                filled.set_as(True)
+                new_projection.append(filled)
+
+        dense_select = ast.Select(
+            projection=new_projection,
+            from_=ast.From(
+                relations=[
+                    ast.Relation(primary=spine_subquery, extensions=[join]),
+                ],
+            ),
+        )
+        base_metrics_cte.select = dense_select
+
 
 def wrap_with_output_restriction(
     result: "ast.Query",
