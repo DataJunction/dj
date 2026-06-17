@@ -2128,6 +2128,26 @@ class TestNonDecomposableMetrics:
         # lookback rows do not leak into the output.
         assert "= 20240131" in sql
 
+    @pytest.mark.asyncio
+    async def test_trailing_window_range_live(self, client_with_build_v3):
+        """A date range returns per-date trailing values (auto-inferred lookback, no extra param)."""
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.trailing_7d_revenue"],
+                "dimensions": ["v3.date.date_id[order]"],
+                "filters": ["v3.date.date_id >= 20240125", "v3.date.date_id <= 20240131"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = response.json()["sql"].upper()
+        # Scan expanded BELOW the range's lower bound by the frame extent...
+        data_between = sql.replace("ROWS BETWEEN", "ROWS__FRAME")
+        assert "BETWEEN" in data_between, "scan should be an expanded BETWEEN range"
+        assert "AND 20240131" in data_between, "expanded scan upper bound = requested range upper"
+        # ...and the requested range re-applied ABOVE the window (output restriction).
+        assert "20240125" in sql and "20240131" in sql
+
 
 class TestMetricsSQLNestedDerived:
     """

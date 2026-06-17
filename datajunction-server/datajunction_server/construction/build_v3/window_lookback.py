@@ -182,16 +182,20 @@ def _read_lookback_role_aware(
 def _order_filter_bounds(
     filter_ast: ast.Expression,
     order_col_name: str,
-) -> Optional[tuple[ast.Expression, ast.Expression]]:
+) -> Optional[tuple[Optional[ast.Expression], Optional[ast.Expression]]]:
     """
     Read (low, high) bounds off a dimension filter that constrains the order
     column, or None if this filter does not constrain it.
 
     Supports the shapes the live path needs to expand:
-      - ``col = R``            -> (R, R)
-      - ``col BETWEEN A AND B``-> (A, B)
-      - ``col >= A`` paired with ``col <= B`` is *not* handled here (each arm is
-        a separate filter string); single-sided predicates are left untouched.
+      - ``col = R``             -> (R, R)            (a self-contained point)
+      - ``col BETWEEN A AND B`` -> (A, B)            (a self-contained range)
+      - ``col >= A`` / ``col > A`` -> (A, None)      (a low-only partial bound)
+      - ``col <= B`` / ``col < B`` -> (None, B)      (a high-only partial bound)
+
+    Partial bounds (one side ``None``) let the caller stitch a range expressed
+    as two separate filter strings (``col >= A`` and ``col <= B``) into a single
+    ``[A, B]`` extent. The caller is responsible for combining them.
     """
     cols = [
         c
@@ -204,17 +208,24 @@ def _order_filter_bounds(
     if isinstance(filter_ast, ast.Between):
         return filter_ast.low, filter_ast.high
 
-    if (
-        isinstance(filter_ast, ast.BinaryOp)
-        and filter_ast.op == ast.BinaryOpKind.Eq
-    ):
-        # Whichever side is not the order column is the bound value.
+    if isinstance(filter_ast, ast.BinaryOp):
         left_is_col = (
             isinstance(filter_ast.left, ast.Column)
             and filter_ast.left.name.name == order_col_name
         )
+        # The value sits on whichever side is not the order column.
         value = filter_ast.right if left_is_col else filter_ast.left
-        return value, value
+        op = filter_ast.op
+
+        if op == ast.BinaryOpKind.Eq:
+            return value, value
+
+        # Normalize the comparison so it reads as ``col <op> value``: if the
+        # column is on the right (``value <op> col``), flip the direction.
+        if op in (ast.BinaryOpKind.GtEq, ast.BinaryOpKind.Gt):
+            return (value, None) if left_is_col else (None, value)
+        if op in (ast.BinaryOpKind.LtEq, ast.BinaryOpKind.Lt):
+            return (None, value) if left_is_col else (value, None)
 
     return None
 
@@ -337,25 +348,33 @@ def apply_live_window_lookback(ctx: "BuildContext") -> None:
         )
         validate_window_lookback(wl, order_is_sequence_dim)
 
-        # Find the dimension filter constraining the order column. We match on
-        # the *column* name since the user expresses the filter on the
-        # dimension ref (e.g. "v3.date.date_id = 20240131").
-        target_idx: Optional[int] = None
-        bounds: Optional[tuple[ast.Expression, ast.Expression]] = None
+        # Find the dimension filter(s) constraining the order column. We match
+        # on the *column* name since the user expresses the filter on the
+        # dimension ref (e.g. "v3.date.date_id = 20240131"). A range may be
+        # expressed as TWO separate filter strings (``col >= A`` and
+        # ``col <= B``); we collect partial bounds across all matching filters
+        # and stitch them into a single ``[low, high]`` extent.
+        target_indices: list[int] = []
+        low_expr: Optional[ast.Expression] = None
+        high_expr: Optional[ast.Expression] = None
         for idx, filter_str in enumerate(ctx.dimension_filters):
             filter_ast = parse_filter(filter_str)
             found = _order_filter_bounds(filter_ast, order_col_name)
-            if found is not None:
-                target_idx = idx
-                bounds = found
-                break
+            if found is None:
+                continue
+            found_low, found_high = found
+            if found_low is not None:
+                low_expr = found_low
+            if found_high is not None:
+                high_expr = found_high
+            target_indices.append(idx)
 
-        if target_idx is None or bounds is None:
-            # No narrowing predicate on the order column -> nothing to expand;
-            # the unbounded scan already feeds the frame correctly.
+        if not target_indices or low_expr is None or high_expr is None:
+            # No fully-bounded predicate on the order column -> nothing to
+            # expand; the unbounded scan already feeds the frame correctly.
+            # (A lone one-sided predicate, e.g. only ``col >= A``, has no upper
+            # bound to anchor the expansion and is left untouched.)
             continue
-
-        low_expr, high_expr = bounds
 
         # Resolve the order dimension's physical source table so the offset
         # subquery is self-contained (mirrors build_temporal_filter referencing
@@ -411,11 +430,14 @@ def apply_live_window_lookback(ctx: "BuildContext") -> None:
             # original filter in place (no expansion, no restriction).
             continue
 
-        # The original narrow predicate must NOT be pushed into the scan or the
-        # windowed query's WHERE (both would re-starve the frame). Remove it from
-        # the dimension filters and mark it consumed so the measures layer skips it.
-        consumed = ctx.dimension_filters.pop(target_idx)
-        ctx.pushdown_consumed_filters.add(consumed)
+        # The original narrow predicate(s) must NOT be pushed into the scan or
+        # the windowed query's WHERE (both would re-starve the frame). Remove
+        # them from the dimension filters and mark them consumed so the measures
+        # layer skips them. Pop in descending index order so earlier indices stay
+        # valid as we mutate the list.
+        for idx in sorted(target_indices, reverse=True):
+            consumed = ctx.dimension_filters.pop(idx)
+            ctx.pushdown_consumed_filters.add(consumed)
 
         # Record the original predicate to be applied ABOVE the window. The
         # windowed projection aliases a role-qualified order dimension as
