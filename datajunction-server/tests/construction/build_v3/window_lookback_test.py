@@ -131,3 +131,21 @@ def test_build_output_restriction_reapplies_requested_predicate():
     assert isinstance(out, ast.Between)
     assert out.low.value == 20240101
     assert out.high.value == 20240131
+
+
+from datajunction_server.construction.build_v3.window_lookback import resolve_offset_low
+
+
+def test_resolve_offset_low_builds_ranked_subquery():
+    dim_table = ast.Table(ast.Name("v3_date"))
+    expr = resolve_offset_low(
+        dim_table=dim_table,
+        order_col_name="dateint",
+        lower_expr=ast.Number(20240101),
+        extent=27,
+    )
+    rendered = str(expr).upper()
+    assert "DATEINT" in rendered
+    # The offset (limit/rank) appears: N positions before `lower` needs N+1 rows
+    # ranked descending, then MIN. extent=27 -> LIMIT 28.
+    assert "28" in rendered

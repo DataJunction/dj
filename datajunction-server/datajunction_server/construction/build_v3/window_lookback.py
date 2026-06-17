@@ -3,6 +3,7 @@ from typing import Optional
 
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.sql.parsing import ast
+from datajunction_server.sql.parsing.backends.antlr4 import parse
 
 ADDITIVE_WINDOW_AGGS = frozenset({"SUM", "COUNT"})
 
@@ -106,3 +107,30 @@ def build_output_restriction(
     """The originally-requested predicate, re-applied ABOVE the window so the
     lookback rows used to seed the frame do not leak into the result."""
     return ast.Between(expr=col_ref, low=low_expr, high=high_expr)
+
+
+def resolve_offset_low(
+    dim_table: ast.Table,
+    order_col_name: str,
+    lower_expr: ast.Expression,
+    extent: int,
+) -> ast.Expression:
+    """
+    Scalar expression for "the value `extent` positions before `lower`" in the
+    sequence dimension's order, built as a ranked scalar subquery so it works for
+    any orderable sequence dimension (not just arithmetic ones):
+
+        (SELECT MIN(__o.<col>) FROM (
+            SELECT <col> FROM <dim> WHERE <col> <= <lower>
+            ORDER BY <col> DESC LIMIT <extent + 1>
+         ) __o)
+    """
+    tbl = dim_table.name.name
+    sql = (
+        f"SELECT (SELECT MIN(__o.{order_col_name}) FROM ("
+        f"SELECT {order_col_name} FROM {tbl} "
+        f"WHERE {order_col_name} <= {str(lower_expr)} "
+        f"ORDER BY {order_col_name} DESC LIMIT {extent + 1}"
+        f") __o)"
+    )
+    return parse(sql).select.projection[0]
