@@ -54,8 +54,9 @@ class BuildContext:
     use_materialized: bool = True
 
     # Whether to apply server-side aggregation (default: True)
-    # When False, emits a flat SELECT with no GROUP BY and projects raw column
-    # references using v2-style amenable aliases (e.g., `node_DOT_column`).
+    # When False, emits a flat SELECT with no GROUP BY and projects each
+    # component column under its exact node column name (the v3-compatible
+    # output format, not the v2 `<node>_DOT_<column>` convention).
     # Pre-aggregation table matching is also bypassed in this mode, since the
     # callers asking for raw rows are typically applying their own aggregation
     # downstream. This is the v3 equivalent of v2's `preaggregate=False` mode.

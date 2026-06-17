@@ -10091,12 +10091,13 @@ class TestMeasuresSQLAggregateFalse:
 
     When ``aggregate=False``:
       - SQL is a flat SELECT with no GROUP BY
-      - Component columns project the raw inner expression with a v2-style
-        amenable alias (``<parent_node>_DOT_<column>``)
+      - Component columns project the raw inner expression under the exact
+        node column name (the v3-compatible output format — *not* the v2
+        ``<parent_node>_DOT_<column>`` convention)
       - Pre-aggregation table matching is bypassed (the caller asks for raw
         rows, which cannot be served from a pre-aggregated table)
       - ``metric_formulas[].combiner`` is populated and references the raw
-        column alias, so downstream callers know how to aggregate
+        column name, so downstream callers know how to aggregate
       - The default (``aggregate=True``) behavior is unchanged
 
     This mode targets callers that apply their own aggregation downstream
@@ -10109,7 +10110,7 @@ class TestMeasuresSQLAggregateFalse:
         """
         Binary indicator metric (``SUM(is_product_view)`` over a 0/1 column)
         with ``aggregate=False``: SQL must project the raw indicator, no
-        GROUP BY, and combiner must still be ``SUM(<raw_alias>)`` so the
+        GROUP BY, and combiner must still be ``SUM(<raw_column>)`` so the
         caller can aggregate downstream.
 
         This is the regression test for the production over-count: with
@@ -10141,21 +10142,22 @@ class TestMeasuresSQLAggregateFalse:
                 FROM default.v3.page_views
             )
             SELECT t1.page_date,
-                   t1.is_product_view
-                       v3_DOT_page_views_enriched_DOT_is_product_view
+                   t1.is_product_view is_product_view
             FROM v3_page_views_enriched t1
             """,
         )
 
         # No GROUP BY anywhere in the rendered SQL.
         assert "GROUP BY" not in gg["sql"].upper()
-        # The synthetic ``_sum_<hash>`` alias is NOT used; the v2-style
-        # amenable alias is used instead.
+        # The synthetic ``_sum_<hash>`` alias is NOT used; the raw node
+        # column name is projected instead.
         assert "is_product_view_sum_" not in gg["sql"]
-        assert "v3_DOT_page_views_enriched_DOT_is_product_view" in gg["sql"]
+        # The v3 output stays v3-shaped: no v2 ``_DOT_`` qualified aliases.
+        assert "_DOT_" not in gg["sql"]
+        assert "is_product_view" in gg["sql"]
 
-        # Column metadata: dimension preserved, component renamed to the
-        # v2-style amenable alias, semantic_entity preserved for internal
+        # Column metadata: dimension preserved, component projected under
+        # the raw node column name, semantic_entity preserved for internal
         # identity matching.
         assert gg["columns"] == [
             {
@@ -10165,7 +10167,7 @@ class TestMeasuresSQLAggregateFalse:
                 "semantic_type": "dimension",
             },
             {
-                "name": "v3_DOT_page_views_enriched_DOT_is_product_view",
+                "name": "is_product_view",
                 "type": "bigint",
                 "semantic_entity": (
                     "v3.product_view_count:is_product_view_sum_eb3a4b41"
@@ -10174,15 +10176,15 @@ class TestMeasuresSQLAggregateFalse:
             },
         ]
 
-        # Combiner must point at the raw column alias so downstream callers
+        # Combiner must point at the raw column name so downstream callers
         # know how to re-aggregate.
         assert result["metric_formulas"] == [
             {
                 "name": "v3.product_view_count",
                 "short_name": "product_view_count",
                 "query": "SELECT SUM(is_product_view) FROM v3.page_views_enriched",
-                "combiner": ("SUM(v3_DOT_page_views_enriched_DOT_is_product_view)"),
-                "components": ["v3_DOT_page_views_enriched_DOT_is_product_view"],
+                "combiner": "SUM(is_product_view)",
+                "components": ["is_product_view"],
                 "is_derived": False,
                 "parent_name": "v3.page_views_enriched",
             },
@@ -10217,20 +10219,20 @@ class TestMeasuresSQLAggregateFalse:
                     ON o.order_id = oi.order_id
             )
             SELECT t1.status,
-                   t1.line_total v3_DOT_order_details_DOT_line_total
+                   t1.line_total line_total
             FROM v3_order_details t1
             """,
         )
 
         assert "GROUP BY" not in gg["sql"].upper()
         assert "line_total_sum_" not in gg["sql"]
+        # v3 output stays v3-shaped: no v2 ``_DOT_`` qualified aliases.
+        assert "_DOT_" not in gg["sql"]
 
-        # Combiner references the raw v2-style alias.
+        # Combiner references the raw node column name.
         formula = response.json()["metric_formulas"][0]
-        assert formula["combiner"] == ("SUM(v3_DOT_order_details_DOT_line_total)")
-        assert formula["components"] == [
-            "v3_DOT_order_details_DOT_line_total",
-        ]
+        assert formula["combiner"] == "SUM(line_total)"
+        assert formula["components"] == ["line_total"]
 
     @pytest.mark.asyncio
     async def test_multi_metric_preserves_each_combiner(
@@ -10239,7 +10241,7 @@ class TestMeasuresSQLAggregateFalse:
     ):
         """
         Multi-metric request with ``aggregate=False``: each metric's combiner
-        is preserved and references its raw v2-style column alias.
+        is preserved and references its raw node column name.
         """
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
@@ -10262,24 +10264,20 @@ class TestMeasuresSQLAggregateFalse:
         assert len(result["grain_groups"]) == 1
         gg = result["grain_groups"][0]
         assert "GROUP BY" not in gg["sql"].upper()
+        # No v2 ``_DOT_`` qualified aliases in the rendered SQL.
+        assert "_DOT_" not in gg["sql"]
 
-        # Each component is a raw column with a v2-style alias.
+        # Each component is a raw column named after the node column.
         component_names = {c["name"] for c in gg["components"]}
-        assert "v3_DOT_order_details_DOT_line_total" in component_names
-        assert "v3_DOT_order_details_DOT_unit_price" in component_names
+        assert "line_total" in component_names
+        assert "unit_price" in component_names
 
         # Each metric_formula keeps its own combiner pointing at the raw
         # column(s) it aggregates over.
         formulas_by_name = {f["name"]: f for f in result["metric_formulas"]}
-        assert formulas_by_name["v3.total_revenue"]["combiner"] == (
-            "SUM(v3_DOT_order_details_DOT_line_total)"
-        )
-        assert formulas_by_name["v3.max_unit_price"]["combiner"] == (
-            "MAX(v3_DOT_order_details_DOT_unit_price)"
-        )
-        assert formulas_by_name["v3.min_unit_price"]["combiner"] == (
-            "MIN(v3_DOT_order_details_DOT_unit_price)"
-        )
+        assert formulas_by_name["v3.total_revenue"]["combiner"] == ("SUM(line_total)")
+        assert formulas_by_name["v3.max_unit_price"]["combiner"] == ("MAX(unit_price)")
+        assert formulas_by_name["v3.min_unit_price"]["combiner"] == ("MIN(unit_price)")
 
     @pytest.mark.asyncio
     async def test_default_aggregate_true_unchanged(
@@ -10366,22 +10364,18 @@ class TestMeasuresSQLAggregateFalseEndpoint:
         assert len(body["metric_formulas"]) == 1
 
         gg = body["grain_groups"][0]
-        # Raw-row semantics: no GROUP BY, raw v2-style alias on the
-        # component, no synthetic hash alias in the SQL or component name.
+        # Raw-row semantics: no GROUP BY, the component is projected under
+        # its exact node column name (v3-compatible output), no synthetic
+        # hash alias or v2 ``_DOT_`` qualified alias appears.
         assert "GROUP BY" not in gg["sql"].upper()
-        assert gg["components"][0]["name"] == (
-            "v3_DOT_page_views_enriched_DOT_is_product_view"
-        )
+        assert "_DOT_" not in gg["sql"]
+        assert gg["components"][0]["name"] == "is_product_view"
         assert gg["components"][0]["expression"] == "is_product_view"
         assert gg["components"][0]["aggregation"] == "SUM"
 
         # metric_formulas[].combiner is populated and points at the raw
-        # column alias for downstream re-aggregation.
+        # node column name for downstream re-aggregation.
         formula = body["metric_formulas"][0]
         assert formula["name"] == "v3.product_view_count"
-        assert formula["combiner"] == (
-            "SUM(v3_DOT_page_views_enriched_DOT_is_product_view)"
-        )
-        assert formula["components"] == [
-            "v3_DOT_page_views_enriched_DOT_is_product_view",
-        ]
+        assert formula["combiner"] == "SUM(is_product_view)"
+        assert formula["components"] == ["is_product_view"]

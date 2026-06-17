@@ -57,7 +57,6 @@ from datajunction_server.database.node import Node
 from datajunction_server.models.decompose import Aggregability, MetricComponent
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.parsing import ast
-from datajunction_server.naming import amenable_name
 from datajunction_server.utils import SEPARATOR
 from datajunction_server.construction.build_v3.alias_registry import AliasRegistry
 from datajunction_server.construction.build_v3.decomposition import (
@@ -1942,16 +1941,16 @@ def build_grain_group_sql(
 
         # When the caller has opted out of server-side aggregation (the v3
         # equivalent of v2's ``preaggregate=False``), project the raw inner
-        # expression with a v2-style amenable alias (e.g. ``v3_DOT_line_total``)
+        # expression under its exact node column name (e.g. ``is_product_view``)
         # instead of wrapping it in the component's aggregation (``SUM(...)``).
         # The downstream caller applies its own aggregation using the value of
         # ``metric_formulas[].combiner`` from the response, so emitting the
-        # aggregation server-side would double-count.
+        # aggregation server-side would double-count. Mirrors the existing
+        # NONE-aggregability path below: the v3 output stays v3-shaped (bare
+        # column names), not the v2 ``<node>_DOT_<column>`` convention.
         if not ctx.aggregate and component.expression:
             col_ast = make_column_ref(component.expression)
-            component_alias = amenable_name(
-                parent_node.name + SEPARATOR + component.expression,
-            )
+            component_alias = component.expression
             component_expressions.append((component_alias, col_ast))
             component_metadata.append(
                 (component_alias, component, metric_node),

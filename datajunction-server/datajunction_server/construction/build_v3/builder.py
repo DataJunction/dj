@@ -263,10 +263,11 @@ async def setup_build_context(
         include_temporal_filters: Whether to include temporal partition filters from cube
         lookback_window: Lookback window for temporal filters
         aggregate: Whether to apply server-side aggregation (GROUP BY). When False,
-            emits a flat SELECT with raw column projections and bypasses
-            pre-aggregation table matching. Used by callers that apply their
-            own aggregation downstream (semantic parity with v2's
-            ``preaggregate=False`` mode).
+            emits a flat SELECT projecting each component column under its
+            exact node column name (v3-compatible output format, not the v2
+            ``<node>_DOT_<column>`` convention) and bypasses pre-aggregation
+            table matching. Used by callers that apply their own aggregation
+            downstream (semantic parity with v2's ``preaggregate=False`` mode).
 
     Returns:
         Fully initialized BuildContext
@@ -380,10 +381,11 @@ async def build_measures_sql(
             If not provided, filters to exactly the logical timestamp partition.
         aggregate: If True (default), apply server-side aggregation at the
             requested grain. When False, emit a flat SELECT with no GROUP BY,
-            project raw column references using v2-style amenable aliases
-            (``node_DOT_column``), and bypass pre-aggregation table matching.
-            Intended for callers that apply their own aggregation downstream
-            (semantic parity with v2's ``preaggregate=False`` mode). The
+            project each component column under its exact node column name
+            (v3-compatible output format, not the v2 ``<node>_DOT_<column>``
+            convention), and bypass pre-aggregation table matching. Intended
+            for callers that apply their own aggregation downstream (semantic
+            parity with v2's ``preaggregate=False`` mode). The
             ``metric_formulas[].combiner`` field is still populated so callers
             know how to aggregate the raw output.
 
