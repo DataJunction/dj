@@ -85,15 +85,16 @@ from datajunction_server.construction.build_v3.window_lookback import build_dens
 
 
 def test_build_densify_join_is_left_join_on_order_col():
-    spine = ast.Table(ast.Name("spine"))
-    join = build_densify_join(
-        spine_table=spine,
-        spine_key=ast.Column(name=ast.Name("dateint"), _table=spine),
-        fact_key=ast.Column(name=ast.Name("utc_dateint")),
+    agg = ast.Table(ast.Name("__agg"))
+    on = ast.BinaryOp.Eq(
+        ast.Column(name=ast.Name("dateint")),
+        ast.Column(name=ast.Name("utc_dateint")),
     )
+    join = build_densify_join(agg_query=agg, on=on)
     assert isinstance(join, ast.Join)
     assert join.join_type == "LEFT"
-    assert join.right is spine
+    assert join.right is agg
+    assert join.criteria.on is on
     assert isinstance(join.criteria.on, ast.BinaryOp)
     assert join.criteria.on.op == ast.BinaryOpKind.Eq
 

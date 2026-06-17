@@ -68,20 +68,35 @@ def validate_window_lookback(wl: "WindowLookback", order_is_sequence_dim: bool) 
 
 
 def build_densify_join(
-    spine_table: ast.Table,
-    spine_key: ast.Column,
-    fact_key: ast.Column,
+    agg_query: ast.Expression,
+    on: ast.Expression,
 ) -> ast.Join:
     """
-    LEFT JOIN the driving fact to the sequence dimension's domain so every domain
-    value gets a row. Emitted as a LEFT join whose ON equates the spine key to the
-    fact's order key.
+    LEFT JOIN the original per-grain aggregation (``agg_query``, the join's right
+    side) onto the dense spine so every spine cell gets a row -- gap cells have a
+    NULL right side, later 0-filled. ``on`` is the full join predicate equating
+    the spine's grain columns (order column + any cohort columns) to the
+    aggregation's matching columns.
     """
     return ast.Join(
         join_type="LEFT",
-        right=spine_table,
-        criteria=ast.JoinCriteria(on=ast.BinaryOp.Eq(spine_key, fact_key)),
+        right=agg_query,
+        criteria=ast.JoinCriteria(on=on),
     )
+
+
+def _agg_copy(select: ast.Select, alias: str) -> "ast.Query":
+    """
+    A fresh parenthesized subquery over a DEEP COPY of the aggregation select,
+    used as the FROM of a cohort's DISTINCT-domain query. Copying avoids sharing
+    the AST node with the LEFT join's ``__agg`` right side (which would corrupt
+    re-parenting / printing).
+    """
+    sub = ast.Query(select=select.copy(), ctes=[])
+    sub.parenthesized = True
+    sub.alias = ast.Name(alias)
+    sub.as_ = True
+    return sub
 
 
 def zero_fill(measure_expr: ast.Expression) -> ast.Function:
@@ -563,22 +578,49 @@ def densify_window_base_metrics(
     counts calendar positions rather than physical fact rows.
 
     For each densification spec recorded by :func:`apply_live_window_lookback`,
-    the existing ``base_metrics`` SELECT (the per-date aggregation) is wrapped as
-    an inner ``agg`` subquery and LEFT-joined onto a spine -- the sequence
-    dimension's complete date domain over the expanded scan range
-    ``[offset_low, high]``. The order dimension is projected from the spine (so
-    gap dates appear), and every additive measure is wrapped in
-    ``COALESCE(measure, 0)`` so missing dates contribute 0.
+    the existing ``base_metrics`` SELECT (the per-grain aggregation) is wrapped as
+    an inner ``__agg`` subquery and LEFT-joined onto a spine -- the dense grain.
 
-    Resulting CTE shape::
+    When the only group-by dimension is the order column, the spine is the
+    sequence dimension's complete date domain over the expanded scan range
+    ``[offset_low, high]``::
 
         base_metrics AS (
-          SELECT spine.<key> AS <order_col>, COALESCE(agg.<m>, 0) AS <m>, ...
+          SELECT __spine.<key> AS <order_col>, COALESCE(__agg.<m>, 0) AS <m>, ...
           FROM (SELECT DISTINCT <key> FROM <dim>
-                WHERE <key> BETWEEN <offset_low> AND <high>) spine
-          LEFT JOIN (<original base_metrics select>) agg
-                 ON spine.<key> = agg.<order_col>
+                WHERE <key> BETWEEN <offset_low> AND <high>) __spine
+          LEFT JOIN (<original base_metrics select>) __agg
+                 ON __spine.<key> = __agg.<order_col>
         )
+
+    When the window is grouped by the order column AND one or more cohort
+    dimensions (e.g. ``(date x category)``), the spine is the CROSS PRODUCT of the
+    date domain with the DISTINCT cohort values present in the aggregation, so
+    every ``(date, cohort)`` cell exists and each ``PARTITION BY <cohort>`` frame
+    counts calendar positions per cohort. Cohort dimensions pass through from the
+    spine (they are NOT 0-filled); only the additive measures are
+    ``COALESCE(measure, 0)``::
+
+        base_metrics AS (
+          SELECT __spine.<key> AS <order_col>,
+                 __spine.<cohort> AS <cohort>,
+                 COALESCE(__agg.<m>, 0) AS <m>, ...
+          FROM (
+            SELECT __d.<key>, __c.<cohort>
+            FROM (SELECT DISTINCT <key> FROM <dim>
+                  WHERE <key> BETWEEN <offset_low> AND <high>) __d
+            CROSS JOIN (SELECT DISTINCT <cohort>
+                        FROM (<original base_metrics select>)) __c
+          ) __spine
+          LEFT JOIN (<original base_metrics select>) __agg
+                 ON __spine.<key> = __agg.<order_col>
+                AND __spine.<cohort> = __agg.<cohort>
+        )
+
+    Dimensions vs measures are classified off the aggregation's own projection:
+    a projection that wraps an aggregate (``is_aggregation()``) is a measure to
+    0-fill; every non-aggregation projection is a group-by dimension (the one
+    aliased ``output_col_name`` is the order column; the rest are cohort dims).
 
     No-op when no densification spec was registered.
     """
@@ -606,49 +648,135 @@ def densify_window_base_metrics(
     ) in ctx.live_window_densify_specs:
         original_select = base_metrics_cte.select
 
-        # The inner per-date aggregation becomes the right side of the LEFT join,
-        # aliased ``__agg``.  Detach it from its CTE parent first so re-parenting
-        # is clean.
+        # Classify the aggregation's projections off its OWN shape: a projection
+        # that wraps an aggregate is a measure to 0-fill; every non-aggregation
+        # projection is a group-by dimension. Among the dimensions, the one
+        # aliased ``output_col_name`` is the order column; the rest are cohort
+        # dimensions that must be cross-producted and passed through (NOT 0-filled).
+        cohort_cols: list[str] = []
+        measure_cols: list[str] = []
+        for proj in original_select.projection:
+            alias_name = proj.alias_or_name.name
+            if alias_name == output_col_name:
+                continue  # the order column, handled explicitly
+            if proj.is_aggregation():
+                measure_cols.append(alias_name)
+            else:
+                cohort_cols.append(alias_name)
+
+        # The inner per-grain aggregation becomes the right side of the LEFT join,
+        # aliased ``__agg``.  A second copy feeds each cohort's DISTINCT domain.
         agg_query = ast.Query(select=original_select, ctes=[])
         agg_query.parenthesized = True
         agg_query.alias = ast.Name(agg_alias)
         agg_query.as_ = True
 
-        # The spine: DISTINCT domain values of the sequence dimension over the
-        # expanded scan range.  Built with the dimension's physical table so it
-        # is self-contained (mirrors resolve_offset_low / the scan injection).
-        spine_query = parse(
+        # The date axis: DISTINCT domain values of the sequence dimension over the
+        # expanded scan range.  Built with the dimension's physical table so it is
+        # self-contained (mirrors resolve_offset_low / the scan injection).
+        date_axis = parse(
             f"SELECT DISTINCT {spine_key_col} FROM {spine_physical}",
         ).select
-        spine_query.where = build_scan_bounds(
+        date_axis.where = build_scan_bounds(
             ast.Column(name=ast.Name(spine_key_col)),
             high_expr,
             offset_low,
         )
-        spine_subquery = ast.Query(select=spine_query, ctes=[])
+
+        if cohort_cols:
+            # Cross-product spine: the date axis CROSS JOIN'd with the DISTINCT
+            # cohort tuple actually present in the aggregation, so every
+            # (date x cohort) cell exists. Each cohort domain reads from a fresh
+            # copy of the aggregation select.
+            date_axis_sub = ast.Query(select=date_axis, ctes=[])
+            date_axis_sub.parenthesized = True
+            date_axis_sub.alias = ast.Name("__d")
+            date_axis_sub.as_ = True
+
+            cohort_distinct = ast.Select(
+                projection=[
+                    ast.Column(name=ast.Name(c)) for c in cohort_cols
+                ],
+                from_=ast.From(
+                    relations=[
+                        ast.Relation(primary=_agg_copy(original_select, agg_alias)),
+                    ],
+                ),
+            )
+            cohort_distinct.quantifier = "DISTINCT"
+            cohort_sub = ast.Query(select=cohort_distinct, ctes=[])
+            cohort_sub.parenthesized = True
+            cohort_sub.alias = ast.Name("__c")
+            cohort_sub.as_ = True
+
+            cross_join = ast.Join(join_type="CROSS", right=cohort_sub)
+            spine_inner = ast.Select(
+                projection=[
+                    ast.Column(
+                        name=ast.Name(spine_key_col),
+                        _table=ast.Table(name=ast.Name("__d")),
+                    ),
+                    *[
+                        ast.Column(
+                            name=ast.Name(c),
+                            _table=ast.Table(name=ast.Name("__c")),
+                        )
+                        for c in cohort_cols
+                    ],
+                ],
+                from_=ast.From(
+                    relations=[
+                        ast.Relation(
+                            primary=date_axis_sub,
+                            extensions=[cross_join],
+                        ),
+                    ],
+                ),
+            )
+            spine_select: ast.Select = spine_inner
+        else:
+            spine_select = date_axis
+
+        spine_subquery = ast.Query(select=spine_select, ctes=[])
         spine_subquery.parenthesized = True
         spine_subquery.alias = ast.Name(spine_alias)
         spine_subquery.as_ = True
 
-        # LEFT JOIN agg onto the spine on the order column (reuses
-        # build_densify_join): spine.<key> = agg.<order_col>.
-        spine_key = ast.Column(
-            name=ast.Name(spine_key_col),
-            _table=ast.Table(name=ast.Name(spine_alias)),
+        # LEFT JOIN agg onto the spine on the order column AND every cohort column:
+        # __spine.<key> = __agg.<order_col> AND __spine.<cohort> = __agg.<cohort>.
+        on_expr: ast.Expression = ast.BinaryOp.Eq(
+            ast.Column(
+                name=ast.Name(spine_key_col),
+                _table=ast.Table(name=ast.Name(spine_alias)),
+            ),
+            ast.Column(
+                name=ast.Name(output_col_name),
+                _table=ast.Table(name=ast.Name(agg_alias)),
+            ),
         )
-        fact_key = ast.Column(
-            name=ast.Name(output_col_name),
-            _table=ast.Table(name=ast.Name(agg_alias)),
-        )
-        join = build_densify_join(agg_query, spine_key, fact_key)
+        for c in cohort_cols:
+            on_expr = ast.BinaryOp.And(
+                on_expr,
+                ast.BinaryOp.Eq(
+                    ast.Column(
+                        name=ast.Name(c),
+                        _table=ast.Table(name=ast.Name(spine_alias)),
+                    ),
+                    ast.Column(
+                        name=ast.Name(c),
+                        _table=ast.Table(name=ast.Name(agg_alias)),
+                    ),
+                ),
+            )
+        join = build_densify_join(agg_query, on_expr)
 
-        # Rebuild the projection: the order dimension comes from the spine (so
-        # gap dates survive), every other (measure) column is 0-filled from agg.
+        # Rebuild the projection: the order column + cohort dims come from the
+        # spine (so gap cells survive and cohort dims keep their real type);
+        # every measure is 0-filled from agg.
         new_projection: list[ast.Expression] = []
         for proj in original_select.projection:
             alias_name = proj.alias_or_name.name
             if alias_name == output_col_name:
-                # Order dimension: take it from the spine domain.
                 col = ast.Column(
                     name=ast.Name(spine_key_col),
                     _table=ast.Table(name=ast.Name(spine_alias)),
@@ -656,8 +784,7 @@ def densify_window_base_metrics(
                 aliased = col.set_alias(ast.Name(output_col_name))
                 aliased.set_as(True)
                 new_projection.append(aliased)
-            else:
-                # Additive measure: COALESCE(agg.<measure>, 0).
+            elif alias_name in measure_cols:
                 measure_ref = ast.Column(
                     name=ast.Name(alias_name),
                     _table=ast.Table(name=ast.Name(agg_alias)),
@@ -665,6 +792,15 @@ def densify_window_base_metrics(
                 filled = zero_fill(measure_ref).set_alias(ast.Name(alias_name))
                 filled.set_as(True)
                 new_projection.append(filled)
+            else:
+                # Cohort dimension: pass through from the spine, NOT 0-filled.
+                col = ast.Column(
+                    name=ast.Name(alias_name),
+                    _table=ast.Table(name=ast.Name(spine_alias)),
+                )
+                aliased = col.set_alias(ast.Name(alias_name))
+                aliased.set_as(True)
+                new_projection.append(aliased)
 
         dense_select = ast.Select(
             projection=new_projection,

@@ -2206,6 +2206,28 @@ class TestNonDecomposableMetrics:
         assert "AND 20240131" in data_between
 
     @pytest.mark.asyncio
+    async def test_trailing_window_densified_by_cohort(self, client_with_build_v3):
+        """(date x cohort): each cohort gets a dense date series; cohort dim is NOT
+        COALESCE'd, and the spine is a cross-product so per-partition frames count
+        calendar positions."""
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.trailing_7d_revenue"],
+                "dimensions": ["v3.date.date_id[order]", "v3.product.category"],
+                "filters": ["v3.date.date_id >= 20240125", "v3.date.date_id <= 20240131"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = response.json()["sql"].upper()
+        # cohort dimension must NOT be coalesced to 0 ...
+        assert "COALESCE(__AGG.CATEGORY" not in sql and "COALESCE(CATEGORY" not in sql
+        # ... the additive measure still is ...
+        assert "COALESCE" in sql
+        # ... and the spine is a cross-product over the cohort (dense per cohort).
+        assert "CROSS JOIN" in sql
+
+    @pytest.mark.asyncio
     async def test_trailing_window_redundant_range_reconciled(
         self,
         client_with_build_v3,
