@@ -79,3 +79,29 @@ def test_validate_rejects_non_additive():
 def test_validate_rejects_non_sequence_order_dim():
     with pytest.raises(DJInvalidInputException, match="orderable sequence dimension"):
         validate_window_lookback(_wl("SUM"), order_is_sequence_dim=False)
+
+
+from datajunction_server.construction.build_v3.window_lookback import build_densify_join, zero_fill
+
+
+def test_build_densify_join_is_left_join_on_order_col():
+    spine = ast.Table(ast.Name("spine"))
+    join = build_densify_join(
+        spine_table=spine,
+        spine_key=ast.Column(name=ast.Name("dateint"), _table=spine),
+        fact_key=ast.Column(name=ast.Name("utc_dateint")),
+    )
+    assert isinstance(join, ast.Join)
+    assert join.join_type == "LEFT"
+    assert join.right is spine
+    assert isinstance(join.criteria.on, ast.BinaryOp)
+    assert join.criteria.on.op == ast.BinaryOpKind.Eq
+
+
+def test_zero_fill_wraps_additive_measure():
+    measure = ast.Column(name=ast.Name("daily_visits"))
+    wrapped = zero_fill(measure)
+    assert isinstance(wrapped, ast.Function)
+    assert wrapped.name.name.upper() == "COALESCE"
+    assert wrapped.args[0] is measure
+    assert isinstance(wrapped.args[1], ast.Number) and wrapped.args[1].value == 0

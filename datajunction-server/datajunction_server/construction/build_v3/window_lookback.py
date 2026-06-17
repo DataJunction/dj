@@ -60,3 +60,25 @@ def validate_window_lookback(wl: "WindowLookback", order_is_sequence_dim: bool) 
                 "gap-fill semantics for averages are not yet defined."
             ),
         )
+
+
+def build_densify_join(
+    spine_table: ast.Table,
+    spine_key: ast.Column,
+    fact_key: ast.Column,
+) -> ast.Join:
+    """
+    LEFT JOIN the driving fact to the sequence dimension's domain so every domain
+    value gets a row. Emitted as a LEFT join whose ON equates the spine key to the
+    fact's order key.
+    """
+    return ast.Join(
+        join_type="LEFT",
+        right=spine_table,
+        criteria=ast.JoinCriteria(on=ast.BinaryOp.Eq(spine_key, fact_key)),
+    )
+
+
+def zero_fill(measure_expr: ast.Expression) -> ast.Function:
+    """Wrap an additive measure in COALESCE(measure, 0) for densified gap rows."""
+    return ast.Function(ast.Name("COALESCE"), args=[measure_expr, ast.Number(0)])
