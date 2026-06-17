@@ -20,7 +20,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from contextlib import AsyncExitStack, asynccontextmanager, nullcontext
+from collections.abc import Callable
+from contextlib import AbstractContextManager, AsyncExitStack, asynccontextmanager, nullcontext
 from typing import Optional
 
 from fastapi import FastAPI
@@ -38,7 +39,12 @@ logger = logging.getLogger(__name__)
 __all__ = ["mount_mcp", "get_mcp_session"]
 
 
-def mount_mcp(app: FastAPI, path: str = "/mcp", *, request_context=None) -> None:
+def mount_mcp(
+    app: FastAPI,
+    path: str = "/mcp",
+    *,
+    request_context: Optional[Callable[[Scope], AbstractContextManager[object]]] = None,
+) -> None:
     """Mount the MCP HTTP transport on ``app`` at ``path``.
 
     Stateless mode: every request is independent (no MCP session tracking
@@ -90,8 +96,8 @@ def mount_mcp(app: FastAPI, path: str = "/mcp", *, request_context=None) -> None
         session_factory = get_session_manager().get_writer_session_factory()
         async with session_factory() as session:
             token = _session_var.set(session)
-            cm = request_context(scope) if request_context is not None else nullcontext()
             try:
+                cm = request_context(scope) if request_context is not None else nullcontext()
                 with cm:
                     await session_manager.handle_request(scope, receive, send)
             finally:
