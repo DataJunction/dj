@@ -53,3 +53,29 @@ def test_read_window_lookback_extent_and_order_col():
 def test_read_window_lookback_none_when_no_window():
     plain = ast.Function(ast.Name("SUM"), args=[ast.Column(name=ast.Name("x"))])
     assert read_window_lookback(plain) is None
+
+
+import pytest
+from datajunction_server.construction.build_v3.window_lookback import (
+    WindowLookback, validate_window_lookback,
+)
+from datajunction_server.errors import DJInvalidInputException
+
+
+def _wl(agg="SUM"):
+    return WindowLookback(extent=27, order_column=ast.Column(name=ast.Name("dateint")), agg_name=agg)
+
+
+def test_validate_accepts_additive():
+    validate_window_lookback(_wl("SUM"), order_is_sequence_dim=True)  # no raise
+    validate_window_lookback(_wl("COUNT"), order_is_sequence_dim=True)
+
+
+def test_validate_rejects_non_additive():
+    with pytest.raises(DJInvalidInputException, match="additive"):
+        validate_window_lookback(_wl("AVG"), order_is_sequence_dim=True)
+
+
+def test_validate_rejects_non_sequence_order_dim():
+    with pytest.raises(DJInvalidInputException, match="orderable sequence dimension"):
+        validate_window_lookback(_wl("SUM"), order_is_sequence_dim=False)
