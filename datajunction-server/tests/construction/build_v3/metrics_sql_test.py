@@ -2098,6 +2098,36 @@ class TestNonDecomposableMetrics:
             },
         ]
 
+    @pytest.mark.asyncio
+    async def test_trailing_window_single_date_live(self, client_with_build_v3):
+        """A trailing-N window metric filtered to a single date scans [R-N, R] and outputs R."""
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.trailing_7d_revenue"],
+                "dimensions": ["v3.date.date_id[order]"],
+                "filters": ["v3.date.date_id = 20240131"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = response.json()["sql"].upper()
+        assert "BETWEEN" in sql
+        assert sql.count("20240131") >= 2
+        # The scan must be EXPANDED to a [R-N, R] range -- not narrowed to the
+        # single requested date, which would starve the trailing window frame.
+        # So a non-window (data) BETWEEN bounded above by the requested date
+        # must appear, distinct from the window's ``ROWS BETWEEN`` frame.
+        data_between = sql.replace("ROWS BETWEEN", "ROWS__FRAME")
+        assert "BETWEEN" in data_between, (
+            "scan should be an expanded BETWEEN range, found only a window frame"
+        )
+        assert "AND 20240131" in data_between, (
+            "the expanded scan's upper bound should be the requested date"
+        )
+        # The single-date predicate must still be re-applied ABOVE the window so
+        # lookback rows do not leak into the output.
+        assert "= 20240131" in sql
+
 
 class TestMetricsSQLNestedDerived:
     """

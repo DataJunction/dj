@@ -122,6 +122,15 @@ class BuildContext:
     # ResolvedDimension for these and skips the unreachable-dim error.
     pushdown_resolved_dims: set[str] = field(default_factory=set)
 
+    # Live frame-aware window lookback: output restriction(s) on the order
+    # column that must be applied ABOVE the window (in a wrapper SELECT), not
+    # in the windowed query's own WHERE (which SQL evaluates before the window
+    # and would re-starve the trailing frame).  Populated by
+    # ``apply_live_window_lookback``; each entry is (output_column_name, filter_ast).
+    live_window_output_restrictions: list[tuple[str, "ast.Expression"]] = field(
+        default_factory=list,
+    )
+
     def next_table_alias(self, base_name: str) -> str:
         """Generate a unique table alias."""
         self._table_alias_counter += 1

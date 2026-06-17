@@ -34,6 +34,10 @@ from datajunction_server.construction.build_v3.metrics import (
     generate_metrics_sql,
     classify_filters,
 )
+from datajunction_server.construction.build_v3.window_lookback import (
+    apply_live_window_lookback,
+    wrap_with_output_restriction,
+)
 from datajunction_server.construction.build_v3.types import (
     BuildContext,
     GeneratedMeasuresSQL,
@@ -485,6 +489,7 @@ async def build_metrics_sql(
     use_materialized: bool = True,
     matched_cube: Optional[NodeRevision] = None,
     query_parameters: dict[str, Any] | None = None,
+    lookback_window: str | None = None,
 ) -> GeneratedSQL:
     """
     Build metrics SQL for a set of metrics and dimensions.
@@ -535,7 +540,14 @@ async def build_metrics_sql(
         filters=filters,
         dialect=dialect,
         use_materialized=use_materialized,
+        lookback_window=lookback_window,
     )
+
+    # Frame-aware live window lookback: when a requested metric carries a row/
+    # range window frame and a filter narrows the order dimension, expand the
+    # scan to feed the frame and register the output restriction to re-apply
+    # ABOVE the window (see apply_live_window_lookback / wrap_with_output_restriction).
+    apply_live_window_lookback(ctx)
 
     # Use materialized cube when dialect is DRUID (explicit or auto-detected above).
     # Use pre-resolved cube if available (avoids duplicate find_matching_cube call).
@@ -572,6 +584,10 @@ async def build_metrics_sql(
             orderby,
             limit,
         )
+
+    # Apply the live-window output restriction ABOVE the window (wraps the
+    # windowed query in an outer SELECT). No-op unless lookback expanded a scan.
+    result.query = wrap_with_output_restriction(result.query, ctx)
 
     substitute_query_params(result.query, query_parameters or {})
 
