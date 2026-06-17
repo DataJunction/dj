@@ -4,10 +4,68 @@ Test serializable mixin for dict to dataclass conversion
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from datajunction._base import SerializableMixin
 from datajunction._internal import DJClient
+
+
+@dataclass
+class CandidateA(SerializableMixin):
+    """A union member that only accepts items discriminated by ``kind == 'a'``."""
+
+    kind: str
+    a_value: str
+
+    @classmethod
+    def from_dict(cls, dj_client, data):
+        if data.get("kind") != "a":
+            raise TypeError("not a CandidateA")
+        return super().from_dict(dj_client, data)
+
+
+@dataclass
+class CandidateB(SerializableMixin):
+    """A union member that only accepts items discriminated by ``kind == 'b'``."""
+
+    kind: str
+    b_value: str
+
+    @classmethod
+    def from_dict(cls, dj_client, data):
+        if data.get("kind") != "b":
+            raise TypeError("not a CandidateB")
+        return super().from_dict(dj_client, data)
+
+
+@dataclass
+class UnionListHolder(SerializableMixin):
+    """Holds a list whose inner type is a discriminated union of dataclasses."""
+
+    items: List[Union[CandidateA, CandidateB]]
+
+
+def test_serialize_union_list_fallback():
+    """
+    When a list's inner type is a union of candidates, each item is tried
+    against every candidate; a candidate that raises TypeError/AttributeError
+    is skipped in favor of the next one that accepts the item.
+    """
+    holder = UnionListHolder.from_dict(
+        dj_client=None,
+        data={
+            "items": [
+                {"kind": "a", "a_value": "x"},
+                {"kind": "b", "b_value": "y"},
+            ],
+        },
+    )
+    assert holder == UnionListHolder(
+        items=[
+            CandidateA(kind="a", a_value="x"),
+            CandidateB(kind="b", b_value="y"),
+        ],
+    )
 
 
 @dataclass

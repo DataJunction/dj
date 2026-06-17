@@ -3191,6 +3191,7 @@ class DeploymentOrchestrator:
                     node_graph,
                     self.session,
                     dependency_nodes=dependency_nodes,
+                    deployment_namespace=self.deployment_spec.namespace,
                 )
             p.append(f"{len(validation_results)} results")
 

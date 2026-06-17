@@ -2441,6 +2441,20 @@ def infer_type(arg1: ct.StringType, arg2: ct.StringType) -> ct.ColumnType:
     return ct.TimestampType()
 
 
+class FromBigEndian_64(Function):
+    """
+    from_big_endian_64(binary) - Decodes a 64-bit two's complement big endian value
+    from a varbinary and returns it as a bigint. Trino-specific.
+    """
+
+    dialects = [Dialect.TRINO]
+
+
+@FromBigEndian_64.register  # type: ignore
+def infer_type(arg: ct.BinaryType) -> ct.BigIntType:
+    return ct.BigIntType()
+
+
 class Get(Function):
     """
     get(expr, index) - Retrieves an element from an array at the specified
@@ -3901,6 +3915,19 @@ def infer_type(arg: ct.NumberType) -> ct.DoubleType:
     return ct.DoubleType()
 
 
+class Pmod(Function):
+    """
+    pmod(expr1, expr2) - Returns the positive value of expr1 mod expr2.
+    """
+
+    dialects = [Dialect.SPARK]
+
+
+@Pmod.register  # type: ignore
+def infer_type(expr1: ct.NumberType, expr2: ct.NumberType) -> ct.NumberType:
+    return expr1.type
+
+
 class Pow(Function):
     """
     Raises a base expression to the power of an exponent expression.
@@ -4443,6 +4470,20 @@ def infer_type(
     return ct.TimestampType()
 
 
+class ToUtf8(Function):
+    """
+    to_utf8(string) - Encodes the string value into a UTF-8 varbinary representation.
+    Trino-specific.
+    """
+
+    dialects = [Dialect.TRINO]
+
+
+@ToUtf8.register  # type: ignore
+def infer_type(arg: ct.StringType) -> ct.BinaryType:
+    return ct.BinaryType()
+
+
 class Transform(Function):
     """
     transform(expr, func) - Transforms elements in an array
@@ -4798,6 +4839,26 @@ class Week(Function):
 
 @Week.register
 def infer_type(arg: Union[ct.StringType, ct.DateTimeBase]) -> ct.BigIntType:
+    return ct.BigIntType()
+
+
+class Xxhash64(Function):
+    """
+    xxhash64(col1, col2, ...) - Returns a consistent 64-bit hash value.
+
+    In Spark, accepts one or more columns of any type and returns bigint.
+    In Trino, accepts a single varbinary argument and returns varbinary;
+    use from_big_endian_64(xxhash64(to_utf8(...))) to obtain a bigint.
+    """
+
+
+@Xxhash64.register  # type: ignore
+def infer_type(arg: ct.BinaryType) -> ct.BinaryType:
+    return ct.BinaryType()
+
+
+@Xxhash64.register  # type: ignore
+def infer_type(*args: ct.ColumnType) -> ct.BigIntType:
     return ct.BigIntType()
 
 

@@ -601,10 +601,15 @@ class DJCLI:
                 )
                 return
 
-            # Handle error responses
-            if isinstance(result, dict) and "message" in result:
-                console.print(f"[bold red]ERROR:[/bold red] {result['message']}")
-                return
+            # Handle error responses and raw dict responses.
+            # data() / node_data() should return a DataFrame via process_results,
+            # but if the raw query response dict is returned instead, try to
+            # process it here rather than crashing on result.columns.
+            if isinstance(result, dict):
+                if "message" in result:
+                    console.print(f"[bold red]ERROR:[/bold red] {result['message']}")
+                    return
+                result = self.builder_client.process_results(result)
 
             # result should be a DataFrame (already limited by API)
             if format == "json":
@@ -957,6 +962,27 @@ class DJCLI:
             type=str,
             default="GITHUB_TOKEN",
             help="Name of the env var holding the GitHub token (default: GITHUB_TOKEN)",
+        )
+        codeowners_parser.add_argument(
+            "--default-owner",
+            type=str,
+            default=None,
+            help=(
+                "Owner for a leading `* <owner>` rule. Unmatched files and any "
+                "--exclude'd directories fall through to it (e.g. '@org/team')."
+            ),
+        )
+        codeowners_parser.add_argument(
+            "--exclude",
+            action="append",
+            default=None,
+            dest="exclude_dirs",
+            metavar="DIR",
+            help=(
+                "Directory (relative to <directory>) whose nodes get no per-file "
+                "owners — they fall through to --default-owner. Repeatable. Use for "
+                "machine-generated trees like 'nodes/generated'."
+            ),
         )
 
         # `dj pull <namespace> <directory>`
@@ -1489,6 +1515,8 @@ class DJCLI:
                 output=args.output,
                 github_api_url=args.github_api_url,
                 github_token_env=args.github_token_env,
+                default_owner=args.default_owner,
+                exclude_dirs=args.exclude_dirs,
             )
             console = Console()
             console.print(

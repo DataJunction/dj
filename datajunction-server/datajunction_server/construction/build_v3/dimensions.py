@@ -295,11 +295,15 @@ def _resolve_filter_only_dim(
         ) == dim_ref.column_name:  # pragma: no cover
             return col.name
 
-    # Single BFS up parent_map; track both passthrough hits and pushdown
-    # candidates. Each upstream node is visited at most once.
+    # BFS up parent_map in sorted order so resolution is deterministic across
+    # processes (never set/hash order). Passthrough is only valid for DIRECT
+    # parents — a transitive upstream may share a column name without sharing
+    # lineage, so it goes to pushdown_candidates instead.
+    direct_parents_set: set[str] = set(ctx.parent_map.get(parent_node.name, []))
     visited: set[str] = {parent_node.name}
-    queue: list[str] = list(ctx.parent_map.get(parent_node.name, []))
-    pushdown_candidates: list[tuple[Node, str]] = []  # (linked_node, fk_col)
+    queue: list[str] = sorted(direct_parents_set)
+    passthrough: list[tuple[Node, str]] = []
+    pushdown_candidates: list[tuple[Node, str]] = []
     while queue:
         up_name = queue.pop(0)
         if up_name in visited:
@@ -314,12 +318,25 @@ def _resolve_filter_only_dim(
                 if fk_fqn is None:  # pragma: no cover
                     continue
                 fk_col = get_short_name(fk_fqn)
-                if fk_col in parent_cols:
-                    # Upstream FK passthrough: filter resolves on the
-                    # parent directly. No pushdown needed.
-                    return fk_col
-                pushdown_candidates.append((up_node, fk_col))
-        queue.extend(ctx.parent_map.get(up_name, []))
+                if fk_col in parent_cols and up_name in direct_parents_set:
+                    passthrough.append((up_node, fk_col))
+                else:
+                    pushdown_candidates.append((up_node, fk_col))
+        queue.extend(sorted(ctx.parent_map.get(up_name, [])))
+
+    # One passthrough col → resolve locally. Multiple → a filter-only dim has
+    # no output-column ambiguity, so apply to all: push each into its owning CTE.
+    passthrough_cols = sorted({fk_col for _, fk_col in passthrough})
+    if len(passthrough_cols) == 1:
+        return passthrough_cols[0]
+    if len(passthrough_cols) > 1:
+        if _register_pushdown_into_upstream(  # pragma: no branch
+            ctx,
+            original_ref,
+            passthrough,
+        ):
+            ctx.pushdown_resolved_dims.add(original_ref)
+        return None
 
     if pushdown_candidates and _register_pushdown_into_upstream(
         ctx,

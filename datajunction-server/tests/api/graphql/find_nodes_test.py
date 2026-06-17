@@ -2733,11 +2733,11 @@ async def test_is_derived_metric_field(
 
 
 @pytest.mark.asyncio
-async def test_find_cubes_name_only_with_tag_filter(
+async def test_find_cubes_scalar_only_with_tag_filter(
     client_with_roads: AsyncClient,
 ) -> None:
     """
-    Test the name-only fast path for cubeMetrics/cubeDimensions with a tag
+    Test the scalar-only fast path for cubeMetrics/cubeDimensions with a tag
     filter.  Exercises: tag ID pre-filter, raw column attachment, _DOT_
     metric identification, git info DataLoader, user load_only, and tag noload.
     """
@@ -2763,16 +2763,16 @@ async def test_find_cubes_name_only_with_tag_filter(
                 "default.hard_hat.city",
                 "default.hard_hat.state",
             ],
-            "description": "Name-only test cube",
+            "description": "Scalar-only test cube",
             "mode": "published",
-            "name": "default.name_only_cube",
+            "name": "default.scalar_only_cube",
         },
     )
     assert response.status_code < 400, response.json()
 
     # Tag the cube
     response = await client_with_roads.post(
-        "/nodes/default.name_only_cube/tags/?tag_names=cube_perf_test",
+        "/nodes/default.scalar_only_cube/tags/?tag_names=cube_perf_test",
     )
     assert response.status_code < 400, response.json()
 
@@ -2818,12 +2818,12 @@ async def test_find_cubes_name_only_with_tag_filter(
     assert len(data["data"]["findNodes"]) == 1
     cube = data["data"]["findNodes"][0]
 
-    assert cube["name"] == "default.name_only_cube"
+    assert cube["name"] == "default.scalar_only_cube"
     assert cube["createdBy"]["username"] == "dj"
     assert cube["tags"] == [{"name": "cube_perf_test"}]
     assert cube["currentVersion"] == "v1.0"
-    assert cube["current"]["description"] == "Name-only test cube"
-    assert cube["current"]["displayName"] == "Name Only Cube"
+    assert cube["current"]["description"] == "Scalar-only test cube"
+    assert cube["current"]["displayName"] == "Scalar Only Cube"
     assert cube["gitInfo"] is None  # No git config in test fixture
 
     metric_names = sorted(m["name"] for m in cube["current"]["cubeMetrics"])
@@ -3325,7 +3325,7 @@ async def test_cube_columns_and_cube_metrics_together(
 ) -> None:
     """
     Requesting ``columns { displayName }`` alongside ``cubeMetrics { name }``
-    on a cube must not crash. Regression for the case where the name-only
+    on a cube must not crash. Regression for the case where the scalar-only
     fast path overwrote ``current.columns`` with lightweight ``_RawColumn``
     stand-ins — which don't carry ``display_name`` — even though the client
     also asked for the full columns data.
@@ -3380,12 +3380,366 @@ async def test_cube_columns_and_cube_metrics_together(
 
 
 @pytest.mark.asyncio
-async def test_cube_name_only_fast_path_on_non_cube_node(
+async def test_cube_scalar_current_with_full_revisions_columns(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    Requesting a scalar-only ``current { cubeMetrics }`` alongside
+    ``revisions { columns { displayName } }`` must return correct data for both.
+
+    ``node.current`` shares ORM identity with the matching entry in
+    ``node.revisions`` (same NodeRevision row in one session). The cube fast
+    path attaches its raw rows onto separate attributes (``_cube_raw_columns``
+    etc.) and never overwrites the ``columns`` relationship, so:
+      - ``revisions { columns }`` sees real ``Column`` objects (display_name,
+        partition, …) — previously these were clobbered ``_RawColumn`` stubs and
+        the query crashed on ``'_RawColumn' object has no attribute 'partition'``;
+      - ``current { cubeMetrics }`` is still served correctly from the raw rows.
+    """
+    response = await client_with_roads.post(
+        "/nodes/cube/",
+        json={
+            "metrics": [
+                "default.num_repair_orders",
+                "default.avg_repair_price",
+            ],
+            "dimensions": [
+                "default.hard_hat.city",
+                "default.hard_hat.state",
+            ],
+            "description": "Scalar current + full revisions columns test cube",
+            "mode": "published",
+            "name": "default.scalar_current_full_revisions_cube",
+        },
+    )
+    assert response.status_code < 400, response.json()
+
+    query = """
+    {
+        findNodes(names: ["default.scalar_current_full_revisions_cube"]) {
+            current {
+                cubeMetrics {
+                    name
+                }
+            }
+            revisions {
+                columns {
+                    name
+                    displayName
+                }
+            }
+        }
+    }
+    """
+    response = await client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+    # No crash (before the fix this raised "'_RawColumn' object has no attribute
+    # 'partition'" while resolving the shared current/revisions instance's
+    # columns).
+    assert "errors" not in data, data
+
+    node = data["data"]["findNodes"][0]
+    # current cube metrics still resolve from the raw rows...
+    assert sorted(m["name"] for m in node["current"]["cubeMetrics"]) == [
+        "default.avg_repair_price",
+        "default.num_repair_orders",
+    ]
+    # ...and every revision's columns are real Column objects (display_name
+    # present), not clobbered _RawColumn stubs.
+    assert node["revisions"]
+    for revision in node["revisions"]:
+        assert revision["columns"]
+        assert all(col["name"] and col["displayName"] for col in revision["columns"])
+
+
+@pytest.mark.asyncio
+async def test_cube_dimensions_role_stays_on_fast_path(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    ``cubeDimensions { name role type }`` must serve from the scalar-only fast
+    path: ``role`` is derivable from each raw column's ``dimension_column``, so it
+    should not force the full ORM cube_elements load.
+
+    Asserts the fast path is engaged (``_attach_raw_columns`` runs) and that the
+    resolved values are correct — including the role normalization (a missing
+    role serializes as ``""``, never ``null``, matching the full ORM path in
+    ``test_find_cubes_full_query``).
+
+    NOTE: this test must not also fire a *full*-path query against the same cube.
+    The test harness shares one ``AsyncSession`` across requests (see the
+    ``client_with_roads`` fixture, ``expire_on_commit=False``), so once the fast
+    path has ``noload``ed ``cube_elements`` on the cached revision, a later
+    full-path request reuses that instance with no elements loaded and resolves
+    empty. That's a fixture artifact (production uses a fresh session per
+    request); the full-path values are pinned by ``test_find_cubes_full_query``.
+    """
+    response = await client_with_roads.post(
+        "/nodes/cube/",
+        json={
+            "metrics": ["default.num_repair_orders", "default.avg_repair_price"],
+            "dimensions": ["default.hard_hat.city", "default.hard_hat.state"],
+            "description": "role fast-path test cube",
+            "mode": "published",
+            "name": "default.role_fast_path_cube",
+        },
+    )
+    assert response.status_code < 400, response.json()
+
+    # { name role type } — scalar-only: must hit the fast path (raw attach runs).
+    fast_query = """
+    {
+        findNodes(names: ["default.role_fast_path_cube"]) {
+            current {
+                cubeDimensions { name role type }
+            }
+        }
+    }
+    """
+    import datajunction_server.api.graphql.resolvers.nodes as nodes_module
+
+    raw_attach_calls = []
+    original_attach = nodes_module._attach_raw_columns
+
+    async def _spy_attach(session, result):
+        raw_attach_calls.append(len(result))
+        return await original_attach(session, result)
+
+    with mock.patch.object(nodes_module, "_attach_raw_columns", _spy_attach):
+        fast_response = await client_with_roads.post(
+            "/graphql",
+            json={"query": fast_query},
+        )
+    assert fast_response.status_code == 200
+    fast_data = fast_response.json()
+    assert "errors" not in fast_data, fast_data
+    # The raw-column attach ran -> the scalar-only fast path was taken, i.e. the
+    # added `role` field did NOT bump the selection onto the full ORM path.
+    assert raw_attach_calls, "expected _attach_raw_columns to run on the fast path"
+
+    dims = {
+        d["name"]: d
+        for d in fast_data["data"]["findNodes"][0]["current"]["cubeDimensions"]
+    }
+    assert set(dims) == {"default.hard_hat.city", "default.hard_hat.state"}
+    for dim in dims.values():
+        # role normalized to "" (not None) on the fast path, matching full path.
+        assert dim["role"] == ""
+        assert dim["type"] == "string"
+
+
+@pytest.mark.asyncio
+async def test_cube_metrics_under_revisions(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    Regression: ``revisions { cubeMetrics { ... } }`` must return the cube's
+    metrics, not an empty list.
+
+    The cube scalar-only fast path (``noload(cube_elements)`` plus raw scalar
+    attachment) is only wired up for ``current`` — ``_attach_raw_columns`` never
+    populates historical ``revisions``. Because ``load_node_revision_options``
+    is shared between ``current`` and ``revisions``, the scalar-only noload used
+    to apply to ``revisions`` too, leaving the resolver with neither ORM
+    cube_elements nor attached raw scalars, so ``cubeMetrics``/``cubeDimensions``
+    resolved empty for every scalar-only revisions selection (name-only and the
+    broadened ``description``/``displayName`` siblings alike).
+    """
+    response = await client_with_roads.post(
+        "/nodes/cube/",
+        json={
+            "metrics": [
+                "default.num_repair_orders",
+                "default.avg_repair_price",
+            ],
+            "dimensions": [
+                "default.hard_hat.city",
+                "default.hard_hat.state",
+            ],
+            "description": "Revisions cube-metrics test cube",
+            "mode": "published",
+            "name": "default.revisions_cube_metrics_cube",
+        },
+    )
+    assert response.status_code < 400, response.json()
+
+    expected_metrics = [
+        "default.avg_repair_price",
+        "default.num_repair_orders",
+    ]
+    expected_descriptions = {
+        "default.num_repair_orders": "Number of repair orders",
+        "default.avg_repair_price": "Average repair price",
+    }
+
+    # 1. Scalar-only cubeMetrics under revisions: name + sibling scalar fields.
+    #    Asserting on description/displayName proves the fast path's sibling
+    #    fields flow through the (full) revisions path, not just `name`.
+    query = """
+    {
+        findNodes(names: ["default.revisions_cube_metrics_cube"]) {
+            revisions {
+                cubeMetrics {
+                    name
+                    description
+                    displayName
+                }
+                cubeDimensions {
+                    name
+                }
+            }
+        }
+    }
+    """
+    response = await client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+    assert "errors" not in data, data
+
+    revisions = data["data"]["findNodes"][0]["revisions"]
+    assert revisions, "expected at least one revision"
+    for revision in revisions:
+        metric_names = sorted(m["name"] for m in revision["cubeMetrics"])
+        assert metric_names == expected_metrics
+        # Sibling scalar fields resolve (not just name) on the revisions path.
+        for metric in revision["cubeMetrics"]:
+            assert metric["description"] == expected_descriptions[metric["name"]]
+            assert metric["displayName"]
+        dim_names = sorted(d["name"] for d in revision["cubeDimensions"])
+        assert "default.hard_hat.city" in dim_names
+        assert "default.hard_hat.state" in dim_names
+
+    # 2. Combined current + revisions in one query: the current scalar-only fast
+    #    path must not suppress the revisions metrics. (The request-level flag is
+    #    on for `current`; the resolver must still take the full path per-revision
+    #    where the raw scalars were never attached.)
+    combined_query = """
+    {
+        findNodes(names: ["default.revisions_cube_metrics_cube"]) {
+            current {
+                cubeMetrics {
+                    name
+                }
+            }
+            revisions {
+                cubeMetrics {
+                    name
+                }
+            }
+        }
+    }
+    """
+    response = await client_with_roads.post(
+        "/graphql",
+        json={"query": combined_query},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "errors" not in data, data
+
+    node = data["data"]["findNodes"][0]
+    assert sorted(m["name"] for m in node["current"]["cubeMetrics"]) == expected_metrics
+    for revision in node["revisions"]:
+        assert sorted(m["name"] for m in revision["cubeMetrics"]) == expected_metrics
+
+
+@pytest.mark.asyncio
+async def test_cube_metrics_aliased_scalar_and_full_selections(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    Regression: two aliased ``findNodes`` selections in one operation — one
+    scalar-only, one full — must both resolve their cubeMetrics correctly.
+
+    Both selections share a single ``info.context``. When the fast path was
+    gated on a ``cube_scalar_only`` context flag, the full selection's resolver
+    overwrote that flag before the scalar-only selection resolved its nested
+    fields. The scalar-only result has ``cube_elements`` noloaded and raw
+    scalars attached, so falling through to the full path returned empty
+    metrics. The resolvers now key off the per-revision marker plus this
+    selection's own requested fields, so neither result depends on shared
+    request state.
+
+    Two distinct cubes are used so the full selection genuinely flips what was
+    the shared flag without colliding on a shared ORM instance (the test harness
+    uses one session for all resolvers; production uses one per resolver).
+    """
+    for name, description in (
+        ("default.aliased_scalar_cube", "Scalar-only side"),
+        ("default.aliased_full_cube", "Full side"),
+    ):
+        response = await client_with_roads.post(
+            "/nodes/cube/",
+            json={
+                "metrics": [
+                    "default.num_repair_orders",
+                    "default.avg_repair_price",
+                ],
+                "dimensions": [
+                    "default.hard_hat.city",
+                    "default.hard_hat.state",
+                ],
+                "description": description,
+                "mode": "published",
+                "name": name,
+            },
+        )
+        assert response.status_code < 400, response.json()
+
+    expected_metrics = [
+        "default.avg_repair_price",
+        "default.num_repair_orders",
+    ]
+
+    # ``scalarA`` (scalar-only) is declared before ``fullB`` (a full cube load on
+    # a different cube). ``fullB`` resolving sets what used to be the shared
+    # ``cube_scalar_only`` flag to False before ``scalarA``'s nested cube fields
+    # resolve — the exact ordering that previously emptied ``scalarA``.
+    query = """
+    {
+        scalarA: findNodes(names: ["default.aliased_scalar_cube"]) {
+            current {
+                cubeMetrics { name }
+                cubeDimensions { name }
+            }
+        }
+        fullB: findNodes(names: ["default.aliased_full_cube"]) {
+            current {
+                cubeMetrics {
+                    name
+                    columns { name }
+                }
+            }
+        }
+    }
+    """
+    response = await client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+    assert "errors" not in data, data
+
+    scalar_a = data["data"]["scalarA"][0]["current"]
+    full_b = data["data"]["fullB"][0]["current"]
+
+    # The scalar-only selection must NOT have been emptied by the full sibling.
+    assert sorted(m["name"] for m in scalar_a["cubeMetrics"]) == expected_metrics
+    scalar_dims = sorted(d["name"] for d in scalar_a["cubeDimensions"])
+    assert "default.hard_hat.city" in scalar_dims
+    assert "default.hard_hat.state" in scalar_dims
+    # The full selection resolves independently and correctly, including the
+    # per-metric ``columns`` relationship that the scalar stubs can't carry.
+    assert sorted(m["name"] for m in full_b["cubeMetrics"]) == expected_metrics
+    assert all(m["columns"] for m in full_b["cubeMetrics"])
+
+
+@pytest.mark.asyncio
+async def test_cube_scalar_only_fast_path_on_non_cube_node(
     client_with_roads: AsyncClient,
 ) -> None:
     """
     Requesting ``cubeMetrics``/``cubeDimensions`` on a non-cube node engages
-    the name-only fast path but finds no cube nodes in the result — the raw
+    the scalar-only fast path but finds no cube nodes in the result — the raw
     column attachment should short-circuit cleanly rather than doing anything.
     """
     query = """
@@ -3394,7 +3748,10 @@ async def test_cube_name_only_fast_path_on_non_cube_node(
             name
             type
             current {
-                cubeMetrics { name }
+                cubeMetrics {
+                    name
+                    displayName
+                }
             }
         }
     }
@@ -3565,10 +3922,14 @@ async def test_find_nodes_paginated_total_count_no_matches(
     """
     ``totalCount`` is 0 when no nodes match (covers the early-return path
     inside ``count_by`` for filters that rule out every row).
+
+    An unresolvable dimension filter makes ``_build_filtered_node_statement``
+    return ``None`` (no rows can possibly match), so ``count_by`` short-circuits
+    to 0 without building a count query.
     """
     query = """
     {
-      findNodesPaginated(tags: ["__nonexistent_tag__"], limit: 5) {
+      findNodesPaginated(dimensions: ["default.__nonexistent_dimension__"], limit: 5) {
         totalCount
         edges { node { name } }
       }

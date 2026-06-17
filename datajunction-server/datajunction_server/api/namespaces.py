@@ -448,8 +448,23 @@ async def hard_delete_node_namespace(
     access_checker.add_namespace(namespace, ResourceAction.DELETE)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
+    # Only apply the default-branch guard when the namespace exists. Git config
+    # is inherited from ancestors, so a missing namespace under a git-backed root
+    # still resolves is_default_branch=True (no branch -> treated as default) and
+    # would wrongly 422 instead of falling through to the 404 path below.
+    namespace_exists = await NodeNamespace.get(
+        session,
+        namespace,
+        raise_if_not_exists=False,
+    )
+
     git_info = await get_git_info_for_namespace(session, namespace)
-    if git_info and git_info.get("is_default_branch") and git_info.get("repo"):
+    if (
+        namespace_exists
+        and git_info
+        and git_info.get("is_default_branch")
+        and git_info.get("repo")
+    ):
         raise DJInvalidInputException(
             message=f"Cannot delete namespace `{namespace}`: it is the default branch "
             f"of a git-backed namespace ({git_info['repo']}). "
