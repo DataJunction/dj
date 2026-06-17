@@ -335,6 +335,24 @@ def apply_live_window_lookback(ctx: "BuildContext") -> None:
        windowed query's own WHERE, which SQL evaluates *before* the window and
        would re-starve the frame.
 
+    The requested range may arrive as a single self-contained filter
+    (``= R`` or ``BETWEEN A AND B``) or as several one-sided filters
+    (``>= A`` and ``<= B``) on the same order column. Multiple bounds on the
+    same side are reconciled to the tightest (max of lows, min of highs).
+
+    Several conditions cause this adapter to **bail** for an order column —
+    leaving every one of its filters intact and *un-consumed* so the standard
+    pushdown re-enforces them (the window may then be starved, the documented
+    safe fallback, rather than silently dropping a constraint):
+
+    - any matching bound on the order column is a non-literal expression
+      (it must not be interpolated into the offset subquery), or
+    - two same-side bounds are not both statically comparable literals.
+
+    The invariant: a filter is consumed only when its constraint is guaranteed
+    to be re-applied by the output restriction. All ``ctx`` mutation is deferred
+    until after the bail/validation gates so a bail never leaves partial state.
+
     No-op when no requested metric has a window frame, or when no filter
     constrains the frame's order column.
     """
