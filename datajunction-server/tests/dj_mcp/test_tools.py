@@ -762,10 +762,7 @@ async def test_execute_metrics_query_no_query_service_configured(
             ),
         )
 
-    monkeypatch.setattr(
-        "datajunction_server.construction.build_v3.cube_matcher.resolve_dialect_and_engine_for_metrics",
-        fake_resolve,
-    )
+    monkeypatch.setattr(tools, "resolve_dialect_and_engine_for_metrics", fake_resolve)
     monkeypatch.setattr(tools, "build_metrics_sql", fake_build)
     monkeypatch.setattr(tools, "get_query_service_client", lambda settings: None)
 
@@ -1236,10 +1233,7 @@ async def test_execute_metrics_query_full_round_trip(
             ),
         )
 
-    monkeypatch.setattr(
-        "datajunction_server.construction.build_v3.cube_matcher.resolve_dialect_and_engine_for_metrics",
-        fake_resolve,
-    )
+    monkeypatch.setattr(tools, "resolve_dialect_and_engine_for_metrics", fake_resolve)
     monkeypatch.setattr(tools, "build_metrics_sql", fake_build)
     monkeypatch.setattr(
         tools,
@@ -1323,10 +1317,7 @@ async def test_execute_metrics_query_empty_results_skips_column_inject(
             ),
         )
 
-    monkeypatch.setattr(
-        "datajunction_server.construction.build_v3.cube_matcher.resolve_dialect_and_engine_for_metrics",
-        fake_resolve,
-    )
+    monkeypatch.setattr(tools, "resolve_dialect_and_engine_for_metrics", fake_resolve)
     monkeypatch.setattr(tools, "build_metrics_sql", fake_build)
     monkeypatch.setattr(
         tools,
@@ -1387,3 +1378,103 @@ async def test_visualize_metrics_handles_none_metric_values(
         dimensions=["d.d"],
     )
     assert blocks[0].text.endswith("📊 amount | 3 points | line")
+
+
+@pytest.mark.asyncio
+async def test_execute_metrics_query_prefers_bound_provider(monkeypatch) -> None:
+    """When an MCP provider is bound, _execute_metrics_query uses that client
+    and does NOT call the OSS get_query_service_client factory."""
+    fake_ctx = MagicMock()
+    fake_ctx.dialect = Dialect.SPARK
+    fake_ctx.engine.name = "spark"
+    fake_ctx.engine.version = "3.5"
+    fake_ctx.catalog_name = "prod"
+
+    async def fake_resolve(**_kwargs):
+        return fake_ctx
+
+    fake_generated = MagicMock(spec=GeneratedSQL)
+    fake_generated.scan_estimate = None
+    fake_generated.sql = "SELECT 1"
+    fake_generated.columns = []
+
+    async def fake_build(**_kwargs):
+        return fake_generated
+
+    monkeypatch.setattr(
+        tools, "resolve_dialect_and_engine_for_metrics", fake_resolve, raising=False,
+    )
+    monkeypatch.setattr(tools, "build_metrics_sql", fake_build)
+    monkeypatch.setattr(tools, "get_mcp_session", lambda: MagicMock())
+
+    provider_client = MagicMock()
+
+    async def fake_submit(query_create):
+        result = MagicMock()
+        result.results.root = []
+        return result
+
+    provider_client.submit_query = fake_submit
+
+    def _oss_should_not_run(**_kwargs):  # pragma: no cover - must not be called
+        raise AssertionError("OSS get_query_service_client must not be called")
+
+    monkeypatch.setattr(tools, "get_query_service_client", _oss_should_not_run)
+
+    token = context._qsc_provider_var.set(lambda: provider_client)
+    try:
+        result, generated = await tools._execute_metrics_query(
+            ["m"], ["d"], None, None, None,
+        )
+    finally:
+        context._qsc_provider_var.reset(token)
+
+    assert generated is fake_generated
+    assert result.results.root == []
+
+
+@pytest.mark.asyncio
+async def test_execute_metrics_query_falls_back_when_no_provider(monkeypatch) -> None:
+    """No provider bound → falls back to OSS get_query_service_client."""
+    fake_ctx = MagicMock()
+    fake_ctx.dialect = Dialect.SPARK
+    fake_ctx.engine.name = "spark"
+    fake_ctx.engine.version = "3.5"
+    fake_ctx.catalog_name = "prod"
+
+    async def fake_resolve(**_kwargs):
+        return fake_ctx
+
+    fake_generated = MagicMock(spec=GeneratedSQL)
+    fake_generated.scan_estimate = None
+    fake_generated.sql = "SELECT 1"
+    fake_generated.columns = []
+
+    async def fake_build(**_kwargs):
+        return fake_generated
+
+    monkeypatch.setattr(
+        tools, "resolve_dialect_and_engine_for_metrics", fake_resolve, raising=False,
+    )
+    monkeypatch.setattr(tools, "build_metrics_sql", fake_build)
+    monkeypatch.setattr(tools, "get_mcp_session", lambda: MagicMock())
+
+    fallback_client = MagicMock()
+
+    async def fake_submit(query_create):
+        result = MagicMock()
+        result.results.root = []
+        return result
+
+    fallback_client.submit_query = fake_submit
+    called = {"oss": False}
+
+    def _oss_factory(**_kwargs):
+        called["oss"] = True
+        return fallback_client
+
+    monkeypatch.setattr(tools, "get_query_service_client", _oss_factory)
+
+    assert context.get_mcp_query_service_client() is None
+    result, _ = await tools._execute_metrics_query(["m"], None, None, None, None)
+    assert called["oss"] is True
