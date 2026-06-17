@@ -1590,6 +1590,28 @@ def build_select_ast(
     return query, scanned_sources
 
 
+def build_lookback_filter(
+    col_ref: ast.Expression,
+    low_expr: Optional[ast.Expression],
+    high_expr: Optional[ast.Expression],
+) -> Optional[ast.Expression]:
+    """
+    Build a temporal scan filter from generic bounds.
+
+    - both bounds  -> ``col BETWEEN low AND high`` (lookback range)
+    - only high    -> ``col = high`` (exact)
+    - neither      -> ``None``
+
+    Single source of truth for the lookback/exact filter shape, fed by both the
+    cube adapter (build_temporal_filter) and the live adapter.
+    """
+    if high_expr is None:
+        return None
+    if low_expr is None:
+        return ast.BinaryOp(left=col_ref, right=high_expr, op=ast.BinaryOpKind.Eq)
+    return ast.Between(expr=col_ref, low=low_expr, high=high_expr)
+
+
 def build_temporal_filter(
     ctx: BuildContext,
     parent_node: Node,
