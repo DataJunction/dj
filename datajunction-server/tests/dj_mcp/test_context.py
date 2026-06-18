@@ -2,9 +2,12 @@
 Tests for ``datajunction_server.mcp.context``.
 """
 
+from typing import cast
+
 import pytest
 
 from datajunction_server.mcp import context
+from datajunction_server.service_clients import QueryServiceClient
 
 
 def test_get_mcp_query_service_client_none_when_unbound() -> None:
@@ -14,7 +17,7 @@ def test_get_mcp_query_service_client_none_when_unbound() -> None:
 
 def test_get_mcp_query_service_client_calls_provider_when_bound() -> None:
     """When a provider is bound, it is invoked and its client returned."""
-    sentinel = object()
+    sentinel = cast(QueryServiceClient, object())
     token = context._qsc_provider_var.set(lambda: sentinel)
     try:
         assert context.get_mcp_query_service_client() is sentinel
@@ -24,6 +27,7 @@ def test_get_mcp_query_service_client_calls_provider_when_bound() -> None:
 
 def test_get_mcp_query_service_client_propagates_provider_error() -> None:
     """A fail-closed provider that raises must surface to the caller."""
+
     def _boom():
         raise ValueError("no caller identity")
 

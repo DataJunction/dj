@@ -39,9 +39,11 @@ def get_mcp_session() -> AsyncSession:
     return session
 
 
-_qsc_provider_var: ContextVar[Optional[Callable[[], "QueryServiceClient"]]] = ContextVar(
-    "dj_mcp_qsc_provider",
-    default=None,
+_qsc_provider_var: ContextVar[Optional[Callable[[], "QueryServiceClient"]]] = (
+    ContextVar(
+        "dj_mcp_qsc_provider",
+        default=None,
+    )
 )
 
 

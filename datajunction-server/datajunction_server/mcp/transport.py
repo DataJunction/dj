@@ -21,7 +21,12 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
-from contextlib import AbstractContextManager, AsyncExitStack, asynccontextmanager, nullcontext
+from contextlib import (
+    AbstractContextManager,
+    AsyncExitStack,
+    asynccontextmanager,
+    nullcontext,
+)
 from typing import Optional
 
 from fastapi import FastAPI
@@ -97,7 +102,11 @@ def mount_mcp(
         async with session_factory() as session:
             token = _session_var.set(session)
             try:
-                cm = request_context(scope) if request_context is not None else nullcontext()
+                cm = (
+                    request_context(scope)
+                    if request_context is not None
+                    else nullcontext()
+                )
                 with cm:
                     await session_manager.handle_request(scope, receive, send)
             finally:

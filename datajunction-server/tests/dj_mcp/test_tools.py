@@ -1402,7 +1402,10 @@ async def test_execute_metrics_query_prefers_bound_provider(monkeypatch) -> None
         return fake_generated
 
     monkeypatch.setattr(
-        tools, "resolve_dialect_and_engine_for_metrics", fake_resolve, raising=False,
+        tools,
+        "resolve_dialect_and_engine_for_metrics",
+        fake_resolve,
+        raising=False,
     )
     monkeypatch.setattr(tools, "build_metrics_sql", fake_build)
     monkeypatch.setattr(tools, "get_mcp_session", lambda: MagicMock())
@@ -1424,7 +1427,11 @@ async def test_execute_metrics_query_prefers_bound_provider(monkeypatch) -> None
     token = context._qsc_provider_var.set(lambda: provider_client)
     try:
         result, generated = await tools._execute_metrics_query(
-            ["m"], ["d"], None, None, None,
+            ["m"],
+            ["d"],
+            None,
+            None,
+            None,
         )
     finally:
         context._qsc_provider_var.reset(token)
@@ -1454,7 +1461,10 @@ async def test_execute_metrics_query_falls_back_when_no_provider(monkeypatch) ->
         return fake_generated
 
     monkeypatch.setattr(
-        tools, "resolve_dialect_and_engine_for_metrics", fake_resolve, raising=False,
+        tools,
+        "resolve_dialect_and_engine_for_metrics",
+        fake_resolve,
+        raising=False,
     )
     monkeypatch.setattr(tools, "build_metrics_sql", fake_build)
     monkeypatch.setattr(tools, "get_mcp_session", lambda: MagicMock())

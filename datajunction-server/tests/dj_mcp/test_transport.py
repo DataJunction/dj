@@ -111,6 +111,7 @@ async def test_mount_mcp_request_context_exits_on_handler_error(monkeypatch) -> 
         # The Mount's app is the asgi_handler closure; patch the session
         # manager's handle_request which it awaits.
         from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+
         monkeypatch.setattr(StreamableHTTPSessionManager, "handle_request", boom)
 
         async with httpx.AsyncClient(
