@@ -1496,13 +1496,25 @@ def test_binaryop_and_with_empty_spread_does_not_raise():
     assert ast.BinaryOp.And(*conditions) is None
 
 
-def test_to_sql_transpiles_functions_for_dialect():
+def test_to_sql_transpiles_functions_for_dialect(monkeypatch):
     """
     ``to_sql`` should run the rendered SQL through the generic transpiler, not just
     DJ's native dialect rendering. ``collect_list`` is a Spark-only function with no
     entry in ``render_for_dialect``'s function map, so it only becomes Trino's
     ``array_agg`` if real transpilation happens.
     """
+    # The dialect->plugin registry is process-global and other tests/fixtures mutate
+    # it; pin the dialects under test to the real sqlglot plugin (auto-restored).
+    from datajunction_server.models.dialect import DialectRegistry
+    from datajunction_server.transpilation import SQLGlotTranspilationPlugin
+
+    for name in ("spark", "trino"):
+        monkeypatch.setitem(
+            DialectRegistry._registry,
+            name,
+            SQLGlotTranspilationPlugin,
+        )
+
     query = parse("SELECT collect_list(x) AS c FROM t")
 
     trino = ast.to_sql(query, Dialect.TRINO)
