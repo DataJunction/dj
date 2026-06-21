@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Union, cast
 
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.node import NodeType
@@ -151,7 +151,7 @@ def resolve_offset_low(
         f"ORDER BY {order_col_name} DESC LIMIT {extent + 1}"
         f") __o)"
     )
-    return parse(sql).select.projection[0]
+    return cast(ast.Expression, parse(sql).select.projection[0])
 
 
 def _read_lookback_role_aware(
@@ -211,11 +211,7 @@ def _order_filter_bounds(
     as two separate filter strings (``col >= A`` and ``col <= B``) into a single
     ``[A, B]`` extent. The caller is responsible for combining them.
     """
-    cols = [
-        c
-        for c in filter_ast.find_all(ast.Column)
-        if c.name.name == order_col_name
-    ]
+    cols = [c for c in filter_ast.find_all(ast.Column) if c.name.name == order_col_name]
     if not cols:
         return None
 
@@ -415,8 +411,7 @@ def apply_live_window_lookback(ctx: "BuildContext") -> None:
         # (an orderable sequence dimension) and the agg must be additive.
         order_node = ctx.nodes.get(order_node_name)
         order_is_sequence_dim = (
-            order_node is not None
-            and order_node.type == NodeType.DIMENSION
+            order_node is not None and order_node.type == NodeType.DIMENSION
         )
         validate_window_lookback(wl, order_is_sequence_dim)
 
@@ -656,10 +651,10 @@ def densify_window_base_metrics(
         cohort_cols: list[str] = []
         measure_cols: list[str] = []
         for proj in original_select.projection:
-            alias_name = proj.alias_or_name.name
+            alias_name = proj.alias_or_name.name  # type: ignore[union-attr]
             if alias_name == output_col_name:
                 continue  # the order column, handled explicitly
-            if proj.is_aggregation():
+            if proj.is_aggregation():  # type: ignore[union-attr]
                 measure_cols.append(alias_name)
             else:
                 cohort_cols.append(alias_name)
@@ -694,12 +689,15 @@ def densify_window_base_metrics(
             date_axis_sub.as_ = True
 
             cohort_distinct = ast.Select(
-                projection=[
-                    ast.Column(name=ast.Name(c)) for c in cohort_cols
-                ],
+                projection=[ast.Column(name=ast.Name(c)) for c in cohort_cols],
                 from_=ast.From(
                     relations=[
-                        ast.Relation(primary=_agg_copy(original_select, agg_alias)),
+                        ast.Relation(
+                            primary=_agg_copy(
+                                cast(ast.Select, original_select),
+                                agg_alias,
+                            ),
+                        ),
                     ],
                 ),
             )
@@ -733,7 +731,7 @@ def densify_window_base_metrics(
                     ],
                 ),
             )
-            spine_select: ast.Select = spine_inner
+            spine_select: ast.SelectExpression = spine_inner
         else:
             spine_select = date_axis
 
@@ -755,16 +753,19 @@ def densify_window_base_metrics(
             ),
         )
         for c in cohort_cols:
-            on_expr = ast.BinaryOp.And(
-                on_expr,
-                ast.BinaryOp.Eq(
-                    ast.Column(
-                        name=ast.Name(c),
-                        _table=ast.Table(name=ast.Name(spine_alias)),
-                    ),
-                    ast.Column(
-                        name=ast.Name(c),
-                        _table=ast.Table(name=ast.Name(agg_alias)),
+            on_expr = cast(
+                ast.Expression,
+                ast.BinaryOp.And(
+                    on_expr,
+                    ast.BinaryOp.Eq(
+                        ast.Column(
+                            name=ast.Name(c),
+                            _table=ast.Table(name=ast.Name(spine_alias)),
+                        ),
+                        ast.Column(
+                            name=ast.Name(c),
+                            _table=ast.Table(name=ast.Name(agg_alias)),
+                        ),
                     ),
                 ),
             )
@@ -773,9 +774,9 @@ def densify_window_base_metrics(
         # Rebuild the projection: the order column + cohort dims come from the
         # spine (so gap cells survive and cohort dims keep their real type);
         # every measure is 0-filled from agg.
-        new_projection: list[ast.Expression] = []
+        new_projection: list[Union[ast.Aliasable, ast.Expression, ast.Column]] = []
         for proj in original_select.projection:
-            alias_name = proj.alias_or_name.name
+            alias_name = proj.alias_or_name.name  # type: ignore[union-attr]
             if alias_name == output_col_name:
                 col = ast.Column(
                     name=ast.Name(spine_key_col),
@@ -847,9 +848,7 @@ def wrap_with_output_restriction(
             high=restriction.high,  # type: ignore[attr-defined]
         )
         where_expr = (
-            qualified
-            if where_expr is None
-            else ast.BinaryOp.And(where_expr, qualified)
+            qualified if where_expr is None else ast.BinaryOp.And(where_expr, qualified)
         )
 
     # Lift any ORDER BY / LIMIT off the inner windowed query and re-attach them

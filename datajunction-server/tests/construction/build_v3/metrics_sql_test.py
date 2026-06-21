@@ -1,5 +1,3 @@
-import re
-
 import pytest
 from . import assert_sql_equal
 
@@ -2112,120 +2110,322 @@ class TestNonDecomposableMetrics:
             },
         )
         assert response.status_code == 200, response.json()
-        sql = response.json()["sql"].upper()
-        assert "BETWEEN" in sql
-        assert sql.count("20240131") >= 2
-        # The scan must be EXPANDED to a [R-N, R] range -- not narrowed to the
-        # single requested date, which would starve the trailing window frame.
-        # So a non-window (data) BETWEEN bounded above by the requested date
-        # must appear, distinct from the window's ``ROWS BETWEEN`` frame.
-        data_between = sql.replace("ROWS BETWEEN", "ROWS__FRAME")
-        assert "BETWEEN" in data_between, (
-            "scan should be an expanded BETWEEN range, found only a window frame"
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH
+            v3_order_details AS (
+              SELECT  o.order_date,
+                oi.quantity * oi.unit_price AS line_total
+               FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+               WHERE  order_date BETWEEN (SELECT  MIN(__o.date_id)
+               FROM (SELECT  date_id
+               FROM default.v3.dates
+               WHERE  date_id <= 20240131
+              ORDER BY date_id DESC
+              LIMIT 7) __o) AND 20240131
+            ),
+            order_details_0 AS (
+              SELECT  t1.order_date date_id_order,
+                SUM(t1.line_total) line_total_sum_e1f61696
+               FROM v3_order_details t1
+               GROUP BY  t1.order_date
+            ),
+            base_metrics AS (
+              SELECT  __spine.date_id AS date_id_order,
+                COALESCE(__agg.total_revenue, 0) AS total_revenue
+               FROM (SELECT  DISTINCT
+               date_id
+               FROM default.v3.dates
+               WHERE  date_id BETWEEN (SELECT  MIN(__o.date_id)
+               FROM (SELECT  date_id
+               FROM default.v3.dates
+               WHERE  date_id <= 20240131
+              ORDER BY date_id DESC
+              LIMIT 7) __o) AND 20240131) AS __spine LEFT JOIN (SELECT  order_details_0.date_id_order AS date_id_order,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+               FROM order_details_0
+               GROUP BY  order_details_0.date_id_order) AS __agg ON __spine.date_id = __agg.date_id_order
+            )
+            SELECT  *
+             FROM (SELECT  base_metrics.date_id_order AS date_id_order,
+                SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_revenue
+               FROM base_metrics) AS __windowed
+             WHERE  __windowed.date_id_order BETWEEN 20240131 AND 20240131
+            """,
         )
-        assert "AND 20240131" in data_between, (
-            "the expanded scan's upper bound should be the requested date"
-        )
-        # The single-date predicate must still be re-applied ABOVE the window so
-        # lookback rows do not leak into the output.
-        assert "= 20240131" in sql
 
     @pytest.mark.asyncio
-    async def test_trailing_window_limit_orderby_above_window(self, client_with_build_v3):
+    async def test_trailing_window_limit_orderby_above_window(
+        self,
+        client_with_build_v3,
+    ):
         """LIMIT/ORDER BY must apply ABOVE the window output restriction, not inside the windowed subquery."""
         response = await client_with_build_v3.get(
             "/sql/metrics/v3/",
             params={
                 "metrics": ["v3.trailing_7d_revenue"],
                 "dimensions": ["v3.date.date_id[order]"],
-                "filters": ["v3.date.date_id >= 20240125", "v3.date.date_id <= 20240131"],
+                "filters": [
+                    "v3.date.date_id >= 20240125",
+                    "v3.date.date_id <= 20240131",
+                ],
                 "limit": "3",
                 "orderby": ["v3.date.date_id[order]"],
             },
         )
         assert response.status_code == 200, response.json()
-        # Normalize whitespace so single-space heuristics match the rendered SQL
-        # (the printer emits two spaces after WHERE/SELECT).
-        sql = re.sub(r"\s+", " ", response.json()["sql"].upper())
-        # The LIMIT must be on the OUTER (wrapper) query, after the output restriction,
-        # so it counts only restricted rows -- not the expanded lookback scan.
-        # Heuristic: the final LIMIT must appear AFTER the wrapper's WHERE on __windowed.
-        where_pos = sql.rfind("__WINDOWED")
-        limit_pos = sql.rfind("LIMIT")
-        assert where_pos != -1, "expected the window wrapper to be present"
-        # The outermost LIMIT should come after the wrapper's WHERE restriction
-        assert limit_pos > sql.find("WHERE __WINDOWED"), (
-            f"LIMIT at {limit_pos} should be above the output restriction, sql=\n{response.json()['sql']}"
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH
+            v3_order_details AS (
+              SELECT  o.order_date,
+                oi.quantity * oi.unit_price AS line_total
+               FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+               WHERE  order_date BETWEEN (SELECT  MIN(__o.date_id)
+               FROM (SELECT  date_id
+               FROM default.v3.dates
+               WHERE  date_id <= 20240125
+              ORDER BY date_id DESC
+              LIMIT 7) __o) AND 20240131
+            ),
+            order_details_0 AS (
+              SELECT  t1.order_date date_id_order,
+                SUM(t1.line_total) line_total_sum_e1f61696
+               FROM v3_order_details t1
+               GROUP BY  t1.order_date
+            ),
+            base_metrics AS (
+              SELECT  __spine.date_id AS date_id_order,
+                COALESCE(__agg.total_revenue, 0) AS total_revenue
+               FROM (SELECT  DISTINCT
+               date_id
+               FROM default.v3.dates
+               WHERE  date_id BETWEEN (SELECT  MIN(__o.date_id)
+               FROM (SELECT  date_id
+               FROM default.v3.dates
+               WHERE  date_id <= 20240125
+              ORDER BY date_id DESC
+              LIMIT 7) __o) AND 20240131) AS __spine LEFT JOIN (SELECT  order_details_0.date_id_order AS date_id_order,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+               FROM order_details_0
+               GROUP BY  order_details_0.date_id_order) AS __agg ON __spine.date_id = __agg.date_id_order
+            )
+            SELECT  *
+             FROM (SELECT  base_metrics.date_id_order AS date_id_order,
+                SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_revenue
+               FROM base_metrics) AS __windowed
+             WHERE  __windowed.date_id_order BETWEEN 20240125 AND 20240131
+            ORDER BY date_id_order
+            LIMIT 3
+            """,
         )
 
     @pytest.mark.asyncio
     async def test_trailing_window_range_live(self, client_with_build_v3):
-        """A date range returns per-date trailing values (auto-inferred lookback, no extra param)."""
+        """A date range returns per-date trailing values with an expanded scan [low-N, high]
+        and output restricted back to [low, high]."""
         response = await client_with_build_v3.get(
             "/sql/metrics/v3/",
             params={
                 "metrics": ["v3.trailing_7d_revenue"],
                 "dimensions": ["v3.date.date_id[order]"],
-                "filters": ["v3.date.date_id >= 20240125", "v3.date.date_id <= 20240131"],
+                "filters": [
+                    "v3.date.date_id >= 20240125",
+                    "v3.date.date_id <= 20240131",
+                ],
             },
         )
         assert response.status_code == 200, response.json()
-        sql = response.json()["sql"].upper()
-        # Scan expanded BELOW the range's lower bound by the frame extent...
-        data_between = sql.replace("ROWS BETWEEN", "ROWS__FRAME")
-        assert "BETWEEN" in data_between, "scan should be an expanded BETWEEN range"
-        assert "AND 20240131" in data_between, "expanded scan upper bound = requested range upper"
-        # ...and the requested range re-applied ABOVE the window (output restriction).
-        assert "20240125" in sql and "20240131" in sql
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH
+            v3_order_details AS (
+              SELECT  o.order_date,
+                oi.quantity * oi.unit_price AS line_total
+               FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+               WHERE  order_date BETWEEN (SELECT  MIN(__o.date_id)
+               FROM (SELECT  date_id
+               FROM default.v3.dates
+               WHERE  date_id <= 20240125
+              ORDER BY date_id DESC
+              LIMIT 7) __o) AND 20240131
+            ),
+            order_details_0 AS (
+              SELECT  t1.order_date date_id_order,
+                SUM(t1.line_total) line_total_sum_e1f61696
+               FROM v3_order_details t1
+               GROUP BY  t1.order_date
+            ),
+            base_metrics AS (
+              SELECT  __spine.date_id AS date_id_order,
+                COALESCE(__agg.total_revenue, 0) AS total_revenue
+               FROM (SELECT  DISTINCT
+               date_id
+               FROM default.v3.dates
+               WHERE  date_id BETWEEN (SELECT  MIN(__o.date_id)
+               FROM (SELECT  date_id
+               FROM default.v3.dates
+               WHERE  date_id <= 20240125
+              ORDER BY date_id DESC
+              LIMIT 7) __o) AND 20240131) AS __spine LEFT JOIN (SELECT  order_details_0.date_id_order AS date_id_order,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+               FROM order_details_0
+               GROUP BY  order_details_0.date_id_order) AS __agg ON __spine.date_id = __agg.date_id_order
+            )
+            SELECT  *
+             FROM (SELECT  base_metrics.date_id_order AS date_id_order,
+                SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_revenue
+               FROM base_metrics) AS __windowed
+             WHERE  __windowed.date_id_order BETWEEN 20240125 AND 20240131
+            """,
+        )
 
     @pytest.mark.asyncio
-    async def test_trailing_window_densified_over_date_domain(self, client_with_build_v3):
-        """The window must read a dense date series: a spine LEFT join over the scan
-        range with the additive measure 0-filled, so ROWS = calendar positions even
-        when the fact is sparse."""
+    async def test_trailing_window_densified_over_date_domain(
+        self,
+        client_with_build_v3,
+    ):
+        """The window reads a dense date spine (LEFT JOIN + COALESCE 0-fill) so ROWS
+        counts calendar positions even when the fact table is sparse."""
         response = await client_with_build_v3.get(
             "/sql/metrics/v3/",
             params={
                 "metrics": ["v3.trailing_7d_revenue"],
                 "dimensions": ["v3.date.date_id[order]"],
-                "filters": ["v3.date.date_id >= 20240125", "v3.date.date_id <= 20240131"],
+                "filters": [
+                    "v3.date.date_id >= 20240125",
+                    "v3.date.date_id <= 20240131",
+                ],
             },
         )
         assert response.status_code == 200, response.json()
-        sql = response.json()["sql"].upper()
-        # Densification: a LEFT JOIN to the date domain (spine) ...
-        assert "LEFT JOIN" in sql or "LEFT OUTER JOIN" in sql
-        # ... and additive measures 0-filled on gap rows.
-        assert "COALESCE" in sql
-        # The spine is the sequence dimension's physical date domain.
-        assert "DEFAULT.V3.DATES" in sql
-        # The spine restricts to the expanded scan range [offset_low, high]; the
-        # upper bound is the requested upper, so the densified series spans the
-        # full scan the window reads.
-        data_between = sql.replace("ROWS BETWEEN", "ROWS__FRAME")
-        assert "AND 20240131" in data_between
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH
+            v3_order_details AS (
+              SELECT  o.order_date,
+                oi.quantity * oi.unit_price AS line_total
+               FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+               WHERE  order_date BETWEEN (SELECT  MIN(__o.date_id)
+               FROM (SELECT  date_id
+               FROM default.v3.dates
+               WHERE  date_id <= 20240125
+              ORDER BY date_id DESC
+              LIMIT 7) __o) AND 20240131
+            ),
+            order_details_0 AS (
+              SELECT  t1.order_date date_id_order,
+                SUM(t1.line_total) line_total_sum_e1f61696
+               FROM v3_order_details t1
+               GROUP BY  t1.order_date
+            ),
+            base_metrics AS (
+              SELECT  __spine.date_id AS date_id_order,
+                COALESCE(__agg.total_revenue, 0) AS total_revenue
+               FROM (SELECT  DISTINCT
+               date_id
+               FROM default.v3.dates
+               WHERE  date_id BETWEEN (SELECT  MIN(__o.date_id)
+               FROM (SELECT  date_id
+               FROM default.v3.dates
+               WHERE  date_id <= 20240125
+              ORDER BY date_id DESC
+              LIMIT 7) __o) AND 20240131) AS __spine LEFT JOIN (SELECT  order_details_0.date_id_order AS date_id_order,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+               FROM order_details_0
+               GROUP BY  order_details_0.date_id_order) AS __agg ON __spine.date_id = __agg.date_id_order
+            )
+            SELECT  *
+             FROM (SELECT  base_metrics.date_id_order AS date_id_order,
+                SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_revenue
+               FROM base_metrics) AS __windowed
+             WHERE  __windowed.date_id_order BETWEEN 20240125 AND 20240131
+            """,
+        )
 
     @pytest.mark.asyncio
     async def test_trailing_window_densified_by_cohort(self, client_with_build_v3):
-        """(date x cohort): each cohort gets a dense date series; cohort dim is NOT
-        COALESCE'd, and the spine is a cross-product so per-partition frames count
-        calendar positions."""
+        """(date x cohort): each cohort gets a dense date spine via CROSS JOIN so
+        per-partition window frames count calendar positions."""
         response = await client_with_build_v3.get(
             "/sql/metrics/v3/",
             params={
                 "metrics": ["v3.trailing_7d_revenue"],
                 "dimensions": ["v3.date.date_id[order]", "v3.product.category"],
-                "filters": ["v3.date.date_id >= 20240125", "v3.date.date_id <= 20240131"],
+                "filters": [
+                    "v3.date.date_id >= 20240125",
+                    "v3.date.date_id <= 20240131",
+                ],
             },
         )
         assert response.status_code == 200, response.json()
-        sql = response.json()["sql"].upper()
-        # cohort dimension must NOT be coalesced to 0 ...
-        assert "COALESCE(__AGG.CATEGORY" not in sql and "COALESCE(CATEGORY" not in sql
-        # ... the additive measure still is ...
-        assert "COALESCE" in sql
-        # ... and the spine is a cross-product over the cohort (dense per cohort).
-        assert "CROSS JOIN" in sql
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH
+            v3_order_details AS (
+              SELECT  o.order_date,
+                oi.product_id,
+                oi.quantity * oi.unit_price AS line_total
+               FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+               WHERE  order_date BETWEEN (SELECT  MIN(__o.date_id)
+               FROM (SELECT  date_id
+               FROM default.v3.dates
+               WHERE  date_id <= 20240125
+              ORDER BY date_id DESC
+              LIMIT 7) __o) AND 20240131
+            ),
+            v3_product AS (
+              SELECT  product_id,
+                category
+               FROM default.v3.products
+            ),
+            order_details_0 AS (
+              SELECT  t1.order_date date_id_order,
+                t2.category,
+                SUM(t1.line_total) line_total_sum_e1f61696
+               FROM v3_order_details t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+               GROUP BY  t1.order_date, t2.category
+            ),
+            base_metrics AS (
+              SELECT  __spine.date_id AS date_id_order,
+                __spine.category AS category,
+                COALESCE(__agg.total_revenue, 0) AS total_revenue
+               FROM (SELECT  __d.date_id,
+                __c.category
+               FROM (SELECT  DISTINCT
+               date_id
+               FROM default.v3.dates
+               WHERE  date_id BETWEEN (SELECT  MIN(__o.date_id)
+               FROM (SELECT  date_id
+               FROM default.v3.dates
+               WHERE  date_id <= 20240125
+              ORDER BY date_id DESC
+              LIMIT 7) __o) AND 20240131) AS __d CROSS JOIN (SELECT  DISTINCT
+               category
+               FROM (SELECT  order_details_0.date_id_order AS date_id_order,
+                order_details_0.category AS category,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+               FROM order_details_0
+               GROUP BY  order_details_0.date_id_order, order_details_0.category) AS __agg) AS __c) AS __spine LEFT JOIN (SELECT  order_details_0.date_id_order AS date_id_order,
+                order_details_0.category AS category,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+               FROM order_details_0
+               GROUP BY  order_details_0.date_id_order, order_details_0.category) AS __agg ON __spine.date_id = __agg.date_id_order AND __spine.category = __agg.category
+            )
+            SELECT  *
+             FROM (SELECT  base_metrics.date_id_order AS date_id_order,
+                base_metrics.category AS category,
+                SUM(base_metrics.total_revenue) OVER ( PARTITION BY base_metrics.category
+               ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_revenue
+               FROM base_metrics) AS __windowed
+             WHERE  __windowed.date_id_order BETWEEN 20240125 AND 20240131
+            """,
+        )
 
     @pytest.mark.asyncio
     async def test_trailing_window_redundant_range_reconciled(
@@ -2234,11 +2434,9 @@ class TestNonDecomposableMetrics:
     ):
         """Redundant-but-consistent lower bounds reconcile to the TIGHTEST one.
 
-        ``>= 20240101 AND >= 20240125 AND <= 20240131`` expands the scan using
-        the tighter lower (20240125) and the upper (20240131). The offset
-        subquery anchors its ranked lookback on the tighter lower bound, and the
-        output restriction enforces ``>= 20240125`` (which implies the looser
-        ``>= 20240101``) so nothing is silently dropped.
+        ``>= 20240101 AND >= 20240125 AND <= 20240131`` anchors the offset
+        subquery on the tighter lower (20240125); the output restriction emits
+        BETWEEN 20240125 AND 20240131, dropping the dominated 20240101 bound.
         """
         response = await client_with_build_v3.get(
             "/sql/metrics/v3/",
@@ -2253,26 +2451,49 @@ class TestNonDecomposableMetrics:
             },
         )
         assert response.status_code == 200, response.json()
-        sql = response.json()["sql"].upper()
-        # The ranked offset subquery anchors on the TIGHTEST lower (20240125):
-        # it selects rows at or below the tighter lower bound to seed the frame.
-        assert "<= 20240125" in sql, (
-            "offset subquery must anchor on the tighter lower bound 20240125"
-        )
-        # The expanded scan's upper bound is the requested upper (20240131).
-        data_between = sql.replace("ROWS BETWEEN", "ROWS__FRAME")
-        assert "AND 20240131" in data_between, (
-            "expanded scan upper bound = requested range upper"
-        )
-        # The output restriction above the window enforces the tightest range
-        # [20240125, 20240131]; the looser 20240101 lower is dominated by
-        # 20240125 and must NOT survive as its own predicate (consuming it is
-        # safe because 20240125 implies it).
-        assert "BETWEEN 20240125 AND 20240131" in sql, (
-            "output restriction must enforce the tightest reconciled range"
-        )
-        assert "20240101" not in sql, (
-            "looser lower bound is dominated and must not be re-applied"
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH
+            v3_order_details AS (
+              SELECT  o.order_date,
+                oi.quantity * oi.unit_price AS line_total
+               FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+               WHERE  order_date BETWEEN (SELECT  MIN(__o.date_id)
+               FROM (SELECT  date_id
+               FROM default.v3.dates
+               WHERE  date_id <= 20240125
+              ORDER BY date_id DESC
+              LIMIT 7) __o) AND 20240131
+            ),
+            order_details_0 AS (
+              SELECT  t1.order_date date_id_order,
+                SUM(t1.line_total) line_total_sum_e1f61696
+               FROM v3_order_details t1
+               GROUP BY  t1.order_date
+            ),
+            base_metrics AS (
+              SELECT  __spine.date_id AS date_id_order,
+                COALESCE(__agg.total_revenue, 0) AS total_revenue
+               FROM (SELECT  DISTINCT
+               date_id
+               FROM default.v3.dates
+               WHERE  date_id BETWEEN (SELECT  MIN(__o.date_id)
+               FROM (SELECT  date_id
+               FROM default.v3.dates
+               WHERE  date_id <= 20240125
+              ORDER BY date_id DESC
+              LIMIT 7) __o) AND 20240131) AS __spine LEFT JOIN (SELECT  order_details_0.date_id_order AS date_id_order,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+               FROM order_details_0
+               GROUP BY  order_details_0.date_id_order) AS __agg ON __spine.date_id = __agg.date_id_order
+            )
+            SELECT  *
+             FROM (SELECT  base_metrics.date_id_order AS date_id_order,
+                SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_revenue
+               FROM base_metrics) AS __windowed
+             WHERE  __windowed.date_id_order BETWEEN 20240125 AND 20240131
+            """,
         )
 
     @pytest.mark.asyncio
@@ -2280,25 +2501,48 @@ class TestNonDecomposableMetrics:
         self,
         client_with_build_v3,
     ):
-        """A non-literal/exotic bound on the order column bails on expansion.
+        """A non-literal bound on the order column bails on scan expansion.
 
-        The query must still return 200 and not crash: the window-lookback
-        adapter leaves the user's filters intact (normal filter pushdown), which
-        may "starve" the frame but is the documented safe fallback, not an error.
+        The query returns 200 with the user's filter passed through intact
+        (normal filter pushdown), which may starve the frame but is the safe fallback.
         """
         response = await client_with_build_v3.get(
             "/sql/metrics/v3/",
             params={
                 "metrics": ["v3.trailing_7d_revenue"],
                 "dimensions": ["v3.date.date_id[order]"],
-                # A non-literal bound: the RHS is an arithmetic expression, not a
-                # static literal we can interpolate into the offset subquery.
                 "filters": ["v3.date.date_id = 20240130 + 1"],
             },
         )
         assert response.status_code == 200, response.json()
-        sql = response.json()["sql"]
-        assert sql, "expected a non-empty SQL body on the safe fallback"
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH
+            v3_order_details AS (
+              SELECT  o.order_date,
+                oi.quantity * oi.unit_price AS line_total
+               FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+               WHERE  o.order_date = 20240130 + 1
+            ),
+            order_details_0 AS (
+              SELECT  t1.order_date date_id_order,
+                SUM(t1.line_total) line_total_sum_e1f61696
+               FROM v3_order_details t1
+               GROUP BY  t1.order_date
+            ),
+            base_metrics AS (
+              SELECT  order_details_0.date_id_order AS date_id_order,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+               FROM order_details_0
+               GROUP BY  order_details_0.date_id_order
+            )
+            SELECT  base_metrics.date_id_order AS date_id_order,
+              SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_revenue
+             FROM base_metrics
+             WHERE  base_metrics.date_id_order = 20240130 + 1
+            """,
+        )
 
     @pytest.mark.asyncio
     async def test_avg_window_rejected_live(self, client_with_build_v3):

@@ -1,5 +1,18 @@
-from datajunction_server.sql.parsing import ast
+import pytest
+
 from datajunction_server.construction.build_v3.measures import build_lookback_filter
+from datajunction_server.construction.build_v3.window_lookback import (
+    WindowLookback,
+    build_densify_join,
+    build_output_restriction,
+    build_scan_bounds,
+    read_window_lookback,
+    resolve_offset_low,
+    validate_window_lookback,
+    zero_fill,
+)
+from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.sql.parsing import ast
 
 
 def _col():
@@ -27,19 +40,22 @@ def test_build_lookback_filter_none_when_no_high():
     assert build_lookback_filter(_col(), None, None) is None
 
 
-from datajunction_server.construction.build_v3.window_lookback import read_window_lookback
-
-
 def _trailing_28d_expr():
     over = ast.Over(
-        order_by=[ast.SortItem(expr=ast.Column(name=ast.Name("dateint")), asc="", nulls="")],
+        order_by=[
+            ast.SortItem(expr=ast.Column(name=ast.Name("dateint")), asc="", nulls=""),
+        ],
         window_frame=ast.Frame(
             frame_type="ROWS",
             start=ast.FrameBound(start="27", stop="PRECEDING"),
             end=ast.FrameBound(start="CURRENT", stop="ROW"),
         ),
     )
-    return ast.Function(ast.Name("SUM"), args=[ast.Column(name=ast.Name("daily_visits"))], over=over)
+    return ast.Function(
+        ast.Name("SUM"),
+        args=[ast.Column(name=ast.Name("daily_visits"))],
+        over=over,
+    )
 
 
 def test_read_window_lookback_extent_and_order_col():
@@ -55,15 +71,12 @@ def test_read_window_lookback_none_when_no_window():
     assert read_window_lookback(plain) is None
 
 
-import pytest
-from datajunction_server.construction.build_v3.window_lookback import (
-    WindowLookback, validate_window_lookback,
-)
-from datajunction_server.errors import DJInvalidInputException
-
-
 def _wl(agg="SUM"):
-    return WindowLookback(extent=27, order_column=ast.Column(name=ast.Name("dateint")), agg_name=agg)
+    return WindowLookback(
+        extent=27,
+        order_column=ast.Column(name=ast.Name("dateint")),
+        agg_name=agg,
+    )
 
 
 def test_validate_accepts_additive():
@@ -79,9 +92,6 @@ def test_validate_rejects_non_additive():
 def test_validate_rejects_non_sequence_order_dim():
     with pytest.raises(DJInvalidInputException, match="orderable sequence dimension"):
         validate_window_lookback(_wl("SUM"), order_is_sequence_dim=False)
-
-
-from datajunction_server.construction.build_v3.window_lookback import build_densify_join, zero_fill
 
 
 def test_build_densify_join_is_left_join_on_order_col():
@@ -108,11 +118,6 @@ def test_zero_fill_wraps_additive_measure():
     assert isinstance(wrapped.args[1], ast.Number) and wrapped.args[1].value == 0
 
 
-from datajunction_server.construction.build_v3.window_lookback import (
-    build_scan_bounds, build_output_restriction,
-)
-
-
 def test_build_scan_bounds_offsets_lower_only():
     col = ast.Column(name=ast.Name("dateint"))
     scan = build_scan_bounds(
@@ -131,9 +136,6 @@ def test_build_output_restriction_reapplies_requested_predicate():
     assert isinstance(out, ast.Between)
     assert out.low.value == 20240101
     assert out.high.value == 20240131
-
-
-from datajunction_server.construction.build_v3.window_lookback import resolve_offset_low
 
 
 def test_resolve_offset_low_builds_ranked_subquery():
