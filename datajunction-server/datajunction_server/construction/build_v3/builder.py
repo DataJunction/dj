@@ -36,8 +36,8 @@ from datajunction_server.construction.build_v3.metrics import (
 )
 from datajunction_server.construction.build_v3.window_lookback import (
     apply_live_window_lookback,
+    apply_output_restriction,
     densify_window_base_metrics,
-    wrap_with_output_restriction,
 )
 from datajunction_server.construction.build_v3.types import (
     BuildContext,
@@ -546,9 +546,9 @@ async def build_metrics_sql(
 
     # Frame-aware live window lookback: when a requested metric carries a row/
     # range window frame and a filter narrows the order dimension, expand the
-    # scan to feed the frame and register the output restriction to re-apply
-    # ABOVE the window (see apply_live_window_lookback / wrap_with_output_restriction).
-    apply_live_window_lookback(ctx)
+    # scan to feed the frame and return a plan carrying the output restriction
+    # and densification spec (see apply_live_window_lookback).
+    window_plan = apply_live_window_lookback(ctx)
 
     # Use materialized cube when dialect is DRUID (explicit or auto-detected above).
     # Use pre-resolved cube if available (avoids duplicate find_matching_cube call).
@@ -589,12 +589,12 @@ async def build_metrics_sql(
     # Densify the per-date grain relation the window reads (base_metrics) over
     # the sequence dimension's complete date domain, 0-filling additive measures,
     # so ROWS BETWEEN N PRECEDING counts calendar positions even when the fact is
-    # sparse. No-op unless lookback registered a densify spec.
-    densify_window_base_metrics(result.query, ctx)
+    # sparse. Also prepends the offset CTE(s) so the ranked subquery is shared.
+    densify_window_base_metrics(result.query, window_plan)
 
-    # Apply the live-window output restriction ABOVE the window (wraps the
-    # windowed query in an outer SELECT). No-op unless lookback expanded a scan.
-    result.query = wrap_with_output_restriction(result.query, ctx)
+    # Move the windowed SELECT into a __windowed CTE and apply the output
+    # restriction in the outer query so seed rows don't leak into the result.
+    apply_output_restriction(result.query, window_plan)
 
     substitute_query_params(result.query, query_parameters or {})
 

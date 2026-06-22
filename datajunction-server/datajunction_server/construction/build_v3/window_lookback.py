@@ -21,6 +21,22 @@ class WindowLookback:
     agg_name: str  # upper-cased window aggregation function name
 
 
+@dataclass
+class WindowLookbackPlan:
+    """State produced by apply_live_window_lookback for post-build consumers."""
+
+    # (output_col_name, low_expr, high_expr) — the original narrow predicate to
+    # re-apply above the window so lookback seed rows don't leak into the result.
+    output_restrictions: list[tuple[str, ast.Expression, ast.Expression]]
+    # (output_col, spine_physical, spine_key_col, offset_low_ref, high_expr) —
+    # each drives a base_metrics densification in densify_window_base_metrics.
+    densify_specs: list[tuple[str, str, str, ast.Expression, ast.Expression]]
+    # Named scalar CTEs (one per order column) to prepend to result.ctes so
+    # the ranked offset subquery is evaluated once, shared by both the fact scan
+    # and the densify spine.
+    offset_ctes: list["ast.Query"]
+
+
 def read_window_lookback(expr: ast.Function) -> Optional[WindowLookback]:
     """
     Read the lookback extent + order column from a window-frame function.
@@ -152,6 +168,39 @@ def resolve_offset_low(
         f") __o)"
     )
     return cast(ast.Expression, parse(sql).select.projection[0])
+
+
+def _build_offset_cte(
+    dim_table: ast.Table,
+    order_col_name: str,
+    lower_expr: ast.Expression,
+    extent: int,
+) -> tuple["ast.Query", ast.Expression]:
+    """
+    Build a named scalar CTE ``__wl_low_<col>`` that computes the offset once,
+    and a scalar subquery reference to read it back.
+
+    The CTE wraps the ranked subquery from :func:`resolve_offset_low` so the
+    offset is evaluated a single time at runtime; both the fact scan filter and
+    the densify spine share the same CTE reference.
+    """
+    tbl = dim_table.name.name
+    cte_name = f"__wl_low_{order_col_name}"
+    body_sql = (
+        f"SELECT (SELECT MIN(__o.{order_col_name}) FROM ("
+        f"SELECT {order_col_name} FROM {tbl} "
+        f"WHERE {order_col_name} <= {str(lower_expr)} "
+        f"ORDER BY {order_col_name} DESC LIMIT {extent + 1}"
+        f") __o) AS low_val"
+    )
+    cte_q = ast.Query(select=parse(body_sql).select, ctes=[])
+    cte_q.alias = ast.Name(cte_name)
+    cte_q.as_ = True
+    ref_expr = cast(
+        ast.Expression,
+        parse(f"SELECT (SELECT low_val FROM {cte_name})").select.projection[0],
+    )
+    return cte_q, ref_expr
 
 
 def _read_lookback_role_aware(
@@ -320,7 +369,7 @@ def _dimension_physical_table(
     return None  # pragma: no cover
 
 
-def apply_live_window_lookback(ctx: "BuildContext") -> None:
+def apply_live_window_lookback(ctx: "BuildContext") -> Optional["WindowLookbackPlan"]:
     """
     Live frame-aware lookback adapter (mirror of the cube-side
     :func:`build_temporal_filter`).
@@ -399,7 +448,11 @@ def apply_live_window_lookback(ctx: "BuildContext") -> None:
             sample_wl_by_order.setdefault(order_ref, wl)
 
     if not max_extent_by_order:
-        return
+        return None
+
+    output_restrictions: list[tuple[str, ast.Expression, ast.Expression]] = []
+    densify_specs: list[tuple[str, str, str, ast.Expression, ast.Expression]] = []
+    offset_ctes: list[ast.Query] = []
 
     for order_ref, extent in max_extent_by_order.items():
         parsed_order = parse_dimension_ref(order_ref)
@@ -482,12 +535,13 @@ def apply_live_window_lookback(ctx: "BuildContext") -> None:
             continue  # pragma: no cover
         dim_table = ast.Table(name=ast.Name(dim_physical))
 
-        offset_low = resolve_offset_low(
+        offset_cte, offset_low = _build_offset_cte(
             dim_table,
             order_col_name,
             low_expr,
             extent,
         )
+        offset_ctes.append(offset_cte)
 
         # Map the order dimension to each fact's foreign-key column and the
         # scan node that exposes it (mirror build_temporal_filter). The expanded
@@ -543,14 +597,7 @@ def apply_live_window_lookback(ctx: "BuildContext") -> None:
             if parsed_order.role
             else order_col_name
         )
-        output_restriction = build_output_restriction(
-            make_column_ref(output_col_name),
-            low_expr,
-            high_expr,
-        )
-        ctx.live_window_output_restrictions.append(
-            (output_col_name, output_restriction),
-        )
+        output_restrictions.append((output_col_name, low_expr, high_expr))
 
         # Record a densification spec so the per-date grain relation the window
         # reads (the ``base_metrics`` CTE) can be rewritten into a DENSE series:
@@ -558,14 +605,20 @@ def apply_live_window_lookback(ctx: "BuildContext") -> None:
         # dimension's complete date domain over [offset_low, high], with additive
         # measures 0-filled on gap rows. Without this, ``ROWS BETWEEN N PRECEDING``
         # counts physical fact rows, so a sparse fact gives wrong trailing values.
-        ctx.live_window_densify_specs.append(
+        densify_specs.append(
             (output_col_name, dim_physical, order_col_name, offset_low, high_expr),
         )
+
+    return (
+        WindowLookbackPlan(output_restrictions, densify_specs, offset_ctes)
+        if output_restrictions
+        else None
+    )
 
 
 def densify_window_base_metrics(
     result: "ast.Query",
-    ctx: "BuildContext",
+    plan: Optional["WindowLookbackPlan"],
 ) -> None:
     """
     Rewrite the ``base_metrics`` CTE (the per-date grain relation the live
@@ -619,8 +672,12 @@ def densify_window_base_metrics(
 
     No-op when no densification spec was registered.
     """
-    if not ctx.live_window_densify_specs:
+    if plan is None or not plan.densify_specs:
         return
+
+    # Prepend the offset CTEs so the ranked subquery is defined before the fact
+    # scan CTEs that reference it (CTE forward-references are not legal in Trino).
+    result.ctes = plan.offset_ctes + list(result.ctes)
 
     # Locate the base_metrics CTE by alias.
     base_metrics_cte: Optional[ast.Query] = None
@@ -640,7 +697,7 @@ def densify_window_base_metrics(
         spine_key_col,
         offset_low,
         high_expr,
-    ) in ctx.live_window_densify_specs:
+    ) in plan.densify_specs:
         original_select = base_metrics_cte.select
 
         # Classify the aggregation's projections off its OWN shape: a projection
@@ -814,66 +871,58 @@ def densify_window_base_metrics(
         base_metrics_cte.select = dense_select
 
 
-def wrap_with_output_restriction(
+def apply_output_restriction(
     result: "ast.Query",
-    ctx: "BuildContext",
-) -> "ast.Query":
+    plan: Optional["WindowLookbackPlan"],
+) -> None:
     """
-    Wrap a windowed query in an outer SELECT that re-applies the live-window
-    output restriction(s) ABOVE the window.
+    Move the windowed SELECT into a ``__windowed`` CTE and replace the main
+    SELECT with ``SELECT * FROM __windowed WHERE <output_restriction>``.
 
-    The inner (windowed) query computes the trailing aggregate over the
-    expanded ``[R - N, R]`` scan; the wrapper then filters down to the
-    originally-requested range so the lookback rows used only to seed the
-    frame do not leak into the result. Filtering here (a strictly outer query
-    level) is correct because the window has already been evaluated in the
-    inner query.
+    This re-applies the originally-requested predicate ABOVE the window so the
+    lookback seed rows (``[R - N, requested_low)``) do not leak into the result.
+    ORDER BY / LIMIT are lifted from the windowed SELECT onto the outer query so
+    they apply after the restriction, not before.
 
-    No-op when no live-window output restriction was registered.
+    No-op when the plan has no output restrictions.
     """
-    if not ctx.live_window_output_restrictions:
-        return result
-
-    inner_alias = "__windowed"
+    if plan is None or not plan.output_restrictions:
+        return
 
     where_expr: Optional[ast.Expression] = None
-    for output_col, restriction in ctx.live_window_output_restrictions:
-        # Re-qualify the restriction's column to the inner subquery alias.
-        qualified = ast.Between(
-            expr=ast.Column(
-                name=ast.Name(output_col),
-                _table=ast.Table(name=ast.Name(inner_alias)),
-            ),
-            low=restriction.low,  # type: ignore[attr-defined]
-            high=restriction.high,  # type: ignore[attr-defined]
+    for output_col, low_expr, high_expr in plan.output_restrictions:
+        between = ast.Between(
+            expr=ast.Column(name=ast.Name(output_col)),
+            low=low_expr,
+            high=high_expr,
         )
         where_expr = (
-            qualified if where_expr is None else ast.BinaryOp.And(where_expr, qualified)
+            between if where_expr is None else ast.BinaryOp.And(where_expr, between)
         )
 
-    # Lift any ORDER BY / LIMIT off the inner windowed query and re-attach them
-    # to the OUTER wrapper, so they apply ABOVE the output restriction. Left in
-    # place they would order/limit the expanded ``[R - N, R]`` lookback scan
-    # BEFORE the restriction strips the seed rows -- starving the requested
-    # result of rows (LIMIT) and burying the final ordering inside a subquery.
+    # Lift ORDER BY / LIMIT off the windowed select so they apply above the
+    # restriction, not inside the CTE where they would order/limit the wider
+    # [R - N, R] scan before the seed rows are stripped.
     lifted_organization = result.select.organization
     lifted_limit = result.select.limit
     result.select.organization = None
     result.select.limit = None
 
-    # The CTEs move to the outer query; the inner subquery carries only the
-    # windowed SELECT, parenthesized and aliased so it renders as
-    # ``(SELECT ... OVER ...) AS __windowed``.
-    inner_query = ast.Query(select=result.select, ctes=[])
-    inner_query.parenthesized = True
-    inner_query.alias = ast.Name(inner_alias)
-    inner_query.as_ = True
+    # Append the windowed SELECT as a named CTE, then replace the main SELECT
+    # with a simple ``SELECT * FROM __windowed WHERE ...``.  Using a CTE (rather
+    # than an inline subquery) keeps the WITH clause flat and avoids nesting the
+    # existing CTEs inside the wrapper.
+    windowed_cte = ast.Query(select=result.select, ctes=[])
+    windowed_cte.alias = ast.Name("__windowed")
+    windowed_cte.as_ = True
+    result.ctes.append(windowed_cte)
 
-    wrapper_select = ast.Select(
+    result.select = ast.Select(
         projection=[ast.Wildcard()],
-        from_=ast.From(relations=[ast.Relation(primary=inner_query)]),
+        from_=ast.From(
+            relations=[ast.Relation(primary=ast.Table(name=ast.Name("__windowed")))],
+        ),
         where=where_expr,
         organization=lifted_organization,
         limit=lifted_limit,
     )
-    return ast.Query(select=wrapper_select, ctes=result.ctes)
