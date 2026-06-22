@@ -2228,6 +2228,29 @@ async def test_inline_func(session: AsyncSession):
     assert isinstance(query.select.projection[1].type, ct.StructType)  # type: ignore
 
 
+def test_inline_registered_as_table_function():
+    """
+    Regression: `inline`/`inline_outer` must be registered as table-valued
+    functions so that `LATERAL VIEW inline(array_of_struct)` resolves via the
+    table_function_registry instead of raising DJNotImplementedException. They
+    explode an array of structs into one output column per struct field.
+    """
+    assert "INLINE" in F.table_function_registry
+    assert "INLINE_OUTER" in F.table_function_registry
+
+    array_of_struct = ct.ListType(
+        element_type=ct.StructType(
+            ct.NestedField(name="f1", field_type=ct.IntegerType()),  # type: ignore
+            ct.NestedField(name="f2", field_type=ct.StringType()),  # type: ignore
+        ),
+    )
+    for name in ("INLINE", "INLINE_OUTER"):
+        fields = F.table_function_registry[name].infer_type(array_of_struct)
+        assert [field.name.name for field in fields] == ["f1", "f2"]
+        assert isinstance(fields[0].type, ct.IntegerType)
+        assert isinstance(fields[1].type, ct.StringType)
+
+
 @pytest.mark.asyncio
 async def test_input_file_block_length_func(session: AsyncSession):
     """

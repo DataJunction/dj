@@ -4928,6 +4928,35 @@ def infer_type(
     return [arg.key, arg.value]  # pragma: no cover
 
 
+class Inline(TableFunction):
+    """
+    inline(array_of_struct) - Explodes an array of structs into a table,
+    producing one output column per field of the struct.
+    """
+
+
+@Inline.register
+def infer_type(
+    arg: ct.ListType,
+) -> List[ct.NestedField]:
+    # array<struct<f1, f2, ...>> -> one table column per struct field
+    return list(arg.element.type.fields)
+
+
+class InlineOuter(TableFunction):
+    """
+    inline_outer(array_of_struct) - Like inline, but emits a single row of nulls
+    when the array is empty or null rather than producing no rows.
+    """
+
+
+@InlineOuter.register
+def infer_type(
+    arg: ct.ListType,
+) -> List[ct.NestedField]:
+    return list(arg.element.type.fields)
+
+
 class FunctionRegistryDict(dict):
     """
     Custom dictionary mapping for functions
