@@ -2220,7 +2220,7 @@ async def test_inline_func(session: AsyncSession):
     ctx = ast.CompileContext(session=session, exception=exc)
     await query.compile(ctx)
     assert not exc.errors
-    types_by_name = {}
+    types_by_name: dict[str, ct.ColumnType] = {}
     for col in query.columns:
         types_by_name.setdefault(col.name.name, col.type)  # type: ignore
     assert isinstance(types_by_name["f1"], ct.IntegerType)
