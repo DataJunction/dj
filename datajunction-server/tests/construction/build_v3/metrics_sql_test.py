@@ -3923,6 +3923,211 @@ class TestMetricsSQLCrossFactWindow:
             """,
         )
 
+    @pytest.mark.asyncio
+    async def test_cross_fact_rows_between_ratio(self, client_with_build_v3):
+        """
+        Cross-fact ROWS BETWEEN ratio: trailing window numerator / as-of-date denominator.
+
+        v3.weekly_active_rate = trailing_7d_active_users / subscribed_users
+        - Numerator: SUM(daily_active_users) OVER (... ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)
+          backed by user_active_daily (fact 1)
+        - Denominator: SUM(is_subscribed) from user_subscription_daily (fact 2)
+
+        When filtered to a single date the build must:
+        1. Expand both fact scans to [R-6, R] (scan expansion)
+        2. Densify base_metrics over a full 7-row date spine (gap-fill)
+        3. Apply the ROWS BETWEEN window to the numerator in __windowed
+        4. Compute the ratio per-row (denominator is at daily grain — correct as-of semantics)
+        5. Restrict output to the requested date (output restriction)
+
+        The denominator scan is expanded unnecessarily (both facts link to v3.date),
+        but the output restriction ensures the final ratio uses only the requested
+        date's denominator value, which is correct.
+        """
+        # Sources
+        for payload in [
+            {
+                "name": "v3.user_activity_raw",
+                "description": "Raw activity events, one row per (user, session, day)",
+                "columns": [
+                    {"name": "dateint", "type": "int"},
+                    {"name": "user_id", "type": "int"},
+                    {"name": "has_activity", "type": "int"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "user_activity_raw",
+            },
+            {
+                "name": "v3.user_subscription_raw",
+                "description": "As-of-date subscription status per user, one row per (user, day)",
+                "columns": [
+                    {"name": "dateint", "type": "int"},
+                    {"name": "user_id", "type": "int"},
+                    {"name": "is_subscribed", "type": "int"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "user_subscription_raw",
+            },
+        ]:
+            resp = await client_with_build_v3.post("/nodes/source/", json=payload)
+            assert resp.status_code in (200, 201), resp.json()
+
+        # Layer 1 transform — daily dedup to (user, day) grain
+        resp = await client_with_build_v3.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.user_active_daily",
+                "description": (
+                    "Layer 1: daily 0/1 active-day flag per user. "
+                    "MAX(CASE WHEN …) deduplicates across sessions."
+                ),
+                "query": """
+                    SELECT
+                        dateint,
+                        user_id,
+                        MAX(CASE WHEN has_activity = 1 THEN 1 ELSE 0 END) AS is_active
+                    FROM v3.user_activity_raw
+                    GROUP BY dateint, user_id
+                """,
+                "mode": "published",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        for link in [
+            {
+                "dimension_node": "v3.date",
+                "join_type": "left",
+                "join_on": "v3.user_active_daily.dateint = v3.date.date_id",
+                "role": "order",
+            },
+            {
+                "dimension_node": "v3.customer",
+                "join_type": "left",
+                "join_on": "v3.user_active_daily.user_id = v3.customer.customer_id",
+            },
+        ]:
+            resp = await client_with_build_v3.post(
+                "/nodes/v3.user_active_daily/link",
+                json=link,
+            )
+            assert resp.status_code in (200, 201), resp.json()
+
+        # Subscription transform (denominator fact)
+        resp = await client_with_build_v3.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.user_subscription_daily",
+                "description": "As-of-date subscribed users (denominator fact).",
+                "query": """
+                    SELECT dateint, user_id, is_subscribed
+                    FROM v3.user_subscription_raw
+                """,
+                "mode": "published",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        for link in [
+            {
+                "dimension_node": "v3.date",
+                "join_type": "left",
+                "join_on": "v3.user_subscription_daily.dateint = v3.date.date_id",
+                "role": "order",
+            },
+            {
+                "dimension_node": "v3.customer",
+                "join_type": "left",
+                "join_on": "v3.user_subscription_daily.user_id = v3.customer.customer_id",
+            },
+        ]:
+            resp = await client_with_build_v3.post(
+                "/nodes/v3.user_subscription_daily/link",
+                json=link,
+            )
+            assert resp.status_code in (200, 201), resp.json()
+
+        # Layer 2 daily additive metric
+        resp = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.daily_active_users",
+                "description": "Layer 2: users active on this day. Additive across users and days.",
+                "query": "SELECT SUM(is_active) FROM v3.user_active_daily",
+                "mode": "published",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        # Layer 3 trailing-7d window metric
+        resp = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.trailing_7d_active_users",
+                "description": "Layer 3: users active on at least one day in the trailing 7 days.",
+                "query": """
+                    SELECT SUM(v3.daily_active_users) OVER (
+                        ORDER BY v3.date.date_id[order]
+                        ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+                    )
+                """,
+                "mode": "published",
+                "required_dimensions": ["v3.date.date_id[order]"],
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        # Denominator metric (as-of-date, semi-additive)
+        resp = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.subscribed_users",
+                "description": (
+                    "Subscribed users as of the report date. "
+                    "Semi-additive: valid per day, must not be summed across days."
+                ),
+                "query": "SELECT SUM(is_subscribed) FROM v3.user_subscription_daily",
+                "mode": "published",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        # Cross-fact ratio
+        resp = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.weekly_active_rate",
+                "description": (
+                    "Trailing 7-day active users per subscribed user. "
+                    "Cross-fact ratio: trailing window numerator (user_active_daily) "
+                    "over as-of-date denominator (user_subscription_daily)."
+                ),
+                "query": "SELECT v3.trailing_7d_active_users / NULLIF(v3.subscribed_users, 0)",
+                "mode": "published",
+                "required_dimensions": ["v3.date.date_id[order]"],
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.weekly_active_rate"],
+                "dimensions": ["v3.date.date_id[order]"],
+                "filters": ["v3.date.date_id = 20240107"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = response.json()["sql"]
+        print(
+            "\n--- actual SQL ---\n",
+            sql,
+            "\n---",
+        )  # capture on first run, then replace with assert_sql_equal
+        raise AssertionError("Fill in expected SQL from the print output above")
+
 
 class TestMetricsSQLOrderByLimit:
     """Tests for ORDER BY and LIMIT functionality in metrics SQL."""

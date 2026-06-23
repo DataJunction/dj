@@ -26,6 +26,7 @@ def test_build_lookback_filter_between_when_both_bounds():
     assert isinstance(result, ast.Between)
     assert result.low is low
     assert result.high is high
+    assert str(result) == "order_date BETWEEN 20240101 AND 20240131"
 
 
 def test_build_lookback_filter_eq_when_only_high():
@@ -34,6 +35,7 @@ def test_build_lookback_filter_eq_when_only_high():
     assert isinstance(result, ast.BinaryOp)
     assert result.op == ast.BinaryOpKind.Eq
     assert result.right is high
+    assert str(result) == "order_date = 20240131"
 
 
 def test_build_lookback_filter_none_when_no_high():
@@ -107,6 +109,7 @@ def test_build_densify_join_is_left_join_on_order_col():
     assert join.criteria.on is on
     assert isinstance(join.criteria.on, ast.BinaryOp)
     assert join.criteria.on.op == ast.BinaryOpKind.Eq
+    assert str(join.criteria.on) == "dateint = utc_dateint"
 
 
 def test_zero_fill_wraps_additive_measure():
@@ -116,6 +119,7 @@ def test_zero_fill_wraps_additive_measure():
     assert wrapped.name.name.upper() == "COALESCE"
     assert wrapped.args[0] is measure
     assert isinstance(wrapped.args[1], ast.Number) and wrapped.args[1].value == 0
+    assert str(wrapped) == "COALESCE(daily_visits, 0)"
 
 
 def test_build_scan_bounds_offsets_lower_only():
@@ -128,6 +132,7 @@ def test_build_scan_bounds_offsets_lower_only():
     assert isinstance(scan, ast.Between)
     assert scan.low.value == 20231205
     assert scan.high.value == 20240131
+    assert str(scan) == "dateint BETWEEN 20231205 AND 20240131"
 
 
 def test_build_output_restriction_reapplies_requested_predicate():
@@ -136,6 +141,7 @@ def test_build_output_restriction_reapplies_requested_predicate():
     assert isinstance(out, ast.Between)
     assert out.low.value == 20240101
     assert out.high.value == 20240131
+    assert str(out) == "dateint BETWEEN 20240101 AND 20240131"
 
 
 def test_resolve_offset_low_builds_ranked_subquery():
@@ -146,11 +152,17 @@ def test_resolve_offset_low_builds_ranked_subquery():
         lower_expr=ast.Number(20240101),
         extent=27,
     )
-    rendered = str(expr).upper()
-    assert "DATEINT" in rendered
-    # The offset (limit/rank) appears: N positions before `lower` needs N+1 rows
-    # ranked descending, then MIN. extent=27 -> LIMIT 28.
-    assert "28" in rendered
+    # N positions before lower_expr needs N+1 rows ranked descending then MIN:
+    # extent=27 -> LIMIT 28.
+    assert str(expr) == (
+        "(SELECT  MIN(__o.dateint) \n"
+        " FROM (SELECT  dateint \n"
+        " FROM v3_date \n"
+        " WHERE  dateint <= 20240101\n"
+        "ORDER BY dateint DESC\n"
+        "\n"
+        "LIMIT 28) __o)"
+    )
 
 
 def test_window_lookback_materialized_live_consistency():
