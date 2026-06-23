@@ -2207,25 +2207,24 @@ async def test_initcap_func(session: AsyncSession):
 @pytest.mark.asyncio
 async def test_inline_func(session: AsyncSession):
     """
-    Test the `inline` function
+    `inline` / `inline_outer` are table-generating functions: used in a LATERAL
+    VIEW they explode an array of structs into one output column per struct field.
     """
-    # This test assumes there's a table with a column of type ARRAY<STRUCT<a: INT, b: STRING>>
     query = parse(
-        "SELECT inline(col1), "
-        "inline_outer(array("
-        "struct(1 AS f1, 'a' AS f2), "
-        "struct(2 AS f1, 'b' AS f2)"
-        ")) "
-        "FROM (SELECT (array(struct("
-        "'a' AS k1, 1 AS v1, 'b' AS k2, '222' AS v2"
-        "))) AS col1)",
+        "SELECT a.f1, a.f2, b.f1, b.f2 "
+        "FROM (SELECT array(struct(1 AS f1, 'x' AS f2)) AS col1) src "
+        "LATERAL VIEW inline(col1) a AS f1, f2 "
+        "LATERAL VIEW inline_outer(col1) b AS f1, f2",
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
     await query.compile(ctx)
     assert not exc.errors
-    assert isinstance(query.select.projection[0].type, ct.StructType)  # type: ignore
-    assert isinstance(query.select.projection[1].type, ct.StructType)  # type: ignore
+    types_by_name = {}
+    for col in query.columns:
+        types_by_name.setdefault(col.name.name, col.type)  # type: ignore
+    assert isinstance(types_by_name["f1"], ct.IntegerType)
+    assert isinstance(types_by_name["f2"], ct.StringType)
 
 
 def test_inline_registered_as_table_function():

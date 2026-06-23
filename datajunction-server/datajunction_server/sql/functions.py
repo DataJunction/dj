@@ -2664,8 +2664,10 @@ class Inline(Function):
 
 @Inline.register  # type: ignore
 def infer_type(arg: ct.ListType) -> ct.ColumnType:
-    # The output type is the type of the struct's fields
-    return arg.type.element.type
+    # Scalar variant: shadowed by the Inline(TableFunction) below, so this is
+    # unreachable via parsing (inline resolves to a table function). Kept for
+    # registry parity with explode; see Explode(Function).
+    return arg.type.element.type  # pragma: no cover
 
 
 class InlineOuter(Function):
@@ -2677,8 +2679,8 @@ class InlineOuter(Function):
 
 @InlineOuter.register  # type: ignore
 def infer_type(arg: ct.ListType) -> ct.ColumnType:
-    # The output type is the type of the struct's fields
-    return arg.type.element.type
+    # Scalar variant: shadowed by the InlineOuter(TableFunction) below.
+    return arg.type.element.type  # pragma: no cover
 
 
 class InputFileBlockLength(Function):
