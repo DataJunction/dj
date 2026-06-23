@@ -2664,8 +2664,10 @@ class Inline(Function):
 
 @Inline.register  # type: ignore
 def infer_type(arg: ct.ListType) -> ct.ColumnType:
-    # The output type is the type of the struct's fields
-    return arg.type.element.type
+    # Scalar variant: shadowed by the Inline(TableFunction) below, so this is
+    # unreachable via parsing (inline resolves to a table function). Kept for
+    # registry parity with explode; see Explode(Function).
+    return arg.type.element.type  # pragma: no cover
 
 
 class InlineOuter(Function):
@@ -2677,8 +2679,8 @@ class InlineOuter(Function):
 
 @InlineOuter.register  # type: ignore
 def infer_type(arg: ct.ListType) -> ct.ColumnType:
-    # The output type is the type of the struct's fields
-    return arg.type.element.type
+    # Scalar variant: shadowed by the InlineOuter(TableFunction) below.
+    return arg.type.element.type  # pragma: no cover
 
 
 class InputFileBlockLength(Function):
@@ -4926,6 +4928,35 @@ def infer_type(
     arg: ct.MapType,
 ) -> List[ct.NestedField]:
     return [arg.key, arg.value]  # pragma: no cover
+
+
+class Inline(TableFunction):
+    """
+    inline(array_of_struct) - Explodes an array of structs into a table,
+    producing one output column per field of the struct.
+    """
+
+
+@Inline.register
+def infer_type(
+    arg: ct.ListType,
+) -> List[ct.NestedField]:
+    # array<struct<f1, f2, ...>> -> one table column per struct field
+    return list(arg.element.type.fields)
+
+
+class InlineOuter(TableFunction):
+    """
+    inline_outer(array_of_struct) - Like inline, but emits a single row of nulls
+    when the array is empty or null rather than producing no rows.
+    """
+
+
+@InlineOuter.register
+def infer_type(
+    arg: ct.ListType,
+) -> List[ct.NestedField]:
+    return list(arg.element.type.fields)
 
 
 class FunctionRegistryDict(dict):
