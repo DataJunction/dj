@@ -2114,16 +2114,19 @@ class TestNonDecomposableMetrics:
             response.json()["sql"],
             """
             WITH
+            __wl_low_date_id AS (
+              SELECT (SELECT MIN(__o.date_id)
+              FROM (SELECT date_id
+              FROM default.v3.dates
+              WHERE date_id <= 20240131
+              ORDER BY date_id DESC
+              LIMIT 7) __o) AS low_val
+            ),
             v3_order_details AS (
               SELECT  o.order_date,
                 oi.quantity * oi.unit_price AS line_total
                FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
-               WHERE  order_date BETWEEN (SELECT  MIN(__o.date_id)
-               FROM (SELECT  date_id
-               FROM default.v3.dates
-               WHERE  date_id <= 20240131
-              ORDER BY date_id DESC
-              LIMIT 7) __o) AND 20240131
+               WHERE  order_date BETWEEN (SELECT low_val FROM __wl_low_date_id) AND 20240131
             ),
             order_details_0 AS (
               SELECT  t1.order_date date_id_order,
@@ -2137,21 +2140,20 @@ class TestNonDecomposableMetrics:
                FROM (SELECT  DISTINCT
                date_id
                FROM default.v3.dates
-               WHERE  date_id BETWEEN (SELECT  MIN(__o.date_id)
-               FROM (SELECT  date_id
-               FROM default.v3.dates
-               WHERE  date_id <= 20240131
-              ORDER BY date_id DESC
-              LIMIT 7) __o) AND 20240131) AS __spine LEFT JOIN (SELECT  order_details_0.date_id_order AS date_id_order,
+               WHERE  date_id BETWEEN (SELECT low_val FROM __wl_low_date_id) AND 20240131) AS __spine
+               LEFT JOIN (SELECT  order_details_0.date_id_order AS date_id_order,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
                FROM order_details_0
                GROUP BY  order_details_0.date_id_order) AS __agg ON __spine.date_id = __agg.date_id_order
+            ),
+            __windowed AS (
+              SELECT  base_metrics.date_id_order AS date_id_order,
+                SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_revenue
+               FROM base_metrics
             )
             SELECT  *
-             FROM (SELECT  base_metrics.date_id_order AS date_id_order,
-                SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_revenue
-               FROM base_metrics) AS __windowed
-             WHERE  __windowed.date_id_order BETWEEN 20240131 AND 20240131
+             FROM __windowed
+             WHERE  date_id_order BETWEEN 20240131 AND 20240131
             """,
         )
 
@@ -2179,16 +2181,19 @@ class TestNonDecomposableMetrics:
             response.json()["sql"],
             """
             WITH
+            __wl_low_date_id AS (
+              SELECT (SELECT MIN(__o.date_id)
+              FROM (SELECT date_id
+              FROM default.v3.dates
+              WHERE date_id <= 20240125
+              ORDER BY date_id DESC
+              LIMIT 7) __o) AS low_val
+            ),
             v3_order_details AS (
               SELECT  o.order_date,
                 oi.quantity * oi.unit_price AS line_total
                FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
-               WHERE  order_date BETWEEN (SELECT  MIN(__o.date_id)
-               FROM (SELECT  date_id
-               FROM default.v3.dates
-               WHERE  date_id <= 20240125
-              ORDER BY date_id DESC
-              LIMIT 7) __o) AND 20240131
+               WHERE  order_date BETWEEN (SELECT low_val FROM __wl_low_date_id) AND 20240131
             ),
             order_details_0 AS (
               SELECT  t1.order_date date_id_order,
@@ -2202,21 +2207,20 @@ class TestNonDecomposableMetrics:
                FROM (SELECT  DISTINCT
                date_id
                FROM default.v3.dates
-               WHERE  date_id BETWEEN (SELECT  MIN(__o.date_id)
-               FROM (SELECT  date_id
-               FROM default.v3.dates
-               WHERE  date_id <= 20240125
-              ORDER BY date_id DESC
-              LIMIT 7) __o) AND 20240131) AS __spine LEFT JOIN (SELECT  order_details_0.date_id_order AS date_id_order,
+               WHERE  date_id BETWEEN (SELECT low_val FROM __wl_low_date_id) AND 20240131) AS __spine
+               LEFT JOIN (SELECT  order_details_0.date_id_order AS date_id_order,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
                FROM order_details_0
                GROUP BY  order_details_0.date_id_order) AS __agg ON __spine.date_id = __agg.date_id_order
+            ),
+            __windowed AS (
+              SELECT  base_metrics.date_id_order AS date_id_order,
+                SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_revenue
+               FROM base_metrics
             )
             SELECT  *
-             FROM (SELECT  base_metrics.date_id_order AS date_id_order,
-                SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_revenue
-               FROM base_metrics) AS __windowed
-             WHERE  __windowed.date_id_order BETWEEN 20240125 AND 20240131
+             FROM __windowed
+             WHERE  date_id_order BETWEEN 20240125 AND 20240131
             ORDER BY date_id_order
             LIMIT 3
             """,
@@ -2242,16 +2246,19 @@ class TestNonDecomposableMetrics:
             response.json()["sql"],
             """
             WITH
+            __wl_low_date_id AS (
+              SELECT (SELECT MIN(__o.date_id)
+              FROM (SELECT date_id
+              FROM default.v3.dates
+              WHERE date_id <= 20240125
+              ORDER BY date_id DESC
+              LIMIT 7) __o) AS low_val
+            ),
             v3_order_details AS (
               SELECT  o.order_date,
                 oi.quantity * oi.unit_price AS line_total
                FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
-               WHERE  order_date BETWEEN (SELECT  MIN(__o.date_id)
-               FROM (SELECT  date_id
-               FROM default.v3.dates
-               WHERE  date_id <= 20240125
-              ORDER BY date_id DESC
-              LIMIT 7) __o) AND 20240131
+               WHERE  order_date BETWEEN (SELECT low_val FROM __wl_low_date_id) AND 20240131
             ),
             order_details_0 AS (
               SELECT  t1.order_date date_id_order,
@@ -2265,21 +2272,20 @@ class TestNonDecomposableMetrics:
                FROM (SELECT  DISTINCT
                date_id
                FROM default.v3.dates
-               WHERE  date_id BETWEEN (SELECT  MIN(__o.date_id)
-               FROM (SELECT  date_id
-               FROM default.v3.dates
-               WHERE  date_id <= 20240125
-              ORDER BY date_id DESC
-              LIMIT 7) __o) AND 20240131) AS __spine LEFT JOIN (SELECT  order_details_0.date_id_order AS date_id_order,
+               WHERE  date_id BETWEEN (SELECT low_val FROM __wl_low_date_id) AND 20240131) AS __spine
+               LEFT JOIN (SELECT  order_details_0.date_id_order AS date_id_order,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
                FROM order_details_0
                GROUP BY  order_details_0.date_id_order) AS __agg ON __spine.date_id = __agg.date_id_order
+            ),
+            __windowed AS (
+              SELECT  base_metrics.date_id_order AS date_id_order,
+                SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_revenue
+               FROM base_metrics
             )
             SELECT  *
-             FROM (SELECT  base_metrics.date_id_order AS date_id_order,
-                SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_revenue
-               FROM base_metrics) AS __windowed
-             WHERE  __windowed.date_id_order BETWEEN 20240125 AND 20240131
+             FROM __windowed
+             WHERE  date_id_order BETWEEN 20240125 AND 20240131
             """,
         )
 
@@ -2306,16 +2312,19 @@ class TestNonDecomposableMetrics:
             response.json()["sql"],
             """
             WITH
+            __wl_low_date_id AS (
+              SELECT (SELECT MIN(__o.date_id)
+              FROM (SELECT date_id
+              FROM default.v3.dates
+              WHERE date_id <= 20240125
+              ORDER BY date_id DESC
+              LIMIT 7) __o) AS low_val
+            ),
             v3_order_details AS (
               SELECT  o.order_date,
                 oi.quantity * oi.unit_price AS line_total
                FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
-               WHERE  order_date BETWEEN (SELECT  MIN(__o.date_id)
-               FROM (SELECT  date_id
-               FROM default.v3.dates
-               WHERE  date_id <= 20240125
-              ORDER BY date_id DESC
-              LIMIT 7) __o) AND 20240131
+               WHERE  order_date BETWEEN (SELECT low_val FROM __wl_low_date_id) AND 20240131
             ),
             order_details_0 AS (
               SELECT  t1.order_date date_id_order,
@@ -2329,21 +2338,20 @@ class TestNonDecomposableMetrics:
                FROM (SELECT  DISTINCT
                date_id
                FROM default.v3.dates
-               WHERE  date_id BETWEEN (SELECT  MIN(__o.date_id)
-               FROM (SELECT  date_id
-               FROM default.v3.dates
-               WHERE  date_id <= 20240125
-              ORDER BY date_id DESC
-              LIMIT 7) __o) AND 20240131) AS __spine LEFT JOIN (SELECT  order_details_0.date_id_order AS date_id_order,
+               WHERE  date_id BETWEEN (SELECT low_val FROM __wl_low_date_id) AND 20240131) AS __spine
+               LEFT JOIN (SELECT  order_details_0.date_id_order AS date_id_order,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
                FROM order_details_0
                GROUP BY  order_details_0.date_id_order) AS __agg ON __spine.date_id = __agg.date_id_order
+            ),
+            __windowed AS (
+              SELECT  base_metrics.date_id_order AS date_id_order,
+                SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_revenue
+               FROM base_metrics
             )
             SELECT  *
-             FROM (SELECT  base_metrics.date_id_order AS date_id_order,
-                SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_revenue
-               FROM base_metrics) AS __windowed
-             WHERE  __windowed.date_id_order BETWEEN 20240125 AND 20240131
+             FROM __windowed
+             WHERE  date_id_order BETWEEN 20240125 AND 20240131
             """,
         )
 
@@ -2367,17 +2375,20 @@ class TestNonDecomposableMetrics:
             response.json()["sql"],
             """
             WITH
+            __wl_low_date_id AS (
+              SELECT  (SELECT  MIN(__o.date_id)
+               FROM (SELECT  date_id
+               FROM default.v3.dates
+               WHERE  date_id <= 20240125
+              ORDER BY date_id DESC
+              LIMIT 7) __o) AS low_val
+            ),
             v3_order_details AS (
               SELECT  o.order_date,
                 oi.product_id,
                 oi.quantity * oi.unit_price AS line_total
                FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
-               WHERE  order_date BETWEEN (SELECT  MIN(__o.date_id)
-               FROM (SELECT  date_id
-               FROM default.v3.dates
-               WHERE  date_id <= 20240125
-              ORDER BY date_id DESC
-              LIMIT 7) __o) AND 20240131
+               WHERE  order_date BETWEEN (SELECT low_val FROM __wl_low_date_id) AND 20240131
             ),
             v3_product AS (
               SELECT  product_id,
@@ -2400,12 +2411,7 @@ class TestNonDecomposableMetrics:
                FROM (SELECT  DISTINCT
                date_id
                FROM default.v3.dates
-               WHERE  date_id BETWEEN (SELECT  MIN(__o.date_id)
-               FROM (SELECT  date_id
-               FROM default.v3.dates
-               WHERE  date_id <= 20240125
-              ORDER BY date_id DESC
-              LIMIT 7) __o) AND 20240131) AS __d CROSS JOIN (SELECT  DISTINCT
+               WHERE  date_id BETWEEN (SELECT low_val FROM __wl_low_date_id) AND 20240131) AS __d CROSS JOIN (SELECT  DISTINCT
                category
                FROM (SELECT  order_details_0.date_id_order AS date_id_order,
                 order_details_0.category AS category,
@@ -2416,14 +2422,17 @@ class TestNonDecomposableMetrics:
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
                FROM order_details_0
                GROUP BY  order_details_0.date_id_order, order_details_0.category) AS __agg ON __spine.date_id = __agg.date_id_order AND __spine.category = __agg.category
-            )
-            SELECT  *
-             FROM (SELECT  base_metrics.date_id_order AS date_id_order,
+            ),
+            __windowed AS (
+              SELECT  base_metrics.date_id_order AS date_id_order,
                 base_metrics.category AS category,
                 SUM(base_metrics.total_revenue) OVER ( PARTITION BY base_metrics.category
                ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_revenue
-               FROM base_metrics) AS __windowed
-             WHERE  __windowed.date_id_order BETWEEN 20240125 AND 20240131
+               FROM base_metrics
+            )
+            SELECT  *
+             FROM __windowed
+             WHERE  date_id_order BETWEEN 20240125 AND 20240131
             """,
         )
 
@@ -2455,16 +2464,19 @@ class TestNonDecomposableMetrics:
             response.json()["sql"],
             """
             WITH
-            v3_order_details AS (
-              SELECT  o.order_date,
-                oi.quantity * oi.unit_price AS line_total
-               FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
-               WHERE  order_date BETWEEN (SELECT  MIN(__o.date_id)
+            __wl_low_date_id AS (
+              SELECT  (SELECT  MIN(__o.date_id)
                FROM (SELECT  date_id
                FROM default.v3.dates
                WHERE  date_id <= 20240125
               ORDER BY date_id DESC
-              LIMIT 7) __o) AND 20240131
+              LIMIT 7) __o) AS low_val
+            ),
+            v3_order_details AS (
+              SELECT  o.order_date,
+                oi.quantity * oi.unit_price AS line_total
+               FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+               WHERE  order_date BETWEEN (SELECT low_val FROM __wl_low_date_id) AND 20240131
             ),
             order_details_0 AS (
               SELECT  t1.order_date date_id_order,
@@ -2478,21 +2490,19 @@ class TestNonDecomposableMetrics:
                FROM (SELECT  DISTINCT
                date_id
                FROM default.v3.dates
-               WHERE  date_id BETWEEN (SELECT  MIN(__o.date_id)
-               FROM (SELECT  date_id
-               FROM default.v3.dates
-               WHERE  date_id <= 20240125
-              ORDER BY date_id DESC
-              LIMIT 7) __o) AND 20240131) AS __spine LEFT JOIN (SELECT  order_details_0.date_id_order AS date_id_order,
+               WHERE  date_id BETWEEN (SELECT low_val FROM __wl_low_date_id) AND 20240131) AS __spine LEFT JOIN (SELECT  order_details_0.date_id_order AS date_id_order,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
                FROM order_details_0
                GROUP BY  order_details_0.date_id_order) AS __agg ON __spine.date_id = __agg.date_id_order
+            ),
+            __windowed AS (
+              SELECT  base_metrics.date_id_order AS date_id_order,
+                SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_revenue
+               FROM base_metrics
             )
             SELECT  *
-             FROM (SELECT  base_metrics.date_id_order AS date_id_order,
-                SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_revenue
-               FROM base_metrics) AS __windowed
-             WHERE  __windowed.date_id_order BETWEEN 20240125 AND 20240131
+             FROM __windowed
+             WHERE  date_id_order BETWEEN 20240125 AND 20240131
             """,
         )
 

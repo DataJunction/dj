@@ -194,8 +194,7 @@ def _build_offset_cte(
         f") __o) AS low_val"
     )
     cte_q = ast.Query(select=parse(body_sql).select, ctes=[])
-    cte_q.alias = ast.Name(cte_name)
-    cte_q.as_ = True
+    cte_q.to_cte(ast.Name(cte_name))
     ref_expr = cast(
         ast.Expression,
         parse(f"SELECT (SELECT low_val FROM {cte_name})").select.projection[0],
@@ -913,8 +912,7 @@ def apply_output_restriction(
     # than an inline subquery) keeps the WITH clause flat and avoids nesting the
     # existing CTEs inside the wrapper.
     windowed_cte = ast.Query(select=result.select, ctes=[])
-    windowed_cte.alias = ast.Name("__windowed")
-    windowed_cte.as_ = True
+    windowed_cte.to_cte(ast.Name("__windowed"), result)
     result.ctes.append(windowed_cte)
 
     result.select = ast.Select(
