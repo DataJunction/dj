@@ -2245,10 +2245,14 @@ async def save_column_level_lineage(node_revision_id: int):
                 ]
                 session.add(node_revision)
                 await session.commit()
-    except Exception:
+    except Exception as exc:
+        # Include the exception repr in the *message* (not just exc_info): some
+        # log backends retain only the formatted message and drop the traceback,
+        # which otherwise leaves this generic error undiagnosable.
         _logger.exception(
-            "Error saving column-level lineage for node revision %s",
+            "Error saving column-level lineage for node revision %s: %r",
             node_revision_id,
+            exc,
         )
 
 

@@ -54,7 +54,7 @@ services:
       - ./datajunction-clients/python:/dj-seed
     command: >
       /bin/bash -c "
-      pip install -e . && python seed/init_system_nodes.py
+      pip install -e . && python datajunction/seed/init_system_nodes.py
       "
 
   postgres_metadata:

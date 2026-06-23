@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
+from copy import deepcopy
 from typing import TYPE_CHECKING, Any, Optional, cast
 
 if TYPE_CHECKING:
@@ -1134,7 +1135,13 @@ def _build_group_by(
             if gc_expr.name.name not in projected_dim_col_names:
                 group_by.append(make_column_ref(gc_expr.name.name, main_alias))
         else:
-            group_by.append(ast.Column(name=ast.Name(gc_alias)))
+            # Repeat the expression in GROUP BY rather than referencing the
+            # projection alias.  Trino's analyzer resolves GROUP BY items
+            # against the FROM scope and does not fall back to SELECT aliases
+            # for complex expressions (e.g. ``IF(...)`` over filter columns),
+            # so an alias reference here would raise
+            # "Column ... cannot be resolved".  Spark accepts both forms.
+            group_by.append(deepcopy(gc_expr))
 
     return group_by
 

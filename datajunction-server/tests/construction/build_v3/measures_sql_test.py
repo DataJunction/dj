@@ -2298,7 +2298,107 @@ class TestMetricTypesMeasuresSQL:
                 IF(t1.is_product_view = 1, t1.session_id, NULL) is_product_view_session_id_distinct_ee91aa40
             FROM v3_page_views_enriched t1
             LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
-            GROUP BY t2.category, is_product_view_session_id_distinct_ee91aa40
+            GROUP BY t2.category, IF(t1.is_product_view = 1, t1.session_id, NULL)
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_count_distinct_if_compound_predicate_trino_compat(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        Regression test: a real-world cube metric of the form
+        ``COUNT(DISTINCT IF(<compound predicate over multiple columns>, id, NULL))``
+        must produce SQL that Trino accepts.
+
+        Two specific failures the generator used to produce:
+
+        1. ``GROUP BY <select alias>``.  Trino's analyzer resolves GROUP BY items
+           against the FROM scope only and never falls back to SELECT aliases
+           (unlike Spark / MySQL), so the alias reference raised
+           ``Column ... cannot be resolved``.  The fix repeats the underlying
+           ``IF(...)`` expression in the GROUP BY.
+
+        2. Duplicate column names in the generated component identifier.  When
+           the predicate references the same column twice (e.g. ``page_type IS
+           NULL OR page_type <> 'admin'``), ``amenable_col_names`` used to emit
+           the column name twice, producing pointlessly long, churn-prone
+           identifiers.  The fix dedupes column references before joining.
+        """
+        metric_response = await client_with_build_v3.post(
+            "/nodes/metric",
+            json={
+                "name": "v3.active_product_sessions",
+                "type": "metric",
+                "description": (
+                    "Distinct sessions that viewed a product, excluding "
+                    "checkout-only and admin traffic"
+                ),
+                "query": (
+                    "SELECT COUNT(DISTINCT IF("
+                    "product_id IS NOT NULL "
+                    "AND COALESCE(is_checkout_view, 0) = 0 "
+                    "AND (page_type IS NULL OR page_type <> 'admin'), "
+                    "session_id, NULL)) "
+                    "FROM v3.page_views_enriched"
+                ),
+                "mode": "published",
+            },
+        )
+        assert metric_response.status_code == 201, metric_response.json()
+
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.active_product_sessions"],
+                "dimensions": ["v3.product.category"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        gg = response.json()["grain_groups"][0]
+
+        # ``page_type`` appears twice in the predicate but only once in the
+        # generated component identifier.
+        grain_alias = next(g for g in gg["grain"] if g != "category")
+        assert grain_alias.startswith(
+            "product_id_is_checkout_view_page_type_session_id_distinct_",
+        ), grain_alias
+
+        assert_sql_equal(
+            gg["sql"],
+            f"""
+            WITH
+            v3_page_views_enriched AS (
+                SELECT
+                    session_id, page_type, product_id,
+                    CASE WHEN page_type = 'checkout' THEN 1 ELSE 0 END AS is_checkout_view
+                FROM default.v3.page_views
+            ),
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+            )
+            SELECT
+                t2.category,
+                IF(
+                    t1.product_id IS NOT NULL
+                    AND COALESCE(t1.is_checkout_view, 0) = 0
+                    AND (t1.page_type IS NULL OR t1.page_type <> 'admin'),
+                    t1.session_id,
+                    NULL
+                ) {grain_alias}
+            FROM v3_page_views_enriched t1
+            LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+            GROUP BY
+                t2.category,
+                IF(
+                    t1.product_id IS NOT NULL
+                    AND COALESCE(t1.is_checkout_view, 0) = 0
+                    AND (t1.page_type IS NULL OR t1.page_type <> 'admin'),
+                    t1.session_id,
+                    NULL
+                )
             """,
         )
 
@@ -5146,7 +5246,7 @@ class TestMetricExprReferencesDimColumn:
                 t2.tier,
                 SUM(CASE WHEN t1.amount >= t2.threshold
                     THEN t1.amount ELSE 0 END)
-                    amount_mx_DOT_customer_DOT_threshold_amount_sum_HASH
+                    amount_mx_DOT_customer_DOT_threshold_sum_HASH
             FROM mx_fact t1
             LEFT OUTER JOIN mx_customer t2 ON t1.customer_id = t2.customer_id
             GROUP BY t2.tier
@@ -5186,14 +5286,14 @@ class TestMetricExprReferencesDimColumn:
                     t2.tier,
                     SUM(CASE WHEN t1.amount >= t2.threshold
                         THEN t1.amount ELSE 0 END)
-                        amount_mx_DOT_customer_DOT_threshold_amount_sum_HASH
+                        amount_mx_DOT_customer_DOT_threshold_sum_HASH
                 FROM mx_fact t1
                 LEFT OUTER JOIN mx_customer t2 ON t1.customer_id = t2.customer_id
                 GROUP BY t2.tier
             )
             SELECT
                 fact_0.tier AS tier,
-                SUM(fact_0.amount_mx_DOT_customer_DOT_threshold_amount_sum_HASH)
+                SUM(fact_0.amount_mx_DOT_customer_DOT_threshold_sum_HASH)
                     AS qualifying_amount
             FROM fact_0
             GROUP BY fact_0.tier
