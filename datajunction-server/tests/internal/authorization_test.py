@@ -1028,10 +1028,7 @@ class TestRestrictiveScopes:
 
         results = await access_checker.check(on_denied=AccessDenialMode.RETURN)
         assert results[0].approved is False
-        assert (
-            results[0].reason
-            == "restrictive scope (explicit grant required)"
-        )
+        assert results[0].reason == "restrictive scope (explicit grant required)"
         assert results[1].approved is True
 
     async def test_default_read_role_still_applies_outside_restricted_action(
