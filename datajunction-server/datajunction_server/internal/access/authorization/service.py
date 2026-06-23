@@ -146,15 +146,14 @@ class RBACAuthorizationService(AuthorizationService):
         return [self._make_decision(auth_context, request) for request in requests]
 
     @classmethod
-    def candidate_scopes(cls, auth_context: AuthContext) -> List["RoleScope"]:
+    def explicit_scopes(cls, auth_context: AuthContext) -> List["RoleScope"]:
         """
-        Collect every scope that could grant a request for this context.
+        Collect explicit principal scopes for this context.
 
-        This is the union of the principal's own (non-expired) role scopes and
-        the configured default-access role's scopes. Collecting all candidates
-        up front (rather than short-circuiting source by source) keeps the
-        decision a single resolve step, leaving room for future deny/precedence
-        rules without restructuring.
+        This includes the principal's own non-expired role scopes and group
+        role scopes flattened into the auth context. Default-access role scopes
+        are deliberately excluded because restrictive scopes must require an
+        explicit principal/group/service-account grant.
         """
         scopes: List["RoleScope"] = []
         now = datetime.now(timezone.utc)
@@ -162,7 +161,6 @@ class RBACAuthorizationService(AuthorizationService):
             if assignment.expires_at and assignment.expires_at < now:
                 continue
             scopes.extend(assignment.role.scopes)
-        scopes.extend(auth_context.default_scopes)
         return scopes
 
     def _make_decision(
@@ -173,21 +171,21 @@ class RBACAuthorizationService(AuthorizationService):
         """
         Convert ResourceRequest to AccessDecision.
 
-        Gathers all applicable scopes (explicit grants + default-access role)
-        and approves if any grants the request. With no explicit grant, a
-        request under a configured restrictive scope is denied; otherwise it
-        falls back to the configured default_access_policy.
+        Explicit grants are evaluated first. With no explicit grant, a request
+        under a configured restrictive scope is denied. Default-access role
+        scopes are evaluated only after the restrictive check, so they cannot
+        bypass governance for a restricted mutating action.
         """
-        granted = any(
+        explicitly_granted = any(
             self._scope_grants_permission(
                 scope,
                 request.verb,
                 request.access_object.resource_type,
                 request.access_object.name,
             )
-            for scope in self.candidate_scopes(auth_context)
+            for scope in self.explicit_scopes(auth_context)
         )
-        if granted:
+        if explicitly_granted:
             return AccessDecision(request=request, approved=True)
         if self.request_is_restricted(request):
             return AccessDecision(
@@ -195,6 +193,17 @@ class RBACAuthorizationService(AuthorizationService):
                 approved=False,
                 reason="restrictive scope (explicit grant required)",
             )
+        default_granted = any(
+            self._scope_grants_permission(
+                scope,
+                request.verb,
+                request.access_object.resource_type,
+                request.access_object.name,
+            )
+            for scope in auth_context.default_scopes
+        )
+        if default_granted:
+            return AccessDecision(request=request, approved=True)
         return AccessDecision(
             request=request,
             approved=(settings.default_access_policy == "permissive"),
@@ -335,13 +344,17 @@ class RBACAuthorizationService(AuthorizationService):
     def _restrictive_rules(cls) -> List[tuple]:
         """
         Parse settings.restrictive_scopes into (action, scope_type, scope_value)
-        tuples. Malformed entries are ignored.
+        tuples. Invalid entries raise to avoid silently leaving a namespace
+        permissive because of a typo.
         """
         rules: List[tuple] = []
         for raw in getattr(settings, "restrictive_scopes", []) or []:
             parts = raw.split(":")
-            if len(parts) != 3:  # pragma: no cover
-                continue
+            if len(parts) != 3:
+                raise ValueError(
+                    "Invalid restrictive scope "
+                    f"`{raw}`. Expected `action:scope_type:scope_value`.",
+                )
             action_str, type_str, scope_value = parts
             try:
                 rules.append(
@@ -351,8 +364,12 @@ class RBACAuthorizationService(AuthorizationService):
                         scope_value,
                     ),
                 )
-            except ValueError:  # pragma: no cover
-                continue
+            except ValueError as exc:
+                raise ValueError(
+                    "Invalid restrictive scope "
+                    f"`{raw}`. Expected `action:scope_type:scope_value` "
+                    "with a valid ResourceAction and ResourceType.",
+                ) from exc
         return rules
 
     @classmethod

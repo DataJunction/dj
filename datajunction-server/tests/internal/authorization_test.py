@@ -865,9 +865,27 @@ class TestDefaultAccessRole:
 class TestRestrictiveScopes:
     """Tests for per-action, per-namespace restrictive scopes (write governance)."""
 
+    CONTEXT_SETTINGS = (
+        "datajunction_server.internal.access.authorization.context.settings"
+    )
     SERVICE_SETTINGS = (
         "datajunction_server.internal.access.authorization.service.settings"
     )
+
+    async def _make_role(self, session, default_user, name, action, scope_value):
+        role = Role(name=name, created_by_id=default_user.id)
+        session.add(role)
+        await session.flush()
+        session.add(
+            RoleScope(
+                role_id=role.id,
+                action=action,
+                scope_type=ResourceType.NAMESPACE,
+                scope_value=scope_value,
+            ),
+        )
+        await session.commit()
+        return role
 
     async def test_restrictive_write_scope_denies_ungranted_writes(
         self,
@@ -962,6 +980,167 @@ class TestRestrictiveScopes:
         )
         results = await access_checker.check(on_denied=AccessDenialMode.RETURN)
         assert results[0].approved is True
+
+    async def test_default_role_does_not_bypass_restrictive_scope(
+        self,
+        default_user: User,
+        session: AsyncSession,
+        mocker,
+    ):
+        """A default role cannot satisfy a write under a restrictive scope."""
+        await self._make_role(
+            session,
+            default_user,
+            "global-writer",
+            ResourceAction.WRITE,
+            "*",
+        )
+
+        ctx_settings = mocker.patch(self.CONTEXT_SETTINGS)
+        ctx_settings.default_access_role = "global-writer"
+        svc = mocker.patch(self.SERVICE_SETTINGS)
+        svc.authorization_provider = "rbac"
+        svc.default_access_policy = "permissive"
+        svc.restrictive_scopes = ["write:namespace:finance.*"]
+
+        user = await get_user(username=default_user.username, session=session)
+        access_checker = AccessChecker(
+            auth_context=await AuthContext.from_user(user=user, session=session),
+        )
+        access_checker.add_requests(
+            [
+                ResourceRequest(
+                    verb=ResourceAction.WRITE,
+                    access_object=Resource(
+                        name="finance.revenue",
+                        resource_type=ResourceType.NODE,
+                    ),
+                ),
+                ResourceRequest(
+                    verb=ResourceAction.WRITE,
+                    access_object=Resource(
+                        name="growth.signups",
+                        resource_type=ResourceType.NODE,
+                    ),
+                ),
+            ],
+        )
+
+        results = await access_checker.check(on_denied=AccessDenialMode.RETURN)
+        assert results[0].approved is False
+        assert (
+            results[0].reason
+            == "restrictive scope (explicit grant required)"
+        )
+        assert results[1].approved is True
+
+    async def test_default_read_role_still_applies_outside_restricted_action(
+        self,
+        default_user: User,
+        session: AsyncSession,
+        mocker,
+    ):
+        """Read access from the default role still applies when writes are restricted."""
+        await self._make_role(
+            session,
+            default_user,
+            "restrictive-global-reader",
+            ResourceAction.READ,
+            "*",
+        )
+
+        ctx_settings = mocker.patch(self.CONTEXT_SETTINGS)
+        ctx_settings.default_access_role = "restrictive-global-reader"
+        svc = mocker.patch(self.SERVICE_SETTINGS)
+        svc.authorization_provider = "rbac"
+        svc.default_access_policy = "restrictive"
+        svc.restrictive_scopes = ["write:namespace:finance.*"]
+
+        user = await get_user(username=default_user.username, session=session)
+        access_checker = AccessChecker(
+            auth_context=await AuthContext.from_user(user=user, session=session),
+        )
+        access_checker.add_request(
+            ResourceRequest(
+                verb=ResourceAction.READ,
+                access_object=Resource(
+                    name="finance.revenue",
+                    resource_type=ResourceType.NODE,
+                ),
+            ),
+        )
+
+        results = await access_checker.check(on_denied=AccessDenialMode.RETURN)
+        assert results[0].approved is True
+
+    async def test_explicit_grant_allows_restricted_write_with_default_role(
+        self,
+        default_user: User,
+        session: AsyncSession,
+        mocker,
+    ):
+        """Explicit grants still approve restricted writes."""
+        await self._make_role(
+            session,
+            default_user,
+            "global-reader-with-writer",
+            ResourceAction.READ,
+            "*",
+        )
+        writer_role = await self._make_role(
+            session,
+            default_user,
+            "explicit-finance-writer",
+            ResourceAction.WRITE,
+            "finance.*",
+        )
+        session.add(
+            RoleAssignment(
+                principal_id=default_user.id,
+                role_id=writer_role.id,
+                granted_by_id=default_user.id,
+            ),
+        )
+        await session.commit()
+
+        ctx_settings = mocker.patch(self.CONTEXT_SETTINGS)
+        ctx_settings.default_access_role = "global-reader-with-writer"
+        svc = mocker.patch(self.SERVICE_SETTINGS)
+        svc.authorization_provider = "rbac"
+        svc.default_access_policy = "permissive"
+        svc.restrictive_scopes = ["write:namespace:finance.*"]
+
+        user = await get_user(username=default_user.username, session=session)
+        access_checker = AccessChecker(
+            auth_context=await AuthContext.from_user(user=user, session=session),
+        )
+        access_checker.add_request(
+            ResourceRequest(
+                verb=ResourceAction.WRITE,
+                access_object=Resource(
+                    name="finance.revenue",
+                    resource_type=ResourceType.NODE,
+                ),
+            ),
+        )
+
+        results = await access_checker.check(on_denied=AccessDenialMode.RETURN)
+        assert results[0].approved is True
+
+    def test_malformed_restrictive_scope_raises(self, mocker):
+        """Bad restrictive scope config fails closed instead of being ignored."""
+        svc = mocker.patch(self.SERVICE_SETTINGS)
+        svc.restrictive_scopes = ["writes:namespace:finance.*"]
+        request = ResourceRequest(
+            verb=ResourceAction.WRITE,
+            access_object=Resource(
+                name="finance.revenue",
+                resource_type=ResourceType.NODE,
+            ),
+        )
+
+        with pytest.raises(ValueError, match="Invalid restrictive scope"):
+            RBACAuthorizationService.request_is_restricted(request)
 
     async def test_no_restrictive_scopes_is_permissive(
         self,
