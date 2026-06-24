@@ -57,7 +57,6 @@ from datajunction_server.internal.history import EntityType
 from datajunction_server.sql.dag import get_metric_parents_map
 from datajunction_server.internal.nodes import (
     derive_frozen_measures_bulk,
-    hard_delete_node,
 )
 from datajunction_server.models.base import labelize
 from datajunction_server.models.deployment import (
@@ -2776,6 +2775,24 @@ class DeploymentOrchestrator:
                     references[dim_name] = []
                 references[dim_name].append(f"{node.name} (dimension link)")
 
+        # Find hierarchy levels that reference any of the to-delete nodes.
+        # HierarchyLevel.dimension_node_id -> Node.id has no ON DELETE CASCADE, so
+        # a dimension still referenced by a hierarchy level cannot be hard-deleted
+        # (the bulk delete would hit a ForeignKeyViolation). Treat it as a
+        # reference that blocks deletion, like NodeRelationship / DimensionLink.
+        stmt = (
+            select(HierarchyLevel.dimension_node_id, Hierarchy.name)
+            .join(Hierarchy, HierarchyLevel.hierarchy_id == Hierarchy.id)
+            .where(HierarchyLevel.dimension_node_id.in_(deleted_node_ids))
+        )
+        result = await self.session.execute(stmt)
+        for dimension_node_id, hierarchy_name in result:
+            dim_name = id_to_name.get(dimension_node_id)
+            if dim_name:  # pragma: no branch
+                if dim_name not in references:
+                    references[dim_name] = []
+                references[dim_name].append(f"{hierarchy_name} (hierarchy)")
+
         return references
 
     async def _delete_nodes(self, to_delete: list[NodeSpec]) -> list[DeploymentResult]:
@@ -2783,6 +2800,40 @@ class DeploymentOrchestrator:
 
         # Check which nodes have references that would prevent deletion
         references = await self._validate_node_deletion(to_delete)
+
+        # Bulk-delete every deletable node via the shared ``hard_delete_nodes``
+        # helper (the same machinery ``hard_delete_namespace`` uses): it
+        # attributes downstream + dimension-link impact in two bulk CTEs, stages
+        # history, and removes the nodes in one statement (FK ``ON DELETE
+        # CASCADE`` drops all child rows + noderelationship edges). This replaces
+        # a per-node ``hard_delete_node`` loop that re-walked the downstream DAG
+        # for each node — O(N) BFS traversals that dominated large deletions.
+        # Downstream nodes were already revalidated/invalidated by
+        # ``propagate_impact`` (run before deletion). Local import avoids a
+        # module-level import cycle; runs inside the orchestrator SAVEPOINT so
+        # the caller owns the commit and dry-runs still roll back.
+        deletable_names = [
+            spec.rendered_name
+            for spec in to_delete
+            if spec.rendered_name not in references
+        ]
+        deleted_names: set[str] = set()
+        if deletable_names:
+            from datajunction_server.internal.namespaces import hard_delete_nodes
+
+            id_rows = (
+                await self.session.execute(
+                    select(Node.id, Node.name).where(Node.name.in_(deletable_names)),
+                )
+            ).all()
+            deleted_names = {row.name for row in id_rows}
+            node_ids = [row.id for row in id_rows]
+            if node_ids:
+                await hard_delete_nodes(
+                    self.session,
+                    node_ids,
+                    self.context.current_user,
+                )
 
         results = []
         for node_spec in to_delete:
@@ -2804,41 +2855,29 @@ class DeploymentOrchestrator:
                         message=error_msg,
                     ),
                 )
+            elif node_name in deleted_names:
+                results.append(
+                    DeploymentResult(
+                        name=node_name,
+                        deploy_type=DeploymentResult.Type.NODE,
+                        status=DeploymentResult.Status.SUCCESS,
+                        operation=DeploymentResult.Operation.DELETE,
+                        message=f"Node {node_name} has been removed.",
+                    ),
+                )
             else:
-                # Node can be safely deleted
-                results.append(await self._deploy_delete_node(node_name))
+                # Requested for deletion but no longer present in the DB.
+                results.append(
+                    DeploymentResult(
+                        name=node_name,
+                        deploy_type=DeploymentResult.Type.NODE,
+                        status=DeploymentResult.Status.FAILED,
+                        operation=DeploymentResult.Operation.DELETE,
+                        message=f"Node {node_name} not found.",
+                    ),
+                )
 
         return results
-
-    async def _deploy_delete_node(self, name: str) -> DeploymentResult:
-        async def add_history(event, session):  # pragma: no cover
-            """Add history to session without committing"""
-            session.add(event)
-
-        try:
-            await hard_delete_node(
-                name=name,
-                session=self.session,
-                current_user=self.context.current_user,
-                save_history=add_history,
-                flush_only=True,
-            )
-            return DeploymentResult(
-                name=name,
-                deploy_type=DeploymentResult.Type.NODE,
-                status=DeploymentResult.Status.SUCCESS,
-                operation=DeploymentResult.Operation.DELETE,
-                message=f"Node {name} has been removed.",
-            )
-        except Exception as exc:
-            logger.exception(exc)
-            return DeploymentResult(
-                name=name,
-                deploy_type=DeploymentResult.Type.NODE,
-                status=DeploymentResult.Status.FAILED,
-                operation=DeploymentResult.Operation.DELETE,
-                message=str(exc),
-            )
 
     async def _delete_namespaces(
         self,
