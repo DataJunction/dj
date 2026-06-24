@@ -213,6 +213,12 @@ class Settings(BaseSettings):  # pragma: no cover
     # - "restrictive": Deny by default
     default_access_policy: str = "permissive"  # or "restrictive"
 
+    # Optional role name whose scopes are evaluated as a fallback when no
+    # explicit grant matches. Lets a deployment express graceful defaults such
+    # as "everyone gets read on *" without flipping the whole policy to
+    # permissive. Applied before the default_access_policy fallback.
+    default_access_role: Optional[str] = None
+
     # Interval in seconds with which to expire caching of any indexes
     index_cache_expire: int = 60
 
