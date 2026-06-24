@@ -12,12 +12,30 @@ from datajunction_server.database.group_member import GroupMember
 from datajunction_server.database.user import OAuthProvider, PrincipalKind, User
 from datajunction_server.errors import DJAlreadyExistsException, DJDoesNotExistException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
+from datajunction_server.internal.access.authorization import (
+    AccessChecker,
+    AccessDenialMode,
+    get_access_checker,
+)
+from datajunction_server.models.access import ResourceAction, ResourceType
 from datajunction_server.models.group import GroupOutput
 from datajunction_server.models.user import UserOutput
 from datajunction_server.utils import get_session, get_settings
 
 settings = get_settings()
 router = SecureAPIRouter(tags=["groups"])
+
+
+async def enforce_group_administration(access_checker: AccessChecker) -> None:
+    """
+    Require a global MANAGE grant to administer groups.
+
+    Group membership feeds permission resolution and a group can carry roles
+    across many namespaces, so creating groups or editing membership is a
+    privileged, cross-cutting operation rather than a per-namespace one.
+    """
+    access_checker.add_scope(ResourceType.NAMESPACE, "*", ResourceAction.MANAGE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
 
 @router.post("/groups/", response_model=GroupOutput, status_code=201)
@@ -27,6 +45,7 @@ async def register_group(
     name: str | None = None,
     *,
     session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> User:
     """
     Register a group in DJ.
@@ -40,6 +59,8 @@ async def register_group(
         email: Optional email for the group
         name: Display name (defaults to username)
     """
+    await enforce_group_administration(access_checker)
+
     existing = await User.get_by_username(session, username)
     if existing:
         raise DJAlreadyExistsException(message=f"Group {username} already exists")
@@ -95,12 +116,15 @@ async def add_group_member(
     member_username: str,
     *,
     session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> dict:
     """
     Add a member to a group (Postgres provider only).
 
     For external providers, membership is managed externally and this endpoint is disabled.
     """
+    await enforce_group_administration(access_checker)
+
     if settings.group_membership_provider != "postgres":
         raise HTTPException(
             status_code=400,
@@ -147,10 +171,13 @@ async def remove_group_member(
     member_username: str,
     *,
     session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> None:
     """
     Remove a member from a group (Postgres provider only).
     """
+    await enforce_group_administration(access_checker)
+
     if settings.group_membership_provider != "postgres":
         raise HTTPException(
             status_code=400,
