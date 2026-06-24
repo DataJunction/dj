@@ -9,8 +9,6 @@ from datajunction_server.sql.parsing.backends.antlr4 import parse
 if TYPE_CHECKING:
     from datajunction_server.construction.build_v3.types import BuildContext
 
-ADDITIVE_WINDOW_AGGS = frozenset({"SUM", "COUNT"})
-
 
 @dataclass
 class WindowLookback:
@@ -71,14 +69,6 @@ def validate_window_lookback(wl: "WindowLookback", order_is_sequence_dim: bool) 
                 f"Window metric orders by '{wl.order_column.name.name}', which is not an "
                 "orderable sequence dimension. Window metrics must order by an orderable "
                 "sequence dimension (e.g. a date dimension)."
-            ),
-        )
-    if wl.agg_name not in ADDITIVE_WINDOW_AGGS:
-        raise DJInvalidInputException(
-            message=(
-                f"Window aggregation '{wl.agg_name}' is not supported on the live path. "
-                "Only additive window aggregations (SUM, COUNT) are supported today; "
-                "gap-fill semantics for averages are not yet defined."
             ),
         )
 
@@ -428,6 +418,15 @@ def apply_live_window_lookback(ctx: "BuildContext") -> Optional["WindowLookbackP
         combiner = decomposed.combiner_ast
         if not has_window_function(combiner):
             continue
+        if not decomposed.is_fully_decomposable:
+            raise DJInvalidInputException(
+                message=(
+                    f"Window metric '{decomposed.metric_node.name}' is not yet supported "
+                    "on the live path. The trailing-window expansion pre-aggregates to one "
+                    "row per grain before applying the window; metrics like COUNT DISTINCT "
+                    "require operating on raw rows instead."
+                ),
+            )
         for func in combiner.find_all(ast.Function):
             if not func.over:
                 continue
