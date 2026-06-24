@@ -189,6 +189,20 @@ async def get_measures_sql_v3(
         ),
     ),
     use_materialized: bool = Query(True),
+    aggregate: bool = Query(
+        True,
+        description=(
+            "Whether to apply server-side aggregation at the requested grain "
+            "(default: True). When False, the response SQL is a flat SELECT "
+            "with no GROUP BY and projects each component column under its "
+            "exact node column name (the v3-compatible output format, not "
+            "v2's `<node>_DOT_<column>` convention). Pre-aggregation table "
+            "matching is bypassed. Use this when the caller applies its own "
+            "aggregation downstream. The `metric_formulas[].combiner` field "
+            "is still populated in either mode so the caller can re-aggregate "
+            "the raw output. Semantic parity with v2's `preaggregate=False`."
+        ),
+    ),
     dialect: Dialect = Query(
         Dialect.SPARK,
         description="SQL dialect for the generated query.",
@@ -243,6 +257,10 @@ async def get_measures_sql_v3(
         use_materialized: If True (default), use materialized tables when available.
             Set to False when generating SQL for materialization refresh to avoid
             circular references.
+        aggregate: If True (default), apply server-side aggregation. When False,
+            emit a flat SELECT with no GROUP BY, project each component column
+            under its exact node column name, and bypass pre-aggregation table
+            matching.
         include_temporal_filters: If True, checks if metrics+dimensions resolve to
             a cube with temporal partitions, and applies partition filters if so.
         lookback_window: Lookback window for temporal filters when applicable.
@@ -277,6 +295,7 @@ async def get_measures_sql_v3(
         lookback_window=lookback_window,
         query_parameters=json.loads(query_params) or None,
         matched_cube=cube_node.current if cube_node else None,
+        aggregate=aggregate,
     )
 
     response = _build_measures_response(result)

@@ -1887,8 +1887,14 @@ def build_grain_group_sql(
     """
     parent_node = grain_group.parent_node
 
-    # Check for matching pre-aggregation
-    if ctx.use_materialized and ctx.available_preaggs:
+    # Check for matching pre-aggregation.
+    # Skip matching when ``ctx.aggregate`` is False: the caller is asking
+    # for raw row-level output, which by definition cannot be served from a
+    # pre-aggregated table. We do NOT touch ``ctx.use_materialized`` here
+    # because that flag is dual-purpose: it also controls whether parent
+    # transforms are read from their materialized table vs recomputed via
+    # CTE (see ``should_use_materialized_table`` in ``materialization.py``).
+    if ctx.aggregate and ctx.use_materialized and ctx.available_preaggs:
         requested_grain = [dim.original_ref for dim in resolved_dimensions]
         matching_preagg = find_matching_preagg(
             ctx,
@@ -1932,6 +1938,25 @@ def build_grain_group_sql(
 
         # Collect unique components for API response
         unique_components.append(component)
+
+        # When the caller has opted out of server-side aggregation (the v3
+        # equivalent of v2's ``preaggregate=False``), project the raw inner
+        # expression under its exact node column name (e.g. ``is_product_view``)
+        # instead of wrapping it in the component's aggregation (``SUM(...)``).
+        # The downstream caller applies its own aggregation using the value of
+        # ``metric_formulas[].combiner`` from the response, so emitting the
+        # aggregation server-side would double-count. Mirrors the existing
+        # NONE-aggregability path below: the v3 output stays v3-shaped (bare
+        # column names), not the v2 ``<node>_DOT_<column>`` convention.
+        if not ctx.aggregate and component.expression:
+            col_ast = make_column_ref(component.expression)
+            component_alias = component.expression
+            component_expressions.append((component_alias, col_ast))
+            component_metadata.append(
+                (component_alias, component, metric_node),
+            )
+            component_aliases[component.name] = component_alias
+            continue
 
         # For NONE aggregability, output raw columns (no aggregation possible)
         # Note: This path is only hit for BASE metrics with NONE aggregability
@@ -2067,9 +2092,15 @@ def build_grain_group_sql(
         # refs (not pre-aggregations).  A GROUP BY here would be redundant
         # — every projected column is part of the full grain — and the
         # real aggregation happens downstream after the join.
-        skip_agg = bool(
-            grain_group.non_decomposable_metrics
-            and grain_group.aggregability == Aggregability.NONE,
+        # When ``ctx.aggregate`` is False, every component above also emitted
+        # raw column refs, so a GROUP BY would aggregate raw rows the caller
+        # explicitly asked to receive ungrouped.
+        skip_agg = (
+            bool(
+                grain_group.non_decomposable_metrics
+                and grain_group.aggregability == Aggregability.NONE,
+            )
+            or not ctx.aggregate
         )
         query_ast, scanned_sources = build_select_ast(
             ctx,
