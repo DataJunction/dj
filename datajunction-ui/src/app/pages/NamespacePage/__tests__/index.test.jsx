@@ -11,6 +11,7 @@ const mockDjClient = {
   listNamespacesWithGit: vi.fn(),
   namespace: vi.fn(),
   listNodesForLanding: vi.fn(),
+  nodeTypeCounts: vi.fn().mockResolvedValue({}),
   addNamespace: vi.fn(),
   whoami: vi.fn(),
   users: vi.fn(),
@@ -153,7 +154,7 @@ describe('NamespacePage', () => {
       </DJClientContext.Provider>
     );
     render(
-      <MemoryRouter initialEntries={['/namespaces/test.namespace']}>
+      <MemoryRouter initialEntries={['/namespaces/default']}>
         <Routes>
           <Route path="namespaces/:namespace" element={element} />
         </Routes>
@@ -166,12 +167,19 @@ describe('NamespacePage', () => {
       expect(screen.getByText('Namespaces')).toBeInTheDocument();
     });
 
-    // Check that it displays namespaces (wait — the namespace tree loads
-    // asynchronously, so the labels may appear a tick after the heading).
-    await screen.findByText('common');
-    expect(screen.getByText('one')).toBeInTheDocument();
+    // Check that it displays the selected namespace's subtree (wait — the
+    // namespace tree loads asynchronously, so the labels may appear a tick
+    // after the heading).  Route is /namespaces/default so the rail shows the
+    // "default" node and its direct children.
+    // Note: "default" appears in both the NamespaceSelector value and the
+    // Explorer link, so we assert at least one occurrence.
+    expect(
+      (await screen.findAllByRole('link', { name: 'default' })).length,
+    ).toBeGreaterThan(0);
     expect(screen.getByText('fruits')).toBeInTheDocument();
     expect(screen.getByText('vegetables')).toBeInTheDocument();
+    // Scoping: a sibling top-level namespace not under "default" must NOT render in the rail.
+    expect(screen.queryByText('common')).not.toBeInTheDocument();
 
     // Check that it renders nodes
     expect(screen.getByText('Test Node')).toBeInTheDocument();
@@ -242,8 +250,10 @@ describe('NamespacePage', () => {
     }
 
     // --- Expand/Collapse Namespace ---
-    fireEvent.click(screen.getByText('common'));
-    fireEvent.click(screen.getByText('common'));
+    // Use the first Explorer link for expand/collapse.
+    const explorerLinks = screen.getAllByRole('link', { name: 'default' });
+    fireEvent.click(explorerLinks[0]);
+    fireEvent.click(explorerLinks[0]);
   });
 
   it('can add new namespace via inline creation', async () => {
@@ -285,16 +295,9 @@ describe('NamespacePage', () => {
     });
     fireEvent.mouseEnter(defaultNamespace);
 
-    // Find the add namespace button (it exists but is hidden, so use getAllByTitle)
-    const addButtons = screen.getAllByTitle('Add child namespace');
-    const defaultAddButton = addButtons.find(btn =>
-      btn
-        .closest('.namespace-item')
-        ?.querySelector('a[href="/namespaces/default"]'),
-    );
-
-    expect(defaultAddButton).toBeInTheDocument();
-    fireEvent.click(defaultAddButton);
+    // Open the row's actions menu, then choose "Add child namespace".
+    fireEvent.click(screen.getByLabelText('Actions for default'));
+    fireEvent.click(screen.getByText('Add child namespace'));
 
     // Type in the new namespace name
     await waitFor(() => {
@@ -347,16 +350,9 @@ describe('NamespacePage', () => {
     });
     fireEvent.mouseEnter(defaultNamespace);
 
-    // Find the add namespace button (it exists but is hidden, so use getAllByTitle)
-    const addButtons = screen.getAllByTitle('Add child namespace');
-    const defaultAddButton = addButtons.find(btn =>
-      btn
-        .closest('.namespace-item')
-        ?.querySelector('a[href="/namespaces/default"]'),
-    );
-
-    expect(defaultAddButton).toBeInTheDocument();
-    fireEvent.click(defaultAddButton);
+    // Open the row's actions menu, then choose "Add child namespace".
+    fireEvent.click(screen.getByLabelText('Actions for default'));
+    fireEvent.click(screen.getByText('Add child namespace'));
 
     // Type in the new namespace name
     await waitFor(() => {

@@ -26,6 +26,37 @@ const QUERY_END_STATES = ['FINISHED', 'CANCELED', 'FAILED'];
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 export const DataJunctionAPI = {
+  // Count-only node counts per type for a namespace, in a SINGLE request. Each type is
+  // an aliased findNodesPaginated selecting only totalCount (no edges) — so the server
+  // never hydrates node rows, unlike listNodesForLanding. Returns a { type: count } map.
+  // `types` are trusted enum names (e.g. 'metric') from a fixed constant, not user input.
+  nodeTypeCounts: async function (namespace, types) {
+    const fields = types
+      .map(
+        (type, i) =>
+          `c${i}: findNodesPaginated(namespace: $namespace, nodeTypes: [${type.toUpperCase()}], limit: 1) { totalCount }`,
+      )
+      .join('\n        ');
+    const query = `
+      query NodeTypeCounts($namespace: String) {
+        ${fields}
+      }
+    `;
+    const result = await (
+      await fetch(DJ_GQL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ query, variables: { namespace } }),
+      })
+    ).json();
+    const counts = {};
+    types.forEach((type, i) => {
+      counts[type] = result?.data?.[`c${i}`]?.totalCount ?? 0;
+    });
+    return counts;
+  },
+
   listNodesForLanding: async function (
     namespace,
     nodeTypes,

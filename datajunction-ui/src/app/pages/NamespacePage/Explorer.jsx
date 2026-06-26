@@ -7,8 +7,9 @@ import DJClientContext from '../../providers/djclient';
 const Explorer = ({
   item = [],
   current,
-  isTopLevel = false,
   gitRoots = new Set(),
+  pinnedSet,
+  onTogglePin,
 }) => {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const [items, setItems] = useState([]);
@@ -18,8 +19,10 @@ const Explorer = ({
   const [isCreatingChild, setIsCreatingChild] = useState(false);
   const [newNamespace, setNewNamespace] = useState('');
   const [error, setError] = useState('');
+  const [menuOpen, setMenuOpen] = useState(false);
   const inputRef = useRef(null);
   const formRef = useRef(null);
+  const menuRef = useRef(null);
 
   useEffect(() => {
     setItems(item);
@@ -49,6 +52,20 @@ const Explorer = ({
       };
     }
   }, [isCreatingChild]);
+
+  useEffect(() => {
+    const handleClickOutside = event => {
+      if (menuRef.current && !menuRef.current.contains(event.target)) {
+        setMenuOpen(false);
+      }
+    };
+    if (menuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }
+  }, [menuOpen]);
 
   const handleClickOnParent = e => {
     e.stopPropagation();
@@ -92,6 +109,13 @@ const Explorer = ({
       handleCancelAdd();
     }
   };
+
+  // A namespace is git-backed when it IS a git root or sits under one. Git-backed
+  // namespaces are managed via git, so we don't offer "add child" in the UI.
+  const path = items.path;
+  const isGitBacked =
+    !!path && [...gitRoots].some(r => path === r || path.startsWith(`${r}.`));
+  const isPinned = !!(pinnedSet && path && pinnedSet.has(path));
 
   return (
     <>
@@ -174,30 +198,91 @@ const Explorer = ({
               Git
             </span>
           )}
-          <button
-            className="namespace-add-button"
-            onClick={e => {
-              e.stopPropagation();
-              setIsCreatingChild(true);
-              setExpand(true);
-            }}
-            title="Add child namespace"
-            style={{
-              position: 'absolute',
-              right: '0',
-              padding: '2px 6px',
-              border: 'none',
-              background: 'transparent',
-              cursor: 'pointer',
-              opacity: showAddButton ? 0.6 : 0,
-              visibility: showAddButton ? 'visible' : 'hidden',
-              display: 'inline-flex',
-              alignItems: 'center',
-              transition: 'opacity 0.15s ease',
-            }}
-          >
-            <AddItemIcon />
-          </button>
+          {(onTogglePin || !isGitBacked) && (
+            <div
+              ref={menuRef}
+              className="dj-ns-row-actions"
+              onClick={e => e.stopPropagation()}
+            >
+              {isPinned && onTogglePin && (
+                <span
+                  className="dj-ns-pin-indicator"
+                  aria-hidden="true"
+                  title="Pinned"
+                >
+                  ★
+                </span>
+              )}
+              <button
+                type="button"
+                className="dj-ns-kebab"
+                aria-label={`Actions for ${path}`}
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+                onClick={e => {
+                  e.stopPropagation();
+                  setMenuOpen(o => !o);
+                }}
+                style={{
+                  opacity: showAddButton || menuOpen ? 1 : 0,
+                  visibility: showAddButton || menuOpen ? 'visible' : 'hidden',
+                }}
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <circle cx="5" cy="12" r="2" />
+                  <circle cx="12" cy="12" r="2" />
+                  <circle cx="19" cy="12" r="2" />
+                </svg>
+              </button>
+              {menuOpen && (
+                <div role="menu" className="dj-ns-row-menu">
+                  {onTogglePin && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="dj-ns-row-menu-item"
+                      onClick={e => {
+                        e.stopPropagation();
+                        onTogglePin(path);
+                        setMenuOpen(false);
+                      }}
+                    >
+                      <span
+                        className={`dj-ns-mi-icon${isPinned ? ' pinned' : ''}`}
+                      >
+                        ★
+                      </span>
+                      {isPinned ? 'Unpin namespace' : 'Pin namespace'}
+                    </button>
+                  )}
+                  {!isGitBacked && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="dj-ns-row-menu-item"
+                      onClick={e => {
+                        e.stopPropagation();
+                        setIsCreatingChild(true);
+                        setExpand(true);
+                        setMenuOpen(false);
+                      }}
+                    >
+                      <span className="dj-ns-mi-icon">
+                        <AddItemIcon />
+                      </span>
+                      Add child namespace
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
       {(items.children || isCreatingChild) && (
@@ -279,8 +364,9 @@ const Explorer = ({
                   <Explorer
                     item={item}
                     current={highlight}
-                    isTopLevel={false}
                     gitRoots={gitRoots}
+                    pinnedSet={pinnedSet}
+                    onTogglePin={onTogglePin}
                   />
                 </div>
               </div>

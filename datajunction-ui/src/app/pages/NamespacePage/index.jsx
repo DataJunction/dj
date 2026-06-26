@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { useContext, useEffect, useState, useCallback } from 'react';
 import NodeStatus from '../NodePage/NodeStatus';
 import DJClientContext from '../../providers/djclient';
@@ -16,10 +16,10 @@ import {
 } from '../../components/buttonStyles';
 import LoadingIcon from '../../icons/LoadingIcon';
 import CompactSelect from './CompactSelect';
+import NamespaceNav from './NamespaceNav';
 import { NodeBadge, NodeLink } from '../../components/NodeComponents';
 import { getDJUrl } from '../../services/DJService';
-
-const NODE_TYPE_ORDER = ['metric', 'cube', 'dimension', 'transform', 'source'];
+import { NODE_TYPE_ORDER, NODE_TYPE_COLORS } from './nodeTypes';
 
 const AVATAR_COLORS = [
   ['#dbeafe', '#1e40af'], // blue
@@ -39,14 +39,6 @@ function avatarColorIndex(username) {
   return hash % AVATAR_COLORS.length;
 }
 const MAX_PER_TYPE = 8;
-
-const NODE_TYPE_COLORS = {
-  metric: { bg: '#fad7dd', color: '#a2283e' },
-  cube: { bg: '#dbafff', color: '#580076' },
-  dimension: { bg: '#ffefd0', color: '#a96621' },
-  transform: { bg: '#ccefff', color: '#0063b4' },
-  source: { bg: '#ccf7e5', color: '#00b368' },
-};
 
 function DefaultBranchPreview({ groups, defaultBranchNs }) {
   const filtered = groups.filter(g => g.nodes.length > 0);
@@ -229,6 +221,7 @@ export function NamespacePage() {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const { currentUser } = useCurrentUser();
   var { namespace } = useParams();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Data for select options
@@ -373,6 +366,7 @@ export function NamespacePage() {
   const [retrieved, setRetrieved] = useState(false);
 
   const [namespaceHierarchy, setNamespaceHierarchy] = useState([]);
+  const [rawNamespaces, setRawNamespaces] = useState([]);
   const [gitRoots, setGitRoots] = useState(new Set());
   // Use undefined to indicate "not yet loaded", null means "loaded but no config"
   const [gitConfig, setGitConfig] = useState(undefined);
@@ -519,6 +513,7 @@ export function NamespacePage() {
   useEffect(() => {
     const fetchData = async () => {
       const namespaces = await djClient.listNamespacesWithGit();
+      setRawNamespaces(namespaces);
       const hierarchy = createNamespaceHierarchy(namespaces);
       setNamespaceHierarchy(hierarchy);
 
@@ -1115,36 +1110,16 @@ export function NamespacePage() {
               className={`sidebar`}
               style={{ borderRight: '1px solid #e2e8f0', paddingRight: '1rem' }}
             >
-              <div
-                style={{
-                  paddingBottom: '12px',
-                  marginBottom: '8px',
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: '11px',
-                    fontWeight: '600',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.5px',
-                    color: '#64748b',
-                  }}
-                >
-                  Namespaces
-                </span>
-              </div>
-              {namespaceHierarchy
-                ? namespaceHierarchy.map(child => (
-                    <Explorer
-                      item={child}
-                      current={state.namespace}
-                      defaultExpand={true}
-                      isTopLevel={true}
-                      key={child.namespace}
-                      gitRoots={gitRoots}
-                    />
-                  ))
-                : null}
+              <NamespaceNav
+                namespaces={rawNamespaces}
+                hierarchy={namespaceHierarchy}
+                currentNamespace={namespace}
+                stateNamespace={state.namespace}
+                gitRoots={gitRoots}
+                onSelect={value =>
+                  navigate(value ? `/namespaces/${value}` : '/')
+                }
+              />
             </div>
             <div style={{ flex: 1, minWidth: 0, marginLeft: '1.5rem' }}>
               <NamespaceHeader
