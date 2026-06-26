@@ -1805,3 +1805,134 @@ class TestDimLabelFilterNameCollision:
             """,
             normalize_aliases=True,
         )
+
+    @pytest.mark.asyncio
+    async def test_dim_label_filter_not_pushed_into_upstream_cte_without_link(
+        self,
+        client_with_build_v3,
+    ):
+        """Regression: the label predicate must not be pushed UPSTREAM either.
+
+        When the linked transform projects its int FK from an *intermediate*
+        transform that does not itself carry the dimension link, the filter can
+        be pushed past the link into that ancestor's CTE — where a node-local
+        FK-column guard is blind because the ancestor has no link.  The label
+        predicate must stay in the dimension's own CTE and the post-join outer
+        WHERE; no upstream CTE may receive ``is_bot = 'false'`` on the raw int
+        column.  (The linked transform selects its FK column from an upstream
+        transform that only projects the raw key and carries no link of its own.)
+        """
+        client = client_with_build_v3
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.ml_alloc_src",
+                "columns": [
+                    {"name": "account_id", "type": "int"},
+                    {"name": "is_bot", "type": "int"},
+                    {"name": "amount", "type": "double"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "ml_alloc_src",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        # Intermediate transform: projects the raw int FK, carries NO dim link.
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.ml_alloc",
+                "query": "SELECT account_id, is_bot, amount FROM v3.ml_alloc_src",
+                "mode": "published",
+                "primary_key": ["account_id"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        # Downstream transform: selects the FK from the intermediate, holds the link.
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.ml_long",
+                "query": "SELECT account_id, is_bot, amount FROM v3.ml_alloc",
+                "mode": "published",
+                "primary_key": ["account_id"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        resp = await client.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.ml_is_bot_dim",
+                "query": (
+                    "SELECT t.is_bot_key, t.is_bot "
+                    "FROM (SELECT 0 AS is_bot_key, 'false' AS is_bot "
+                    "UNION ALL SELECT 1, 'true') t"
+                ),
+                "mode": "published",
+                "primary_key": ["is_bot_key"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        resp = await client.post(
+            "/nodes/v3.ml_long/link/",
+            json={
+                "dimension_node": "v3.ml_is_bot_dim",
+                "join_type": "left",
+                "join_on": "v3.ml_long.is_bot = v3.ml_is_bot_dim.is_bot_key",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.ml_total_amount",
+                "query": "SELECT SUM(amount) FROM v3.ml_long",
+                "mode": "published",
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.ml_total_amount"],
+                "dimensions": ["v3.ml_is_bot_dim.is_bot"],
+                "filters": ["v3.ml_is_bot_dim.is_bot = 'false'"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        # Neither the intermediate (v3_ml_alloc) nor the linked transform
+        # (v3_ml_long) CTE may carry the label predicate on the raw int column.
+        assert_sql_equal(
+            sql,
+            """
+            WITH v3_ml_alloc AS (
+              SELECT account_id, is_bot, amount
+              FROM default.v3.ml_alloc_src
+            ),
+            v3_ml_is_bot_dim AS (
+              SELECT t.is_bot_key, t.is_bot
+              FROM (
+                SELECT 0 AS is_bot_key, 'false' AS is_bot
+                UNION ALL
+                SELECT 1, 'true'
+              ) t
+              WHERE t.is_bot = 'false'
+            ),
+            v3_ml_long AS (
+              SELECT is_bot, amount
+              FROM v3_ml_alloc
+            )
+            SELECT t2.is_bot,
+                   SUM(t1.amount) amount_sum_HASH
+            FROM v3_ml_long t1
+            LEFT OUTER JOIN v3_ml_is_bot_dim t2
+              ON t1.is_bot = t2.is_bot_key
+            WHERE t2.is_bot = 'false'
+            GROUP BY t2.is_bot
+            """,
+            normalize_aliases=True,
+        )
