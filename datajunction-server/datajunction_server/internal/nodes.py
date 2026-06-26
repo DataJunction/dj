@@ -3658,15 +3658,10 @@ async def hard_delete_node(
     session: AsyncSession,
     current_user: User,
     save_history: Callable,
-    flush_only: bool = False,
 ):
     """
     Hard delete a node, destroying all links and invalidating all downstream nodes.
     This should be used with caution, deactivating a node is preferred.
-
-    When ``flush_only=True`` (used by the deployment orchestrator inside a savepoint),
-    the deletion is flushed rather than committed and downstream revalidation is skipped
-    (the orchestrator handles downstream invalidation via ``_revalidate_downstream``).
     """
     node = await Node.get_by_name(
         session,
@@ -3694,10 +3689,6 @@ async def hard_delete_node(
         )
 
     await session.delete(node)
-    if flush_only:
-        await session.flush()
-        return
-
     await session.commit()
     impact = []  # Aggregate all impact of this deletion to include in response
 
