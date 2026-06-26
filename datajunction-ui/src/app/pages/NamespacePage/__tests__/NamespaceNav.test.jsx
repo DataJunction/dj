@@ -77,6 +77,30 @@ describe('NamespaceNav', () => {
     expect(screen.queryByText('member')).not.toBeInTheDocument();
   });
 
+  it('filtering surfaces deep nested namespaces (not just roots/top-levels)', () => {
+    renderNav({
+      namespaces: [
+        { namespace: 'default', numNodes: 5, git: null },
+        {
+          namespace: 'default.fruits.citrus.lemons',
+          numNodes: 1,
+          git: null,
+        },
+      ],
+    });
+    // Unfiltered, the nested namespace is not in the curated list...
+    expect(
+      screen.queryByText('default.fruits.citrus.lemons'),
+    ).not.toBeInTheDocument();
+    // ...but filtering finds it.
+    fireEvent.change(screen.getByPlaceholderText('Filter namespaces…'), {
+      target: { value: 'lemons' },
+    });
+    expect(
+      screen.getByText('default.fruits.citrus.lemons'),
+    ).toBeInTheDocument();
+  });
+
   it('lets you pin the current namespace at any depth from the selected view', () => {
     renderNav({ currentNamespace: 'users.yshang', hierarchy: [] });
     const pinBtn = screen.getByLabelText('Pin users.yshang');

@@ -11,6 +11,7 @@ const mockDjClient = {
   listNamespacesWithGit: vi.fn(),
   namespace: vi.fn(),
   listNodesForLanding: vi.fn(),
+  nodeTypeCounts: vi.fn().mockResolvedValue({}),
   addNamespace: vi.fn(),
   whoami: vi.fn(),
   users: vi.fn(),

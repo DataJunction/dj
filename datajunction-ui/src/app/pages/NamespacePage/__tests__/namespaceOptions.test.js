@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   buildNamespaceOptions,
   findHierarchyNode,
-  filterNamespaceGroups,
+  searchNamespaces,
 } from '../namespaceOptions';
 
 const sample = [
@@ -42,6 +42,28 @@ const hierarchy = [
   { namespace: 'ae', path: 'ae', children: [] },
 ];
 
+describe('searchNamespaces', () => {
+  it('matches nested namespaces that the curated list excludes', () => {
+    // member.scratch is a deep non-git namespace — absent from buildNamespaceOptions,
+    // but search must find it.
+    expect(searchNamespaces(sample, 'scratch')).toEqual(['member.scratch']);
+  });
+
+  it('matches across depth, sorted by full path', () => {
+    expect(searchNamespaces(sample, 'member')).toEqual([
+      'member',
+      'member.cds',
+      'member.cds.branchx',
+      'member.scratch',
+    ]);
+  });
+
+  it('returns nothing for empty/whitespace filter', () => {
+    expect(searchNamespaces(sample, '')).toEqual([]);
+    expect(searchNamespaces(sample, '   ')).toEqual([]);
+  });
+});
+
 describe('findHierarchyNode', () => {
   it('finds a top-level node by path', () => {
     expect(findHierarchyNode(hierarchy, 'ae')?.path).toBe('ae');
@@ -52,38 +74,5 @@ describe('findHierarchyNode', () => {
   it('returns null for unknown or empty path', () => {
     expect(findHierarchyNode(hierarchy, 'nope')).toBeNull();
     expect(findHierarchyNode(hierarchy, '')).toBeNull();
-  });
-});
-
-describe('filterNamespaceGroups', () => {
-  const groups = [
-    {
-      label: 'Git-backed',
-      options: [
-        { value: 'ads', isGitRoot: true },
-        { value: 'member.cds', isGitRoot: true },
-      ],
-    },
-    {
-      label: 'Top-level namespaces',
-      options: [
-        { value: 'ae', isGitRoot: false },
-        { value: 'member', isGitRoot: false },
-      ],
-    },
-  ];
-  it('returns groups unchanged for empty text', () => {
-    expect(filterNamespaceGroups(groups, '')).toEqual(groups);
-  });
-  it('narrows options case-insensitively and drops empty groups', () => {
-    const r = filterNamespaceGroups(groups, 'MEM');
-    expect(r.map(g => g.label)).toEqual(['Git-backed', 'Top-level namespaces']);
-    expect(r[0].options.map(o => o.value)).toEqual(['member.cds']);
-    expect(r[1].options.map(o => o.value)).toEqual(['member']);
-  });
-  it('drops a group with no matches', () => {
-    const r = filterNamespaceGroups(groups, 'ae');
-    expect(r.map(g => g.label)).toEqual(['Top-level namespaces']);
-    expect(r[0].options.map(o => o.value)).toEqual(['ae']);
   });
 });

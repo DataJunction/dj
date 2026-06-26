@@ -1,18 +1,10 @@
 import React, { useContext, useEffect, useState } from 'react';
 import DJClientContext from '../../providers/djclient';
-
-const NODE_TYPE_ORDER = ['metric', 'cube', 'dimension', 'transform', 'source'];
-const NODE_TYPE_COLORS = {
-  metric: { bg: '#fad7dd', color: '#a2283e' },
-  cube: { bg: '#dbafff', color: '#580076' },
-  dimension: { bg: '#ffefd0', color: '#a96621' },
-  transform: { bg: '#ccefff', color: '#0063b4' },
-  source: { bg: '#ccf7e5', color: '#00b368' },
-};
+import { NODE_TYPE_ORDER, NODE_TYPE_COLORS } from './nodeTypes';
 
 // A compact, clickable summary of the node counts (by type) under a namespace.
 // Each row deep-links to the type-filtered node list for the selected branch.
-// One cheap limit:1 count query per type — we only read totalCount.
+// Counts come from a single count-only request (djClient.nodeTypeCounts).
 export default function NamespaceTypeSummary({
   namespace,
   showHeading = true,
@@ -27,30 +19,18 @@ export default function NamespaceTypeSummary({
       return;
     }
     setCounts(null);
-    Promise.all(
-      NODE_TYPE_ORDER.map(type =>
-        djClient
-          .listNodesForLanding(
-            namespace,
-            [type.toUpperCase()],
-            [],
-            null,
-            null,
-            null,
-            1,
-            { key: 'name', direction: 'ascending' },
-            null,
-            {},
-          )
-          .then(result => ({
-            type,
-            count: result?.data?.findNodesPaginated?.totalCount ?? 0,
-          }))
-          .catch(() => ({ type, count: 0 })),
-      ),
-    ).then(results => {
-      if (!cancelled) setCounts(results);
-    });
+    djClient
+      .nodeTypeCounts(namespace, NODE_TYPE_ORDER)
+      .then(byType => {
+        if (!cancelled) {
+          setCounts(
+            NODE_TYPE_ORDER.map(type => ({ type, count: byType[type] ?? 0 })),
+          );
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setCounts([]);
+      });
     return () => {
       cancelled = true;
     };

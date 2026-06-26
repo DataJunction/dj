@@ -19,8 +19,7 @@ import CompactSelect from './CompactSelect';
 import NamespaceNav from './NamespaceNav';
 import { NodeBadge, NodeLink } from '../../components/NodeComponents';
 import { getDJUrl } from '../../services/DJService';
-
-const NODE_TYPE_ORDER = ['metric', 'cube', 'dimension', 'transform', 'source'];
+import { NODE_TYPE_ORDER, NODE_TYPE_COLORS } from './nodeTypes';
 
 const AVATAR_COLORS = [
   ['#dbeafe', '#1e40af'], // blue
@@ -40,14 +39,6 @@ function avatarColorIndex(username) {
   return hash % AVATAR_COLORS.length;
 }
 const MAX_PER_TYPE = 8;
-
-const NODE_TYPE_COLORS = {
-  metric: { bg: '#fad7dd', color: '#a2283e' },
-  cube: { bg: '#dbafff', color: '#580076' },
-  dimension: { bg: '#ffefd0', color: '#a96621' },
-  transform: { bg: '#ccefff', color: '#0063b4' },
-  source: { bg: '#ccf7e5', color: '#00b368' },
-};
 
 function DefaultBranchPreview({ groups, defaultBranchNs }) {
   const filtered = groups.filter(g => g.nodes.length > 0);

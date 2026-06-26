@@ -5,7 +5,7 @@ import CollapsedIcon from '../../icons/CollapsedIcon';
 import ExpandedIcon from '../../icons/ExpandedIcon';
 import {
   buildNamespaceOptions,
-  filterNamespaceGroups,
+  searchNamespaces,
   findHierarchyNode,
 } from './namespaceOptions';
 import { getPinned, togglePinned } from './namespaceShortcuts';
@@ -45,10 +45,10 @@ export default function NamespaceNav({
   const [pinned, setPinned] = useState(() => getPinned());
 
   const isFiltering = filter.trim() !== '';
-  const groups = filterNamespaceGroups(
-    buildNamespaceOptions(namespaces || []),
-    filter,
-  );
+  // Filtering searches ALL namespaces (any depth) as one flat result list; the
+  // unfiltered default stays the curated jump-list (Git-backed roots + top-levels).
+  const matches = isFiltering ? searchNamespaces(namespaces || [], filter) : [];
+  const groups = isFiltering ? [] : buildNamespaceOptions(namespaces || []);
   const showList = isFiltering || !currentNamespace;
 
   const gitByNs = {};
@@ -200,10 +200,12 @@ export default function NamespaceNav({
           {!isFiltering && pinned.length > 0
             ? renderGroup('Pinned', pinned, 'pin')
             : null}
-          {groups.length === 0 ? (
+          {isFiltering && matches.length === 0 ? (
             <div style={{ padding: '6px', color: '#64748b', fontSize: '12px' }}>
               No namespaces match "{filter.trim()}".
             </div>
+          ) : isFiltering ? (
+            renderGroup('Matches', matches, 'matches')
           ) : (
             groups.map(group =>
               renderGroup(

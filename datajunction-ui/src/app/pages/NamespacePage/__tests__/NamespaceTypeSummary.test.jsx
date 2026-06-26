@@ -5,10 +5,12 @@ import DJClientContext from '../../../providers/djclient';
 
 function makeClient(countsByType) {
   return {
-    listNodesForLanding: vi.fn((ns, [TYPE]) =>
-      Promise.resolve({
-        data: { findNodesPaginated: { totalCount: countsByType[TYPE] ?? 0 } },
-      }),
+    nodeTypeCounts: vi.fn((ns, types) =>
+      Promise.resolve(
+        Object.fromEntries(
+          types.map(type => [type, countsByType[type.toUpperCase()] ?? 0]),
+        ),
+      ),
     ),
   };
 }
@@ -49,7 +51,7 @@ describe('NamespaceTypeSummary', () => {
     const djClient = makeClient({});
     const { container } = renderSummary(djClient);
     await waitFor(() => {
-      expect(djClient.listNodesForLanding).toHaveBeenCalledTimes(5);
+      expect(djClient.nodeTypeCounts).toHaveBeenCalledTimes(1);
     });
     expect(screen.queryByText('Nodes')).not.toBeInTheDocument();
     expect(container.querySelector('.dj-ns-type-summary')).toBeNull();

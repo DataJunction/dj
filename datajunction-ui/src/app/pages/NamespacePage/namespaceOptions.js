@@ -43,6 +43,20 @@ export function buildNamespaceOptions(namespaces) {
   return groups;
 }
 
+/**
+ * Sorted full paths of EVERY namespace (any depth) whose dotted path matches `text`.
+ * Used while filtering so search reaches nested namespaces — not just the git roots /
+ * top-levels in the curated default list.
+ */
+export function searchNamespaces(namespaces, text) {
+  const t = (text || '').trim().toLowerCase();
+  if (!t) return [];
+  return namespaces
+    .map(ns => ns.namespace)
+    .filter(name => name.toLowerCase().includes(t))
+    .sort((a, b) => a.localeCompare(b));
+}
+
 /** Recursively find the hierarchy node whose full dotted `path` matches. */
 export function findHierarchyNode(hierarchy, path) {
   if (!path) return null;
@@ -52,16 +66,4 @@ export function findHierarchyNode(hierarchy, path) {
     if (found) return found;
   }
   return null;
-}
-
-/** Narrow grouped options by a case-insensitive substring on the namespace value; drops empty groups. */
-export function filterNamespaceGroups(groups, text) {
-  const t = (text || '').trim().toLowerCase();
-  if (!t) return groups;
-  return groups
-    .map(g => ({
-      ...g,
-      options: g.options.filter(o => o.value.toLowerCase().includes(t)),
-    }))
-    .filter(g => g.options.length > 0);
 }
