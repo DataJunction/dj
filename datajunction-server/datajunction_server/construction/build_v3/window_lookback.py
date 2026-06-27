@@ -418,21 +418,26 @@ def apply_live_window_lookback(ctx: "BuildContext") -> Optional["WindowLookbackP
         combiner = decomposed.combiner_ast
         if not has_window_function(combiner):
             continue
-        if not decomposed.is_fully_decomposable:
-            raise DJInvalidInputException(
-                message=(
-                    f"Window metric '{decomposed.metric_node.name}' is not yet supported "
-                    "on the live path. The trailing-window expansion pre-aggregates to one "
-                    "row per grain before applying the window; metrics like COUNT DISTINCT "
-                    "require operating on raw rows instead."
-                ),
-            )
         for func in combiner.find_all(ast.Function):
             if not func.over:
                 continue
             read = _read_lookback_role_aware(func)
             if read is None:
                 continue
+            # COUNT DISTINCT and other semi-additive measures can't be pre-aggregated
+            # and then windowed — the trailing-window expansion collapses to one row
+            # per grain before applying the window, which double-counts entities that
+            # appear on multiple days. LAG/LEAD metrics are fine because they don't
+            # go through scan expansion.
+            if not decomposed.is_fully_decomposable:
+                raise DJInvalidInputException(
+                    message=(
+                        f"Window metric '{decomposed.metric_node.name}' is not yet supported "
+                        "on the live path. The trailing-window expansion pre-aggregates to one "
+                        "row per grain before applying the window; metrics like COUNT DISTINCT "
+                        "require operating on raw rows instead."
+                    ),
+                )
             wl, role = read
             # Build the order dimension ref (node.column[role]) so downstream
             # resolution matches the user's filter/dimension reference.

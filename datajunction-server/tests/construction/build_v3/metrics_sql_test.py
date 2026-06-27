@@ -4269,13 +4269,77 @@ class TestMetricsSQLCrossFactWindow:
             },
         )
         assert response.status_code == 200, response.json()
-        sql = response.json()["sql"]
-        print(
-            "\n--- actual SQL ---\n",
-            sql,
-            "\n---",
-        )  # capture on first run, then replace with assert_sql_equal
-        raise AssertionError("Fill in expected SQL from the print output above")
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+WITH
+__wl_low_date_id AS (
+SELECT  (SELECT  MIN(__o.date_id)
+ FROM (SELECT  date_id
+ FROM default.v3.dates
+ WHERE  date_id <= 20240107
+ORDER BY date_id DESC
+
+LIMIT 7) __o) AS low_val
+),
+v3_user_active_daily AS (
+SELECT  dateint,
+	user_id,
+	MAX(CASE
+        WHEN has_activity = 1 THEN 1
+        ELSE 0
+    END) AS is_active
+ FROM default.v3.user_activity_raw
+ WHERE  dateint BETWEEN (SELECT  low_val
+ FROM __wl_low_date_id) AND 20240107
+ GROUP BY  dateint, user_id
+),
+v3_user_subscription_daily AS (
+SELECT  dateint,
+	is_subscribed
+ FROM default.v3.user_subscription_raw
+ WHERE  dateint BETWEEN (SELECT  low_val
+ FROM __wl_low_date_id) AND 20240107
+),
+user_active_daily_0 AS (
+SELECT  t1.dateint date_id_order,
+	SUM(t1.is_active) is_active_sum_458017e8
+ FROM v3_user_active_daily t1
+ GROUP BY  t1.dateint
+),
+user_subscription_daily_0 AS (
+SELECT  t1.dateint date_id_order,
+	SUM(t1.is_subscribed) is_subscribed_sum_1185023b
+ FROM v3_user_subscription_daily t1
+ GROUP BY  t1.dateint
+),
+base_metrics AS (
+SELECT  __spine.date_id AS date_id_order,
+	COALESCE(__agg.daily_active_users, 0) AS daily_active_users,
+	COALESCE(__agg.subscribed_users, 0) AS subscribed_users,
+	COALESCE(__agg.trailing_7d_active_users, 0) AS trailing_7d_active_users
+ FROM (SELECT  DISTINCT
+ date_id
+ FROM default.v3.dates
+ WHERE  date_id BETWEEN (SELECT  low_val
+ FROM __wl_low_date_id) AND 20240107) AS __spine LEFT JOIN (SELECT  COALESCE(user_active_daily_0.date_id_order, user_subscription_daily_0.date_id_order) AS date_id_order,
+	SUM(user_active_daily_0.is_active_sum_458017e8) AS daily_active_users,
+	SUM(user_subscription_daily_0.is_subscribed_sum_1185023b) AS subscribed_users,
+	SUM(SUM(user_active_daily_0.is_active_sum_458017e8)) OVER ( ORDER BY v3.date.date_id[order] ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_active_users
+ FROM user_active_daily_0 FULL OUTER JOIN user_subscription_daily_0 ON user_active_daily_0.date_id_order = user_subscription_daily_0.date_id_order
+ GROUP BY  1) AS __agg ON __spine.date_id = __agg.date_id_order
+),
+__windowed AS (
+SELECT  base_metrics.date_id_order AS date_id_order,
+	base_metrics.trailing_7d_active_users / NULLIF(base_metrics.subscribed_users, 0) AS weekly_active_rate
+ FROM base_metrics
+)
+
+SELECT  *
+ FROM __windowed
+ WHERE  date_id_order BETWEEN 20240107 AND 20240107
+""",
+        )
 
 
 class TestMetricsSQLOrderByLimit:

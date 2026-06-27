@@ -86,9 +86,10 @@ def test_validate_accepts_additive():
     validate_window_lookback(_wl("COUNT"), order_is_sequence_dim=True)
 
 
-def test_validate_rejects_non_additive():
-    with pytest.raises(DJInvalidInputException, match="additive"):
-        validate_window_lookback(_wl("AVG"), order_is_sequence_dim=True)
+def test_validate_avg_is_valid():
+    """AVG is a native window function — engines support AVG() OVER (ROWS BETWEEN ...)
+    directly, so validate_window_lookback must not reject it."""
+    validate_window_lookback(_wl("AVG"), order_is_sequence_dim=True)  # must not raise
 
 
 def test_validate_rejects_non_sequence_order_dim():
