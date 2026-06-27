@@ -293,32 +293,6 @@ describe('NamespacePage', () => {
     expect(screen.getByLabelText('All namespaces')).toBeInTheDocument();
   });
 
-  it('can add namespace via AddNamespacePopover (unit coverage in AddNamespacePopover.test.jsx)', async () => {
-    // The inline add-namespace action previously in the Explorer rail is now
-    // covered by AddNamespacePopover.test.jsx. This integration test validates
-    // that the NamespacePage mounts without errors for the default route and
-    // that the nodes API is called correctly.
-    mockDjClient.addNamespace.mockReturnValue({ status: 201, json: {} });
-    const element = (
-      <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
-        <NamespacePage />
-      </DJClientContext.Provider>
-    );
-    render(
-      <MemoryRouter initialEntries={['/namespaces/default']}>
-        <Routes>
-          <Route path="namespaces/:namespace" element={element} />
-        </Routes>
-      </MemoryRouter>,
-    );
-
-    await waitFor(() => {
-      expect(mockDjClient.listNodesForLanding).toHaveBeenCalled();
-    });
-    // Page renders without crash — the node table is present.
-    expect(screen.getByText('Test Node')).toBeInTheDocument();
-  });
-
   describe('Filter Bar', () => {
     it('displays quick filter presets', async () => {
       renderWithProviders(<NamespacePage />);
