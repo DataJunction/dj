@@ -29,7 +29,7 @@ function Chevron({ open }) {
 // top level so a deep tree only grows on demand.
 function FolderTreeRows({ nodes, depth, expanded, onToggle, onSelect }) {
   return nodes.map(node => {
-    const hasChildren = (node.children || []).length > 0;
+    const hasChildren = node.children?.length > 0;
     const isOpen = expanded.has(node.path);
     return (
       <React.Fragment key={node.path}>

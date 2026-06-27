@@ -61,9 +61,6 @@ export default function NamespaceNav({
   const toggleGroup = label =>
     setCollapsed(c => ({ ...c, [label]: !c[label] }));
 
-  const select = value => {
-    onSelect(value);
-  };
   const onPin = (e, ns) => {
     e.stopPropagation();
     setPinned(togglePinned(ns));
@@ -76,9 +73,9 @@ export default function NamespaceNav({
       role="button"
       tabIndex={0}
       title={ns}
-      onClick={() => select(ns)}
+      onClick={() => onSelect(ns)}
       onKeyDown={e => {
-        if (e.key === 'Enter') select(ns);
+        if (e.key === 'Enter') onSelect(ns);
       }}
     >
       <span className="dj-ns-nav-name">{ns}</span>
@@ -172,18 +169,16 @@ export default function NamespaceNav({
           )}
         </>
       ) : (
-        <div>
-          {/* Folder navigation: the current namespace's sub-namespace tree.
-              Chevron expands a level in place; clicking a name drills in. Going
-              up is handled by the header breadcrumb; switching namespace by the
-              filter box (no-namespace view) or the header switcher. Keyed by the
-              current path so expansion resets when the tree re-roots. */}
-          <FolderTree
-            key={subtreePath}
-            folders={immediateChildren(hierarchy || [], subtreePath)}
-            onSelect={select}
-          />
-        </div>
+        // Folder navigation: the current namespace's sub-namespace tree. Chevron
+        // expands a level in place; clicking a name drills in. Going up is handled
+        // by the header breadcrumb; switching namespace by the filter box
+        // (no-namespace view) or the header switcher. Keyed by the current path so
+        // expansion resets when the tree re-roots.
+        <FolderTree
+          key={subtreePath}
+          folders={immediateChildren(hierarchy || [], subtreePath)}
+          onSelect={onSelect}
+        />
       )}
     </div>
   );
