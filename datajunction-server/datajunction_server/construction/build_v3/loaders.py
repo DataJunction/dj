@@ -17,6 +17,7 @@ from datajunction_server.database.preaggregation import PreAggregation
 from datajunction_server.models.node_type import NodeType
 
 from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
+from datajunction_server.sql.parsing import ast
 from datajunction_server.construction.build_v3.types import BuildContext
 from datajunction_server.construction.build_v3.utils import collect_required_dimensions
 
@@ -28,6 +29,30 @@ JoinPathState = namedtuple(
     "JoinPathState",
     ["source_rev_id", "node_id", "path_so_far", "role_path", "visited"],
 )
+
+
+def _collect_metric_expression_dim_nodes(ctx: BuildContext) -> set[str]:
+    """
+    Collect node namespaces of dimension-column refs inside metric query bodies.
+
+    A metric's aggregate expression may reference a column on a joined
+    dimension node via the fully-qualified ``<dim_node>.<column>`` form (e.g.
+    ``COUNT(DISTINCT customer.tier)``). Such dimension nodes are reachable only
+    through dimension links — not parent/child dependencies — so the upstream
+    traversal does not surface them. Returns the set of namespace strings so the
+    caller can register them as join-path targets. Namespaces that are not
+    actually linked dimensions simply yield no join path and are harmless.
+    """
+    dim_nodes: set[str] = set()
+    for node in ctx.nodes.values():
+        if node.type != NodeType.METRIC or not (
+            node.current and node.current.query
+        ):  # pragma: no cover
+            continue
+        for col in ctx.get_parsed_query(node).find_all(ast.Column):
+            if col.name and col.name.namespace and col.name.namespace.name:
+                dim_nodes.add(col.name.namespace.identifier(quotes=False))
+    return dim_nodes
 
 
 async def batch_load_nodes_with_dependencies(
@@ -479,6 +504,14 @@ async def load_nodes(ctx: BuildContext) -> None:
                     f"[BuildV3] Auto-adding required dimension {req_dim} from metric",
                 )
                 ctx.dimensions.append(req_dim)
+
+    # Dimension nodes referenced *inside* metric query bodies (e.g.
+    # COUNT(DISTINCT customer.tier)) are not parent/child dependencies, so the
+    # upstream traversal does not discover them. Register them as join-path
+    # targets so the join can be generated for the metric expression. They are
+    # NOT added to ctx.dimensions — they are joined only to resolve the
+    # expression, never projected or grouped.
+    target_dim_names.update(_collect_metric_expression_dim_nodes(ctx))
 
     # Collect parent revision IDs for join path lookup (using parent_map from Query 1)
     # For derived metrics, we need to recursively find fact parents through the metric chain

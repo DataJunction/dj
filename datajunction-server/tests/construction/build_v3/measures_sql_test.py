@@ -5302,6 +5302,320 @@ class TestMetricExprReferencesDimColumn:
         )
 
 
+class TestMetricExprReferencesUnrequestedDimColumn:
+    """
+    A metric aggregate expression may reference a column on a joined dimension
+    node (``<dim_node>.<column>``) that is NOT part of the requested grain, e.g.
+    ``SUM(CASE WHEN amount >= customer.threshold THEN amount ELSE 0 END)``
+    grouped only by ``region.name``.
+
+    Such dimension nodes are reachable only via dimension links — not
+    parent/child dependencies — so the upstream traversal does not surface them.
+    Without an explicit join, the reference leaks into the SQL as a raw,
+    unresolved node path and the engine fails with "column does not exist".
+
+    The builder must instead join the dimension node (as a *join-only*
+    dimension: joined + CTE-projected, but not selected or grouped) and rewrite
+    the reference to the join alias.
+    """
+
+    async def _setup(self, client, ns: str):
+        resp = await client.post(f"/namespaces/{ns}/")
+        assert resp.status_code in (200, 201), resp.text
+
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": f"{ns}.src_fact",
+                "catalog": "default",
+                "schema_": ns,
+                "table": "src_fact",
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "customer_id", "type": "int"},
+                    {"name": "region_id", "type": "int"},
+                    {"name": "amount", "type": "double"},
+                ],
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": f"{ns}.src_customer",
+                "catalog": "default",
+                "schema_": ns,
+                "table": "src_customer",
+                "columns": [
+                    {"name": "customer_id", "type": "int"},
+                    {"name": "tier", "type": "string"},
+                    {"name": "threshold", "type": "double"},
+                    {"name": "discount", "type": "double"},
+                ],
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": f"{ns}.src_region",
+                "catalog": "default",
+                "schema_": ns,
+                "table": "src_region",
+                "columns": [
+                    {"name": "region_id", "type": "int"},
+                    {"name": "name", "type": "string"},
+                ],
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        resp = await client.post(
+            "/nodes/dimension/",
+            json={
+                "name": f"{ns}.customer",
+                "mode": "published",
+                "primary_key": ["customer_id"],
+                "query": (
+                    f"SELECT customer_id, tier, threshold, discount "
+                    f"FROM {ns}.src_customer"
+                ),
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        resp = await client.post(
+            "/nodes/dimension/",
+            json={
+                "name": f"{ns}.region",
+                "mode": "published",
+                "primary_key": ["region_id"],
+                "query": f"SELECT region_id, name FROM {ns}.src_region",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": f"{ns}.fact",
+                "mode": "published",
+                "query": (
+                    f"SELECT id, customer_id, region_id, amount FROM {ns}.src_fact"
+                ),
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        resp = await client.post(
+            f"/nodes/{ns}.fact/link",
+            json={
+                "dimension_node": f"{ns}.region",
+                "join_type": "left",
+                "join_on": f"{ns}.fact.region_id = {ns}.region.region_id",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+    @pytest.mark.asyncio
+    async def test_unrequested_dim_in_metric_expr_is_joined(
+        self,
+        client_with_service_setup,
+    ):
+        client = client_with_service_setup
+        ns = "mz1"
+        await self._setup(client, ns)
+
+        # customer.threshold referenced inside the aggregate; customer is NOT in
+        # the requested grain (we only group by region.name).
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": f"{ns}.qualifying_amount",
+                "mode": "published",
+                "query": (
+                    f"SELECT SUM(CASE WHEN amount >= {ns}.customer.threshold "
+                    f"THEN amount ELSE 0 END) FROM {ns}.fact"
+                ),
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+        resp = await client.post(
+            f"/nodes/{ns}.fact/link",
+            json={
+                "dimension_node": f"{ns}.customer",
+                "join_type": "left",
+                "join_on": f"{ns}.fact.customer_id = {ns}.customer.customer_id",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        resp = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": [f"{ns}.qualifying_amount"],
+                "dimensions": [f"{ns}.region.name"],
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        sql = resp.json()["grain_groups"][0]["sql"]
+
+        # The dim is joined (CTE + JOIN), the reference is rewritten to the
+        # alias, and customer is neither projected nor grouped.
+        assert f"{ns}.customer.threshold" not in sql
+        assert_sql_equal(
+            sql,
+            f"""
+            WITH {ns}_customer AS (
+                SELECT customer_id, threshold
+                FROM default.{ns}.src_customer
+            ),
+            {ns}_fact AS (
+                SELECT customer_id, region_id, amount
+                FROM default.{ns}.src_fact
+            ),
+            {ns}_region AS (
+                SELECT region_id, name
+                FROM default.{ns}.src_region
+            )
+            SELECT
+                t2.name,
+                SUM(CASE WHEN t1.amount >= t3.threshold
+                    THEN t1.amount ELSE 0 END)
+                    amount_{ns}_DOT_customer_DOT_threshold_sum_HASH
+            FROM {ns}_fact t1
+            LEFT OUTER JOIN {ns}_region t2 ON t1.region_id = t2.region_id
+            LEFT OUTER JOIN {ns}_customer t3 ON t1.customer_id = t3.customer_id
+            GROUP BY t2.name
+            """,
+            normalize_aliases=True,
+        )
+
+    @pytest.mark.asyncio
+    async def test_multiple_columns_same_dim_join_once(self, client_with_service_setup):
+        client = client_with_service_setup
+        ns = "mz2"
+        await self._setup(client, ns)
+
+        # Two columns from the same (unrequested) dim node — only one join.
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": f"{ns}.qualifying_amount",
+                "mode": "published",
+                "query": (
+                    f"SELECT SUM(CASE WHEN amount >= {ns}.customer.threshold "
+                    f"THEN amount * {ns}.customer.discount ELSE 0 END) "
+                    f"FROM {ns}.fact"
+                ),
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+        resp = await client.post(
+            f"/nodes/{ns}.fact/link",
+            json={
+                "dimension_node": f"{ns}.customer",
+                "join_type": "left",
+                "join_on": f"{ns}.fact.customer_id = {ns}.customer.customer_id",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        resp = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": [f"{ns}.qualifying_amount"],
+                "dimensions": [f"{ns}.region.name"],
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        sql = resp.json()["grain_groups"][0]["sql"]
+        # Exactly one join to the customer dim, both columns rewritten + kept.
+        assert sql.count(f"{ns}_customer t") == 1
+        assert sql.count(f"JOIN {ns}_customer") == 1
+        assert f"{ns}.customer." not in sql
+        assert "t3.threshold" in sql and "t3.discount" in sql
+
+    @pytest.mark.asyncio
+    async def test_local_grain_dim_does_not_mask_metric_expr_dim(
+        self,
+        client_with_service_setup,
+    ):
+        client = client_with_service_setup
+        ns = "mz3"
+        await self._setup(client, ns)
+
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": f"{ns}.qualifying_amount",
+                "mode": "published",
+                "query": (
+                    f"SELECT SUM(CASE WHEN amount >= {ns}.customer.threshold "
+                    f"THEN amount ELSE 0 END) FROM {ns}.fact"
+                ),
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+        resp = await client.post(
+            f"/nodes/{ns}.fact/link",
+            json={
+                "dimension_node": f"{ns}.customer",
+                "join_type": "left",
+                "join_on": f"{ns}.fact.customer_id = {ns}.customer.customer_id",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        # Group by a LOCAL column on the fact itself (region_id) — exercises the
+        # is_local branch when computing already-joined dim nodes.
+        resp = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": [f"{ns}.qualifying_amount"],
+                "dimensions": [f"{ns}.fact.region_id"],
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        sql = resp.json()["grain_groups"][0]["sql"]
+        assert f"{ns}.customer.threshold" not in sql
+        assert "t2.threshold" in sql
+        assert f"JOIN {ns}_customer" in sql
+
+    @pytest.mark.asyncio
+    async def test_metric_expr_dim_without_link_errors(self, client_with_service_setup):
+        client = client_with_service_setup
+        ns = "mz4"
+        await self._setup(client, ns)
+
+        # Reference customer in the metric expression but never link it.
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": f"{ns}.qualifying_amount",
+                "mode": "published",
+                "query": (
+                    f"SELECT SUM(CASE WHEN amount >= {ns}.customer.threshold "
+                    f"THEN amount ELSE 0 END) FROM {ns}.fact"
+                ),
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        resp = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": [f"{ns}.qualifying_amount"],
+                "dimensions": [f"{ns}.region.name"],
+            },
+        )
+        assert resp.status_code == 422, resp.text
+        assert "Cannot find join path" in resp.text
+        assert f"{ns}.customer" in resp.text
+
+
 class TestSparkJoinHints:
     """
     Tests for Spark SQL join hints emitted via spark_hints on DimensionLink.

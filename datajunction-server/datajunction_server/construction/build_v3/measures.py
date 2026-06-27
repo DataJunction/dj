@@ -67,6 +67,7 @@ from datajunction_server.construction.build_v3.decomposition import (
 from datajunction_server.construction.build_v3.dimensions import (
     parse_dimension_ref,
     resolve_dimensions,
+    resolve_metric_expression_dimensions,
 )
 from datajunction_server.construction.build_v3.preagg_matcher import (
     find_matching_preagg,
@@ -2033,6 +2034,19 @@ def build_grain_group_sql(
                 col_ast = make_column_ref(col_name)
                 non_decomposable_columns.append((col_name, col_ast))
 
+    # A metric's aggregate expression may reference a column on a joined
+    # dimension node that is not part of the requested grain (e.g.
+    # COUNT(DISTINCT customer.tier) without grouping by customer). Resolve
+    # those as join-only dimensions so the reference is joined and rewritten
+    # to its table alias instead of leaking into the SQL as a raw node path.
+    extra_dimensions = resolve_metric_expression_dimensions(
+        ctx,
+        parent_node,
+        component_expressions + non_decomposable_columns,
+        resolved_dimensions,
+    )
+    effective_resolved_dimensions = resolved_dimensions + extra_dimensions
+
     # Determine grain columns for this group
     if grain_group.is_merged:
         # Merged: use finest grain (all grain columns from merged groups)
@@ -2060,7 +2074,7 @@ def build_grain_group_sql(
         query_ast, scanned_sources = build_select_ast(
             ctx,
             metric_expressions=[],  # No aggregated expressions
-            resolved_dimensions=resolved_dimensions,
+            resolved_dimensions=effective_resolved_dimensions,
             parent_node=parent_node,
             grain_columns=pass_through_columns,
             filters=ctx.dimension_filters,  # Use dimension_filters only (not metric_filters)
@@ -2081,7 +2095,7 @@ def build_grain_group_sql(
         query_ast, scanned_sources = build_select_ast(
             ctx,
             metric_expressions=all_metric_expressions,
-            resolved_dimensions=resolved_dimensions,
+            resolved_dimensions=effective_resolved_dimensions,
             parent_node=parent_node,
             grain_columns=effective_grain_columns,
             grain_col_aliases=grain_group.grain_col_aliases or None,
