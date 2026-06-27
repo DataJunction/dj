@@ -17,7 +17,6 @@ import LoadingIcon from '../../icons/LoadingIcon';
 import CompactSelect from './CompactSelect';
 import NamespaceNav from './NamespaceNav';
 import FolderList from './FolderList';
-import NamespaceBreadcrumb from './NamespaceBreadcrumb';
 import { immediateChildren } from './namespaceOptions';
 import { getDJUrl } from '../../services/DJService';
 
@@ -990,12 +989,6 @@ export function NamespacePage() {
                   onChange={e => setNodeSearch(e.target.value)}
                   placeholder="Search nodes in this namespace…"
                   aria-label="Search nodes in this namespace"
-                />
-              )}
-              {gitConfigLoaded && (
-                <NamespaceBreadcrumb
-                  path={tableNamespace}
-                  onNavigate={value => navigate(`/namespaces/${value}`)}
                 />
               )}
               {!searchActive && (
