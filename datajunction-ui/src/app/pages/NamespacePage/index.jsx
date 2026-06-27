@@ -16,7 +16,7 @@ import {
 import LoadingIcon from '../../icons/LoadingIcon';
 import CompactSelect from './CompactSelect';
 import NamespaceNav from './NamespaceNav';
-import { immediateChildren } from './namespaceOptions';
+import { immediateChildren, isHiddenNamespace } from './namespaceOptions';
 import { NODE_TYPE_ORDER, NODE_TYPE_COLORS } from './nodeTypes';
 import { getDJUrl } from '../../services/DJService';
 
@@ -33,14 +33,6 @@ const AVATAR_COLORS = [
   ['#fee2e2', '#991b1b'], // red
   ['#d1fae5', '#065f46'], // teal
 ];
-// Namespaces hidden from browse navigation (system/internal scratch areas) —
-// the namespace itself and anything beneath it.
-const HIDDEN_NAMESPACES = ['system.temp'];
-function isHiddenNamespace(name) {
-  return HIDDEN_NAMESPACES.some(
-    hidden => name === hidden || name.startsWith(`${hidden}.`),
-  );
-}
 
 function avatarColorIndex(username) {
   let hash = 0;
@@ -236,8 +228,6 @@ export function NamespacePage() {
     const t = setTimeout(() => setDebouncedSearch(nodeSearch.trim()), 300);
     return () => clearTimeout(t);
   }, [nodeSearch]);
-  const searchActive = debouncedSearch !== '';
-
   // Changing the search term restarts paging from the first page; a cursor from
   // a previous page would otherwise be sent with the new query.
   useEffect(() => {
@@ -288,6 +278,7 @@ export function NamespacePage() {
   // Per-type node counts (recursive) for the current namespace, shown inline in
   // the TYPE filter options (e.g. "Metric (342)").
   useEffect(() => {
+    if (isGitRoot && gitConfig?.default_branch) return;
     let cancelled = false;
     if (!tableNamespace) {
       setTypeCounts(null);
@@ -373,6 +364,7 @@ export function NamespacePage() {
   }, [djClient]);
 
   useEffect(() => {
+    if (isGitRoot && gitConfig?.default_branch) return;
     const fetchData = async () => {
       setRetrieved(false);
 
@@ -383,11 +375,10 @@ export function NamespacePage() {
         missingDescription: filters.missingDescription,
         hasMaterialization: filters.hasMaterialization,
         orphanedDimension: filters.orphanedDimension,
-        // The table shows every node under this namespace (recursive), matching
-        // the rail's recursive type counts. The rail's Folders drill DOWN to
+        // The table shows every node under this namespace (all descendants),
+        // matching the rail's per-type counts. The rail's Folders drill DOWN to
         // re-scope; search narrows within the current scope.
-        recursive: true,
-        search: searchActive ? debouncedSearch : null,
+        search: debouncedSearch || null,
       };
 
       const nodes = await djClient.listNodesForLanding(
@@ -440,7 +431,6 @@ export function NamespacePage() {
     tableNamespace,
     namespace,
     debouncedSearch,
-    searchActive,
   ]);
 
   const loadNext = () => {
@@ -1099,7 +1089,7 @@ export function NamespacePage() {
           <div className="table-responsive">
             {showRail && (
               <div
-                className={`sidebar`}
+                className="sidebar"
                 style={{
                   borderRight: '1px solid #e2e8f0',
                   paddingRight: '1rem',
@@ -1109,7 +1099,6 @@ export function NamespacePage() {
                   namespaces={rawNamespaces}
                   hierarchy={namespaceHierarchy}
                   currentNamespace={namespace}
-                  stateNamespace={state.namespace}
                   gitRoots={gitRoots}
                   onSelect={value =>
                     navigate(value ? `/namespaces/${value}` : '/')

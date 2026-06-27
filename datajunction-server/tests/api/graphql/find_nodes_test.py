@@ -3970,36 +3970,3 @@ async def test_find_nodes_paginated_total_count_no_matches(
     assert paginated["totalCount"] == 0
 
 
-@pytest.mark.asyncio
-async def test_find_nodes_paginated_recursive_flag(
-    client_with_basic: AsyncClient,
-):
-    """recursive:false returns only nodes whose namespace == the given one."""
-    base = 'query($r: Boolean!) { findNodesPaginated(namespace: "basic", recursive: $r, limit: 1000) { edges { node { name } } } }'
-
-    # Default (recursive) includes descendants.
-    rec = await client_with_basic.post(
-        "/graphql",
-        json={"query": base, "variables": {"r": True}},
-    )
-    rec_names = {
-        e["node"]["name"] for e in rec.json()["data"]["findNodesPaginated"]["edges"]
-    }
-
-    # Non-recursive: only nodes directly in `basic`.
-    non = await client_with_basic.post(
-        "/graphql",
-        json={"query": base, "variables": {"r": False}},
-    )
-    non_names = {
-        e["node"]["name"] for e in non.json()["data"]["findNodesPaginated"]["edges"]
-    }
-
-    assert non_names, "expected some nodes directly in `basic`"
-    assert non_names <= rec_names
-    # Every non-recursive result is exactly in `basic`, none deeper.
-    assert all(
-        n.startswith("basic.") and "." not in n[len("basic.") :] for n in non_names
-    )
-    # Recursive returned strictly more (there are deeper namespaces in basic).
-    assert len(rec_names) > len(non_names)

@@ -865,7 +865,6 @@ class Node(Base):
         tags: list[str] | None = None,
         edited_by: str | None = None,
         namespace: str | None = None,
-        recursive: bool = True,
         mode: NodeMode | None = None,
         owned_by: list[str] | None = None,
         missing_description: bool = False,
@@ -916,13 +915,10 @@ class Node(Base):
                 order_by = getattr(NodeRevisionAlias, order_by.key)
 
         if namespace:
-            if recursive:
-                statement = statement.where(
-                    (Node.namespace.like(f"{namespace}.%"))
-                    | (Node.namespace == namespace),
-                )
-            else:
-                statement = statement.where(Node.namespace == namespace)
+            statement = statement.where(
+                (Node.namespace.like(f"{namespace}.%"))
+                | (Node.namespace == namespace),
+            )
         if tags:
             statement = statement.where(
                 exists(
@@ -1134,7 +1130,6 @@ class Node(Base):
         tags: list[str] | None = None,
         edited_by: str | None = None,
         namespace: str | None = None,
-        recursive: bool = True,
         limit: int | None = 100,
         before: str | None = None,
         after: str | None = None,
@@ -1170,7 +1165,6 @@ class Node(Base):
             tags=tags,
             edited_by=edited_by,
             namespace=namespace,
-            recursive=recursive,
             mode=mode,
             owned_by=owned_by,
             missing_description=missing_description,
@@ -1233,7 +1227,6 @@ class Node(Base):
         tags: list[str] | None = None,
         edited_by: str | None = None,
         namespace: str | None = None,
-        recursive: bool = True,
         mode: NodeMode | None = None,
         owned_by: list[str] | None = None,
         missing_description: bool = False,
@@ -1256,7 +1249,6 @@ class Node(Base):
             tags=tags,
             edited_by=edited_by,
             namespace=namespace,
-            recursive=recursive,
             mode=mode,
             owned_by=owned_by,
             missing_description=missing_description,

@@ -2,15 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import NamespaceNav from '../NamespaceNav';
 
-// Explorer pulls DJClientContext + router; stub it so we can test NamespaceNav alone.
-vi.mock('../Explorer', () => ({
-  default: () => <div data-testid="explorer" />,
-}));
-// NamespaceTypeSummary fetches counts via DJClientContext; stub it out here.
-vi.mock('../NamespaceTypeSummary', () => ({
-  default: () => <div data-testid="type-summary" />,
-}));
-
 const namespaces = [
   { namespace: 'ads', numNodes: 42, git: { __typename: 'GitRootConfig' } },
   { namespace: 'member', numNodes: 7, git: null },

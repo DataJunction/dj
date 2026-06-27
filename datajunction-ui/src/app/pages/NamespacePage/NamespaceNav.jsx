@@ -47,8 +47,8 @@ export default function NamespaceNav({
 
   const isFiltering = filter.trim() !== '';
   const matches = isFiltering ? searchNamespaces(namespaces || [], filter) : [];
-  const groups = buildNamespaceOptions(namespaces || []);
   const showList = !currentNamespace;
+  const groups = showList ? buildNamespaceOptions(namespaces || []) : [];
 
   const gitByNs = {};
   for (const ns of namespaces || []) {

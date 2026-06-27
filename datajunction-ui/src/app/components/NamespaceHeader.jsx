@@ -1,5 +1,8 @@
 import { useContext, useEffect, useState, useRef } from 'react';
-import { searchNamespaces } from '../pages/NamespacePage/namespaceOptions';
+import {
+  searchNamespaces,
+  topLevelNamespaces,
+} from '../pages/NamespacePage/namespaceOptions';
 import DJClientContext from '../providers/djclient';
 import Tooltip from './Tooltip';
 import {
@@ -191,11 +194,9 @@ export default function NamespaceHeader({
   // ``branch_namespace`` is the branch this namespace belongs to (equals the
   // namespace when called against the branch itself, the ancestor branch when
   // called against a descendant).
-  // isBranchNamespace = "this IS the branch" (used for the breadcrumb branch
-  // switcher); isInBranch = "this lives under a branch" (used to show
-  // branch-scoped git controls on subnamespaces too).
+  // isInBranch = "this lives under a branch" (used to show branch-scoped git
+  // controls on subnamespaces too).
   const branchNamespace = gitConfig?.branch_namespace || null;
-  const isBranchNamespace = branchNamespace === namespace;
   const isInBranch = !!branchNamespace;
   const branchScopeNamespace = branchNamespace || namespace;
   // Descendants inherit github_repo_path via cascade, so compare against
@@ -494,7 +495,7 @@ export default function NamespaceHeader({
                         </div>
                       )}
                     </div>
-                  ) : index === 0 && namespaceOptions !== undefined ? (
+                  ) : index === 0 && namespaceOptions?.length > 0 ? (
                     <div ref={nsSwitcherRef} style={{ position: 'relative' }}>
                       <button
                         onClick={() => {
@@ -564,10 +565,7 @@ export default function NamespaceHeader({
                               // Typing searches across ALL depths.
                               const results = nsQuery.trim()
                                 ? searchNamespaces(namespaceOptions, nsQuery)
-                                : [...namespaceOptions]
-                                    .map(ns => ns.namespace)
-                                    .filter(name => !name.includes('.'))
-                                    .sort((a, b) => a.localeCompare(b));
+                                : topLevelNamespaces(namespaceOptions);
                               if (results.length === 0) {
                                 return (
                                   <div

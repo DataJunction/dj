@@ -1195,7 +1195,7 @@ describe('DataJunctionAPI', () => {
     );
   });
 
-  it('passes recursive and search to findNodesPaginated', async () => {
+  it('passes search to findNodesPaginated', async () => {
     const calls = [];
     const originalFetch = global.fetch;
     global.fetch = vi.fn(async (_url, opts) => {
@@ -1216,10 +1216,9 @@ describe('DataJunctionAPI', () => {
       50,
       { key: 'name', direction: 'ascending' },
       null,
-      { recursive: false, search: 'active' },
+      { search: 'active' },
     );
     global.fetch = originalFetch;
-    expect(calls[0].variables.recursive).toBe(false);
     expect(calls[0].variables.search).toBe('active');
   });
 

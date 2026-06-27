@@ -1,5 +1,20 @@
 // src/app/pages/NamespacePage/namespaceOptions.js
 
+const HIDDEN_NAMESPACES = ['system.temp'];
+
+export function isHiddenNamespace(name) {
+  return HIDDEN_NAMESPACES.some(
+    hidden => name === hidden || name.startsWith(hidden + '.'),
+  );
+}
+
+export function topLevelNamespaces(namespaces) {
+  return namespaces
+    .map(ns => ns.namespace)
+    .filter(name => !name.includes('.'))
+    .sort((a, b) => a.localeCompare(b));
+}
+
 // A namespace is a git ROOT (vs a git branch) when its git config is a GitRootConfig.
 const isGitRoot = ns => ns.git?.__typename === 'GitRootConfig';
 const isTopLevel = ns => !ns.namespace.includes('.');
@@ -72,31 +87,4 @@ export function findHierarchyNode(hierarchy, path) {
 export function immediateChildren(hierarchy, path) {
   const node = findHierarchyNode(hierarchy, path);
   return node?.children || [];
-}
-
-/**
- * Flat rows for the rail "jump tree": every sibling at each level from the root
- * down to `currentPath`, descending ONLY along the current path. The current
- * node is included (marked) but its children are not — those live in the main
- * panel. Each row: { path, namespace, depth, isCurrent, isAncestor }.
- */
-export function buildJumpTree(hierarchy, currentPath) {
-  if (!currentPath) return [];
-  const rows = [];
-  const walk = (level, depth) => {
-    for (const node of level) {
-      const isCurrent = node.path === currentPath;
-      const isAncestor = currentPath.startsWith(node.path + '.');
-      rows.push({
-        path: node.path,
-        namespace: node.namespace,
-        depth,
-        isCurrent,
-        isAncestor,
-      });
-      if (isAncestor) walk(node.children || [], depth + 1);
-    }
-  };
-  walk(hierarchy, 0);
-  return rows;
 }
