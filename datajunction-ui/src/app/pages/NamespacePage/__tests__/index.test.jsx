@@ -692,16 +692,15 @@ describe('NamespacePage', () => {
       });
     });
 
-    it('shows default branch section header and View all link', async () => {
+    it('shows the active default branch + a default badge in the context row', async () => {
       renderWithProviders(<NamespacePage />);
 
-      // The default branch header (name + "default" badge) and "View all" link
-      // appear as soon as gitConfig.default_branch is set and isGitRoot is true
+      // The context row names the default branch with a "default" badge (the old
+      // heavy "MAIN [default]" band + "View all" link were removed).
       await waitFor(
         () => {
-          expect(screen.getByText('View all →')).toBeInTheDocument();
-          // default branch name shown as the section title
           expect(screen.getAllByText('main').length).toBeGreaterThan(0);
+          expect(screen.getAllByText('default').length).toBeGreaterThan(0);
         },
         { timeout: 3000 },
       );

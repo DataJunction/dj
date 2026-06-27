@@ -21,6 +21,9 @@ import { NodeBadge, NodeLink } from '../../components/NodeComponents';
 import { getDJUrl } from '../../services/DJService';
 import { NODE_TYPE_ORDER, NODE_TYPE_COLORS } from './nodeTypes';
 
+import 'styles/node-list.css';
+import 'styles/sorted-table.css';
+
 const AVATAR_COLORS = [
   ['#dbeafe', '#1e40af'], // blue
   ['#dcfce7', '#166534'], // green
@@ -186,9 +189,6 @@ function DefaultBranchPreview({ groups, defaultBranchNs }) {
     </div>
   );
 }
-
-import 'styles/node-list.css';
-import 'styles/sorted-table.css';
 
 function formatRelativeTime(isoString) {
   const seconds = Math.floor((Date.now() - new Date(isoString)) / 1000);
@@ -1185,27 +1185,14 @@ export function NamespacePage() {
                 (branchesLoading || (branches && branches.length > 0)) ? (
                 <div style={{ padding: '8px 0' }}>
                   <div
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setBranchesExpanded(v => !v)}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        setBranchesExpanded(v => !v);
-                      }
-                    }}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
                       gap: '8px',
-                      marginBottom: branchesExpanded ? '16px' : '4px',
+                      marginBottom: branchesExpanded ? '12px' : '4px',
                       padding: '4px',
-                      cursor: 'pointer',
-                      userSelect: 'none',
                     }}
                   >
-                    <span style={{ fontSize: '10px', color: '#64748b' }}>
-                      {branchesExpanded ? '▾' : '▸'}
-                    </span>
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
                       width="14"
@@ -1224,26 +1211,54 @@ export function NamespacePage() {
                     </svg>
                     <span
                       style={{
-                        fontSize: '12px',
-                        fontWeight: '600',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.5px',
-                        color: '#64748b',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        color: '#1e293b',
                       }}
                     >
-                      Branches
+                      {gitConfig?.default_branch}
                     </span>
-                    {!branchesLoading && branches && (
-                      <span
-                        style={{
-                          fontSize: '11px',
-                          color: '#94a3b8',
-                          fontWeight: 400,
-                        }}
-                      >
-                        {branches.length}
+                    <span
+                      style={{
+                        fontSize: '10px',
+                        padding: '1px 6px',
+                        backgroundColor: '#eef2ff',
+                        color: '#3730a3',
+                        borderRadius: '8px',
+                        fontWeight: 600,
+                      }}
+                    >
+                      default
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setBranchesExpanded(v => !v)}
+                      aria-expanded={branchesExpanded}
+                      style={{
+                        marginLeft: 'auto',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        color: '#64748b',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px',
+                      }}
+                    >
+                      <span style={{ fontSize: '10px' }}>
+                        {branchesExpanded ? '▾' : '▸'}
                       </span>
-                    )}
+                      <span>Branches</span>
+                      {!branchesLoading && branches && (
+                        <span style={{ color: '#94a3b8', fontWeight: 400 }}>
+                          {branches.length}
+                        </span>
+                      )}
+                    </button>
                   </div>
 
                   {branchesExpanded ? (
@@ -1343,57 +1358,6 @@ export function NamespacePage() {
                           marginBottom: '20px',
                         }}
                       />
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          marginBottom: '12px',
-                          padding: '0 4px',
-                        }}
-                      >
-                        <div
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '8px',
-                          }}
-                        >
-                          <span
-                            style={{
-                              fontSize: '12px',
-                              fontWeight: '600',
-                              textTransform: 'uppercase',
-                              letterSpacing: '0.5px',
-                              color: '#64748b',
-                            }}
-                          >
-                            {gitConfig.default_branch}
-                          </span>
-                          <span
-                            style={{
-                              fontSize: '10px',
-                              padding: '1px 6px',
-                              backgroundColor: '#1e40af',
-                              color: 'white',
-                              borderRadius: '10px',
-                              fontWeight: '600',
-                            }}
-                          >
-                            default
-                          </span>
-                        </div>
-                        <a
-                          href={`/namespaces/${namespace}.${gitConfig.default_branch}`}
-                          style={{
-                            fontSize: '12px',
-                            color: '#3b82f6',
-                            textDecoration: 'none',
-                          }}
-                        >
-                          View all →
-                        </a>
-                      </div>
                       {defaultBranchNodesLoading ? (
                         <LoadingIcon />
                       ) : (
