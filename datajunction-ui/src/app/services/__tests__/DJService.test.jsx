@@ -1195,6 +1195,33 @@ describe('DataJunctionAPI', () => {
     );
   });
 
+  it('passes search to findNodesPaginated', async () => {
+    const calls = [];
+    const originalFetch = global.fetch;
+    global.fetch = vi.fn(async (_url, opts) => {
+      calls.push(JSON.parse(opts.body));
+      return {
+        json: async () => ({
+          data: { findNodesPaginated: { edges: [], pageInfo: {} } },
+        }),
+      };
+    });
+    await DataJunctionAPI.listNodesForLanding(
+      'growth',
+      [],
+      [],
+      '',
+      null,
+      null,
+      50,
+      { key: 'name', direction: 'ascending' },
+      null,
+      { search: 'active' },
+    );
+    global.fetch = originalFetch;
+    expect(calls[0].variables.search).toBe('active');
+  });
+
   it('calls getMetric correctly', async () => {
     fetch.mockResponseOnce(
       JSON.stringify({

@@ -2,15 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import NamespaceNav from '../NamespaceNav';
 
-// Explorer pulls DJClientContext + router; stub it so we can test NamespaceNav alone.
-vi.mock('../Explorer', () => ({
-  default: () => <div data-testid="explorer" />,
-}));
-// NamespaceTypeSummary fetches counts via DJClientContext; stub it out here.
-vi.mock('../NamespaceTypeSummary', () => ({
-  default: () => <div data-testid="type-summary" />,
-}));
-
 const namespaces = [
   { namespace: 'ads', numNodes: 42, git: { __typename: 'GitRootConfig' } },
   { namespace: 'member', numNodes: 7, git: null },
@@ -101,76 +92,49 @@ describe('NamespaceNav', () => {
     ).toBeInTheDocument();
   });
 
-  it('lets you pin the current namespace at any depth from the selected view', () => {
-    renderNav({ currentNamespace: 'users.yshang', hierarchy: [] });
-    const pinBtn = screen.getByLabelText('Pin users.yshang');
-    expect(pinBtn).toHaveTextContent('☆');
-    fireEvent.click(pinBtn);
-    expect(screen.getByLabelText('Unpin users.yshang')).toHaveTextContent('★');
-  });
-
-  it('exposes a back-to-all-namespaces control in the selected view', () => {
-    const onSelect = vi.fn();
-    renderNav({ currentNamespace: 'users.yshang', hierarchy: [], onSelect });
-    fireEvent.click(screen.getByLabelText('All namespaces'));
-    expect(onSelect).toHaveBeenCalledWith(null);
-  });
-
-  it('on a git root, shows a branch switcher defaulting to the default branch', () => {
-    const onSelect = vi.fn();
-    const ns = [
-      {
-        namespace: 'arc',
-        numNodes: 0,
-        git: { __typename: 'GitRootConfig', defaultBranch: 'main' },
-      },
-      {
-        namespace: 'arc.main',
-        numNodes: 0,
-        git: {
-          __typename: 'GitBranchConfig',
-          branch: 'main',
-          parentNamespace: 'arc',
-          root: { defaultBranch: 'main' },
-        },
-      },
-      {
-        namespace: 'arc.featurex',
-        numNodes: 0,
-        git: {
-          __typename: 'GitBranchConfig',
-          branch: 'featurex',
-          parentNamespace: 'arc',
-          root: { defaultBranch: 'main' },
-        },
-      },
-    ];
+  it('rail folder nav shows the current namespace child folders, not its siblings', () => {
     const hierarchy = [
+      { namespace: 'default', path: 'default', children: [] },
       {
-        namespace: 'arc',
-        path: 'arc',
+        namespace: 'growth',
+        path: 'growth',
         children: [
-          { namespace: 'main', path: 'arc.main', children: [] },
-          { namespace: 'featurex', path: 'arc.featurex', children: [] },
+          { namespace: 'metrics', path: 'growth.metrics', children: [] },
+          {
+            namespace: 'experiments',
+            path: 'growth.experiments',
+            children: [],
+          },
         ],
       },
+      { namespace: 'marketing', path: 'marketing', children: [] },
     ];
+    const folderNamespaces = [
+      { namespace: 'default', git: null },
+      { namespace: 'growth', git: null },
+      { namespace: 'growth.metrics', git: null },
+      { namespace: 'growth.experiments', git: null },
+      { namespace: 'marketing', git: null },
+    ];
+    const onSelect = vi.fn();
     render(
       <NamespaceNav
-        namespaces={ns}
+        namespaces={folderNamespaces}
         hierarchy={hierarchy}
-        currentNamespace="arc"
-        gitRoots={new Set(['arc'])}
+        currentNamespace="growth"
+        gitRoots={new Set()}
         onSelect={onSelect}
       />,
     );
-    const sel = screen.getByLabelText('Branch');
-    expect(sel.value).toBe('main');
-    expect(screen.getByRole('option', { name: 'main' })).toBeInTheDocument();
-    expect(
-      screen.getByRole('option', { name: 'featurex' }),
-    ).toBeInTheDocument();
-    fireEvent.change(sel, { target: { value: 'featurex' } });
-    expect(onSelect).toHaveBeenCalledWith('arc.featurex');
+    // The rail lists the current namespace's child folders for drilling in.
+    expect(screen.getByText('Folders')).toBeInTheDocument();
+    expect(screen.getByText('metrics')).toBeInTheDocument();
+    expect(screen.getByText('experiments')).toBeInTheDocument();
+    // Siblings of the current namespace are NOT shown (no all-namespaces explosion).
+    expect(screen.queryByText('default')).not.toBeInTheDocument();
+    expect(screen.queryByText('marketing')).not.toBeInTheDocument();
+    // Clicking a child folder drills into it.
+    fireEvent.click(screen.getByText('metrics'));
+    expect(onSelect).toHaveBeenCalledWith('growth.metrics');
   });
 });

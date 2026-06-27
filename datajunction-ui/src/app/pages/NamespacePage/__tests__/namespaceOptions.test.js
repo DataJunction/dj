@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   buildNamespaceOptions,
   findHierarchyNode,
+  immediateChildren,
   searchNamespaces,
 } from '../namespaceOptions';
 
@@ -74,5 +75,37 @@ describe('findHierarchyNode', () => {
   it('returns null for unknown or empty path', () => {
     expect(findHierarchyNode(hierarchy, 'nope')).toBeNull();
     expect(findHierarchyNode(hierarchy, '')).toBeNull();
+  });
+});
+
+const jumpHierarchy = [
+  { namespace: 'default', path: 'default', children: [] },
+  { namespace: 'finance', path: 'finance', children: [] },
+  {
+    namespace: 'growth',
+    path: 'growth',
+    children: [
+      { namespace: 'experiments', path: 'growth.experiments', children: [] },
+      {
+        namespace: 'metrics',
+        path: 'growth.metrics',
+        children: [
+          { namespace: 'dau', path: 'growth.metrics.dau', children: [] },
+        ],
+      },
+    ],
+  },
+  { namespace: 'marketing', path: 'marketing', children: [] },
+];
+
+describe('immediateChildren', () => {
+  it('returns direct children only', () => {
+    expect(immediateChildren(jumpHierarchy, 'growth').map(c => c.path)).toEqual(
+      ['growth.experiments', 'growth.metrics'],
+    );
+  });
+  it('returns [] for a leaf or missing path', () => {
+    expect(immediateChildren(jumpHierarchy, 'growth.experiments')).toEqual([]);
+    expect(immediateChildren(jumpHierarchy, 'nope')).toEqual([]);
   });
 });

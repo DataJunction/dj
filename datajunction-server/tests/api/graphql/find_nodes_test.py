@@ -2868,6 +2868,34 @@ async def test_find_nodes_with_search_by_name(
 
 
 @pytest.mark.asyncio
+async def test_find_nodes_search_word_order_and_separators(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    Tokenized search matches query words in ANY order and across separators
+    (._ ) — e.g. "orders repair" or "orders_repair" both find repair_orders,
+    which a contiguous-substring match would miss.
+    """
+    query = """
+    query Search($q: String!) {
+        findNodes(search: $q, limit: 20) { name }
+    }
+    """
+    for q in ["orders repair", "repair orders", "orders_repair"]:
+        response = await client_with_roads.post(
+            "/graphql",
+            json={"query": query, "variables": {"q": q}},
+        )
+        assert response.status_code == 200
+        names = [node["name"] for node in response.json()["data"]["findNodes"]]
+        assert "default.repair_orders" in names, (
+            f"query {q!r} should match default.repair_orders"
+        )
+        # An unrelated node still must not leak in.
+        assert "default.hard_hat" not in names
+
+
+@pytest.mark.asyncio
 async def test_find_nodes_with_search_by_description(
     client_with_roads: AsyncClient,
     session: AsyncSession,

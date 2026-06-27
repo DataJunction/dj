@@ -1,5 +1,20 @@
 // src/app/pages/NamespacePage/namespaceOptions.js
 
+const HIDDEN_NAMESPACES = ['system.temp'];
+
+export function isHiddenNamespace(name) {
+  return HIDDEN_NAMESPACES.some(
+    hidden => name === hidden || name.startsWith(hidden + '.'),
+  );
+}
+
+export function topLevelNamespaces(namespaces) {
+  return namespaces
+    .map(ns => ns.namespace)
+    .filter(name => !name.includes('.'))
+    .sort((a, b) => a.localeCompare(b));
+}
+
 // A namespace is a git ROOT (vs a git branch) when its git config is a GitRootConfig.
 const isGitRoot = ns => ns.git?.__typename === 'GitRootConfig';
 const isTopLevel = ns => !ns.namespace.includes('.');
@@ -66,4 +81,10 @@ export function findHierarchyNode(hierarchy, path) {
     if (found) return found;
   }
   return null;
+}
+
+/** Direct children of the hierarchy node at `path` (empty if leaf/missing). */
+export function immediateChildren(hierarchy, path) {
+  const node = findHierarchyNode(hierarchy, path);
+  return node?.children || [];
 }

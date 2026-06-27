@@ -1,10 +1,8 @@
-import * as React from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { useContext, useEffect, useState, useCallback } from 'react';
 import NodeStatus from '../NodePage/NodeStatus';
 import DJClientContext from '../../providers/djclient';
 import { useCurrentUser } from '../../providers/UserProvider';
-import Explorer from '../NamespacePage/Explorer';
 import AddNodeDropdown from '../../components/AddNodeDropdown';
 import NodeListActions from '../../components/NodeListActions';
 import NamespaceHeader from '../../components/NamespaceHeader';
@@ -17,9 +15,12 @@ import {
 import LoadingIcon from '../../icons/LoadingIcon';
 import CompactSelect from './CompactSelect';
 import NamespaceNav from './NamespaceNav';
-import { NodeBadge, NodeLink } from '../../components/NodeComponents';
-import { getDJUrl } from '../../services/DJService';
+import { isHiddenNamespace } from './namespaceOptions';
 import { NODE_TYPE_ORDER, NODE_TYPE_COLORS } from './nodeTypes';
+import { getDJUrl } from '../../services/DJService';
+
+import 'styles/node-list.css';
+import 'styles/sorted-table.css';
 
 const AVATAR_COLORS = [
   ['#dbeafe', '#1e40af'], // blue
@@ -31,177 +32,13 @@ const AVATAR_COLORS = [
   ['#fee2e2', '#991b1b'], // red
   ['#d1fae5', '#065f46'], // teal
 ];
+
 function avatarColorIndex(username) {
   let hash = 0;
   for (let i = 0; i < username.length; i++) {
     hash = (hash * 31 + username.charCodeAt(i)) >>> 0;
   }
   return hash % AVATAR_COLORS.length;
-}
-const MAX_PER_TYPE = 8;
-
-function DefaultBranchPreview({ groups, defaultBranchNs }) {
-  const filtered = groups.filter(g => g.nodes.length > 0);
-
-  if (filtered.length === 0) return null;
-
-  return (
-    <div
-      style={{
-        display: 'grid',
-        gridTemplateColumns: '1fr 1fr',
-        gap: '0 0',
-        margin: '20px',
-      }}
-    >
-      {filtered.map(({ type, nodes: typeNodes, hasMore, totalCount }, idx) => {
-        const shown = typeNodes;
-        const isLeftCol = idx % 2 === 0;
-        return (
-          <div
-            key={type}
-            style={{
-              borderTop: '1px solid #e2e8f0',
-              paddingTop: '16px',
-              paddingBottom: '28px',
-              paddingRight: isLeftCol ? '32px' : '0',
-              paddingLeft: isLeftCol ? '0' : '32px',
-              borderLeft: isLeftCol ? 'none' : '1px solid #e2e8f0',
-            }}
-          >
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                marginBottom: '8px',
-              }}
-            >
-              <span
-                style={{
-                  fontSize: '11px',
-                  fontWeight: '700',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.6px',
-                  color: '#64748b',
-                }}
-              >
-                {type}s
-                <span
-                  style={{
-                    marginLeft: '6px',
-                    fontWeight: '600',
-                    fontSize: '10px',
-                    padding: '3px 7px',
-                    backgroundColor: NODE_TYPE_COLORS[type]?.bg ?? '#f1f5f9',
-                    color: NODE_TYPE_COLORS[type]?.color ?? '#475569',
-                    borderRadius: '8px',
-                  }}
-                >
-                  {totalCount ??
-                    (hasMore ? `${MAX_PER_TYPE}+` : typeNodes.length)}
-                </span>
-              </span>
-              {hasMore && (
-                <a
-                  href={`/namespaces/${defaultBranchNs}?type=${type}`}
-                  style={{
-                    fontSize: '11px',
-                    color: '#3b82f6',
-                    textDecoration: 'none',
-                    fontWeight: '500',
-                  }}
-                >
-                  see all →
-                </a>
-              )}
-            </div>
-            {shown.map((node, idx) => (
-              <div
-                key={node.name}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  padding: '6px 0',
-                  borderBottom:
-                    idx < shown.length - 1 ? '1px solid #f1f5f9' : 'none',
-                }}
-              >
-                <NodeLink
-                  node={node}
-                  size="large"
-                  ellipsis={true}
-                  style={{ flex: 1, minWidth: 0 }}
-                />
-                {node.owners?.length > 0 && (
-                  <div style={{ display: 'flex', gap: '2px', flexShrink: 0 }}>
-                    {node.owners.slice(0, 3).map(owner => {
-                      const initials = owner.username
-                        .split('@')[0]
-                        .slice(0, 2)
-                        .toUpperCase();
-                      const [bg, fg] =
-                        AVATAR_COLORS[avatarColorIndex(owner.username)];
-                      return (
-                        <span
-                          key={owner.username}
-                          title={owner.username}
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            width: '26px',
-                            height: '26px',
-                            borderRadius: '50%',
-                            backgroundColor: bg,
-                            color: fg,
-                            fontSize: '9px',
-                            fontWeight: '600',
-                            flexShrink: 0,
-                          }}
-                        >
-                          {initials}
-                        </span>
-                      );
-                    })}
-                  </div>
-                )}
-                {node.current?.updatedAt && (
-                  <span
-                    style={{
-                      fontSize: '11px',
-                      color: '#94a3b8',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {formatRelativeTime(node.current.updatedAt)}
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-import 'styles/node-list.css';
-import 'styles/sorted-table.css';
-
-function formatRelativeTime(isoString) {
-  const seconds = Math.floor((Date.now() - new Date(isoString)) / 1000);
-  if (seconds < 60) return 'just now';
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
-  const months = Math.floor(days / 30);
-  if (months < 12) return `${months}mo ago`;
-  return `${Math.floor(months / 12)}y ago`;
 }
 
 export function NamespacePage() {
@@ -371,13 +208,6 @@ export function NamespacePage() {
   // Use undefined to indicate "not yet loaded", null means "loaded but no config"
   const [gitConfig, setGitConfig] = useState(undefined);
 
-  // Branch landing state (for git-root namespaces)
-  const [branches, setBranches] = useState(null); // null = not yet fetched
-  const [branchesLoading, setBranchesLoading] = useState(false);
-  const [defaultBranchGroups, setDefaultBranchGroups] = useState([]);
-  const [defaultBranchNodesLoading, setDefaultBranchNodesLoading] =
-    useState(false);
-
   const [sortConfig, setSortConfig] = useState({
     key: 'updatedAt',
     direction: DESC,
@@ -391,6 +221,21 @@ export function NamespacePage() {
   const [hasNextPage, setHasNextPage] = useState(true);
   const [hasPrevPage, setHasPrevPage] = useState(true);
 
+  const [nodeSearch, setNodeSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(nodeSearch.trim()), 300);
+    return () => clearTimeout(t);
+  }, [nodeSearch]);
+  // Changing the search term restarts paging from the first page; a cursor from
+  // a previous page would otherwise be sent with the new query.
+  useEffect(() => {
+    setBefore(null);
+    setAfter(null);
+  }, [debouncedSearch]);
+
+  const [typeCounts, setTypeCounts] = useState(null);
+
   // Only show edit/add controls once git config has loaded and namespace is not git-only
   const gitConfigLoaded = gitConfig !== undefined;
   // Descendants inherit github_repo_path via cascade, so compare against
@@ -399,70 +244,68 @@ export function NamespacePage() {
     gitConfigLoaded &&
     !!gitConfig?.github_repo_path &&
     gitConfig?.git_root_namespace === namespace;
-  const isBranchNamespace = gitConfigLoaded && !!gitConfig?.parent_namespace;
   const showEditControls =
     gitConfigLoaded && !gitConfig?.git_only && !isGitRoot;
+  // Sub-namespaces can be created from the rail only for plain (non-git-backed)
+  // namespaces; git-backed ones are managed via git, not the UI. The git config
+  // endpoint returns an object with null fields (not null) for non-git
+  // namespaces, so check the actual git markers — a repo (root or cascaded
+  // descendant) or a branch namespace.
+  const isGitBacked = !!(
+    gitConfig?.github_repo_path || gitConfig?.branch_namespace
+  );
+  const canCreateNamespace = gitConfigLoaded && !isGitBacked;
+  const createSubNamespace = async fullNamespace => {
+    const response = await djClient.addNamespace(fullNamespace);
+    if (response.status === 200 || response.status === 201) {
+      navigate(`/namespaces/${fullNamespace}`);
+      return {};
+    }
+    return {
+      _error: true,
+      message: response.json?.message || 'Failed to create namespace',
+    };
+  };
+  // A git root has no nodes of its own — they live on its default branch. The node
+  // table (and its filters/keyword search) therefore browse `<root>.<default_branch>`,
+  // so a git root shows the same browsable table as any other namespace.
+  const tableNamespace =
+    isGitRoot && gitConfig?.default_branch
+      ? `${namespace}.${gitConfig.default_branch}`
+      : namespace;
 
-  // Reset branches when namespace changes
+  // A git root has no nodes of its own and isn't a browsable branch — redirect to
+  // its default branch so the URL is the branch (giving the breadcrumb its branch
+  // switcher) and everything is scoped consistently.
   useEffect(() => {
-    setBranches(null);
-  }, [namespace]);
+    if (isGitRoot && gitConfig?.default_branch) {
+      navigate(`/namespaces/${namespace}.${gitConfig.default_branch}`, {
+        replace: true,
+      });
+    }
+  }, [isGitRoot, gitConfig, namespace, navigate]);
 
-  // Fetch branches when this is a git-root namespace
+  // Per-type node counts (recursive) for the current namespace, shown inline in
+  // the TYPE filter options (e.g. "Metric (342)").
   useEffect(() => {
-    if (!isGitRoot) return;
-    setBranchesLoading(true);
+    if (isGitRoot && gitConfig?.default_branch) return;
+    let cancelled = false;
+    if (!tableNamespace) {
+      setTypeCounts(null);
+      return;
+    }
     djClient
-      .getNamespaceBranches(namespace)
-      .then(data => setBranches(data || []))
-      .catch(() => setBranches([]))
-      .finally(() => setBranchesLoading(false));
-  }, [djClient, namespace, isGitRoot]);
-
-  // Fetch default branch nodes for the preview, one query per node type so
-  // that no single type crowds out the others in a shared limit.
-  useEffect(() => {
-    if (!isGitRoot || !gitConfig?.default_branch) return;
-    const defaultBranchNs = `${namespace}.${gitConfig.default_branch}`;
-    setDefaultBranchNodesLoading(true);
-    const fetchLimit = MAX_PER_TYPE + 1;
-    Promise.all(
-      NODE_TYPE_ORDER.map(type =>
-        djClient
-          .listNodesForLanding(
-            defaultBranchNs,
-            [type.toUpperCase()],
-            [],
-            null,
-            null,
-            null,
-            fetchLimit,
-            { key: 'name', direction: 'ascending' },
-            null,
-            {},
-          )
-          .then(result => {
-            const edges = result?.data?.findNodesPaginated?.edges ?? [];
-            const totalCount =
-              result?.data?.findNodesPaginated?.totalCount ?? null;
-            const nodes = edges.map(e => ({
-              ...e.node,
-              status: e.node.current?.status,
-              mode: e.node.current?.mode,
-            }));
-            return {
-              type,
-              nodes: nodes.slice(0, MAX_PER_TYPE),
-              hasMore: nodes.length > MAX_PER_TYPE,
-              totalCount,
-            };
-          })
-          .catch(() => ({ type, nodes: [], hasMore: false, totalCount: null })),
-      ),
-    )
-      .then(groups => setDefaultBranchGroups(groups))
-      .finally(() => setDefaultBranchNodesLoading(false));
-  }, [djClient, namespace, isGitRoot, gitConfig?.default_branch]);
+      .nodeTypeCounts(tableNamespace, NODE_TYPE_ORDER)
+      .then(byType => {
+        if (!cancelled) setTypeCounts(byType);
+      })
+      .catch(() => {
+        if (!cancelled) setTypeCounts(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [djClient, tableNamespace]);
 
   const requestSort = key => {
     let direction = ASC;
@@ -512,7 +355,10 @@ export function NamespacePage() {
 
   useEffect(() => {
     const fetchData = async () => {
-      const namespaces = await djClient.listNamespacesWithGit();
+      const all = await djClient.listNamespacesWithGit();
+      // Hide system/internal scratch namespaces from all browse navigation
+      // (rail list, header switcher, folders).
+      const namespaces = all.filter(ns => !isHiddenNamespace(ns.namespace));
       setRawNamespaces(namespaces);
       const hierarchy = createNamespaceHierarchy(namespaces);
       setNamespaceHierarchy(hierarchy);
@@ -528,6 +374,7 @@ export function NamespacePage() {
   }, [djClient]);
 
   useEffect(() => {
+    if (isGitRoot && gitConfig?.default_branch) return;
     const fetchData = async () => {
       setRetrieved(false);
 
@@ -538,10 +385,14 @@ export function NamespacePage() {
         missingDescription: filters.missingDescription,
         hasMaterialization: filters.hasMaterialization,
         orphanedDimension: filters.orphanedDimension,
+        // The table shows every node under this namespace (all descendants),
+        // matching the rail's per-type counts. The rail's Folders drill DOWN to
+        // re-scope; search narrows within the current scope.
+        search: debouncedSearch || null,
       };
 
       const nodes = await djClient.listNodesForLanding(
-        namespace,
+        tableNamespace,
         filters.node_type ? [filters.node_type.toUpperCase()] : [],
         filters.tags,
         filters.edited_by,
@@ -587,7 +438,9 @@ export function NamespacePage() {
     after,
     sortConfig.key,
     sortConfig.direction,
+    tableNamespace,
     namespace,
+    debouncedSearch,
   ]);
 
   const loadNext = () => {
@@ -603,14 +456,56 @@ export function NamespacePage() {
     }
   };
 
-  // Select options
-  const typeOptions = [
-    { value: 'source', label: 'Source' },
-    { value: 'transform', label: 'Transform' },
-    { value: 'dimension', label: 'Dimension' },
-    { value: 'metric', label: 'Metric' },
-    { value: 'cube', label: 'Cube' },
-  ];
+  // Select options. TYPE options carry the recursive per-type node count for the
+  // current namespace (e.g. "Metric (342)") — this replaces the old rail counts.
+  const TYPE_LABELS = {
+    metric: 'Metric',
+    cube: 'Cube',
+    dimension: 'Dimension',
+    transform: 'Transform',
+    source: 'Source',
+  };
+  const typeOptions = NODE_TYPE_ORDER.map(type => ({
+    value: type,
+    label: TYPE_LABELS[type],
+    count: typeCounts?.[type] ?? null,
+  }));
+
+  // Renders a TYPE option as "<name> <colored count pill>" (pill colors match the
+  // node-type badges). Right-aligns the pill in the menu; inline in the control.
+  const formatTypeOption = (option, meta) => {
+    const pill =
+      option.count != null ? (
+        <span
+          style={{
+            backgroundColor: NODE_TYPE_COLORS[option.value]?.bg ?? '#f1f5f9',
+            color: NODE_TYPE_COLORS[option.value]?.color ?? '#475569',
+            borderRadius: '8px',
+            padding: '1px 8px',
+            fontSize: '11px',
+            fontWeight: 600,
+            fontVariantNumeric: 'tabular-nums',
+          }}
+        >
+          {option.count}
+        </span>
+      ) : null;
+    return (
+      <span
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          justifyContent:
+            meta?.context === 'menu' ? 'space-between' : 'flex-start',
+          width: meta?.context === 'menu' ? '100%' : 'auto',
+        }}
+      >
+        <span>{option.label}</span>
+        {pill}
+      </span>
+    );
+  };
 
   const modeOptions = [
     { value: 'published', label: 'Published' },
@@ -640,9 +535,15 @@ export function NamespacePage() {
               textOverflow: 'ellipsis',
             }}
           >
-            <a href={'/nodes/' + node.name} className="link-table">
-              {isBranchNamespace && node.name.startsWith(namespace + '.')
-                ? node.name.slice(namespace.length + 1)
+            <a
+              href={'/nodes/' + node.name}
+              className="link-table"
+              title={node.name}
+            >
+              {/* Show names relative to the namespace in view — the table is already
+                  scoped to tableNamespace, so the prefix is redundant on every row. */}
+              {tableNamespace && node.name.startsWith(tableNamespace + '.')
+                ? node.name.slice(tableNamespace.length + 1)
                 : node.name}
             </a>
             <span
@@ -757,18 +658,22 @@ export function NamespacePage() {
               fontSize: '16px',
             }}
           >
-            No nodes found with the current filters.
-            {hasActiveFilters && (
-              <a
-                href="#"
-                onClick={e => {
-                  e.preventDefault();
-                  clearAllFilters();
-                }}
-                style={{ marginLeft: '0.5rem' }}
-              >
-                Clear filters
-              </a>
+            {hasActiveFilters ? (
+              <>
+                No nodes match the current filters.
+                <a
+                  href="#"
+                  onClick={e => {
+                    e.preventDefault();
+                    clearAllFilters();
+                  }}
+                  style={{ marginLeft: '0.5rem' }}
+                >
+                  Clear filters
+                </a>
+              </>
+            ) : (
+              'No nodes in this namespace yet.'
             )}
           </span>
         </td>
@@ -806,8 +711,8 @@ export function NamespacePage() {
             <h2 style={{ margin: 0 }}>Browse</h2>
           </div>
 
-          {/* Unified Filter Bar — hidden on git-root branch landing */}
-          {!(isGitRoot && branches?.length > 0) && (
+          {/* Unified Filter Bar — always shown; a git root browses its default branch */}
+          {gitConfigLoaded && (
             <div
               style={{
                 marginBottom: '1rem',
@@ -896,6 +801,7 @@ export function NamespacePage() {
                   onChange={e =>
                     updateFilters({ ...filters, node_type: e?.value || '' })
                   }
+                  formatOptionLabel={formatTypeOption}
                   flex={1}
                   minWidth="80px"
                   testId="select-node-type"
@@ -1105,433 +1011,105 @@ export function NamespacePage() {
             </div>
           )}
 
+          <NamespaceHeader
+            namespace={namespace}
+            onGitConfigLoaded={setGitConfig}
+            namespaceOptions={rawNamespaces}
+            currentNamespace={namespace}
+          >
+            {namespace && (
+              <Tooltip
+                content={`Download every node in "${namespace}" as a YAML project (.zip) you can version in git and re-deploy with the DJ client.`}
+              >
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const response = await fetch(
+                      `${getDJUrl()}/namespaces/${namespace}/export/yaml`,
+                      { method: 'POST', credentials: 'include' },
+                    );
+                    if (!response.ok) {
+                      return;
+                    }
+                    const blob = await response.blob();
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    const safeName = namespace.replace(/\./g, '_');
+                    link.href = url;
+                    link.download = `${safeName}_export.zip`;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    URL.revokeObjectURL(url);
+                  }}
+                  style={secondaryButtonStyle}
+                  onMouseOver={onSecondaryHover}
+                  onMouseOut={onSecondaryOut}
+                  aria-label="Export namespace to YAML"
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                  </svg>
+                  Export YAML
+                </button>
+              </Tooltip>
+            )}
+            {showEditControls && <AddNodeDropdown namespace={namespace} />}
+          </NamespaceHeader>
+
           <div className="table-responsive">
+            {/* The rail is always present for layout consistency, even on a leaf
+                namespace with no sub-namespaces (where its Folders list is empty). */}
             <div
-              className={`sidebar`}
-              style={{ borderRight: '1px solid #e2e8f0', paddingRight: '1rem' }}
+              className="sidebar"
+              style={{
+                borderRight: '1px solid #e2e8f0',
+                paddingRight: '1rem',
+              }}
             >
               <NamespaceNav
                 namespaces={rawNamespaces}
                 hierarchy={namespaceHierarchy}
                 currentNamespace={namespace}
-                stateNamespace={state.namespace}
                 gitRoots={gitRoots}
                 onSelect={value =>
                   navigate(value ? `/namespaces/${value}` : '/')
                 }
+                canCreateNamespace={canCreateNamespace}
+                onCreateNamespace={createSubNamespace}
               />
             </div>
-            <div style={{ flex: 1, minWidth: 0, marginLeft: '1.5rem' }}>
-              <NamespaceHeader
-                namespace={namespace}
-                onGitConfigLoaded={setGitConfig}
-              >
-                {namespace && (
-                  <Tooltip
-                    content={`Download every node in "${namespace}" as a YAML project (.zip) you can version in git and re-deploy with the DJ client.`}
-                  >
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        const response = await fetch(
-                          `${getDJUrl()}/namespaces/${namespace}/export/yaml`,
-                          { method: 'POST', credentials: 'include' },
-                        );
-                        if (!response.ok) {
-                          return;
-                        }
-                        const blob = await response.blob();
-                        const url = URL.createObjectURL(blob);
-                        const link = document.createElement('a');
-                        const safeName = namespace.replace(/\./g, '_');
-                        link.href = url;
-                        link.download = `${safeName}_export.zip`;
-                        document.body.appendChild(link);
-                        link.click();
-                        document.body.removeChild(link);
-                        URL.revokeObjectURL(url);
-                      }}
-                      style={secondaryButtonStyle}
-                      onMouseOver={onSecondaryHover}
-                      onMouseOut={onSecondaryOut}
-                      aria-label="Export namespace to YAML"
-                    >
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                        <polyline points="7 10 12 15 17 10"></polyline>
-                        <line x1="12" y1="15" x2="12" y2="3"></line>
-                      </svg>
-                      Export YAML
-                    </button>
-                  </Tooltip>
-                )}
-                {showEditControls && <AddNodeDropdown namespace={namespace} />}
-              </NamespaceHeader>
+            <div
+              style={{
+                flex: 1,
+                minWidth: 0,
+                marginLeft: '1.5rem',
+              }}
+            >
+              {gitConfigLoaded && (
+                <input
+                  type="text"
+                  className="dj-node-search"
+                  value={nodeSearch}
+                  onChange={e => setNodeSearch(e.target.value)}
+                  placeholder="Search nodes in this namespace…"
+                  aria-label="Search nodes in this namespace"
+                />
+              )}
 
-              {/* Branch landing page for git-root namespaces */}
-              {!gitConfigLoaded ? null : isGitRoot &&
-                (branchesLoading || (branches && branches.length > 0)) ? (
-                <div style={{ padding: '8px 0' }}>
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      marginBottom: '16px',
-                      padding: '0 4px',
-                    }}
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="#64748b"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <line x1="6" y1="3" x2="6" y2="15" />
-                      <circle cx="18" cy="6" r="3" />
-                      <circle cx="6" cy="18" r="3" />
-                      <path d="M18 9a9 9 0 0 1-9 9" />
-                    </svg>
-                    <span
-                      style={{
-                        fontSize: '12px',
-                        fontWeight: '600',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.5px',
-                        color: '#64748b',
-                      }}
-                    >
-                      Branches
-                    </span>
-                    {!branchesLoading && branches && (
-                      <span
-                        style={{
-                          fontSize: '11px',
-                          color: '#94a3b8',
-                          fontWeight: 400,
-                        }}
-                      >
-                        {branches.length}
-                      </span>
-                    )}
-                  </div>
-
-                  {branchesLoading ? (
-                    <div
-                      style={{
-                        padding: '20px 4px',
-                        color: '#94a3b8',
-                        fontSize: '13px',
-                      }}
-                    >
-                      <LoadingIcon />
-                    </div>
-                  ) : (
-                    <div
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns:
-                          'repeat(auto-fill, minmax(280px, 1fr))',
-                        gap: '12px',
-                      }}
-                    >
-                      {branches.map(b => {
-                        const isDefault =
-                          b.git_branch === gitConfig?.default_branch ||
-                          b.namespace ===
-                            `${namespace}.${gitConfig?.default_branch}`;
-                        return (
-                          <a
-                            key={b.namespace}
-                            href={`/namespaces/${b.namespace}`}
-                            style={{ textDecoration: 'none' }}
-                          >
-                            <div
-                              style={{
-                                padding: '14px 16px',
-                                border: `1px solid ${
-                                  isDefault ? '#bfdbfe' : '#e2e8f0'
-                                }`,
-                                borderRadius: '8px',
-                                backgroundColor: isDefault
-                                  ? '#f0f7ff'
-                                  : '#ffffff',
-                                cursor: 'pointer',
-                                transition:
-                                  'box-shadow 0.15s ease, border-color 0.15s ease',
-                              }}
-                              onMouseOver={e => {
-                                e.currentTarget.style.boxShadow =
-                                  '0 2px 8px rgba(0,0,0,0.08)';
-                                e.currentTarget.style.borderColor = isDefault
-                                  ? '#93c5fd'
-                                  : '#cbd5e1';
-                              }}
-                              onMouseOut={e => {
-                                e.currentTarget.style.boxShadow = 'none';
-                                e.currentTarget.style.borderColor = isDefault
-                                  ? '#bfdbfe'
-                                  : '#e2e8f0';
-                              }}
-                            >
-                              <div
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'space-between',
-                                  marginBottom: '8px',
-                                }}
-                              >
-                                <div
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '6px',
-                                  }}
-                                >
-                                  <svg
-                                    xmlns="http://www.w3.org/2000/svg"
-                                    width="13"
-                                    height="13"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke={isDefault ? '#1e40af' : '#475569'}
-                                    strokeWidth="2"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                  >
-                                    <line x1="6" y1="3" x2="6" y2="15" />
-                                    <circle cx="18" cy="6" r="3" />
-                                    <circle cx="6" cy="18" r="3" />
-                                    <path d="M18 9a9 9 0 0 1-9 9" />
-                                  </svg>
-                                  <span
-                                    style={{
-                                      fontWeight: '600',
-                                      fontSize: '14px',
-                                      color: isDefault ? '#1e40af' : '#1e293b',
-                                    }}
-                                  >
-                                    {b.git_branch || b.namespace}
-                                  </span>
-                                  {isDefault && (
-                                    <span
-                                      style={{
-                                        fontSize: '10px',
-                                        padding: '1px 6px',
-                                        backgroundColor: '#1e40af',
-                                        color: 'white',
-                                        borderRadius: '10px',
-                                        fontWeight: '600',
-                                      }}
-                                    >
-                                      default
-                                    </span>
-                                  )}
-                                </div>
-                                {b.git_only && (
-                                  <span
-                                    style={{
-                                      fontSize: '10px',
-                                      padding: '1px 6px',
-                                      backgroundColor: '#fef3c7',
-                                      color: '#92400e',
-                                      borderRadius: '10px',
-                                    }}
-                                  >
-                                    read-only
-                                  </span>
-                                )}
-                              </div>
-                              <div
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '12px',
-                                  fontSize: '12px',
-                                  color: '#64748b',
-                                }}
-                              >
-                                <span
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '4px',
-                                  }}
-                                >
-                                  <svg
-                                    xmlns="http://www.w3.org/2000/svg"
-                                    width="11"
-                                    height="11"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="2"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                  >
-                                    <rect x="3" y="3" width="7" height="7" />
-                                    <rect x="14" y="3" width="7" height="7" />
-                                    <rect x="14" y="14" width="7" height="7" />
-                                    <rect x="3" y="14" width="7" height="7" />
-                                  </svg>
-                                  {b.num_nodes} nodes
-                                </span>
-                                {b.invalid_node_count > 0 && (
-                                  <span
-                                    style={{
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: '3px',
-                                      color: '#dc2626',
-                                    }}
-                                  >
-                                    <svg
-                                      xmlns="http://www.w3.org/2000/svg"
-                                      width="11"
-                                      height="11"
-                                      viewBox="0 0 24 24"
-                                      fill="none"
-                                      stroke="currentColor"
-                                      strokeWidth="2"
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                    >
-                                      <circle cx="12" cy="12" r="10" />
-                                      <line x1="12" y1="8" x2="12" y2="12" />
-                                      <line
-                                        x1="12"
-                                        y1="16"
-                                        x2="12.01"
-                                        y2="16"
-                                      />
-                                    </svg>
-                                    {b.invalid_node_count} invalid
-                                  </span>
-                                )}
-                                {b.last_updated_at && (
-                                  <span
-                                    style={{
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: '3px',
-                                      color: '#94a3b8',
-                                    }}
-                                    title={`Last node update: ${new Date(
-                                      b.last_updated_at,
-                                    ).toLocaleString()}`}
-                                  >
-                                    <svg
-                                      xmlns="http://www.w3.org/2000/svg"
-                                      width="11"
-                                      height="11"
-                                      viewBox="0 0 24 24"
-                                      fill="none"
-                                      stroke="currentColor"
-                                      strokeWidth="2"
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                    >
-                                      <circle cx="12" cy="12" r="10" />
-                                      <polyline points="12 6 12 12 16 14" />
-                                    </svg>
-                                    {formatRelativeTime(b.last_updated_at)}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          </a>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {/* Default branch node preview grouped by type */}
-                  {gitConfig?.default_branch && (
-                    <div style={{ marginTop: '28px' }}>
-                      <div
-                        style={{
-                          borderTop: '1px solid #e2e8f0',
-                          marginBottom: '20px',
-                        }}
-                      />
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          marginBottom: '12px',
-                          padding: '0 4px',
-                        }}
-                      >
-                        <div
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '8px',
-                          }}
-                        >
-                          <span
-                            style={{
-                              fontSize: '12px',
-                              fontWeight: '600',
-                              textTransform: 'uppercase',
-                              letterSpacing: '0.5px',
-                              color: '#64748b',
-                            }}
-                          >
-                            {gitConfig.default_branch}
-                          </span>
-                          <span
-                            style={{
-                              fontSize: '10px',
-                              padding: '1px 6px',
-                              backgroundColor: '#1e40af',
-                              color: 'white',
-                              borderRadius: '10px',
-                              fontWeight: '600',
-                            }}
-                          >
-                            default
-                          </span>
-                        </div>
-                        <a
-                          href={`/namespaces/${namespace}.${gitConfig.default_branch}`}
-                          style={{
-                            fontSize: '12px',
-                            color: '#3b82f6',
-                            textDecoration: 'none',
-                          }}
-                        >
-                          View all →
-                        </a>
-                      </div>
-                      {defaultBranchNodesLoading ? (
-                        <LoadingIcon />
-                      ) : (
-                        <DefaultBranchPreview
-                          groups={defaultBranchGroups}
-                          defaultBranchNs={`${namespace}.${gitConfig.default_branch}`}
-                        />
-                      )}
-                    </div>
-                  )}
-                </div>
-              ) : (
+              {/* NODES: nodes that live directly in this namespace */}
+              {!gitConfigLoaded ? null : (
                 <table className="card-table table" style={{ marginBottom: 0 }}>
                   <thead>
                     <tr>
