@@ -229,6 +229,13 @@ async def find_nodes_paginated(
             description="Filter to nodes in this namespace",
         ),
     ] = None,
+    recursive: Annotated[
+        bool,
+        strawberry.argument(
+            description="When false, return only nodes whose namespace equals "
+            "`namespace` exactly (no descendants). No effect when namespace is null.",
+        ),
+    ] = True,
     mode: Annotated[
         NodeMode | None,
         strawberry.argument(
@@ -303,6 +310,7 @@ async def find_nodes_paginated(
         dimensions=dimensions,
         edited_by=edited_by,
         namespace=namespace,
+        recursive=recursive,
         limit=limit + 1,
         before=before,
         after=after,
@@ -331,6 +339,7 @@ async def find_nodes_paginated(
             dimensions=dimensions,
             edited_by=edited_by,
             namespace=namespace,
+            recursive=recursive,
             mode=mode,
             owned_by=owned_by,
             include_team=include_team,
