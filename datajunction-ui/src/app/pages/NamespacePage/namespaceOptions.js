@@ -67,3 +67,38 @@ export function findHierarchyNode(hierarchy, path) {
   }
   return null;
 }
+
+/** Direct children of the hierarchy node at `path` (empty if leaf/missing). */
+export function immediateChildren(hierarchy, path) {
+  const node = findHierarchyNode(hierarchy, path);
+  return node?.children || [];
+}
+
+/**
+ * Flat rows for the rail "jump tree": every sibling at each level from the root
+ * down to `currentPath`, descending ONLY along the current path. The current
+ * node is included (marked) but its children are not — those live in the main
+ * panel. Each row: { path, namespace, depth, isCurrent, isAncestor }.
+ */
+export function buildJumpTree(hierarchy, currentPath) {
+  if (!currentPath) return [];
+  const rows = [];
+  const walk = (level, depth) => {
+    let ancestorNode = null;
+    for (const node of level) {
+      const isCurrent = node.path === currentPath;
+      const isAncestor = currentPath.startsWith(node.path + '.');
+      rows.push({
+        path: node.path,
+        namespace: node.namespace,
+        depth,
+        isCurrent,
+        isAncestor,
+      });
+      if (isAncestor) ancestorNode = node;
+    }
+    if (ancestorNode) walk(ancestorNode.children || [], depth + 1);
+  };
+  walk(hierarchy, 0);
+  return rows;
+}
