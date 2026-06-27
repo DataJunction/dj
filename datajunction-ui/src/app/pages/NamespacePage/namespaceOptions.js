@@ -84,7 +84,6 @@ export function buildJumpTree(hierarchy, currentPath) {
   if (!currentPath) return [];
   const rows = [];
   const walk = (level, depth) => {
-    let ancestorNode = null;
     for (const node of level) {
       const isCurrent = node.path === currentPath;
       const isAncestor = currentPath.startsWith(node.path + '.');
@@ -95,9 +94,8 @@ export function buildJumpTree(hierarchy, currentPath) {
         isCurrent,
         isAncestor,
       });
-      if (isAncestor) ancestorNode = node;
+      if (isAncestor) walk(node.children || [], depth + 1);
     }
-    if (ancestorNode) walk(ancestorNode.children || [], depth + 1);
   };
   walk(hierarchy, 0);
   return rows;

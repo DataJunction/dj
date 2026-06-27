@@ -130,9 +130,9 @@ describe('buildJumpTree', () => {
       'default',
       'finance',
       'growth',
-      'marketing', // level 0 siblings
       'growth.experiments',
-      'growth.metrics', // level 1 siblings under ancestor growth
+      'growth.metrics',
+      'marketing',
     ]);
     expect(rows.find(r => r.path === 'growth').isAncestor).toBe(true);
     expect(rows.find(r => r.path === 'growth.metrics').isCurrent).toBe(true);
