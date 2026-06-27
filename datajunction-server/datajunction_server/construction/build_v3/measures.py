@@ -1673,7 +1673,7 @@ def build_temporal_filter(
                     else None
                 )
                 filter_ast = build_lookback_filter(col_ref, start_expr, end_expr)
-                if filter_ast is not None:
+                if filter_ast is not None:  # pragma: no branch
                     return filter_ast, parent_col_name
 
     return None, None  # pragma: no cover

@@ -1,8 +1,17 @@
+from types import SimpleNamespace
+
 import pytest
 
+from datajunction_server.construction.build_v3 import window_lookback as wl_mod
+from datajunction_server.construction.build_v3.filters import parse_filter
 from datajunction_server.construction.build_v3.measures import build_lookback_filter
 from datajunction_server.construction.build_v3.window_lookback import (
     WindowLookback,
+    _dimension_physical_table,
+    _order_filter_bounds,
+    _read_lookback_role_aware,
+    _tighter_bound,
+    apply_live_window_lookback,
     build_densify_join,
     build_output_restriction,
     build_scan_bounds,
@@ -12,7 +21,9 @@ from datajunction_server.construction.build_v3.window_lookback import (
     zero_fill,
 )
 from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.models.node import NodeType
 from datajunction_server.sql.parsing import ast
+from datajunction_server.sql.parsing.backends.antlr4 import parse
 
 
 def _col():
@@ -232,3 +243,208 @@ def test_window_lookback_materialized_live_consistency():
     # full-equality consistency assertion.
     assert str(cube_bound) == str(live_bound)
     assert str(cube_bound) == f"{order_col_name} BETWEEN 20240101 AND 20240131"
+
+
+# ---------------------------------------------------------------------------
+# read_window_lookback edge cases
+# ---------------------------------------------------------------------------
+
+
+def _window_func(order_expr, *, frame_start="3", frame_stop="PRECEDING"):
+    """SUM(daily_visits) OVER (ORDER BY <order_expr> ROWS BETWEEN <bound> ...)."""
+    over = ast.Over(
+        order_by=[ast.SortItem(expr=order_expr, asc="", nulls="")],
+        window_frame=ast.Frame(
+            frame_type="ROWS",
+            start=ast.FrameBound(start=frame_start, stop=frame_stop),
+            end=ast.FrameBound(start="CURRENT", stop="ROW"),
+        ),
+    )
+    return ast.Function(
+        ast.Name("SUM"),
+        args=[ast.Column(name=ast.Name("daily_visits"))],
+        over=over,
+    )
+
+
+def test_read_window_lookback_none_when_frame_start_not_preceding():
+    """A frame start that isn't `N PRECEDING` (e.g. FOLLOWING) is not a lookback."""
+    fn = _window_func(ast.Column(name=ast.Name("dateint")), frame_stop="FOLLOWING")
+    assert read_window_lookback(fn) is None
+
+
+def test_read_window_lookback_none_when_order_expr_not_column():
+    """A non-Column ORDER BY expression cannot anchor a lookback."""
+    fn = _window_func(ast.Number(1))
+    assert read_window_lookback(fn) is None
+
+
+# ---------------------------------------------------------------------------
+# _read_lookback_role_aware edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_read_lookback_role_aware_none_when_no_over():
+    fn = ast.Function(ast.Name("SUM"), args=[ast.Column(name=ast.Name("x"))])
+    assert _read_lookback_role_aware(fn) is None
+
+
+def test_read_lookback_role_aware_none_when_no_order_by():
+    over = ast.Over(order_by=[], window_frame=None)
+    fn = ast.Function(ast.Name("SUM"), args=[ast.Column(name=ast.Name("x"))], over=over)
+    assert _read_lookback_role_aware(fn) is None
+
+
+# ---------------------------------------------------------------------------
+# _order_filter_bounds edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_order_filter_bounds_none_when_column_absent():
+    assert _order_filter_bounds(parse_filter("other_col = 5"), "date_id") is None
+
+
+def test_order_filter_bounds_reads_between():
+    low, high = _order_filter_bounds(
+        parse_filter("date_id BETWEEN 1 AND 10"),
+        "date_id",
+    )
+    assert low.value == 1
+    assert high.value == 10
+
+
+def test_order_filter_bounds_none_for_unsupported_operator():
+    # `!=` constrains the column but yields no range bound to expand against.
+    assert _order_filter_bounds(parse_filter("date_id != 5"), "date_id") is None
+
+
+def test_order_filter_bounds_none_for_non_comparison_predicate():
+    # An IN-list references the column but is neither BETWEEN nor a binary
+    # comparison, so there is no low/high bound to read.
+    assert _order_filter_bounds(parse_filter("date_id IN (1, 2)"), "date_id") is None
+
+
+# ---------------------------------------------------------------------------
+# _tighter_bound edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_tighter_bound_upper_keeps_min():
+    assert _tighter_bound(ast.Number(10), ast.Number(5), keep_max=False).value == 5
+    assert _tighter_bound(ast.Number(3), ast.Number(8), keep_max=False).value == 3
+
+
+def test_tighter_bound_none_when_not_both_numbers():
+    # Neither a non-numeric existing bound nor candidate can be compared statically.
+    assert _tighter_bound(ast.Number(1), ast.String("x"), keep_max=True) is None
+    assert _tighter_bound(ast.String("x"), ast.Number(1), keep_max=True) is None
+
+
+# ---------------------------------------------------------------------------
+# _dimension_physical_table edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_dimension_physical_table_skips_non_source_refs():
+    """Refs that don't resolve to a SOURCE node yield no physical table."""
+    ctx = SimpleNamespace(
+        get_parsed_query=lambda node: parse("SELECT a FROM some.unknown.table"),
+        nodes={},  # ref does not resolve -> falsy ref_node branch
+    )
+    dim_node = SimpleNamespace(
+        type=NodeType.DIMENSION,
+        current=SimpleNamespace(query="SELECT a FROM some.unknown.table"),
+    )
+    assert _dimension_physical_table(ctx, dim_node) is None
+
+
+# ---------------------------------------------------------------------------
+# apply_live_window_lookback edge cases (driven by stub BuildContexts)
+# ---------------------------------------------------------------------------
+
+_ROLE_WINDOW = (
+    "SUM(v3.total_revenue) OVER "
+    "(ORDER BY v3.date.date_id[order] ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)"
+)
+_BARE_WINDOW = (
+    "SUM(v3.total_revenue) OVER "
+    "(ORDER BY v3.date.date_id ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)"
+)
+
+
+def _decomposed(combiner_sql, *, decomposable=True, name="v3.some_metric"):
+    combiner = parse(f"SELECT {combiner_sql}").select.projection[0]
+    return SimpleNamespace(
+        combiner_ast=combiner,
+        is_fully_decomposable=decomposable,
+        metric_node=SimpleNamespace(name=name),
+    )
+
+
+def _ctx(
+    decomposed_list,
+    dimension_filters,
+    *,
+    order_node="v3.date",
+    node_type=NodeType.DIMENSION,
+    metric_groups=None,
+):
+    node = SimpleNamespace(type=node_type) if node_type is not None else None
+    return SimpleNamespace(
+        decomposed_metrics={d.metric_node.name: d for d in decomposed_list},
+        dimension_filters=list(dimension_filters),
+        nodes={order_node: node},
+        metric_groups=metric_groups or [],
+        upstream_pushdown_filters={},
+        pushdown_consumed_filters=set(),
+    )
+
+
+def test_apply_raises_for_non_decomposable_window_metric():
+    """A window metric whose components aren't fully additive is rejected live."""
+    ctx = _ctx([_decomposed(_ROLE_WINDOW, decomposable=False)], [])
+    with pytest.raises(DJInvalidInputException, match="not yet supported"):
+        apply_live_window_lookback(ctx)
+
+
+def test_apply_handles_window_order_without_role():
+    """A window ordered by a bare (non-role-qualified) column still resolves."""
+    ctx = _ctx([_decomposed(_BARE_WINDOW)], [])
+    # No filter constrains the order column -> nothing to expand -> no-op.
+    assert apply_live_window_lookback(ctx) is None
+
+
+def test_apply_skips_filters_not_on_order_column():
+    ctx = _ctx([_decomposed(_ROLE_WINDOW)], ["v3.product.category = 'electronics'"])
+    assert apply_live_window_lookback(ctx) is None
+
+
+def test_apply_bails_on_non_comparable_low_bound():
+    # A string low bound cannot be compared/interpolated -> bail, leave filters intact.
+    ctx = _ctx([_decomposed(_ROLE_WINDOW)], ["v3.date.date_id >= 'a'"])
+    assert apply_live_window_lookback(ctx) is None
+    assert ctx.dimension_filters == ["v3.date.date_id >= 'a'"]
+    assert ctx.pushdown_consumed_filters == set()
+
+
+def test_apply_bails_on_non_comparable_high_bound():
+    ctx = _ctx([_decomposed(_ROLE_WINDOW)], ["v3.date.date_id <= 'z'"])
+    assert apply_live_window_lookback(ctx) is None
+    assert ctx.dimension_filters == ["v3.date.date_id <= 'z'"]
+
+
+def test_apply_noop_when_order_dim_unreachable_from_facts(monkeypatch):
+    """Bounds resolve, but no fact links to the order dimension -> no expansion."""
+    monkeypatch.setattr(
+        wl_mod,
+        "_dimension_physical_table",
+        lambda ctx, node: "cat.sch.dim_table",
+    )
+    ctx = _ctx(
+        [_decomposed(_ROLE_WINDOW)],
+        ["v3.date.date_id BETWEEN 20240101 AND 20240131"],
+        metric_groups=[],  # no facts -> injected_any stays False
+    )
+    assert apply_live_window_lookback(ctx) is None
+    # The original filter is left intact since nothing was expanded.
+    assert ctx.dimension_filters == ["v3.date.date_id BETWEEN 20240101 AND 20240131"]
