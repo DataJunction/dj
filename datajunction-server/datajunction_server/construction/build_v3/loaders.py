@@ -17,9 +17,11 @@ from datajunction_server.database.preaggregation import PreAggregation
 from datajunction_server.models.node_type import NodeType
 
 from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
-from datajunction_server.sql.parsing import ast
 from datajunction_server.construction.build_v3.types import BuildContext
-from datajunction_server.construction.build_v3.utils import collect_required_dimensions
+from datajunction_server.construction.build_v3.utils import (
+    collect_required_dimensions,
+    iter_namespaced_columns,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -49,9 +51,8 @@ def _collect_metric_expression_dim_nodes(ctx: BuildContext) -> set[str]:
             node.current and node.current.query
         ):  # pragma: no cover
             continue
-        for col in ctx.get_parsed_query(node).find_all(ast.Column):
-            if col.name and col.name.namespace and col.name.namespace.name:
-                dim_nodes.add(col.name.namespace.identifier(quotes=False))
+        for nc in iter_namespaced_columns(ctx.get_parsed_query(node)):
+            dim_nodes.add(nc.node)
     return dim_nodes
 
 

@@ -11,6 +11,7 @@ from typing import Callable, Optional, cast
 
 from datajunction_server.construction.build_v3.utils import (
     get_short_name,
+    iter_namespaced_columns,
     make_name,
 )
 from datajunction_server.errors import (
@@ -741,7 +742,7 @@ def resolve_dimensions(
 def resolve_metric_expression_dimensions(
     ctx: BuildContext,
     parent_node: Node,
-    metric_expressions: list[tuple[str, ast.Expression]],
+    expressions: list[ast.Expression],
     requested_dimensions: list[ResolvedDimension],
 ) -> list[ResolvedDimension]:
     """
@@ -777,36 +778,33 @@ def resolve_metric_expression_dimensions(
 
     extra: list[ResolvedDimension] = []
     handled_nodes: set[str] = set()
-    for _, expr in metric_expressions:
-        for col in expr.find_all(ast.Column):
-            if not (col.name and col.name.namespace and col.name.namespace.name):
+    for expr in expressions:
+        for nc in iter_namespaced_columns(expr):
+            if nc.node in already_joined or nc.node in handled_nodes:
                 continue
-            ns = col.name.namespace.identifier(quotes=False)
-            if ns in already_joined or ns in handled_nodes:
-                continue
-            handled_nodes.add(ns)
+            handled_nodes.add(nc.node)
 
             # The referenced column itself is validated against the dimension
             # node at metric-creation time, so we only need the join path here.
-            join_path = find_join_path(ctx, parent_node, ns, None)
+            join_path = find_join_path(ctx, parent_node, nc.node, None)
             if not join_path:
                 raise DJException(
                     http_status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
                     message=(
                         f"Cannot find join path from {parent_node.name} to "
-                        f"dimension {ns} referenced in a metric expression. "
+                        f"dimension {nc.node} referenced in a metric expression. "
                         f"Please create a dimension link between these nodes."
                     ),
                 )
 
-            original_ref = f"{ns}{SEPARATOR}{col.name.name}"
+            original_ref = f"{nc.node}{SEPARATOR}{nc.name}"
             # Join the dim, but keep it out of the projection and GROUP BY.
             ctx.filter_dimensions.add(original_ref)
             extra.append(
                 ResolvedDimension(
                     original_ref=original_ref,
-                    node_name=ns,
-                    column_name=col.name.name,
+                    node_name=nc.node,
+                    column_name=nc.name,
                     role=None,
                     join_path=join_path,
                     is_local=False,
