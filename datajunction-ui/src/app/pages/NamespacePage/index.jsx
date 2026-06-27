@@ -4,7 +4,6 @@ import { useContext, useEffect, useState, useCallback } from 'react';
 import NodeStatus from '../NodePage/NodeStatus';
 import DJClientContext from '../../providers/djclient';
 import { useCurrentUser } from '../../providers/UserProvider';
-import Explorer from '../NamespacePage/Explorer';
 import AddNodeDropdown from '../../components/AddNodeDropdown';
 import NodeListActions from '../../components/NodeListActions';
 import NamespaceHeader from '../../components/NamespaceHeader';
