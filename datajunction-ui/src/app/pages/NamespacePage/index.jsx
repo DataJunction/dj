@@ -270,10 +270,6 @@ export function NamespacePage() {
   // to give a container namespace (folders but no direct nodes) a helpful empty
   // state instead of a misleading "no nodes" message.
   const subFolders = immediateChildren(namespaceHierarchy, tableNamespace);
-  // Show the rail when there's something to navigate: the all-namespaces list
-  // (no namespace selected) or sub-namespace folders. A leaf namespace has
-  // neither, so the rail collapses and the table takes the full width.
-  const showRail = !namespace || subFolders.length > 0;
 
   // Per-type node counts (recursive) for the current namespace, shown inline in
   // the TYPE filter options (e.g. "Metric (342)").
@@ -1087,30 +1083,30 @@ export function NamespacePage() {
           </NamespaceHeader>
 
           <div className="table-responsive">
-            {showRail && (
-              <div
-                className="sidebar"
-                style={{
-                  borderRight: '1px solid #e2e8f0',
-                  paddingRight: '1rem',
-                }}
-              >
-                <NamespaceNav
-                  namespaces={rawNamespaces}
-                  hierarchy={namespaceHierarchy}
-                  currentNamespace={namespace}
-                  gitRoots={gitRoots}
-                  onSelect={value =>
-                    navigate(value ? `/namespaces/${value}` : '/')
-                  }
-                />
-              </div>
-            )}
+            {/* The rail is always present for layout consistency, even on a leaf
+                namespace with no sub-namespaces (where its Folders list is empty). */}
+            <div
+              className="sidebar"
+              style={{
+                borderRight: '1px solid #e2e8f0',
+                paddingRight: '1rem',
+              }}
+            >
+              <NamespaceNav
+                namespaces={rawNamespaces}
+                hierarchy={namespaceHierarchy}
+                currentNamespace={namespace}
+                gitRoots={gitRoots}
+                onSelect={value =>
+                  navigate(value ? `/namespaces/${value}` : '/')
+                }
+              />
+            </div>
             <div
               style={{
                 flex: 1,
                 minWidth: 0,
-                marginLeft: showRail ? '1.5rem' : 0,
+                marginLeft: '1.5rem',
               }}
             >
               {gitConfigLoaded && (

@@ -7,6 +7,7 @@ import {
   immediateChildren,
 } from './namespaceOptions';
 import { getPinned, togglePinned } from './namespaceShortcuts';
+import FolderTree from './FolderTree';
 
 // Git context for a selected namespace, derived from the raw namespace list.
 function gitContext(gitByNs, ns) {
@@ -172,35 +173,16 @@ export default function NamespaceNav({
         </>
       ) : (
         <div>
-          {/* This branch only renders when a namespace is selected (showList is false),
-              so currentNamespace is always truthy here — no guard needed. */}
-          {(() => {
-            // Folder navigation: the current namespace's immediate sub-namespaces,
-            // drilled into on click. Going up a level is handled by the header
-            // breadcrumb; switching to another namespace by the filter box above.
-            const folders = immediateChildren(hierarchy || [], subtreePath);
-            if (folders.length === 0) return null;
-            return (
-              <div className="dj-ns-folder-nav">
-                <div className="dj-ns-tree-heading">Folders</div>
-                {folders.map(child => (
-                  <div
-                    key={child.path}
-                    className="dj-ns-nav-item"
-                    role="button"
-                    tabIndex={0}
-                    title={child.path}
-                    onClick={() => select(child.path)}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter') select(child.path);
-                    }}
-                  >
-                    <span className="dj-ns-nav-name">{child.namespace}</span>
-                  </div>
-                ))}
-              </div>
-            );
-          })()}
+          {/* Folder navigation: the current namespace's sub-namespace tree.
+              Chevron expands a level in place; clicking a name drills in. Going
+              up is handled by the header breadcrumb; switching namespace by the
+              filter box (no-namespace view) or the header switcher. Keyed by the
+              current path so expansion resets when the tree re-roots. */}
+          <FolderTree
+            key={subtreePath}
+            folders={immediateChildren(hierarchy || [], subtreePath)}
+            onSelect={select}
+          />
         </div>
       )}
     </div>
