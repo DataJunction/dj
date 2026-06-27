@@ -73,10 +73,12 @@ export const DataJunctionAPI = {
       missingDescription = false,
       hasMaterialization = false,
       orphanedDimension = false,
+      recursive = true,
+      search = null,
     } = {},
   ) {
     const query = `
-      query ListNodes($namespace: String, $nodeTypes: [NodeType!], $tags: [String!], $editedBy: String, $mode: NodeMode, $before: String, $after: String, $limit: Int, $orderBy: NodeSortField, $ascending: Boolean, $ownedBy: String, $statuses: [NodeStatus!], $missingDescription: Boolean, $hasMaterialization: Boolean, $orphanedDimension: Boolean) {
+      query ListNodes($namespace: String, $nodeTypes: [NodeType!], $tags: [String!], $editedBy: String, $mode: NodeMode, $before: String, $after: String, $limit: Int, $orderBy: NodeSortField, $ascending: Boolean, $ownedBy: String, $statuses: [NodeStatus!], $missingDescription: Boolean, $hasMaterialization: Boolean, $orphanedDimension: Boolean, $recursive: Boolean, $search: String) {
         findNodesPaginated(
           namespace: $namespace
           nodeTypes: $nodeTypes
@@ -93,6 +95,8 @@ export const DataJunctionAPI = {
           missingDescription: $missingDescription
           hasMaterialization: $hasMaterialization
           orphanedDimension: $orphanedDimension
+          recursive: $recursive
+          search: $search
         ) {
           pageInfo {
             hasNextPage
@@ -163,6 +167,8 @@ export const DataJunctionAPI = {
             missingDescription: missingDescription,
             hasMaterialization: hasMaterialization,
             orphanedDimension: orphanedDimension,
+            recursive: recursive,
+            search: search,
           },
         }),
       })
