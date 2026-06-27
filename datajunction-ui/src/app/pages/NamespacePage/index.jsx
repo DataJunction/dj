@@ -40,20 +40,6 @@ function avatarColorIndex(username) {
   return hash % AVATAR_COLORS.length;
 }
 
-function formatRelativeTime(isoString) {
-  const seconds = Math.floor((Date.now() - new Date(isoString)) / 1000);
-  if (seconds < 60) return 'just now';
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
-  const months = Math.floor(days / 30);
-  if (months < 12) return `${months}mo ago`;
-  return `${Math.floor(months / 12)}y ago`;
-}
-
 export function NamespacePage() {
   const ASC = 'ascending';
   const DESC = 'descending';
@@ -221,13 +207,6 @@ export function NamespacePage() {
   // Use undefined to indicate "not yet loaded", null means "loaded but no config"
   const [gitConfig, setGitConfig] = useState(undefined);
 
-  // Branch landing state (for git-root namespaces)
-  const [branches, setBranches] = useState(null); // null = not yet fetched
-  const [branchesLoading, setBranchesLoading] = useState(false);
-  // The branch list is collapsed by default — a git root can have many branches and
-  // the full card wall buries the rest of the page.
-  const [branchesExpanded, setBranchesExpanded] = useState(false);
-
   const [sortConfig, setSortConfig] = useState({
     key: 'updatedAt',
     direction: DESC,
@@ -249,7 +228,6 @@ export function NamespacePage() {
     gitConfigLoaded &&
     !!gitConfig?.github_repo_path &&
     gitConfig?.git_root_namespace === namespace;
-  const isBranchNamespace = gitConfigLoaded && !!gitConfig?.parent_namespace;
   const showEditControls =
     gitConfigLoaded && !gitConfig?.git_only && !isGitRoot;
   // A git root has no nodes of its own — they live on its default branch. The node
@@ -259,22 +237,6 @@ export function NamespacePage() {
     isGitRoot && gitConfig?.default_branch
       ? `${namespace}.${gitConfig.default_branch}`
       : namespace;
-
-  // Reset branches when namespace changes
-  useEffect(() => {
-    setBranches(null);
-  }, [namespace]);
-
-  // Fetch branches when this is a git-root namespace
-  useEffect(() => {
-    if (!isGitRoot) return;
-    setBranchesLoading(true);
-    djClient
-      .getNamespaceBranches(namespace)
-      .then(data => setBranches(data || []))
-      .catch(() => setBranches([]))
-      .finally(() => setBranchesLoading(false));
-  }, [djClient, namespace, isGitRoot]);
 
   const requestSort = key => {
     let direction = ASC;
@@ -453,9 +415,15 @@ export function NamespacePage() {
               textOverflow: 'ellipsis',
             }}
           >
-            <a href={'/nodes/' + node.name} className="link-table">
-              {isBranchNamespace && node.name.startsWith(namespace + '.')
-                ? node.name.slice(namespace.length + 1)
+            <a
+              href={'/nodes/' + node.name}
+              className="link-table"
+              title={node.name}
+            >
+              {/* Show names relative to the namespace in view — the table is already
+                  scoped to tableNamespace, so the prefix is redundant on every row. */}
+              {tableNamespace && node.name.startsWith(tableNamespace + '.')
+                ? node.name.slice(tableNamespace.length + 1)
                 : node.name}
             </a>
             <span
@@ -992,184 +960,44 @@ export function NamespacePage() {
 
               {/* Branch landing page for git-root namespaces */}
               {!gitConfigLoaded ? null : (
-                <>
-                  {isGitRoot &&
-                  (branchesLoading || (branches && branches.length > 0)) ? (
-                    <div style={{ padding: '8px 0' }}>
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '8px',
-                          marginBottom: branchesExpanded ? '12px' : '4px',
-                          padding: '4px',
-                        }}
-                      >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          width="14"
-                          height="14"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="#64748b"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <line x1="6" y1="3" x2="6" y2="15" />
-                          <circle cx="18" cy="6" r="3" />
-                          <circle cx="6" cy="18" r="3" />
-                          <path d="M18 9a9 9 0 0 1-9 9" />
-                        </svg>
-                        <span
+                <table className="card-table table" style={{ marginBottom: 0 }}>
+                  <thead>
+                    <tr>
+                      {fields.map(field => {
+                        const thStyle = {
+                          fontFamily:
+                            "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+                          fontSize: '11px',
+                          fontWeight: '600',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                          color: '#64748b',
+                          padding: '12px 16px',
+                          borderBottom: '1px solid #e2e8f0',
+                          backgroundColor: 'transparent',
+                        };
+                        return (
+                          <th key={field} style={thStyle}>
+                            <button
+                              type="button"
+                              onClick={() => requestSort(field)}
+                              className={'sortable ' + getClassNamesFor(field)}
+                              style={{
+                                fontSize: 'inherit',
+                                fontWeight: 'inherit',
+                                letterSpacing: 'inherit',
+                                textTransform: 'inherit',
+                                fontFamily: 'inherit',
+                              }}
+                            >
+                              {field.replace(/([a-z](?=[A-Z]))/g, '$1 ')}
+                            </button>
+                          </th>
+                        );
+                      })}
+                      {showEditControls && (
+                        <th
                           style={{
-                            fontSize: '13px',
-                            fontWeight: 600,
-                            color: '#1e293b',
-                          }}
-                        >
-                          {gitConfig?.default_branch}
-                        </span>
-                        <span
-                          style={{
-                            fontSize: '10px',
-                            padding: '1px 6px',
-                            backgroundColor: '#eef2ff',
-                            color: '#3730a3',
-                            borderRadius: '8px',
-                            fontWeight: 600,
-                          }}
-                        >
-                          default
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setBranchesExpanded(v => !v)}
-                          aria-expanded={branchesExpanded}
-                          style={{
-                            marginLeft: 'auto',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '5px',
-                            background: 'none',
-                            border: 'none',
-                            cursor: 'pointer',
-                            color: '#64748b',
-                            fontSize: '12px',
-                            fontWeight: 600,
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.5px',
-                          }}
-                        >
-                          <span style={{ fontSize: '10px' }}>
-                            {branchesExpanded ? '▾' : '▸'}
-                          </span>
-                          <span>Branches</span>
-                          {!branchesLoading && branches && (
-                            <span style={{ color: '#94a3b8', fontWeight: 400 }}>
-                              {branches.length}
-                            </span>
-                          )}
-                        </button>
-                      </div>
-
-                      {branchesExpanded ? (
-                        branchesLoading ? (
-                          <div
-                            style={{
-                              padding: '20px 4px',
-                              color: '#94a3b8',
-                              fontSize: '13px',
-                            }}
-                          >
-                            <LoadingIcon />
-                          </div>
-                        ) : (
-                          <div style={{ paddingBottom: '8px' }}>
-                            {branches.map(b => {
-                              const isDefault =
-                                b.git_branch === gitConfig?.default_branch ||
-                                b.namespace ===
-                                  `${namespace}.${gitConfig?.default_branch}`;
-                              return (
-                                <a
-                                  key={b.namespace}
-                                  href={`/namespaces/${b.namespace}`}
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '8px',
-                                    maxWidth: '460px',
-                                    padding: '3px 8px 3px 24px',
-                                    textDecoration: 'none',
-                                    color: '#334155',
-                                    fontSize: '13px',
-                                    borderRadius: '4px',
-                                  }}
-                                >
-                                  <span
-                                    style={{
-                                      fontWeight: 600,
-                                      flex: '0 1 auto',
-                                      minWidth: 0,
-                                      overflow: 'hidden',
-                                      textOverflow: 'ellipsis',
-                                      whiteSpace: 'nowrap',
-                                    }}
-                                  >
-                                    {b.git_branch || b.namespace}
-                                  </span>
-                                  {isDefault ? (
-                                    <span
-                                      style={{
-                                        fontSize: '10px',
-                                        padding: '1px 6px',
-                                        backgroundColor: '#eff6ff',
-                                        color: '#1e40af',
-                                        borderRadius: '8px',
-                                        flexShrink: 0,
-                                      }}
-                                    >
-                                      default
-                                    </span>
-                                  ) : null}
-                                  <span
-                                    style={{
-                                      marginLeft: 'auto',
-                                      color: '#94a3b8',
-                                      fontSize: '12px',
-                                      flexShrink: 0,
-                                    }}
-                                  >
-                                    {b.num_nodes} nodes
-                                  </span>
-                                  {b.last_updated_at ? (
-                                    <span
-                                      style={{
-                                        color: '#cbd5e1',
-                                        fontSize: '12px',
-                                        flexShrink: 0,
-                                      }}
-                                    >
-                                      {formatRelativeTime(b.last_updated_at)}
-                                    </span>
-                                  ) : null}
-                                </a>
-                              );
-                            })}
-                          </div>
-                        )
-                      ) : null}
-                    </div>
-                  ) : null}
-                  <table
-                    className="card-table table"
-                    style={{ marginBottom: 0 }}
-                  >
-                    <thead>
-                      <tr>
-                        {fields.map(field => {
-                          const thStyle = {
                             fontFamily:
                               "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
                             fontSize: '11px',
@@ -1180,77 +1008,41 @@ export function NamespacePage() {
                             padding: '12px 16px',
                             borderBottom: '1px solid #e2e8f0',
                             backgroundColor: 'transparent',
-                          };
-                          return (
-                            <th key={field} style={thStyle}>
-                              <button
-                                type="button"
-                                onClick={() => requestSort(field)}
-                                className={
-                                  'sortable ' + getClassNamesFor(field)
-                                }
-                                style={{
-                                  fontSize: 'inherit',
-                                  fontWeight: 'inherit',
-                                  letterSpacing: 'inherit',
-                                  textTransform: 'inherit',
-                                  fontFamily: 'inherit',
-                                }}
-                              >
-                                {field.replace(/([a-z](?=[A-Z]))/g, '$1 ')}
-                              </button>
-                            </th>
-                          );
-                        })}
-                        {showEditControls && (
-                          <th
-                            style={{
-                              fontFamily:
-                                "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
-                              fontSize: '11px',
-                              fontWeight: '600',
-                              textTransform: 'uppercase',
-                              letterSpacing: '0.5px',
-                              color: '#64748b',
-                              padding: '12px 16px',
-                              borderBottom: '1px solid #e2e8f0',
-                              backgroundColor: 'transparent',
-                            }}
+                          }}
+                        >
+                          Actions
+                        </th>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody className="nodes-table-body">{nodesList}</tbody>
+                  <tfoot>
+                    <tr>
+                      <td>
+                        {retrieved && hasPrevPage ? (
+                          <a
+                            onClick={loadPrev}
+                            className="previous round pagination"
                           >
-                            Actions
-                          </th>
+                            ← Previous
+                          </a>
+                        ) : (
+                          ''
                         )}
-                      </tr>
-                    </thead>
-                    <tbody className="nodes-table-body">{nodesList}</tbody>
-                    <tfoot>
-                      <tr>
-                        <td>
-                          {retrieved && hasPrevPage ? (
-                            <a
-                              onClick={loadPrev}
-                              className="previous round pagination"
-                            >
-                              ← Previous
-                            </a>
-                          ) : (
-                            ''
-                          )}
-                          {retrieved && hasNextPage ? (
-                            <a
-                              onClick={loadNext}
-                              className="next round pagination"
-                            >
-                              Next →
-                            </a>
-                          ) : (
-                            ''
-                          )}
-                        </td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </>
+                        {retrieved && hasNextPage ? (
+                          <a
+                            onClick={loadNext}
+                            className="next round pagination"
+                          >
+                            Next →
+                          </a>
+                        ) : (
+                          ''
+                        )}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
               )}
             </div>
           </div>

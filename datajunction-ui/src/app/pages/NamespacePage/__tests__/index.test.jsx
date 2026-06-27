@@ -653,59 +653,6 @@ describe('NamespacePage', () => {
       mockDjClient.getNamespaceBranches.mockResolvedValue(mockBranches);
     });
 
-    it('shows a collapsed Branches section, expanding to the branch list', async () => {
-      renderWithProviders(<NamespacePage />);
-
-      // Header is always present; the branch list is collapsed by default.
-      await waitFor(() => {
-        expect(screen.getByText('Branches')).toBeInTheDocument();
-      });
-      expect(screen.queryByText('feature-xyz')).not.toBeInTheDocument();
-
-      // Expanding the Branches header reveals the (compact) branch list.
-      fireEvent.click(screen.getByText('Branches'));
-      await waitFor(() => {
-        expect(screen.getByText('feature-xyz')).toBeInTheDocument();
-        // 'main' appears both as a branch row and in the default-branch preview header.
-        expect(screen.getAllByText('main').length).toBeGreaterThan(0);
-      });
-    });
-
-    it('shows branch count next to Branches header', async () => {
-      renderWithProviders(<NamespacePage />);
-
-      await waitFor(() => {
-        expect(screen.getByText('Branches')).toBeInTheDocument();
-        // branch count (2)
-        expect(screen.getByText('2')).toBeInTheDocument();
-      });
-    });
-
-    it('shows per-branch node counts in the expanded list', async () => {
-      renderWithProviders(<NamespacePage />);
-
-      // Expand the collapsed Branches list, then assert the compact rows' node counts.
-      fireEvent.click(await screen.findByText('Branches'));
-      await waitFor(() => {
-        expect(screen.getByText('10 nodes')).toBeInTheDocument();
-        expect(screen.getByText('5 nodes')).toBeInTheDocument();
-      });
-    });
-
-    it('shows the active default branch + a default badge in the context row', async () => {
-      renderWithProviders(<NamespacePage />);
-
-      // The context row names the default branch with a "default" badge (the old
-      // heavy "MAIN [default]" band + "View all" link were removed).
-      await waitFor(
-        () => {
-          expect(screen.getAllByText('main').length).toBeGreaterThan(0);
-          expect(screen.getAllByText('default').length).toBeGreaterThan(0);
-        },
-        { timeout: 3000 },
-      );
-    });
-
     it('browses the default branch namespace in the node table', async () => {
       renderWithProviders(<NamespacePage />);
 
@@ -721,24 +668,6 @@ describe('NamespacePage', () => {
       );
     });
 
-    it('shows loading state while branches are loading', async () => {
-      let resolveBranches;
-      mockDjClient.getNamespaceBranches.mockReturnValue(
-        new Promise(resolve => {
-          resolveBranches = resolve;
-        }),
-      );
-
-      renderWithProviders(<NamespacePage />);
-
-      // While loading, Branches header should still show (branchesLoading=true triggers the section)
-      await waitFor(() => {
-        expect(screen.getByText('Branches')).toBeInTheDocument();
-      });
-
-      // Resolve to avoid act() warnings
-      resolveBranches([]);
-    });
   });
 
   describe('Quality filter checkboxes', () => {
@@ -785,41 +714,6 @@ describe('NamespacePage', () => {
         expect(
           mockDjClient.listNodesForLanding.mock.calls.length,
         ).toBeGreaterThan(callsBefore);
-      });
-    });
-  });
-
-  describe('formatRelativeTime', () => {
-    it('shows last_updated_at timestamp in the expanded branch list', async () => {
-      mockDjClient.getNamespaceGitConfig.mockResolvedValue({
-        github_repo_path: 'org/repo',
-        git_branch: 'main',
-        default_branch: 'main',
-        parent_namespace: null,
-        git_only: false,
-        git_root_namespace: 'default',
-      });
-      mockDjClient.getNamespaceBranches.mockResolvedValue([
-        {
-          namespace: 'default.main',
-          git_branch: 'main',
-          num_nodes: 3,
-          invalid_node_count: 0,
-          last_updated_at: new Date(
-            Date.now() - 2 * 24 * 60 * 60 * 1000,
-          ).toISOString(),
-        },
-      ]);
-
-      renderWithProviders(<NamespacePage />);
-
-      // Branch metadata (incl. relative timestamp) lives in the collapsed list —
-      // expand it first.
-      fireEvent.click(await screen.findByText('Branches'));
-      await waitFor(() => {
-        expect(screen.getAllByText('main').length).toBeGreaterThan(0);
-        // Should show relative time like "2d ago" (may appear on multiple elements)
-        expect(screen.getAllByText(/ago/).length).toBeGreaterThan(0);
       });
     });
   });

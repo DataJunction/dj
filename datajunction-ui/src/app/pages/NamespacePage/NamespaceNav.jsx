@@ -287,27 +287,29 @@ export default function NamespaceNav({
           ) ? (
             <div className="dj-ns-tree-heading">Sub-namespaces</div>
           ) : null}
-          {subtreeNode && atBranchRoot ? (
-            (subtreeNode.children || []).map(child => (
+          <div style={{ paddingLeft: '12px' }}>
+            {subtreeNode && atBranchRoot ? (
+              (subtreeNode.children || []).map(child => (
+                <Explorer
+                  item={child}
+                  current={subtreePath}
+                  key={child.namespace}
+                  gitRoots={gitRoots}
+                  pinnedSet={pinnedSet}
+                  onTogglePin={ns => setPinned(togglePinned(ns))}
+                />
+              ))
+            ) : subtreeNode ? (
               <Explorer
-                item={child}
+                item={subtreeNode}
                 current={subtreePath}
-                key={child.namespace}
+                key={subtreeNode.namespace}
                 gitRoots={gitRoots}
                 pinnedSet={pinnedSet}
                 onTogglePin={ns => setPinned(togglePinned(ns))}
               />
-            ))
-          ) : subtreeNode ? (
-            <Explorer
-              item={subtreeNode}
-              current={subtreePath}
-              key={subtreeNode.namespace}
-              gitRoots={gitRoots}
-              pinnedSet={pinnedSet}
-              onTogglePin={ns => setPinned(togglePinned(ns))}
-            />
-          ) : null}
+            ) : null}
+          </div>
         </div>
       )}
     </div>
