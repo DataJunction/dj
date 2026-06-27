@@ -1361,7 +1361,14 @@ def build_select_ast(
     for (dim_node_name, role), alias in dim_aliases.items():
         if dim_node_name not in dim_node_to_alias or not role:
             dim_node_to_alias[dim_node_name] = alias
-    metric_dim_cols = _resolve_dim_namespace_refs(metric_expressions, dim_node_to_alias)
+    # Rewrite dim-namespaced refs in both the metric expressions and the grain
+    # (COUNT DISTINCT level) expressions. The grain specs hold the same AST
+    # objects already placed in the projection above, so rewriting them here is
+    # reflected in the emitted SQL.
+    metric_dim_cols = _resolve_dim_namespace_refs(
+        metric_expressions + [(alias, expr) for expr, alias in grain_col_specs],
+        dim_node_to_alias,
+    )
 
     # Add metric expressions
     for alias_name, expr in metric_expressions:
@@ -2034,19 +2041,6 @@ def build_grain_group_sql(
                 col_ast = make_column_ref(col_name)
                 non_decomposable_columns.append((col_name, col_ast))
 
-    # A metric's aggregate expression may reference a column on a joined
-    # dimension node that is not part of the requested grain (e.g.
-    # COUNT(DISTINCT customer.tier) without grouping by customer). Resolve
-    # those as join-only dimensions so the reference is joined and rewritten
-    # to its table alias instead of leaking into the SQL as a raw node path.
-    extra_dimensions = resolve_metric_expression_dimensions(
-        ctx,
-        parent_node,
-        component_expressions + non_decomposable_columns,
-        resolved_dimensions,
-    )
-    effective_resolved_dimensions = resolved_dimensions + extra_dimensions
-
     # Determine grain columns for this group
     if grain_group.is_merged:
         # Merged: use finest grain (all grain columns from merged groups)
@@ -2060,6 +2054,27 @@ def build_grain_group_sql(
     else:
         # FULL: no additional grain columns
         effective_grain_columns = []
+
+    # A dimension column may be referenced inside a metric's aggregate
+    # expression AND inside a COUNT(DISTINCT ...) level/grain expression (e.g.
+    # COUNT(DISTINCT customer.tier) without grouping by customer). Scan both so
+    # any referenced dimension that is not part of the requested grain is still
+    # joined (as a join-only dimension) and rewritten to its table alias
+    # instead of leaking into the SQL as a raw node path.
+    grain_exprs_for_dims = [
+        (alias, expr)
+        for expr, alias in _parse_grain_col_specs(
+            effective_grain_columns,
+            grain_group.grain_col_aliases,
+        )
+    ]
+    extra_dimensions = resolve_metric_expression_dimensions(
+        ctx,
+        parent_node,
+        component_expressions + non_decomposable_columns + grain_exprs_for_dims,
+        resolved_dimensions,
+    )
+    effective_resolved_dimensions = resolved_dimensions + extra_dimensions
 
     # Build AST
     # For non-decomposable metrics (NONE aggregability with no components),

@@ -5533,10 +5533,35 @@ class TestMetricExprReferencesUnrequestedDimColumn:
         assert resp.status_code == 200, resp.text
         sql = resp.json()["grain_groups"][0]["sql"]
         # Exactly one join to the customer dim, both columns rewritten + kept.
-        assert sql.count(f"{ns}_customer t") == 1
-        assert sql.count(f"JOIN {ns}_customer") == 1
-        assert f"{ns}.customer." not in sql
-        assert "t3.threshold" in sql and "t3.discount" in sql
+        # One join to customer; both threshold and discount rewritten to the
+        # alias and kept in the customer CTE.
+        assert_sql_equal(
+            sql,
+            f"""
+            WITH {ns}_customer AS (
+                SELECT customer_id, threshold, discount
+                FROM default.{ns}.src_customer
+            ),
+            {ns}_fact AS (
+                SELECT customer_id, region_id, amount
+                FROM default.{ns}.src_fact
+            ),
+            {ns}_region AS (
+                SELECT region_id, name
+                FROM default.{ns}.src_region
+            )
+            SELECT
+                t2.name,
+                SUM(CASE WHEN t1.amount >= t3.threshold
+                    THEN t1.amount * t3.discount ELSE 0 END)
+                    amount_{ns}_DOT_customer_DOT_threshold_{ns}_DOT_customer_DOT_discount_sum_HASH
+            FROM {ns}_fact t1
+            LEFT OUTER JOIN {ns}_region t2 ON t1.region_id = t2.region_id
+            LEFT OUTER JOIN {ns}_customer t3 ON t1.customer_id = t3.customer_id
+            GROUP BY t2.name
+            """,
+            normalize_aliases=True,
+        )
 
     @pytest.mark.asyncio
     async def test_local_grain_dim_does_not_mask_metric_expr_dim(
@@ -5580,9 +5605,30 @@ class TestMetricExprReferencesUnrequestedDimColumn:
         )
         assert resp.status_code == 200, resp.text
         sql = resp.json()["grain_groups"][0]["sql"]
-        assert f"{ns}.customer.threshold" not in sql
-        assert "t2.threshold" in sql
-        assert f"JOIN {ns}_customer" in sql
+        # Grouping by a local fact column (region_id) still joins customer for
+        # the metric-expression reference and rewrites it to the alias.
+        assert_sql_equal(
+            sql,
+            f"""
+            WITH {ns}_customer AS (
+                SELECT customer_id, threshold
+                FROM default.{ns}.src_customer
+            ),
+            {ns}_fact AS (
+                SELECT customer_id, region_id, amount
+                FROM default.{ns}.src_fact
+            )
+            SELECT
+                t1.region_id,
+                SUM(CASE WHEN t1.amount >= t2.threshold
+                    THEN t1.amount ELSE 0 END)
+                    amount_{ns}_DOT_customer_DOT_threshold_sum_HASH
+            FROM {ns}_fact t1
+            LEFT OUTER JOIN {ns}_customer t2 ON t1.customer_id = t2.customer_id
+            GROUP BY t1.region_id
+            """,
+            normalize_aliases=True,
+        )
 
     @pytest.mark.asyncio
     async def test_metric_expr_dim_without_link_errors(self, client_with_service_setup):
@@ -5614,6 +5660,154 @@ class TestMetricExprReferencesUnrequestedDimColumn:
         assert resp.status_code == 422, resp.text
         assert "Cannot find join path" in resp.text
         assert f"{ns}.customer" in resp.text
+
+    @pytest.mark.asyncio
+    async def test_dim_in_count_distinct_level_expr_also_grouped(
+        self,
+        client_with_service_setup,
+    ):
+        # A dim column referenced inside COUNT(DISTINCT ...) becomes the
+        # distinct "level"/grain expression (LIMITED aggregability), NOT a plain
+        # metric expression. Even when the dim is joined for the requested grain,
+        # the grain expression must be rewritten to the join alias (and its
+        # column kept in the dim CTE) instead of leaking as a raw node path.
+        client = client_with_service_setup
+        ns = "mz6"
+        await self._setup(client, ns)
+
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": f"{ns}.distinct_qualifying_threshold",
+                "mode": "published",
+                "query": (
+                    f"SELECT COUNT(DISTINCT CASE WHEN amount > 0 "
+                    f"THEN {ns}.customer.threshold ELSE NULL END) FROM {ns}.fact"
+                ),
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+        resp = await client.post(
+            f"/nodes/{ns}.fact/link",
+            json={
+                "dimension_node": f"{ns}.customer",
+                "join_type": "left",
+                "join_on": f"{ns}.fact.customer_id = {ns}.customer.customer_id",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        # customer.tier requested as the grouping dim -> customer is joined.
+        resp = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": [f"{ns}.distinct_qualifying_threshold"],
+                "dimensions": [f"{ns}.customer.tier"],
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        sql = resp.json()["grain_groups"][0]["sql"]
+        # The COUNT(DISTINCT ...) level expression references t2.threshold (not
+        # the raw node path), threshold is kept in the customer CTE, and the
+        # level expression appears in GROUP BY for re-aggregation.
+        assert_sql_equal(
+            sql,
+            f"""
+            WITH {ns}_customer AS (
+                SELECT customer_id, tier, threshold
+                FROM default.{ns}.src_customer
+            ),
+            {ns}_fact AS (
+                SELECT customer_id, amount
+                FROM default.{ns}.src_fact
+            )
+            SELECT
+                t2.tier,
+                CASE WHEN t1.amount > 0 THEN t2.threshold ELSE NULL END
+                    amount_{ns}_DOT_customer_DOT_threshold_distinct_HASH
+            FROM {ns}_fact t1
+            LEFT OUTER JOIN {ns}_customer t2 ON t1.customer_id = t2.customer_id
+            GROUP BY
+                t2.tier,
+                CASE WHEN t1.amount > 0 THEN t2.threshold ELSE NULL END
+            """,
+            normalize_aliases=True,
+        )
+
+    @pytest.mark.asyncio
+    async def test_dim_in_count_distinct_level_expr_not_grouped(
+        self,
+        client_with_service_setup,
+    ):
+        # Same as above, but the dim referenced in the COUNT(DISTINCT ...) level
+        # is NOT part of the requested grain -> it must be added as a join-only
+        # dimension AND rewritten to the alias.
+        client = client_with_service_setup
+        ns = "mz7"
+        await self._setup(client, ns)
+
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": f"{ns}.distinct_qualifying_threshold",
+                "mode": "published",
+                "query": (
+                    f"SELECT COUNT(DISTINCT CASE WHEN amount > 0 "
+                    f"THEN {ns}.customer.threshold ELSE NULL END) FROM {ns}.fact"
+                ),
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+        resp = await client.post(
+            f"/nodes/{ns}.fact/link",
+            json={
+                "dimension_node": f"{ns}.customer",
+                "join_type": "left",
+                "join_on": f"{ns}.fact.customer_id = {ns}.customer.customer_id",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        # Group by region.name only -> customer is NOT in the requested grain.
+        resp = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": [f"{ns}.distinct_qualifying_threshold"],
+                "dimensions": [f"{ns}.region.name"],
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        sql = resp.json()["grain_groups"][0]["sql"]
+        # customer is not in the requested grain, so it is added as a join-only
+        # dimension; the COUNT(DISTINCT ...) level references t3.threshold.
+        assert_sql_equal(
+            sql,
+            f"""
+            WITH {ns}_customer AS (
+                SELECT customer_id, threshold
+                FROM default.{ns}.src_customer
+            ),
+            {ns}_fact AS (
+                SELECT customer_id, region_id, amount
+                FROM default.{ns}.src_fact
+            ),
+            {ns}_region AS (
+                SELECT region_id, name
+                FROM default.{ns}.src_region
+            )
+            SELECT
+                t2.name,
+                CASE WHEN t1.amount > 0 THEN t3.threshold ELSE NULL END
+                    amount_{ns}_DOT_customer_DOT_threshold_distinct_HASH
+            FROM {ns}_fact t1
+            LEFT OUTER JOIN {ns}_region t2 ON t1.region_id = t2.region_id
+            LEFT OUTER JOIN {ns}_customer t3 ON t1.customer_id = t3.customer_id
+            GROUP BY
+                t2.name,
+                CASE WHEN t1.amount > 0 THEN t3.threshold ELSE NULL END
+            """,
+            normalize_aliases=True,
+        )
 
 
 class TestSparkJoinHints:
