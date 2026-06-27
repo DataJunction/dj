@@ -717,6 +717,37 @@ describe('NamespacePage', () => {
     });
   });
 
+  it('node search flips to flat recursive results and hides folders', async () => {
+    mockDjClient.getNamespaceGitConfig.mockResolvedValue({
+      github_repo_path: null,
+      git_branch: null,
+      default_branch: null,
+      parent_namespace: null,
+      git_only: false,
+      git_root_namespace: null,
+    });
+    mockDjClient.listNamespacesWithGit.mockResolvedValue([
+      { namespace: 'growth', numNodes: 2, git: null },
+      { namespace: 'growth.metrics', numNodes: 7, git: null },
+    ]);
+    renderWithProviders(<NamespacePage />, { route: '/namespaces/growth' });
+
+    await waitFor(() =>
+      expect(screen.getByText('FOLDERS')).toBeInTheDocument(),
+    );
+
+    fireEvent.change(screen.getByPlaceholderText(/search nodes/i), {
+      target: { value: 'active' },
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText('FOLDERS')).not.toBeInTheDocument();
+      const opts = mockDjClient.listNodesForLanding.mock.calls.at(-1).at(-1);
+      expect(opts.recursive).toBe(true);
+      expect(opts.search).toBe('active');
+    });
+  });
+
   it('shows folders for sub-namespaces and fetches direct nodes only', async () => {
     mockDjClient.getNamespaceGitConfig.mockResolvedValue({
       github_repo_path: null,

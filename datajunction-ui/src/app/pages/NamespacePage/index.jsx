@@ -223,6 +223,14 @@ export function NamespacePage() {
   const [hasNextPage, setHasNextPage] = useState(true);
   const [hasPrevPage, setHasPrevPage] = useState(true);
 
+  const [nodeSearch, setNodeSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(nodeSearch.trim()), 300);
+    return () => clearTimeout(t);
+  }, [nodeSearch]);
+  const searchActive = debouncedSearch !== '';
+
   // Only show edit/add controls once git config has loaded and namespace is not git-only
   const gitConfigLoaded = gitConfig !== undefined;
   // Descendants inherit github_repo_path via cascade, so compare against
@@ -318,7 +326,8 @@ export function NamespacePage() {
         missingDescription: filters.missingDescription,
         hasMaterialization: filters.hasMaterialization,
         orphanedDimension: filters.orphanedDimension,
-        recursive: false,
+        recursive: searchActive,
+        search: searchActive ? debouncedSearch : null,
       };
 
       const nodes = await djClient.listNodesForLanding(
@@ -370,6 +379,8 @@ export function NamespacePage() {
     sortConfig.direction,
     tableNamespace,
     namespace,
+    debouncedSearch,
+    searchActive,
   ]);
 
   const loadNext = () => {
@@ -966,15 +977,27 @@ export function NamespacePage() {
               </NamespaceHeader>
 
               {gitConfigLoaded && (
+                <input
+                  type="text"
+                  className="dj-node-search"
+                  value={nodeSearch}
+                  onChange={e => setNodeSearch(e.target.value)}
+                  placeholder="Search nodes in this namespace…"
+                  aria-label="Search nodes in this namespace"
+                />
+              )}
+              {gitConfigLoaded && (
                 <NamespaceBreadcrumb
                   path={tableNamespace}
                   onNavigate={value => navigate(`/namespaces/${value}`)}
                 />
               )}
-              <FolderList
-                folders={subFolders}
-                onOpen={value => navigate(`/namespaces/${value}`)}
-              />
+              {!searchActive && (
+                <FolderList
+                  folders={subFolders}
+                  onOpen={value => navigate(`/namespaces/${value}`)}
+                />
+              )}
 
               {/* NODES: nodes that live directly in this namespace */}
               {!gitConfigLoaded ? null : (
