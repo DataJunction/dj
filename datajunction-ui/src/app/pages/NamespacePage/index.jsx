@@ -1,4 +1,3 @@
-import * as React from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { useContext, useEffect, useState, useCallback } from 'react';
 import NodeStatus from '../NodePage/NodeStatus';
@@ -16,7 +15,7 @@ import {
 import LoadingIcon from '../../icons/LoadingIcon';
 import CompactSelect from './CompactSelect';
 import NamespaceNav from './NamespaceNav';
-import { immediateChildren, isHiddenNamespace } from './namespaceOptions';
+import { isHiddenNamespace } from './namespaceOptions';
 import { NODE_TYPE_ORDER, NODE_TYPE_COLORS } from './nodeTypes';
 import { getDJUrl } from '../../services/DJService';
 
@@ -247,6 +246,26 @@ export function NamespacePage() {
     gitConfig?.git_root_namespace === namespace;
   const showEditControls =
     gitConfigLoaded && !gitConfig?.git_only && !isGitRoot;
+  // Sub-namespaces can be created from the rail only for plain (non-git-backed)
+  // namespaces; git-backed ones are managed via git, not the UI. The git config
+  // endpoint returns an object with null fields (not null) for non-git
+  // namespaces, so check the actual git markers — a repo (root or cascaded
+  // descendant) or a branch namespace.
+  const isGitBacked = !!(
+    gitConfig?.github_repo_path || gitConfig?.branch_namespace
+  );
+  const canCreateNamespace = gitConfigLoaded && !isGitBacked;
+  const createSubNamespace = async fullNamespace => {
+    const response = await djClient.addNamespace(fullNamespace);
+    if (response.status === 200 || response.status === 201) {
+      navigate(`/namespaces/${fullNamespace}`);
+      return {};
+    }
+    return {
+      _error: true,
+      message: response.json?.message || 'Failed to create namespace',
+    };
+  };
   // A git root has no nodes of its own — they live on its default branch. The node
   // table (and its filters/keyword search) therefore browse `<root>.<default_branch>`,
   // so a git root shows the same browsable table as any other namespace.
@@ -265,11 +284,6 @@ export function NamespacePage() {
       });
     }
   }, [isGitRoot, gitConfig, namespace, navigate]);
-
-  // Immediate sub-namespaces ("folders") of the namespace being browsed — used
-  // to give a container namespace (folders but no direct nodes) a helpful empty
-  // state instead of a misleading "no nodes" message.
-  const subFolders = immediateChildren(namespaceHierarchy, tableNamespace);
 
   // Per-type node counts (recursive) for the current namespace, shown inline in
   // the TYPE filter options (e.g. "Metric (342)").
@@ -657,34 +671,6 @@ export function NamespacePage() {
                 >
                   Clear filters
                 </a>
-              </>
-            ) : subFolders.length > 0 ? (
-              <>
-                This namespace has no nodes of its own. Open one of its{' '}
-                {subFolders.length}{' '}
-                {subFolders.length === 1 ? 'folder' : 'folders'} to browse:
-                <span
-                  style={{
-                    display: 'block',
-                    marginTop: '0.75rem',
-                    fontSize: '14px',
-                  }}
-                >
-                  {subFolders.map((f, i) => (
-                    <React.Fragment key={f.path}>
-                      {i > 0 && <span style={{ color: '#cbd5e1' }}> · </span>}
-                      <a
-                        href={`/namespaces/${f.path}`}
-                        onClick={e => {
-                          e.preventDefault();
-                          navigate(`/namespaces/${f.path}`);
-                        }}
-                      >
-                        {f.namespace}
-                      </a>
-                    </React.Fragment>
-                  ))}
-                </span>
               </>
             ) : (
               'No nodes in this namespace yet.'
@@ -1100,6 +1086,8 @@ export function NamespacePage() {
                 onSelect={value =>
                   navigate(value ? `/namespaces/${value}` : '/')
                 }
+                canCreateNamespace={canCreateNamespace}
+                onCreateNamespace={createSubNamespace}
               />
             </div>
             <div

@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-import CollapsedIcon from '../../icons/CollapsedIcon';
-import ExpandedIcon from '../../icons/ExpandedIcon';
+import ChevronIcon from '../../icons/ChevronIcon';
 import {
   buildNamespaceOptions,
   searchNamespaces,
@@ -8,6 +7,7 @@ import {
 } from './namespaceOptions';
 import { getPinned, togglePinned } from './namespaceShortcuts';
 import FolderTree from './FolderTree';
+import NewSubNamespace from './NewSubNamespace';
 
 // Git context for a selected namespace, derived from the raw namespace list.
 function gitContext(gitByNs, ns) {
@@ -38,6 +38,8 @@ export default function NamespaceNav({
   currentNamespace,
   gitRoots,
   onSelect,
+  canCreateNamespace = false,
+  onCreateNamespace,
 }) {
   const [collapsed, setCollapsed] = useState({ 'Top-level': true });
   const [pinned, setPinned] = useState(() => getPinned());
@@ -103,7 +105,7 @@ export default function NamespaceNav({
           onClick={() => toggleGroup(label)}
         >
           <span className="dj-ns-chevron">
-            {open ? <ExpandedIcon /> : <CollapsedIcon />}
+            <ChevronIcon open={open} />
           </span>
           <span className="dj-ns-group-label">{label}</span>
           <span className="dj-ns-group-count">{names.length}</span>
@@ -174,11 +176,19 @@ export default function NamespaceNav({
         // by the header breadcrumb; switching namespace by the filter box
         // (no-namespace view) or the header switcher. Keyed by the current path so
         // expansion resets when the tree re-roots.
-        <FolderTree
-          key={subtreePath}
-          folders={immediateChildren(hierarchy || [], subtreePath)}
-          onSelect={onSelect}
-        />
+        <>
+          <FolderTree
+            key={subtreePath}
+            folders={immediateChildren(hierarchy || [], subtreePath)}
+            onSelect={onSelect}
+          />
+          {canCreateNamespace ? (
+            <NewSubNamespace
+              parent={subtreePath}
+              onCreate={onCreateNamespace}
+            />
+          ) : null}
+        </>
       )}
     </div>
   );

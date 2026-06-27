@@ -1,26 +1,5 @@
 import React, { useState } from 'react';
-
-// A clean chevron that points right when collapsed and rotates down when open.
-function Chevron({ open }) {
-  return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="3"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      style={{
-        transform: open ? 'rotate(90deg)' : 'none',
-        transition: 'transform 0.12s ease',
-      }}
-    >
-      <polyline points="9 6 15 12 9 18" />
-    </svg>
-  );
-}
+import ChevronIcon from '../../icons/ChevronIcon';
 
 // Recursive folder tree for the namespace rail. `nodes` are hierarchy nodes
 // ({ namespace, path, children }) — the descendants of the current namespace.
@@ -68,7 +47,7 @@ function FolderTreeRows({ nodes, depth, expanded, onToggle, onSelect }) {
                 justifyContent: 'center',
               }}
             >
-              <Chevron open={isOpen} />
+              <ChevronIcon open={isOpen} />
             </button>
           ) : (
             <span style={{ width: '18px', minWidth: '18px', flexShrink: 0 }} />
