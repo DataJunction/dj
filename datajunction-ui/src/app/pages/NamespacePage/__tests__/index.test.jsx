@@ -176,8 +176,8 @@ describe('NamespacePage', () => {
     expect(
       (await screen.findAllByRole('link', { name: 'default' })).length,
     ).toBeGreaterThan(0);
-    expect(screen.getByText('fruits')).toBeInTheDocument();
-    expect(screen.getByText('vegetables')).toBeInTheDocument();
+    expect(screen.getAllByText('fruits').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('vegetables').length).toBeGreaterThan(0);
     // Scoping: a sibling top-level namespace not under "default" must NOT render in the rail.
     expect(screen.queryByText('common')).not.toBeInTheDocument();
 
@@ -667,7 +667,6 @@ describe('NamespacePage', () => {
         { timeout: 3000 },
       );
     });
-
   });
 
   describe('Quality filter checkboxes', () => {
@@ -716,5 +715,33 @@ describe('NamespacePage', () => {
         ).toBeGreaterThan(callsBefore);
       });
     });
+  });
+
+  it('shows folders for sub-namespaces and fetches direct nodes only', async () => {
+    mockDjClient.getNamespaceGitConfig.mockResolvedValue({
+      github_repo_path: null,
+      git_branch: null,
+      default_branch: null,
+      parent_namespace: null,
+      git_only: false,
+      git_root_namespace: null,
+    });
+    mockDjClient.listNamespacesWithGit.mockResolvedValue([
+      { namespace: 'growth', numNodes: 2, git: null },
+      { namespace: 'growth.experiments', numNodes: 5, git: null },
+      { namespace: 'growth.metrics', numNodes: 7, git: null },
+    ]);
+    renderWithProviders(<NamespacePage />, { route: '/namespaces/growth' });
+
+    // FOLDERS section lists immediate sub-namespaces.
+    await waitFor(() => {
+      expect(screen.getByText('FOLDERS')).toBeInTheDocument();
+      expect(screen.getByText('experiments')).toBeInTheDocument();
+      expect(screen.getByText('metrics')).toBeInTheDocument();
+    });
+
+    // Direct-node fetch used recursive:false.
+    const opts = mockDjClient.listNodesForLanding.mock.calls.at(-1).at(-1);
+    expect(opts.recursive).toBe(false);
   });
 });

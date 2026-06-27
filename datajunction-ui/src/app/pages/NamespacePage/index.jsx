@@ -17,6 +17,9 @@ import {
 import LoadingIcon from '../../icons/LoadingIcon';
 import CompactSelect from './CompactSelect';
 import NamespaceNav from './NamespaceNav';
+import FolderList from './FolderList';
+import NamespaceBreadcrumb from './NamespaceBreadcrumb';
+import { immediateChildren } from './namespaceOptions';
 import { getDJUrl } from '../../services/DJService';
 
 import 'styles/node-list.css';
@@ -238,6 +241,9 @@ export function NamespacePage() {
       ? `${namespace}.${gitConfig.default_branch}`
       : namespace;
 
+  // Immediate sub-namespaces of the namespace being browsed (folder rows).
+  const subFolders = immediateChildren(namespaceHierarchy, tableNamespace);
+
   const requestSort = key => {
     let direction = ASC;
     if (sortConfig.key === key && sortConfig.direction === ASC) {
@@ -312,6 +318,7 @@ export function NamespacePage() {
         missingDescription: filters.missingDescription,
         hasMaterialization: filters.hasMaterialization,
         orphanedDimension: filters.orphanedDimension,
+        recursive: false,
       };
 
       const nodes = await djClient.listNodesForLanding(
@@ -958,7 +965,18 @@ export function NamespacePage() {
                 {showEditControls && <AddNodeDropdown namespace={namespace} />}
               </NamespaceHeader>
 
-              {/* Branch landing page for git-root namespaces */}
+              {gitConfigLoaded && (
+                <NamespaceBreadcrumb
+                  path={tableNamespace}
+                  onNavigate={value => navigate(`/namespaces/${value}`)}
+                />
+              )}
+              <FolderList
+                folders={subFolders}
+                onOpen={value => navigate(`/namespaces/${value}`)}
+              />
+
+              {/* NODES: nodes that live directly in this namespace */}
               {!gitConfigLoaded ? null : (
                 <table className="card-table table" style={{ marginBottom: 0 }}>
                   <thead>
