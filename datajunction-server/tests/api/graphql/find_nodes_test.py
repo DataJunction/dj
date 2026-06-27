@@ -3968,5 +3968,3 @@ async def test_find_nodes_paginated_total_count_no_matches(
     paginated = resp.json()["data"]["findNodesPaginated"]
     assert paginated["edges"] == []
     assert paginated["totalCount"] == 0
-
-

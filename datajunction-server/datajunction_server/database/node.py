@@ -916,8 +916,7 @@ class Node(Base):
 
         if namespace:
             statement = statement.where(
-                (Node.namespace.like(f"{namespace}.%"))
-                | (Node.namespace == namespace),
+                (Node.namespace.like(f"{namespace}.%")) | (Node.namespace == namespace),
             )
         if tags:
             statement = statement.where(
