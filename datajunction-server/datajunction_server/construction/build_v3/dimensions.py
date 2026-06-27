@@ -11,6 +11,7 @@ from typing import Callable, Optional, cast
 
 from datajunction_server.construction.build_v3.utils import (
     get_short_name,
+    iter_namespaced_columns,
     make_name,
 )
 from datajunction_server.errors import (
@@ -736,6 +737,81 @@ def resolve_dimensions(
         )
 
     return resolved
+
+
+def resolve_metric_expression_dimensions(
+    ctx: BuildContext,
+    parent_node: Node,
+    expressions: list[ast.Expression],
+    requested_dimensions: list[ResolvedDimension],
+) -> list[ResolvedDimension]:
+    """
+    Resolve dimension-node column refs that appear *inside* metric expressions.
+
+    A metric's aggregate expression may reference a column on a joined
+    dimension node via the fully-qualified ``<dim_node>.<column>`` form, e.g.
+    ``COUNT(DISTINCT CASE WHEN ... THEN customer.days_since ELSE NULL END)``.
+    When that dimension node is *not* also part of the requested grain, no join
+    is generated for it, so the reference leaks into the SQL as a raw,
+    unresolved node path and the engine fails with "column does not exist".
+
+    This resolves each such dimension node as a *join-only* dimension (one per
+    referenced node): it is joined and CTE-projected, but excluded from the
+    SELECT projection and GROUP BY by registering its ref in
+    ``ctx.filter_dimensions``. The namespace rewrite in measures'
+    ``_resolve_dim_namespace_refs`` then resolves the reference to the join
+    alias.
+
+    Dimension nodes already joined for the requested grain are skipped — their
+    aliases are already available for the rewrite.
+
+    Returns the list of newly resolved join-only ResolvedDimensions (empty when
+    no metric expression references an unjoined dimension node).
+    """
+    # Dimension nodes already joined for the requested grain. A local /
+    # skip-joined requested dim does not produce an alias, so only non-local
+    # requested dims count as "already joined".
+    already_joined: set[str] = {parent_node.name}
+    for rdim in requested_dimensions:
+        if not rdim.is_local:
+            already_joined.add(parse_dimension_ref(rdim.original_ref).node_name)
+
+    extra: list[ResolvedDimension] = []
+    handled_nodes: set[str] = set()
+    for expr in expressions:
+        for nc in iter_namespaced_columns(expr):
+            if nc.node in already_joined or nc.node in handled_nodes:
+                continue
+            handled_nodes.add(nc.node)
+
+            # The referenced column itself is validated against the dimension
+            # node at metric-creation time, so we only need the join path here.
+            join_path = find_join_path(ctx, parent_node, nc.node, None)
+            if not join_path:
+                raise DJException(
+                    http_status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
+                    message=(
+                        f"Cannot find join path from {parent_node.name} to "
+                        f"dimension {nc.node} referenced in a metric expression. "
+                        f"Please create a dimension link between these nodes."
+                    ),
+                )
+
+            original_ref = f"{nc.node}{SEPARATOR}{nc.name}"
+            # Join the dim, but keep it out of the projection and GROUP BY.
+            ctx.filter_dimensions.add(original_ref)
+            extra.append(
+                ResolvedDimension(
+                    original_ref=original_ref,
+                    node_name=nc.node,
+                    column_name=nc.name,
+                    role=None,
+                    join_path=join_path,
+                    is_local=False,
+                ),
+            )
+
+    return extra
 
 
 def _rewrite_column_refs_with_aliases(

@@ -37,6 +37,7 @@ from datajunction_server.construction.build_v3.utils import (
     get_column_type,
     get_cte_name,
     get_short_name,
+    iter_namespaced_columns,
     make_column_ref,
     make_name,
 )
@@ -67,6 +68,7 @@ from datajunction_server.construction.build_v3.decomposition import (
 from datajunction_server.construction.build_v3.dimensions import (
     parse_dimension_ref,
     resolve_dimensions,
+    resolve_metric_expression_dimensions,
 )
 from datajunction_server.construction.build_v3.preagg_matcher import (
     find_matching_preagg,
@@ -98,12 +100,12 @@ def _rewrite_col_refs(expr: Any, table_alias: str) -> None:
 
 
 def _resolve_dim_namespace_refs(
-    metric_expressions: list[tuple[str, ast.Expression]],
+    expressions: list[ast.Expression],
     dim_node_to_alias: dict[str, str],
 ) -> dict[str, set[str]]:
-    """Resolve dim-namespaced column refs in metric expressions.
+    """Resolve dim-namespaced column refs in metric/grain expressions.
 
-    A metric expression may contain a fully-qualified column like
+    A metric or grain expression may contain a fully-qualified column like
     ``v3.customer.tier`` referring to a column on a dimension node that the
     parent fact joins to. In one walk per expression, this function:
 
@@ -115,17 +117,14 @@ def _resolve_dim_namespace_refs(
        drops them as unused).
     """
     dim_cols: dict[str, set[str]] = {}
-    for _, expr in metric_expressions:
-        for col in expr.find_all(ast.Column):
-            if not (col.name and col.name.namespace and col.name.namespace.name):
+    for expr in expressions:
+        for nc in iter_namespaced_columns(expr):
+            if nc.node not in dim_node_to_alias:
                 continue
-            ns = col.name.namespace.identifier(quotes=False)
-            if ns not in dim_node_to_alias:
-                continue
-            dim_cols.setdefault(ns, set()).add(col.name.name)
-            col.name = ast.Name(
-                col.name.name,
-                namespace=ast.Name(dim_node_to_alias[ns]),
+            dim_cols.setdefault(nc.node, set()).add(nc.name)
+            nc.column.name = ast.Name(
+                nc.name,
+                namespace=ast.Name(dim_node_to_alias[nc.node]),
             )
     return dim_cols
 
@@ -1268,6 +1267,7 @@ def build_select_ast(
     parent_node: Node,
     grain_columns: list[str] | None = None,
     grain_col_aliases: dict[str, str] | None = None,
+    grain_col_specs: list[tuple[ast.Expression, str]] | None = None,
     filters: list[str] | None = None,
     skip_aggregation: bool = False,
 ) -> tuple[ast.Query, list[str]]:
@@ -1325,7 +1325,10 @@ def build_select_ast(
         )
         projection.append(col_expr)
 
-    grain_col_specs = _parse_grain_col_specs(grain_columns, grain_col_aliases)
+    # Callers that already parsed the grain columns (to discover dimension
+    # references) can pass ``grain_col_specs`` to avoid re-parsing them here.
+    if grain_col_specs is None:
+        grain_col_specs = _parse_grain_col_specs(grain_columns, grain_col_aliases)
 
     # Add grain columns for LIMITED aggregability (e.g., customer_id for COUNT DISTINCT)
     # These are added to the output so the result can be re-aggregated.
@@ -1360,7 +1363,15 @@ def build_select_ast(
     for (dim_node_name, role), alias in dim_aliases.items():
         if dim_node_name not in dim_node_to_alias or not role:
             dim_node_to_alias[dim_node_name] = alias
-    metric_dim_cols = _resolve_dim_namespace_refs(metric_expressions, dim_node_to_alias)
+    # Rewrite dim-namespaced refs in both the metric expressions and the grain
+    # (COUNT DISTINCT level) expressions. The grain specs hold the same AST
+    # objects already placed in the projection above, so rewriting them here is
+    # reflected in the emitted SQL.
+    metric_dim_cols = _resolve_dim_namespace_refs(
+        [expr for _, expr in metric_expressions]
+        + [expr for expr, _ in grain_col_specs],
+        dim_node_to_alias,
+    )
 
     # Add metric expressions
     for alias_name, expr in metric_expressions:
@@ -2047,6 +2058,29 @@ def build_grain_group_sql(
         # FULL: no additional grain columns
         effective_grain_columns = []
 
+    # Parse the grain columns once here; the specs are reused for dimension
+    # resolution below and threaded into build_select_ast to avoid re-parsing.
+    grain_col_specs = _parse_grain_col_specs(
+        effective_grain_columns,
+        grain_group.grain_col_aliases,
+    )
+
+    # A dimension column may be referenced inside a metric's aggregate
+    # expression AND inside a COUNT(DISTINCT ...) level/grain expression (e.g.
+    # COUNT(DISTINCT customer.tier) without grouping by customer). Scan both so
+    # any referenced dimension that is not part of the requested grain is still
+    # joined (as a join-only dimension) and rewritten to its table alias
+    # instead of leaking into the SQL as a raw node path.
+    extra_dimensions = resolve_metric_expression_dimensions(
+        ctx,
+        parent_node,
+        [expr for _, expr in component_expressions]
+        + [expr for _, expr in non_decomposable_columns]
+        + [expr for expr, _ in grain_col_specs],
+        resolved_dimensions,
+    )
+    effective_resolved_dimensions = resolved_dimensions + extra_dimensions
+
     # Build AST
     # For non-decomposable metrics (NONE aggregability with no components),
     # we pass through raw rows without aggregation
@@ -2060,7 +2094,7 @@ def build_grain_group_sql(
         query_ast, scanned_sources = build_select_ast(
             ctx,
             metric_expressions=[],  # No aggregated expressions
-            resolved_dimensions=resolved_dimensions,
+            resolved_dimensions=effective_resolved_dimensions,
             parent_node=parent_node,
             grain_columns=pass_through_columns,
             filters=ctx.dimension_filters,  # Use dimension_filters only (not metric_filters)
@@ -2081,10 +2115,11 @@ def build_grain_group_sql(
         query_ast, scanned_sources = build_select_ast(
             ctx,
             metric_expressions=all_metric_expressions,
-            resolved_dimensions=resolved_dimensions,
+            resolved_dimensions=effective_resolved_dimensions,
             parent_node=parent_node,
             grain_columns=effective_grain_columns,
             grain_col_aliases=grain_group.grain_col_aliases or None,
+            grain_col_specs=grain_col_specs,  # already parsed above
             filters=ctx.dimension_filters,  # Use dimension_filters only (not metric_filters)
             skip_aggregation=skip_agg,
         )
