@@ -285,7 +285,7 @@ export default function NamespaceNav({
               ? (subtreeNode?.children || []).length > 0
               : !!subtreeNode
           ) ? (
-            <div className="dj-ns-tree-heading">Namespaces</div>
+            <div className="dj-ns-tree-heading">Sub-namespaces</div>
           ) : null}
           {subtreeNode && atBranchRoot ? (
             (subtreeNode.children || []).map(child => (

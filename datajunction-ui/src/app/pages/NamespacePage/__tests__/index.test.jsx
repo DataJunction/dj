@@ -164,7 +164,7 @@ describe('NamespacePage', () => {
     // Wait for initial nodes to load
     await waitFor(() => {
       expect(mockDjClient.listNodesForLanding).toHaveBeenCalled();
-      expect(screen.getByText('Namespaces')).toBeInTheDocument();
+      expect(screen.getByText('Sub-namespaces')).toBeInTheDocument();
     });
 
     // Check that it displays the selected namespace's subtree (wait — the
@@ -706,27 +706,16 @@ describe('NamespacePage', () => {
       );
     });
 
-    it('calls listNodesForLanding once per node type for the default branch namespace', async () => {
+    it('browses the default branch namespace in the node table', async () => {
       renderWithProviders(<NamespacePage />);
 
+      // A git root has no nodes of its own — the table queries
+      // <root>.<default_branch> (so a git root shows the same browsable table
+      // as any other namespace, instead of a separate split preview).
       await waitFor(
         () => {
-          // One call per node type is made for the default branch preview
           const calls = mockDjClient.listNodesForLanding.mock.calls;
-          const defaultBranchCalls = calls.filter(
-            args => args[0] === 'default.main',
-          );
-          expect(defaultBranchCalls).toHaveLength(5);
-          const types = defaultBranchCalls.map(args => args[1][0]);
-          expect(types).toEqual(
-            expect.arrayContaining([
-              'METRIC',
-              'CUBE',
-              'DIMENSION',
-              'TRANSFORM',
-              'SOURCE',
-            ]),
-          );
+          expect(calls.some(args => args[0] === 'default.main')).toBe(true);
         },
         { timeout: 3000 },
       );
@@ -801,7 +790,7 @@ describe('NamespacePage', () => {
   });
 
   describe('formatRelativeTime', () => {
-    it('shows last_updated_at timestamp on branch cards', async () => {
+    it('shows last_updated_at timestamp in the expanded branch list', async () => {
       mockDjClient.getNamespaceGitConfig.mockResolvedValue({
         github_repo_path: 'org/repo',
         git_branch: 'main',
@@ -824,8 +813,10 @@ describe('NamespacePage', () => {
 
       renderWithProviders(<NamespacePage />);
 
+      // Branch metadata (incl. relative timestamp) lives in the collapsed list —
+      // expand it first.
+      fireEvent.click(await screen.findByText('Branches'));
       await waitFor(() => {
-        // 'main' appears in both the card title and default branch section header
         expect(screen.getAllByText('main').length).toBeGreaterThan(0);
         // Should show relative time like "2d ago" (may appear on multiple elements)
         expect(screen.getAllByText(/ago/).length).toBeGreaterThan(0);
