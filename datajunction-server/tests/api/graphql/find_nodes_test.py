@@ -2868,6 +2868,34 @@ async def test_find_nodes_with_search_by_name(
 
 
 @pytest.mark.asyncio
+async def test_find_nodes_search_word_order_and_separators(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    Tokenized search matches query words in ANY order and across separators
+    (._ ) — e.g. "orders repair" or "orders_repair" both find repair_orders,
+    which a contiguous-substring match would miss.
+    """
+    query = """
+    query Search($q: String!) {
+        findNodes(search: $q, limit: 20) { name }
+    }
+    """
+    for q in ["orders repair", "repair orders", "orders_repair"]:
+        response = await client_with_roads.post(
+            "/graphql",
+            json={"query": query, "variables": {"q": q}},
+        )
+        assert response.status_code == 200
+        names = [node["name"] for node in response.json()["data"]["findNodes"]]
+        assert "default.repair_orders" in names, (
+            f"query {q!r} should match default.repair_orders"
+        )
+        # An unrelated node still must not leak in.
+        assert "default.hard_hat" not in names
+
+
+@pytest.mark.asyncio
 async def test_find_nodes_with_search_by_description(
     client_with_roads: AsyncClient,
     session: AsyncSession,
@@ -3951,28 +3979,27 @@ async def test_find_nodes_paginated_recursive_flag(
 
     # Default (recursive) includes descendants.
     rec = await client_with_basic.post(
-        "/graphql", json={"query": base, "variables": {"r": True}}
+        "/graphql",
+        json={"query": base, "variables": {"r": True}},
     )
     rec_names = {
-        e["node"]["name"]
-        for e in rec.json()["data"]["findNodesPaginated"]["edges"]
+        e["node"]["name"] for e in rec.json()["data"]["findNodesPaginated"]["edges"]
     }
 
     # Non-recursive: only nodes directly in `basic`.
     non = await client_with_basic.post(
-        "/graphql", json={"query": base, "variables": {"r": False}}
+        "/graphql",
+        json={"query": base, "variables": {"r": False}},
     )
     non_names = {
-        e["node"]["name"]
-        for e in non.json()["data"]["findNodesPaginated"]["edges"]
+        e["node"]["name"] for e in non.json()["data"]["findNodesPaginated"]["edges"]
     }
 
     assert non_names, "expected some nodes directly in `basic`"
     assert non_names <= rec_names
     # Every non-recursive result is exactly in `basic`, none deeper.
     assert all(
-        n.startswith("basic.") and "." not in n[len("basic."):]
-        for n in non_names
+        n.startswith("basic.") and "." not in n[len("basic.") :] for n in non_names
     )
     # Recursive returned strictly more (there are deeper namespaces in basic).
     assert len(rec_names) > len(non_names)
