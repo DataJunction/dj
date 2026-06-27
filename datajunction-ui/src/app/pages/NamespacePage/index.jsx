@@ -231,6 +231,13 @@ export function NamespacePage() {
   }, [nodeSearch]);
   const searchActive = debouncedSearch !== '';
 
+  // Changing the search term restarts paging from the first page; a cursor from
+  // a previous page would otherwise be sent with the new query.
+  useEffect(() => {
+    setBefore(null);
+    setAfter(null);
+  }, [debouncedSearch]);
+
   // Only show edit/add controls once git config has loaded and namespace is not git-only
   const gitConfigLoaded = gitConfig !== undefined;
   // Descendants inherit github_repo_path via cascade, so compare against

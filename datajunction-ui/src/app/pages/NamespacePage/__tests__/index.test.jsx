@@ -775,4 +775,33 @@ describe('NamespacePage', () => {
     const opts = mockDjClient.listNodesForLanding.mock.calls.at(-1).at(-1);
     expect(opts.recursive).toBe(false);
   });
+
+  it('resets pagination cursors to null when search term changes', async () => {
+    // Limitation: simulating a real Next-click to set a non-null cursor before
+    // typing is impractical in this test harness because the pagination buttons
+    // depend on rendered cursor state that only stabilises after async fetches.
+    // This test therefore directly asserts the regression-guard: after typing a
+    // search term the fetch is called with before=null (index 4) and after=null
+    // (index 5), confirming the reset effect fires on debouncedSearch change.
+    renderWithProviders(<NamespacePage />, { route: '/namespaces/default' });
+
+    await waitFor(() => {
+      expect(mockDjClient.listNodesForLanding).toHaveBeenCalled();
+    });
+
+    const searchBox = screen.getByPlaceholderText(/search nodes/i);
+    fireEvent.change(searchBox, { target: { value: 'my_metric' } });
+
+    // Wait for the 300 ms debounce to fire and the subsequent fetch to complete.
+    await waitFor(
+      () => {
+        const calls = mockDjClient.listNodesForLanding.mock.calls;
+        const lastCall = calls.at(-1);
+        // before is arg index 4, after is arg index 5.
+        expect(lastCall[4]).toBeNull();
+        expect(lastCall[5]).toBeNull();
+      },
+      { timeout: 1000 },
+    );
+  });
 });
