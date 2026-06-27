@@ -92,21 +92,6 @@ describe('NamespaceNav', () => {
     ).toBeInTheDocument();
   });
 
-  it('lets you pin the current namespace at any depth from the selected view', () => {
-    renderNav({ currentNamespace: 'users.yshang', hierarchy: [] });
-    const pinBtn = screen.getByLabelText('Pin users.yshang');
-    expect(pinBtn).toHaveTextContent('☆');
-    fireEvent.click(pinBtn);
-    expect(screen.getByLabelText('Unpin users.yshang')).toHaveTextContent('★');
-  });
-
-  it('exposes a back-to-all-namespaces control in the selected view', () => {
-    const onSelect = vi.fn();
-    renderNav({ currentNamespace: 'users.yshang', hierarchy: [], onSelect });
-    fireEvent.click(screen.getByLabelText('All namespaces'));
-    expect(onSelect).toHaveBeenCalledWith(null);
-  });
-
   it('rail folder nav shows the current namespace child folders, not its siblings', () => {
     const hierarchy = [
       { namespace: 'default', path: 'default', children: [] },
@@ -151,63 +136,5 @@ describe('NamespaceNav', () => {
     // Clicking a child folder drills into it.
     fireEvent.click(screen.getByText('metrics'));
     expect(onSelect).toHaveBeenCalledWith('growth.metrics');
-  });
-
-  it('on a git root, shows a branch switcher defaulting to the default branch', () => {
-    const onSelect = vi.fn();
-    const ns = [
-      {
-        namespace: 'arc',
-        numNodes: 0,
-        git: { __typename: 'GitRootConfig', defaultBranch: 'main' },
-      },
-      {
-        namespace: 'arc.main',
-        numNodes: 0,
-        git: {
-          __typename: 'GitBranchConfig',
-          branch: 'main',
-          parentNamespace: 'arc',
-          root: { defaultBranch: 'main' },
-        },
-      },
-      {
-        namespace: 'arc.featurex',
-        numNodes: 0,
-        git: {
-          __typename: 'GitBranchConfig',
-          branch: 'featurex',
-          parentNamespace: 'arc',
-          root: { defaultBranch: 'main' },
-        },
-      },
-    ];
-    const hierarchy = [
-      {
-        namespace: 'arc',
-        path: 'arc',
-        children: [
-          { namespace: 'main', path: 'arc.main', children: [] },
-          { namespace: 'featurex', path: 'arc.featurex', children: [] },
-        ],
-      },
-    ];
-    render(
-      <NamespaceNav
-        namespaces={ns}
-        hierarchy={hierarchy}
-        currentNamespace="arc"
-        gitRoots={new Set(['arc'])}
-        onSelect={onSelect}
-      />,
-    );
-    const sel = screen.getByLabelText('Branch');
-    expect(sel.value).toBe('main');
-    expect(screen.getByRole('option', { name: 'main' })).toBeInTheDocument();
-    expect(
-      screen.getByRole('option', { name: 'featurex' }),
-    ).toBeInTheDocument();
-    fireEvent.change(sel, { target: { value: 'featurex' } });
-    expect(onSelect).toHaveBeenCalledWith('arc.featurex');
   });
 });

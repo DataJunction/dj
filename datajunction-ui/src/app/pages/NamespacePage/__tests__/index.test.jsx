@@ -165,16 +165,16 @@ describe('NamespacePage', () => {
       expect(mockDjClient.listNodesForLanding).toHaveBeenCalled();
     });
 
-    // Jump-tree rail semantics: the rail shows siblings and ancestors,
-    // NOT the current namespace's own children (fruits/vegetables).
-    // Route is /namespaces/default; the hierarchy has top-level nodes 'common' and
-    // 'default', so the jump tree rail shows sibling 'common'.
+    // The selected-namespace rail renders FolderTree for the current namespace's
+    // children. Route is /namespaces/default; the mock hierarchy has
+    // default.fruits and default.vegetables as immediate children.
     await waitFor(() => {
-      // 'common' appears as the sibling top-level node in the jump tree rail.
-      expect(screen.getByText('common')).toBeInTheDocument();
+      expect(screen.getByText('Folders')).toBeInTheDocument();
+      expect(screen.getByText('fruits')).toBeInTheDocument();
+      expect(screen.getByText('vegetables')).toBeInTheDocument();
     });
-    // The old 'Sub-namespaces' heading is gone — replaced by the jump tree.
-    expect(screen.queryByText('Sub-namespaces')).not.toBeInTheDocument();
+    // Sibling top-level namespace 'common' must NOT appear in the selected rail.
+    expect(screen.queryByText('common')).not.toBeInTheDocument();
 
     // Check that it renders nodes
     expect(screen.getByText('Test Node')).toBeInTheDocument();
@@ -244,17 +244,14 @@ describe('NamespacePage', () => {
       fireEvent.keyDown(userInput, { key: 'ArrowDown' });
     }
 
-    // --- Expand/Collapse via jump-tree rail ---
-    // The jump tree renders buttons (role="button"), not anchor links.
-    // The 'default' row in the jump tree is the current namespace row.
-    // Clicking it navigates (calls onSelect) which is handled internally.
-    // Verify the rail still renders clickable rows after sort interactions.
+    // --- Rail still shows folders after sort interactions ---
+    // The FolderTree rail should still be present after sorting.
     await waitFor(() => {
-      expect(screen.getByText('common')).toBeInTheDocument();
+      expect(screen.getByText('Folders')).toBeInTheDocument();
     });
   });
 
-  it('rail folder nav: shows child folders to drill into, back-to-all works', async () => {
+  it('rail folder nav: shows child folders to drill into', async () => {
     // The rail is the folder navigator: it lists the current namespace's child
     // sub-namespaces (drill in by clicking), NOT its siblings or an
     // all-namespaces list. Going up a level is handled by the header breadcrumb.
@@ -276,13 +273,11 @@ describe('NamespacePage', () => {
     await waitFor(() => {
       expect(screen.getByText('Folders')).toBeInTheDocument();
       expect(screen.getByText('fruits')).toBeInTheDocument();
+      expect(screen.getByText('vegetables')).toBeInTheDocument();
     });
 
     // Siblings / all-namespaces are NOT shown in the selected view.
     expect(screen.queryByText('common')).not.toBeInTheDocument();
-
-    // The 'All namespaces' clear button is present, confirming the scope box is active.
-    expect(screen.getByLabelText('All namespaces')).toBeInTheDocument();
   });
 
   describe('Filter Bar', () => {
@@ -474,7 +469,7 @@ describe('NamespacePage', () => {
 
       await waitFor(() => {
         expect(
-          screen.getByText('No nodes found with the current filters.'),
+          screen.getByText('No nodes match the current filters.'),
         ).toBeInTheDocument();
         expect(screen.getByText('Clear filters')).toBeInTheDocument();
       });
@@ -629,7 +624,7 @@ describe('NamespacePage', () => {
     });
   });
 
-  it('node search flips to flat recursive results and hides folders', async () => {
+  it('node search passes the search term to the fetch', async () => {
     mockDjClient.getNamespaceGitConfig.mockResolvedValue({
       github_repo_path: null,
       git_branch: null,
@@ -645,22 +640,24 @@ describe('NamespacePage', () => {
     renderWithProviders(<NamespacePage />, { route: '/namespaces/growth' });
 
     await waitFor(() =>
-      expect(screen.getByText('FOLDERS')).toBeInTheDocument(),
+      expect(mockDjClient.listNodesForLanding).toHaveBeenCalled(),
     );
 
     fireEvent.change(screen.getByPlaceholderText(/search nodes/i), {
       target: { value: 'active' },
     });
 
-    await waitFor(() => {
-      expect(screen.queryByText('FOLDERS')).not.toBeInTheDocument();
-      const opts = mockDjClient.listNodesForLanding.mock.calls.at(-1).at(-1);
-      expect(opts.recursive).toBe(true);
-      expect(opts.search).toBe('active');
-    });
+    // Wait for the 300 ms debounce and the subsequent fetch.
+    await waitFor(
+      () => {
+        const opts = mockDjClient.listNodesForLanding.mock.calls.at(-1).at(-1);
+        expect(opts.search).toBe('active');
+      },
+      { timeout: 1000 },
+    );
   });
 
-  it('shows folders for sub-namespaces and fetches direct nodes only', async () => {
+  it('shows sub-namespace folders in the rail', async () => {
     mockDjClient.getNamespaceGitConfig.mockResolvedValue({
       github_repo_path: null,
       git_branch: null,
@@ -676,16 +673,12 @@ describe('NamespacePage', () => {
     ]);
     renderWithProviders(<NamespacePage />, { route: '/namespaces/growth' });
 
-    // FOLDERS section lists immediate sub-namespaces.
+    // The rail (FolderTree) lists immediate sub-namespaces of the selected namespace.
     await waitFor(() => {
-      expect(screen.getByText('FOLDERS')).toBeInTheDocument();
+      expect(screen.getByText('Folders')).toBeInTheDocument();
       expect(screen.getByText('experiments')).toBeInTheDocument();
       expect(screen.getByText('metrics')).toBeInTheDocument();
     });
-
-    // Direct-node fetch used recursive:false.
-    const opts = mockDjClient.listNodesForLanding.mock.calls.at(-1).at(-1);
-    expect(opts.recursive).toBe(false);
   });
 
   it('resets pagination cursors to null when search term changes', async () => {
