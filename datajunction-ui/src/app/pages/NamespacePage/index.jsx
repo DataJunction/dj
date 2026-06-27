@@ -374,6 +374,9 @@ export function NamespacePage() {
   // Branch landing state (for git-root namespaces)
   const [branches, setBranches] = useState(null); // null = not yet fetched
   const [branchesLoading, setBranchesLoading] = useState(false);
+  // The branch list is collapsed by default — a git root can have many branches and
+  // the full card wall buries the rest of the page.
+  const [branchesExpanded, setBranchesExpanded] = useState(false);
   const [defaultBranchGroups, setDefaultBranchGroups] = useState([]);
   const [defaultBranchNodesLoading, setDefaultBranchNodesLoading] =
     useState(false);
@@ -1182,14 +1185,27 @@ export function NamespacePage() {
                 (branchesLoading || (branches && branches.length > 0)) ? (
                 <div style={{ padding: '8px 0' }}>
                   <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setBranchesExpanded(v => !v)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        setBranchesExpanded(v => !v);
+                      }
+                    }}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
                       gap: '8px',
-                      marginBottom: '16px',
-                      padding: '0 4px',
+                      marginBottom: branchesExpanded ? '16px' : '4px',
+                      padding: '4px',
+                      cursor: 'pointer',
+                      userSelect: 'none',
                     }}
                   >
+                    <span style={{ fontSize: '10px', color: '#64748b' }}>
+                      {branchesExpanded ? '▾' : '▸'}
+                    </span>
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
                       width="14"
@@ -1230,235 +1246,93 @@ export function NamespacePage() {
                     )}
                   </div>
 
-                  {branchesLoading ? (
-                    <div
-                      style={{
-                        padding: '20px 4px',
-                        color: '#94a3b8',
-                        fontSize: '13px',
-                      }}
-                    >
-                      <LoadingIcon />
-                    </div>
-                  ) : (
-                    <div
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns:
-                          'repeat(auto-fill, minmax(280px, 1fr))',
-                        gap: '12px',
-                      }}
-                    >
-                      {branches.map(b => {
-                        const isDefault =
-                          b.git_branch === gitConfig?.default_branch ||
-                          b.namespace ===
-                            `${namespace}.${gitConfig?.default_branch}`;
-                        return (
-                          <a
-                            key={b.namespace}
-                            href={`/namespaces/${b.namespace}`}
-                            style={{ textDecoration: 'none' }}
-                          >
-                            <div
+                  {branchesExpanded ? (
+                    branchesLoading ? (
+                      <div
+                        style={{
+                          padding: '20px 4px',
+                          color: '#94a3b8',
+                          fontSize: '13px',
+                        }}
+                      >
+                        <LoadingIcon />
+                      </div>
+                    ) : (
+                      <div style={{ paddingBottom: '8px' }}>
+                        {branches.map(b => {
+                          const isDefault =
+                            b.git_branch === gitConfig?.default_branch ||
+                            b.namespace ===
+                              `${namespace}.${gitConfig?.default_branch}`;
+                          return (
+                            <a
+                              key={b.namespace}
+                              href={`/namespaces/${b.namespace}`}
                               style={{
-                                padding: '14px 16px',
-                                border: `1px solid ${
-                                  isDefault ? '#bfdbfe' : '#e2e8f0'
-                                }`,
-                                borderRadius: '8px',
-                                backgroundColor: isDefault
-                                  ? '#f0f7ff'
-                                  : '#ffffff',
-                                cursor: 'pointer',
-                                transition:
-                                  'box-shadow 0.15s ease, border-color 0.15s ease',
-                              }}
-                              onMouseOver={e => {
-                                e.currentTarget.style.boxShadow =
-                                  '0 2px 8px rgba(0,0,0,0.08)';
-                                e.currentTarget.style.borderColor = isDefault
-                                  ? '#93c5fd'
-                                  : '#cbd5e1';
-                              }}
-                              onMouseOut={e => {
-                                e.currentTarget.style.boxShadow = 'none';
-                                e.currentTarget.style.borderColor = isDefault
-                                  ? '#bfdbfe'
-                                  : '#e2e8f0';
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                maxWidth: '460px',
+                                padding: '3px 8px 3px 24px',
+                                textDecoration: 'none',
+                                color: '#334155',
+                                fontSize: '13px',
+                                borderRadius: '4px',
                               }}
                             >
-                              <div
+                              <span
                                 style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'space-between',
-                                  marginBottom: '8px',
+                                  fontWeight: 600,
+                                  flex: '0 1 auto',
+                                  minWidth: 0,
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
                                 }}
                               >
-                                <div
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '6px',
-                                  }}
-                                >
-                                  <svg
-                                    xmlns="http://www.w3.org/2000/svg"
-                                    width="13"
-                                    height="13"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke={isDefault ? '#1e40af' : '#475569'}
-                                    strokeWidth="2"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                  >
-                                    <line x1="6" y1="3" x2="6" y2="15" />
-                                    <circle cx="18" cy="6" r="3" />
-                                    <circle cx="6" cy="18" r="3" />
-                                    <path d="M18 9a9 9 0 0 1-9 9" />
-                                  </svg>
-                                  <span
-                                    style={{
-                                      fontWeight: '600',
-                                      fontSize: '14px',
-                                      color: isDefault ? '#1e40af' : '#1e293b',
-                                    }}
-                                  >
-                                    {b.git_branch || b.namespace}
-                                  </span>
-                                  {isDefault && (
-                                    <span
-                                      style={{
-                                        fontSize: '10px',
-                                        padding: '1px 6px',
-                                        backgroundColor: '#1e40af',
-                                        color: 'white',
-                                        borderRadius: '10px',
-                                        fontWeight: '600',
-                                      }}
-                                    >
-                                      default
-                                    </span>
-                                  )}
-                                </div>
-                                {b.git_only && (
-                                  <span
-                                    style={{
-                                      fontSize: '10px',
-                                      padding: '1px 6px',
-                                      backgroundColor: '#fef3c7',
-                                      color: '#92400e',
-                                      borderRadius: '10px',
-                                    }}
-                                  >
-                                    read-only
-                                  </span>
-                                )}
-                              </div>
-                              <div
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '12px',
-                                  fontSize: '12px',
-                                  color: '#64748b',
-                                }}
-                              >
+                                {b.git_branch || b.namespace}
+                              </span>
+                              {isDefault ? (
                                 <span
                                   style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '4px',
+                                    fontSize: '10px',
+                                    padding: '1px 6px',
+                                    backgroundColor: '#eff6ff',
+                                    color: '#1e40af',
+                                    borderRadius: '8px',
+                                    flexShrink: 0,
                                   }}
                                 >
-                                  <svg
-                                    xmlns="http://www.w3.org/2000/svg"
-                                    width="11"
-                                    height="11"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="2"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                  >
-                                    <rect x="3" y="3" width="7" height="7" />
-                                    <rect x="14" y="3" width="7" height="7" />
-                                    <rect x="14" y="14" width="7" height="7" />
-                                    <rect x="3" y="14" width="7" height="7" />
-                                  </svg>
-                                  {b.num_nodes} nodes
+                                  default
                                 </span>
-                                {b.invalid_node_count > 0 && (
-                                  <span
-                                    style={{
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: '3px',
-                                      color: '#dc2626',
-                                    }}
-                                  >
-                                    <svg
-                                      xmlns="http://www.w3.org/2000/svg"
-                                      width="11"
-                                      height="11"
-                                      viewBox="0 0 24 24"
-                                      fill="none"
-                                      stroke="currentColor"
-                                      strokeWidth="2"
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                    >
-                                      <circle cx="12" cy="12" r="10" />
-                                      <line x1="12" y1="8" x2="12" y2="12" />
-                                      <line
-                                        x1="12"
-                                        y1="16"
-                                        x2="12.01"
-                                        y2="16"
-                                      />
-                                    </svg>
-                                    {b.invalid_node_count} invalid
-                                  </span>
-                                )}
-                                {b.last_updated_at && (
-                                  <span
-                                    style={{
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: '3px',
-                                      color: '#94a3b8',
-                                    }}
-                                    title={`Last node update: ${new Date(
-                                      b.last_updated_at,
-                                    ).toLocaleString()}`}
-                                  >
-                                    <svg
-                                      xmlns="http://www.w3.org/2000/svg"
-                                      width="11"
-                                      height="11"
-                                      viewBox="0 0 24 24"
-                                      fill="none"
-                                      stroke="currentColor"
-                                      strokeWidth="2"
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                    >
-                                      <circle cx="12" cy="12" r="10" />
-                                      <polyline points="12 6 12 12 16 14" />
-                                    </svg>
-                                    {formatRelativeTime(b.last_updated_at)}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          </a>
-                        );
-                      })}
-                    </div>
-                  )}
+                              ) : null}
+                              <span
+                                style={{
+                                  marginLeft: 'auto',
+                                  color: '#94a3b8',
+                                  fontSize: '12px',
+                                  flexShrink: 0,
+                                }}
+                              >
+                                {b.num_nodes} nodes
+                              </span>
+                              {b.last_updated_at ? (
+                                <span
+                                  style={{
+                                    color: '#cbd5e1',
+                                    fontSize: '12px',
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  {formatRelativeTime(b.last_updated_at)}
+                                </span>
+                              ) : null}
+                            </a>
+                          );
+                        })}
+                      </div>
+                    )
+                  ) : null}
 
                   {/* Default branch node preview grouped by type */}
                   {gitConfig?.default_branch && (

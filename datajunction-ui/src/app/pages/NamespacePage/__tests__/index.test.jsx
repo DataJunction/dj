@@ -653,15 +653,21 @@ describe('NamespacePage', () => {
       mockDjClient.getNamespaceBranches.mockResolvedValue(mockBranches);
     });
 
-    it('shows Branches section for a git-root namespace', async () => {
+    it('shows a collapsed Branches section, expanding to the branch list', async () => {
       renderWithProviders(<NamespacePage />);
 
+      // Header is always present; the branch list is collapsed by default.
       await waitFor(() => {
         expect(screen.getByText('Branches')).toBeInTheDocument();
-        // cards show git_branch value; 'main' appears in both the card title
-        // and the default branch section header, so use getAllByText
-        expect(screen.getAllByText('main').length).toBeGreaterThan(0);
+      });
+      expect(screen.queryByText('feature-xyz')).not.toBeInTheDocument();
+
+      // Expanding the Branches header reveals the (compact) branch list.
+      fireEvent.click(screen.getByText('Branches'));
+      await waitFor(() => {
         expect(screen.getByText('feature-xyz')).toBeInTheDocument();
+        // 'main' appears both as a branch row and in the default-branch preview header.
+        expect(screen.getAllByText('main').length).toBeGreaterThan(0);
       });
     });
 
@@ -675,12 +681,13 @@ describe('NamespacePage', () => {
       });
     });
 
-    it('shows node counts and invalid counts on branch cards', async () => {
+    it('shows per-branch node counts in the expanded list', async () => {
       renderWithProviders(<NamespacePage />);
 
+      // Expand the collapsed Branches list, then assert the compact rows' node counts.
+      fireEvent.click(await screen.findByText('Branches'));
       await waitFor(() => {
         expect(screen.getByText('10 nodes')).toBeInTheDocument();
-        expect(screen.getByText('1 invalid')).toBeInTheDocument();
         expect(screen.getByText('5 nodes')).toBeInTheDocument();
       });
     });
