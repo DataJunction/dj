@@ -16,8 +16,8 @@ import {
 import LoadingIcon from '../../icons/LoadingIcon';
 import CompactSelect from './CompactSelect';
 import NamespaceNav from './NamespaceNav';
-import FolderList from './FolderList';
 import { immediateChildren } from './namespaceOptions';
+import { NODE_TYPE_ORDER, NODE_TYPE_COLORS } from './nodeTypes';
 import { getDJUrl } from '../../services/DJService';
 
 import 'styles/node-list.css';
@@ -33,6 +33,15 @@ const AVATAR_COLORS = [
   ['#fee2e2', '#991b1b'], // red
   ['#d1fae5', '#065f46'], // teal
 ];
+// Namespaces hidden from browse navigation (system/internal scratch areas) —
+// the namespace itself and anything beneath it.
+const HIDDEN_NAMESPACES = ['system.temp'];
+function isHiddenNamespace(name) {
+  return HIDDEN_NAMESPACES.some(
+    hidden => name === hidden || name.startsWith(`${hidden}.`),
+  );
+}
+
 function avatarColorIndex(username) {
   let hash = 0;
   for (let i = 0; i < username.length; i++) {
@@ -236,6 +245,8 @@ export function NamespacePage() {
     setAfter(null);
   }, [debouncedSearch]);
 
+  const [typeCounts, setTypeCounts] = useState(null);
+
   // Only show edit/add controls once git config has loaded and namespace is not git-only
   const gitConfigLoaded = gitConfig !== undefined;
   // Descendants inherit github_repo_path via cascade, so compare against
@@ -254,8 +265,46 @@ export function NamespacePage() {
       ? `${namespace}.${gitConfig.default_branch}`
       : namespace;
 
-  // Immediate sub-namespaces of the namespace being browsed (folder rows).
+  // A git root has no nodes of its own and isn't a browsable branch — redirect to
+  // its default branch so the URL is the branch (giving the breadcrumb its branch
+  // switcher) and everything is scoped consistently.
+  useEffect(() => {
+    if (isGitRoot && gitConfig?.default_branch) {
+      navigate(`/namespaces/${namespace}.${gitConfig.default_branch}`, {
+        replace: true,
+      });
+    }
+  }, [isGitRoot, gitConfig, namespace, navigate]);
+
+  // Immediate sub-namespaces ("folders") of the namespace being browsed — used
+  // to give a container namespace (folders but no direct nodes) a helpful empty
+  // state instead of a misleading "no nodes" message.
   const subFolders = immediateChildren(namespaceHierarchy, tableNamespace);
+  // Show the rail when there's something to navigate: the all-namespaces list
+  // (no namespace selected) or sub-namespace folders. A leaf namespace has
+  // neither, so the rail collapses and the table takes the full width.
+  const showRail = !namespace || subFolders.length > 0;
+
+  // Per-type node counts (recursive) for the current namespace, shown inline in
+  // the TYPE filter options (e.g. "Metric (342)").
+  useEffect(() => {
+    let cancelled = false;
+    if (!tableNamespace) {
+      setTypeCounts(null);
+      return;
+    }
+    djClient
+      .nodeTypeCounts(tableNamespace, NODE_TYPE_ORDER)
+      .then(byType => {
+        if (!cancelled) setTypeCounts(byType);
+      })
+      .catch(() => {
+        if (!cancelled) setTypeCounts(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [djClient, tableNamespace]);
 
   const requestSort = key => {
     let direction = ASC;
@@ -305,7 +354,10 @@ export function NamespacePage() {
 
   useEffect(() => {
     const fetchData = async () => {
-      const namespaces = await djClient.listNamespacesWithGit();
+      const all = await djClient.listNamespacesWithGit();
+      // Hide system/internal scratch namespaces from all browse navigation
+      // (rail list, header switcher, folders).
+      const namespaces = all.filter(ns => !isHiddenNamespace(ns.namespace));
       setRawNamespaces(namespaces);
       const hierarchy = createNamespaceHierarchy(namespaces);
       setNamespaceHierarchy(hierarchy);
@@ -331,7 +383,10 @@ export function NamespacePage() {
         missingDescription: filters.missingDescription,
         hasMaterialization: filters.hasMaterialization,
         orphanedDimension: filters.orphanedDimension,
-        recursive: searchActive,
+        // The table shows every node under this namespace (recursive), matching
+        // the rail's recursive type counts. The rail's Folders drill DOWN to
+        // re-scope; search narrows within the current scope.
+        recursive: true,
         search: searchActive ? debouncedSearch : null,
       };
 
@@ -401,14 +456,56 @@ export function NamespacePage() {
     }
   };
 
-  // Select options
-  const typeOptions = [
-    { value: 'source', label: 'Source' },
-    { value: 'transform', label: 'Transform' },
-    { value: 'dimension', label: 'Dimension' },
-    { value: 'metric', label: 'Metric' },
-    { value: 'cube', label: 'Cube' },
-  ];
+  // Select options. TYPE options carry the recursive per-type node count for the
+  // current namespace (e.g. "Metric (342)") — this replaces the old rail counts.
+  const TYPE_LABELS = {
+    metric: 'Metric',
+    cube: 'Cube',
+    dimension: 'Dimension',
+    transform: 'Transform',
+    source: 'Source',
+  };
+  const typeOptions = NODE_TYPE_ORDER.map(type => ({
+    value: type,
+    label: TYPE_LABELS[type],
+    count: typeCounts?.[type] ?? null,
+  }));
+
+  // Renders a TYPE option as "<name> <colored count pill>" (pill colors match the
+  // node-type badges). Right-aligns the pill in the menu; inline in the control.
+  const formatTypeOption = (option, meta) => {
+    const pill =
+      option.count != null ? (
+        <span
+          style={{
+            backgroundColor: NODE_TYPE_COLORS[option.value]?.bg ?? '#f1f5f9',
+            color: NODE_TYPE_COLORS[option.value]?.color ?? '#475569',
+            borderRadius: '8px',
+            padding: '1px 8px',
+            fontSize: '11px',
+            fontWeight: 600,
+            fontVariantNumeric: 'tabular-nums',
+          }}
+        >
+          {option.count}
+        </span>
+      ) : null;
+    return (
+      <span
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          justifyContent:
+            meta?.context === 'menu' ? 'space-between' : 'flex-start',
+          width: meta?.context === 'menu' ? '100%' : 'auto',
+        }}
+      >
+        <span>{option.label}</span>
+        {pill}
+      </span>
+    );
+  };
 
   const modeOptions = [
     { value: 'published', label: 'Published' },
@@ -561,18 +658,50 @@ export function NamespacePage() {
               fontSize: '16px',
             }}
           >
-            No nodes found with the current filters.
-            {hasActiveFilters && (
-              <a
-                href="#"
-                onClick={e => {
-                  e.preventDefault();
-                  clearAllFilters();
-                }}
-                style={{ marginLeft: '0.5rem' }}
-              >
-                Clear filters
-              </a>
+            {hasActiveFilters ? (
+              <>
+                No nodes match the current filters.
+                <a
+                  href="#"
+                  onClick={e => {
+                    e.preventDefault();
+                    clearAllFilters();
+                  }}
+                  style={{ marginLeft: '0.5rem' }}
+                >
+                  Clear filters
+                </a>
+              </>
+            ) : subFolders.length > 0 ? (
+              <>
+                This namespace has no nodes of its own. Open one of its{' '}
+                {subFolders.length}{' '}
+                {subFolders.length === 1 ? 'folder' : 'folders'} to browse:
+                <span
+                  style={{
+                    display: 'block',
+                    marginTop: '0.75rem',
+                    fontSize: '14px',
+                  }}
+                >
+                  {subFolders.map((f, i) => (
+                    <React.Fragment key={f.path}>
+                      {i > 0 && <span style={{ color: '#cbd5e1' }}> · </span>}
+                      <a
+                        href={`/namespaces/${f.path}`}
+                        onClick={e => {
+                          e.preventDefault();
+                          navigate(`/namespaces/${f.path}`);
+                        }}
+                      >
+                        {f.namespace}
+                      </a>
+                    </React.Fragment>
+                  ))}
+                </span>
+              </>
+            ) : (
+              'No nodes in this namespace yet.'
             )}
           </span>
         </td>
@@ -700,6 +829,7 @@ export function NamespacePage() {
                   onChange={e =>
                     updateFilters({ ...filters, node_type: e?.value || '' })
                   }
+                  formatOptionLabel={formatTypeOption}
                   flex={1}
                   minWidth="80px"
                   testId="select-node-type"
@@ -909,78 +1039,91 @@ export function NamespacePage() {
             </div>
           )}
 
-          <div className="table-responsive">
-            <div
-              className={`sidebar`}
-              style={{ borderRight: '1px solid #e2e8f0', paddingRight: '1rem' }}
-            >
-              <NamespaceNav
-                namespaces={rawNamespaces}
-                hierarchy={namespaceHierarchy}
-                currentNamespace={namespace}
-                stateNamespace={state.namespace}
-                gitRoots={gitRoots}
-                onSelect={value =>
-                  navigate(value ? `/namespaces/${value}` : '/')
-                }
-              />
-            </div>
-            <div style={{ flex: 1, minWidth: 0, marginLeft: '1.5rem' }}>
-              <NamespaceHeader
-                namespace={namespace}
-                onGitConfigLoaded={setGitConfig}
+          <NamespaceHeader
+            namespace={namespace}
+            onGitConfigLoaded={setGitConfig}
+            namespaceOptions={rawNamespaces}
+            currentNamespace={namespace}
+          >
+            {namespace && (
+              <Tooltip
+                content={`Download every node in "${namespace}" as a YAML project (.zip) you can version in git and re-deploy with the DJ client.`}
               >
-                {namespace && (
-                  <Tooltip
-                    content={`Download every node in "${namespace}" as a YAML project (.zip) you can version in git and re-deploy with the DJ client.`}
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const response = await fetch(
+                      `${getDJUrl()}/namespaces/${namespace}/export/yaml`,
+                      { method: 'POST', credentials: 'include' },
+                    );
+                    if (!response.ok) {
+                      return;
+                    }
+                    const blob = await response.blob();
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    const safeName = namespace.replace(/\./g, '_');
+                    link.href = url;
+                    link.download = `${safeName}_export.zip`;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    URL.revokeObjectURL(url);
+                  }}
+                  style={secondaryButtonStyle}
+                  onMouseOver={onSecondaryHover}
+                  onMouseOut={onSecondaryOut}
+                  aria-label="Export namespace to YAML"
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
                   >
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        const response = await fetch(
-                          `${getDJUrl()}/namespaces/${namespace}/export/yaml`,
-                          { method: 'POST', credentials: 'include' },
-                        );
-                        if (!response.ok) {
-                          return;
-                        }
-                        const blob = await response.blob();
-                        const url = URL.createObjectURL(blob);
-                        const link = document.createElement('a');
-                        const safeName = namespace.replace(/\./g, '_');
-                        link.href = url;
-                        link.download = `${safeName}_export.zip`;
-                        document.body.appendChild(link);
-                        link.click();
-                        document.body.removeChild(link);
-                        URL.revokeObjectURL(url);
-                      }}
-                      style={secondaryButtonStyle}
-                      onMouseOver={onSecondaryHover}
-                      onMouseOut={onSecondaryOut}
-                      aria-label="Export namespace to YAML"
-                    >
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                        <polyline points="7 10 12 15 17 10"></polyline>
-                        <line x1="12" y1="15" x2="12" y2="3"></line>
-                      </svg>
-                      Export YAML
-                    </button>
-                  </Tooltip>
-                )}
-                {showEditControls && <AddNodeDropdown namespace={namespace} />}
-              </NamespaceHeader>
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                  </svg>
+                  Export YAML
+                </button>
+              </Tooltip>
+            )}
+            {showEditControls && <AddNodeDropdown namespace={namespace} />}
+          </NamespaceHeader>
 
+          <div className="table-responsive">
+            {showRail && (
+              <div
+                className={`sidebar`}
+                style={{
+                  borderRight: '1px solid #e2e8f0',
+                  paddingRight: '1rem',
+                }}
+              >
+                <NamespaceNav
+                  namespaces={rawNamespaces}
+                  hierarchy={namespaceHierarchy}
+                  currentNamespace={namespace}
+                  stateNamespace={state.namespace}
+                  gitRoots={gitRoots}
+                  onSelect={value =>
+                    navigate(value ? `/namespaces/${value}` : '/')
+                  }
+                />
+              </div>
+            )}
+            <div
+              style={{
+                flex: 1,
+                minWidth: 0,
+                marginLeft: showRail ? '1.5rem' : 0,
+              }}
+            >
               {gitConfigLoaded && (
                 <input
                   type="text"
@@ -989,12 +1132,6 @@ export function NamespacePage() {
                   onChange={e => setNodeSearch(e.target.value)}
                   placeholder="Search nodes in this namespace…"
                   aria-label="Search nodes in this namespace"
-                />
-              )}
-              {!searchActive && (
-                <FolderList
-                  folders={subFolders}
-                  onOpen={value => navigate(`/namespaces/${value}`)}
                 />
               )}
 

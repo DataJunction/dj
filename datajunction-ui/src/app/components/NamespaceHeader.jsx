@@ -1,4 +1,5 @@
 import { useContext, useEffect, useState, useRef } from 'react';
+import { searchNamespaces } from '../pages/NamespacePage/namespaceOptions';
 import DJClientContext from '../providers/djclient';
 import Tooltip from './Tooltip';
 import {
@@ -22,6 +23,8 @@ export default function NamespaceHeader({
   namespace,
   children,
   onGitConfigLoaded,
+  namespaceOptions,
+  currentNamespace,
 }) {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const [sources, setSources] = useState(null);
@@ -40,6 +43,11 @@ export default function NamespaceHeader({
   const [branches, setBranches] = useState([]);
   const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
   const branchDropdownRef = useRef(null);
+
+  // Namespace switcher state (opt-in: only active when namespaceOptions is provided)
+  const [nsSwitcherOpen, setNsSwitcherOpen] = useState(false);
+  const [nsQuery, setNsQuery] = useState('');
+  const nsSwitcherRef = useRef(null);
 
   // Modal states
   const [showGitSettings, setShowGitSettings] = useState(false);
@@ -160,6 +168,12 @@ export default function NamespaceHeader({
         !branchDropdownRef.current.contains(event.target)
       ) {
         setBranchDropdownOpen(false);
+      }
+      if (
+        nsSwitcherRef.current &&
+        !nsSwitcherRef.current.contains(event.target)
+      ) {
+        setNsSwitcherOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -299,14 +313,23 @@ export default function NamespaceHeader({
           {namespace ? (
             namespaceParts.map((part, index, arr) => {
               const isLast = index === arr.length - 1;
-              const href = `/namespaces/${arr.slice(0, index + 1).join('.')}`;
+              const cumulative = arr.slice(0, index + 1).join('.');
+              const href = `/namespaces/${cumulative}`;
+              // The branch crumb (the segment whose cumulative path equals the
+              // branch namespace) becomes the branch switcher — at ANY depth, not
+              // only when the URL is exactly the branch root (so it stays available
+              // after drilling into sub-namespaces below the branch).
+              const isBranchCrumb =
+                isInBranch && cumulative === branchNamespace;
               return (
                 <span
                   key={index}
                   style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
                 >
-                  {/* Last segment of a branch namespace becomes the branch switcher */}
-                  {isLast && isBranchNamespace ? (
+                  {/* The branch crumb becomes the branch switcher. The first
+                      segment becomes a searchable namespace switcher when
+                      namespaceOptions is provided (opt-in). */}
+                  {isBranchCrumb ? (
                     <div
                       ref={branchDropdownRef}
                       style={{ position: 'relative' }}
@@ -468,6 +491,122 @@ export default function NamespaceHeader({
                               );
                             })
                           )}
+                        </div>
+                      )}
+                    </div>
+                  ) : index === 0 && namespaceOptions !== undefined ? (
+                    <div ref={nsSwitcherRef} style={{ position: 'relative' }}>
+                      <button
+                        onClick={() => {
+                          setNsSwitcherOpen(o => !o);
+                          setNsQuery('');
+                        }}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          padding: '0',
+                          background: 'none',
+                          border: 'none',
+                          fontWeight: '400',
+                          fontSize: 'inherit',
+                          color: '#1e293b',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {part}
+                        <span style={{ fontSize: '8px', color: '#94a3b8' }}>
+                          {nsSwitcherOpen ? '▲' : '▼'}
+                        </span>
+                      </button>
+
+                      {nsSwitcherOpen && (
+                        <div
+                          style={{
+                            position: 'absolute',
+                            top: '100%',
+                            left: 0,
+                            marginTop: '4px',
+                            backgroundColor: 'white',
+                            border: '1px solid #e2e8f0',
+                            borderRadius: '8px',
+                            boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
+                            zIndex: 1000,
+                            minWidth: '220px',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          <div style={{ padding: '8px' }}>
+                            <input
+                              type="text"
+                              value={nsQuery}
+                              onChange={e => setNsQuery(e.target.value)}
+                              placeholder="Find a namespace…"
+                              autoFocus
+                              style={{
+                                width: '100%',
+                                padding: '6px 8px',
+                                fontSize: '12px',
+                                border: '1px solid #e2e8f0',
+                                borderRadius: '4px',
+                                outline: 'none',
+                                boxSizing: 'border-box',
+                              }}
+                            />
+                          </div>
+                          <div
+                            style={{ maxHeight: '280px', overflowY: 'auto' }}
+                          >
+                            {(() => {
+                              // Default list: top-level namespaces only (the
+                              // switcher is for jumping between top-level areas;
+                              // deeper levels are reached by drilling folders).
+                              // Typing searches across ALL depths.
+                              const results = nsQuery.trim()
+                                ? searchNamespaces(namespaceOptions, nsQuery)
+                                : [...namespaceOptions]
+                                    .map(ns => ns.namespace)
+                                    .filter(name => !name.includes('.'))
+                                    .sort((a, b) => a.localeCompare(b));
+                              if (results.length === 0) {
+                                return (
+                                  <div
+                                    style={{
+                                      padding: '8px 12px',
+                                      fontSize: '12px',
+                                      color: '#94a3b8',
+                                    }}
+                                  >
+                                    No namespaces match.
+                                  </div>
+                                );
+                              }
+                              return results.map(path => {
+                                const isCurrent = path === currentNamespace;
+                                return (
+                                  <a
+                                    key={path}
+                                    href={`/namespaces/${path}`}
+                                    onClick={() => setNsSwitcherOpen(false)}
+                                    style={{
+                                      display: 'block',
+                                      padding: '7px 12px',
+                                      fontSize: '13px',
+                                      color: isCurrent ? '#1e40af' : '#1e293b',
+                                      backgroundColor: isCurrent
+                                        ? '#eff6ff'
+                                        : 'white',
+                                      textDecoration: 'none',
+                                      borderBottom: '1px solid #f8fafc',
+                                      fontWeight: isCurrent ? 600 : 400,
+                                    }}
+                                  >
+                                    {path}
+                                  </a>
+                                );
+                              });
+                            })()}
+                          </div>
                         </div>
                       )}
                     </div>

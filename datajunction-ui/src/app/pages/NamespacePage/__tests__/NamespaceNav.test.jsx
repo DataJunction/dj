@@ -116,7 +116,7 @@ describe('NamespaceNav', () => {
     expect(onSelect).toHaveBeenCalledWith(null);
   });
 
-  it('rail shows siblings + current, not the current folder children', () => {
+  it('rail folder nav shows the current namespace child folders, not its siblings', () => {
     const hierarchy = [
       { namespace: 'default', path: 'default', children: [] },
       {
@@ -124,34 +124,42 @@ describe('NamespaceNav', () => {
         path: 'growth',
         children: [
           { namespace: 'metrics', path: 'growth.metrics', children: [] },
+          {
+            namespace: 'experiments',
+            path: 'growth.experiments',
+            children: [],
+          },
         ],
       },
       { namespace: 'marketing', path: 'marketing', children: [] },
     ];
-    const jumpTreeNamespaces = [
+    const folderNamespaces = [
       { namespace: 'default', git: null },
       { namespace: 'growth', git: null },
       { namespace: 'growth.metrics', git: null },
+      { namespace: 'growth.experiments', git: null },
       { namespace: 'marketing', git: null },
     ];
     const onSelect = vi.fn();
     render(
       <NamespaceNav
-        namespaces={jumpTreeNamespaces}
+        namespaces={folderNamespaces}
         hierarchy={hierarchy}
         currentNamespace="growth"
         gitRoots={new Set()}
         onSelect={onSelect}
       />,
     );
-    // siblings of growth are present in the rail
-    expect(screen.getByText('default')).toBeInTheDocument();
-    expect(screen.getByText('marketing')).toBeInTheDocument();
-    // growth.metrics (a child of current) is NOT shown in the rail
-    expect(screen.queryByText('metrics')).not.toBeInTheDocument();
-    // clicking a sibling navigates
-    fireEvent.click(screen.getByText('default'));
-    expect(onSelect).toHaveBeenCalledWith('default');
+    // The rail lists the current namespace's child folders for drilling in.
+    expect(screen.getByText('Folders')).toBeInTheDocument();
+    expect(screen.getByText('metrics')).toBeInTheDocument();
+    expect(screen.getByText('experiments')).toBeInTheDocument();
+    // Siblings of the current namespace are NOT shown (no all-namespaces explosion).
+    expect(screen.queryByText('default')).not.toBeInTheDocument();
+    expect(screen.queryByText('marketing')).not.toBeInTheDocument();
+    // Clicking a child folder drills into it.
+    fireEvent.click(screen.getByText('metrics'));
+    expect(onSelect).toHaveBeenCalledWith('growth.metrics');
   });
 
   it('on a git root, shows a branch switcher defaulting to the default branch', () => {

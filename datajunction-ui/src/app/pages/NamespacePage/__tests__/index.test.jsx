@@ -254,11 +254,10 @@ describe('NamespacePage', () => {
     });
   });
 
-  it('jump-tree rail: current namespace is marked, siblings appear, back-to-all works', async () => {
-    // The Explorer-based inline add-namespace was removed when the rail was
-    // replaced with the jump tree. This test verifies the new rail semantics
-    // at the integration level: current node marked, sibling present, clear
-    // button navigates back to all-namespaces view.
+  it('rail folder nav: shows child folders to drill into, back-to-all works', async () => {
+    // The rail is the folder navigator: it lists the current namespace's child
+    // sub-namespaces (drill in by clicking), NOT its siblings or an
+    // all-namespaces list. Going up a level is handled by the header breadcrumb.
     const element = (
       <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
         <NamespacePage />
@@ -272,22 +271,15 @@ describe('NamespacePage', () => {
       </MemoryRouter>,
     );
 
-    // Jump tree loads after the namespace hierarchy is fetched.
+    // Folder nav loads after the namespace hierarchy is fetched: 'default' has
+    // child folders 'fruits' and 'vegetables'.
     await waitFor(() => {
-      // 'default' appears in the rail as the current node (dj-ns-nav-current)
-      // and 'common' appears as its sibling.
-      expect(screen.getByText('common')).toBeInTheDocument();
+      expect(screen.getByText('Folders')).toBeInTheDocument();
+      expect(screen.getByText('fruits')).toBeInTheDocument();
     });
 
-    // The current namespace 'default' appears in the rail (as the current row).
-    const currentRows = screen
-      .getAllByRole('button')
-      .filter(
-        b =>
-          b.classList.contains('dj-ns-nav-item') &&
-          b.classList.contains('dj-ns-nav-current'),
-      );
-    expect(currentRows.length).toBeGreaterThan(0);
+    // Siblings / all-namespaces are NOT shown in the selected view.
+    expect(screen.queryByText('common')).not.toBeInTheDocument();
 
     // The 'All namespaces' clear button is present, confirming the scope box is active.
     expect(screen.getByLabelText('All namespaces')).toBeInTheDocument();

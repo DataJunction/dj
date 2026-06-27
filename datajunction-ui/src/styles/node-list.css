@@ -233,6 +233,21 @@ table {
   padding: 0 4px;
 }
 
+/* Node search box in the namespace main panel */
+.dj-node-search {
+  width: 100%;
+  max-width: 360px;
+  box-sizing: border-box;
+  padding: 9px 12px;
+  font-size: 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  margin-bottom: 12px;
+}
+.dj-node-search::placeholder {
+  color: #94a3b8;
+}
+
 /* Namespace tree (Explorer) — row actions: persistent pin + kebab menu */
 .dj-ns-row-actions {
   position: absolute;
