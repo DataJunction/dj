@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
-import Explorer from './Explorer';
 import NamespaceTypeSummary from './NamespaceTypeSummary';
 import CollapsedIcon from '../../icons/CollapsedIcon';
 import ExpandedIcon from '../../icons/ExpandedIcon';
 import {
   buildNamespaceOptions,
   searchNamespaces,
-  findHierarchyNode,
+  buildJumpTree,
 } from './namespaceOptions';
 import { getPinned, togglePinned } from './namespaceShortcuts';
 
@@ -133,13 +132,6 @@ export default function NamespaceNav({
     ctx?.isRoot && ctx.defaultBranch
       ? `${ctx.root}.${ctx.defaultBranch}`
       : currentNamespace;
-  const subtreeNode = currentNamespace
-    ? findHierarchyNode(hierarchy || [], subtreePath)
-    : null;
-  // At the branch root the switcher already names the branch, so render its
-  // children directly instead of repeating the branch as the tree root.
-  const atBranchRoot =
-    !!ctx && subtreePath === `${ctx.root}.${ctx.activeBranch}`;
   const currentPinned = currentNamespace
     ? pinnedSet.has(currentNamespace)
     : false;
@@ -280,36 +272,32 @@ export default function NamespaceNav({
           {/* This branch only renders when a namespace is selected (showList is false),
               so currentNamespace is always truthy here — no guard needed. */}
           <NamespaceTypeSummary namespace={subtreePath} showHeading={false} />
-          {(
-            atBranchRoot
-              ? (subtreeNode?.children || []).length > 0
-              : !!subtreeNode
-          ) ? (
-            <div className="dj-ns-tree-heading">Sub-namespaces</div>
-          ) : null}
-          <div style={{ paddingLeft: '12px' }}>
-            {subtreeNode && atBranchRoot ? (
-              (subtreeNode.children || []).map(child => (
-                <Explorer
-                  item={child}
-                  current={subtreePath}
-                  key={child.namespace}
-                  gitRoots={gitRoots}
-                  pinnedSet={pinnedSet}
-                  onTogglePin={ns => setPinned(togglePinned(ns))}
-                />
-              ))
-            ) : subtreeNode ? (
-              <Explorer
-                item={subtreeNode}
-                current={subtreePath}
-                key={subtreeNode.namespace}
-                gitRoots={gitRoots}
-                pinnedSet={pinnedSet}
-                onTogglePin={ns => setPinned(togglePinned(ns))}
-              />
-            ) : null}
-          </div>
+          {(() => {
+            const rows = buildJumpTree(hierarchy || [], subtreePath);
+            if (rows.length === 0) return null;
+            return (
+              <div className="dj-ns-jump-tree">
+                {rows.map(row => (
+                  <div
+                    key={row.path}
+                    className={`dj-ns-nav-item${
+                      row.isCurrent ? ' dj-ns-nav-current' : ''
+                    }`}
+                    role="button"
+                    tabIndex={0}
+                    title={row.path}
+                    style={{ paddingLeft: `${row.depth * 12}px` }}
+                    onClick={() => select(row.path)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') select(row.path);
+                    }}
+                  >
+                    <span className="dj-ns-nav-name">{row.namespace}</span>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
         </div>
       )}
     </div>

@@ -116,6 +116,44 @@ describe('NamespaceNav', () => {
     expect(onSelect).toHaveBeenCalledWith(null);
   });
 
+  it('rail shows siblings + current, not the current folder children', () => {
+    const hierarchy = [
+      { namespace: 'default', path: 'default', children: [] },
+      {
+        namespace: 'growth',
+        path: 'growth',
+        children: [
+          { namespace: 'metrics', path: 'growth.metrics', children: [] },
+        ],
+      },
+      { namespace: 'marketing', path: 'marketing', children: [] },
+    ];
+    const jumpTreeNamespaces = [
+      { namespace: 'default', git: null },
+      { namespace: 'growth', git: null },
+      { namespace: 'growth.metrics', git: null },
+      { namespace: 'marketing', git: null },
+    ];
+    const onSelect = vi.fn();
+    render(
+      <NamespaceNav
+        namespaces={jumpTreeNamespaces}
+        hierarchy={hierarchy}
+        currentNamespace="growth"
+        gitRoots={new Set()}
+        onSelect={onSelect}
+      />,
+    );
+    // siblings of growth are present in the rail
+    expect(screen.getByText('default')).toBeInTheDocument();
+    expect(screen.getByText('marketing')).toBeInTheDocument();
+    // growth.metrics (a child of current) is NOT shown in the rail
+    expect(screen.queryByText('metrics')).not.toBeInTheDocument();
+    // clicking a sibling navigates
+    fireEvent.click(screen.getByText('default'));
+    expect(onSelect).toHaveBeenCalledWith('default');
+  });
+
   it('on a git root, shows a branch switcher defaulting to the default branch', () => {
     const onSelect = vi.fn();
     const ns = [
