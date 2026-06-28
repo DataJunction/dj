@@ -52,6 +52,10 @@ export function QueryPlannerPage() {
   const initializedFromUrl = useRef(false);
   const pendingDimensionsFromUrl = useRef([]);
   const pendingCubeFromUrl = useRef(null);
+  // Dimension objects seeded directly from a loaded cube preset. Kept so the
+  // background common-dimensions fetch can be merged in (union) without dropping
+  // the cube's own dimensions from the available list or the selection.
+  const cubeDimensionObjects = useRef([]);
 
   // Compatible metrics when dimensions are selected (phase 1: dimension-first flow)
   const [compatibleMetrics, setCompatibleMetrics] = useState(null); // null = no filter active
@@ -260,9 +264,15 @@ export function QueryPlannerPage() {
           if (cubeData && Array.isArray(cubeData.cube_node_metrics)) {
             const cubeMetrics = cubeData.cube_node_metrics || [];
             const cubeDimensions = cubeData.cube_node_dimensions || [];
+            const cubeDimObjects = cubeData.cube_dimension_objects || [];
             setLoadedCubeName(cubeName);
             setSelectedMetrics(cubeMetrics);
-            pendingDimensionsFromUrl.current = cubeDimensions;
+            // Seed the dimension picker and selection straight from the cube so
+            // they appear instantly and correctly; the full common-dimensions
+            // list is fetched in the background (and merged) for adding more.
+            cubeDimensionObjects.current = cubeDimObjects;
+            setCommonDimensions(cubeDimObjects);
+            setSelectedDimensions(cubeDimensions);
 
             // Materialization info is included in the GraphQL response
             const cubeMat = cubeData.cubeMaterialization;
@@ -283,7 +293,14 @@ export function QueryPlannerPage() {
   useEffect(() => {
     const fetchData = async () => {
       if (selectedMetrics.length > 0) {
-        setDimensionsLoading(true);
+        // Capture cube-seeded dimensions for this run. When a cube preset is
+        // loaded its dimensions are already shown and selected, so the (slow)
+        // common-dimensions intersection runs in the background — don't blank
+        // the list behind a spinner, and merge rather than replace below.
+        const seeded = cubeDimensionObjects.current;
+        if (seeded.length === 0) {
+          setDimensionsLoading(true);
+        }
         try {
           const dims = await djClient.commonDimensions(selectedMetrics);
           // Server returns an error body (e.g. {message: "..."}) on 404/422 with
@@ -291,14 +308,23 @@ export function QueryPlannerPage() {
           // against passing a non-array into setCommonDimensions.
           if (!Array.isArray(dims)) {
             console.error('commonDimensions returned non-array:', dims);
-            setCommonDimensions([]);
+            // Keep the cube-seeded dims (if any) rather than blanking the list.
+            setCommonDimensions(seeded);
             return;
           }
-          setCommonDimensions(dims);
+          // Merge: fetched dims win (richer: path/type), but keep any cube
+          // dimensions the intersection omits so the cube's selection stays valid.
+          const fetchedNames = new Set(dims.map(d => d.name));
+          const merged = [
+            ...dims,
+            ...seeded.filter(d => !fetchedNames.has(d.name)),
+          ];
+          setCommonDimensions(merged);
 
-          // Apply pending dimensions from URL if we have them
+          // Apply pending dimensions from URL if we have them (metrics+dimensions
+          // URL path; cube presets seed their dimensions directly instead).
           if (pendingDimensionsFromUrl.current.length > 0) {
-            const validDimNames = dims.map(d => d.name);
+            const validDimNames = merged.map(d => d.name);
             const validPending = pendingDimensionsFromUrl.current.filter(d =>
               validDimNames.includes(d),
             );
@@ -309,7 +335,8 @@ export function QueryPlannerPage() {
           }
         } catch (err) {
           console.error('Failed to fetch dimensions:', err);
-          setCommonDimensions([]);
+          // Preserve cube-seeded dims on failure rather than blanking the list.
+          setCommonDimensions(seeded);
         }
         setDimensionsLoading(false);
       } else {
@@ -530,6 +557,8 @@ export function QueryPlannerPage() {
     // Clear loaded cube name to indicate user is manually changing selection
     // (workflowUrls and cubeMaterialization will be updated by the effect when metricsResult changes)
     setLoadedCubeName(null);
+    // Leaving cube-preset mode: cube-seeded dims are no longer authoritative.
+    cubeDimensionObjects.current = [];
   }, []);
 
   // Load a cube preset - sets both metrics and dimensions from the cube definition
@@ -545,13 +574,21 @@ export function QueryPlannerPage() {
           // Extract metrics and dimensions from the cube
           const cubeMetrics = cubeData.cube_node_metrics || [];
           const cubeDimensions = cubeData.cube_node_dimensions || [];
+          const cubeDimObjects = cubeData.cube_dimension_objects || [];
 
           // Set the cube name for URL and display
           setLoadedCubeName(cubeName);
-          // Set the metrics first - dimensions will be loaded and filtered via the effect
+          // Set the metrics first - common dimensions load in the background
           setSelectedMetrics(cubeMetrics);
-          // Store dimensions to apply after common dimensions are loaded
-          pendingDimensionsFromUrl.current = cubeDimensions;
+          // Seed the dimension picker and selection straight from the cube so
+          // they appear instantly and correctly, without waiting on the slow
+          // common-dimensions intersection over every cube metric.
+          cubeDimensionObjects.current = cubeDimObjects;
+          setCommonDimensions(cubeDimObjects);
+          setSelectedDimensions(cubeDimensions);
+          // Start with a clean slate: filters from a previously loaded cube may
+          // reference dimensions this cube doesn't have, so don't carry them over.
+          setFilters([]);
           setSelectedNode(null);
 
           // Materialization and availability info is included in the GraphQL response
@@ -573,9 +610,11 @@ export function QueryPlannerPage() {
   const handleClearSelection = useCallback(() => {
     setSelectedMetrics([]);
     setSelectedDimensions([]);
+    setFilters([]);
     setLoadedCubeName(null);
     setWorkflowUrls([]);
     setCubeMaterialization(null);
+    cubeDimensionObjects.current = [];
   }, []);
 
   const handleDimensionsChange = useCallback(newDimensions => {
@@ -584,6 +623,8 @@ export function QueryPlannerPage() {
     // Clear loaded cube name to indicate user is manually changing selection
     // (workflowUrls and cubeMaterialization will be updated by the effect when metricsResult changes)
     setLoadedCubeName(null);
+    // Leaving cube-preset mode: cube-seeded dims are no longer authoritative.
+    cubeDimensionObjects.current = [];
   }, []);
 
   const handleNodeSelect = useCallback(node => {
@@ -1289,6 +1330,14 @@ export function QueryPlannerPage() {
   // Handle filter changes
   const handleFiltersChange = useCallback(newFilters => {
     setFilters(newFilters);
+    // A cube-based URL (?cube=...) only encodes the cube name, so filters can't
+    // be represented while a cube preset is loaded. Clear loadedCubeName to
+    // expand the URL into its fully-qualified metrics/dimensions/filters form
+    // (matching handleMetricsChange/handleDimensionsChange) so the applied
+    // filter is reflected in the URL and the link stays shareable.
+    setLoadedCubeName(null);
+    // Leaving cube-preset mode: cube-seeded dims are no longer authoritative.
+    cubeDimensionObjects.current = [];
   }, []);
 
   return (
