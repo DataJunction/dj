@@ -223,6 +223,10 @@ export const DataJunctionAPI = {
             }
             cubeDimensions {
               name
+              type
+              attribute
+              role
+              properties
             }
             availability {
               catalog
@@ -266,7 +270,17 @@ export const DataJunctionAPI = {
       // Transform to match the shape expected by QueryPlannerPage
       const current = node.current || {};
       const cubeMetrics = (current.cubeMetrics || []).map(m => m.name);
-      const cubeDimensions = (current.cubeDimensions || []).map(d => d.name);
+      // Full dimension objects (name/type/role/...) so the planner can render and
+      // pre-select the cube's dimensions directly, without a slow common-dimensions
+      // intersection over every cube metric just to validate known-good dims.
+      const cubeDimensionObjects = (current.cubeDimensions || []).map(d => ({
+        name: d.name,
+        type: d.type,
+        attribute: d.attribute,
+        role: d.role,
+        properties: d.properties || [],
+      }));
+      const cubeDimensions = cubeDimensionObjects.map(d => d.name);
 
       // Extract druid_cube materialization if present (v3 or legacy)
       const druidMat = (current.materializations || []).find(
@@ -290,6 +304,7 @@ export const DataJunctionAPI = {
         display_name: current.displayName,
         cube_node_metrics: cubeMetrics,
         cube_node_dimensions: cubeDimensions,
+        cube_dimension_objects: cubeDimensionObjects,
         cubeMaterialization, // Included so we don't need a second fetch
         availability: current.availability || null,
       };
