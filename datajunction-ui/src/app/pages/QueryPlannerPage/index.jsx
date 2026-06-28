@@ -551,15 +551,22 @@ export function QueryPlannerPage() {
     fetchCubeInfo();
   }, [metricsResult?.cube_name, loadedCubeName, djClient]);
 
-  const handleMetricsChange = useCallback(newMetrics => {
-    setSelectedMetrics(newMetrics);
-    setSelectedNode(null);
-    // Clear loaded cube name to indicate user is manually changing selection
-    // (workflowUrls and cubeMaterialization will be updated by the effect when metricsResult changes)
+  // Leave cube-preset mode: drop the cube name (so the URL expands to its
+  // components and workflow/materialization state is recomputed) and forget the
+  // cube-seeded dims, which are no longer authoritative once the user edits.
+  const leaveCubeMode = useCallback(() => {
     setLoadedCubeName(null);
-    // Leaving cube-preset mode: cube-seeded dims are no longer authoritative.
     cubeDimensionObjects.current = [];
   }, []);
+
+  const handleMetricsChange = useCallback(
+    newMetrics => {
+      setSelectedMetrics(newMetrics);
+      setSelectedNode(null);
+      leaveCubeMode();
+    },
+    [leaveCubeMode],
+  );
 
   // Load a cube preset - sets both metrics and dimensions from the cube definition
   const handleLoadCubePreset = useCallback(
@@ -611,21 +618,19 @@ export function QueryPlannerPage() {
     setSelectedMetrics([]);
     setSelectedDimensions([]);
     setFilters([]);
-    setLoadedCubeName(null);
     setWorkflowUrls([]);
     setCubeMaterialization(null);
-    cubeDimensionObjects.current = [];
-  }, []);
+    leaveCubeMode();
+  }, [leaveCubeMode]);
 
-  const handleDimensionsChange = useCallback(newDimensions => {
-    setSelectedDimensions(newDimensions);
-    setSelectedNode(null);
-    // Clear loaded cube name to indicate user is manually changing selection
-    // (workflowUrls and cubeMaterialization will be updated by the effect when metricsResult changes)
-    setLoadedCubeName(null);
-    // Leaving cube-preset mode: cube-seeded dims are no longer authoritative.
-    cubeDimensionObjects.current = [];
-  }, []);
+  const handleDimensionsChange = useCallback(
+    newDimensions => {
+      setSelectedDimensions(newDimensions);
+      setSelectedNode(null);
+      leaveCubeMode();
+    },
+    [leaveCubeMode],
+  );
 
   const handleNodeSelect = useCallback(node => {
     setSelectedNode(node);
@@ -1328,17 +1333,17 @@ export function QueryPlannerPage() {
   }, []);
 
   // Handle filter changes
-  const handleFiltersChange = useCallback(newFilters => {
-    setFilters(newFilters);
-    // A cube-based URL (?cube=...) only encodes the cube name, so filters can't
-    // be represented while a cube preset is loaded. Clear loadedCubeName to
-    // expand the URL into its fully-qualified metrics/dimensions/filters form
-    // (matching handleMetricsChange/handleDimensionsChange) so the applied
-    // filter is reflected in the URL and the link stays shareable.
-    setLoadedCubeName(null);
-    // Leaving cube-preset mode: cube-seeded dims are no longer authoritative.
-    cubeDimensionObjects.current = [];
-  }, []);
+  const handleFiltersChange = useCallback(
+    newFilters => {
+      setFilters(newFilters);
+      // A cube-based URL (?cube=...) only encodes the cube name, so filters can't
+      // be represented while a cube preset is loaded. Leaving cube mode expands
+      // the URL into its fully-qualified metrics/dimensions/filters form so the
+      // applied filter is reflected in the URL and the link stays shareable.
+      leaveCubeMode();
+    },
+    [leaveCubeMode],
+  );
 
   return (
     <div className="planner-page">

@@ -6,6 +6,13 @@ const ENGINE_OPTIONS = [
   { value: 'trino', label: 'Trino' },
 ];
 
+// MIME type used to carry a dimension name during drag-to-filter.
+const DIM_DRAG_MIME = 'application/x-dj-dimension';
+
+// Append a filter expression onto an in-progress one, ANDing if non-empty.
+const andAppend = (prev, expr) =>
+  (prev.trim() ? prev.trimEnd() + ' AND ' : '') + expr;
+
 /**
  * Label that clips the START under truncation, keeping the END visible:
  * "…erience_f__cart_initiation". Metric/dimension names share long common
@@ -511,22 +518,18 @@ export function SelectionPanel({
   // Click a filter chip to edit it: pull it back into the input (preserving any
   // in-progress text by ANDing onto it) and remove the chip.
   const handleEditFilter = filter => {
-    setFilterInput(prev =>
-      prev.trim() ? prev.trimEnd() + ' AND ' + filter : filter,
-    );
+    setFilterInput(prev => andAppend(prev, filter));
     if (onFiltersChange) {
       onFiltersChange(filters.filter(f => f !== filter));
     }
     filterInputRef.current?.focus();
   };
 
-  // Append a dimension to the filter input, ANDing onto any existing expression,
+  // Append a dimension to the filter input (ANDing onto any existing expression)
   // then focus so the user can type the operator/value. Functional update keeps
   // it correct whether called from a click or a drag-and-drop handler.
   const appendDimToFilterInput = dimName => {
-    setFilterInput(
-      prev => (prev.trim() ? prev.trimEnd() + ' AND ' : '') + dimName + ' ',
-    );
+    setFilterInput(prev => andAppend(prev, dimName + ' '));
     filterInputRef.current?.focus();
   };
 
@@ -537,8 +540,6 @@ export function SelectionPanel({
   };
 
   // Drag a dimension chip/row onto the Filters section to start filtering on it.
-  const DIM_DRAG_MIME = 'application/x-dj-dimension';
-
   const handleDimDragStart = (e, dimName) => {
     e.dataTransfer.setData(DIM_DRAG_MIME, dimName);
     // Plain-text fallback so the drag has a sensible payload everywhere.
