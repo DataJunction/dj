@@ -1480,6 +1480,10 @@ class DeploymentOrchestrator:
             if r.deploy_type == DeploymentResult.Type.LINK
             and r.status != DeploymentResult.Status.SKIPPED
         }
+
+        async def _add_history(event, session):
+            session.add(event)
+
         with timer.phase("propagate impact") as p:
             downstream = await propagate_impact(
                 session=self.session,
@@ -1489,6 +1493,8 @@ class DeploymentOrchestrator:
                     spec.rendered_name for spec in plan.to_delete
                 ),
                 changed_link_node_names=changed_link_names,
+                current_user=self.context.current_user,
+                save_history=_add_history,
             )
             p.append(f"{len(downstream)} downstream")
 
