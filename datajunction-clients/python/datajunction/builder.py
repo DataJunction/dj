@@ -4,7 +4,7 @@
 import re
 from dataclasses import fields
 from http import HTTPStatus
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import Dict, List, Optional
 
 from datajunction import models
 from datajunction.client import DJClient
@@ -26,9 +26,6 @@ from datajunction.nodes import (
     Transform,
 )
 from datajunction.tags import Tag
-
-if TYPE_CHECKING:
-    from datajunction.compile import ColumnYAML  # pragma: no cover
 
 
 class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
@@ -409,7 +406,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         table: Optional[str] = None,
         display_name: Optional[str] = None,
         description: Optional[str] = None,
-        columns: Optional[List["ColumnYAML"]] = None,
+        columns: Optional[List["models.ColumnYAML"]] = None,
         primary_key: Optional[List[str]] = None,
         tags: Optional[List[str]] = None,
         mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,

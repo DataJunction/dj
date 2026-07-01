@@ -1108,6 +1108,26 @@ def _inject_filter_into_where(
     inject_filter_into_select(cast(ast.Select, query_ast.select), filter_expr)
 
 
+def _fk_key_column_names(node: "Node") -> set[str]:
+    """Short names of the foreign-key *value* columns on ``node``'s dim links.
+
+    Each link's ``foreign_keys_reversed`` maps a dimension PK column to the raw
+    FK column on this node; we return those FK column short names.  A filter on a
+    joined dimension's non-key attribute whose bare name collides with one of
+    these must never be pushed onto it (it would bind a string-attribute
+    predicate to the int FK column).
+    """
+    from datajunction_server.construction.build_v3.utils import get_short_name
+
+    cols: set[str] = set()
+    if node.current and node.current.dimension_links:
+        for link in node.current.dimension_links:
+            for _pk_fqn, fk_fqn in (link.foreign_keys_reversed or {}).items():
+                if fk_fqn:  # pragma: no branch
+                    cols.add(get_short_name(fk_fqn))
+    return cols
+
+
 def _resolve_pushdown_filters_for_cte(
     node: "Node",
     cte_query: ast.Query,
@@ -1115,6 +1135,7 @@ def _resolve_pushdown_filters_for_cte(
     filter_column_aliases: dict[str, str],
     ctx: Optional["BuildContext"] = None,
     outer_only_refs: Optional[set[str]] = None,
+    fk_collision_cols: Optional[set[str]] = None,
 ) -> tuple[list[tuple[ast.Select, ast.Expression]], set[str]]:
     """Determine which user filters can be pushed into this CTE.
 
@@ -1160,29 +1181,29 @@ def _resolve_pushdown_filters_for_cte(
         **local_aliases,
     }
 
-    # Block a filter ref only when its resolved bare column is an FK column on
-    # this node (i.e. the node has a dimension link that uses that column as a
-    # FK) but the ref itself has no local mapping — meaning the filter targets
-    # a dim's non-PK attribute whose name collides with the FK integer column,
-    # which would produce a type mismatch.  Only FK columns from dimension
-    # links qualify; the node's own output columns (added to local_aliases by
-    # #2179 for dimension nodes) are the genuine attribute and are not blocked.
-    fk_col_names: set[str] = set()
-    if node.current and node.current.dimension_links:
-        from datajunction_server.construction.build_v3.utils import get_short_name
-
-        for _link in node.current.dimension_links:
-            for _dim_col_fqn, _fk_fqn in (_link.foreign_keys_reversed or {}).items():
-                if _fk_fqn:  # pragma: no branch
-                    fk_col_names.add(get_short_name(_fk_fqn))
-
+    # Block a filter ref when its resolved bare column is a foreign-key *value*
+    # column (the raw int key on a fact/transform) but the ref has no local
+    # mapping — i.e. the filter targets a joined dimension's non-key attribute
+    # whose name collides with that FK column.  Pushing it would bind a (string)
+    # attribute predicate to the (int) FK column and silently match nothing.
+    #
+    # The FK-column set is the union of THIS node's links and the linking
+    # (parent) node's links (``fk_collision_cols``, threaded in).  The parent
+    # set is essential: the filter can be pushed UPSTREAM into an ancestor CTE
+    # that merely projects the FK column without carrying the link (e.g. a base
+    # transform feeding a linked one) — where a node-local check is blind.  This
+    # single ``blocked_refs`` set is consulted by every pushdown path below.
+    # Genuine dimension attributes (e.g. ``state``) are not FK columns, so they
+    # are never blocked; the dim's own CTE / join-key filters stay exempt via
+    # ``local_aliases``.
+    collision_cols = _fk_key_column_names(node) | (fk_collision_cols or set())
     blocked_refs: set[str] = set()
     for ref in outer_only_refs or set():
         base = ref.split("[")[0]
         if ref in local_aliases or base in local_aliases:
-            continue  # properly mapped locally — safe to push
+            continue  # properly mapped locally (dim's own CTE / join key) — safe
         bare_col = effective_aliases.get(ref) or effective_aliases.get(base)
-        if bare_col and bare_col in fk_col_names:
+        if bare_col and bare_col in collision_cols:
             blocked_refs.add(ref)
 
     target_select = cast(ast.Select, cte_query.select)
@@ -1322,6 +1343,7 @@ def _resolve_pushdown_filters_for_cte(
                 filter_str,
                 effective_aliases,
                 col_to_alias,
+                blocked_refs,
             )
             if inner_rewrite is None:
                 continue
@@ -1668,9 +1690,15 @@ def _rewrite_filter_for_scope(
     filter_str: str,
     filter_column_aliases: dict[str, str],
     column_to_alias: dict[str, tuple[str, str]],
+    blocked_refs: Optional[set[str]] = None,
 ) -> Optional[ast.Expression]:
     """Parse a filter fresh and qualify each dim-ref column using the
     scope's resolver map.
+
+    ``blocked_refs`` carries the same outer-only/FK-collision guard the primary
+    rewrite honors (see :func:`_resolve_pushdown_filters_for_cte`): a filter
+    referencing any blocked ref is skipped entirely so this column-aware
+    retargeting pass cannot reintroduce a push the primary path refused.
 
     The resolver map keys are fully-qualified dim refs (e.g.
     ``common.dimensions.xp.allocation_snapshot_date.dateint``)
@@ -1690,11 +1718,21 @@ def _rewrite_filter_for_scope(
     Returns ``None`` when no column resolves — atomic per filter
     to mirror the primary-rewrite behavior.
     """
+    filter_ast = parse_filter(filter_str)
+    cols = list(filter_ast.find_all(ast.Column))
+    # Guard first, before any early-out: a filter referencing a blocked ref
+    # (outer-only / FK-name collision) must never be retargeted into a scope —
+    # it stays at the outer WHERE.  Checked up front so it holds regardless of
+    # whether this scope's resolver map happens to be empty.
+    if blocked_refs:
+        for col in cols:
+            full = get_column_full_name(col)
+            if full and (full in blocked_refs or full.split("[")[0] in blocked_refs):
+                return None
     if not column_to_alias:
         return None
-    filter_ast = parse_filter(filter_str)
     rewrites: list[tuple[ast.Column, ast.Column]] = []
-    for col in filter_ast.find_all(ast.Column):
+    for col in cols:
         full = get_column_full_name(col)
         if not full:  # pragma: no cover
             continue
@@ -2156,6 +2194,7 @@ def collect_node_ctes(
                 pushdown.column_aliases,
                 ctx,
                 pushdown.outer_only_refs,
+                pushdown.fk_collision_cols,
             )
             for target_select, filter_ast in injections:
                 inject_filter_into_select(target_select, filter_ast)

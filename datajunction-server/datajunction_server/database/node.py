@@ -23,6 +23,7 @@ from sqlalchemy import (
     String,
     TypeDecorator,
     UniqueConstraint,
+    exists,
     select,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -113,6 +114,11 @@ _SEARCH_POPULARITY_WEIGHT = 0.2
 # Queries shorter than this fall back to prefix matching; trigram similarity is
 # meaningless on single characters (every row matches).
 _SEARCH_MIN_FUZZY_LENGTH = 2
+
+# Per-token fuzzy-match bar (pg_trgm word_similarity, 0..1). A token matches a
+# field if it's a (normalized) substring OR its word-similarity clears this bar,
+# giving typo/partial tolerance without flooding results with junk.
+_SEARCH_WORD_SIMILARITY_THRESHOLD = 0.6
 
 
 def _normalize_for_search(text_col):
@@ -378,6 +384,7 @@ class Node(Base):
             postgresql_using="btree",
             postgresql_ops={"identifier": "varchar_pattern_ops"},
         ),
+        Index("type_index", "type"),
     )
 
     id: Mapped[int] = mapped_column(
@@ -881,25 +888,6 @@ class Node(Base):
             order_by = Node.created_at
         NodeRevisionAlias = aliased(NodeRevision)
 
-        nodes_with_tags = []
-        if tags:
-            # Only fetch node IDs — no need to load full Tag/Node objects
-            # or their relationships (created_by, etc.)
-            statement = (
-                select(Node.id)
-                .join(
-                    TagNodeRelationship,
-                    Node.id == TagNodeRelationship.node_id,
-                )
-                .join(Tag, Tag.id == TagNodeRelationship.tag_id)
-                .where(Tag.name.in_(tags))
-            )
-            nodes_with_tags = list(
-                (await session.execute(statement)).scalars().all(),
-            )
-            if not nodes_with_tags:  # pragma: no cover
-                return None, NodeRevisionAlias, None, order_by
-
         # Filter by dimensions (supports node names or attributes)
         nodes_with_dimensions: list[str] | None = None
         if dimensions:
@@ -930,10 +918,17 @@ class Node(Base):
             statement = statement.where(
                 (Node.namespace.like(f"{namespace}.%")) | (Node.namespace == namespace),
             )
-        if nodes_with_tags:
+        if tags:
             statement = statement.where(
-                Node.id.in_(nodes_with_tags),
-            )  # pragma: no cover
+                exists(
+                    select(TagNodeRelationship.node_id)
+                    .join(Tag, Tag.id == TagNodeRelationship.tag_id)
+                    .where(
+                        TagNodeRelationship.node_id == Node.id,
+                        Tag.name.in_(tags),
+                    ),
+                ),
+            )
         if nodes_with_dimensions:
             statement = statement.where(
                 Node.name.in_(nodes_with_dimensions),
@@ -976,14 +971,32 @@ class Node(Base):
                     ),
                 )
             else:
-                pattern = f"%{search}%"
-                statement = statement.where(
-                    sa.or_(
-                        NodeRevisionAlias.name.ilike(pattern),
-                        NodeRevisionAlias.display_name.ilike(pattern),
-                        NodeRevisionAlias.description.ilike(pattern),
-                    ),
-                )
+                # Tokenize the query and require EVERY token to match somewhere
+                # (AND across tokens), so word order and multi-term queries work
+                # ("approval rate" -> "overall_approval_ratio"). Each token matches
+                # by normalized substring OR pg_trgm word-similarity (typo/partial
+                # tolerance). Columns are normalized (._ -> space) so separators
+                # don't block matches.
+                norm_name = _normalize_for_search(NodeRevisionAlias.name)
+                norm_display = _normalize_for_search(NodeRevisionAlias.display_name)
+                tokens = [
+                    token
+                    for token in search.replace(".", " ").replace("_", " ").split()
+                    if token
+                ] or [search]
+                for token in tokens:
+                    like = f"%{token}%"
+                    statement = statement.where(
+                        sa.or_(
+                            norm_name.ilike(like),
+                            norm_display.ilike(like),
+                            NodeRevisionAlias.description.ilike(like),
+                            func.word_similarity(token, norm_name)
+                            > _SEARCH_WORD_SIMILARITY_THRESHOLD,
+                            func.word_similarity(token, norm_display)
+                            > _SEARCH_WORD_SIMILARITY_THRESHOLD,
+                        ),
+                    )
 
             # Popularity proxy: number of NodeRelationship rows that reference
             # this node as a parent (parent_id is a node.id, child_id a

@@ -744,6 +744,32 @@ def test_data_with_error_response(builder_client: DJBuilder, capsys):
     assert "Test error message from data API" in captured.out
 
 
+def test_data_with_raw_dict_response(builder_client: DJBuilder, capsys):
+    """
+    Test `dj data` handles a raw query response dict (no "message" key) by
+    passing it through process_results (covers line 612).
+    """
+    import pandas as pd
+
+    raw_response = {"results": [{"columns": [], "rows": []}], "errors": []}
+    mock_df = pd.DataFrame()
+    with patch.object(builder_client, "data", return_value=raw_response):
+        with mock.patch(
+            "datajunction._internal.DJClient.process_results",
+            return_value=mock_df,
+        ) as mock_process:
+            test_args = ["dj", "data", "--metrics", "some.metric"]
+            with patch.dict(
+                os.environ,
+                {"DJ_USER": "datajunction", "DJ_PWD": "datajunction"},
+                clear=False,
+            ):
+                with patch.object(sys, "argv", test_args):
+                    main(builder_client=builder_client)
+
+    mock_process.assert_called_once_with(raw_response)
+
+
 def test_data_with_limit(builder_client: DJBuilder):  # pylint: disable=redefined-outer-name
     """
     Test `dj data` with explicit --limit flag (covers effective_limit usage)
@@ -1776,7 +1802,7 @@ def test_setup_claude_full_install(tmp_path, monkeypatch):
     """Test setup-claude with both skills and MCP (default behavior)"""
     # Setup temp directories
     claude_dir = tmp_path / ".claude"
-    skills_dir = claude_dir / "skills" / "datajunction"
+    skills_root = claude_dir / "skills"
     claude_dir.mkdir()
 
     monkeypatch.setenv("HOME", str(tmp_path))
@@ -1792,17 +1818,24 @@ def test_setup_claude_full_install(tmp_path, monkeypatch):
 
     output = mock_stdout.getvalue()
 
-    # Verify skill was installed
-    skill_file = skills_dir / "SKILL.md"
-    assert skill_file.exists(), "SKILL.md should be created"
-    assert skill_file.read_text().startswith("---\nname: datajunction")
+    # Verify all bundled skills were installed
+    for skill_name in (
+        "datajunction",
+        "datajunction-query",
+        "datajunction-semantic-model",
+        "datajunction-repo",
+        "datajunction-api",
+    ):
+        skill_dir = skills_root / skill_name
+        skill_file = skill_dir / "SKILL.md"
+        assert skill_file.exists(), f"SKILL.md missing for {skill_name}"
+        assert skill_file.read_text().startswith(f"---\nname: {skill_name}")
 
-    # Verify metadata file was created
-    metadata_file = skills_dir / "metadata.json"
-    assert metadata_file.exists(), "metadata.json should be created"
-    metadata = json.loads(metadata_file.read_text())
-    assert metadata["name"] == "datajunction"
-    assert "version" in metadata
+        metadata_file = skill_dir / "metadata.json"
+        assert metadata_file.exists(), f"metadata.json missing for {skill_name}"
+        metadata = json.loads(metadata_file.read_text())
+        assert metadata["name"] == skill_name
+        assert "version" in metadata
 
     # Verify MCP config was created
     mcp_config_file = tmp_path / ".claude.json"
@@ -1814,7 +1847,7 @@ def test_setup_claude_full_install(tmp_path, monkeypatch):
     assert "DJ_API_URL" in mcp_config["mcpServers"]["datajunction"]["env"]
 
     # Verify success message
-    assert "Skill installed" in output
+    assert "Skills installed" in output
     assert "DJ MCP server configured" in output or "MCP server" in output
     assert "Restart Claude" in output
 
@@ -1943,7 +1976,7 @@ def test_setup_claude_overwrite_existing(tmp_path, monkeypatch):
     assert "---\nname: datajunction" in new_content
 
     output = mock_stdout.getvalue()
-    assert "Skill installed" in output
+    assert "Skills installed" in output
 
 
 def test_setup_claude_custom_dj_url(tmp_path, monkeypatch):
@@ -1999,9 +2032,9 @@ def test_setup_claude_mcp_config_merge(tmp_path, monkeypatch):
 
 
 def test_setup_claude_skill_content_verification(tmp_path, monkeypatch):
-    """Test that the installed skill has correct content"""
+    """Test that each installed skill has its expected content."""
     claude_dir = tmp_path / ".claude"
-    skills_dir = claude_dir / "skills" / "datajunction"
+    skills_root = claude_dir / "skills"
     claude_dir.mkdir()
 
     monkeypatch.setenv("HOME", str(tmp_path))
@@ -2015,17 +2048,26 @@ def test_setup_claude_skill_content_verification(tmp_path, monkeypatch):
 
         dj_cli.main()
 
-    # Verify skill content includes key sections
-    skill_file = skills_dir / "SKILL.md"
-    content = skill_file.read_text()
+    # Core concepts skill carries the vocabulary
+    core = (skills_root / "datajunction" / "SKILL.md").read_text()
+    assert "DataJunction" in core
+    assert "semantic layer" in core
+    assert "dimension link" in core
+    assert "Star Schema" in core
+    assert "Node Status" in core
 
-    # Check for essential sections
-    assert "DataJunction" in content
-    assert "semantic layer" in content
-    assert "dimension link" in content
-    assert "Temporal Partitions" in content  # Verify our recent additions
-    assert "owners:" in content  # Verify ownership section
-    assert "Git Repository" in content  # Verify git info documentation
+    # Repo skill carries YAML schemas + partitions
+    repo = (skills_root / "datajunction-repo" / "SKILL.md").read_text()
+    assert "Temporal Partitions" in repo
+    assert "YAML" in repo
+
+    # Semantic-model skill carries ownership guidance
+    model = (skills_root / "datajunction-semantic-model" / "SKILL.md").read_text()
+    assert "owners" in model.lower()
+
+    # API skill carries git-backed namespace check
+    api = (skills_root / "datajunction-api" / "SKILL.md").read_text()
+    assert "git_only" in api or "Repo-Backed" in api
 
 
 def test_setup_claude_no_config_path(tmp_path, monkeypatch):
@@ -2330,6 +2372,57 @@ class TestGenerateCodeowners:
         assert "/revenue.metric.yaml alice@example.com" in content
         assert "no_owner" not in content
 
+    def test_default_owner_emitted_first(self, tmp_path):
+        """default_owner adds a leading `* <owner>` rule before per-file rules."""
+        from datajunction.deployment import DeploymentService
+
+        self._write_node(tmp_path, "revenue.metric.yaml", owners=["alice@example.com"])
+        output = tmp_path / "CODEOWNERS"
+
+        count = DeploymentService.build_codeowners(
+            tmp_path,
+            output=output,
+            default_owner="@org/team",
+        )
+
+        content = output.read_text()
+        lines = [ln for ln in content.splitlines() if ln and not ln.startswith("#")]
+        # The `*` rule comes before the per-file rule so per-file wins (last-match).
+        assert lines[0] == "* @org/team"
+        assert "/revenue.metric.yaml alice@example.com" in content
+        assert content.index("* @org/team") < content.index("/revenue.metric.yaml")
+        # count is per-file entries only, not the default rule
+        assert count == 1
+
+    def test_exclude_dir_falls_through_to_default(self, tmp_path):
+        """Nodes under an excluded dir get no per-file rule (team-owned via default)."""
+        from datajunction.deployment import DeploymentService
+
+        generated = tmp_path / "nodes" / "generated"
+        generated.mkdir(parents=True)
+        authored = tmp_path / "nodes"
+        self._write_node(generated, "account_d.yaml", owners=["bot@example.com"])
+        self._write_node(
+            authored,
+            "shoot_volume.metric.yaml",
+            owners=["alice@example.com"],
+        )
+
+        output = tmp_path / "CODEOWNERS"
+        count = DeploymentService.build_codeowners(
+            tmp_path,
+            output=output,
+            default_owner="@org/team",
+            exclude_dirs=["nodes/generated"],
+        )
+
+        content = output.read_text()
+        # Generated node is excluded -> no per-file rule, covered by the default.
+        assert "account_d.yaml" not in content
+        # Hand-authored node keeps its real owner.
+        assert "/nodes/shoot_volume.metric.yaml alice@example.com" in content
+        assert count == 1
+
     def test_dj_yaml_is_skipped(self, tmp_path):
         """dj.yaml project config must never appear in CODEOWNERS."""
         from datajunction.deployment import DeploymentService
@@ -2504,7 +2597,40 @@ class TestGenerateCodeowners:
             output=str(output),
             github_api_url=None,
             github_token_env="GITHUB_TOKEN",
+            default_owner=None,
+            exclude_dirs=None,
         )
+
+    def test_cli_generate_codeowners_default_owner_and_exclude(self, tmp_path):
+        """--default-owner and repeated --exclude are forwarded to build_codeowners."""
+        from datajunction.cli import DJCLI
+
+        cli = DJCLI(builder_client=mock.MagicMock())
+
+        with patch(
+            "datajunction.deployment.DeploymentService.build_codeowners",
+            return_value=0,
+        ) as mock_build:
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "dj",
+                    "generate-codeowners",
+                    str(tmp_path),
+                    "--default-owner",
+                    "@org/team",
+                    "--exclude",
+                    "nodes/generated",
+                    "--exclude",
+                    "nodes/legacy",
+                ],
+            ):
+                cli.run()
+
+        _, kwargs = mock_build.call_args
+        assert kwargs["default_owner"] == "@org/team"
+        assert kwargs["exclude_dirs"] == ["nodes/generated", "nodes/legacy"]
 
     def test_cli_generate_codeowners_github_flags(self, tmp_path):
         """--github-api-url and --github-token-env are forwarded to build_codeowners."""

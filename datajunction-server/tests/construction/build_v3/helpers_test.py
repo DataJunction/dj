@@ -825,7 +825,7 @@ class TestResolveDimNamespaceRefs:
     def test_rewrites_known_dim_and_collects_col(self):
         expr = self._expr("v3.customer.tier")
         cols = _resolve_dim_namespace_refs(
-            [("alias", expr)],
+            [expr],
             {"v3.customer": "t2"},
         )
         assert str(expr) == "t2.tier"
@@ -836,7 +836,7 @@ class TestResolveDimNamespaceRefs:
         not recorded."""
         expr = self._expr("v3.fact.amount + v3.customer.threshold")
         cols = _resolve_dim_namespace_refs(
-            [("alias", expr)],
+            [expr],
             {"v3.customer": "t2"},
         )
         rendered = str(expr)
@@ -849,7 +849,7 @@ class TestResolveDimNamespaceRefs:
         the main-alias rewrite runs separately."""
         expr = self._expr("SUM(amount)")
         cols = _resolve_dim_namespace_refs(
-            [("alias", expr)],
+            [expr],
             {"v3.customer": "t2"},
         )
         assert str(expr) == "SUM(amount)"
@@ -862,7 +862,7 @@ class TestResolveDimNamespaceRefs:
             "THEN v3.customer.tier ELSE 'x' END)",
         )
         cols = _resolve_dim_namespace_refs(
-            [("alias", expr)],
+            [expr],
             {"v3.customer": "t2"},
         )
         rendered = str(expr)

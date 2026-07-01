@@ -26,6 +26,37 @@ const QUERY_END_STATES = ['FINISHED', 'CANCELED', 'FAILED'];
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 export const DataJunctionAPI = {
+  // Count-only node counts per type for a namespace, in a SINGLE request. Each type is
+  // an aliased findNodesPaginated selecting only totalCount (no edges) — so the server
+  // never hydrates node rows, unlike listNodesForLanding. Returns a { type: count } map.
+  // `types` are trusted enum names (e.g. 'metric') from a fixed constant, not user input.
+  nodeTypeCounts: async function (namespace, types) {
+    const fields = types
+      .map(
+        (type, i) =>
+          `c${i}: findNodesPaginated(namespace: $namespace, nodeTypes: [${type.toUpperCase()}], limit: 1) { totalCount }`,
+      )
+      .join('\n        ');
+    const query = `
+      query NodeTypeCounts($namespace: String) {
+        ${fields}
+      }
+    `;
+    const result = await (
+      await fetch(DJ_GQL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ query, variables: { namespace } }),
+      })
+    ).json();
+    const counts = {};
+    types.forEach((type, i) => {
+      counts[type] = result?.data?.[`c${i}`]?.totalCount ?? 0;
+    });
+    return counts;
+  },
+
   listNodesForLanding: async function (
     namespace,
     nodeTypes,
@@ -42,10 +73,11 @@ export const DataJunctionAPI = {
       missingDescription = false,
       hasMaterialization = false,
       orphanedDimension = false,
+      search = null,
     } = {},
   ) {
     const query = `
-      query ListNodes($namespace: String, $nodeTypes: [NodeType!], $tags: [String!], $editedBy: String, $mode: NodeMode, $before: String, $after: String, $limit: Int, $orderBy: NodeSortField, $ascending: Boolean, $ownedBy: String, $statuses: [NodeStatus!], $missingDescription: Boolean, $hasMaterialization: Boolean, $orphanedDimension: Boolean) {
+      query ListNodes($namespace: String, $nodeTypes: [NodeType!], $tags: [String!], $editedBy: String, $mode: NodeMode, $before: String, $after: String, $limit: Int, $orderBy: NodeSortField, $ascending: Boolean, $ownedBy: String, $statuses: [NodeStatus!], $missingDescription: Boolean, $hasMaterialization: Boolean, $orphanedDimension: Boolean, $search: String) {
         findNodesPaginated(
           namespace: $namespace
           nodeTypes: $nodeTypes
@@ -62,6 +94,7 @@ export const DataJunctionAPI = {
           missingDescription: $missingDescription
           hasMaterialization: $hasMaterialization
           orphanedDimension: $orphanedDimension
+          search: $search
         ) {
           pageInfo {
             hasNextPage
@@ -132,6 +165,7 @@ export const DataJunctionAPI = {
             missingDescription: missingDescription,
             hasMaterialization: hasMaterialization,
             orphanedDimension: orphanedDimension,
+            search: search,
           },
         }),
       })
@@ -189,6 +223,10 @@ export const DataJunctionAPI = {
             }
             cubeDimensions {
               name
+              type
+              attribute
+              role
+              properties
             }
             availability {
               catalog
@@ -232,7 +270,17 @@ export const DataJunctionAPI = {
       // Transform to match the shape expected by QueryPlannerPage
       const current = node.current || {};
       const cubeMetrics = (current.cubeMetrics || []).map(m => m.name);
-      const cubeDimensions = (current.cubeDimensions || []).map(d => d.name);
+      // Full dimension objects (name/type/role/...) so the planner can render and
+      // pre-select the cube's dimensions directly, without a slow common-dimensions
+      // intersection over every cube metric just to validate known-good dims.
+      const cubeDimensionObjects = (current.cubeDimensions || []).map(d => ({
+        name: d.name,
+        type: d.type,
+        attribute: d.attribute,
+        role: d.role,
+        properties: d.properties || [],
+      }));
+      const cubeDimensions = cubeDimensionObjects.map(d => d.name);
 
       // Extract druid_cube materialization if present (v3 or legacy)
       const druidMat = (current.materializations || []).find(
@@ -256,6 +304,7 @@ export const DataJunctionAPI = {
         display_name: current.displayName,
         cube_node_metrics: cubeMetrics,
         cube_node_dimensions: cubeDimensions,
+        cube_dimension_objects: cubeDimensionObjects,
         cubeMaterialization, // Included so we don't need a second fetch
         availability: current.availability || null,
       };

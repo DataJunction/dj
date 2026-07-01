@@ -7,7 +7,7 @@ import {
 } from '@testing-library/react';
 import DJClientContext from '../../../providers/djclient';
 import { QueryPlannerPage } from '../index';
-import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 import React from 'react';
 
 // Mock the MetricFlowGraph component to avoid dagre dependency issues
@@ -164,6 +164,15 @@ const mockCubes = [
 const mockCubeData = {
   cube_node_metrics: ['default.num_repair_orders', 'default.avg_repair_price'],
   cube_node_dimensions: ['default.date_dim.dateint'],
+  cube_dimension_objects: [
+    {
+      name: 'default.date_dim.dateint',
+      type: 'timestamp',
+      attribute: 'dateint',
+      role: '',
+      properties: [],
+    },
+  ],
   cubeMaterialization: {
     schedule: '0 6 * * *',
     strategy: 'incremental_time',
@@ -399,6 +408,32 @@ describe('QueryPlannerPage', () => {
           'default.test_cube',
         );
       });
+    });
+
+    it('selects cube dimensions immediately from the preset without waiting on common dimensions', async () => {
+      mockDjClient.cubeForPlanner.mockResolvedValue(mockCubeData);
+      // Simulate the (slow) common-dimensions intersection never resolving;
+      // the cube's dimensions must still be shown and selected from the preset.
+      mockDjClient.commonDimensions.mockReturnValue(new Promise(() => {}));
+
+      renderPage(['/planner?cube=default.test_cube']);
+
+      await waitFor(() => {
+        expect(mockDjClient.cubeForPlanner).toHaveBeenCalledWith(
+          'default.test_cube',
+        );
+      });
+
+      // Dimensions section is populated and the cube's dimension is selected,
+      // even though commonDimensions never resolved (no spinner, no empty list).
+      await waitFor(() => {
+        expect(
+          screen.getByText(/1 selected \/ 1 available/),
+        ).toBeInTheDocument();
+      });
+      expect(
+        screen.queryByText('Loading dimensions...'),
+      ).not.toBeInTheDocument();
     });
   });
 
@@ -762,6 +797,67 @@ describe('QueryPlannerPage', () => {
       });
     });
 
+    it('clears existing filters when a new cube is loaded', async () => {
+      mockDjClient.cubeForPlanner.mockResolvedValue(mockCubeData);
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.listCubesForPreset).toHaveBeenCalled();
+      });
+
+      // Set a filter in the current (ad-hoc) session.
+      const filterInput = screen.getByPlaceholderText(
+        /e\.g\. v3\.date\.date_id/i,
+      );
+      fireEvent.change(filterInput, { target: { value: "status = 'active'" } });
+      fireEvent.click(screen.getByText('Add'));
+
+      await waitFor(() => {
+        expect(screen.getByText("status = 'active'")).toBeInTheDocument();
+      });
+
+      // Load a cube preset from the dropdown.
+      fireEvent.click(screen.getByText('Load from Cube'));
+      fireEvent.click(screen.getByText('Test Cube'));
+
+      await waitFor(() => {
+        expect(mockDjClient.cubeForPlanner).toHaveBeenCalled();
+      });
+
+      // The stale filter from the previous selection is gone.
+      await waitFor(() => {
+        expect(screen.queryByText("status = 'active'")).not.toBeInTheDocument();
+      });
+    });
+
+    it('moves a filter back into the input when its chip is clicked (edit)', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.metrics).toHaveBeenCalled();
+      });
+
+      const filterInput = screen.getByPlaceholderText(
+        /e\.g\. v3\.date\.date_id/i,
+      );
+      fireEvent.change(filterInput, { target: { value: "status = 'active'" } });
+      fireEvent.click(screen.getByText('Add'));
+
+      await waitFor(() => {
+        expect(screen.getByText("status = 'active'")).toBeInTheDocument();
+      });
+
+      // Click the chip text to edit it.
+      fireEvent.click(screen.getByText("status = 'active'"));
+
+      // The expression returns to the input and the chip is gone.
+      await waitFor(() => {
+        expect(filterInput.value).toBe("status = 'active'");
+      });
+      expect(screen.queryByText("status = 'active'")).not.toBeInTheDocument();
+    });
+
     it('disables add button when filter input is empty', async () => {
       renderPage();
 
@@ -771,6 +867,112 @@ describe('QueryPlannerPage', () => {
 
       const addButton = screen.getByText('Add');
       expect(addButton).toBeDisabled();
+    });
+
+    it('prefills the filter input when a dimension is dragged onto the Filters section', async () => {
+      mockDjClient.cubeForPlanner.mockResolvedValue(mockCubeData);
+
+      renderPage(['/planner?cube=default.test_cube']);
+
+      // Cube preset loads and selects its dimension (rendered as a draggable chip).
+      await waitFor(() => {
+        expect(
+          screen.getByText(/1 selected \/ 1 available/),
+        ).toBeInTheDocument();
+      });
+
+      // Minimal DataTransfer stand-in for jsdom.
+      const dataTransfer = {
+        store: {},
+        types: ['application/x-dj-dimension'],
+        setData(type, val) {
+          this.store[type] = val;
+        },
+        getData(type) {
+          return this.store[type] || '';
+        },
+      };
+      dataTransfer.setData(
+        'application/x-dj-dimension',
+        'default.date_dim.dateint',
+      );
+
+      const filtersSection = document.querySelector('.filters-section');
+      fireEvent.dragOver(filtersSection, { dataTransfer });
+      fireEvent.drop(filtersSection, { dataTransfer });
+
+      const filterInput = screen.getByPlaceholderText(
+        /e\.g\. v3\.date\.date_id/i,
+      );
+      await waitFor(() => {
+        expect(filterInput.value).toContain('default.date_dim.dateint');
+      });
+    });
+
+    it('expands a cube-based URL to metrics/dimensions/filters when a filter is added', async () => {
+      mockDjClient.cubeForPlanner.mockResolvedValue(mockCubeData);
+
+      const LocationDisplay = () => {
+        const location = useLocation();
+        return <div data-testid="location-search">{location.search}</div>;
+      };
+
+      render(
+        <MemoryRouter initialEntries={['/planner?cube=default.test_cube']}>
+          <Routes>
+            <Route
+              path="/planner"
+              element={
+                <DJClientContext.Provider
+                  value={{ DataJunctionAPI: mockDjClient }}
+                >
+                  <>
+                    <QueryPlannerPage />
+                    <LocationDisplay />
+                  </>
+                </DJClientContext.Provider>
+              }
+            />
+          </Routes>
+        </MemoryRouter>,
+      );
+
+      // Cube preset loads from the URL...
+      await waitFor(() => {
+        expect(mockDjClient.cubeForPlanner).toHaveBeenCalledWith(
+          'default.test_cube',
+        );
+      });
+      // ...and the URL stays compact (just the cube name) until the user edits.
+      await waitFor(() => {
+        expect(screen.getByTestId('location-search').textContent).toContain(
+          'cube=default.test_cube',
+        );
+      });
+      // Cube dimensions are applied once common dimensions resolve.
+      await waitFor(() => {
+        expect(mockDjClient.commonDimensions).toHaveBeenCalled();
+      });
+
+      // Apply a filter on the cube-based URL.
+      const filterInput = screen.getByPlaceholderText(
+        /e\.g\. v3\.date\.date_id/i,
+      );
+      fireEvent.change(filterInput, {
+        target: { value: 'default.date_dim.dateint = 20260101' },
+      });
+      fireEvent.click(screen.getByText('Add'));
+
+      // The URL must expand to its fully-qualified form so the filter is
+      // reflected and the link is shareable: the cube param is dropped and
+      // metrics, dimensions, and filters are all encoded.
+      await waitFor(() => {
+        const search = screen.getByTestId('location-search').textContent;
+        expect(search).not.toContain('cube=');
+        expect(search).toContain('metrics=');
+        expect(search).toContain('dimensions=');
+        expect(search).toContain('filters=');
+      });
     });
   });
 

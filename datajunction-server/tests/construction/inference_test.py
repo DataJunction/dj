@@ -11,6 +11,7 @@ from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.sql.parsing.types import (
     BigIntType,
+    BinaryType,
     BooleanType,
     ColumnType,
     DateType,
@@ -751,3 +752,57 @@ async def test_infer_types_datetime(construction_session: AsyncSession):
         BigIntType(),
     ]
     assert types == [exp.type for exp in query.select.projection]  # type: ignore
+
+
+@pytest.mark.asyncio
+async def test_infer_types_hashing(construction_session: AsyncSession):
+    """
+    Test type inference for hashing functions: TO_UTF8, XXHASH64, FROM_BIG_ENDIAN_64.
+
+    Covers both the Trino sampling pattern:
+        from_big_endian_64(xxhash64(to_utf8(col)))
+    and the Spark sampling pattern:
+        xxhash64(col)
+    """
+    query = parse(
+        """
+        SELECT
+          TO_UTF8(first_name),
+          XXHASH64(TO_UTF8(first_name)),
+          FROM_BIG_ENDIAN_64(XXHASH64(TO_UTF8(first_name))),
+          XXHASH64(id)
+        FROM dbt.source.jaffle_shop.customers
+        """,
+    )
+    exc = DJException()
+    ctx = CompileContext(session=construction_session, exception=exc)
+    await query.compile(ctx)
+    assert [exp.type for exp in query.select.projection] == [  # type: ignore
+        BinaryType(),
+        BinaryType(),
+        BigIntType(),
+        BigIntType(),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_infer_types_pmod(construction_session: AsyncSession):
+    """
+    Test type inference for PMOD, which returns the positive modulo and
+    preserves the numeric type of its first argument.
+    """
+    query = parse(
+        """
+        SELECT
+          PMOD(id, 7),
+          PMOD(id, 2.5)
+        FROM dbt.source.jaffle_shop.customers
+        """,
+    )
+    exc = DJException()
+    ctx = CompileContext(session=construction_session, exception=exc)
+    await query.compile(ctx)
+    assert [exp.type for exp in query.select.projection] == [  # type: ignore
+        IntegerType(),
+        IntegerType(),
+    ]

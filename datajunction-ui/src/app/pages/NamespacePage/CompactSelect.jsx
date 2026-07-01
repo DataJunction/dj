@@ -14,6 +14,7 @@ export default function CompactSelect({
   flex = 1,
   isLoading = false,
   testId = null,
+  formatOptionLabel = undefined,
 }) {
   // For single select, find the matching option
   // For multi select, filter to matching options
@@ -55,6 +56,7 @@ export default function CompactSelect({
         placeholder={placeholder}
         onChange={onChange}
         value={selectedValue}
+        formatOptionLabel={formatOptionLabel}
         styles={{
           control: base => ({
             ...base,

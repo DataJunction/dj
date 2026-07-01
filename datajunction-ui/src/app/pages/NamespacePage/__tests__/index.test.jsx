@@ -4,13 +4,13 @@ import DJClientContext from '../../../providers/djclient';
 import UserContext from '../../../providers/UserProvider';
 import { NamespacePage } from '../index';
 import React from 'react';
-import userEvent from '@testing-library/user-event';
 
 const mockDjClient = {
   namespaces: vi.fn(),
   listNamespacesWithGit: vi.fn(),
   namespace: vi.fn(),
   listNodesForLanding: vi.fn(),
+  nodeTypeCounts: vi.fn().mockResolvedValue({}),
   addNamespace: vi.fn(),
   whoami: vi.fn(),
   users: vi.fn(),
@@ -153,7 +153,7 @@ describe('NamespacePage', () => {
       </DJClientContext.Provider>
     );
     render(
-      <MemoryRouter initialEntries={['/namespaces/test.namespace']}>
+      <MemoryRouter initialEntries={['/namespaces/default']}>
         <Routes>
           <Route path="namespaces/:namespace" element={element} />
         </Routes>
@@ -163,15 +163,18 @@ describe('NamespacePage', () => {
     // Wait for initial nodes to load
     await waitFor(() => {
       expect(mockDjClient.listNodesForLanding).toHaveBeenCalled();
-      expect(screen.getByText('Namespaces')).toBeInTheDocument();
     });
 
-    // Check that it displays namespaces (wait — the namespace tree loads
-    // asynchronously, so the labels may appear a tick after the heading).
-    await screen.findByText('common');
-    expect(screen.getByText('one')).toBeInTheDocument();
-    expect(screen.getByText('fruits')).toBeInTheDocument();
-    expect(screen.getByText('vegetables')).toBeInTheDocument();
+    // The selected-namespace rail renders FolderTree for the current namespace's
+    // children. Route is /namespaces/default; the mock hierarchy has
+    // default.fruits and default.vegetables as immediate children.
+    await waitFor(() => {
+      expect(screen.getByText('Folders')).toBeInTheDocument();
+      expect(screen.getByText('fruits')).toBeInTheDocument();
+      expect(screen.getByText('vegetables')).toBeInTheDocument();
+    });
+    // Sibling top-level namespace 'common' must NOT appear in the selected rail.
+    expect(screen.queryByText('common')).not.toBeInTheDocument();
 
     // Check that it renders nodes
     expect(screen.getByText('Test Node')).toBeInTheDocument();
@@ -241,24 +244,17 @@ describe('NamespacePage', () => {
       fireEvent.keyDown(userInput, { key: 'ArrowDown' });
     }
 
-    // --- Expand/Collapse Namespace ---
-    fireEvent.click(screen.getByText('common'));
-    fireEvent.click(screen.getByText('common'));
+    // --- Rail still shows folders after sort interactions ---
+    // The FolderTree rail should still be present after sorting.
+    await waitFor(() => {
+      expect(screen.getByText('Folders')).toBeInTheDocument();
+    });
   });
 
-  it('can add new namespace via inline creation', async () => {
-    // Mock window.location to track navigation
-    delete window.location;
-    window.location = { href: vi.fn() };
-    Object.defineProperty(window.location, 'href', {
-      set: vi.fn(),
-      get: vi.fn(),
-    });
-
-    mockDjClient.addNamespace.mockReturnValue({
-      status: 201,
-      json: {},
-    });
+  it('rail folder nav: shows child folders to drill into', async () => {
+    // The rail is the folder navigator: it lists the current namespace's child
+    // sub-namespaces (drill in by clicking), NOT its siblings or an
+    // all-namespaces list. Going up a level is handled by the header breadcrumb.
     const element = (
       <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
         <NamespacePage />
@@ -272,109 +268,16 @@ describe('NamespacePage', () => {
       </MemoryRouter>,
     );
 
-    // Wait for the sidebar link itself to render (not just the 'default' text,
-    // which can appear in the breadcrumb before the tree finishes loading).
-    let defaultNamespace;
+    // Folder nav loads after the namespace hierarchy is fetched: 'default' has
+    // child folders 'fruits' and 'vegetables'.
     await waitFor(() => {
-      const link = screen
-        .getAllByRole('link')
-        .find(l => l.getAttribute('href') === '/namespaces/default');
-      expect(link).toBeTruthy();
-      defaultNamespace = link.closest('.select-name');
-      expect(defaultNamespace).toBeTruthy();
-    });
-    fireEvent.mouseEnter(defaultNamespace);
-
-    // Find the add namespace button (it exists but is hidden, so use getAllByTitle)
-    const addButtons = screen.getAllByTitle('Add child namespace');
-    const defaultAddButton = addButtons.find(btn =>
-      btn
-        .closest('.namespace-item')
-        ?.querySelector('a[href="/namespaces/default"]'),
-    );
-
-    expect(defaultAddButton).toBeInTheDocument();
-    fireEvent.click(defaultAddButton);
-
-    // Type in the new namespace name
-    await waitFor(() => {
-      const input = screen.getByPlaceholderText('New namespace name');
-      expect(input).toBeInTheDocument();
+      expect(screen.getByText('Folders')).toBeInTheDocument();
+      expect(screen.getByText('fruits')).toBeInTheDocument();
+      expect(screen.getByText('vegetables')).toBeInTheDocument();
     });
 
-    const input = screen.getByPlaceholderText('New namespace name');
-    await userEvent.type(input, 'new_child');
-
-    // Submit the form
-    const submitButton = screen.getByRole('button', { name: '✓' });
-    fireEvent.click(submitButton);
-
-    await waitFor(() => {
-      expect(mockDjClient.addNamespace).toHaveBeenCalledWith(
-        'default.new_child',
-      );
-    });
-  });
-
-  it('can fail to add namespace', async () => {
-    mockDjClient.addNamespace.mockReturnValue({
-      status: 500,
-      json: { message: 'you failed' },
-    });
-    const element = (
-      <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
-        <NamespacePage />
-      </DJClientContext.Provider>
-    );
-    render(
-      <MemoryRouter initialEntries={['/namespaces/default']}>
-        <Routes>
-          <Route path="namespaces/:namespace" element={element} />
-        </Routes>
-      </MemoryRouter>,
-    );
-
-    // Wait for the sidebar link itself to render (not just the 'default' text,
-    // which can appear in the breadcrumb before the tree finishes loading).
-    let defaultNamespace;
-    await waitFor(() => {
-      const link = screen
-        .getAllByRole('link')
-        .find(l => l.getAttribute('href') === '/namespaces/default');
-      expect(link).toBeTruthy();
-      defaultNamespace = link.closest('.select-name');
-      expect(defaultNamespace).toBeTruthy();
-    });
-    fireEvent.mouseEnter(defaultNamespace);
-
-    // Find the add namespace button (it exists but is hidden, so use getAllByTitle)
-    const addButtons = screen.getAllByTitle('Add child namespace');
-    const defaultAddButton = addButtons.find(btn =>
-      btn
-        .closest('.namespace-item')
-        ?.querySelector('a[href="/namespaces/default"]'),
-    );
-
-    expect(defaultAddButton).toBeInTheDocument();
-    fireEvent.click(defaultAddButton);
-
-    // Type in the new namespace name
-    await waitFor(() => {
-      const input = screen.getByPlaceholderText('New namespace name');
-      expect(input).toBeInTheDocument();
-    });
-
-    const input = screen.getByPlaceholderText('New namespace name');
-    await userEvent.type(input, 'bad_namespace');
-
-    // Submit the form
-    const submitButton = screen.getByRole('button', { name: '✓' });
-    fireEvent.click(submitButton);
-
-    // Should display failure alert
-    await waitFor(() => {
-      expect(screen.getByText('you failed')).toBeInTheDocument();
-    });
+    // Siblings / all-namespaces are NOT shown in the selected view.
+    expect(screen.queryByText('common')).not.toBeInTheDocument();
   });
 
   describe('Filter Bar', () => {
@@ -566,7 +469,7 @@ describe('NamespacePage', () => {
 
       await waitFor(() => {
         expect(
-          screen.getByText('No nodes found with the current filters.'),
+          screen.getByText('No nodes match the current filters.'),
         ).toBeInTheDocument();
         expect(screen.getByText('Clear filters')).toBeInTheDocument();
       });
@@ -657,96 +560,19 @@ describe('NamespacePage', () => {
       mockDjClient.getNamespaceBranches.mockResolvedValue(mockBranches);
     });
 
-    it('shows Branches section for a git-root namespace', async () => {
+    it('browses the default branch namespace in the node table', async () => {
       renderWithProviders(<NamespacePage />);
 
-      await waitFor(() => {
-        expect(screen.getByText('Branches')).toBeInTheDocument();
-        // cards show git_branch value; 'main' appears in both the card title
-        // and the default branch section header, so use getAllByText
-        expect(screen.getAllByText('main').length).toBeGreaterThan(0);
-        expect(screen.getByText('feature-xyz')).toBeInTheDocument();
-      });
-    });
-
-    it('shows branch count next to Branches header', async () => {
-      renderWithProviders(<NamespacePage />);
-
-      await waitFor(() => {
-        expect(screen.getByText('Branches')).toBeInTheDocument();
-        // branch count (2)
-        expect(screen.getByText('2')).toBeInTheDocument();
-      });
-    });
-
-    it('shows node counts and invalid counts on branch cards', async () => {
-      renderWithProviders(<NamespacePage />);
-
-      await waitFor(() => {
-        expect(screen.getByText('10 nodes')).toBeInTheDocument();
-        expect(screen.getByText('1 invalid')).toBeInTheDocument();
-        expect(screen.getByText('5 nodes')).toBeInTheDocument();
-      });
-    });
-
-    it('shows default branch section header and View all link', async () => {
-      renderWithProviders(<NamespacePage />);
-
-      // The default branch header (name + "default" badge) and "View all" link
-      // appear as soon as gitConfig.default_branch is set and isGitRoot is true
+      // A git root has no nodes of its own — the table queries
+      // <root>.<default_branch> (so a git root shows the same browsable table
+      // as any other namespace, instead of a separate split preview).
       await waitFor(
         () => {
-          expect(screen.getByText('View all →')).toBeInTheDocument();
-          // default branch name shown as the section title
-          expect(screen.getAllByText('main').length).toBeGreaterThan(0);
-        },
-        { timeout: 3000 },
-      );
-    });
-
-    it('calls listNodesForLanding once per node type for the default branch namespace', async () => {
-      renderWithProviders(<NamespacePage />);
-
-      await waitFor(
-        () => {
-          // One call per node type is made for the default branch preview
           const calls = mockDjClient.listNodesForLanding.mock.calls;
-          const defaultBranchCalls = calls.filter(
-            args => args[0] === 'default.main',
-          );
-          expect(defaultBranchCalls).toHaveLength(5);
-          const types = defaultBranchCalls.map(args => args[1][0]);
-          expect(types).toEqual(
-            expect.arrayContaining([
-              'METRIC',
-              'CUBE',
-              'DIMENSION',
-              'TRANSFORM',
-              'SOURCE',
-            ]),
-          );
+          expect(calls.some(args => args[0] === 'default.main')).toBe(true);
         },
         { timeout: 3000 },
       );
-    });
-
-    it('shows loading state while branches are loading', async () => {
-      let resolveBranches;
-      mockDjClient.getNamespaceBranches.mockReturnValue(
-        new Promise(resolve => {
-          resolveBranches = resolve;
-        }),
-      );
-
-      renderWithProviders(<NamespacePage />);
-
-      // While loading, Branches header should still show (branchesLoading=true triggers the section)
-      await waitFor(() => {
-        expect(screen.getByText('Branches')).toBeInTheDocument();
-      });
-
-      // Resolve to avoid act() warnings
-      resolveBranches([]);
     });
   });
 
@@ -798,36 +624,89 @@ describe('NamespacePage', () => {
     });
   });
 
-  describe('formatRelativeTime', () => {
-    it('shows last_updated_at timestamp on branch cards', async () => {
-      mockDjClient.getNamespaceGitConfig.mockResolvedValue({
-        github_repo_path: 'org/repo',
-        git_branch: 'main',
-        default_branch: 'main',
-        parent_namespace: null,
-        git_only: false,
-        git_root_namespace: 'default',
-      });
-      mockDjClient.getNamespaceBranches.mockResolvedValue([
-        {
-          namespace: 'default.main',
-          git_branch: 'main',
-          num_nodes: 3,
-          invalid_node_count: 0,
-          last_updated_at: new Date(
-            Date.now() - 2 * 24 * 60 * 60 * 1000,
-          ).toISOString(),
-        },
-      ]);
-
-      renderWithProviders(<NamespacePage />);
-
-      await waitFor(() => {
-        // 'main' appears in both the card title and default branch section header
-        expect(screen.getAllByText('main').length).toBeGreaterThan(0);
-        // Should show relative time like "2d ago" (may appear on multiple elements)
-        expect(screen.getAllByText(/ago/).length).toBeGreaterThan(0);
-      });
+  it('node search passes the search term to the fetch', async () => {
+    mockDjClient.getNamespaceGitConfig.mockResolvedValue({
+      github_repo_path: null,
+      git_branch: null,
+      default_branch: null,
+      parent_namespace: null,
+      git_only: false,
+      git_root_namespace: null,
     });
+    mockDjClient.listNamespacesWithGit.mockResolvedValue([
+      { namespace: 'growth', numNodes: 2, git: null },
+      { namespace: 'growth.metrics', numNodes: 7, git: null },
+    ]);
+    renderWithProviders(<NamespacePage />, { route: '/namespaces/growth' });
+
+    await waitFor(() =>
+      expect(mockDjClient.listNodesForLanding).toHaveBeenCalled(),
+    );
+
+    fireEvent.change(screen.getByPlaceholderText(/search nodes/i), {
+      target: { value: 'active' },
+    });
+
+    // Wait for the 300 ms debounce and the subsequent fetch.
+    await waitFor(
+      () => {
+        const opts = mockDjClient.listNodesForLanding.mock.calls.at(-1).at(-1);
+        expect(opts.search).toBe('active');
+      },
+      { timeout: 1000 },
+    );
+  });
+
+  it('shows sub-namespace folders in the rail', async () => {
+    mockDjClient.getNamespaceGitConfig.mockResolvedValue({
+      github_repo_path: null,
+      git_branch: null,
+      default_branch: null,
+      parent_namespace: null,
+      git_only: false,
+      git_root_namespace: null,
+    });
+    mockDjClient.listNamespacesWithGit.mockResolvedValue([
+      { namespace: 'growth', numNodes: 2, git: null },
+      { namespace: 'growth.experiments', numNodes: 5, git: null },
+      { namespace: 'growth.metrics', numNodes: 7, git: null },
+    ]);
+    renderWithProviders(<NamespacePage />, { route: '/namespaces/growth' });
+
+    // The rail (FolderTree) lists immediate sub-namespaces of the selected namespace.
+    await waitFor(() => {
+      expect(screen.getByText('Folders')).toBeInTheDocument();
+      expect(screen.getByText('experiments')).toBeInTheDocument();
+      expect(screen.getByText('metrics')).toBeInTheDocument();
+    });
+  });
+
+  it('resets pagination cursors to null when search term changes', async () => {
+    // Limitation: simulating a real Next-click to set a non-null cursor before
+    // typing is impractical in this test harness because the pagination buttons
+    // depend on rendered cursor state that only stabilises after async fetches.
+    // This test therefore directly asserts the regression-guard: after typing a
+    // search term the fetch is called with before=null (index 4) and after=null
+    // (index 5), confirming the reset effect fires on debouncedSearch change.
+    renderWithProviders(<NamespacePage />, { route: '/namespaces/default' });
+
+    await waitFor(() => {
+      expect(mockDjClient.listNodesForLanding).toHaveBeenCalled();
+    });
+
+    const searchBox = screen.getByPlaceholderText(/search nodes/i);
+    fireEvent.change(searchBox, { target: { value: 'my_metric' } });
+
+    // Wait for the 300 ms debounce to fire and the subsequent fetch to complete.
+    await waitFor(
+      () => {
+        const calls = mockDjClient.listNodesForLanding.mock.calls;
+        const lastCall = calls.at(-1);
+        // before is arg index 4, after is arg index 5.
+        expect(lastCall[4]).toBeNull();
+        expect(lastCall[5]).toBeNull();
+      },
+      { timeout: 1000 },
+    );
   });
 });

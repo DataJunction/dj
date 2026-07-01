@@ -74,11 +74,9 @@ def _merge_fields(dst: Dict[str, Any], src: Dict[str, Any]) -> None:
     selections overlap — would cause the second occurrence to clobber the
     first, and the eager-loader would miss fields.
 
-    Known limitation: ``@skip`` / ``@include`` directives are ignored, so a
-    conditionally-skipped field is still treated as requested. This only
-    causes over-eager-loading, not wrong results. Inline-fragment
-    ``type_condition`` is also not checked; if the schema grows polymorphic
-    types, revisit to avoid loading for types the object isn't.
+    Known limitation: inline-fragment ``type_condition`` is not checked; if the
+    schema grows polymorphic types, revisit to avoid loading for types the
+    object isn't.
     """
     for name, sub in src.items():
         if name not in dst:
@@ -96,6 +94,11 @@ def _walk_selections(selections) -> Dict[str, Any]:
     """
     out: Dict[str, Any] = {}
     for sel in selections:
+        if sel.directives and (
+            sel.directives.get("include", {}).get("if") is False
+            or sel.directives.get("skip", {}).get("if") is True
+        ):
+            continue
         if isinstance(sel, (FragmentSpread, InlineFragment)):
             _merge_fields(out, _walk_selections(sel.selections))
             continue
