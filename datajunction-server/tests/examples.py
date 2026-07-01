@@ -3611,6 +3611,26 @@ BUILD_V3 = (  # type: ignore
     (
         "/nodes/metric/",
         {
+            "name": "v3.avg_revenue_trailing_7d",
+            "description": (
+                "Trailing 7-day AVERAGE revenue. Non-additive window aggregation; "
+                "must be rejected on the live path because gap-fill semantics for "
+                "averages are not yet defined."
+            ),
+            "query": """
+                SELECT
+                    AVG(v3.total_revenue) OVER (
+                        ORDER BY v3.date.date_id[order]
+                        ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+                    )
+            """,
+            "mode": "published",
+            "required_dimensions": ["v3.date.date_id[order]"],
+        },
+    ),
+    (
+        "/nodes/metric/",
+        {
             "name": "v3.trailing_7d_revenue_inferred_dim",
             "description": (
                 "Trailing 7-day revenue without required_dimensions set. "

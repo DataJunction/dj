@@ -701,6 +701,10 @@ class TestGetPreaggregationById:
                         "name": "v3.avg_order_value",
                     },
                     {
+                        "display_name": "Avg Revenue Trailing 7D",
+                        "name": "v3.avg_revenue_trailing_7d",
+                    },
+                    {
                         "display_name": "Efficiency Ratio",
                         "name": "v3.efficiency_ratio",
                     },
