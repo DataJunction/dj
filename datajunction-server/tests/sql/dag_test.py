@@ -17,6 +17,7 @@ from datajunction_server.models.node import DimensionAttributeOutput, NodeType
 from datajunction_server.sql.dag import (
     build_reference_link,
     get_common_dimensions,
+    get_dimension_attributes,
     get_dimensions,
     get_dimensions_dag,
     get_downstream_nodes,
@@ -124,6 +125,108 @@ async def test_get_dimensions(session: AsyncSession, current_user: User) -> None
             filter_only=False,
         ),
     ]
+
+
+@pytest.mark.asyncio
+async def test_get_dimension_attributes_metric_on_dimension_node(
+    session: AsyncSession,
+    current_user: User,
+) -> None:
+    """
+    A metric defined directly on a dimension node should surface that dimension
+    node's own attributes as well as any dimensions it links to, matching what
+    the dimension node itself exposes.
+
+    Regression test: previously ``get_dimension_attributes`` only considered
+    metric parents and fact/transform parents, so a metric whose only parent was
+    a dimension node fell through to an empty result ("No dimensions available").
+    """
+    # Leaf dimension linked to from dim_a
+    dim_b_ref = Node(
+        name="default.dim_b",
+        type=NodeType.DIMENSION,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    dim_b = NodeRevision(
+        node=dim_b_ref,
+        name=dim_b_ref.name,
+        type=dim_b_ref.type,
+        display_name="Dim B",
+        version="1",
+        columns=[
+            Column(name="id", type=IntegerType(), order=0),
+            Column(name="attr_b", type=StringType(), order=1),
+        ],
+        created_by_id=current_user.id,
+    )
+    dim_b_ref.current = dim_b
+
+    # Dimension node the metric is defined on; links to dim_b
+    dim_a_ref = Node(
+        name="default.dim_a",
+        type=NodeType.DIMENSION,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    dim_a = NodeRevision(
+        node=dim_a_ref,
+        name=dim_a_ref.name,
+        type=dim_a_ref.type,
+        display_name="Dim A",
+        version="1",
+        columns=[
+            Column(name="id", type=IntegerType(), order=0),
+            Column(name="attr_a", type=StringType(), order=1),
+        ],
+        created_by_id=current_user.id,
+    )
+    dim_a_ref.current = dim_a
+    session.add_all([dim_a, dim_a_ref, dim_b, dim_b_ref])
+    await session.flush()
+
+    # Metric defined directly on the dimension node
+    metric_ref = Node(
+        name="default.metric_on_dim",
+        type=NodeType.METRIC,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    metric = NodeRevision(
+        node=metric_ref,
+        name=metric_ref.name,
+        type=metric_ref.type,
+        display_name="Metric On Dim",
+        version="1",
+        query="SELECT COUNT(id) FROM default.dim_a",
+        parents=[dim_a_ref],
+        columns=[Column(name="cnt", type=IntegerType(), order=0)],
+        created_by_id=current_user.id,
+    )
+    metric_ref.current = metric
+    session.add_all([metric, metric_ref])
+    await session.flush()
+
+    session.add(
+        DimensionLink(
+            dimension_id=dim_b_ref.id,
+            node_revision_id=dim_a.id,
+            join_sql="default.dim_a.id = default.dim_b.id",
+        ),
+    )
+    await session.commit()
+
+    dim_node_attrs = await get_dimension_attributes(session, "default.dim_a")
+    metric_attrs = await get_dimension_attributes(session, "default.metric_on_dim")
+
+    expected = {
+        "default.dim_a.id",
+        "default.dim_a.attr_a",
+        "default.dim_b.id",
+        "default.dim_b.attr_b",
+    }
+    assert {d.name for d in dim_node_attrs} == expected
+    assert {d.name for d in metric_attrs} == expected
 
 
 @pytest.mark.asyncio

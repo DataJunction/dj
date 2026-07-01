@@ -342,12 +342,16 @@ async def get_dimension_attributes(
         # derived metric (parent is another metric)
         await refresh_if_needed(session, node.current, ["parents"])
 
-        # Find metric parents (not dimension parents)
+        # Categorize parents: metric (derived), fact/transform (base), or dimension
+        # (metric defined directly on a dimension node).
         metric_parents = [p for p in node.current.parents if p.type == NodeType.METRIC]
         non_metric_parents = [
             p
             for p in node.current.parents
             if p.type not in (NodeType.METRIC, NodeType.DIMENSION)
+        ]
+        dimension_parents = [
+            p for p in node.current.parents if p.type == NodeType.DIMENSION
         ]
 
         if metric_parents:
@@ -364,6 +368,11 @@ async def get_dimension_attributes(
             # Base metric - use the first non-metric parent (fact/transform)
             await refresh_if_needed(session, non_metric_parents[0], ["current"])
             node = non_metric_parents[0]
+        elif dimension_parents:
+            # Base metric defined directly on a dimension node - inherit that
+            # dimension node's own attributes and linked dimensions.
+            await refresh_if_needed(session, dimension_parents[0], ["current"])
+            node = dimension_parents[0]
         else:
             # No valid parents found
             return []  # pragma: no cover

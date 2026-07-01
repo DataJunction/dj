@@ -1195,6 +1195,33 @@ describe('DataJunctionAPI', () => {
     );
   });
 
+  it('passes search to findNodesPaginated', async () => {
+    const calls = [];
+    const originalFetch = global.fetch;
+    global.fetch = vi.fn(async (_url, opts) => {
+      calls.push(JSON.parse(opts.body));
+      return {
+        json: async () => ({
+          data: { findNodesPaginated: { edges: [], pageInfo: {} } },
+        }),
+      };
+    });
+    await DataJunctionAPI.listNodesForLanding(
+      'growth',
+      [],
+      [],
+      '',
+      null,
+      null,
+      50,
+      { key: 'name', direction: 'ascending' },
+      null,
+      { search: 'active' },
+    );
+    global.fetch = originalFetch;
+    expect(calls[0].variables.search).toBe('active');
+  });
+
   it('calls getMetric correctly', async () => {
     fetch.mockResponseOnce(
       JSON.stringify({
@@ -2148,7 +2175,15 @@ describe('DataJunctionAPI', () => {
               current: {
                 displayName: 'Cube 1',
                 cubeMetrics: [{ name: 'metric1' }, { name: 'metric2' }],
-                cubeDimensions: [{ name: 'dim1' }],
+                cubeDimensions: [
+                  {
+                    name: 'dim1',
+                    type: 'int',
+                    attribute: 'dim1',
+                    role: '',
+                    properties: [],
+                  },
+                ],
                 materializations: [
                   {
                     name: 'druid_cube',
@@ -2177,6 +2212,15 @@ describe('DataJunctionAPI', () => {
       display_name: 'Cube 1',
       cube_node_metrics: ['metric1', 'metric2'],
       cube_node_dimensions: ['dim1'],
+      cube_dimension_objects: [
+        {
+          name: 'dim1',
+          type: 'int',
+          attribute: 'dim1',
+          role: '',
+          properties: [],
+        },
+      ],
       cubeMaterialization: {
         strategy: 'incremental_time',
         schedule: '0 6 * * *',

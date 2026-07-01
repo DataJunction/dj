@@ -2,3 +2,328 @@ table {
   width: 100%;
   height: min-content;
 }
+
+/* Namespace nav (filter-over-list) */
+.dj-ns-group-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  background: none;
+  border: none;
+  border-top: 1px solid #eef2f6;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: #94a3b8;
+  margin: 6px 0 2px;
+  padding: 10px 2px 4px;
+}
+.dj-ns-group-heading:hover {
+  color: #64748b;
+}
+.dj-ns-chevron {
+  display: inline-flex;
+  align-items: center;
+  width: 14px;
+  min-width: 14px;
+  flex-shrink: 0;
+}
+.dj-ns-group-label {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dj-ns-group-count {
+  margin-left: auto;
+  padding-left: 6px;
+  color: #cbd5e1;
+  flex-shrink: 0;
+}
+.dj-ns-nav-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  background: none;
+  border: none;
+  text-align: left;
+  padding: 8px 8px 8px 20px;
+  font-size: 15px;
+  line-height: 1.4;
+  color: #334155;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.dj-ns-nav-item:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+.dj-ns-nav-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+/* Namespace nav — the filter box doubles as the scope selector. When a namespace is
+   selected it shows in the input; an inset pin (★) and clear (✕) sit on the right. */
+.dj-ns-filter {
+  position: relative;
+  margin-bottom: 6px;
+}
+.dj-ns-filter-input {
+  width: 100%;
+  box-sizing: border-box;
+  /* right padding leaves room for the inset pin + clear buttons */
+  padding: 9px 52px 9px 11px;
+  font-size: 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+}
+.dj-ns-filter-pin,
+.dj-ns-filter-clear {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  padding: 0 4px;
+  line-height: 1;
+  cursor: pointer;
+}
+.dj-ns-filter-clear {
+  right: 8px;
+  font-size: 13px;
+  color: #94a3b8;
+}
+.dj-ns-filter-clear:hover {
+  color: #475569;
+}
+.dj-ns-filter-pin {
+  right: 30px;
+  font-size: 15px;
+  color: #cbd5e1;
+}
+.dj-ns-filter-pin:hover {
+  color: #94a3b8;
+}
+.dj-ns-filter-pin.pinned {
+  color: #f59e0b;
+}
+/* Branch switcher: borderless — icon + branch name + caret read as plain text (no box,
+   so it doesn't look like a second selector), with a transparent native <select>
+   overlaid for the dropdown + accessibility. The row shrink-wraps its content. */
+.dj-ns-scope-branch-row {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  margin: 2px 0 8px;
+  padding: 2px 4px 2px 12px;
+  cursor: pointer;
+}
+.dj-ns-branch-glyph {
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+.dj-ns-branch-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e293b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dj-ns-branch-caret {
+  color: #64748b;
+  flex-shrink: 0;
+}
+.dj-ns-scope-branch-row:hover .dj-ns-branch-value {
+  color: #2563eb;
+}
+.dj-ns-scope-branch-row:hover .dj-ns-branch-glyph,
+.dj-ns-scope-branch-row:hover .dj-ns-branch-caret {
+  color: #2563eb;
+}
+/* The real <select>, made invisible and stretched over the row so a click anywhere
+   opens the native dropdown; keeps keyboard + screen-reader behavior. */
+.dj-ns-branch-native {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  border: none;
+  opacity: 0;
+  cursor: pointer;
+}
+
+/* Namespace nav — pin star */
+.dj-ns-star {
+  margin-left: 6px;
+  padding: 0 2px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  color: #cbd5e1;
+  opacity: 0;
+  flex-shrink: 0;
+}
+.dj-ns-nav-item:hover .dj-ns-star {
+  opacity: 1;
+}
+.dj-ns-star.pinned {
+  opacity: 1;
+  color: #f59e0b;
+}
+
+/* Namespace nav — contents-by-type summary (selected view) */
+.dj-ns-type-summary {
+  margin: 2px 0 4px;
+  padding: 0 4px 8px;
+  border-bottom: 1px solid #eef2f6;
+}
+.dj-ns-type-summary-heading {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: #94a3b8;
+  margin: 2px 0 4px;
+}
+.dj-ns-type-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  /* left pad aligns node names with the namespace tree's text column */
+  padding: 6px 4px 6px 24px;
+  border-radius: 4px;
+  text-decoration: none;
+  color: #334155;
+  font-size: 14px;
+}
+.dj-ns-type-row:hover {
+  background: #f1f5f9;
+}
+.dj-ns-type-name {
+  text-transform: capitalize;
+}
+.dj-ns-type-count {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.dj-ns-tree-heading {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: #94a3b8;
+  margin: 8px 0 4px;
+  padding: 0 4px;
+}
+
+/* Node search box in the namespace main panel */
+.dj-node-search {
+  width: 100%;
+  max-width: 360px;
+  box-sizing: border-box;
+  padding: 9px 12px;
+  font-size: 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  margin-bottom: 12px;
+}
+.dj-node-search::placeholder {
+  color: #94a3b8;
+}
+
+/* Namespace tree (Explorer) — row actions: persistent pin + kebab menu */
+.dj-ns-row-actions {
+  position: absolute;
+  right: 4px;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.dj-ns-pin-indicator {
+  color: #f59e0b;
+  font-size: 13px;
+  line-height: 1;
+}
+.dj-ns-kebab {
+  padding: 2px 3px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: #94a3b8;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 4px;
+  transition: opacity 0.15s ease;
+}
+.dj-ns-kebab:hover {
+  background: #e2e8f0;
+  color: #475569;
+}
+.dj-ns-row-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 30;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.14);
+  padding: 4px;
+  min-width: 170px;
+}
+.dj-ns-row-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 7px 10px;
+  font-size: 13px;
+  color: #334155;
+  cursor: pointer;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.dj-ns-row-menu-item:hover {
+  background: #f1f5f9;
+}
+.dj-ns-mi-icon {
+  width: 16px;
+  min-width: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+  font-size: 14px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.dj-ns-mi-icon svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}
+.dj-ns-mi-icon.pinned {
+  color: #f59e0b;
+}

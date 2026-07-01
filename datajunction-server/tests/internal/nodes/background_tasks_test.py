@@ -84,7 +84,11 @@ async def test_save_column_level_lineage_swallows_exceptions(caplog):
         ):
             await save_column_level_lineage(node_revision_id=99)
 
+    # The exception must be folded into the message itself (not just exc_info),
+    # so backends that retain only the formatted message stay diagnosable.
     assert any("column-level lineage" in r.message.lower() for r in caplog.records)
+    assert any("boom" in r.message for r in caplog.records)
+    assert any("RuntimeError" in r.message for r in caplog.records)
 
 
 @pytest.mark.asyncio

@@ -21,10 +21,16 @@ from datajunction_server.construction.build_v3.builder import (
     build_measures_sql,
     build_metrics_sql,
 )
+from datajunction_server.construction.build_v3.cube_matcher import (
+    resolve_dialect_and_engine_for_metrics,
+)
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.internal.namespaces import get_git_info_for_namespace
-from datajunction_server.mcp.context import get_mcp_session
+from datajunction_server.mcp.context import (
+    get_mcp_query_service_client,
+    get_mcp_session,
+)
 from datajunction_server.mcp.formatters import (
     format_dimensions_compatibility,
     format_node_details,
@@ -400,9 +406,6 @@ async def _execute_metrics_query(
     Raises ``ValueError`` (string-message) which the caller turns into an
     MCP-facing error block.
     """
-    from datajunction_server.construction.build_v3.cube_matcher import (
-        resolve_dialect_and_engine_for_metrics,
-    )
     from datajunction_server.models.query import QueryCreate
 
     session = get_mcp_session()
@@ -441,8 +444,9 @@ async def _execute_metrics_query(
             f"frequent query — ask the data owner to materialize a cube for it.",
         )
 
-    settings = get_settings()
-    query_service_client = get_query_service_client(settings=settings)
+    query_service_client = get_mcp_query_service_client() or get_query_service_client(
+        settings=get_settings(),
+    )
     if query_service_client is None:
         raise ValueError(
             "Query service client is not configured on this DJ instance.",

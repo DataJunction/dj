@@ -2229,13 +2229,15 @@ async def test_deploy_reference_link_on_invalid_node(
 
 
 @pytest.mark.asyncio
-async def test_deploy_delete_node_calls_add_history(
+async def test_delete_nodes_bulk_deletes_existing_node(
     session,
     current_user,
     mock_deployment_context,
 ):
-    """_deploy_delete_node with a real existing node calls hard_delete_node which
-    invokes the nested add_history callback (covers line 2196)."""
+    """_delete_nodes bulk-deletes a deletable node via a single cascade DELETE
+    (no per-node hard_delete_node loop). Downstream invalidation is handled
+    separately by propagate_impact, so here we only assert the node is removed
+    and the result is a successful DELETE."""
     orch = DeploymentOrchestrator(
         deployment_spec=DeploymentSpec(namespace="default", nodes=[]),
         deployment_id="delete-test",
@@ -2243,13 +2245,58 @@ async def test_deploy_delete_node_calls_add_history(
         context=mock_deployment_context,
         dry_run=False,
     )
+    # "default.hard_hat" is present in the pre-loaded roads example DB.
+    spec = Mock()
+    spec.rendered_name = "default.hard_hat"
+    # No external references block the delete.
+    with patch.object(orch, "_validate_node_deletion", AsyncMock(return_value={})):
+        results = await orch._delete_nodes([spec])
 
-    # "default.hard_hat" is present in the pre-loaded roads example DB
-    result = await orch._deploy_delete_node("default.hard_hat")
+    assert len(results) == 1
+    assert results[0].status == DeploymentResult.Status.SUCCESS
+    assert results[0].operation == DeploymentResult.Operation.DELETE
+    assert results[0].name == "default.hard_hat"
 
-    # The node was found and deleted successfully
-    assert result.status == DeploymentResult.Status.SUCCESS
-    assert result.operation == DeploymentResult.Operation.DELETE
+    # The node row is gone.
+    gone = (
+        await session.execute(
+            select(Node).where(Node.name == "default.hard_hat"),
+        )
+    ).scalar_one_or_none()
+    assert gone is None
+
+
+@pytest.mark.asyncio
+async def test_delete_nodes_reports_referenced_and_missing(
+    session,
+    mock_deployment_context,
+):
+    """A referenced node is FAILED (blocked); a deletable-but-absent node is
+    FAILED (not found). Covers both non-success branches without a real delete."""
+    orch = DeploymentOrchestrator(
+        deployment_spec=DeploymentSpec(namespace="default", nodes=[]),
+        deployment_id="delete-test-2",
+        session=session,
+        context=mock_deployment_context,
+        dry_run=False,
+    )
+    referenced = Mock()
+    referenced.rendered_name = "default.referenced"
+    absent = Mock()
+    absent.rendered_name = "default.does_not_exist"
+
+    with patch.object(
+        orch,
+        "_validate_node_deletion",
+        AsyncMock(return_value={"default.referenced": ["default.consumer"]}),
+    ):
+        results = await orch._delete_nodes([referenced, absent])
+
+    by_name = {r.name: r for r in results}
+    assert by_name["default.referenced"].status == DeploymentResult.Status.FAILED
+    assert "referenced by" in by_name["default.referenced"].message
+    assert by_name["default.does_not_exist"].status == DeploymentResult.Status.FAILED
+    assert "not found" in by_name["default.does_not_exist"].message
 
 
 class TestGenerateChangelog:

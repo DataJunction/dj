@@ -36,7 +36,9 @@ from datajunction_server.models.partition import PartitionType, Granularity
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.internal.access.authorization import (
     AuthorizationService,
 )
@@ -67,24 +69,150 @@ async def test_list_all_namespaces(
     response = await module__client_with_all_examples.get("/namespaces/")
     assert response.status_code in (200, 201)
     assert response.json() == [
-        {"namespace": "basic", "num_nodes": 8},
-        {"namespace": "basic.dimension", "num_nodes": 2},
-        {"namespace": "basic.source", "num_nodes": 2},
-        {"namespace": "basic.transform", "num_nodes": 1},
-        {"namespace": "dbt.dimension", "num_nodes": 1},
-        {"namespace": "dbt.source", "num_nodes": 0},
-        {"namespace": "dbt.source.jaffle_shop", "num_nodes": 2},
-        {"namespace": "dbt.source.stripe", "num_nodes": 1},
-        {"namespace": "dbt.transform", "num_nodes": 1},
-        {"namespace": "default", "num_nodes": 82},
-        {"namespace": "different.basic", "num_nodes": 2},
-        {"namespace": "different.basic.dimension", "num_nodes": 2},
-        {"namespace": "different.basic.source", "num_nodes": 2},
-        {"namespace": "different.basic.transform", "num_nodes": 1},
-        {"namespace": "foo.bar", "num_nodes": 26},
-        {"namespace": "hll", "num_nodes": 4},
-        {"namespace": "v3", "num_nodes": 47},
+        {
+            "namespace": "basic",
+            "num_nodes": 8,
+            "github_repo_path": None,
+            "git_branch": None,
+        },
+        {
+            "namespace": "basic.dimension",
+            "num_nodes": 2,
+            "github_repo_path": None,
+            "git_branch": None,
+        },
+        {
+            "namespace": "basic.source",
+            "num_nodes": 2,
+            "github_repo_path": None,
+            "git_branch": None,
+        },
+        {
+            "namespace": "basic.transform",
+            "num_nodes": 1,
+            "github_repo_path": None,
+            "git_branch": None,
+        },
+        {
+            "namespace": "dbt.dimension",
+            "num_nodes": 1,
+            "github_repo_path": None,
+            "git_branch": None,
+        },
+        {
+            "namespace": "dbt.source",
+            "num_nodes": 0,
+            "github_repo_path": None,
+            "git_branch": None,
+        },
+        {
+            "namespace": "dbt.source.jaffle_shop",
+            "num_nodes": 2,
+            "github_repo_path": None,
+            "git_branch": None,
+        },
+        {
+            "namespace": "dbt.source.stripe",
+            "num_nodes": 1,
+            "github_repo_path": None,
+            "git_branch": None,
+        },
+        {
+            "namespace": "dbt.transform",
+            "num_nodes": 1,
+            "github_repo_path": None,
+            "git_branch": None,
+        },
+        {
+            "namespace": "default",
+            "num_nodes": 82,
+            "github_repo_path": None,
+            "git_branch": None,
+        },
+        {
+            "namespace": "different.basic",
+            "num_nodes": 2,
+            "github_repo_path": None,
+            "git_branch": None,
+        },
+        {
+            "namespace": "different.basic.dimension",
+            "num_nodes": 2,
+            "github_repo_path": None,
+            "git_branch": None,
+        },
+        {
+            "namespace": "different.basic.source",
+            "num_nodes": 2,
+            "github_repo_path": None,
+            "git_branch": None,
+        },
+        {
+            "namespace": "different.basic.transform",
+            "num_nodes": 1,
+            "github_repo_path": None,
+            "git_branch": None,
+        },
+        {
+            "namespace": "foo.bar",
+            "num_nodes": 26,
+            "github_repo_path": None,
+            "git_branch": None,
+        },
+        {
+            "namespace": "hll",
+            "num_nodes": 4,
+            "github_repo_path": None,
+            "git_branch": None,
+        },
+        {
+            "namespace": "v3",
+            "num_nodes": 47,
+            "github_repo_path": None,
+            "git_branch": None,
+        },
     ]
+
+
+@pytest.mark.asyncio
+async def test_list_namespaces_filter_git_backed(
+    client_with_service_setup: AsyncClient,
+) -> None:
+    """
+    ``GET /namespaces/?git_backed=true|false`` filters to namespaces by
+    git backing; the response also exposes ``github_repo_path`` and
+    ``git_branch`` so callers don't have to N+1 to ``/namespaces/{n}/git``.
+    """
+    await client_with_service_setup.post("/namespaces/git_root")
+    await client_with_service_setup.patch(
+        "/namespaces/git_root/git",
+        json={"github_repo_path": "myorg/myrepo"},
+    )
+    await client_with_service_setup.post("/namespaces/plain_ns")
+
+    git_only = await client_with_service_setup.get("/namespaces/?git_backed=true")
+    assert git_only.status_code == 200
+    assert git_only.json() == [
+        {
+            "namespace": "git_root",
+            "num_nodes": 0,
+            "github_repo_path": "myorg/myrepo",
+            "git_branch": None,
+        },
+    ]
+
+    non_git = await client_with_service_setup.get("/namespaces/?git_backed=false")
+    assert non_git.status_code == 200
+    non_git_names = [ns["namespace"] for ns in non_git.json()]
+    assert "plain_ns" in non_git_names
+    assert "git_root" not in non_git_names
+    assert all(ns["github_repo_path"] is None for ns in non_git.json())
+
+    all_ns = await client_with_service_setup.get("/namespaces/")
+    assert all_ns.status_code == 200
+    by_name = {ns["namespace"]: ns for ns in all_ns.json()}
+    assert by_name["git_root"]["github_repo_path"] == "myorg/myrepo"
+    assert by_name["plain_ns"]["github_repo_path"] is None
 
 
 @pytest.mark.asyncio
@@ -476,6 +604,45 @@ async def test_hard_delete_namespace(client_example_loader: AsyncClient):
     assert response.json() == {
         "errors": [],
         "message": "Namespace `jaffle_shop` does not exist.",
+        "warnings": [],
+    }
+
+
+@pytest.mark.asyncio
+async def test_hard_delete_nonexistent_namespace_under_git_root_404s(
+    client_with_roads: AsyncClient,
+    session: AsyncSession,
+) -> None:
+    """
+    Hard deleting a namespace that doesn't exist must 404 even when an ancestor
+    is a git-backed namespace.
+
+    Regression: ``get_git_info_for_namespace`` resolves git config by ancestor
+    inheritance, so for a missing namespace under a git-backed root it returns
+    ``is_default_branch=True`` (no branch namespace resolves, so ``branch is
+    None``, treated as the default branch). The endpoint's default-branch guard
+    then wrongly raised a 422 instead of a 404 — breaking branch-cleanup
+    pipelines that re-delete an already-removed branch namespace.
+    """
+    session.add(
+        NodeNamespace(
+            namespace="gitroot",
+            github_repo_path="org/repo",
+            default_branch="main",
+            parent_namespace=None,
+        ),
+    )
+    await session.commit()
+
+    # ``gitroot.feature_gone`` was never created (or already cleaned up). Its
+    # ancestor ``gitroot`` is git-backed, which used to trigger the false 422.
+    response = await client_with_roads.delete(
+        "/namespaces/gitroot.feature_gone/hard/?cascade=true",
+    )
+    assert response.status_code == 404, response.json()
+    assert response.json() == {
+        "errors": [],
+        "message": "Namespace `gitroot.feature_gone` does not exist.",
         "warnings": [],
     }
 
@@ -979,11 +1146,36 @@ async def test_list_all_namespaces_access_limited(
 
     assert response.status_code in (200, 201)
     assert response.json() == [
-        {"namespace": "dbt.dimension", "num_nodes": 1},
-        {"namespace": "dbt.source", "num_nodes": 0},
-        {"namespace": "dbt.source.jaffle_shop", "num_nodes": 2},
-        {"namespace": "dbt.source.stripe", "num_nodes": 1},
-        {"namespace": "dbt.transform", "num_nodes": 1},
+        {
+            "namespace": "dbt.dimension",
+            "num_nodes": 1,
+            "github_repo_path": None,
+            "git_branch": None,
+        },
+        {
+            "namespace": "dbt.source",
+            "num_nodes": 0,
+            "github_repo_path": None,
+            "git_branch": None,
+        },
+        {
+            "namespace": "dbt.source.jaffle_shop",
+            "num_nodes": 2,
+            "github_repo_path": None,
+            "git_branch": None,
+        },
+        {
+            "namespace": "dbt.source.stripe",
+            "num_nodes": 1,
+            "github_repo_path": None,
+            "git_branch": None,
+        },
+        {
+            "namespace": "dbt.transform",
+            "num_nodes": 1,
+            "github_repo_path": None,
+            "git_branch": None,
+        },
     ]
 
 

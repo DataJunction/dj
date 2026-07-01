@@ -232,9 +232,70 @@ class TestLoadNodeRevisionOptions:
 
         assert has_selectinload_for(options, "required_dimensions")
 
-    def test_with_cube_metrics(self):
-        """cube_metrics field requested - should load cube_elements with nested options."""
-        fields = {"cube_metrics": {"name": {}, "displayName": {}}}
+    def test_with_cube_metrics_scalar_only(self):
+        """Scalar-only cube_metrics stay on the raw fast path.
+
+        Every field here lives directly on the metric's noderevision row, so
+        they're pre-fetched as raw rows by ``_attach_raw_columns`` — no need to
+        load cube_elements or ORM columns. Field names arrive snake-cased from
+        ``extract_fields``, so the fixture uses ``display_name`` etc.
+        """
+        fields = {
+            "cube_metrics": {
+                "id": {},
+                "name": {},
+                "display_name": {},
+                "description": {},
+                "mode": {},
+                "type": {},
+                "version": {},
+                "status": {},
+                "updated_at": {},
+                "custom_metadata": {},
+            },
+        }
+        options = load_node_revision_options(fields)
+
+        assert has_noload_for(options, "cube_elements")
+        assert has_noload_for(options, "columns")
+
+    def test_scalar_only_cube_metrics_under_revisions_loads_cube_elements(self):
+        """The scalar-only fast path is current-only; revisions need the full load.
+
+        ``_attach_raw_columns`` only populates ``node.current``, so for the
+        ``revisions`` subtree (``is_current=False``) the scalar-only noload would
+        leave the resolver with neither ORM cube_elements nor attached raw
+        scalars — cubeMetrics would resolve empty. Revisions must therefore load
+        cube_elements as ORM objects even for a scalar-only selection.
+        """
+        fields = {
+            "cube_metrics": {
+                "name": {},
+                "description": {},
+                "display_name": {},
+            },
+        }
+        options = load_node_revision_options(fields, is_current=False)
+
+        assert has_selectinload_for(options, "cube_elements")
+        assert has_selectinload_for(options, "columns")
+
+    def test_with_cube_metrics_query_field_is_not_scalar(self):
+        """``query`` is a plain column but is intentionally not fast-pathed.
+
+        It's the heavy SQL text other paths ``defer()``, and isn't pre-fetched
+        into the metric stub, so requesting it must take the full ORM path.
+        """
+        fields = {"cube_metrics": {"name": {}, "query": {}}}
+        options = load_node_revision_options(fields)
+
+        assert has_selectinload_for(options, "cube_elements")
+
+    def test_with_cube_metrics_non_scalar(self):
+        """cube_metrics requesting a relationship field takes the full ORM path."""
+        # ``columns`` on the metric requires hydrating metric NodeRevisions, so
+        # the cube's columns must be loaded as ORM objects (not raw tuples).
+        fields = {"cube_metrics": {"name": {}, "columns": {"name": {}}}}
         options = load_node_revision_options(fields)
 
         # Should load cube_elements for cube_metrics
@@ -242,9 +303,11 @@ class TestLoadNodeRevisionOptions:
         # Should load minimal columns for cube request
         assert has_selectinload_for(options, "columns")
 
-    def test_with_cube_dimensions(self):
-        """cube_dimensions field requested - should load cube_elements with minimal options."""
-        fields = {"cube_dimensions": {"name": {}, "type": {}}}
+    def test_with_cube_dimensions_non_scalar(self):
+        """cube_dimensions requesting a relationship field loads cube_elements."""
+        # ``attribute`` is built from the dimension's node revision, so the raw
+        # fast path can't serve it — this must take the full ORM path.
+        fields = {"cube_dimensions": {"name": {}, "attribute": {}}}
         options = load_node_revision_options(fields)
 
         # Should load cube_elements for cube_dimensions
@@ -252,26 +315,23 @@ class TestLoadNodeRevisionOptions:
         # Should load minimal columns for cube request
         assert has_selectinload_for(options, "columns")
 
+    def test_with_cube_dimensions_scalar_only(self):
+        """cube_dimensions with only raw-column-derivable fields uses fast path."""
+        # name/type/role are all reconstructable from the cube's raw columns
+        # (role from each column's ``dimension_column``), so cube_elements and
+        # ORM columns can be skipped.
+        fields = {"cube_dimensions": {"name": {}, "type": {}, "role": {}}}
+        options = load_node_revision_options(fields)
+
+        assert has_noload_for(options, "cube_elements")
+        assert has_noload_for(options, "columns")
+
     def test_without_cube_request_noloads_cube_elements(self):
         """No cube fields requested — cube_elements should be noloaded."""
         fields = {"description": {}}
         options = load_node_revision_options(fields)
 
         assert has_noload_for(options, "cube_elements")
-
-    def test_cube_name_only_noloads_columns(self):
-        """Name-only cube requests noload columns (fetched as raw tuples post-query)."""
-        fields = {"cube_metrics": {"name": {}}}
-        options = load_node_revision_options(fields)
-
-        assert has_noload_for(options, "columns")
-
-    def test_cube_full_request_loads_minimal_columns(self):
-        """Non-name-only cube requests should selectinload columns."""
-        fields = {"cube_metrics": {"name": {}, "description": {}}}
-        options = load_node_revision_options(fields)
-
-        assert has_selectinload_for(options, "columns")
 
     def test_query_ast_always_deferred(self):
         """query_ast should always be deferred."""
@@ -412,8 +472,8 @@ class TestLoadOptionsIntegration:
         fields = {
             "name": {},
             "current": {
-                "displayName": {},
-                "cube_metrics": {"name": {}, "displayName": {}},
+                "display_name": {},
+                "cube_metrics": {"name": {}, "display_name": {}},
             },
         }
         options = load_node_options(fields)
@@ -434,20 +494,20 @@ class TestLoadOptionsIntegration:
             "created_by": {"username": {}},
             "current": {
                 "description": {},
-                "displayName": {},
+                "display_name": {},
                 "cube_metrics": {
                     "name": {},
                     "version": {},
                     "type": {},
-                    "displayName": {},
-                    "updatedAt": {},
+                    "display_name": {},
+                    "updated_at": {},
                     "id": {},
                 },
                 "cube_dimensions": {
                     "name": {},
                     "type": {},
                     "role": {},
-                    "dimensionNode": {"name": {}},
+                    "dimension_node": {"name": {}},
                     "attribute": {},
                 },
             },

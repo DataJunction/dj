@@ -251,6 +251,42 @@ class TestValidateQuery:
                 )
 
     @pytest.mark.asyncio
+    async def test_validate_query_node_flags_hardcoded_namespace(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """Full validate_query_node path appends a hardcoded-namespace error.
+
+        Exercises the error-append branch in validate_query_node (not just the
+        helper) by running the whole validation flow on a transform whose raw
+        query embeds the literal deployment namespace.
+        """
+        context = ValidationContext(
+            session=session,
+            node_graph={"test.transform": ["test.parent"]},
+            dependency_nodes={parent_node.name: parent_node},
+            deployment_namespace="test",
+        )
+        validator = NodeSpecBulkValidator(context)
+        spec = TransformSpec(
+            name="transform",
+            query="SELECT id, name FROM test.parent",
+            description="A transform with a hardcoded namespace reference",
+            mode="published",
+        )
+        spec.namespace = "test"
+
+        result = validator.validate_query_node(spec)
+
+        assert result.status == NodeStatus.INVALID
+        namespace_errors = [
+            e for e in result.errors if e.code == ErrorCode.INVALID_NAMESPACE
+        ]
+        assert len(namespace_errors) == 1
+        assert "${prefix}" in namespace_errors[0].message
+
+    @pytest.mark.asyncio
     async def test_validate_query_node_with_skip_validation(
         self,
         validation_context: ValidationContext,
@@ -1788,3 +1824,117 @@ class TestToColumnSpecsPreservesMetadata:
         # Explicit type should win
         assert result[0].type == "bigint"
         assert result[0].display_name == "User ID"
+
+
+class TestHardcodedNamespaceRefCheck:
+    """Tests for _check_hardcoded_namespace_ref."""
+
+    def _make_validator(self, deployment_namespace, node_graph, dependency_nodes=None):
+        context = ValidationContext(
+            session=MagicMock(),
+            node_graph=node_graph,
+            dependency_nodes=dependency_nodes or {},
+            deployment_namespace=deployment_namespace,
+        )
+        return NodeSpecBulkValidator(context)
+
+    def test_hardcoded_self_ref_produces_error(self):
+        """A raw query embedding the literal deployment namespace is flagged."""
+        validator = self._make_validator(
+            deployment_namespace="myteam.feature_branch",
+            node_graph={},
+        )
+        spec = MetricSpec(
+            name="total_revenue",
+            query="SELECT SUM(revenue) FROM myteam.feature_branch.transforms.revenue_fact",
+            mode="published",
+        )
+        spec.namespace = "myteam.feature_branch"
+
+        error = validator._check_hardcoded_namespace_ref(spec)
+
+        assert error is not None
+        assert error.code == ErrorCode.INVALID_NAMESPACE
+        assert "myteam.feature_branch" in error.message
+        assert "${prefix}" in error.message
+
+    def test_prefix_based_ref_is_allowed(self):
+        """A query using ${prefix} renders to the namespace but is NOT flagged."""
+        validator = self._make_validator(
+            deployment_namespace="myteam.feature_branch",
+            node_graph={},
+        )
+        spec = MetricSpec(
+            name="total_revenue",
+            query="SELECT SUM(revenue) FROM ${prefix}transforms.revenue_fact",
+            mode="published",
+        )
+        spec.namespace = "myteam.feature_branch"
+
+        error = validator._check_hardcoded_namespace_ref(spec)
+
+        assert error is None
+
+    def test_cross_namespace_ref_is_allowed(self):
+        """A reference to a different namespace is fine — not flagged."""
+        validator = self._make_validator(
+            deployment_namespace="myteam.feature_branch",
+            node_graph={},
+        )
+        spec = MetricSpec(
+            name="total_revenue",
+            query="SELECT SUM(x) FROM shared.transforms.revenue_fact",
+            mode="published",
+        )
+        spec.namespace = "myteam.feature_branch"
+
+        error = validator._check_hardcoded_namespace_ref(spec)
+
+        assert error is None
+
+    def test_namespace_prefix_substring_not_flagged(self):
+        """A namespace that is a string prefix of another isn't falsely matched."""
+        validator = self._make_validator(
+            deployment_namespace="team_a",
+            node_graph={},
+        )
+        spec = MetricSpec(
+            name="m",
+            query="SELECT SUM(x) FROM team_abc.transforms.t",
+            mode="published",
+        )
+        spec.namespace = "team_a"
+
+        error = validator._check_hardcoded_namespace_ref(spec)
+
+        assert error is None
+
+    def test_no_deployment_namespace_skips_check(self):
+        """When deployment_namespace is None (e.g. REST API path), check is skipped."""
+        validator = self._make_validator(
+            deployment_namespace=None,
+            node_graph={},
+        )
+        spec = MetricSpec(
+            name="my_metric",
+            query="SELECT SUM(x) FROM ns.transforms.t",
+            mode="published",
+        )
+        error = validator._check_hardcoded_namespace_ref(spec)
+
+        assert error is None
+
+    def test_no_hardcoded_refs_no_error(self):
+        """A query that doesn't mention the namespace → no error."""
+        validator = self._make_validator(
+            deployment_namespace="myteam.feature_branch",
+            node_graph={},
+        )
+        spec = MetricSpec(
+            name="my_metric",
+            query="SELECT SUM(x) FROM other.ns.transforms.t",
+            mode="published",
+        )
+        error = validator._check_hardcoded_namespace_ref(spec)
+
+        assert error is None

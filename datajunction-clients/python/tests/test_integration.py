@@ -9,7 +9,7 @@ from time import sleep
 import pytest
 
 from datajunction import DJBuilder, models
-from datajunction.compile import ColumnYAML
+from datajunction.models import ColumnYAML
 from datajunction.exceptions import DJClientException
 
 _logger = logging.getLogger(__name__)

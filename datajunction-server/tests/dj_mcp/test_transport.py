@@ -49,3 +49,79 @@ async def test_mount_mcp_lifespan_runs_combined_lifespan(
         ) as client:
             response = await client.get("/mcp/")
         assert 400 <= response.status_code < 500
+
+
+@pytest.mark.asyncio
+async def test_mount_mcp_invokes_request_context_per_request() -> None:
+    """A request_context binder is entered before the MCP request is handled
+    and exited afterward, receiving the ASGI scope."""
+    from contextlib import contextmanager
+
+    events: list[str] = []
+    seen_scope: dict = {}
+
+    @contextmanager
+    def recorder(scope):
+        seen_scope["type"] = scope.get("type")
+        events.append("enter")
+        try:
+            yield
+        finally:
+            events.append("exit")
+
+    app = FastAPI()
+    transport.mount_mcp(app, request_context=recorder)
+
+    async with LifespanManager(app):
+        async with httpx.AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+            follow_redirects=True,
+        ) as client:
+            await client.get("/mcp/")
+
+    assert events == ["enter", "exit"]
+    assert seen_scope["type"] == "http"
+
+
+@pytest.mark.asyncio
+async def test_mount_mcp_request_context_exits_on_handler_error(monkeypatch) -> None:
+    """If MCP request handling raises, the request_context is still exited."""
+    from contextlib import contextmanager
+
+    events: list[str] = []
+
+    @contextmanager
+    def recorder(scope):
+        events.append("enter")
+        try:
+            yield
+        finally:
+            events.append("exit")
+
+    app = FastAPI()
+    transport.mount_mcp(app, request_context=recorder)
+
+    async with LifespanManager(app):
+        # Patch the mounted handler so request handling raises after the
+        # binder is entered.
+        async def boom(*_a, **_k):
+            raise RuntimeError("boom")
+
+        # The Mount's app is the asgi_handler closure; patch the session
+        # manager's handle_request which it awaits.
+        from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+
+        monkeypatch.setattr(StreamableHTTPSessionManager, "handle_request", boom)
+
+        async with httpx.AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+            follow_redirects=True,
+        ) as client:
+            try:
+                await client.get("/mcp/")
+            except Exception:
+                pass  # the handler raising may surface as a transport error
+
+    assert events == ["enter", "exit"]

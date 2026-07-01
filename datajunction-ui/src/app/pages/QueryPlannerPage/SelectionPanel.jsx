@@ -6,6 +6,29 @@ const ENGINE_OPTIONS = [
   { value: 'trino', label: 'Trino' },
 ];
 
+// MIME type used to carry a dimension name during drag-to-filter.
+const DIM_DRAG_MIME = 'application/x-dj-dimension';
+
+// Append a filter expression onto an in-progress one, ANDing if non-empty.
+const andAppend = (prev, expr) =>
+  (prev.trim() ? prev.trimEnd() + ' AND ' : '') + expr;
+
+/**
+ * Label that clips the START under truncation, keeping the END visible:
+ * "…erience_f__cart_initiation". Metric/dimension names share long common
+ * prefixes, so a normal right-side ellipsis hides the only part that differs;
+ * clipping the start surfaces the distinguishing tail. The text stays a single
+ * node (the CSS direction trick puts the ellipsis on the left), so the full
+ * value remains in the title tooltip and queryable by tests.
+ */
+function TailLabel({ text }) {
+  return (
+    <span className="chip-label chip-label-clip" title={text}>
+      <bdi className="chip-label-inner">{text}</bdi>
+    </span>
+  );
+}
+
 /**
  * SelectionPanel - Browse and select metrics and dimensions
  * Features selected items as chips at the top for visibility
@@ -42,6 +65,8 @@ export function SelectionPanel({
   const [metricsChipsExpanded, setMetricsChipsExpanded] = useState(false);
   const [dimensionsChipsExpanded, setDimensionsChipsExpanded] = useState(false);
   const [filterInput, setFilterInput] = useState('');
+  // Highlights the Filters section while a dimension is dragged over it.
+  const [filterDropActive, setFilterDropActive] = useState(false);
   const [split1, setSplit1] = useState(35); // metrics / dims boundary (%)
   const [split2, setSplit2] = useState(65); // dims / filters boundary (%)
   const [split3, setSplit3] = useState(85); // filters / engine+run boundary (%)
@@ -490,12 +515,60 @@ export function SelectionPanel({
     }
   };
 
+  // Click a filter chip to edit it: pull it back into the input (preserving any
+  // in-progress text by ANDing onto it) and remove the chip.
+  const handleEditFilter = filter => {
+    setFilterInput(prev => andAppend(prev, filter));
+    if (onFiltersChange) {
+      onFiltersChange(filters.filter(f => f !== filter));
+    }
+    filterInputRef.current?.focus();
+  };
+
+  // Append a dimension to the filter input (ANDing onto any existing expression)
+  // then focus so the user can type the operator/value. Functional update keeps
+  // it correct whether called from a click or a drag-and-drop handler.
+  const appendDimToFilterInput = dimName => {
+    setFilterInput(prev => andAppend(prev, dimName + ' '));
+    filterInputRef.current?.focus();
+  };
+
   const addDimAsFilter = (e, dimName) => {
     e.preventDefault();
     e.stopPropagation();
-    const prefix = filterInput.trim() ? filterInput.trimEnd() + ' AND ' : '';
-    setFilterInput(prefix + dimName + ' ');
-    filterInputRef.current?.focus();
+    appendDimToFilterInput(dimName);
+  };
+
+  // Drag a dimension chip/row onto the Filters section to start filtering on it.
+  const handleDimDragStart = (e, dimName) => {
+    e.dataTransfer.setData(DIM_DRAG_MIME, dimName);
+    // Plain-text fallback so the drag has a sensible payload everywhere.
+    e.dataTransfer.setData('text/plain', dimName);
+    e.dataTransfer.effectAllowed = 'copy';
+  };
+
+  const handleFilterDragOver = e => {
+    if (e.dataTransfer.types.includes(DIM_DRAG_MIME)) {
+      e.preventDefault(); // allow drop
+      e.dataTransfer.dropEffect = 'copy';
+      if (!filterDropActive) setFilterDropActive(true);
+    }
+  };
+
+  const handleFilterDragLeave = e => {
+    // Ignore leaves into child elements of the filters section.
+    if (!e.currentTarget.contains(e.relatedTarget)) {
+      setFilterDropActive(false);
+    }
+  };
+
+  const handleFilterDrop = e => {
+    const dimName = e.dataTransfer.getData(DIM_DRAG_MIME);
+    if (dimName) {
+      e.preventDefault();
+      appendDimToFilterInput(dimName);
+    }
+    setFilterDropActive(false);
   };
 
   return (
@@ -599,7 +672,7 @@ export function SelectionPanel({
               >
                 {selectedMetrics.map(metric => (
                   <span key={metric} className="selected-chip metric-chip">
-                    {getShortName(metric)}
+                    <TailLabel text={getShortName(metric)} />
                     <button
                       className="chip-remove"
                       onClick={e => {
@@ -793,12 +866,12 @@ export function SelectionPanel({
                     {selectedDimensions.map(dimName => (
                       <span
                         key={dimName}
-                        className="selected-chip dimension-chip"
-                        title={dimName}
+                        className="selected-chip dimension-chip draggable-dim"
+                        title={`${dimName} — drag to Filters to filter on it`}
+                        draggable
+                        onDragStart={e => handleDimDragStart(e, dimName)}
                       >
-                        <span className="chip-label">
-                          {getDimDisplayName(dimName)}
-                        </span>
+                        <TailLabel text={getDimDisplayName(dimName)} />
                         <button
                           className="chip-remove"
                           onClick={e => {
@@ -902,8 +975,12 @@ export function SelectionPanel({
                                 rp.dimensions.map(dim => (
                                   <label
                                     key={dim.name}
-                                    className="selection-item dimension-item dim-role-item"
-                                    title={dim.name}
+                                    className="selection-item dimension-item dim-role-item draggable-dim"
+                                    title={`${dim.name} — drag to Filters to filter on it`}
+                                    draggable
+                                    onDragStart={e =>
+                                      handleDimDragStart(e, dim.name)
+                                    }
                                   >
                                     <input
                                       type="checkbox"
@@ -953,22 +1030,39 @@ export function SelectionPanel({
           onMouseDown={e => handleDividerMouseDown(e, 2)}
         />
 
-        {/* Filters Section */}
+        {/* Filters Section (drop target for dragged dimensions) */}
         <div
-          className="selection-section filters-section"
+          className={`selection-section filters-section${
+            filterDropActive ? ' drop-active' : ''
+          }`}
           style={{ flex: split3 - split2 }}
+          onDragOver={handleFilterDragOver}
+          onDragLeave={handleFilterDragLeave}
+          onDrop={handleFilterDrop}
         >
           <div className="section-header">
             <h3>Filters</h3>
             <span className="selection-count">{filters.length} applied</span>
           </div>
+          {filterDropActive && (
+            <div className="filter-drop-hint">
+              Drop to filter on this dimension
+            </div>
+          )}
 
           {/* Filter chips */}
           {filters.length > 0 && (
             <div className="filter-chips-container">
               {filters.map((filter, idx) => (
                 <span key={idx} className="filter-chip">
-                  <span className="filter-chip-text">{filter}</span>
+                  <button
+                    type="button"
+                    className="filter-chip-text filter-chip-edit"
+                    onClick={() => handleEditFilter(filter)}
+                    title={`${filter} — click to edit`}
+                  >
+                    {filter}
+                  </button>
                   <button
                     className="filter-chip-remove"
                     onClick={() => handleRemoveFilter(filter)}
