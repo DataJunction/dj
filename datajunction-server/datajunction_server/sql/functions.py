@@ -2441,6 +2441,20 @@ def infer_type(arg1: ct.StringType, arg2: ct.StringType) -> ct.ColumnType:
     return ct.TimestampType()
 
 
+class FromBigEndian_64(Function):
+    """
+    from_big_endian_64(binary) - Decodes a 64-bit two's complement big endian value
+    from a varbinary and returns it as a bigint. Trino-specific.
+    """
+
+    dialects = [Dialect.TRINO]
+
+
+@FromBigEndian_64.register  # type: ignore
+def infer_type(arg: ct.BinaryType) -> ct.BigIntType:
+    return ct.BigIntType()
+
+
 class Get(Function):
     """
     get(expr, index) - Retrieves an element from an array at the specified
@@ -2650,8 +2664,10 @@ class Inline(Function):
 
 @Inline.register  # type: ignore
 def infer_type(arg: ct.ListType) -> ct.ColumnType:
-    # The output type is the type of the struct's fields
-    return arg.type.element.type
+    # Scalar variant: shadowed by the Inline(TableFunction) below, so this is
+    # unreachable via parsing (inline resolves to a table function). Kept for
+    # registry parity with explode; see Explode(Function).
+    return arg.type.element.type  # pragma: no cover
 
 
 class InlineOuter(Function):
@@ -2663,8 +2679,8 @@ class InlineOuter(Function):
 
 @InlineOuter.register  # type: ignore
 def infer_type(arg: ct.ListType) -> ct.ColumnType:
-    # The output type is the type of the struct's fields
-    return arg.type.element.type
+    # Scalar variant: shadowed by the InlineOuter(TableFunction) below.
+    return arg.type.element.type  # pragma: no cover
 
 
 class InputFileBlockLength(Function):
@@ -3901,6 +3917,19 @@ def infer_type(arg: ct.NumberType) -> ct.DoubleType:
     return ct.DoubleType()
 
 
+class Pmod(Function):
+    """
+    pmod(expr1, expr2) - Returns the positive value of expr1 mod expr2.
+    """
+
+    dialects = [Dialect.SPARK]
+
+
+@Pmod.register  # type: ignore
+def infer_type(expr1: ct.NumberType, expr2: ct.NumberType) -> ct.NumberType:
+    return expr1.type
+
+
 class Pow(Function):
     """
     Raises a base expression to the power of an exponent expression.
@@ -4443,6 +4472,20 @@ def infer_type(
     return ct.TimestampType()
 
 
+class ToUtf8(Function):
+    """
+    to_utf8(string) - Encodes the string value into a UTF-8 varbinary representation.
+    Trino-specific.
+    """
+
+    dialects = [Dialect.TRINO]
+
+
+@ToUtf8.register  # type: ignore
+def infer_type(arg: ct.StringType) -> ct.BinaryType:
+    return ct.BinaryType()
+
+
 class Transform(Function):
     """
     transform(expr, func) - Transforms elements in an array
@@ -4801,6 +4844,26 @@ def infer_type(arg: Union[ct.StringType, ct.DateTimeBase]) -> ct.BigIntType:
     return ct.BigIntType()
 
 
+class Xxhash64(Function):
+    """
+    xxhash64(col1, col2, ...) - Returns a consistent 64-bit hash value.
+
+    In Spark, accepts one or more columns of any type and returns bigint.
+    In Trino, accepts a single varbinary argument and returns varbinary;
+    use from_big_endian_64(xxhash64(to_utf8(...))) to obtain a bigint.
+    """
+
+
+@Xxhash64.register  # type: ignore
+def infer_type(arg: ct.BinaryType) -> ct.BinaryType:
+    return ct.BinaryType()
+
+
+@Xxhash64.register  # type: ignore
+def infer_type(*args: ct.ColumnType) -> ct.BigIntType:
+    return ct.BigIntType()
+
+
 class Year(Function):
     """
     Returns the year of the input date value.
@@ -4865,6 +4928,35 @@ def infer_type(
     arg: ct.MapType,
 ) -> List[ct.NestedField]:
     return [arg.key, arg.value]  # pragma: no cover
+
+
+class Inline(TableFunction):
+    """
+    inline(array_of_struct) - Explodes an array of structs into a table,
+    producing one output column per field of the struct.
+    """
+
+
+@Inline.register
+def infer_type(
+    arg: ct.ListType,
+) -> List[ct.NestedField]:
+    # array<struct<f1, f2, ...>> -> one table column per struct field
+    return list(arg.element.type.fields)
+
+
+class InlineOuter(TableFunction):
+    """
+    inline_outer(array_of_struct) - Like inline, but emits a single row of nulls
+    when the array is empty or null rather than producing no rows.
+    """
+
+
+@InlineOuter.register
+def infer_type(
+    arg: ct.ListType,
+) -> List[ct.NestedField]:
+    return list(arg.element.type.fields)
 
 
 class FunctionRegistryDict(dict):

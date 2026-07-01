@@ -1,5 +1,5 @@
 setup:
-	uv sync --extra mcp --group test --extra pandas
+	uv sync --extra mcp --group test
 check:
 	uv run pre-commit run --all-files
 

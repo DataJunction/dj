@@ -1374,6 +1374,314 @@ class TestFilterPushdownToMultipleSiblingTransforms:
         )
 
 
+class TestFilterPushedToAllMultipleDirectParentFKColumns:
+    """Multiple direct parents each link a different column to the same filter-only
+    dimension. The filter must be pushed to *all* of them, not just the first one
+    (which would be hash-order non-deterministic)."""
+
+    @pytest.mark.asyncio
+    async def test_filter_applied_to_all_fk_columns_across_direct_parents(
+        self,
+        client_with_build_v3,
+    ):
+        client = client_with_build_v3
+
+        # Source A: links event_date via send_date
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_events_a",
+                "columns": [
+                    {"name": "account_id", "type": "int"},
+                    {"name": "value_a", "type": "double"},
+                    {"name": "send_date", "type": "int"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "events_a",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        # date dimension (the filter target) — created after its source exists
+        resp = await client.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.event_date",
+                "query": "SELECT send_date AS dateint FROM v3.src_events_a GROUP BY send_date",
+                "mode": "published",
+                "primary_key": ["dateint"],
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        resp = await client.post(
+            "/nodes/v3.src_events_a/link/",
+            json={
+                "dimension_node": "v3.event_date",
+                "join_type": "left",
+                "join_on": "v3.src_events_a.send_date = v3.event_date.dateint",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        # Source B: links event_date via alloc_date (different column name)
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_events_b",
+                "columns": [
+                    {"name": "account_id", "type": "int"},
+                    {"name": "value_b", "type": "double"},
+                    {"name": "alloc_date", "type": "int"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "events_b",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        resp = await client.post(
+            "/nodes/v3.src_events_b/link/",
+            json={
+                "dimension_node": "v3.event_date",
+                "join_type": "left",
+                "join_on": "v3.src_events_b.alloc_date = v3.event_date.dateint",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        # Fact transform: joins both sources, projects both date columns
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.combined_events",
+                "query": (
+                    "SELECT a.account_id, a.value_a, b.value_b, "
+                    "a.send_date, b.alloc_date "
+                    "FROM v3.src_events_a AS a "
+                    "JOIN v3.src_events_b AS b ON a.account_id = b.account_id"
+                ),
+                "mode": "published",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.combined_value",
+                "query": "SELECT SUM(value_a + value_b) FROM v3.combined_events",
+                "mode": "published",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.combined_value"],
+                "filters": ["v3.event_date.dateint = 20240101"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+
+        # Both sources must be filtered — not just whichever hash-order surfaces first
+        assert "send_date = 20240101" in sql, (
+            "filter missing from src_events_a (send_date)"
+        )
+        assert "alloc_date = 20240101" in sql, (
+            "filter missing from src_events_b (alloc_date)"
+        )
+
+
+class TestFilterNotPushedToTransitiveUpstreamByColumnNameCollision:
+    """Regression: a snapshot filter must not leak onto a fact transform that
+    happens to project a same-named column via an unrelated lineage path.
+
+    Setup:
+      source_snap   (snap_date FK → snap_dim)
+          ↓
+      xform_alloc   (entity_id, snap_date)  — direct child of source_snap
+
+      source_revenue (entity_id, revenue, snap_date — different semantics)
+          ↓
+      xform_revenue  (entity_id, revenue, snap_date)
+
+      combined_fact  (entity_id, value, revenue, snap_date)
+          ← reads from xform_alloc JOIN xform_revenue
+
+    `combined_fact` projects `snap_date` but it comes from `xform_revenue`,
+    not from `source_snap`.  `source_snap` is a transitive upstream (2 hops
+    away via xform_alloc) — NOT a direct parent.  The filter
+    `snap_dim.dateint = X` must only land in `xform_alloc`'s CTE WHERE,
+    never in `combined_fact`'s outer WHERE.
+    """
+
+    @pytest.mark.asyncio
+    async def test_snapshot_filter_not_applied_to_transitive_fact(
+        self,
+        client_with_build_v3,
+    ):
+        client = client_with_build_v3
+
+        # Snapshot source with FK dim link
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.source_snap",
+                "columns": [
+                    {"name": "entity_id", "type": "int"},
+                    {"name": "value", "type": "double"},
+                    {"name": "snap_date", "type": "int"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "snap_src",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        resp = await client.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.snap_dim",
+                "query": "SELECT snap_date AS dateint FROM v3.source_snap GROUP BY snap_date",
+                "mode": "published",
+                "primary_key": ["dateint"],
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        resp = await client.post(
+            "/nodes/v3.source_snap/link/",
+            json={
+                "dimension_node": "v3.snap_dim",
+                "join_type": "left",
+                "join_on": "v3.source_snap.snap_date = v3.snap_dim.dateint",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        # xform_alloc: direct child of source_snap, projects snap_date
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.xform_alloc",
+                "query": (
+                    "SELECT a.entity_id, SUM(a.value) AS total_value, a.snap_date "
+                    "FROM v3.source_snap AS a "
+                    "GROUP BY a.entity_id, a.snap_date"
+                ),
+                "mode": "published",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        # Unrelated revenue source that also has a snap_date column (name collision)
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.source_revenue",
+                "columns": [
+                    {"name": "entity_id", "type": "int"},
+                    {"name": "revenue", "type": "double"},
+                    {"name": "snap_date", "type": "int"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "revenue_src",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.xform_revenue",
+                "query": (
+                    "SELECT r.entity_id, SUM(r.revenue) AS total_revenue, r.snap_date "
+                    "FROM v3.source_revenue AS r "
+                    "GROUP BY r.entity_id, r.snap_date"
+                ),
+                "mode": "published",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        # combined_fact joins both — snap_date comes from xform_revenue
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.combined_fact",
+                "query": (
+                    "SELECT a.entity_id, a.total_value, r.total_revenue, r.snap_date "
+                    "FROM v3.xform_alloc AS a "
+                    "JOIN v3.xform_revenue AS r ON a.entity_id = r.entity_id "
+                    "AND a.snap_date = r.snap_date"
+                ),
+                "mode": "published",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.combined_revenue",
+                "query": "SELECT SUM(total_revenue) FROM v3.combined_fact",
+                "mode": "published",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.combined_revenue"],
+                "filters": ["v3.snap_dim.dateint = 20240101"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+
+        # xform_alloc must be filtered (it's the direct child of source_snap)
+        assert "snap_date = 20240101" in sql
+
+        # The filter must appear in v3_xform_alloc's CTE, not on v3_combined_fact
+        # in the outer query.  Verify by checking the combined_fact CTE has no
+        # snap_date filter of its own.
+        assert_sql_equal(
+            sql,
+            """
+            WITH v3_xform_alloc AS (
+              SELECT a.entity_id, SUM(a.value) AS total_value, a.snap_date
+              FROM default.v3.snap_src AS a
+              WHERE a.snap_date = 20240101
+              GROUP BY a.entity_id, a.snap_date
+            ),
+            v3_xform_revenue AS (
+              SELECT r.entity_id, SUM(r.revenue) AS total_revenue, r.snap_date
+              FROM default.v3.revenue_src AS r
+              GROUP BY r.entity_id, r.snap_date
+            ),
+            v3_combined_fact AS (
+              SELECT r.total_revenue
+              FROM v3_xform_alloc AS a
+              JOIN v3_xform_revenue AS r ON a.entity_id = r.entity_id
+              AND a.snap_date = r.snap_date
+            )
+            SELECT SUM(t1.total_revenue) total_revenue_sum_HASH
+            FROM v3_combined_fact t1
+            """,
+            normalize_aliases=True,
+        )
+
+
 class TestDimLabelFilterNameCollision:
     """Regression: a filter on a lookup dimension's *label* attribute whose
     name collides with an upstream transform's foreign-key column must NOT be
@@ -1491,6 +1799,137 @@ class TestDimLabelFilterNameCollision:
                    SUM(t1.amount) amount_sum_HASH
             FROM v3_lbl_events_xform t1
             LEFT OUTER JOIN v3_lbl_is_bot_dim t2
+              ON t1.is_bot = t2.is_bot_key
+            WHERE t2.is_bot = 'false'
+            GROUP BY t2.is_bot
+            """,
+            normalize_aliases=True,
+        )
+
+    @pytest.mark.asyncio
+    async def test_dim_label_filter_not_pushed_into_upstream_cte_without_link(
+        self,
+        client_with_build_v3,
+    ):
+        """Regression: the label predicate must not be pushed UPSTREAM either.
+
+        When the linked transform projects its int FK from an *intermediate*
+        transform that does not itself carry the dimension link, the filter can
+        be pushed past the link into that ancestor's CTE — where a node-local
+        FK-column guard is blind because the ancestor has no link.  The label
+        predicate must stay in the dimension's own CTE and the post-join outer
+        WHERE; no upstream CTE may receive ``is_bot = 'false'`` on the raw int
+        column.  (The linked transform selects its FK column from an upstream
+        transform that only projects the raw key and carries no link of its own.)
+        """
+        client = client_with_build_v3
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.ml_alloc_src",
+                "columns": [
+                    {"name": "account_id", "type": "int"},
+                    {"name": "is_bot", "type": "int"},
+                    {"name": "amount", "type": "double"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "ml_alloc_src",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        # Intermediate transform: projects the raw int FK, carries NO dim link.
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.ml_alloc",
+                "query": "SELECT account_id, is_bot, amount FROM v3.ml_alloc_src",
+                "mode": "published",
+                "primary_key": ["account_id"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        # Downstream transform: selects the FK from the intermediate, holds the link.
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.ml_long",
+                "query": "SELECT account_id, is_bot, amount FROM v3.ml_alloc",
+                "mode": "published",
+                "primary_key": ["account_id"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        resp = await client.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.ml_is_bot_dim",
+                "query": (
+                    "SELECT t.is_bot_key, t.is_bot "
+                    "FROM (SELECT 0 AS is_bot_key, 'false' AS is_bot "
+                    "UNION ALL SELECT 1, 'true') t"
+                ),
+                "mode": "published",
+                "primary_key": ["is_bot_key"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        resp = await client.post(
+            "/nodes/v3.ml_long/link/",
+            json={
+                "dimension_node": "v3.ml_is_bot_dim",
+                "join_type": "left",
+                "join_on": "v3.ml_long.is_bot = v3.ml_is_bot_dim.is_bot_key",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        resp = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.ml_total_amount",
+                "query": "SELECT SUM(amount) FROM v3.ml_long",
+                "mode": "published",
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.ml_total_amount"],
+                "dimensions": ["v3.ml_is_bot_dim.is_bot"],
+                "filters": ["v3.ml_is_bot_dim.is_bot = 'false'"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        # Neither the intermediate (v3_ml_alloc) nor the linked transform
+        # (v3_ml_long) CTE may carry the label predicate on the raw int column.
+        assert_sql_equal(
+            sql,
+            """
+            WITH v3_ml_alloc AS (
+              SELECT account_id, is_bot, amount
+              FROM default.v3.ml_alloc_src
+            ),
+            v3_ml_is_bot_dim AS (
+              SELECT t.is_bot_key, t.is_bot
+              FROM (
+                SELECT 0 AS is_bot_key, 'false' AS is_bot
+                UNION ALL
+                SELECT 1, 'true'
+              ) t
+              WHERE t.is_bot = 'false'
+            ),
+            v3_ml_long AS (
+              SELECT is_bot, amount
+              FROM v3_ml_alloc
+            )
+            SELECT t2.is_bot,
+                   SUM(t1.amount) amount_sum_HASH
+            FROM v3_ml_long t1
+            LEFT OUTER JOIN v3_ml_is_bot_dim t2
               ON t1.is_bot = t2.is_bot_key
             WHERE t2.is_bot = 'false'
             GROUP BY t2.is_bot

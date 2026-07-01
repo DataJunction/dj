@@ -210,10 +210,14 @@ async def create_cube_views(
             tags={**_tags, "status": "success"},
         )
 
-    except Exception:
+    except Exception as exc:
+        # Include the exception repr in the message (not just exc_info): some log
+        # backends retain only the formatted message and drop the traceback,
+        # which otherwise leaves this generic error undiagnosable.
         _logger.exception(
-            "[views] Failed to create views for cube %s (non-blocking)",
+            "[views] Failed to create views for cube %s (non-blocking): %r",
             cube_name,
+            exc,
         )
         get_metrics_provider().counter(
             "dj.views.create",

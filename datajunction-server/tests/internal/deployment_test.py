@@ -487,39 +487,55 @@ async def date(session: AsyncSession, catalog: Catalog, current_user: User) -> N
     return node
 
 
-async def test_deploy_delete_node_success(
+async def test_delete_nodes_success(
     session: AsyncSession,
     current_user: User,
     categories: Node,
 ):
     await default_attribute_types(session)
     orchestrator = create_orchestrator(session, current_user, [])
-    result = await orchestrator._deploy_delete_node(categories.name)
-    assert result == DeploymentResult(
-        name="catalog.dim.categories",
-        deploy_type=DeploymentResult.Type.NODE,
-        status=DeploymentResult.Status.SUCCESS,
-        operation=DeploymentResult.Operation.DELETE,
-        message="Node catalog.dim.categories has been removed.",
-    )
+    spec = MagicMock(rendered_name=categories.name)
+    with patch.object(
+        orchestrator,
+        "_validate_node_deletion",
+        AsyncMock(return_value={}),
+    ):
+        results = await orchestrator._delete_nodes([spec])
+    assert results == [
+        DeploymentResult(
+            name="catalog.dim.categories",
+            deploy_type=DeploymentResult.Type.NODE,
+            status=DeploymentResult.Status.SUCCESS,
+            operation=DeploymentResult.Operation.DELETE,
+            message="Node catalog.dim.categories has been removed.",
+        ),
+    ]
     assert await Node.get_by_name(session, categories.name) is None
 
 
-async def test_deploy_delete_node_failure(
+async def test_delete_nodes_missing(
     session: AsyncSession,
     current_user: User,
     categories: Node,
 ):
     await default_attribute_types(session)
     orchestrator = create_orchestrator(session, current_user, [])
-    result = await orchestrator._deploy_delete_node(categories.name + "bogus")
-    assert result == DeploymentResult(
-        name="catalog.dim.categoriesbogus",
-        deploy_type=DeploymentResult.Type.NODE,
-        status=DeploymentResult.Status.FAILED,
-        operation=DeploymentResult.Operation.DELETE,
-        message="A node with name `catalog.dim.categoriesbogus` does not exist.",
-    )
+    spec = MagicMock(rendered_name=categories.name + "bogus")
+    with patch.object(
+        orchestrator,
+        "_validate_node_deletion",
+        AsyncMock(return_value={}),
+    ):
+        results = await orchestrator._delete_nodes([spec])
+    assert results == [
+        DeploymentResult(
+            name="catalog.dim.categoriesbogus",
+            deploy_type=DeploymentResult.Type.NODE,
+            status=DeploymentResult.Status.FAILED,
+            operation=DeploymentResult.Operation.DELETE,
+            message="Node catalog.dim.categoriesbogus not found.",
+        ),
+    ]
 
 
 def test_find_upstreams_for_derived_metric():

@@ -69,7 +69,7 @@ class Tag(ClientEntity):
                 raise DJClientException(
                     f"Error creating new tag `{self.name}`: {response.text}",
                 )
-            response_json = response.json()
+            response_json = response.json()  # pragma: no cover
         return response_json
 
     def refresh(self):

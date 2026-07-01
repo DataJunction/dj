@@ -3593,6 +3593,28 @@ a.action-btn {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* Allow the label to shrink below its content width so the ellipsis applies
+     within the chip's max-width instead of overflowing the panel. */
+  min-width: 0;
+}
+
+/* Start-clipping label: ellipsis on the LEFT so the distinguishing end of a
+   long, common-prefixed name stays visible ("…erience_f__cart_initiation").
+   direction: rtl moves the ellipsis to the start; the inner <bdi> keeps the
+   text in normal reading order. Text stays a single node for accessibility. */
+.chip-label-clip {
+  display: inline-block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+}
+
+.chip-label-clip .chip-label-inner {
+  direction: ltr;
+  unicode-bidi: bidi-override;
 }
 
 /* Metrics: Pink (matches node_type__metric background #fad7dd) */
@@ -3660,6 +3682,28 @@ a.action-btn {
   overflow-y: auto;
 }
 
+/* Dimensions can be dragged onto the Filters section to start a filter. */
+.draggable-dim {
+  cursor: grab;
+}
+
+.draggable-dim:active {
+  cursor: grabbing;
+}
+
+.filters-section.drop-active {
+  outline: 2px dashed var(--node_type__dimension, #a96621);
+  outline-offset: -4px;
+  background: rgba(169, 102, 33, 0.06);
+}
+
+.filter-drop-hint {
+  padding: 6px 12px;
+  font-size: 11px;
+  font-style: italic;
+  color: #a96621;
+}
+
 .filter-chips-container {
   display: flex;
   flex-wrap: wrap;
@@ -3685,6 +3729,24 @@ a.action-btn {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Filter chip text doubles as a click-to-edit button. */
+.filter-chip-edit {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.filter-chip-edit:hover {
+  text-decoration: underline;
 }
 
 .filter-chip-remove {
