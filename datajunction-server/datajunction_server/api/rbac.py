@@ -17,6 +17,11 @@ from datajunction_server.errors import (
     DJException,
 )
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
+from datajunction_server.internal.access.authorization import (
+    AccessChecker,
+    AccessDenialMode,
+    get_access_checker,
+)
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.models.access import ResourceAction, ResourceType
 from datajunction_server.models.rbac import (
@@ -32,6 +37,26 @@ from datajunction_server.utils import get_session, get_current_user
 from datajunction_server.models.user import UserOutput
 
 router = SecureAPIRouter(tags=["rbac"])
+
+
+async def enforce_scope_management(
+    access_checker: AccessChecker,
+    scopes,
+) -> None:
+    """
+    Require MANAGE on every resource the given scopes target.
+
+    A principal may only define, hand out, or revoke a permission it can already
+    manage on the underlying resource, which prevents privilege escalation
+    through role creation or assignment.
+    """
+    for scope in scopes:
+        access_checker.add_scope(
+            scope.scope_type,
+            scope.scope_value,
+            ResourceAction.MANAGE,
+        )
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
 
 async def log_activity(
@@ -66,12 +91,15 @@ async def create_role(
     *,
     session: AsyncSession = Depends(get_session),
     current_user: UserOutput = Depends(get_current_user),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> Role:
     """
     Create a new role with optional scopes.
 
     Roles are named collections of permissions that can be assigned to principals.
     """
+    await enforce_scope_management(access_checker, role_data.scopes)
+
     # Check if role with this name already exists
     existing = await Role.get_by_name(
         session=session,
@@ -187,6 +215,7 @@ async def update_role(
     *,
     session: AsyncSession = Depends(get_session),
     current_user: UserOutput = Depends(get_current_user),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> Role:
     """
     Update a role's name or description.
@@ -199,6 +228,8 @@ async def update_role(
         name=role_name,
         include_deleted=False,
     )
+
+    await enforce_scope_management(access_checker, role.scopes)
 
     # Capture pre-state for audit
     pre_state = {
@@ -250,6 +281,7 @@ async def delete_role(
     *,
     session: AsyncSession = Depends(get_session),
     current_user: UserOutput = Depends(get_current_user),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> None:
     """
     Soft delete a role.
@@ -267,6 +299,8 @@ async def delete_role(
             selectinload(Role.assignments),
         ],
     )
+
+    await enforce_scope_management(access_checker, role.scopes)
 
     # Check if role has any assignments (current or past)
     if role.assignments:
@@ -318,6 +352,7 @@ async def add_scope_to_role(
     *,
     session: AsyncSession = Depends(get_session),
     current_user: UserOutput = Depends(get_current_user),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> RoleScope:
     """
     Add a scope (permission) to a role.
@@ -328,6 +363,8 @@ async def add_scope_to_role(
         name=role_name,
         include_deleted=False,
     )
+
+    await enforce_scope_management(access_checker, [scope_data])
 
     # Check if scope already exists (duplicate check)
     existing_scope = [
@@ -404,6 +441,7 @@ async def delete_scope_from_role(
     *,
     session: AsyncSession = Depends(get_session),
     current_user: UserOutput = Depends(get_current_user),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> None:
     """
     Remove a scope from a role using its composite key.
@@ -416,6 +454,9 @@ async def delete_scope_from_role(
         name=role_name,
         include_deleted=False,
     )
+
+    access_checker.add_scope(scope_type, scope_value, ResourceAction.MANAGE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     # Find the scope by composite key
     delete_stmt = (
@@ -471,6 +512,7 @@ async def assign_role_to_principal(
     *,
     session: AsyncSession = Depends(get_session),
     current_user: UserOutput = Depends(get_current_user),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> RoleAssignment:
     """
     Assign a role to a principal (user, service account, or group).
@@ -484,6 +526,8 @@ async def assign_role_to_principal(
         name=role_name,
         include_deleted=False,
     )
+
+    await enforce_scope_management(access_checker, role.scopes)
 
     # Check if principal exists
     principal = await User.get_by_username(
@@ -576,6 +620,7 @@ async def revoke_role_from_principal(
     *,
     session: AsyncSession = Depends(get_session),
     current_user: UserOutput = Depends(get_current_user),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> None:
     """
     Revoke a role from a principal.
@@ -590,6 +635,8 @@ async def revoke_role_from_principal(
         name=role_name,
         include_deleted=False,
     )
+
+    await enforce_scope_management(access_checker, role.scopes)
 
     # Get the principal
     principal = await User.get_by_username(
