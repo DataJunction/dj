@@ -3983,9 +3983,7 @@ async def test_node_counts_by_type(
         json={"query": "{ nodeCounts(groupBy: TYPE) { value count } }"},
     )
     assert resp.status_code == 200
-    counts = {
-        row["value"]: row["count"] for row in resp.json()["data"]["nodeCounts"]
-    }
+    counts = {row["value"]: row["count"] for row in resp.json()["data"]["nodeCounts"]}
     # Only values that actually have nodes are returned, and every count is positive.
     assert counts
     assert all(count > 0 for count in counts.values())
@@ -4014,9 +4012,7 @@ async def test_node_counts_scoped_to_namespace(
         },
     )
     assert resp.status_code == 200
-    scoped = {
-        row["value"]: row["count"] for row in resp.json()["data"]["nodeCounts"]
-    }
+    scoped = {row["value"]: row["count"] for row in resp.json()["data"]["nodeCounts"]}
     for node_type, count in scoped.items():
         resp = await client_with_roads.post(
             "/graphql",
