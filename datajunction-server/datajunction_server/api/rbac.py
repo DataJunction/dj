@@ -48,8 +48,16 @@ async def enforce_scope_management(
 
     A principal may only define, hand out, or revoke a permission it can already
     manage on the underlying resource, which prevents privilege escalation
-    through role creation or assignment.
+    through role creation or assignment. Scope-less roles are still RBAC control
+    plane objects, so they require a global MANAGE grant.
     """
+    if not scopes:
+        access_checker.add_scope(
+            ResourceType.NAMESPACE,
+            "*",
+            ResourceAction.MANAGE,
+        )
+
     for scope in scopes:
         access_checker.add_scope(
             scope.scope_type,

@@ -990,18 +990,19 @@ async def test_create_role_with_scopes_requires_manage(
 
 
 @pytest.mark.asyncio
-async def test_create_empty_role_allowed_without_manage(
+async def test_create_empty_role_requires_global_manage(
     client_with_basic: AsyncClient,
     mocker,
 ):
-    """An empty role grants nothing, so it needs no MANAGE permission."""
+    """Creating a scope-less role requires baseline RBAC administration access."""
     mocker.patch(VALIDATOR_AUTH_SERVICE, lambda: DenyManageAuthorizationService())
 
     response = await client_with_basic.post(
         "/roles/",
         json={"name": "empty-role-no-manage"},
     )
-    assert response.status_code == 201
+    assert response.status_code == 403
+    assert "Access denied" in response.json()["message"]
 
 
 @pytest.mark.asyncio
