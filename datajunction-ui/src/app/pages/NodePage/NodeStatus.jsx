@@ -2,15 +2,10 @@ import { Component, useContext, useEffect, useRef, useState } from 'react';
 import ValidIcon from '../../icons/ValidIcon';
 import InvalidIcon from '../../icons/InvalidIcon';
 import DJClientContext from '../../providers/djclient';
-import { foundation } from 'react-syntax-highlighter/src/styles/hljs';
-import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
-import markdown from 'react-syntax-highlighter/dist/cjs/languages/hljs/markdown';
 import * as React from 'react';
 import { AlertMessage } from '../AddEditNodePage/AlertMessage';
 import AlertIcon from '../../icons/AlertIcon';
 import { labelize } from '../../../utils/form';
-
-SyntaxHighlighter.registerLanguage('markdown', markdown);
 
 export default function NodeStatus({ node, revalidate = true }) {
   const MAX_ERROR_LENGTH = 200;

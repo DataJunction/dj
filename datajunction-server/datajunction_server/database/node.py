@@ -1260,11 +1260,62 @@ class Node(Base):
         )
         if statement is None:
             return 0
-        count_stmt = statement.with_only_columns(
-            func.count(func.distinct(Node.id)),
-        ).order_by(None)
+        # Every filter above uses exists()/IN(subquery)/1:1 joins, so no row is
+        # duplicated — COUNT(*) is equivalent to COUNT(DISTINCT id) and avoids the
+        # sort/hash the DISTINCT would force (which scales badly on large tables).
+        count_stmt = statement.with_only_columns(func.count()).order_by(None)
         result = await session.execute(count_stmt)
         return int(result.scalar() or 0)
+
+    @classmethod
+    async def count_grouped(
+        cls,
+        session: AsyncSession,
+        group_by: Any,
+        namespace: str | None = None,
+        node_types: list[NodeType] | None = None,
+        tags: list[str] | None = None,
+        edited_by: str | None = None,
+        mode: NodeMode | None = None,
+        owned_by: list[str] | None = None,
+        missing_description: bool = False,
+        missing_owner: bool = False,
+        dimensions: list[str] | None = None,
+        statuses: list[NodeStatus] | None = None,
+        has_materialization: bool = False,
+        orphaned_dimension: bool = False,
+        search: str | None = None,
+    ) -> dict[Any, int]:
+        """
+        Count matching nodes grouped by the ``group_by`` column in a single query,
+        rather than one count per value. Returns a ``{value: count}`` mapping
+        (values with zero matches are omitted).
+        """
+        statement, _, _, _ = await cls._build_filtered_node_statement(
+            session,
+            node_types=node_types,
+            tags=tags,
+            edited_by=edited_by,
+            namespace=namespace,
+            mode=mode,
+            owned_by=owned_by,
+            missing_description=missing_description,
+            missing_owner=missing_owner,
+            dimensions=dimensions,
+            statuses=statuses,
+            has_materialization=has_materialization,
+            orphaned_dimension=orphaned_dimension,
+            search=search,
+        )
+        if statement is None:  # pragma: no cover - only when a filter excludes all
+            return {}
+        grouped_stmt = (
+            statement.with_only_columns(group_by, func.count())
+            .order_by(None)
+            .group_by(group_by)
+        )
+        result = await session.execute(grouped_stmt)
+        return {row[0]: int(row[1]) for row in result.all()}
 
     @classmethod
     async def _resolve_dimension_filter(

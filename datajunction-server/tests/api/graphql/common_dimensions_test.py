@@ -216,3 +216,48 @@ async def test_get_common_dimensions_non_metric_nodes(
         "name": "default.us_state.state_name",
         "type": "string",
     } in data["data"]["commonDimensions"]
+
+
+@pytest.mark.asyncio
+async def test_get_common_dimensions_unknown_node(
+    client_with_roads: AsyncClient,
+):
+    """
+    Unknown node names resolve to zero nodes, so common dimensions should be
+    an empty list rather than raising an IndexError.
+    """
+
+    query = """
+    {
+      commonDimensions(nodes: ["default.does_not_exist"]) {
+        name
+      }
+    }
+    """
+
+    response = await client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+    assert data == {"data": {"commonDimensions": []}}
+
+
+@pytest.mark.asyncio
+async def test_get_common_dimensions_empty_input(
+    client_with_roads: AsyncClient,
+):
+    """
+    Passing no nodes at all should return an empty list of common dimensions.
+    """
+
+    query = """
+    {
+      commonDimensions(nodes: []) {
+        name
+      }
+    }
+    """
+
+    response = await client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+    assert data == {"data": {"commonDimensions": []}}

@@ -1,4 +1,32 @@
-import Select from 'react-select';
+import Select, { components } from 'react-select';
+
+// react-select renders a DOM node per option with no virtualization, so a large
+// list (e.g. all users) makes the menu sluggish to open/scroll. Cap how many
+// options are rendered at once; react-select still filters the full list as the
+// user types, so any option remains reachable by searching.
+const MAX_RENDERED_OPTIONS = 100;
+
+const WindowedMenuList = props => {
+  const { children } = props;
+  if (Array.isArray(children) && children.length > MAX_RENDERED_OPTIONS) {
+    return (
+      <components.MenuList {...props}>
+        {children.slice(0, MAX_RENDERED_OPTIONS)}
+        <div
+          style={{
+            padding: '6px 12px',
+            fontSize: '11px',
+            color: '#888',
+          }}
+        >
+          Showing first {MAX_RENDERED_OPTIONS} of {children.length}. Type to
+          narrow…
+        </div>
+      </components.MenuList>
+    );
+  }
+  return <components.MenuList {...props}>{children}</components.MenuList>;
+};
 
 // Compact select with label above - saves horizontal space
 export default function CompactSelect({
@@ -15,6 +43,7 @@ export default function CompactSelect({
   isLoading = false,
   testId = null,
   formatOptionLabel = undefined,
+  onMenuOpen = undefined,
 }) {
   // For single select, find the matching option
   // For multi select, filter to matching options
@@ -55,8 +84,10 @@ export default function CompactSelect({
         isLoading={isLoading}
         placeholder={placeholder}
         onChange={onChange}
+        onMenuOpen={onMenuOpen}
         value={selectedValue}
         formatOptionLabel={formatOptionLabel}
+        components={{ MenuList: WindowedMenuList }}
         styles={{
           control: base => ({
             ...base,

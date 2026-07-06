@@ -1,8 +1,9 @@
 """Namespace database schema."""
 
+from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, select
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import (
     Mapped,
@@ -105,6 +106,69 @@ class NodeNamespace(Base):
                     http_status_code=404,
                 )
         return node_namespace
+
+    @classmethod
+    async def list_branch_namespaces(
+        cls,
+        session: AsyncSession,
+        parent: str,
+        exclude_namespace: Optional[str] = None,
+    ) -> List["NodeNamespace"]:
+        """
+        List the active branch namespaces whose parent is ``parent``.
+
+        Root namespaces resolve to their direct children; branch namespaces resolve
+        to their siblings, which is why ``exclude_namespace`` is used to drop self.
+        """
+        base_filter = cls.parent_namespace == parent
+        if exclude_namespace:
+            base_filter = base_filter & (cls.namespace != exclude_namespace)
+        statement = select(cls).where(base_filter, cls.deactivated_at.is_(None))
+        return list((await session.execute(statement)).scalars().all())
+
+    @classmethod
+    async def node_counts_by_namespace(
+        cls,
+        session: AsyncSession,
+        root_namespace: str,
+    ) -> dict[str, tuple[int, int, datetime]]:
+        """
+        Aggregate node counts grouped by namespace for ``root_namespace`` and all of
+        its descendants, in a single indexed pass.
+
+        ``root_namespace`` is a literal, so ``LIKE root.%`` uses the
+        varchar_pattern_ops index on node.namespace rather than a full table scan.
+        ``updated_at`` is set only at revision insert time, so the current revision's
+        timestamp is the latest per node — no need to scan historical revisions. It's
+        never NULL here (non-nullable column, and every emitted group has a row).
+
+        Returns dict[namespace -> (num_nodes, invalid_node_count, last_updated_at)].
+        """
+        statement = (
+            select(
+                Node.namespace,
+                func.count(Node.id),
+                func.sum(case((NodeRevision.status == "invalid", 1), else_=0)),
+                func.max(NodeRevision.updated_at),
+            )
+            .join(
+                NodeRevision,
+                (NodeRevision.node_id == Node.id)
+                & (NodeRevision.version == Node.current_version),
+            )
+            .where(
+                or_(
+                    Node.namespace == root_namespace,
+                    Node.namespace.like(f"{root_namespace}.%"),
+                ),
+            )
+            .group_by(Node.namespace)
+        )
+        result = await session.execute(statement)
+        return {
+            namespace: (num_nodes, invalid_node_count, last_updated_at)
+            for namespace, num_nodes, invalid_node_count, last_updated_at in result
+        }
 
     @classmethod
     async def list_nodes(

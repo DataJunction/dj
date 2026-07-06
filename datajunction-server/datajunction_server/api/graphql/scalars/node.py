@@ -52,6 +52,21 @@ JoinType = strawberry.enum(JoinType_)
 JoinCardinality = strawberry.enum(JoinCardinality_)
 
 
+@strawberry.enum
+class NodeGroupBy(Enum):
+    """Field to group node counts by (for filter facets / summaries)."""
+
+    TYPE = "type"
+
+
+@strawberry.type
+class NodeCount:
+    """Number of nodes for one value of a grouped field (e.g. a node type)."""
+
+    value: str
+    count: int
+
+
 _CUBE_SCALAR_ONLY_FIELDS: frozenset = frozenset(
     {
         "name",

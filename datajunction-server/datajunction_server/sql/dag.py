@@ -1309,8 +1309,11 @@ async def get_common_dimensions(session: AsyncSession, nodes: list[Node]):
     """
     metric_nodes = [node for node in nodes if node.type == NodeType.METRIC]
     other_nodes = [node for node in nodes if node.type != NodeType.METRIC]
-    if metric_nodes:  # pragma: no branch
+    if metric_nodes:
         nodes = list(set(other_nodes + await get_metric_parents(session, metric_nodes)))
+
+    if not nodes:
+        return []
 
     common = await group_dimensions_by_name(session, nodes[0])
     for node in nodes[1:]:

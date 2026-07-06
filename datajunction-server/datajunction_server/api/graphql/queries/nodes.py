@@ -3,6 +3,7 @@ Find nodes GraphQL queries.
 """
 
 import logging
+from enum import Enum
 from typing import Annotated
 
 import strawberry
@@ -10,17 +11,61 @@ from strawberry.types import Info
 
 from datajunction_server.api.graphql.resolvers.nodes import (
     count_nodes_by,
+    count_nodes_grouped,
     find_nodes_by,
 )
 from datajunction_server.api.graphql.scalars import Connection
-from datajunction_server.api.graphql.scalars.node import Node, NodeSortField
+from datajunction_server.api.graphql.scalars.node import (
+    Node,
+    NodeCount,
+    NodeGroupBy,
+    NodeSortField,
+)
 from datajunction_server.api.graphql.utils import extract_fields
+from datajunction_server.database.node import Node as DBNode
 from datajunction_server.models.node import NodeCursor, NodeMode, NodeStatus, NodeType
 
 DEFAULT_LIMIT = 1000
 UPPER_LIMIT = 10000
 
 logger = logging.getLogger(__name__)
+
+# Maps a groupable field to the column the count is grouped on.
+_GROUP_BY_COLUMNS = {
+    NodeGroupBy.TYPE: DBNode.type,
+}
+
+
+async def node_counts(
+    group_by: Annotated[
+        NodeGroupBy,
+        strawberry.argument(description="Field to group node counts by"),
+    ],
+    namespace: Annotated[
+        str | None,
+        strawberry.argument(
+            description="Count nodes in this namespace (and its descendants)",
+        ),
+    ] = None,
+    *,
+    info: Info,
+) -> list[NodeCount]:
+    """
+    Count nodes grouped by a field (e.g. type), in a single grouped query rather
+    than one count per value. Values with zero nodes are omitted.
+    """
+    counts = await count_nodes_grouped(
+        info=info,
+        group_by=_GROUP_BY_COLUMNS[group_by],
+        namespace=namespace,
+    )
+    return [
+        NodeCount(  # type: ignore
+            value=key.name if isinstance(key, Enum) else str(key),
+            count=count,
+        )
+        for key, count in counts.items()
+    ]
 
 
 async def find_nodes(

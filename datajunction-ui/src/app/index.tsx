@@ -14,7 +14,7 @@ import { SystemMetricsExplorerPage } from './pages/SystemMetricsExplorerPage/Loa
 import { SettingsPage } from './pages/SettingsPage/Loadable';
 import { NotificationsPage } from './pages/NotificationsPage/Loadable';
 import { NodePage } from './pages/NodePage/Loadable';
-import RevisionDiff from './pages/NodePage/RevisionDiff';
+import { RevisionDiff } from './pages/NodePage/RevisionDiffLoadable';
 import { SQLBuilderPage } from './pages/SQLBuilderPage/Loadable';
 import { CubeBuilderPage } from './pages/CubeBuilderPage/Loadable';
 import { QueryPlannerPage } from './pages/QueryPlannerPage/Loadable';

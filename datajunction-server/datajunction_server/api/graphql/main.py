@@ -33,6 +33,7 @@ from datajunction_server.api.graphql.queries.engines import list_engines, list_d
 from datajunction_server.api.graphql.queries.nodes import (
     find_nodes,
     find_nodes_paginated,
+    node_counts,
 )
 from datajunction_server.api.graphql.queries.sql import (
     measures_sql,
@@ -51,7 +52,11 @@ from datajunction_server.api.graphql.scalars.catalog_engine import (
 )
 from datajunction_server.api.graphql.scalars.collection import Collection
 from datajunction_server.api.graphql.scalars.namespace import Namespace
-from datajunction_server.api.graphql.scalars.node import DimensionAttribute, Node
+from datajunction_server.api.graphql.scalars.node import (
+    DimensionAttribute,
+    Node,
+    NodeCount,
+)
 from datajunction_server.api.graphql.scalars.sql import (
     GeneratedSQL,
     MaterializationPlan,
@@ -250,6 +255,10 @@ class Query:
     find_nodes_paginated: Connection[Node] = strawberry.field(
         resolver=log_resolver(find_nodes_paginated),
         description="Find nodes based on the search parameters with pagination",
+    )
+    node_counts: list[NodeCount] = strawberry.field(
+        resolver=log_resolver(node_counts),
+        description="Count nodes grouped by a field (e.g. type) in a namespace",
     )
 
     # DAG queries

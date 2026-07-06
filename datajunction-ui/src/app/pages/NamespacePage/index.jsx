@@ -1,5 +1,12 @@
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
-import { useContext, useEffect, useState, useCallback } from 'react';
+import {
+  useContext,
+  useEffect,
+  useState,
+  useCallback,
+  useRef,
+  useMemo,
+} from 'react';
 import NodeStatus from '../NodePage/NodeStatus';
 import DJClientContext from '../../providers/djclient';
 import { useCurrentUser } from '../../providers/UserProvider';
@@ -61,27 +68,50 @@ export function NamespacePage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // Data for select options
+  // Data for select options. These populate filter dropdowns only, so they're
+  // fetched lazily on first dropdown open instead of on page load — except when a
+  // users/tags filter is already active from the URL, where we need the options to
+  // render the selected label.
   const [users, setUsers] = useState([]);
   const [tags, setTags] = useState([]);
-  const [usersLoading, setUsersLoading] = useState(true);
-  const [tagsLoading, setTagsLoading] = useState(true);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [tagsLoading, setTagsLoading] = useState(false);
+  const usersRequested = useRef(false);
+  const tagsRequested = useRef(false);
 
-  // Load users and tags for dropdowns
-  useEffect(() => {
-    const fetchUsers = async () => {
+  const ensureUsers = useCallback(async () => {
+    if (usersRequested.current) return;
+    usersRequested.current = true;
+    setUsersLoading(true);
+    try {
       const data = await djClient.users();
       setUsers(data || []);
+    } finally {
       setUsersLoading(false);
-    };
-    const fetchTags = async () => {
+    }
+  }, [djClient]);
+
+  const ensureTags = useCallback(async () => {
+    if (tagsRequested.current) return;
+    tagsRequested.current = true;
+    setTagsLoading(true);
+    try {
       const data = await djClient.listTags();
       setTags(data || []);
+    } finally {
       setTagsLoading(false);
-    };
-    fetchUsers().catch(console.error);
-    fetchTags().catch(console.error);
+    }
   }, [djClient]);
+
+  // Eagerly fetch only what an already-applied filter needs to render its label.
+  useEffect(() => {
+    if (searchParams.get('editedBy') || searchParams.get('ownedBy')) {
+      ensureUsers().catch(console.error);
+    }
+    if (searchParams.get('tags')) {
+      ensureTags().catch(console.error);
+    }
+  }, [searchParams, ensureUsers, ensureTags]);
 
   // Parse all filters from URL
   const getFiltersFromUrl = useCallback(
@@ -102,8 +132,15 @@ export function NamespacePage() {
   const [filters, setFilters] = useState(getFiltersFromUrl);
   const [moreFiltersOpen, setMoreFiltersOpen] = useState(false);
 
-  // Sync filters state when URL changes
+  // Sync filters state when the URL changes. `filters` is already seeded from the
+  // URL via useState, so we skip the initial run — otherwise it would replace
+  // filters with an equal-but-new object and trigger a redundant node refetch.
+  const didSyncFilters = useRef(false);
   useEffect(() => {
+    if (!didSyncFilters.current) {
+      didSyncFilters.current = true;
+      return;
+    }
     setFilters(getFiltersFromUrl());
   }, [searchParams, getFiltersFromUrl]);
 
@@ -258,6 +295,8 @@ export function NamespacePage() {
   const createSubNamespace = async fullNamespace => {
     const response = await djClient.addNamespace(fullNamespace);
     if (response.status === 200 || response.status === 201) {
+      // The cached namespace list is now stale — refetch it on next mount.
+      djClient.invalidateNamespacesCache?.();
       navigate(`/namespaces/${fullNamespace}`);
       return {};
     }
@@ -288,6 +327,9 @@ export function NamespacePage() {
   // Per-type node counts (recursive) for the current namespace, shown inline in
   // the TYPE filter options (e.g. "Metric (342)").
   useEffect(() => {
+    // Wait until git config resolves so tableNamespace is final — otherwise a
+    // git root fetches its provisional namespace, then refetches after redirect.
+    if (!gitConfigLoaded) return;
     if (isGitRoot && gitConfig?.default_branch) return;
     let cancelled = false;
     if (!tableNamespace) {
@@ -305,7 +347,7 @@ export function NamespacePage() {
     return () => {
       cancelled = true;
     };
-  }, [djClient, tableNamespace]);
+  }, [djClient, tableNamespace, gitConfigLoaded, isGitRoot, gitConfig]);
 
   const requestSort = key => {
     let direction = ASC;
@@ -326,30 +368,36 @@ export function NamespacePage() {
 
   const createNamespaceHierarchy = namespaceList => {
     const hierarchy = [];
+    // Map lookups (path -> node's children map) keep insertion O(n · depth); we sort
+    // each level once at the end rather than on every insert (which was O(n² log n)).
+    const rootMap = new Map();
+    const childMaps = new Map();
 
     for (const item of namespaceList) {
-      const namespaces = item.namespace.split('.');
+      const segments = item.namespace.split('.');
       let currentLevel = hierarchy;
-
+      let levelMap = rootMap;
       let path = '';
-      for (const ns of namespaces) {
+      for (const ns of segments) {
         path += ns;
-
-        let existingNamespace = currentLevel.find(el => el.namespace === ns);
-        if (!existingNamespace) {
-          existingNamespace = {
-            namespace: ns,
-            children: [],
-            path: path,
-          };
-          currentLevel.push(existingNamespace);
-          currentLevel.sort((a, b) => a.namespace.localeCompare(b.namespace));
+        let node = levelMap.get(ns);
+        if (!node) {
+          node = { namespace: ns, children: [], path };
+          currentLevel.push(node);
+          levelMap.set(ns, node);
+          childMaps.set(path, new Map());
         }
-
-        currentLevel = existingNamespace.children;
+        currentLevel = node.children;
+        levelMap = childMaps.get(path);
         path += '.';
       }
     }
+
+    const sortLevel = level => {
+      level.sort((a, b) => a.namespace.localeCompare(b.namespace));
+      level.forEach(node => sortLevel(node.children));
+    };
+    sortLevel(hierarchy);
     return hierarchy;
   };
 
@@ -374,6 +422,9 @@ export function NamespacePage() {
   }, [djClient]);
 
   useEffect(() => {
+    // Wait until git config resolves so tableNamespace is final — otherwise a
+    // git root fetches its provisional namespace, then refetches after redirect.
+    if (!gitConfigLoaded) return;
     if (isGitRoot && gitConfig?.default_branch) return;
     const fetchData = async () => {
       setRetrieved(false);
@@ -441,6 +492,9 @@ export function NamespacePage() {
     tableNamespace,
     namespace,
     debouncedSearch,
+    gitConfigLoaded,
+    isGitRoot,
+    gitConfig,
   ]);
 
   const loadNext = () => {
@@ -517,11 +571,14 @@ export function NamespacePage() {
     { value: 'INVALID', label: 'Invalid' },
   ];
 
-  const userOptions = users.map(u => ({
-    value: u.username,
-    label: u.username,
-  }));
-  const tagOptions = tags.map(t => ({ value: t.name, label: t.display_name }));
+  const userOptions = useMemo(
+    () => users.map(u => ({ value: u.username, label: u.username })),
+    [users],
+  );
+  const tagOptions = useMemo(
+    () => tags.map(t => ({ value: t.name, label: t.display_name })),
+    [tags],
+  );
 
   const nodesList = retrieved ? (
     state.nodes.length > 0 ? (
@@ -819,6 +876,7 @@ export function NamespacePage() {
                   }
                   isMulti
                   isLoading={tagsLoading}
+                  onMenuOpen={ensureTags}
                   flex={1.5}
                   minWidth="100px"
                   testId="select-tag"
@@ -832,6 +890,7 @@ export function NamespacePage() {
                     updateFilters({ ...filters, edited_by: e?.value || '' })
                   }
                   isLoading={usersLoading}
+                  onMenuOpen={ensureUsers}
                   flex={1}
                   minWidth="80px"
                   testId="select-user"
@@ -856,6 +915,7 @@ export function NamespacePage() {
                     updateFilters({ ...filters, ownedBy: e?.value || '' })
                   }
                   isLoading={usersLoading}
+                  onMenuOpen={ensureUsers}
                   flex={1}
                   minWidth="80px"
                 />
