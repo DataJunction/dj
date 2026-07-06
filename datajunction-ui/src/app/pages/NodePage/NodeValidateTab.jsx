@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import Select from 'react-select';
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { foundation } from 'react-syntax-highlighter/src/styles/hljs';
+import foundation from 'react-syntax-highlighter/dist/esm/styles/hljs/foundation';
 import { labelize } from '../../../utils/form';
 import { Form, Formik } from 'formik';
 import DimensionFilter from './DimensionFilter';

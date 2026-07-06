@@ -2098,6 +2098,705 @@ class TestNonDecomposableMetrics:
             },
         ]
 
+    @pytest.mark.asyncio
+    async def test_trailing_window_single_date_live(self, client_with_build_v3):
+        """A trailing-N window metric filtered to a single date scans [R-N, R] and outputs R."""
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.trailing_7d_revenue"],
+                "dimensions": ["v3.date.date_id[order]"],
+                "filters": ["v3.date.date_id = 20240131"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH
+            __wl_low_date_id AS (
+              SELECT (SELECT MIN(__o.date_id)
+              FROM (SELECT date_id
+              FROM default.v3.dates
+              WHERE date_id <= 20240131
+              ORDER BY date_id DESC
+              LIMIT 7) __o) AS low_val
+            ),
+            v3_order_details AS (
+              SELECT  o.order_date,
+                oi.quantity * oi.unit_price AS line_total
+               FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+               WHERE  order_date BETWEEN (SELECT low_val FROM __wl_low_date_id) AND 20240131
+            ),
+            order_details_0 AS (
+              SELECT  t1.order_date date_id_order,
+                SUM(t1.line_total) line_total_sum_e1f61696
+               FROM v3_order_details t1
+               GROUP BY  t1.order_date
+            ),
+            base_metrics AS (
+              SELECT  __spine.date_id AS date_id_order,
+                COALESCE(__agg.total_revenue, 0) AS total_revenue
+               FROM (SELECT  DISTINCT
+               date_id
+               FROM default.v3.dates
+               WHERE  date_id BETWEEN (SELECT low_val FROM __wl_low_date_id) AND 20240131) AS __spine
+               LEFT JOIN (SELECT  order_details_0.date_id_order AS date_id_order,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+               FROM order_details_0
+               GROUP BY  order_details_0.date_id_order) AS __agg ON __spine.date_id = __agg.date_id_order
+            ),
+            __windowed AS (
+              SELECT  base_metrics.date_id_order AS date_id_order,
+                SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_revenue
+               FROM base_metrics
+            )
+            SELECT  *
+             FROM __windowed
+             WHERE  date_id_order BETWEEN 20240131 AND 20240131
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_trailing_window_limit_orderby_above_window(
+        self,
+        client_with_build_v3,
+    ):
+        """LIMIT/ORDER BY must apply ABOVE the window output restriction, not inside the windowed subquery."""
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.trailing_7d_revenue"],
+                "dimensions": ["v3.date.date_id[order]"],
+                "filters": [
+                    "v3.date.date_id >= 20240125",
+                    "v3.date.date_id <= 20240131",
+                ],
+                "limit": "3",
+                "orderby": ["v3.date.date_id[order]"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH
+            __wl_low_date_id AS (
+              SELECT (SELECT MIN(__o.date_id)
+              FROM (SELECT date_id
+              FROM default.v3.dates
+              WHERE date_id <= 20240125
+              ORDER BY date_id DESC
+              LIMIT 7) __o) AS low_val
+            ),
+            v3_order_details AS (
+              SELECT  o.order_date,
+                oi.quantity * oi.unit_price AS line_total
+               FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+               WHERE  order_date BETWEEN (SELECT low_val FROM __wl_low_date_id) AND 20240131
+            ),
+            order_details_0 AS (
+              SELECT  t1.order_date date_id_order,
+                SUM(t1.line_total) line_total_sum_e1f61696
+               FROM v3_order_details t1
+               GROUP BY  t1.order_date
+            ),
+            base_metrics AS (
+              SELECT  __spine.date_id AS date_id_order,
+                COALESCE(__agg.total_revenue, 0) AS total_revenue
+               FROM (SELECT  DISTINCT
+               date_id
+               FROM default.v3.dates
+               WHERE  date_id BETWEEN (SELECT low_val FROM __wl_low_date_id) AND 20240131) AS __spine
+               LEFT JOIN (SELECT  order_details_0.date_id_order AS date_id_order,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+               FROM order_details_0
+               GROUP BY  order_details_0.date_id_order) AS __agg ON __spine.date_id = __agg.date_id_order
+            ),
+            __windowed AS (
+              SELECT  base_metrics.date_id_order AS date_id_order,
+                SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_revenue
+               FROM base_metrics
+            )
+            SELECT  *
+             FROM __windowed
+             WHERE  date_id_order BETWEEN 20240125 AND 20240131
+            ORDER BY date_id_order
+            LIMIT 3
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_trailing_window_range_live(self, client_with_build_v3):
+        """A date range returns per-date trailing values with an expanded scan [low-N, high]
+        and output restricted back to [low, high]."""
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.trailing_7d_revenue"],
+                "dimensions": ["v3.date.date_id[order]"],
+                "filters": [
+                    "v3.date.date_id >= 20240125",
+                    "v3.date.date_id <= 20240131",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH
+            __wl_low_date_id AS (
+              SELECT (SELECT MIN(__o.date_id)
+              FROM (SELECT date_id
+              FROM default.v3.dates
+              WHERE date_id <= 20240125
+              ORDER BY date_id DESC
+              LIMIT 7) __o) AS low_val
+            ),
+            v3_order_details AS (
+              SELECT  o.order_date,
+                oi.quantity * oi.unit_price AS line_total
+               FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+               WHERE  order_date BETWEEN (SELECT low_val FROM __wl_low_date_id) AND 20240131
+            ),
+            order_details_0 AS (
+              SELECT  t1.order_date date_id_order,
+                SUM(t1.line_total) line_total_sum_e1f61696
+               FROM v3_order_details t1
+               GROUP BY  t1.order_date
+            ),
+            base_metrics AS (
+              SELECT  __spine.date_id AS date_id_order,
+                COALESCE(__agg.total_revenue, 0) AS total_revenue
+               FROM (SELECT  DISTINCT
+               date_id
+               FROM default.v3.dates
+               WHERE  date_id BETWEEN (SELECT low_val FROM __wl_low_date_id) AND 20240131) AS __spine
+               LEFT JOIN (SELECT  order_details_0.date_id_order AS date_id_order,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+               FROM order_details_0
+               GROUP BY  order_details_0.date_id_order) AS __agg ON __spine.date_id = __agg.date_id_order
+            ),
+            __windowed AS (
+              SELECT  base_metrics.date_id_order AS date_id_order,
+                SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_revenue
+               FROM base_metrics
+            )
+            SELECT  *
+             FROM __windowed
+             WHERE  date_id_order BETWEEN 20240125 AND 20240131
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_trailing_window_densified_over_date_domain(
+        self,
+        client_with_build_v3,
+    ):
+        """The window reads a dense date spine (LEFT JOIN + COALESCE 0-fill) so ROWS
+        counts calendar positions even when the fact table is sparse."""
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.trailing_7d_revenue"],
+                "dimensions": ["v3.date.date_id[order]"],
+                "filters": [
+                    "v3.date.date_id >= 20240125",
+                    "v3.date.date_id <= 20240131",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH
+            __wl_low_date_id AS (
+              SELECT (SELECT MIN(__o.date_id)
+              FROM (SELECT date_id
+              FROM default.v3.dates
+              WHERE date_id <= 20240125
+              ORDER BY date_id DESC
+              LIMIT 7) __o) AS low_val
+            ),
+            v3_order_details AS (
+              SELECT  o.order_date,
+                oi.quantity * oi.unit_price AS line_total
+               FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+               WHERE  order_date BETWEEN (SELECT low_val FROM __wl_low_date_id) AND 20240131
+            ),
+            order_details_0 AS (
+              SELECT  t1.order_date date_id_order,
+                SUM(t1.line_total) line_total_sum_e1f61696
+               FROM v3_order_details t1
+               GROUP BY  t1.order_date
+            ),
+            base_metrics AS (
+              SELECT  __spine.date_id AS date_id_order,
+                COALESCE(__agg.total_revenue, 0) AS total_revenue
+               FROM (SELECT  DISTINCT
+               date_id
+               FROM default.v3.dates
+               WHERE  date_id BETWEEN (SELECT low_val FROM __wl_low_date_id) AND 20240131) AS __spine
+               LEFT JOIN (SELECT  order_details_0.date_id_order AS date_id_order,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+               FROM order_details_0
+               GROUP BY  order_details_0.date_id_order) AS __agg ON __spine.date_id = __agg.date_id_order
+            ),
+            __windowed AS (
+              SELECT  base_metrics.date_id_order AS date_id_order,
+                SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_revenue
+               FROM base_metrics
+            )
+            SELECT  *
+             FROM __windowed
+             WHERE  date_id_order BETWEEN 20240125 AND 20240131
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_trailing_window_densified_by_cohort(self, client_with_build_v3):
+        """(date x cohort): each cohort gets a dense date spine via CROSS JOIN so
+        per-partition window frames count calendar positions."""
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.trailing_7d_revenue"],
+                "dimensions": ["v3.date.date_id[order]", "v3.product.category"],
+                "filters": [
+                    "v3.date.date_id >= 20240125",
+                    "v3.date.date_id <= 20240131",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH
+            __wl_low_date_id AS (
+              SELECT  (SELECT  MIN(__o.date_id)
+               FROM (SELECT  date_id
+               FROM default.v3.dates
+               WHERE  date_id <= 20240125
+              ORDER BY date_id DESC
+              LIMIT 7) __o) AS low_val
+            ),
+            v3_order_details AS (
+              SELECT  o.order_date,
+                oi.product_id,
+                oi.quantity * oi.unit_price AS line_total
+               FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+               WHERE  order_date BETWEEN (SELECT low_val FROM __wl_low_date_id) AND 20240131
+            ),
+            v3_product AS (
+              SELECT  product_id,
+                category
+               FROM default.v3.products
+            ),
+            order_details_0 AS (
+              SELECT  t1.order_date date_id_order,
+                t2.category,
+                SUM(t1.line_total) line_total_sum_e1f61696
+               FROM v3_order_details t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+               GROUP BY  t1.order_date, t2.category
+            ),
+            base_metrics AS (
+              SELECT  __spine.date_id AS date_id_order,
+                __spine.category AS category,
+                COALESCE(__agg.total_revenue, 0) AS total_revenue
+               FROM (SELECT  __d.date_id,
+                __c.category
+               FROM (SELECT  DISTINCT
+               date_id
+               FROM default.v3.dates
+               WHERE  date_id BETWEEN (SELECT low_val FROM __wl_low_date_id) AND 20240131) AS __d CROSS JOIN (SELECT  DISTINCT
+               category
+               FROM (SELECT  order_details_0.date_id_order AS date_id_order,
+                order_details_0.category AS category,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+               FROM order_details_0
+               GROUP BY  order_details_0.date_id_order, order_details_0.category) AS __agg) AS __c) AS __spine LEFT JOIN (SELECT  order_details_0.date_id_order AS date_id_order,
+                order_details_0.category AS category,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+               FROM order_details_0
+               GROUP BY  order_details_0.date_id_order, order_details_0.category) AS __agg ON __spine.date_id = __agg.date_id_order AND __spine.category = __agg.category
+            ),
+            __windowed AS (
+              SELECT  base_metrics.date_id_order AS date_id_order,
+                base_metrics.category AS category,
+                SUM(base_metrics.total_revenue) OVER ( PARTITION BY base_metrics.category
+               ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_revenue
+               FROM base_metrics
+            )
+            SELECT  *
+             FROM __windowed
+             WHERE  date_id_order BETWEEN 20240125 AND 20240131
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_trailing_window_redundant_range_reconciled(
+        self,
+        client_with_build_v3,
+    ):
+        """Redundant-but-consistent lower bounds reconcile to the TIGHTEST one.
+
+        ``>= 20240101 AND >= 20240125 AND <= 20240131`` anchors the offset
+        subquery on the tighter lower (20240125); the output restriction emits
+        BETWEEN 20240125 AND 20240131, dropping the dominated 20240101 bound.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.trailing_7d_revenue"],
+                "dimensions": ["v3.date.date_id[order]"],
+                "filters": [
+                    "v3.date.date_id >= 20240101",
+                    "v3.date.date_id >= 20240125",
+                    "v3.date.date_id <= 20240131",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH
+            __wl_low_date_id AS (
+              SELECT  (SELECT  MIN(__o.date_id)
+               FROM (SELECT  date_id
+               FROM default.v3.dates
+               WHERE  date_id <= 20240125
+              ORDER BY date_id DESC
+              LIMIT 7) __o) AS low_val
+            ),
+            v3_order_details AS (
+              SELECT  o.order_date,
+                oi.quantity * oi.unit_price AS line_total
+               FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+               WHERE  order_date BETWEEN (SELECT low_val FROM __wl_low_date_id) AND 20240131
+            ),
+            order_details_0 AS (
+              SELECT  t1.order_date date_id_order,
+                SUM(t1.line_total) line_total_sum_e1f61696
+               FROM v3_order_details t1
+               GROUP BY  t1.order_date
+            ),
+            base_metrics AS (
+              SELECT  __spine.date_id AS date_id_order,
+                COALESCE(__agg.total_revenue, 0) AS total_revenue
+               FROM (SELECT  DISTINCT
+               date_id
+               FROM default.v3.dates
+               WHERE  date_id BETWEEN (SELECT low_val FROM __wl_low_date_id) AND 20240131) AS __spine LEFT JOIN (SELECT  order_details_0.date_id_order AS date_id_order,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+               FROM order_details_0
+               GROUP BY  order_details_0.date_id_order) AS __agg ON __spine.date_id = __agg.date_id_order
+            ),
+            __windowed AS (
+              SELECT  base_metrics.date_id_order AS date_id_order,
+                SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_revenue
+               FROM base_metrics
+            )
+            SELECT  *
+             FROM __windowed
+             WHERE  date_id_order BETWEEN 20240125 AND 20240131
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_trailing_window_non_literal_bound_bails(
+        self,
+        client_with_build_v3,
+    ):
+        """A non-literal bound on the order column bails on scan expansion.
+
+        The query returns 200 with the user's filter passed through intact
+        (normal filter pushdown), which may starve the frame but is the safe fallback.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.trailing_7d_revenue"],
+                "dimensions": ["v3.date.date_id[order]"],
+                "filters": ["v3.date.date_id = 20240130 + 1"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH
+            v3_order_details AS (
+              SELECT  o.order_date,
+                oi.quantity * oi.unit_price AS line_total
+               FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+               WHERE  o.order_date = 20240130 + 1
+            ),
+            order_details_0 AS (
+              SELECT  t1.order_date date_id_order,
+                SUM(t1.line_total) line_total_sum_e1f61696
+               FROM v3_order_details t1
+               GROUP BY  t1.order_date
+            ),
+            base_metrics AS (
+              SELECT  order_details_0.date_id_order AS date_id_order,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+               FROM order_details_0
+               GROUP BY  order_details_0.date_id_order
+            )
+            SELECT  base_metrics.date_id_order AS date_id_order,
+              SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_revenue
+             FROM base_metrics
+             WHERE  base_metrics.date_id_order = 20240130 + 1
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_avg_window_live(self, client_with_build_v3):
+        """AVG is a valid window aggregation — engines support it natively and
+        it composes correctly with 0-fill densification."""
+        # Create the metric locally for this test
+        create = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.avg_revenue_trailing_7d",
+                "description": "Trailing 7-day average revenue",
+                "query": """
+                    SELECT
+                        AVG(v3.total_revenue) OVER (
+                            ORDER BY v3.date.date_id[order]
+                            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+                        )
+                """,
+                "mode": "published",
+                "required_dimensions": ["v3.date.date_id[order]"],
+            },
+        )
+        assert create.status_code in (200, 201), create.json()
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.avg_revenue_trailing_7d"],
+                "dimensions": ["v3.date.date_id[order]"],
+                "filters": ["v3.date.date_id = 20240131"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+WITH
+__wl_low_date_id AS (
+SELECT  (SELECT  MIN(__o.date_id)
+ FROM (SELECT  date_id
+ FROM default.v3.dates
+ WHERE  date_id <= 20240131
+ORDER BY date_id DESC
+
+LIMIT 7) __o) AS low_val
+),
+v3_order_details AS (
+SELECT  o.order_date,
+	oi.quantity * oi.unit_price AS line_total
+ FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+ WHERE  order_date BETWEEN (SELECT  low_val
+ FROM __wl_low_date_id) AND 20240131
+),
+order_details_0 AS (
+SELECT  t1.order_date date_id_order,
+	SUM(t1.line_total) line_total_sum_e1f61696
+ FROM v3_order_details t1
+ GROUP BY  t1.order_date
+),
+base_metrics AS (
+SELECT  __spine.date_id AS date_id_order,
+	COALESCE(__agg.total_revenue, 0) AS total_revenue
+ FROM (SELECT  DISTINCT
+ date_id
+ FROM default.v3.dates
+ WHERE  date_id BETWEEN (SELECT  low_val
+ FROM __wl_low_date_id) AND 20240131) AS __spine LEFT JOIN (SELECT  order_details_0.date_id_order AS date_id_order,
+	SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+ FROM order_details_0
+ GROUP BY  order_details_0.date_id_order) AS __agg ON __spine.date_id = __agg.date_id_order
+),
+__windowed AS (
+SELECT  base_metrics.date_id_order AS date_id_order,
+	AVG(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS avg_revenue_trailing_7d
+ FROM base_metrics
+)
+
+SELECT  *
+ FROM __windowed
+ WHERE  date_id_order BETWEEN 20240131 AND 20240131
+""",
+        )
+
+    @pytest.mark.asyncio
+    async def test_avg_window_live_no_filter(self, client_with_build_v3):
+        """AVG window with no filter on the order column — no scan expansion,
+        plain window function passed through."""
+        # Create the metric locally for this test
+        create = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.avg_revenue_trailing_7d",
+                "description": "Trailing 7-day average revenue",
+                "query": """
+                    SELECT
+                        AVG(v3.total_revenue) OVER (
+                            ORDER BY v3.date.date_id[order]
+                            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+                        )
+                """,
+                "mode": "published",
+                "required_dimensions": ["v3.date.date_id[order]"],
+            },
+        )
+        assert create.status_code in (200, 201), create.json()
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.avg_revenue_trailing_7d"],
+                "dimensions": ["v3.date.date_id[order]"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+WITH
+v3_order_details AS (
+SELECT  o.order_date,
+	oi.quantity * oi.unit_price AS line_total
+ FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+),
+order_details_0 AS (
+SELECT  t1.order_date date_id_order,
+	SUM(t1.line_total) line_total_sum_e1f61696
+ FROM v3_order_details t1
+ GROUP BY  t1.order_date
+),
+base_metrics AS (
+SELECT  order_details_0.date_id_order AS date_id_order,
+	SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+ FROM order_details_0
+ GROUP BY  order_details_0.date_id_order
+)
+
+SELECT  base_metrics.date_id_order AS date_id_order,
+	AVG(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS avg_revenue_trailing_7d
+ FROM base_metrics
+""",
+        )
+
+    @pytest.mark.asyncio
+    async def test_cumulative_revenue_live(self, client_with_build_v3):
+        """Cumulative (UNBOUNDED PRECEDING) window metric. Unlike bounded trailing
+        windows, UNBOUNDED has no finite N so DJ does NOT expand the scan; the
+        filter is pushed straight to the fact table and the window runs over
+        whatever rows match."""
+        r = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.cumulative_revenue",
+                "description": "All-time cumulative revenue.",
+                "query": """
+                    SELECT
+                        SUM(v3.total_revenue) OVER (
+                            ORDER BY v3.date.date_id[order]
+                            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                        )
+                """,
+                "mode": "published",
+                "required_dimensions": ["v3.date.date_id[order]"],
+            },
+        )
+        assert r.status_code in (200, 201), r.json()
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.cumulative_revenue"],
+                "dimensions": ["v3.date.date_id[order]"],
+                "filters": ["v3.date.date_id = 20240131"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+WITH
+v3_order_details AS (
+SELECT  o.order_date,
+	oi.quantity * oi.unit_price AS line_total
+ FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+ WHERE  o.order_date = 20240131
+),
+order_details_0 AS (
+SELECT  t1.order_date date_id_order,
+	SUM(t1.line_total) line_total_sum_e1f61696
+ FROM v3_order_details t1
+ GROUP BY  t1.order_date
+),
+base_metrics AS (
+SELECT  order_details_0.date_id_order AS date_id_order,
+	SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+ FROM order_details_0
+ GROUP BY  order_details_0.date_id_order
+)
+
+SELECT  base_metrics.date_id_order AS date_id_order,
+	SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id_order ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)  AS cumulative_revenue
+ FROM base_metrics
+ WHERE  base_metrics.date_id_order = 20240131
+""",
+        )
+
+    @pytest.mark.asyncio
+    async def test_non_window_metric_regression_unchanged(self, client_with_build_v3):
+        """The window-lookback code path is a no-op for plain non-window
+        queries: byte-for-byte identical golden SQL to the plain build."""
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.product.category"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        result = response.json()
+        assert result["sql"] == (
+            "WITH\n"
+            "v3_order_details AS (\n"
+            "SELECT  oi.product_id,\n"
+            "\toi.quantity * oi.unit_price AS line_total \n"
+            " FROM default.v3.orders o JOIN default.v3.order_items oi "
+            "ON o.order_id = oi.order_id\n"
+            "),\n"
+            "v3_product AS (\n"
+            "SELECT  product_id,\n"
+            "\tcategory \n"
+            " FROM default.v3.products\n"
+            "),\n"
+            "order_details_0 AS (\n"
+            "SELECT  t2.category,\n"
+            "\tSUM(t1.line_total) line_total_sum_e1f61696 \n"
+            " FROM v3_order_details t1 LEFT OUTER JOIN v3_product t2 "
+            "ON t1.product_id = t2.product_id \n"
+            " GROUP BY  t2.category\n"
+            ")\n\n"
+            "SELECT  order_details_0.category AS category,\n"
+            "\tSUM(order_details_0.line_total_sum_e1f61696) AS total_revenue \n"
+            " FROM order_details_0 \n"
+            " GROUP BY  order_details_0.category\n"
+        )
+
 
 class TestMetricsSQLNestedDerived:
     """
@@ -3409,6 +4108,275 @@ class TestMetricsSQLCrossFactWindow:
             ORDER BY base_metrics.week) , 0) * 100 AS wow_pages_per_session_change
             FROM base_metrics
             """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_cross_fact_rows_between_ratio(self, client_with_build_v3):
+        """
+        Cross-fact ROWS BETWEEN ratio: trailing window numerator / as-of-date denominator.
+
+        v3.weekly_active_rate = trailing_7d_active_users / subscribed_users
+        - Numerator: SUM(daily_active_users) OVER (... ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)
+          backed by user_active_daily (fact 1)
+        - Denominator: SUM(is_subscribed) from user_subscription_daily (fact 2)
+
+        When filtered to a single date the build must:
+        1. Expand both fact scans to [R-6, R] (scan expansion)
+        2. Densify base_metrics over a full 7-row date spine (gap-fill)
+        3. Apply the ROWS BETWEEN window to the numerator in __windowed
+        4. Compute the ratio per-row (denominator is at daily grain — correct as-of semantics)
+        5. Restrict output to the requested date (output restriction)
+
+        The denominator scan is expanded unnecessarily (both facts link to v3.date),
+        but the output restriction ensures the final ratio uses only the requested
+        date's denominator value, which is correct.
+        """
+        # Sources
+        for payload in [
+            {
+                "name": "v3.user_activity_raw",
+                "description": "Raw activity events, one row per (user, session, day)",
+                "columns": [
+                    {"name": "dateint", "type": "int"},
+                    {"name": "user_id", "type": "int"},
+                    {"name": "has_activity", "type": "int"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "user_activity_raw",
+            },
+            {
+                "name": "v3.user_subscription_raw",
+                "description": "As-of-date subscription status per user, one row per (user, day)",
+                "columns": [
+                    {"name": "dateint", "type": "int"},
+                    {"name": "user_id", "type": "int"},
+                    {"name": "is_subscribed", "type": "int"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "user_subscription_raw",
+            },
+        ]:
+            resp = await client_with_build_v3.post("/nodes/source/", json=payload)
+            assert resp.status_code in (200, 201), resp.json()
+
+        # Layer 1 transform — daily dedup to (user, day) grain
+        resp = await client_with_build_v3.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.user_active_daily",
+                "description": (
+                    "Layer 1: daily 0/1 active-day flag per user. "
+                    "MAX(CASE WHEN …) deduplicates across sessions."
+                ),
+                "query": """
+                    SELECT
+                        dateint,
+                        user_id,
+                        MAX(CASE WHEN has_activity = 1 THEN 1 ELSE 0 END) AS is_active
+                    FROM v3.user_activity_raw
+                    GROUP BY dateint, user_id
+                """,
+                "mode": "published",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        for link in [
+            {
+                "dimension_node": "v3.date",
+                "join_type": "left",
+                "join_on": "v3.user_active_daily.dateint = v3.date.date_id",
+                "role": "order",
+            },
+            {
+                "dimension_node": "v3.customer",
+                "join_type": "left",
+                "join_on": "v3.user_active_daily.user_id = v3.customer.customer_id",
+            },
+        ]:
+            resp = await client_with_build_v3.post(
+                "/nodes/v3.user_active_daily/link",
+                json=link,
+            )
+            assert resp.status_code in (200, 201), resp.json()
+
+        # Subscription transform (denominator fact)
+        resp = await client_with_build_v3.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.user_subscription_daily",
+                "description": "As-of-date subscribed users (denominator fact).",
+                "query": """
+                    SELECT dateint, user_id, is_subscribed
+                    FROM v3.user_subscription_raw
+                """,
+                "mode": "published",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        for link in [
+            {
+                "dimension_node": "v3.date",
+                "join_type": "left",
+                "join_on": "v3.user_subscription_daily.dateint = v3.date.date_id",
+                "role": "order",
+            },
+            {
+                "dimension_node": "v3.customer",
+                "join_type": "left",
+                "join_on": "v3.user_subscription_daily.user_id = v3.customer.customer_id",
+            },
+        ]:
+            resp = await client_with_build_v3.post(
+                "/nodes/v3.user_subscription_daily/link",
+                json=link,
+            )
+            assert resp.status_code in (200, 201), resp.json()
+
+        # Layer 2 daily additive metric
+        resp = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.daily_active_users",
+                "description": "Layer 2: users active on this day. Additive across users and days.",
+                "query": "SELECT SUM(is_active) FROM v3.user_active_daily",
+                "mode": "published",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        # Layer 3 trailing-7d window metric
+        resp = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.trailing_7d_active_users",
+                "description": "Layer 3: users active on at least one day in the trailing 7 days.",
+                "query": """
+                    SELECT SUM(v3.daily_active_users) OVER (
+                        ORDER BY v3.date.date_id[order]
+                        ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+                    )
+                """,
+                "mode": "published",
+                "required_dimensions": ["v3.date.date_id[order]"],
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        # Denominator metric (as-of-date, semi-additive)
+        resp = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.subscribed_users",
+                "description": (
+                    "Subscribed users as of the report date. "
+                    "Semi-additive: valid per day, must not be summed across days."
+                ),
+                "query": "SELECT SUM(is_subscribed) FROM v3.user_subscription_daily",
+                "mode": "published",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        # Cross-fact ratio
+        resp = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.weekly_active_rate",
+                "description": (
+                    "Trailing 7-day active users per subscribed user. "
+                    "Cross-fact ratio: trailing window numerator (user_active_daily) "
+                    "over as-of-date denominator (user_subscription_daily)."
+                ),
+                "query": "SELECT v3.trailing_7d_active_users / NULLIF(v3.subscribed_users, 0)",
+                "mode": "published",
+                "required_dimensions": ["v3.date.date_id[order]"],
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.weekly_active_rate"],
+                "dimensions": ["v3.date.date_id[order]"],
+                "filters": ["v3.date.date_id = 20240107"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+WITH
+__wl_low_date_id AS (
+SELECT  (SELECT  MIN(__o.date_id)
+ FROM (SELECT  date_id
+ FROM default.v3.dates
+ WHERE  date_id <= 20240107
+ORDER BY date_id DESC
+
+LIMIT 7) __o) AS low_val
+),
+v3_user_active_daily AS (
+SELECT  dateint,
+	user_id,
+	MAX(CASE
+        WHEN has_activity = 1 THEN 1
+        ELSE 0
+    END) AS is_active
+ FROM default.v3.user_activity_raw
+ WHERE  dateint BETWEEN (SELECT  low_val
+ FROM __wl_low_date_id) AND 20240107
+ GROUP BY  dateint, user_id
+),
+v3_user_subscription_daily AS (
+SELECT  dateint,
+	is_subscribed
+ FROM default.v3.user_subscription_raw
+ WHERE  dateint BETWEEN (SELECT  low_val
+ FROM __wl_low_date_id) AND 20240107
+),
+user_active_daily_0 AS (
+SELECT  t1.dateint date_id_order,
+	SUM(t1.is_active) is_active_sum_458017e8
+ FROM v3_user_active_daily t1
+ GROUP BY  t1.dateint
+),
+user_subscription_daily_0 AS (
+SELECT  t1.dateint date_id_order,
+	SUM(t1.is_subscribed) is_subscribed_sum_1185023b
+ FROM v3_user_subscription_daily t1
+ GROUP BY  t1.dateint
+),
+base_metrics AS (
+SELECT  __spine.date_id AS date_id_order,
+	COALESCE(__agg.daily_active_users, 0) AS daily_active_users,
+	COALESCE(__agg.subscribed_users, 0) AS subscribed_users,
+	COALESCE(__agg.trailing_7d_active_users, 0) AS trailing_7d_active_users
+ FROM (SELECT  DISTINCT
+ date_id
+ FROM default.v3.dates
+ WHERE  date_id BETWEEN (SELECT  low_val
+ FROM __wl_low_date_id) AND 20240107) AS __spine LEFT JOIN (SELECT  COALESCE(user_active_daily_0.date_id_order, user_subscription_daily_0.date_id_order) AS date_id_order,
+	SUM(user_active_daily_0.is_active_sum_458017e8) AS daily_active_users,
+	SUM(user_subscription_daily_0.is_subscribed_sum_1185023b) AS subscribed_users,
+	SUM(SUM(user_active_daily_0.is_active_sum_458017e8)) OVER ( ORDER BY v3.date.date_id[order] ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_active_users
+ FROM user_active_daily_0 FULL OUTER JOIN user_subscription_daily_0 ON user_active_daily_0.date_id_order = user_subscription_daily_0.date_id_order
+ GROUP BY  1) AS __agg ON __spine.date_id = __agg.date_id_order
+),
+__windowed AS (
+SELECT  base_metrics.date_id_order AS date_id_order,
+	base_metrics.trailing_7d_active_users / NULLIF(base_metrics.subscribed_users, 0) AS weekly_active_rate
+ FROM base_metrics
+)
+
+SELECT  *
+ FROM __windowed
+ WHERE  date_id_order BETWEEN 20240107 AND 20240107
+""",
         )
 
 

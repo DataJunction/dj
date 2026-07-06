@@ -1590,6 +1590,28 @@ def build_select_ast(
     return query, scanned_sources
 
 
+def build_lookback_filter(
+    col_ref: ast.Expression,
+    low_expr: Optional[ast.Expression],
+    high_expr: Optional[ast.Expression],
+) -> Optional[ast.Expression]:
+    """
+    Build a temporal scan filter from generic bounds.
+
+    - both bounds  -> ``col BETWEEN low AND high`` (lookback range)
+    - only high    -> ``col = high`` (exact)
+    - neither      -> ``None``
+
+    Single source of truth for the lookback/exact filter shape, fed by both the
+    cube adapter (build_temporal_filter) and the live adapter.
+    """
+    if high_expr is None:
+        return None
+    if low_expr is None:
+        return ast.BinaryOp(left=col_ref, right=high_expr, op=ast.BinaryOpKind.Eq)
+    return ast.Between(expr=col_ref, low=low_expr, high=high_expr)
+
+
 def build_temporal_filter(
     ctx: BuildContext,
     parent_node: Node,
@@ -1645,24 +1667,14 @@ def build_temporal_filter(
 
                 # Get the end expression (current logical timestamp) from cube's partition metadata
                 end_expr = partition_metadata.temporal_expression(interval=None)
-
-                if ctx.lookback_window and end_expr:
-                    # For lookback, generate BETWEEN filter using cube's partition metadata
-                    if start_expr := partition_metadata.temporal_expression(
-                        interval=ctx.lookback_window,
-                    ):  # pragma: no branch
-                        return ast.Between(
-                            expr=col_ref,
-                            low=start_expr,
-                            high=end_expr,
-                        ), parent_col_name
-                elif end_expr:  # pragma: no branch
-                    # No lookback - exact partition match
-                    return ast.BinaryOp(
-                        left=col_ref,
-                        right=end_expr,
-                        op=ast.BinaryOpKind.Eq,
-                    ), parent_col_name
+                start_expr = (
+                    partition_metadata.temporal_expression(interval=ctx.lookback_window)
+                    if ctx.lookback_window
+                    else None
+                )
+                filter_ast = build_lookback_filter(col_ref, start_expr, end_expr)
+                if filter_ast is not None:  # pragma: no branch
+                    return filter_ast, parent_col_name
 
     return None, None  # pragma: no cover
 

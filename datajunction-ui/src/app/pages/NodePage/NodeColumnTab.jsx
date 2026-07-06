@@ -7,7 +7,7 @@ import AddComplexDimensionLinkPopover from './AddComplexDimensionLinkPopover';
 import { labelize } from '../../../utils/form';
 import PartitionColumnPopover from './PartitionColumnPopover';
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { foundation } from 'react-syntax-highlighter/src/styles/hljs';
+import foundation from 'react-syntax-highlighter/dist/esm/styles/hljs/foundation';
 
 export default function NodeColumnTab({ node, djClient, readOnly = false }) {
   const [attributes, setAttributes] = useState([]);

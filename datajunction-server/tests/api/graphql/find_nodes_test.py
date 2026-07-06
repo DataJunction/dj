@@ -3968,3 +3968,59 @@ async def test_find_nodes_paginated_total_count_no_matches(
     paginated = resp.json()["data"]["findNodesPaginated"]
     assert paginated["edges"] == []
     assert paginated["totalCount"] == 0
+
+
+@pytest.mark.asyncio
+async def test_node_counts_by_type(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    nodeCounts(groupBy: TYPE) returns one grouped count per node type, matching
+    the per-type totals from findNodes.
+    """
+    resp = await client_with_roads.post(
+        "/graphql",
+        json={"query": "{ nodeCounts(groupBy: TYPE) { value count } }"},
+    )
+    assert resp.status_code == 200
+    counts = {row["value"]: row["count"] for row in resp.json()["data"]["nodeCounts"]}
+    # Only values that actually have nodes are returned, and every count is positive.
+    assert counts
+    assert all(count > 0 for count in counts.values())
+
+    # Each grouped count matches counting that type directly via findNodes.
+    for node_type in ["SOURCE", "TRANSFORM", "DIMENSION", "METRIC", "CUBE"]:
+        resp = await client_with_roads.post(
+            "/graphql",
+            json={"query": f"{{ findNodes(nodeTypes: [{node_type}]) {{ name }} }}"},
+        )
+        expected = len(resp.json()["data"]["findNodes"])
+        assert counts.get(node_type, 0) == expected
+
+
+@pytest.mark.asyncio
+async def test_node_counts_scoped_to_namespace(
+    client_with_roads: AsyncClient,
+) -> None:
+    """nodeCounts honors the namespace filter."""
+    resp = await client_with_roads.post(
+        "/graphql",
+        json={
+            "query": (
+                '{ nodeCounts(groupBy: TYPE, namespace: "foo.bar") { value count } }'
+            ),
+        },
+    )
+    assert resp.status_code == 200
+    scoped = {row["value"]: row["count"] for row in resp.json()["data"]["nodeCounts"]}
+    for node_type, count in scoped.items():
+        resp = await client_with_roads.post(
+            "/graphql",
+            json={
+                "query": (
+                    f'{{ findNodesPaginated(namespace: "foo.bar", '
+                    f"nodeTypes: [{node_type}], limit: 1) {{ totalCount }} }}"
+                ),
+            },
+        )
+        assert resp.json()["data"]["findNodesPaginated"]["totalCount"] == count

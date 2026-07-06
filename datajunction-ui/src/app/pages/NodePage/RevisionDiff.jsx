@@ -9,7 +9,7 @@ import NamespaceHeader from '../../components/NamespaceHeader';
 import { labelize } from '../../../utils/form';
 import DiffIcon from '../../icons/DiffIcon';
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { foundation } from 'react-syntax-highlighter/src/styles/hljs';
+import foundation from 'react-syntax-highlighter/dist/esm/styles/hljs/foundation';
 import sql from 'react-syntax-highlighter/dist/cjs/languages/hljs/sql';
 
 SyntaxHighlighter.registerLanguage('sql', sql);

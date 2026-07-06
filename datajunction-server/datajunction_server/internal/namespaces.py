@@ -42,6 +42,7 @@ from datajunction_server.models.deployment import (
 )
 from datajunction_server.models.dimensionlink import LinkType
 from datajunction_server.models.namespace import (
+    BranchInfo,
     HardDeleteResponse,
     ImpactedNode,
     ImpactedNodes,
@@ -1932,6 +1933,89 @@ async def resolve_git_config(
     if not git_info:
         return None, None, None
     return git_info["repo"], git_info["path"], git_info["branch"]
+
+
+def _rollup_branch_counts(
+    branch_ns: str,
+    counts_by_ns: dict[str, tuple[int, int, datetime]],
+) -> tuple[int, int, Optional[datetime]]:
+    """
+    Sum node counts for a branch namespace and all of its sub-namespaces.
+
+    ``last_updated_at`` is None only when the branch contains no nodes; per-node
+    timestamps are always populated (see ``node_counts_by_namespace``).
+
+    Returns (num_nodes, invalid_node_count, last_updated_at).
+    """
+    prefix = branch_ns + SEPARATOR
+    num_nodes = invalid_node_count = 0
+    last_updated_at: Optional[datetime] = None
+    for node_ns, (num, invalid, updated_at) in counts_by_ns.items():
+        if node_ns == branch_ns or node_ns.startswith(prefix):
+            num_nodes += num
+            invalid_node_count += invalid
+            last_updated_at = (
+                updated_at
+                if last_updated_at is None
+                else max(last_updated_at, updated_at)
+            )
+    return num_nodes, invalid_node_count, last_updated_at
+
+
+async def get_branches(
+    session: AsyncSession,
+    namespace: str,
+) -> List[BranchInfo]:
+    """
+    Canonical listing of the branch namespaces created from ``namespace``.
+
+    Does not perform access control — callers exposing this over HTTP are
+    responsible for authorization.
+
+    Returns:
+    - Direct children: where parent_namespace equals the given namespace (git root branches)
+    - Siblings: where parent_namespace equals this namespace's parent (branch-from-branch)
+    """
+    source_ns = await get_node_namespace(session, namespace)
+
+    # Root namespace → direct children; branch namespace → siblings (same parent, excl. self)
+    parent = source_ns.parent_namespace if source_ns.parent_namespace else namespace
+    branch_namespaces = await NodeNamespace.list_branch_namespaces(
+        session,
+        parent,
+        exclude_namespace=namespace if source_ns.parent_namespace else None,
+    )
+    counts_by_ns = await NodeNamespace.node_counts_by_namespace(session, parent)
+
+    github_repo_path, _, _ = await resolve_git_config(session, namespace)
+
+    rows = [
+        (ns, *_rollup_branch_counts(ns.namespace, counts_by_ns))
+        for ns in branch_namespaces
+    ]
+
+    # Default branch comes first, then alphabetically by namespace
+    default_branch = source_ns.default_branch or ""
+    rows.sort(
+        key=lambda row: (
+            0 if (row[0].git_branch or "") == default_branch else 1,
+            row[0].namespace,
+        ),
+    )
+
+    return [
+        BranchInfo(
+            namespace=ns.namespace,
+            git_branch=ns.git_branch or "",
+            parent_namespace=ns.parent_namespace or "",
+            github_repo_path=github_repo_path or "",
+            num_nodes=num_nodes or 0,
+            invalid_node_count=invalid_node_count or 0,
+            git_only=ns.git_only,
+            last_updated_at=last_updated_at,
+        )
+        for ns, num_nodes, invalid_node_count, last_updated_at in rows
+    ]
 
 
 def validate_sibling_relationship(

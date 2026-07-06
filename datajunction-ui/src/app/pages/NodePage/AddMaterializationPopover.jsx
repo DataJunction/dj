@@ -16,7 +16,12 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
 
   const ref = useRef(null);
 
+  // Fetch materialization options only when the popover is opened (once), not on
+  // every materialization-tab load — the options are only used inside the form.
+  const fetchedRef = useRef(false);
   useEffect(() => {
+    if (!popoverAnchor || fetchedRef.current) return;
+    fetchedRef.current = true;
     const fetchData = async () => {
       const options = await djClient.materializationInfo();
       setOptions(options);
@@ -26,6 +31,9 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
       setJobs(allowedJobs);
     };
     fetchData().catch(console.error);
+  }, [popoverAnchor, djClient, node.type]);
+
+  useEffect(() => {
     const handleClickOutside = event => {
       if (ref.current && !ref.current.contains(event.target)) {
         setPopoverAnchor(false);
@@ -35,7 +43,7 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
     return () => {
       document.removeEventListener('click', handleClickOutside, true);
     };
-  }, [djClient, setPopoverAnchor]);
+  }, []);
 
   const materialize = async (values, setStatus) => {
     const config = {};

@@ -168,6 +168,21 @@ def test_reference_link_spec():
     assert link_spec_no_role.dimension == "test_dimension_no_role"
     assert link_spec != link_spec_no_role
 
+    # Reference link specs must be hashable so link reconciliation can build a
+    # set of existing links during deployment (see DeploymentOrchestrator.
+    # _deploy_links). Regression: a missing __hash__ made this raise
+    # "TypeError: unhashable type: 'DimensionReferenceLinkSpec'".
+    equal_link_spec = DimensionReferenceLinkSpec(
+        role="test_role",
+        node_column="dim_name",
+        dimension="some.dimension.name",
+    )
+    assert link_spec == equal_link_spec
+    assert hash(link_spec) == hash(equal_link_spec)
+    # Equal specs collapse in a set; distinct specs stay separate.
+    assert {link_spec, equal_link_spec} == {link_spec}
+    assert len({link_spec, link_spec_no_role}) == 2
+
 
 def test_deployment_spec():
     spec = DeploymentSpec(

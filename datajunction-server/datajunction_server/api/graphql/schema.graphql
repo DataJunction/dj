@@ -330,8 +330,17 @@ type NodeConnection {
   totalCount: Int
 }
 
+type NodeCount {
+  value: String!
+  count: Int!
+}
+
 type NodeEdge {
   node: Node!
+}
+
+enum NodeGroupBy {
+  TYPE
 }
 
 enum NodeMode {
@@ -582,6 +591,15 @@ type Query {
     orderBy: NodeSortField! = CREATED_AT
     ascending: Boolean! = false
   ): NodeConnection!
+
+  """Count nodes grouped by a field (e.g. type) in a namespace"""
+  nodeCounts(
+    """Field to group node counts by"""
+    groupBy: NodeGroupBy!
+
+    """Count nodes in this namespace (and its descendants)"""
+    namespace: String = null
+  ): [NodeCount!]!
 
   """Get common dimensions for one or more nodes"""
   commonDimensions(

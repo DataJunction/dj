@@ -361,6 +361,19 @@ async def count_nodes_by(
         )
 
 
+async def count_nodes_grouped(
+    info: Info,
+    group_by: Any,
+    namespace: Optional[str] = None,
+) -> dict:
+    """
+    Count nodes grouped by a column in a single query. Backs the generic
+    nodeCounts facet field (e.g. per-type filter counts).
+    """
+    async with resolver_session(info) as session:
+        return await DBNode.count_grouped(session, group_by, namespace=namespace)
+
+
 async def get_node_by_name(
     session: AsyncSession,
     fields: dict[str, Any] | None,
