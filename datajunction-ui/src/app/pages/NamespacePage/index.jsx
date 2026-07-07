@@ -850,6 +850,62 @@ export function NamespacePage() {
                   gap: '12px',
                 }}
               >
+                {/* Search — the primary way to find a node, grouped with the
+                    other filter controls as the first item in the bar. */}
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '2px',
+                    flex: 1.5,
+                    minWidth: '180px',
+                  }}
+                >
+                  <label
+                    htmlFor="node-search"
+                    style={{
+                      fontSize: '10px',
+                      fontWeight: '600',
+                      color: '#666',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px',
+                    }}
+                  >
+                    Search
+                  </label>
+                  <div style={{ position: 'relative', display: 'flex' }}>
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="#94a3b8"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      style={{
+                        position: 'absolute',
+                        left: '8px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        pointerEvents: 'none',
+                      }}
+                    >
+                      <circle cx="11" cy="11" r="8" />
+                      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                    </svg>
+                    <input
+                      id="node-search"
+                      type="text"
+                      className="dj-node-search"
+                      value={nodeSearch}
+                      onChange={e => setNodeSearch(e.target.value)}
+                      placeholder="Search nodes…"
+                      aria-label="Search nodes in this namespace"
+                    />
+                  </div>
+                </div>
                 <CompactSelect
                   label="Type"
                   name="type"
@@ -1157,17 +1213,6 @@ export function NamespacePage() {
                 marginLeft: '1.5rem',
               }}
             >
-              {gitConfigLoaded && (
-                <input
-                  type="text"
-                  className="dj-node-search"
-                  value={nodeSearch}
-                  onChange={e => setNodeSearch(e.target.value)}
-                  placeholder="Search nodes in this namespace…"
-                  aria-label="Search nodes in this namespace"
-                />
-              )}
-
               {/* NODES: nodes that live directly in this namespace */}
               {!gitConfigLoaded ? null : (
                 <table className="card-table table" style={{ marginBottom: 0 }}>
