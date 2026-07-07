@@ -1144,12 +1144,9 @@ export function SelectionPanel({
                 </>
               )}
             </button>
-            {!canRunQuery && selectedMetrics.length > 0 && (
-              <span className="run-hint">Select at least one dimension</span>
-            )}
-            {!canRunQuery && selectedMetrics.length === 0 && (
+            {!canRunQuery && (
               <span className="run-hint">
-                Select metrics and dimensions to run a query
+                Select at least one metric to run a query
               </span>
             )}
           </div>

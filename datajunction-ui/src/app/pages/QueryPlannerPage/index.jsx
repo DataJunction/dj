@@ -388,7 +388,7 @@ export function QueryPlannerPage() {
   // Fetch V3 measures and metrics SQL when selection, filters, or engine changes
   useEffect(() => {
     const fetchData = async () => {
-      if (selectedMetrics.length > 0 && selectedDimensions.length > 0) {
+      if (selectedMetrics.length > 0) {
         setLoading(true);
         setError(null);
         setSelectedNode(null);
@@ -1267,7 +1267,7 @@ export function QueryPlannerPage() {
 
   // Refresh measures result (after setting partition)
   const handleRefreshMeasures = useCallback(async () => {
-    if (selectedMetrics.length > 0 && selectedDimensions.length > 0) {
+    if (selectedMetrics.length > 0) {
       try {
         const [measures, metrics] = await Promise.all([
           djClient.measuresV3(selectedMetrics, selectedDimensions),
@@ -1291,8 +1291,8 @@ export function QueryPlannerPage() {
 
   // Run query and fetch results
   const handleRunQuery = useCallback(async () => {
-    if (selectedMetrics.length === 0 || selectedDimensions.length === 0) {
-      setQueryError('Select at least one metric and one dimension');
+    if (selectedMetrics.length === 0) {
+      setQueryError('Select at least one metric');
       return;
     }
 
@@ -1375,9 +1375,7 @@ export function QueryPlannerPage() {
             selectedEngine={selectedEngine}
             onEngineChange={setSelectedEngine}
             onRunQuery={handleRunQuery}
-            canRunQuery={
-              selectedMetrics.length > 0 && selectedDimensions.length > 0
-            }
+            canRunQuery={selectedMetrics.length > 0}
             queryLoading={queryLoading}
             compatibleMetrics={compatibleMetrics}
           />

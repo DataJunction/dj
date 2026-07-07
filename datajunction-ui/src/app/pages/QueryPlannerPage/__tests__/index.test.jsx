@@ -1622,7 +1622,7 @@ describe('QueryPlannerPage', () => {
       });
 
       expect(
-        screen.getByText('Select metrics and dimensions to run a query'),
+        screen.getByText('Select at least one metric to run a query'),
       ).toBeInTheDocument();
     });
   });
