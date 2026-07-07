@@ -18,6 +18,8 @@ exports[`<NamespaceHeader /> > should render and match the snapshot 1`] = `
         "borderBottom": "1px solid #e2e8f0",
         "borderTop": "1px solid #e2e8f0",
         "display": "flex",
+        "flexWrap": "wrap",
+        "gap": "8px",
         "justifyContent": "space-between",
         "marginBottom": "16px",
         "padding": "12px 12px 12px 20px",
@@ -162,7 +164,10 @@ exports[`<NamespaceHeader /> > should render and match the snapshot 1`] = `
         {
           "alignItems": "center",
           "display": "flex",
+          "flexWrap": "wrap",
           "gap": "8px",
+          "justifyContent": "flex-end",
+          "marginLeft": "auto",
         }
       }
     />

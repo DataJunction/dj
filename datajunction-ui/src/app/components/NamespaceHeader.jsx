@@ -288,6 +288,10 @@ export default function NamespaceHeader({
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
+          // Wrap so the action buttons drop below the breadcrumb on narrow
+          // screens instead of overflowing / being clipped off the right edge.
+          flexWrap: 'wrap',
+          gap: '8px',
           padding: '12px 12px 12px 20px',
           marginBottom: '16px',
           borderTop: '1px solid #e2e8f0',
@@ -1039,7 +1043,19 @@ export default function NamespaceHeader({
         </div>
 
         {/* Right side: git actions + children */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            // Let the buttons wrap among themselves, staying right-aligned, when
+            // they can't fit on one line. marginLeft:auto keeps them right-
+            // aligned even after they wrap onto their own row below the crumb.
+            flexWrap: 'wrap',
+            justifyContent: 'flex-end',
+            marginLeft: 'auto',
+          }}
+        >
           {/* Git controls for namespaces not inside a branch (git roots,
               orphan namespaces). Subnamespaces under a branch fall through
               to the branch-scoped block below so we don't render two sets
