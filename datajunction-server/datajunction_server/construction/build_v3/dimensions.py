@@ -11,6 +11,7 @@ from typing import Callable, Optional, cast
 
 from datajunction_server.construction.build_v3.utils import (
     get_short_name,
+    iter_namespaced_columns,
     make_name,
 )
 from datajunction_server.errors import (
@@ -295,11 +296,15 @@ def _resolve_filter_only_dim(
         ) == dim_ref.column_name:  # pragma: no cover
             return col.name
 
-    # Single BFS up parent_map; track both passthrough hits and pushdown
-    # candidates. Each upstream node is visited at most once.
+    # BFS up parent_map in sorted order so resolution is deterministic across
+    # processes (never set/hash order). Passthrough is only valid for DIRECT
+    # parents — a transitive upstream may share a column name without sharing
+    # lineage, so it goes to pushdown_candidates instead.
+    direct_parents_set: set[str] = set(ctx.parent_map.get(parent_node.name, []))
     visited: set[str] = {parent_node.name}
-    queue: list[str] = list(ctx.parent_map.get(parent_node.name, []))
-    pushdown_candidates: list[tuple[Node, str]] = []  # (linked_node, fk_col)
+    queue: list[str] = sorted(direct_parents_set)
+    passthrough: list[tuple[Node, str]] = []
+    pushdown_candidates: list[tuple[Node, str]] = []
     while queue:
         up_name = queue.pop(0)
         if up_name in visited:
@@ -314,12 +319,25 @@ def _resolve_filter_only_dim(
                 if fk_fqn is None:  # pragma: no cover
                     continue
                 fk_col = get_short_name(fk_fqn)
-                if fk_col in parent_cols:
-                    # Upstream FK passthrough: filter resolves on the
-                    # parent directly. No pushdown needed.
-                    return fk_col
-                pushdown_candidates.append((up_node, fk_col))
-        queue.extend(ctx.parent_map.get(up_name, []))
+                if fk_col in parent_cols and up_name in direct_parents_set:
+                    passthrough.append((up_node, fk_col))
+                else:
+                    pushdown_candidates.append((up_node, fk_col))
+        queue.extend(sorted(ctx.parent_map.get(up_name, [])))
+
+    # One passthrough col → resolve locally. Multiple → a filter-only dim has
+    # no output-column ambiguity, so apply to all: push each into its owning CTE.
+    passthrough_cols = sorted({fk_col for _, fk_col in passthrough})
+    if len(passthrough_cols) == 1:
+        return passthrough_cols[0]
+    if len(passthrough_cols) > 1:
+        if _register_pushdown_into_upstream(  # pragma: no branch
+            ctx,
+            original_ref,
+            passthrough,
+        ):
+            ctx.pushdown_resolved_dims.add(original_ref)
+        return None
 
     if pushdown_candidates and _register_pushdown_into_upstream(
         ctx,
@@ -719,6 +737,81 @@ def resolve_dimensions(
         )
 
     return resolved
+
+
+def resolve_metric_expression_dimensions(
+    ctx: BuildContext,
+    parent_node: Node,
+    expressions: list[ast.Expression],
+    requested_dimensions: list[ResolvedDimension],
+) -> list[ResolvedDimension]:
+    """
+    Resolve dimension-node column refs that appear *inside* metric expressions.
+
+    A metric's aggregate expression may reference a column on a joined
+    dimension node via the fully-qualified ``<dim_node>.<column>`` form, e.g.
+    ``COUNT(DISTINCT CASE WHEN ... THEN customer.days_since ELSE NULL END)``.
+    When that dimension node is *not* also part of the requested grain, no join
+    is generated for it, so the reference leaks into the SQL as a raw,
+    unresolved node path and the engine fails with "column does not exist".
+
+    This resolves each such dimension node as a *join-only* dimension (one per
+    referenced node): it is joined and CTE-projected, but excluded from the
+    SELECT projection and GROUP BY by registering its ref in
+    ``ctx.filter_dimensions``. The namespace rewrite in measures'
+    ``_resolve_dim_namespace_refs`` then resolves the reference to the join
+    alias.
+
+    Dimension nodes already joined for the requested grain are skipped — their
+    aliases are already available for the rewrite.
+
+    Returns the list of newly resolved join-only ResolvedDimensions (empty when
+    no metric expression references an unjoined dimension node).
+    """
+    # Dimension nodes already joined for the requested grain. A local /
+    # skip-joined requested dim does not produce an alias, so only non-local
+    # requested dims count as "already joined".
+    already_joined: set[str] = {parent_node.name}
+    for rdim in requested_dimensions:
+        if not rdim.is_local:
+            already_joined.add(parse_dimension_ref(rdim.original_ref).node_name)
+
+    extra: list[ResolvedDimension] = []
+    handled_nodes: set[str] = set()
+    for expr in expressions:
+        for nc in iter_namespaced_columns(expr):
+            if nc.node in already_joined or nc.node in handled_nodes:
+                continue
+            handled_nodes.add(nc.node)
+
+            # The referenced column itself is validated against the dimension
+            # node at metric-creation time, so we only need the join path here.
+            join_path = find_join_path(ctx, parent_node, nc.node, None)
+            if not join_path:
+                raise DJException(
+                    http_status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
+                    message=(
+                        f"Cannot find join path from {parent_node.name} to "
+                        f"dimension {nc.node} referenced in a metric expression. "
+                        f"Please create a dimension link between these nodes."
+                    ),
+                )
+
+            original_ref = f"{nc.node}{SEPARATOR}{nc.name}"
+            # Join the dim, but keep it out of the projection and GROUP BY.
+            ctx.filter_dimensions.add(original_ref)
+            extra.append(
+                ResolvedDimension(
+                    original_ref=original_ref,
+                    node_name=nc.node,
+                    column_name=nc.name,
+                    role=None,
+                    join_path=join_path,
+                    is_local=False,
+                ),
+            )
+
+    return extra
 
 
 def _rewrite_column_refs_with_aliases(

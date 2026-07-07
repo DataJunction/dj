@@ -601,6 +601,47 @@ def test_reconstruct_deployment_spec(tmp_path):
     assert spec["nodes"][0]["name"] == "foo.bar"
 
 
+def test_system_seed_matches_server_deployment_spec():
+    """
+    The bundled system-node seed is deployed at bootstrap by
+    ``init_system_nodes`` via ``DeploymentService.push`` -> the server
+    ``/deployments`` orchestrator. This guards that the seed YAML stays in the
+    server's ``DeploymentSpec`` format: it reconstructs the spec exactly as
+    ``push`` does, then validates it against the server pydantic model (the same
+    gate the orchestrator applies). Catches field-name drift between the seed
+    and the deployment schema without needing a live deploy.
+    """
+    # Imported here (not at module top) so the conftest server bootstrap has
+    # resolved the server package's import order first.
+    from datajunction_server.models.deployment import (
+        DeploymentSpec,
+        DimensionJoinLinkSpec,
+    )
+
+    seed_dir = Path(__file__).parent.parent / "datajunction" / "seed" / "nodes"
+    svc = DeploymentService(MagicMock())
+    spec_dict, warnings = svc._reconstruct_deployment_spec(seed_dir)
+    spec_dict["namespace"] = "system.dj"
+
+    # No filename/node-name mismatches in the bundled seed.
+    assert warnings == []
+
+    # Parses cleanly into the server's DeploymentSpec (raises on any drift).
+    spec = DeploymentSpec(**spec_dict)
+    assert spec.namespace == "system.dj"
+    assert len(spec.nodes) == len(spec_dict["nodes"])
+
+    # Dimension links resolve to the typed join subclass via the `type`
+    # discriminator (the seed uses `type: join`).
+    linked = [n for n in spec.nodes if getattr(n, "dimension_links", None)]
+    assert linked, "expected seed nodes with dimension links"
+    assert all(
+        isinstance(link, DimensionJoinLinkSpec)
+        for node in linked
+        for link in node.dimension_links
+    )
+
+
 @pytest.mark.timeout(2)
 def test_push_waits_until_success(monkeypatch, tmp_path):
     # Create a fake project structure so _reconstruct_deployment_spec returns something

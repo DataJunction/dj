@@ -134,8 +134,24 @@ def to_sql(query: "Query", dialect: Optional["Dialect"] = None) -> str:
     """
     if dialect is None:
         return str(query)
+
+    # Two passes: render_for_dialect applies DJ's AST-level dialect rules, then the
+    # generic transpiler handles the function-name translation it doesn't cover.
+    from datajunction_server.transpilation import (
+        transpile_sql,
+    )  # local: avoids import cycle
+
     with render_for_dialect(dialect):
-        return str(query)
+        rendered = str(query)
+    try:
+        return transpile_sql(rendered, dialect)
+    except Exception:  # pragma: no cover - fall back to native render
+        logger.warning(
+            "Transpilation to %s failed; falling back to native render",
+            dialect,
+            exc_info=True,
+        )
+        return rendered
 
 
 # When True, skip parent-pointer wiring in __post_init__ and __setattr__.

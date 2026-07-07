@@ -122,3 +122,38 @@ class TestDJClient:  # pylint: disable=too-many-public-methods, protected-access
             json={},
             timeout=client._timeout,
         )
+
+    def test__link_dimension_to_node_with_column(self, client):
+        """
+        When a `dimension_column` is supplied, it is included in the request params.
+        """
+        client._session.post = MagicMock(
+            return_value=MagicMock(json=MagicMock(return_value={"ok": True})),
+        )
+        result = client._link_dimension_to_node(
+            "my.node",
+            "col",
+            "my.dimension",
+            "dim_col",
+        )
+        assert result == {"ok": True}
+        client._session.post.assert_called_once_with(
+            "/nodes/my.node/columns/col/",
+            timeout=client._timeout,
+            params={"dimension": "my.dimension", "dimension_column": "dim_col"},
+        )
+
+    def test__link_dimension_to_node_without_column(self, client):
+        """
+        When no `dimension_column` is supplied, only the dimension param is sent.
+        """
+        client._session.post = MagicMock(
+            return_value=MagicMock(json=MagicMock(return_value={"ok": True})),
+        )
+        result = client._link_dimension_to_node("my.node", "col", "my.dimension", None)
+        assert result == {"ok": True}
+        client._session.post.assert_called_once_with(
+            "/nodes/my.node/columns/col/",
+            timeout=client._timeout,
+            params={"dimension": "my.dimension"},
+        )

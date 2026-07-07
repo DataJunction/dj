@@ -11,7 +11,7 @@ import React, {
 } from 'react';
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import sql from 'react-syntax-highlighter/dist/esm/languages/hljs/sql';
-import { atomOneLight } from 'react-syntax-highlighter/dist/esm/styles/hljs';
+import atomOneLight from 'react-syntax-highlighter/dist/esm/styles/hljs/atom-one-light';
 import DJClientContext from '../../providers/djclient';
 import {
   formatBytes,

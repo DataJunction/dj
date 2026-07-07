@@ -1,5 +1,19 @@
 import { useContext, useEffect, useState, useRef } from 'react';
+import {
+  searchNamespaces,
+  topLevelNamespaces,
+} from '../pages/NamespacePage/namespaceOptions';
 import DJClientContext from '../providers/djclient';
+import Tooltip from './Tooltip';
+import {
+  secondaryButtonStyle as buttonStyle,
+  primaryButtonStyle,
+  dangerButtonStyle,
+  onSecondaryHover,
+  onSecondaryOut,
+  onDangerHover,
+  onDangerOut,
+} from './buttonStyles';
 import {
   GitSettingsModal,
   CreateBranchModal,
@@ -12,6 +26,8 @@ export default function NamespaceHeader({
   namespace,
   children,
   onGitConfigLoaded,
+  namespaceOptions,
+  currentNamespace,
 }) {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const [sources, setSources] = useState(null);
@@ -30,6 +46,11 @@ export default function NamespaceHeader({
   const [branches, setBranches] = useState([]);
   const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
   const branchDropdownRef = useRef(null);
+
+  // Namespace switcher state (opt-in: only active when namespaceOptions is provided)
+  const [nsSwitcherOpen, setNsSwitcherOpen] = useState(false);
+  const [nsQuery, setNsQuery] = useState('');
+  const nsSwitcherRef = useRef(null);
 
   // Modal states
   const [showGitSettings, setShowGitSettings] = useState(false);
@@ -151,6 +172,12 @@ export default function NamespaceHeader({
       ) {
         setBranchDropdownOpen(false);
       }
+      if (
+        nsSwitcherRef.current &&
+        !nsSwitcherRef.current.contains(event.target)
+      ) {
+        setNsSwitcherOpen(false);
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -167,11 +194,9 @@ export default function NamespaceHeader({
   // ``branch_namespace`` is the branch this namespace belongs to (equals the
   // namespace when called against the branch itself, the ancestor branch when
   // called against a descendant).
-  // isBranchNamespace = "this IS the branch" (used for the breadcrumb branch
-  // switcher); isInBranch = "this lives under a branch" (used to show
-  // branch-scoped git controls on subnamespaces too).
+  // isInBranch = "this lives under a branch" (used to show branch-scoped git
+  // controls on subnamespaces too).
   const branchNamespace = gitConfig?.branch_namespace || null;
-  const isBranchNamespace = branchNamespace === namespace;
   const isInBranch = !!branchNamespace;
   const branchScopeNamespace = branchNamespace || namespace;
   // Descendants inherit github_repo_path via cascade, so compare against
@@ -240,33 +265,6 @@ export default function NamespaceHeader({
     );
   };
 
-  // Button style helpers. React warns if a rerender swaps `border` shorthand
-  // for `borderColor` longhand on the same element, so we keep all three
-  // border properties in longhand form here.
-  const buttonStyle = {
-    height: '28px',
-    padding: '0 10px',
-    fontSize: '12px',
-    borderWidth: '1px',
-    borderStyle: 'solid',
-    borderColor: '#e2e8f0',
-    borderRadius: '4px',
-    backgroundColor: '#ffffff',
-    color: '#475569',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '4px',
-    whiteSpace: 'nowrap',
-  };
-
-  const primaryButtonStyle = {
-    ...buttonStyle,
-    backgroundColor: '#3b82f6',
-    borderColor: '#3b82f6',
-    color: '#ffffff',
-  };
-
   return (
     <>
       <style>
@@ -316,14 +314,23 @@ export default function NamespaceHeader({
           {namespace ? (
             namespaceParts.map((part, index, arr) => {
               const isLast = index === arr.length - 1;
-              const href = `/namespaces/${arr.slice(0, index + 1).join('.')}`;
+              const cumulative = arr.slice(0, index + 1).join('.');
+              const href = `/namespaces/${cumulative}`;
+              // The branch crumb (the segment whose cumulative path equals the
+              // branch namespace) becomes the branch switcher — at ANY depth, not
+              // only when the URL is exactly the branch root (so it stays available
+              // after drilling into sub-namespaces below the branch).
+              const isBranchCrumb =
+                isInBranch && cumulative === branchNamespace;
               return (
                 <span
                   key={index}
                   style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
                 >
-                  {/* Last segment of a branch namespace becomes the branch switcher */}
-                  {isLast && isBranchNamespace ? (
+                  {/* The branch crumb becomes the branch switcher. The first
+                      segment becomes a searchable namespace switcher when
+                      namespaceOptions is provided (opt-in). */}
+                  {isBranchCrumb ? (
                     <div
                       ref={branchDropdownRef}
                       style={{ position: 'relative' }}
@@ -485,6 +492,119 @@ export default function NamespaceHeader({
                               );
                             })
                           )}
+                        </div>
+                      )}
+                    </div>
+                  ) : index === 0 && namespaceOptions?.length > 0 ? (
+                    <div ref={nsSwitcherRef} style={{ position: 'relative' }}>
+                      <button
+                        onClick={() => {
+                          setNsSwitcherOpen(o => !o);
+                          setNsQuery('');
+                        }}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          padding: '0',
+                          background: 'none',
+                          border: 'none',
+                          fontWeight: '400',
+                          fontSize: 'inherit',
+                          color: '#1e293b',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {part}
+                        <span style={{ fontSize: '8px', color: '#94a3b8' }}>
+                          {nsSwitcherOpen ? '▲' : '▼'}
+                        </span>
+                      </button>
+
+                      {nsSwitcherOpen && (
+                        <div
+                          style={{
+                            position: 'absolute',
+                            top: '100%',
+                            left: 0,
+                            marginTop: '4px',
+                            backgroundColor: 'white',
+                            border: '1px solid #e2e8f0',
+                            borderRadius: '8px',
+                            boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
+                            zIndex: 1000,
+                            minWidth: '220px',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          <div style={{ padding: '8px' }}>
+                            <input
+                              type="text"
+                              value={nsQuery}
+                              onChange={e => setNsQuery(e.target.value)}
+                              placeholder="Find a namespace…"
+                              autoFocus
+                              style={{
+                                width: '100%',
+                                padding: '6px 8px',
+                                fontSize: '12px',
+                                border: '1px solid #e2e8f0',
+                                borderRadius: '4px',
+                                outline: 'none',
+                                boxSizing: 'border-box',
+                              }}
+                            />
+                          </div>
+                          <div
+                            style={{ maxHeight: '280px', overflowY: 'auto' }}
+                          >
+                            {(() => {
+                              // Default list: top-level namespaces only (the
+                              // switcher is for jumping between top-level areas;
+                              // deeper levels are reached by drilling folders).
+                              // Typing searches across ALL depths.
+                              const results = nsQuery.trim()
+                                ? searchNamespaces(namespaceOptions, nsQuery)
+                                : topLevelNamespaces(namespaceOptions);
+                              if (results.length === 0) {
+                                return (
+                                  <div
+                                    style={{
+                                      padding: '8px 12px',
+                                      fontSize: '12px',
+                                      color: '#94a3b8',
+                                    }}
+                                  >
+                                    No namespaces match.
+                                  </div>
+                                );
+                              }
+                              return results.map(path => {
+                                const isCurrent = path === currentNamespace;
+                                return (
+                                  <a
+                                    key={path}
+                                    href={`/namespaces/${path}`}
+                                    onClick={() => setNsSwitcherOpen(false)}
+                                    style={{
+                                      display: 'block',
+                                      padding: '7px 12px',
+                                      fontSize: '13px',
+                                      color: isCurrent ? '#1e40af' : '#1e293b',
+                                      backgroundColor: isCurrent
+                                        ? '#eff6ff'
+                                        : 'white',
+                                      textDecoration: 'none',
+                                      borderBottom: '1px solid #f8fafc',
+                                      fontWeight: isCurrent ? 600 : 400,
+                                    }}
+                                  >
+                                    {path}
+                                  </a>
+                                );
+                              });
+                            })()}
+                          </div>
                         </div>
                       )}
                     </div>
@@ -882,7 +1002,8 @@ export default function NamespaceHeader({
               <button
                 style={buttonStyle}
                 onClick={() => setShowGitSettings(true)}
-                title="Git Settings"
+                onMouseOver={onSecondaryHover}
+                onMouseOut={onSecondaryOut}
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -933,7 +1054,8 @@ export default function NamespaceHeader({
               <button
                 style={buttonStyle}
                 onClick={() => setShowGitSettings(true)}
-                title="Git Settings"
+                onMouseOver={onSecondaryHover}
+                onMouseOut={onSecondaryOut}
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -958,6 +1080,8 @@ export default function NamespaceHeader({
                   <button
                     style={buttonStyle}
                     onClick={() => setShowSyncToGit(true)}
+                    onMouseOver={onSecondaryHover}
+                    onMouseOut={onSecondaryOut}
                   >
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
@@ -1055,31 +1179,31 @@ export default function NamespaceHeader({
                   )}
 
                   {/* Delete Branch - only for editable branches */}
-                  <button
-                    style={{
-                      ...buttonStyle,
-                      color: '#dc2626',
-                      borderColor: '#fecaca',
-                    }}
-                    onClick={() => setShowDeleteBranch(true)}
-                    title="Delete Branch"
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
+                  <Tooltip content="Delete this branch">
+                    <button
+                      style={dangerButtonStyle}
+                      onClick={() => setShowDeleteBranch(true)}
+                      onMouseOver={onDangerHover}
+                      onMouseOut={onDangerOut}
+                      aria-label="Delete branch"
                     >
-                      <path d="M3 6h18" />
-                      <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                      <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                    </svg>
-                  </button>
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M3 6h18" />
+                        <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                        <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                      </svg>
+                    </button>
+                  </Tooltip>
                 </>
               )}
             </>

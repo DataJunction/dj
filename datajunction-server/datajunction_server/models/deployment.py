@@ -258,6 +258,17 @@ class DimensionReferenceLinkSpec(DimensionLinkSpec):
     def dimension_attribute(self) -> str:
         return self.dimension.rsplit(".", 1)[-1]
 
+    def __hash__(self) -> int:
+        return hash(
+            (
+                self.type,
+                self.role,
+                self.rendered_dimension_node,
+                self.dimension_attribute,
+                self.node_column,
+            ),
+        )
+
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, DimensionReferenceLinkSpec):
             return False

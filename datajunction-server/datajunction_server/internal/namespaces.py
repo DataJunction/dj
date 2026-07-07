@@ -42,6 +42,7 @@ from datajunction_server.models.deployment import (
 )
 from datajunction_server.models.dimensionlink import LinkType
 from datajunction_server.models.namespace import (
+    BranchInfo,
     HardDeleteResponse,
     ImpactedNode,
     ImpactedNodes,
@@ -379,102 +380,75 @@ async def create_namespace(
     return parents
 
 
-async def hard_delete_namespace(
+async def hard_delete_nodes(
     session: AsyncSession,
-    namespace: str,
+    node_ids: list[int],
     current_user: User,
-    save_history: Callable,
-    cascade: bool = False,
-) -> HardDeleteResponse:
+) -> ImpactedNodes:
     """
-    Hard delete a node namespace.
+    Bulk hard-delete a set of nodes by id, attributing downstream + dimension-link
+    impact and staging history, then removing the nodes in a single statement.
+
+    FK ``ON DELETE CASCADE`` removes all child rows (revisions, columns, links,
+    availability, materializations) and the ``noderelationship`` edges — fast as
+    long as every cascade-target FK is indexed (see ``add_missing_fk_indexes``).
+    Instead of an O(N) per-node downstream BFS, impact is computed with two bulk
+    recursive CTEs.
+
+    Does NOT commit — the caller owns the transaction (the namespace hard-delete
+    endpoint, or a deployment SAVEPOINT). Shared by ``hard_delete_namespace`` and
+    the deployment orchestrator so both apply identical semantics.
     """
+    impacted_downstreams: Dict[str, List[str]] = defaultdict(list)
+    impacted_links: Dict[str, List[str]] = defaultdict(list)
+    if not node_ids:
+        return ImpactedNodes(downstreams=[], links=[])
+
     node_rows = (
         await session.execute(
             select(Node.id, Node.name, Node.type)
-            .where(
-                or_(
-                    Node.namespace.like(f"{namespace}.%"),
-                    Node.namespace == namespace,
-                ),
-            )
+            .where(Node.id.in_(node_ids))
             .order_by(Node.name),
         )
     ).all()
-    node_names = [row.name for row in node_rows]
-    node_ids = [row.id for row in node_rows]
     node_id_to_name = {row.id: row.name for row in node_rows}
     dimension_ids = [row.id for row in node_rows if row.type == NodeType.DIMENSION]
 
-    if not cascade and node_names:
-        raise DJActionNotAllowedException(
-            message=(
-                f"Cannot hard delete namespace `{namespace}` as there are still the "
-                f"following nodes under it: `{node_names}`. Set `cascade` to true to "
-                "additionally hard delete the above nodes in this namespace. WARNING:"
-                " this action cannot be undone."
-            ),
-        )
-    impacts = {
-        node_name: {"type": "node in namespace", "status": "hard deleted"}
-        for node_name in node_names
-    }
-
-    # Track downstream nodes affected by deletions. Instead of calling
-    # get_downstream_nodes / get_nodes_with_common_dimensions per deleted node
-    # (which is O(N) BFS traversals for N nodes), compute direct edges in two
-    # bulk queries:
-    #   1. NodeRelationship rows where parent is deleted and child is not.
-    #   2. Column.dimension_id / DimensionLink.dimension_id rows pointing at
-    #      a deleted dimension from a non-deleted consumer.
-    impacted_downstreams: Dict[str, List[str]] = defaultdict(list)
-    impacted_links: Dict[str, List[str]] = defaultdict(list)
-
-    if node_ids:
-        # Transitive downstream attribution: a downstream node D is "caused
-        # by" every deleted ancestor X for which there is a path X -> ... -> D
-        # in the noderelationship graph. We compute this with one recursive
-        # CTE seeded at the deleted nodes, propagating each deleted ancestor
-        # label down through current revisions.
-        downstream_rows = await session.execute(
-            text(
-                """
-                WITH RECURSIVE descendants(deleted_id, current_id) AS (
-                    SELECT id, id FROM node WHERE id IN :deleted_ids
-                  UNION
-                    SELECT d.deleted_id, n.id
-                    FROM descendants d
-                    JOIN noderelationship rel ON rel.parent_id = d.current_id
-                    JOIN noderevision nr ON nr.id = rel.child_id
-                    JOIN node n
-                      ON n.id = nr.node_id
-                     AND n.current_version = nr.version
-                    WHERE n.deactivated_at IS NULL
-                )
-                SELECT DISTINCT d.deleted_id, n.name
+    # Transitive downstream attribution: a downstream node D is "caused by" every
+    # deleted ancestor X with a path X -> ... -> D in the noderelationship graph.
+    downstream_rows = await session.execute(
+        text(
+            """
+            WITH RECURSIVE descendants(deleted_id, current_id) AS (
+                SELECT id, id FROM node WHERE id IN :deleted_ids
+              UNION
+                SELECT d.deleted_id, n.id
                 FROM descendants d
-                JOIN node n ON n.id = d.current_id
-                WHERE d.current_id NOT IN :deleted_ids
-                """,
-            ).bindparams(bindparam("deleted_ids", expanding=True)),
-            {"deleted_ids": node_ids},
-        )
-        # Preserve attribution ordering by deleted-node sort order (node_names
-        # is already sorted), so tests can assert on the caused_by list.
-        downstream_pairs: Dict[str, List[int]] = defaultdict(list)
-        for parent_id, child_name in downstream_rows.all():
-            downstream_pairs[child_name].append(parent_id)
-        for child_name, parent_ids in downstream_pairs.items():
-            ordered = sorted(parent_ids, key=lambda pid: node_id_to_name[pid])
-            impacted_downstreams[child_name] = [node_id_to_name[pid] for pid in ordered]
+                JOIN noderelationship rel ON rel.parent_id = d.current_id
+                JOIN noderevision nr ON nr.id = rel.child_id
+                JOIN node n
+                  ON n.id = nr.node_id
+                 AND n.current_version = nr.version
+                WHERE n.deactivated_at IS NULL
+            )
+            SELECT DISTINCT d.deleted_id, n.name
+            FROM descendants d
+            JOIN node n ON n.id = d.current_id
+            WHERE d.current_id NOT IN :deleted_ids
+            """,
+        ).bindparams(bindparam("deleted_ids", expanding=True)),
+        {"deleted_ids": node_ids},
+    )
+    downstream_pairs: Dict[str, List[int]] = defaultdict(list)
+    for parent_id, child_name in downstream_rows.all():
+        downstream_pairs[child_name].append(parent_id)
+    for child_name, parent_ids in downstream_pairs.items():
+        ordered = sorted(parent_ids, key=lambda pid: node_id_to_name[pid])
+        impacted_downstreams[child_name] = [node_id_to_name[pid] for pid in ordered]
 
     if dimension_ids:
-        # Walk the dimension graph upstream: any dimension D' whose current
-        # revision has a column or dimension link pointing at a deleted
-        # dimension D (transitively) means consumers of D' lose a path that
-        # leads to D. We propagate the original deleted-dim attribution
-        # through the recursive expansion, then find non-deleted consumers
-        # of any dimension in the expanded set.
+        # Consumers (transitively) of any deleted dimension via column /
+        # dimension-link edges that aren't themselves being deleted.
         link_rows = await session.execute(
             text(
                 """
@@ -523,12 +497,8 @@ async def hard_delete_namespace(
             ordered = sorted(set(dim_ids), key=lambda d: node_id_to_name[d])
             impacted_links[consumer_name] = [node_id_to_name[d] for d in ordered]
 
-    # Stage history events on the session without committing — the whole
-    # hard-delete operation (history + node deletes + namespace deletes)
-    # commits atomically at the end. ``save_history`` commits per-event, so
-    # we ``session.add`` directly here. Notifications are intentionally
-    # skipped on bulk hard-delete (the notifier is a per-event side effect
-    # that isn't useful at this scale).
+    # Stage history without committing (caller commits atomically). Notifications
+    # are intentionally skipped on bulk hard-delete.
     for impacted_node, causes in impacted_downstreams.items():
         session.add(
             History(
@@ -539,7 +509,6 @@ async def hard_delete_namespace(
                 details={"caused_by": causes},
             ),
         )
-
     for impacted_node, causes in impacted_links.items():
         session.add(
             History(
@@ -551,11 +520,55 @@ async def hard_delete_namespace(
             ),
         )
 
-    # Delete the nodes — FK CASCADE handles all child tables. Fast as long
-    # as every cascade-target FK column is indexed; otherwise Postgres
-    # seq-scans each child table per row deleted (catastrophic). See the
-    # add_missing_fk_indexes migration.
     await session.execute(delete(Node).where(Node.id.in_(node_ids)))
+
+    return ImpactedNodes(
+        downstreams=[
+            ImpactedNode(name=downstream, caused_by=caused_by)
+            for downstream, caused_by in impacted_downstreams.items()
+        ],
+        links=[
+            ImpactedNode(name=linked, caused_by=caused_by)
+            for linked, caused_by in impacted_links.items()
+        ],
+    )
+
+
+async def hard_delete_namespace(
+    session: AsyncSession,
+    namespace: str,
+    current_user: User,
+    save_history: Callable,
+    cascade: bool = False,
+) -> HardDeleteResponse:
+    """
+    Hard delete a node namespace.
+    """
+    node_rows = (
+        await session.execute(
+            select(Node.id, Node.name, Node.type)
+            .where(
+                or_(
+                    Node.namespace.like(f"{namespace}.%"),
+                    Node.namespace == namespace,
+                ),
+            )
+            .order_by(Node.name),
+        )
+    ).all()
+    node_names = [row.name for row in node_rows]
+    node_ids = [row.id for row in node_rows]
+
+    if not cascade and node_names:
+        raise DJActionNotAllowedException(
+            message=(
+                f"Cannot hard delete namespace `{namespace}` as there are still the "
+                f"following nodes under it: `{node_names}`. Set `cascade` to true to "
+                "additionally hard delete the above nodes in this namespace. WARNING:"
+                " this action cannot be undone."
+            ),
+        )
+    impacted = await hard_delete_nodes(session, node_ids, current_user)
 
     # Delete namespaces in the same transaction so the whole operation is
     # atomic.
@@ -574,10 +587,6 @@ async def hard_delete_namespace(
     )
 
     for _namespace in namespaces:
-        impacts[_namespace.namespace] = {
-            "type": "namespace",
-            "status": "hard deleted",
-        }
         await session.delete(_namespace)
 
     await session.commit()
@@ -585,16 +594,7 @@ async def hard_delete_namespace(
     return HardDeleteResponse(
         deleted_namespaces=deleted_namespaces,
         deleted_nodes=node_names,
-        impacted=ImpactedNodes(
-            downstreams=[
-                ImpactedNode(name=downstream, caused_by=caused_by)
-                for downstream, caused_by in impacted_downstreams.items()
-            ],
-            links=[
-                ImpactedNode(name=linked, caused_by=caused_by)
-                for linked, caused_by in impacted_links.items()
-            ],
-        ),
+        impacted=impacted,
     )
 
 
@@ -1933,6 +1933,89 @@ async def resolve_git_config(
     if not git_info:
         return None, None, None
     return git_info["repo"], git_info["path"], git_info["branch"]
+
+
+def _rollup_branch_counts(
+    branch_ns: str,
+    counts_by_ns: dict[str, tuple[int, int, datetime]],
+) -> tuple[int, int, Optional[datetime]]:
+    """
+    Sum node counts for a branch namespace and all of its sub-namespaces.
+
+    ``last_updated_at`` is None only when the branch contains no nodes; per-node
+    timestamps are always populated (see ``node_counts_by_namespace``).
+
+    Returns (num_nodes, invalid_node_count, last_updated_at).
+    """
+    prefix = branch_ns + SEPARATOR
+    num_nodes = invalid_node_count = 0
+    last_updated_at: Optional[datetime] = None
+    for node_ns, (num, invalid, updated_at) in counts_by_ns.items():
+        if node_ns == branch_ns or node_ns.startswith(prefix):
+            num_nodes += num
+            invalid_node_count += invalid
+            last_updated_at = (
+                updated_at
+                if last_updated_at is None
+                else max(last_updated_at, updated_at)
+            )
+    return num_nodes, invalid_node_count, last_updated_at
+
+
+async def get_branches(
+    session: AsyncSession,
+    namespace: str,
+) -> List[BranchInfo]:
+    """
+    Canonical listing of the branch namespaces created from ``namespace``.
+
+    Does not perform access control — callers exposing this over HTTP are
+    responsible for authorization.
+
+    Returns:
+    - Direct children: where parent_namespace equals the given namespace (git root branches)
+    - Siblings: where parent_namespace equals this namespace's parent (branch-from-branch)
+    """
+    source_ns = await get_node_namespace(session, namespace)
+
+    # Root namespace → direct children; branch namespace → siblings (same parent, excl. self)
+    parent = source_ns.parent_namespace if source_ns.parent_namespace else namespace
+    branch_namespaces = await NodeNamespace.list_branch_namespaces(
+        session,
+        parent,
+        exclude_namespace=namespace if source_ns.parent_namespace else None,
+    )
+    counts_by_ns = await NodeNamespace.node_counts_by_namespace(session, parent)
+
+    github_repo_path, _, _ = await resolve_git_config(session, namespace)
+
+    rows = [
+        (ns, *_rollup_branch_counts(ns.namespace, counts_by_ns))
+        for ns in branch_namespaces
+    ]
+
+    # Default branch comes first, then alphabetically by namespace
+    default_branch = source_ns.default_branch or ""
+    rows.sort(
+        key=lambda row: (
+            0 if (row[0].git_branch or "") == default_branch else 1,
+            row[0].namespace,
+        ),
+    )
+
+    return [
+        BranchInfo(
+            namespace=ns.namespace,
+            git_branch=ns.git_branch or "",
+            parent_namespace=ns.parent_namespace or "",
+            github_repo_path=github_repo_path or "",
+            num_nodes=num_nodes or 0,
+            invalid_node_count=invalid_node_count or 0,
+            git_only=ns.git_only,
+            last_updated_at=last_updated_at,
+        )
+        for ns, num_nodes, invalid_node_count, last_updated_at in rows
+    ]
 
 
 def validate_sibling_relationship(

@@ -1,6 +1,6 @@
 import { useState, useContext, useEffect } from 'react';
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { foundation } from 'react-syntax-highlighter/src/styles/hljs';
+import foundation from 'react-syntax-highlighter/dist/esm/styles/hljs/foundation';
 import sql from 'react-syntax-highlighter/dist/esm/languages/hljs/sql';
 import NodeStatus from './NodeStatus';
 import ListGroupItem from '../../components/ListGroupItem';

@@ -23,6 +23,7 @@ from sqlalchemy import (
     String,
     TypeDecorator,
     UniqueConstraint,
+    exists,
     select,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -113,6 +114,11 @@ _SEARCH_POPULARITY_WEIGHT = 0.2
 # Queries shorter than this fall back to prefix matching; trigram similarity is
 # meaningless on single characters (every row matches).
 _SEARCH_MIN_FUZZY_LENGTH = 2
+
+# Per-token fuzzy-match bar (pg_trgm word_similarity, 0..1). A token matches a
+# field if it's a (normalized) substring OR its word-similarity clears this bar,
+# giving typo/partial tolerance without flooding results with junk.
+_SEARCH_WORD_SIMILARITY_THRESHOLD = 0.6
 
 
 def _normalize_for_search(text_col):
@@ -378,6 +384,7 @@ class Node(Base):
             postgresql_using="btree",
             postgresql_ops={"identifier": "varchar_pattern_ops"},
         ),
+        Index("type_index", "type"),
     )
 
     id: Mapped[int] = mapped_column(
@@ -881,25 +888,6 @@ class Node(Base):
             order_by = Node.created_at
         NodeRevisionAlias = aliased(NodeRevision)
 
-        nodes_with_tags = []
-        if tags:
-            # Only fetch node IDs — no need to load full Tag/Node objects
-            # or their relationships (created_by, etc.)
-            statement = (
-                select(Node.id)
-                .join(
-                    TagNodeRelationship,
-                    Node.id == TagNodeRelationship.node_id,
-                )
-                .join(Tag, Tag.id == TagNodeRelationship.tag_id)
-                .where(Tag.name.in_(tags))
-            )
-            nodes_with_tags = list(
-                (await session.execute(statement)).scalars().all(),
-            )
-            if not nodes_with_tags:  # pragma: no cover
-                return None, NodeRevisionAlias, None, order_by
-
         # Filter by dimensions (supports node names or attributes)
         nodes_with_dimensions: list[str] | None = None
         if dimensions:
@@ -930,10 +918,17 @@ class Node(Base):
             statement = statement.where(
                 (Node.namespace.like(f"{namespace}.%")) | (Node.namespace == namespace),
             )
-        if nodes_with_tags:
+        if tags:
             statement = statement.where(
-                Node.id.in_(nodes_with_tags),
-            )  # pragma: no cover
+                exists(
+                    select(TagNodeRelationship.node_id)
+                    .join(Tag, Tag.id == TagNodeRelationship.tag_id)
+                    .where(
+                        TagNodeRelationship.node_id == Node.id,
+                        Tag.name.in_(tags),
+                    ),
+                ),
+            )
         if nodes_with_dimensions:
             statement = statement.where(
                 Node.name.in_(nodes_with_dimensions),
@@ -976,14 +971,32 @@ class Node(Base):
                     ),
                 )
             else:
-                pattern = f"%{search}%"
-                statement = statement.where(
-                    sa.or_(
-                        NodeRevisionAlias.name.ilike(pattern),
-                        NodeRevisionAlias.display_name.ilike(pattern),
-                        NodeRevisionAlias.description.ilike(pattern),
-                    ),
-                )
+                # Tokenize the query and require EVERY token to match somewhere
+                # (AND across tokens), so word order and multi-term queries work
+                # ("approval rate" -> "overall_approval_ratio"). Each token matches
+                # by normalized substring OR pg_trgm word-similarity (typo/partial
+                # tolerance). Columns are normalized (._ -> space) so separators
+                # don't block matches.
+                norm_name = _normalize_for_search(NodeRevisionAlias.name)
+                norm_display = _normalize_for_search(NodeRevisionAlias.display_name)
+                tokens = [
+                    token
+                    for token in search.replace(".", " ").replace("_", " ").split()
+                    if token
+                ] or [search]
+                for token in tokens:
+                    like = f"%{token}%"
+                    statement = statement.where(
+                        sa.or_(
+                            norm_name.ilike(like),
+                            norm_display.ilike(like),
+                            NodeRevisionAlias.description.ilike(like),
+                            func.word_similarity(token, norm_name)
+                            > _SEARCH_WORD_SIMILARITY_THRESHOLD,
+                            func.word_similarity(token, norm_display)
+                            > _SEARCH_WORD_SIMILARITY_THRESHOLD,
+                        ),
+                    )
 
             # Popularity proxy: number of NodeRelationship rows that reference
             # this node as a parent (parent_id is a node.id, child_id a
@@ -1247,11 +1260,62 @@ class Node(Base):
         )
         if statement is None:
             return 0
-        count_stmt = statement.with_only_columns(
-            func.count(func.distinct(Node.id)),
-        ).order_by(None)
+        # Every filter above uses exists()/IN(subquery)/1:1 joins, so no row is
+        # duplicated — COUNT(*) is equivalent to COUNT(DISTINCT id) and avoids the
+        # sort/hash the DISTINCT would force (which scales badly on large tables).
+        count_stmt = statement.with_only_columns(func.count()).order_by(None)
         result = await session.execute(count_stmt)
         return int(result.scalar() or 0)
+
+    @classmethod
+    async def count_grouped(
+        cls,
+        session: AsyncSession,
+        group_by: Any,
+        namespace: str | None = None,
+        node_types: list[NodeType] | None = None,
+        tags: list[str] | None = None,
+        edited_by: str | None = None,
+        mode: NodeMode | None = None,
+        owned_by: list[str] | None = None,
+        missing_description: bool = False,
+        missing_owner: bool = False,
+        dimensions: list[str] | None = None,
+        statuses: list[NodeStatus] | None = None,
+        has_materialization: bool = False,
+        orphaned_dimension: bool = False,
+        search: str | None = None,
+    ) -> dict[Any, int]:
+        """
+        Count matching nodes grouped by the ``group_by`` column in a single query,
+        rather than one count per value. Returns a ``{value: count}`` mapping
+        (values with zero matches are omitted).
+        """
+        statement, _, _, _ = await cls._build_filtered_node_statement(
+            session,
+            node_types=node_types,
+            tags=tags,
+            edited_by=edited_by,
+            namespace=namespace,
+            mode=mode,
+            owned_by=owned_by,
+            missing_description=missing_description,
+            missing_owner=missing_owner,
+            dimensions=dimensions,
+            statuses=statuses,
+            has_materialization=has_materialization,
+            orphaned_dimension=orphaned_dimension,
+            search=search,
+        )
+        if statement is None:  # pragma: no cover - only when a filter excludes all
+            return {}
+        grouped_stmt = (
+            statement.with_only_columns(group_by, func.count())
+            .order_by(None)
+            .group_by(group_by)
+        )
+        result = await session.execute(grouped_stmt)
+        return {row[0]: int(row[1]) for row in result.all()}
 
     @classmethod
     async def _resolve_dimension_filter(

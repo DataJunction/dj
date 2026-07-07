@@ -2,6 +2,7 @@
 Tests for cube view DDL generation and lifecycle hooks.
 """
 
+import logging
 from unittest import mock
 
 import pytest
@@ -452,6 +453,7 @@ class TestViewCreationOnLifecycle:
         self,
         module__client_with_roads: AsyncClient,
         spy_metrics,
+        caplog,
     ):
         """If create_view raises, the cube create still succeeds and the failure metric is emitted."""
         qs_client = module__client_with_roads.app.dependency_overrides[
@@ -470,18 +472,26 @@ class TestViewCreationOnLifecycle:
         qs_client.create_view = failing_create_view_async
 
         try:
-            response = await module__client_with_roads.post(
-                "/nodes/cube/",
-                json={
-                    "metrics": ["default.num_repair_orders"],
-                    "dimensions": ["default.hard_hat.country"],
-                    "description": "Cube whose view creation will fail",
-                    "mode": "published",
-                    "name": "default.failing_view_cube",
-                },
-            )
+            with caplog.at_level(
+                logging.ERROR,
+                logger="datajunction_server.internal.views",
+            ):
+                response = await module__client_with_roads.post(
+                    "/nodes/cube/",
+                    json={
+                        "metrics": ["default.num_repair_orders"],
+                        "dimensions": ["default.hard_hat.country"],
+                        "description": "Cube whose view creation will fail",
+                        "mode": "published",
+                        "name": "default.failing_view_cube",
+                    },
+                )
             # Cube create succeeds — view creation is fire-and-forget.
             assert response.status_code == 201, response.json()
+
+            # The swallowed exception must be folded into the log message (not
+            # just exc_info), so message-only log backends stay diagnosable.
+            assert "query service exploded" in caplog.text
 
             failure_counters = [
                 c

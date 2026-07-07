@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Iterator, NamedTuple
 
 from datajunction_server.construction.build_v3.filters import (
     extract_subscript_role,
@@ -113,6 +113,34 @@ def extract_columns_from_expression(expr: ast.Expression) -> set[str]:
         if col.name:  # pragma: no branch
             columns.add(col.name.name)
     return columns
+
+
+class NamespacedColumn(NamedTuple):
+    """A column written as ``<node>.<column>`` with its parts pre-extracted."""
+
+    column: ast.Column  # the AST node (mutate ``column.name`` to rewrite the ref)
+    node: str  # the namespace identifier, e.g. ``v3.customer``
+    name: str  # the column name, e.g. ``tier``
+
+
+def iter_namespaced_columns(expr: ast.Expression) -> Iterator[NamespacedColumn]:
+    """
+    Yield columns in ``expr`` that carry an explicit node namespace.
+
+    A namespaced column is one written as ``<node>.<column>`` (e.g.
+    ``v3.customer.tier``) — i.e. ``col.name.namespace`` is set. These are
+    references to a column on a node other than the local one, so callers use
+    them to discover dimension-node references inside metric/grain expressions.
+    The node and column name are pre-extracted so callers don't repeat the
+    optional-attribute guard.
+    """
+    for col in expr.find_all(ast.Column):
+        if col.name and col.name.namespace and col.name.namespace.name:
+            yield NamespacedColumn(
+                col,
+                col.name.namespace.identifier(quotes=False),
+                col.name.name,
+            )
 
 
 def extract_columns_referenced_from_node(

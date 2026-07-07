@@ -1195,6 +1195,33 @@ describe('DataJunctionAPI', () => {
     );
   });
 
+  it('passes search to findNodesPaginated', async () => {
+    const calls = [];
+    const originalFetch = global.fetch;
+    global.fetch = vi.fn(async (_url, opts) => {
+      calls.push(JSON.parse(opts.body));
+      return {
+        json: async () => ({
+          data: { findNodesPaginated: { edges: [], pageInfo: {} } },
+        }),
+      };
+    });
+    await DataJunctionAPI.listNodesForLanding(
+      'growth',
+      [],
+      [],
+      '',
+      null,
+      null,
+      50,
+      { key: 'name', direction: 'ascending' },
+      null,
+      { search: 'active' },
+    );
+    global.fetch = originalFetch;
+    expect(calls[0].variables.search).toBe('active');
+  });
+
   it('calls getMetric correctly', async () => {
     fetch.mockResponseOnce(
       JSON.stringify({
@@ -2087,18 +2114,69 @@ describe('DataJunctionAPI', () => {
   });
 
   // Test users (lines 1194-1198)
-  it('calls users correctly', async () => {
-    fetch.mockResponseOnce(
-      JSON.stringify([{ username: 'user1' }, { username: 'user2' }]),
-    );
+  it('calls users correctly and normalizes the username list', async () => {
+    // The endpoint (without with_activity) returns a bare list of usernames.
+    fetch.mockResponseOnce(JSON.stringify(['user1', 'user2']));
 
     const result = await DataJunctionAPI.users();
 
     expect(fetch).toHaveBeenCalledWith(
-      'http://localhost:8000/users?with_activity=true',
+      'http://localhost:8000/users',
       expect.objectContaining({ credentials: 'include' }),
     );
-    expect(result).toHaveLength(2);
+    expect(result).toEqual([{ username: 'user1' }, { username: 'user2' }]);
+  });
+
+  it('nodeTypeCounts maps grouped counts to the requested types', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify({
+        data: {
+          nodeCounts: [
+            { value: 'SOURCE', count: 3 },
+            { value: 'METRIC', count: 5 },
+          ],
+        },
+      }),
+    );
+
+    const result = await DataJunctionAPI.nodeTypeCounts('default', [
+      'source',
+      'metric',
+      'cube',
+    ]);
+
+    // Types are matched case-insensitively; requested types missing from the
+    // response default to 0.
+    expect(result).toEqual({ source: 3, metric: 5, cube: 0 });
+  });
+
+  it('caches listNamespacesWithGit and refetches after invalidation', async () => {
+    DataJunctionAPI.invalidateNamespacesCache();
+    fetch.mockResponse(
+      JSON.stringify({
+        data: { listNamespaces: [{ namespace: 'a', numNodes: 1 }] },
+      }),
+    );
+
+    const first = await DataJunctionAPI.listNamespacesWithGit();
+    const callsAfterFirst = fetch.mock.calls.length;
+
+    // Second call is served from cache — no additional fetch.
+    const second = await DataJunctionAPI.listNamespacesWithGit();
+    expect(fetch.mock.calls.length).toBe(callsAfterFirst);
+    expect(second).toEqual(first);
+
+    // force bypasses the cache.
+    await DataJunctionAPI.listNamespacesWithGit({ force: true });
+    expect(fetch.mock.calls.length).toBe(callsAfterFirst + 1);
+
+    // Invalidation causes the next call to refetch.
+    DataJunctionAPI.invalidateNamespacesCache();
+    await DataJunctionAPI.listNamespacesWithGit();
+    expect(fetch.mock.calls.length).toBe(callsAfterFirst + 2);
+
+    // Leave the cache clean for any subsequent tests.
+    DataJunctionAPI.invalidateNamespacesCache();
   });
 
   // Test listCubesForPreset (lines 121-155)
@@ -2148,7 +2226,15 @@ describe('DataJunctionAPI', () => {
               current: {
                 displayName: 'Cube 1',
                 cubeMetrics: [{ name: 'metric1' }, { name: 'metric2' }],
-                cubeDimensions: [{ name: 'dim1' }],
+                cubeDimensions: [
+                  {
+                    name: 'dim1',
+                    type: 'int',
+                    attribute: 'dim1',
+                    role: '',
+                    properties: [],
+                  },
+                ],
                 materializations: [
                   {
                     name: 'druid_cube',
@@ -2177,6 +2263,15 @@ describe('DataJunctionAPI', () => {
       display_name: 'Cube 1',
       cube_node_metrics: ['metric1', 'metric2'],
       cube_node_dimensions: ['dim1'],
+      cube_dimension_objects: [
+        {
+          name: 'dim1',
+          type: 'int',
+          attribute: 'dim1',
+          role: '',
+          properties: [],
+        },
+      ],
       cubeMaterialization: {
         strategy: 'incremental_time',
         schedule: '0 6 * * *',

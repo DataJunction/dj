@@ -13,6 +13,14 @@ const DJ_GQL = process.env.REACT_APP_DJ_GQL
 // Export the base URL for components that need direct access
 export const getDJUrl = () => DJ_URL;
 
+// The namespace list is large (every namespace, with counts + git config) and
+// changes rarely, but is fetched on every landing/namespace-page mount. Cache it
+// for a short window so re-entering namespace pages doesn't refetch it each time.
+// Mutations that add/remove namespaces should call invalidateNamespacesCache().
+let _namespacesCache = null;
+let _namespacesCacheAt = 0;
+const NAMESPACES_CACHE_TTL_MS = 60000;
+
 // URL builder that works with either an absolute or relative DJ_URL.
 const _djURL = path => {
   const base =
@@ -26,6 +34,40 @@ const QUERY_END_STATES = ['FINISHED', 'CANCELED', 'FAILED'];
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 export const DataJunctionAPI = {
+  // Count-only node counts per type for a namespace, in a SINGLE request. Each type is
+  // an aliased findNodesPaginated selecting only totalCount (no edges) — so the server
+  // never hydrates node rows, unlike listNodesForLanding. Returns a { type: count } map.
+  // `types` are trusted enum names (e.g. 'metric') from a fixed constant, not user input.
+  nodeTypeCounts: async function (namespace, types) {
+    // Generic grouped-count query (one scan) instead of one count per node type.
+    const query = `
+      query NodeCounts($namespace: String) {
+        nodeCounts(groupBy: TYPE, namespace: $namespace) {
+          value
+          count
+        }
+      }
+    `;
+    const result = await (
+      await fetch(DJ_GQL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ query, variables: { namespace } }),
+      })
+    ).json();
+    const byType = {};
+    (result?.data?.nodeCounts || []).forEach(({ value, count }) => {
+      byType[value] = count;
+    });
+    // Preserve the requested order and default missing types to 0.
+    const counts = {};
+    types.forEach(type => {
+      counts[type] = byType[type.toUpperCase()] ?? 0;
+    });
+    return counts;
+  },
+
   listNodesForLanding: async function (
     namespace,
     nodeTypes,
@@ -42,10 +84,11 @@ export const DataJunctionAPI = {
       missingDescription = false,
       hasMaterialization = false,
       orphanedDimension = false,
+      search = null,
     } = {},
   ) {
     const query = `
-      query ListNodes($namespace: String, $nodeTypes: [NodeType!], $tags: [String!], $editedBy: String, $mode: NodeMode, $before: String, $after: String, $limit: Int, $orderBy: NodeSortField, $ascending: Boolean, $ownedBy: String, $statuses: [NodeStatus!], $missingDescription: Boolean, $hasMaterialization: Boolean, $orphanedDimension: Boolean) {
+      query ListNodes($namespace: String, $nodeTypes: [NodeType!], $tags: [String!], $editedBy: String, $mode: NodeMode, $before: String, $after: String, $limit: Int, $orderBy: NodeSortField, $ascending: Boolean, $ownedBy: String, $statuses: [NodeStatus!], $missingDescription: Boolean, $hasMaterialization: Boolean, $orphanedDimension: Boolean, $search: String) {
         findNodesPaginated(
           namespace: $namespace
           nodeTypes: $nodeTypes
@@ -62,6 +105,7 @@ export const DataJunctionAPI = {
           missingDescription: $missingDescription
           hasMaterialization: $hasMaterialization
           orphanedDimension: $orphanedDimension
+          search: $search
         ) {
           pageInfo {
             hasNextPage
@@ -132,6 +176,7 @@ export const DataJunctionAPI = {
             missingDescription: missingDescription,
             hasMaterialization: hasMaterialization,
             orphanedDimension: orphanedDimension,
+            search: search,
           },
         }),
       })
@@ -189,6 +234,10 @@ export const DataJunctionAPI = {
             }
             cubeDimensions {
               name
+              type
+              attribute
+              role
+              properties
             }
             availability {
               catalog
@@ -232,7 +281,17 @@ export const DataJunctionAPI = {
       // Transform to match the shape expected by QueryPlannerPage
       const current = node.current || {};
       const cubeMetrics = (current.cubeMetrics || []).map(m => m.name);
-      const cubeDimensions = (current.cubeDimensions || []).map(d => d.name);
+      // Full dimension objects (name/type/role/...) so the planner can render and
+      // pre-select the cube's dimensions directly, without a slow common-dimensions
+      // intersection over every cube metric just to validate known-good dims.
+      const cubeDimensionObjects = (current.cubeDimensions || []).map(d => ({
+        name: d.name,
+        type: d.type,
+        attribute: d.attribute,
+        role: d.role,
+        properties: d.properties || [],
+      }));
+      const cubeDimensions = cubeDimensionObjects.map(d => d.name);
 
       // Extract druid_cube materialization if present (v3 or legacy)
       const druidMat = (current.materializations || []).find(
@@ -256,6 +315,7 @@ export const DataJunctionAPI = {
         display_name: current.displayName,
         cube_node_metrics: cubeMetrics,
         cube_node_dimensions: cubeDimensions,
+        cube_dimension_objects: cubeDimensionObjects,
         cubeMaterialization, // Included so we don't need a second fetch
         availability: current.availability || null,
       };
@@ -1210,7 +1270,20 @@ export const DataJunctionAPI = {
     ).json();
   },
 
-  listNamespacesWithGit: async function () {
+  invalidateNamespacesCache: function () {
+    _namespacesCache = null;
+    _namespacesCacheAt = 0;
+  },
+
+  listNamespacesWithGit: async function ({ force = false } = {}) {
+    const now = Date.now();
+    if (
+      !force &&
+      _namespacesCache &&
+      now - _namespacesCacheAt < NAMESPACES_CACHE_TTL_MS
+    ) {
+      return _namespacesCache;
+    }
     const query = `
       query ListNamespaces {
         listNamespaces {
@@ -1245,7 +1318,9 @@ export const DataJunctionAPI = {
         body: JSON.stringify({ query }),
       })
     ).json();
-    return result?.data?.listNamespaces || [];
+    _namespacesCache = result?.data?.listNamespaces || [];
+    _namespacesCacheAt = now;
+    return _namespacesCache;
   },
 
   namespaceSources: async function (namespace) {
@@ -1911,11 +1986,19 @@ export const DataJunctionAPI = {
     return { nodes, tags };
   },
   users: async function () {
-    return await (
-      await fetch(`${DJ_URL}/users?with_activity=true`, {
-        credentials: 'include',
-      })
-    ).json();
+    // Only usernames are consumed by callers (filter/owner dropdowns), so we skip
+    // `with_activity` — it makes the endpoint join the entire history table.
+    // Without that flag the endpoint returns a bare list of usernames, so we
+    // normalize back to the `{ username }` shape callers expect.
+    const data =
+      (await (
+        await fetch(`${DJ_URL}/users`, {
+          credentials: 'include',
+        })
+      ).json()) || [];
+    return data.map(user =>
+      typeof user === 'string' ? { username: user } : user,
+    );
   },
   getTag: async function (tagName) {
     const response = await fetch(`${DJ_URL}/tags/${tagName}`, {

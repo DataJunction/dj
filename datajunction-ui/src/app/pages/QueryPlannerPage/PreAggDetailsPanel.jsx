@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { atomOneLight } from 'react-syntax-highlighter/src/styles/hljs';
+import atomOneLight from 'react-syntax-highlighter/dist/esm/styles/hljs/atom-one-light';
 import {
   SCAN_WARNING_THRESHOLD,
   SCAN_CRITICAL_THRESHOLD,

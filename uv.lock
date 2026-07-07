@@ -635,6 +635,7 @@ source = { editable = "datajunction-clients/python" }
 dependencies = [
     { name = "alive-progress" },
     { name = "httpx" },
+    { name = "pandas" },
     { name = "pytest-xdist" },
     { name = "pyyaml" },
     { name = "requests" },
@@ -646,9 +647,6 @@ mcp = [
     { name = "mcp" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
-]
-pandas = [
-    { name = "pandas" },
 ]
 
 [package.dev-dependencies]
@@ -679,7 +677,7 @@ requires-dist = [
     { name = "alive-progress", specifier = ">=3.1.2" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.0.0" },
-    { name = "pandas", marker = "extra == 'pandas'", specifier = ">=2.0.2" },
+    { name = "pandas", specifier = ">=2.0.2" },
     { name = "pydantic", marker = "extra == 'mcp'", specifier = ">=2.0" },
     { name = "pydantic-settings", marker = "extra == 'mcp'", specifier = ">=2.10.1" },
     { name = "pytest-xdist", specifier = ">=3.5.0" },
@@ -687,7 +685,7 @@ requires-dist = [
     { name = "requests", specifier = ">=2.28.2,<3.0.0" },
     { name = "rich", specifier = ">=13.7.0" },
 ]
-provides-extras = ["mcp", "pandas"]
+provides-extras = ["mcp"]
 
 [package.metadata.requires-dev]
 test = [

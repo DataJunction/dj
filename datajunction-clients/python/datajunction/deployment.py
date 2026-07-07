@@ -304,6 +304,8 @@ class DeploymentService:
         output: str | Path = ".github/CODEOWNERS",
         github_api_url: str | None = None,
         github_token_env: str = "GITHUB_TOKEN",
+        default_owner: str | None = None,
+        exclude_dirs: list[str] | None = None,
     ) -> int:
         """
         Generate a CODEOWNERS file from the owners fields in DJ node YAML files.
@@ -317,9 +319,24 @@ class DeploymentService:
         email addresses in owners fields are resolved to GitHub usernames via the
         search API.  Unresolvable emails are emitted as-is with a warning comment.
 
-        Returns the number of entries written.
+        ``default_owner``, when set, emits a leading ``* <default_owner>`` rule so
+        unmatched files (and any excluded directories) fall through to it. Because
+        CODEOWNERS is last-match-wins, the per-file rules below it still take
+        precedence for the files they name.
+
+        ``exclude_dirs`` lists directories (relative to base_dir) whose nodes are
+        NOT given per-file owners — they fall through to ``default_owner`` instead.
+        This is for machine-generated trees (e.g. ``nodes/generated``) that have no
+        individual human owner and should be team-owned as a block.
+
+        Returns the number of per-file entries written (excludes the default rule).
         """
         base = Path(base_dir).resolve()
+        excluded_dirs = [(base / d).resolve() for d in (exclude_dirs or [])]
+
+        def _is_excluded(path: Path) -> bool:
+            return any(d == path or d in path.parents for d in excluded_dirs)
+
         _token = os.getenv(github_token_env)
         # Only resolve if both API URL and token are available
         lookup: tuple[str, str] | None = (
@@ -353,6 +370,8 @@ class DeploymentService:
         for path in sorted(base.rglob("*.yaml")):
             if path.name == "dj.yaml":
                 continue
+            if _is_excluded(path):
+                continue
             try:
                 node = DeploymentService.read_yaml_file(path)
             except Exception:  # skip unreadable / non-dict files
@@ -376,7 +395,12 @@ class DeploymentService:
             )
             for w in warnings:
                 lines.append(f"#   {w}")
-        lines += ["", *entries, ""]
+        lines.append("")
+        # Default rule first so per-file rules below win (last-match-wins).
+        if default_owner:
+            lines.append(f"* {default_owner}")
+            lines.append("")
+        lines += [*entries, ""]
         content = "\n".join(lines)
 
         output_path = Path(output)

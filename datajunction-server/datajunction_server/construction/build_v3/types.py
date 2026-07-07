@@ -190,11 +190,18 @@ class PushdownFilters:
             column there is the raw FK value, not the attribute).  Such a
             filter still pushes into the dimension's *own* CTE and lands in the
             outer WHERE.  See ``outer_only_filter_refs``.
+        fk_collision_cols: Foreign-key *value* column short-names on the linking
+            (parent) node's dimension links.  An ``outer_only`` ref whose bare
+            column collides with one of these is a joined dimension's non-key
+            attribute sharing a name with the raw FK column, so it must not be
+            pushed into ANY CTE (incl. an upstream ancestor that projects the FK
+            without owning the link).  See ``_resolve_pushdown_filters_for_cte``.
     """
 
     filters: list[str]
     column_aliases: dict[str, str]
     outer_only_refs: set[str] = field(default_factory=set)
+    fk_collision_cols: set[str] = field(default_factory=set)
 
 
 @dataclass

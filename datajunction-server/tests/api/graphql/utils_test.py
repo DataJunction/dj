@@ -10,10 +10,10 @@ from datajunction_server.api.graphql.utils import (
 )
 
 
-def _field(name: str, *subselections) -> SelectedField:
+def _field(name: str, *subselections, directives=None) -> SelectedField:
     return SelectedField(
         name=name,
-        directives={},
+        directives=directives or {},
         arguments={},
         alias=None,
         selections=list(subselections),
@@ -198,3 +198,105 @@ class TestExtractFields:
         ) == {
             "current": {"columns": {"name": None, "type": None}},
         }
+
+
+class TestSkipInclude:
+    """
+    ``@include(if: false)`` and ``@skip(if: true)`` selections must be dropped so
+    the eager-loader and the cube scalar-only fast path don't load or compute
+    fields the GraphQL runtime won't resolve. Strawberry resolves ``if: $var``
+    against the query variables before we see it, so the ``if`` value is always
+    a concrete bool here.
+    """
+
+    def test_include_false_drops_field(self):
+        assert extract_fields(
+            _info(
+                _field("name"),
+                _field("displayName", directives={"include": {"if": False}}),
+            ),
+        ) == {"name": None}
+
+    def test_include_true_keeps_field(self):
+        assert extract_fields(
+            _info(
+                _field("name"),
+                _field("displayName", directives={"include": {"if": True}}),
+            ),
+        ) == {"name": None, "display_name": None}
+
+    def test_skip_false_keeps_field(self):
+        assert extract_fields(
+            _info(
+                _field("name"),
+                _field("description", directives={"skip": {"if": False}}),
+            ),
+        ) == {"name": None, "description": None}
+
+    def test_skip_true_drops_field(self):
+        assert extract_fields(
+            _info(
+                _field("name"),
+                _field("description", directives={"skip": {"if": True}}),
+            ),
+        ) == {"name": None}
+
+    def test_skipped_object_field_drops_subselection(self):
+        """A skipped object field takes its whole subtree with it."""
+        assert extract_fields(
+            _info(
+                _field("name"),
+                _field(
+                    "current",
+                    _field("mode"),
+                    directives={"skip": {"if": True}},
+                ),
+            ),
+        ) == {"name": None}
+
+    def test_duplicate_field_one_skipped_keeps_unskipped(self):
+        """
+        ``{ name @skip(if: true) name }`` still resolves ``name`` — the
+        unskipped occurrence merges in after the skipped one is dropped.
+        """
+        assert extract_fields(
+            _info(
+                _field("name", directives={"skip": {"if": True}}),
+                _field("name"),
+            ),
+        ) == {"name": None}
+
+    def test_skipped_fragment_spread_is_dropped(self):
+        """A ``...Frag @skip(if: true)`` contributes none of its fields."""
+        fragment = FragmentSpread(
+            name="NodeInfo",
+            type_condition="Node",
+            directives={"skip": {"if": True}},
+            selections=[_field("name"), _field("type")],
+        )
+        assert extract_fields(
+            _info(fragment, _field("current", _field("mode"))),
+        ) == {"current": {"mode": None}}
+
+    def test_excluded_inline_fragment_is_dropped(self):
+        """A ``... on Type @include(if: false)`` contributes none of its fields."""
+        inline_frag = InlineFragment(
+            type_condition="Node",
+            directives={"include": {"if": False}},
+            selections=[_field("name"), _field("type")],
+        )
+        assert extract_fields(
+            _info(inline_frag, _field("current", _field("mode"))),
+        ) == {"current": {"mode": None}}
+
+    def test_skip_within_subselection(self):
+        """``@skip`` applies at any depth, not just the top level."""
+        assert extract_fields(
+            _info(
+                _field(
+                    "current",
+                    _field("mode"),
+                    _field("status", directives={"skip": {"if": True}}),
+                ),
+            ),
+        ) == {"current": {"mode": None}}

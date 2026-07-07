@@ -16,6 +16,7 @@ dependencies = [
     "rich>=13.7.0",
     "pytest-xdist>=3.5.0",
     "httpx>=0.27.0",
+    "pandas>=2.0.2",
 ]
 requires-python = ">=3.10,<4.0"
 readme = "README.md"
@@ -29,7 +30,6 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-pandas = ["pandas>=2.0.2"]
 # Optional dependencies for the dj-mcp stdio→HTTP proxy CLI. plotext was
 # previously needed for client-side rendering of `visualize_metrics`; that
 # logic now lives server-side in datajunction-server, so the client only

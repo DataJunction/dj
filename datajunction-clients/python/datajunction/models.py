@@ -20,6 +20,19 @@ class Engine(SerializableMixin):
     version: Optional[str]
 
 
+@dataclass
+class ColumnYAML(SerializableMixin):
+    """
+    Represents a column
+    """
+
+    name: str
+    type: str
+    display_name: Optional[str] = None
+    description: Optional[str] = None
+    attributes: Optional[List[str]] = None
+
+
 class MetricDirection(str, enum.Enum):
     """
     The direction of the metric that's considered good, i.e., higher is better

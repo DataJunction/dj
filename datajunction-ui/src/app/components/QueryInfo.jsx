@@ -1,5 +1,5 @@
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { solarizedDark } from 'react-syntax-highlighter/src/styles/hljs';
+import solarizedDark from 'react-syntax-highlighter/dist/esm/styles/hljs/solarized-dark';
 import React from 'react';
 
 export default function QueryInfo({

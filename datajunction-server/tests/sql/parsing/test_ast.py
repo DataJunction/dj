@@ -9,6 +9,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.errors import DJException
+from datajunction_server.models.dialect import Dialect
 from datajunction_server.sql.parsing import ast, types
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
@@ -1493,3 +1494,36 @@ def test_binaryop_and_with_empty_spread_does_not_raise():
     conditions = []
     # Should not raise TypeError
     assert ast.BinaryOp.And(*conditions) is None
+
+
+def test_to_sql_transpiles_functions_for_dialect(monkeypatch):
+    """
+    ``to_sql`` should run the rendered SQL through the generic transpiler, not just
+    DJ's native dialect rendering. ``collect_list`` is a Spark-only function with no
+    entry in ``render_for_dialect``'s function map, so it only becomes Trino's
+    ``array_agg`` if real transpilation happens.
+    """
+    # The dialect->plugin registry is process-global and other tests/fixtures mutate
+    # it; pin the dialects under test to the real sqlglot plugin (auto-restored).
+    from datajunction_server.models.dialect import DialectRegistry
+    from datajunction_server.transpilation import SQLGlotTranspilationPlugin
+
+    for name in ("spark", "trino"):
+        monkeypatch.setitem(
+            DialectRegistry._registry,
+            name,
+            SQLGlotTranspilationPlugin,
+        )
+
+    query = parse("SELECT collect_list(x) AS c FROM t")
+
+    trino = ast.to_sql(query, Dialect.TRINO)
+    assert "ARRAY_AGG" in trino.upper()
+    assert "COLLECT_LIST" not in trino.upper()
+
+    # Spark is the canonical dialect, so the Spark-native function is preserved.
+    spark = ast.to_sql(query, Dialect.SPARK)
+    assert "COLLECT_LIST" in spark.upper()
+
+    # No dialect => no transpilation, canonical names returned verbatim.
+    assert "COLLECT_LIST" in ast.to_sql(query, None).upper()

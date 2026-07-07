@@ -58,12 +58,24 @@ def amenable_col_names(columns: Iterable[Any]) -> str:
     ``measures.py`` grain-column alias derivation so both code paths produce
     identical identifiers for the same leaf columns.
 
+    Repeated column references (e.g. the same predicate column appearing
+    twice in ``IF(c IS NULL OR c <> 'X', ...)``) are deduped so the
+    generated identifier stays stable and within identifier-length limits.
+
     Example::
 
         amenable_col_names([col("is_product_view"), col("session_id")])
         -> "is_product_view_session_id"
     """
-    return "_".join(amenable_name(str(col)) for col in columns)
+    seen: set[str] = set()
+    parts: list[str] = []
+    for col in columns:
+        name = amenable_name(str(col))
+        if name in seen:
+            continue
+        seen.add(name)
+        parts.append(name)
+    return "_".join(parts)
 
 
 def from_amenable_name(name: str) -> str:

@@ -8,19 +8,18 @@ to git branches for the git-backed workflow.
 import asyncio
 import logging
 import time
-from datetime import datetime
 from http import HTTPStatus
-from typing import Callable, List, Optional
+from typing import Callable, List
 
 from fastapi import Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from sqlalchemy import func, or_, select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import get_node_namespace, get_save_history
 from datajunction_server.database.namespace import NodeNamespace
-from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.node import Node
 from datajunction_server.database.user import User
 from datajunction_server.errors import (
     DJAlreadyExistsException,
@@ -35,6 +34,7 @@ from datajunction_server.internal.access.authorization import (
 from datajunction_server.internal.git.github_service import GitHubService
 from datajunction_server.internal.git.github_service import GitHubServiceError
 from datajunction_server.internal.namespaces import (
+    get_branches,
     hard_delete_namespace,
     resolve_git_config,
     validate_sibling_relationship,
@@ -42,6 +42,7 @@ from datajunction_server.internal.namespaces import (
 from datajunction_server.internal.nodes import copy_nodes_to_namespace
 from datajunction_server.models.access import ResourceAction
 from datajunction_server.models.deployment import DeploymentResult
+from datajunction_server.models.namespace import BranchInfo
 from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.utils import SEPARATOR, get_current_user, get_session
 
@@ -53,19 +54,6 @@ class CreateBranchRequest(BaseModel):
     """Request to create a new branch namespace."""
 
     branch_name: str  # e.g., "feature-x"
-
-
-class BranchInfo(BaseModel):
-    """Information about a branch namespace."""
-
-    namespace: str  # e.g., "myproject.feature_x"
-    git_branch: str  # e.g., "feature-x"
-    parent_namespace: str  # e.g., "myproject.main"
-    github_repo_path: str  # e.g., "owner/repo"
-    num_nodes: int = 0
-    invalid_node_count: int = 0
-    git_only: bool = False
-    last_updated_at: Optional[datetime] = None
 
 
 class CreateBranchResult(BaseModel):
@@ -490,98 +478,10 @@ async def list_branches(
 ) -> List[BranchInfo]:
     """
     List all branch namespaces that were created from this namespace.
-
-    Returns:
-    - Direct children: where parent_namespace equals the given namespace (git root branches)
-    - Siblings: where parent_namespace equals this namespace's parent (branch-from-branch)
     """
     access_checker.add_namespace(namespace, ResourceAction.READ)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
-
-    source_ns = await get_node_namespace(session, namespace)
-
-    # Root namespace → direct children; branch namespace → siblings (same parent, excl. self)
-    parent = source_ns.parent_namespace if source_ns.parent_namespace else namespace
-    base_filter = NodeNamespace.parent_namespace == parent
-    if source_ns.parent_namespace:
-        base_filter = base_filter & (NodeNamespace.namespace != namespace)
-
-    # Correlated subqueries for counts and last deployment
-    node_count_subq = (
-        select(func.count(Node.id))
-        .where(
-            or_(
-                Node.namespace == NodeNamespace.namespace,
-                Node.namespace.like(NodeNamespace.namespace + ".%"),
-            ),
-        )
-        .correlate(NodeNamespace)
-        .scalar_subquery()
-    )
-    invalid_count_subq = (
-        select(func.count(Node.id))
-        .join(
-            NodeRevision,
-            (NodeRevision.node_id == Node.id)
-            & (NodeRevision.version == Node.current_version),
-        )
-        .where(
-            or_(
-                Node.namespace == NodeNamespace.namespace,
-                Node.namespace.like(NodeNamespace.namespace + ".%"),
-            ),
-            NodeRevision.status == "invalid",
-        )
-        .correlate(NodeNamespace)
-        .scalar_subquery()
-    )
-    last_updated_subq = (
-        select(func.max(NodeRevision.updated_at))
-        .join(Node, Node.id == NodeRevision.node_id)
-        .where(
-            or_(
-                Node.namespace == NodeNamespace.namespace,
-                Node.namespace.like(NodeNamespace.namespace + ".%"),
-            ),
-        )
-        .correlate(NodeNamespace)
-        .scalar_subquery()
-    )
-
-    stmt = select(
-        NodeNamespace,
-        node_count_subq.label("num_nodes"),
-        invalid_count_subq.label("invalid_node_count"),
-        last_updated_subq.label("last_updated_at"),
-    ).where(base_filter, NodeNamespace.deactivated_at.is_(None))
-
-    result = await session.execute(stmt)
-    rows = result.all()
-
-    github_repo_path, _, _ = await resolve_git_config(session, namespace)
-
-    # Default branch comes first, then alphabetically by namespace
-    default_branch = source_ns.default_branch or ""
-    rows.sort(
-        key=lambda row: (
-            0 if (row[0].git_branch or "") == default_branch else 1,
-            row[0].namespace,
-        ),
-    )
-
-    return [
-        BranchInfo(
-            namespace=ns.namespace,
-            git_branch=ns.git_branch or "",
-            parent_namespace=ns.parent_namespace or "",
-            github_repo_path=github_repo_path or "",
-            num_nodes=num_nodes or 0,
-            invalid_node_count=invalid_node_count or 0,
-            git_only=ns.git_only,
-            last_updated_at=last_updated_at,
-        )
-        for ns, num_nodes, invalid_node_count, last_updated_at in rows
-    ]
+    return await get_branches(session, namespace)
 
 
 @router.delete(
