@@ -32,10 +32,13 @@ const FIELD_CONFIG = {
   name: { label: 'Name' },
   displayName: { label: 'Display name' },
   type: { label: 'Type' },
-  state: {
-    label: 'State',
-    tooltip: 'Combined publish state and validation health.',
-    sortable: false,
+  status: {
+    label: 'Validation',
+    tooltip: 'Whether this node validates successfully.',
+  },
+  mode: {
+    label: 'Publish state',
+    tooltip: 'Whether this node is published or still a draft.',
   },
   owners: { label: 'Owners' },
   updatedAt: { label: 'Updated' },
@@ -73,6 +76,8 @@ function nodeState(current) {
   const isPublished = current.mode === 'PUBLISHED';
   const isValid = current.status === 'VALID';
   return {
+    isPublished,
+    isValid,
     publishLabel: isPublished ? 'Published' : 'Draft',
     validationLabel: isValid ? 'Valid' : 'Needs fixes',
     publishTooltip: isPublished
@@ -122,6 +127,68 @@ function relativeDate(value) {
   return 'just now';
 }
 
+function SplitFilter({ label, options, value, onChange }) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '2px',
+        flex: '0 0 auto',
+      }}
+    >
+      <label
+        style={{
+          fontSize: '10px',
+          fontWeight: '600',
+          color: '#666',
+          textTransform: 'uppercase',
+          letterSpacing: '0.5px',
+        }}
+      >
+        {label}
+      </label>
+      <div
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          height: '32px',
+          border: '1px solid #cbd5e1',
+          borderRadius: '999px',
+          backgroundColor: '#ffffff',
+          overflow: 'hidden',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {options.map((option, index) => {
+          const active = value === option.value;
+          return (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => onChange(active ? '' : option.value)}
+              style={{
+                height: '30px',
+                padding: '0 13px',
+                border: 'none',
+                borderLeft: index === 0 ? 'none' : '1px solid #e2e8f0',
+                backgroundColor: active ? '#e3f2fd' : 'transparent',
+                color: active ? '#1976d2' : '#475569',
+                fontSize: '12px',
+                fontWeight: active ? '600' : '500',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function NamespacePage() {
   const ASC = 'ascending';
   const DESC = 'descending';
@@ -130,7 +197,8 @@ export function NamespacePage() {
     'name',
     'displayName',
     'type',
-    'state',
+    'status',
+    'mode',
     'owners',
     'updatedAt',
   ];
@@ -737,18 +805,42 @@ export function NamespacePage() {
               </Tooltip>
             </td>
             <td style={MIDDLE_CELL_STYLE}>
-              <Tooltip
-                content={`${stateInfo.publishTooltip} ${stateInfo.validationTooltip}`}
-              >
+              <Tooltip content={stateInfo.validationTooltip}>
                 <span
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',
-                    gap: '6px',
                     borderRadius: '999px',
-                    border: `1px solid ${stateInfo.borderColor}`,
-                    backgroundColor: stateInfo.backgroundColor,
-                    color: stateInfo.color,
+                    border: `1px solid ${
+                      stateInfo.isValid ? '#28a745' : '#d39e00'
+                    }`,
+                    backgroundColor: stateInfo.isValid ? '#eaf7ee' : '#fff7df',
+                    color: stateInfo.isValid ? '#1f7a3a' : '#8a5b00',
+                    fontWeight: '600',
+                    fontSize: '12px',
+                    lineHeight: 1.2,
+                    padding: '6px 10px',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {stateInfo.validationLabel}
+                </span>
+              </Tooltip>
+            </td>
+            <td style={MIDDLE_CELL_STYLE}>
+              <Tooltip content={stateInfo.publishTooltip}>
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    borderRadius: '999px',
+                    border: `1px solid ${
+                      stateInfo.isPublished ? '#28a745' : '#d39e00'
+                    }`,
+                    backgroundColor: stateInfo.isPublished
+                      ? '#eaf7ee'
+                      : '#fff7df',
+                    color: stateInfo.isPublished ? '#1f7a3a' : '#8a5b00',
                     fontWeight: '600',
                     fontSize: '12px',
                     lineHeight: 1.2,
@@ -757,8 +849,6 @@ export function NamespacePage() {
                   }}
                 >
                   {stateInfo.publishLabel}
-                  <span style={{ opacity: 0.65 }}>·</span>
-                  {stateInfo.validationLabel}
                 </span>
               </Tooltip>
             </td>
@@ -1006,27 +1096,19 @@ export function NamespacePage() {
                   flex={1}
                   minWidth="80px"
                 />
-                <CompactSelect
+                <SplitFilter
                   label="Publish state"
-                  name="mode"
                   options={modeOptions}
                   value={filters.mode}
-                  onChange={e =>
-                    updateFilters({ ...filters, mode: e?.value || '' })
-                  }
-                  flex={1}
-                  minWidth="80px"
+                  onChange={value => updateFilters({ ...filters, mode: value })}
                 />
-                <CompactSelect
+                <SplitFilter
                   label="Validation"
-                  name="status"
                   options={statusOptions}
                   value={filters.statuses}
-                  onChange={e =>
-                    updateFilters({ ...filters, statuses: e?.value || '' })
+                  onChange={value =>
+                    updateFilters({ ...filters, statuses: value })
                   }
-                  flex={1}
-                  minWidth="80px"
                 />
 
                 {/* More Filters */}

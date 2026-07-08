@@ -183,12 +183,8 @@ describe('NamespacePage', () => {
 
     // Check that it renders nodes
     expect(screen.getByText('Test Node')).toBeInTheDocument();
-    expect(
-      screen.getAllByText((_, element) => {
-        const text = element?.textContent?.replace(/\s/g, '');
-        return text === 'Published·Valid';
-      }).length,
-    ).toBeGreaterThan(0);
+    expect(screen.getAllByText('Published').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Valid').length).toBeGreaterThan(0);
     expect(screen.getByText('customer_service')).toBeInTheDocument();
     expect(screen.getByText('+2')).toBeInTheDocument();
 
