@@ -133,6 +133,11 @@ describe('NamespacePage', () => {
                 createdBy: {
                   username: 'dj',
                 },
+                owners: [
+                  { username: 'customer_service' },
+                  { username: 'finance' },
+                  { username: 'analytics' },
+                ],
               },
             },
           ],
@@ -178,14 +183,22 @@ describe('NamespacePage', () => {
 
     // Check that it renders nodes
     expect(screen.getByText('Test Node')).toBeInTheDocument();
+    expect(
+      screen.getAllByText((_, element) => {
+        const text = element?.textContent?.replace(/\s/g, '');
+        return text === 'Published·Valid';
+      }).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getByText('customer_service')).toBeInTheDocument();
+    expect(screen.getByText('+2')).toBeInTheDocument();
 
     // --- Sorting ---
 
     // Track current call count
     const initialCallCount = mockDjClient.listNodesForLanding.mock.calls.length;
 
-    // sort by 'name'
-    fireEvent.click(screen.getByText('name'));
+    // sort by name
+    fireEvent.click(screen.getByText('Name'));
     await waitFor(() => {
       expect(
         mockDjClient.listNodesForLanding.mock.calls.length,
@@ -195,7 +208,7 @@ describe('NamespacePage', () => {
     const afterFirstSort = mockDjClient.listNodesForLanding.mock.calls.length;
 
     // flip direction
-    fireEvent.click(screen.getByText('name'));
+    fireEvent.click(screen.getByText('Name'));
     await waitFor(() => {
       expect(
         mockDjClient.listNodesForLanding.mock.calls.length,
@@ -204,8 +217,8 @@ describe('NamespacePage', () => {
 
     const afterSecondSort = mockDjClient.listNodesForLanding.mock.calls.length;
 
-    // sort by 'displayName'
-    fireEvent.click(screen.getByText('display Name'));
+    // sort by display name
+    fireEvent.click(screen.getByText('Display name'));
     await waitFor(() => {
       expect(
         mockDjClient.listNodesForLanding.mock.calls.length,
@@ -229,6 +242,10 @@ describe('NamespacePage', () => {
     }
 
     // Tag filter
+    fireEvent.click(screen.getByText('Filters'));
+    await waitFor(() => {
+      expect(screen.getByText('Tags')).toBeInTheDocument();
+    });
     const selectTag = screen.getAllByTestId('select-tag')[0];
     const tagInput = selectTag.querySelector('input');
     if (tagInput) {
@@ -389,28 +406,34 @@ describe('NamespacePage', () => {
 
       await waitFor(() => {
         // Check for filter labels
-        expect(screen.getByText('Type')).toBeInTheDocument();
+        expect(screen.getAllByText('Type').length).toBeGreaterThan(0);
+        expect(screen.getByText('Owner')).toBeInTheDocument();
+        expect(screen.getAllByText('Publish state').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Validation').length).toBeGreaterThan(0);
+        expect(screen.getByText('More filters')).toBeInTheDocument();
+        expect(screen.queryByText('Tags')).not.toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText('Filters'));
+
+      await waitFor(() => {
         expect(screen.getByText('Tags')).toBeInTheDocument();
         expect(screen.getByText('Edited By')).toBeInTheDocument();
-        expect(screen.getByText('Mode')).toBeInTheDocument();
-        expect(screen.getByText('Owner')).toBeInTheDocument();
-        expect(screen.getByText('Status')).toBeInTheDocument();
-        expect(screen.getByText('Quality')).toBeInTheDocument();
+        expect(screen.getByText('Missing Description')).toBeInTheDocument();
       });
     });
 
-    it('opens Quality dropdown when clicked', async () => {
+    it('opens More filters dropdown when clicked', async () => {
       renderWithProviders(<NamespacePage />);
 
       await waitFor(() => {
-        expect(screen.getByText('Quality')).toBeInTheDocument();
+        expect(screen.getByText('More filters')).toBeInTheDocument();
       });
 
-      // Find and click the Quality button
-      const qualityButton = screen.getByText('Issues');
-      fireEvent.click(qualityButton);
+      fireEvent.click(screen.getByText('Filters'));
 
       await waitFor(() => {
+        expect(screen.getByText('Tags')).toBeInTheDocument();
         expect(screen.getByText('Missing Description')).toBeInTheDocument();
         expect(screen.getByText('Orphaned Dimensions')).toBeInTheDocument();
         expect(screen.getByText('Has Materialization')).toBeInTheDocument();
@@ -421,12 +444,10 @@ describe('NamespacePage', () => {
       renderWithProviders(<NamespacePage />);
 
       await waitFor(() => {
-        expect(screen.getByText('Quality')).toBeInTheDocument();
+        expect(screen.getByText('More filters')).toBeInTheDocument();
       });
 
-      // Open the Quality dropdown
-      const qualityButton = screen.getByText('Issues');
-      fireEvent.click(qualityButton);
+      fireEvent.click(screen.getByText('Filters'));
 
       await waitFor(() => {
         expect(screen.getByText('Missing Description')).toBeInTheDocument();
@@ -632,10 +653,10 @@ describe('NamespacePage', () => {
       renderWithProviders(<NamespacePage />);
 
       await waitFor(() => {
-        expect(screen.getByText('Quality')).toBeInTheDocument();
+        expect(screen.getByText('More filters')).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByText('Issues'));
+      fireEvent.click(screen.getByText('Filters'));
       await waitFor(() => {
         expect(screen.getByText('Orphaned Dimensions')).toBeInTheDocument();
       });
@@ -655,10 +676,10 @@ describe('NamespacePage', () => {
       renderWithProviders(<NamespacePage />);
 
       await waitFor(() => {
-        expect(screen.getByText('Quality')).toBeInTheDocument();
+        expect(screen.getByText('More filters')).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByText('Issues'));
+      fireEvent.click(screen.getByText('Filters'));
       await waitFor(() => {
         expect(screen.getByText('Has Materialization')).toBeInTheDocument();
       });

@@ -40,12 +40,17 @@ export default function AddNodeDropdown({ namespace }) {
   return (
     <span
       className="menu-link"
-      style={{ margin: '0.5em 0 0 1em', width: '130px' }}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        margin: 0,
+        width: '130px',
+      }}
     >
       <span className="menu-title">
         <div className="dropdown">
           <span className="add_node">+ Add Node</span>
-          <div className="dropdown-content">
+          <div className="dropdown-content add-node-dropdown-content">
             <a href={`/create/source`}>
               <div className="node_type__source node_type_creation_heading">
                 Register Table
