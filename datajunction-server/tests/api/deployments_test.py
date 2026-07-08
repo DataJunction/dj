@@ -1634,11 +1634,16 @@ class TestDeployments:
             ],
             owners=["dj"],
         )
+        # Two required dims on the SAME linked dimension node — exercises the
+        # dedup when adding deploy-ordering edges (the node is only added once).
         num_hard_hats = MetricSpec(
             name="default.num_hard_hats",
             node_type=NodeType.METRIC,
             query="SELECT COUNT(*) FROM ${prefix}default.hard_hat_facts",
-            required_dimensions=["${prefix}default.us_state.state_name"],
+            required_dimensions=[
+                "${prefix}default.us_state.state_name",
+                "${prefix}default.us_state.state_region",
+            ],
             owners=["dj"],
         )
         nodes = [
@@ -1666,6 +1671,7 @@ class TestDeployments:
         )
         assert metric_a["required_dimensions"] == [
             "${prefix}default.us_state.state_name",
+            "${prefix}default.us_state.state_region",
         ]
 
         # Push the exported specs to namespace B — this is what failed before.
@@ -1684,6 +1690,7 @@ class TestDeployments:
         )
         assert metric_b["required_dimensions"] == [
             "${prefix}default.us_state.state_name",
+            "${prefix}default.us_state.state_region",
         ]
 
     @pytest.mark.asyncio
