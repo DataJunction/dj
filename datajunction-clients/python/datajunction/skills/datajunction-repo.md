@@ -183,7 +183,7 @@ query: |
 # nodes/sources/transactions.yaml
 name: finance.transactions
 description: Raw transaction data from payment system
-type: source
+node_type: source
 catalog: prod_catalog
 schema_: finance
 table: transactions_table
@@ -227,7 +227,7 @@ mode: published
 # nodes/dimensions/user.yaml
 name: finance.user
 description: User dimension with attributes
-type: dimension
+node_type: dimension
 query: |
   SELECT
     user_id,
@@ -281,7 +281,7 @@ mode: published
 # nodes/metrics/revenue.yaml
 name: finance.total_revenue
 description: Total revenue from completed transactions
-type: metric
+node_type: metric
 query: |
   SELECT
     SUM(
@@ -319,7 +319,7 @@ mode: published
 # nodes/transforms/clean_transactions.yaml
 name: finance.clean_transactions
 description: Cleaned transaction data with standardized status
-type: transform
+node_type: transform
 primary_key:
   - transaction_id
 query: |
@@ -598,7 +598,7 @@ git checkout feature-add-churn-metric
 cat > nodes/metrics/churn_rate.yaml <<'EOF'
 name: finance.churn_rate
 description: Monthly user churn rate
-type: metric
+node_type: metric
 query: |
   SELECT
     CAST(SUM(CASE WHEN churned = true THEN 1 ELSE 0 END) AS DOUBLE) /
