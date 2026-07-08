@@ -966,7 +966,6 @@ export function NamespacePage() {
 
   // Count active filters tucked behind "More filters".
   const moreFiltersCount = [
-    filters.tags?.length > 0,
     !!filters.edited_by,
     filters.missingDescription,
     filters.hasMaterialization,
@@ -1096,6 +1095,24 @@ export function NamespacePage() {
                   flex={1}
                   minWidth="80px"
                 />
+                <CompactSelect
+                  label="Tags"
+                  name="tags"
+                  options={tagOptions}
+                  value={filters.tags}
+                  onChange={e =>
+                    updateFilters({
+                      ...filters,
+                      tags: e ? e.map(t => t.value) : [],
+                    })
+                  }
+                  isMulti
+                  isLoading={tagsLoading}
+                  onMenuOpen={ensureTags}
+                  flex={1.2}
+                  minWidth="100px"
+                  testId="select-tag"
+                />
                 <SplitFilter
                   label="Publish state"
                   options={modeOptions}
@@ -1184,24 +1201,6 @@ export function NamespacePage() {
                           marginBottom: '12px',
                         }}
                       >
-                        <CompactSelect
-                          label="Tags"
-                          name="tags"
-                          options={tagOptions}
-                          value={filters.tags}
-                          onChange={e =>
-                            updateFilters({
-                              ...filters,
-                              tags: e ? e.map(t => t.value) : [],
-                            })
-                          }
-                          isMulti
-                          isLoading={tagsLoading}
-                          onMenuOpen={ensureTags}
-                          flex="none"
-                          minWidth="100%"
-                          testId="select-tag"
-                        />
                         <CompactSelect
                           label="Edited By"
                           name="editedBy"

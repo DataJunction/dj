@@ -404,16 +404,15 @@ describe('NamespacePage', () => {
         // Check for filter labels
         expect(screen.getAllByText('Type').length).toBeGreaterThan(0);
         expect(screen.getByText('Owner')).toBeInTheDocument();
+        expect(screen.getByText('Tags')).toBeInTheDocument();
         expect(screen.getAllByText('Publish state').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Validation').length).toBeGreaterThan(0);
         expect(screen.getByText('More filters')).toBeInTheDocument();
-        expect(screen.queryByText('Tags')).not.toBeInTheDocument();
       });
 
       fireEvent.click(screen.getByText('Filters'));
 
       await waitFor(() => {
-        expect(screen.getByText('Tags')).toBeInTheDocument();
         expect(screen.getByText('Edited By')).toBeInTheDocument();
         expect(screen.getByText('Missing Description')).toBeInTheDocument();
       });
@@ -429,7 +428,6 @@ describe('NamespacePage', () => {
       fireEvent.click(screen.getByText('Filters'));
 
       await waitFor(() => {
-        expect(screen.getByText('Tags')).toBeInTheDocument();
         expect(screen.getByText('Missing Description')).toBeInTheDocument();
         expect(screen.getByText('Orphaned Dimensions')).toBeInTheDocument();
         expect(screen.getByText('Has Materialization')).toBeInTheDocument();
