@@ -618,10 +618,25 @@ class Node(Base):
                 legacy_from_md,
             )
 
+            # A required dimension that is a direct column on a parent node is
+            # exported as its bare column name (portable as-is). One that lives on
+            # a node elsewhere on the graph (e.g. a linked dimension) is exported
+            # as its fully-qualified `node.column` path, so a re-deploy into a
+            # different namespace can still find it — the bare name would fail to
+            # resolve against the parents. Prefix parameterization (`${prefix}`) is
+            # applied later, in get_node_specs_for_export, and only for in-deploy
+            # nodes. Only touch ``parents`` when there are required dims to classify.
+            required_dimensions_spec: list[str] = []
+            if self.current.required_dimensions:
+                parent_names = {parent.name for parent in self.current.parents}
+                required_dimensions_spec = sorted(
+                    col.name
+                    if col.node_revision.name in parent_names
+                    else col.full_name()
+                    for col in self.current.required_dimensions
+                )
             extra_kwargs.update(
-                required_dimensions=sorted(
-                    col.name for col in self.current.required_dimensions
-                ),
+                required_dimensions=required_dimensions_spec,
                 direction=self.current.metric_metadata.direction
                 if self.current.metric_metadata
                 else None,
@@ -1727,7 +1742,11 @@ class NodeRevision(
                 ),
                 joinedload(DimensionLink.node_revision),
             ),
-            selectinload(NodeRevision.required_dimensions),
+            selectinload(NodeRevision.required_dimensions).options(
+                # to_spec reads col.full_name() -> col.node_revision.name for
+                # off-graph required dimensions; preload it to avoid MissingGreenlet.
+                joinedload(Column.node_revision).load_only(NodeRevision.name),
+            ),
             selectinload(NodeRevision.cube_elements)
             .selectinload(Column.node_revision)
             .options(

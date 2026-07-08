@@ -37,6 +37,7 @@ from datajunction_server.models.deployment import (
     DeploymentSourceType,
     GitDeploymentSource,
     LocalDeploymentSource,
+    MetricSpec,
     NamespaceSourcesResponse,
     NodeSpec,
 )
@@ -1164,6 +1165,24 @@ async def get_node_specs_for_export(
             NodeType.METRIC,
         ):
             node_spec.query = inject_prefixes(node_spec.query, namespace)
+        if node_spec.node_type == NodeType.METRIC:
+            metric_spec = cast(MetricSpec, node_spec)
+            if metric_spec.required_dimensions:
+                # Required dims that are full `node.column` paths get the same
+                # in-deploy-vs-external treatment as cube refs: parameterized to
+                # ${prefix} when the node is part of this deployment, left as the
+                # raw full path when it's external. Bare column names (direct parent
+                # columns) contain no namespace prefix, so they pass through
+                # unchanged.
+                metric_spec.required_dimensions = [
+                    _inject_prefix_for_cube_ref(
+                        required_dim,
+                        namespace,
+                        parent_namespace,
+                        namespace_suffixes,
+                    )
+                    for required_dim in metric_spec.required_dimensions
+                ]
         if node_spec.node_type in (
             NodeType.SOURCE,
             NodeType.TRANSFORM,

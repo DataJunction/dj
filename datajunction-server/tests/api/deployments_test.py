@@ -1599,6 +1599,94 @@ class TestDeployments:
         )
 
     @pytest.mark.asyncio
+    async def test_required_dimension_from_linked_dimension_roundtrips(
+        self,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        A metric whose required dimension lives on a dimension linked to its
+        upstream transform must survive a pull-from-A / push-to-B round trip.
+
+        Regression test for the bug where such a required dimension exported as
+        its bare column name, which then failed to resolve against the metric's
+        parents in the target namespace ("references to columns as required
+        dimensions that are not on parent nodes").
+        """
+        # A transform that carries a dimension link to us_state, and a metric on
+        # that transform whose required dimension is a *us_state* column — i.e. a
+        # dimension elsewhere on the graph, not a direct column of the parent.
+        hard_hat_facts = TransformSpec(
+            name="default.hard_hat_facts",
+            node_type=NodeType.TRANSFORM,
+            query="SELECT hard_hat_id, state FROM ${prefix}default.hard_hats",
+            dimension_links=[
+                DimensionJoinLinkSpec(
+                    dimension_node="${prefix}default.us_state",
+                    join_type="inner",
+                    join_on=(
+                        "${prefix}default.hard_hat_facts.state = "
+                        "${prefix}default.us_state.state_short"
+                    ),
+                ),
+            ],
+            owners=["dj"],
+        )
+        num_hard_hats = MetricSpec(
+            name="default.num_hard_hats",
+            node_type=NodeType.METRIC,
+            query="SELECT COUNT(*) FROM ${prefix}default.hard_hat_facts",
+            required_dimensions=["${prefix}default.us_state.state_name"],
+            owners=["dj"],
+        )
+        nodes = [
+            default_hard_hats,
+            default_us_states,
+            default_us_state,
+            hard_hat_facts,
+            num_hard_hats,
+        ]
+
+        # Deploy to namespace A.
+        data_a = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace="rt_a", nodes=nodes),
+        )
+        assert data_a["status"] == "success", data_a["results"]
+
+        # Export A: the required dimension is on a linked dimension (not a parent
+        # column), so it must export as a ${prefix}-parameterized full path.
+        export_a = (await client.get("/namespaces/rt_a/export/spec")).json()["nodes"]
+        metric_a = next(
+            spec
+            for spec in export_a
+            if spec["name"] == "${prefix}default.num_hard_hats"
+        )
+        assert metric_a["required_dimensions"] == [
+            "${prefix}default.us_state.state_name",
+        ]
+
+        # Push the exported specs to namespace B — this is what failed before.
+        deployment_b = DeploymentSpec.model_validate(
+            {"namespace": "rt_b", "nodes": export_a},
+        )
+        data_b = await deploy_and_wait(client, deployment_b)
+        assert data_b["status"] == "success", data_b["results"]
+
+        # The required dimension survived the round trip and re-bound in B.
+        export_b = (await client.get("/namespaces/rt_b/export/spec")).json()["nodes"]
+        metric_b = next(
+            spec
+            for spec in export_b
+            if spec["name"] == "${prefix}default.num_hard_hats"
+        )
+        assert metric_b["required_dimensions"] == [
+            "${prefix}default.us_state.state_name",
+        ]
+
+    @pytest.mark.asyncio
     async def test_deploy_dimension_with_update(
         self,
         client,

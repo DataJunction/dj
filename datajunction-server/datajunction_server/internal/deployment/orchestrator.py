@@ -13,6 +13,7 @@ from sqlalchemy.orm import joinedload, selectinload, defer, load_only, noload
 from datajunction_server.api.helpers import (
     get_node_namespace,
     COLUMN_NAME_REGEX,
+    _resolve_required_dimensions,
     map_dimensions_to_roles,
 )
 from datajunction_server.construction.build_v2 import FullColumnName
@@ -1577,8 +1578,26 @@ class DeploymentOrchestrator:
 
         deployed_results, deployed_nodes = [], {}
 
+        # Deploy-ordering graph: augment the dependency graph with each metric's
+        # required-dimension nodes, so a dimension referenced only via
+        # required_dimensions (not a query parent) still deploys before the metric
+        # that needs it. Kept separate from plan.node_graph so it never leaks into
+        # parent classification — these are ordering edges, not parents.
+        ordering_graph = {name: list(deps) for name, deps in plan.node_graph.items()}
+        for node_spec in plan.to_deploy:
+            if isinstance(node_spec, MetricSpec) and node_spec.required_dimensions:
+                for required_dim in node_spec.rendered_required_dimensions:
+                    if SEPARATOR not in required_dim:
+                        continue
+                    dim_node = required_dim.rsplit(SEPARATOR, 1)[0]
+                    if dim_node == node_spec.rendered_name:  # pragma: no cover
+                        continue
+                    deps = ordering_graph.setdefault(node_spec.rendered_name, [])
+                    if dim_node not in deps:
+                        deps.append(dim_node)
+
         # Order nodes topologically based on dependencies
-        levels = topological_levels(plan.node_graph, ascending=False)
+        levels = topological_levels(ordering_graph, ascending=False)
         logger.info(
             "Deploying nodes in topological order with %d levels",
             len(levels),
@@ -3775,17 +3794,29 @@ class DeploymentOrchestrator:
                     min_decimal_exponent=metric_spec.min_decimal_exponent,
                 )
 
-            # Assign required dimensions if specified and present in columns
+            # Bind required dimensions. A required dim is either a bare column on a
+            # parent, or a fully-qualified `node.column` path pointing at a node
+            # elsewhere on the graph (e.g. a dimension linked to a parent). Resolve
+            # both against the accumulated in-flight node map (dependency_nodes) —
+            # the same context validation uses. `${prefix}` is rendered to the target
+            # namespace so cross-namespace deploys bind to the right node.
+            #
+            # The referenced dim node is guaranteed to already be in dependency_nodes
+            # because the deploy-ordering graph adds it as an ordering dependency, so
+            # it deploys in an earlier topological level than this metric.
             if metric_spec.required_dimensions:
-                required_dimensions = []
-                origin_node = new_revision.parents[0].current
-                columns_mapping = {col.name: col for col in origin_node.columns}
-                for dim in metric_spec.required_dimensions:
-                    if dim in columns_mapping:
-                        required_dimensions.append(
-                            columns_mapping[dim],
-                        )  # pragma: no cover
-                new_revision.required_dimensions = required_dimensions
+                parent_columns = [
+                    col
+                    for parent in new_revision.parents
+                    if parent.current
+                    for col in parent.current.columns
+                ]
+                _, matched_columns = _resolve_required_dimensions(
+                    metric_spec.rendered_required_dimensions,
+                    parent_columns,
+                    dependency_nodes,
+                )
+                new_revision.required_dimensions = matched_columns
         return new_revision
 
     def _resolve_metric_unit(
