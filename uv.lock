@@ -870,6 +870,7 @@ dependencies = [
     { name = "ruamel-yaml" },
     { name = "sqlalchemy" },
     { name = "sqlalchemy-utils" },
+    { name = "sqlglot" },
     { name = "sse-starlette" },
     { name = "strawberry-graphql" },
     { name = "types-cachetools" },
@@ -884,13 +885,9 @@ all = [
 ]
 bigquery = [
     { name = "google-cloud-bigquery" },
-    { name = "sqlglot" },
 ]
 snowflake = [
     { name = "snowflake-connector-python" },
-]
-transpilation = [
-    { name = "sqlglot" },
 ]
 uvicorn = [
     { name = "uvicorn", extra = ["standard"] },
@@ -959,8 +956,7 @@ requires-dist = [
     { name = "snowflake-connector-python", marker = "extra == 'snowflake'", specifier = ">=3.0.0" },
     { name = "sqlalchemy", specifier = ">=2" },
     { name = "sqlalchemy-utils", specifier = ">=0.40.0,<1.0.0" },
-    { name = "sqlglot", marker = "extra == 'bigquery'", specifier = ">=18.0.1" },
-    { name = "sqlglot", marker = "extra == 'transpilation'", specifier = ">=18.0.1" },
+    { name = "sqlglot", specifier = ">=18.0.1" },
     { name = "sse-starlette", specifier = ">=1.6.0,<=2.0.0" },
     { name = "strawberry-graphql", specifier = ">=0.235.0" },
     { name = "types-cachetools", specifier = ">=5.3.0.6" },
@@ -968,7 +964,7 @@ requires-dist = [
     { name = "yamlfix", specifier = ">=1.16.0" },
     { name = "yarl", specifier = ">=1.8.2,<2.0.0" },
 ]
-provides-extras = ["all", "bigquery", "snowflake", "transpilation", "uvicorn"]
+provides-extras = ["all", "bigquery", "snowflake", "uvicorn"]
 
 [package.metadata.requires-dev]
 test = [

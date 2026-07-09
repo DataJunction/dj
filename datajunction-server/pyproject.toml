@@ -59,6 +59,10 @@ dependencies = [
     # Query parsing
     "antlr4-python3-runtime==4.13.1",
 
+    # SQL transpilation — required: DJ transpiles generated SQL per dialect and
+    # has no fallback (see datajunction_server/transpilation.py).
+    "sqlglot>=18.0.1",
+
     # Model Context Protocol (powers /mcp endpoint)
     "mcp>=1.0.0",
     # Terminal-friendly charts for the MCP visualize_metrics tool
@@ -104,9 +108,6 @@ classifiers = [
 uvicorn = [
     "uvicorn[standard]>=0.21.1",
 ]
-transpilation = [
-    "sqlglot>=18.0.1",
-]
 
 # Query client dependencies for different data warehouse vendors
 snowflake = [
@@ -115,7 +116,6 @@ snowflake = [
 
 bigquery = [
     "google-cloud-bigquery>=3.0.0",
-    "sqlglot>=18.0.1",
 ]
 
 all = [

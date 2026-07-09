@@ -1,5 +1,5 @@
 setup:
-	uv sync --group test --extra transpilation
+	uv sync --group test
 
 docker-build:
 	docker build .

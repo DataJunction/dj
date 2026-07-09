@@ -12,7 +12,7 @@ DataJunction (DJ) is currently supported in Python 3.8, 3.9, and 3.10. It's reco
     $ pyenv virtualenv 3.8 dj  # or 3.9/3.10
 
 Then you can pick any of the components you want to develop on, say ``cd datajunction-server`` or ``cd datajunction-clients/python``,
-install required dependencies with ``pdm install`` and call ``make test`` to run all the unit tests for that component.
+install required dependencies with ``make setup`` (which runs ``uv sync``) and call ``make test`` to run all the unit tests for that component.
 
 DJ relies heavily on these libraries:
 
@@ -242,7 +242,7 @@ A few `fixtures <https://docs.pytest.org/en/7.1.x/explanation/fixtures.html#abou
 Adding new dependencies
 =======================
 
-When a PR introduces a new dependency, add them to ``setup.cfg`` under ``install_requires``. If the dependency version is less than ``1.0`` and you expect it to change often it's better to pin the dependency, eg:
+When a PR introduces a new dependency, add it to ``pyproject.toml`` under ``[project]`` ``dependencies`` (or the appropriate optional-dependencies extra) and refresh the lock with ``uv lock``. If the dependency version is less than ``1.0`` and you expect it to change often it's better to pin the dependency, eg:
 
 .. code-block:: config
 

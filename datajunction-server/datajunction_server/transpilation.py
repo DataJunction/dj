@@ -1,8 +1,9 @@
 """SQL transpilation plugins manager."""
 
-import importlib
 from typing import Optional
 import logging
+
+import sqlglot
 
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.dialect import DialectRegistry, dialect_plugin
@@ -17,30 +18,14 @@ class SQLTranspilationPlugin:
     """
     SQL transpilation plugin base class. To add support for a new SQL transpilation library,
     implement this class with a custom `transpile_sql` method that works for the library. The
-    base implementation here will handle checking that the package exists before loading and
-    using it, or skipping transpilation if the package cannot be loaded.
+    base implementation here is a no-op that returns the query unchanged.
+
+    ``package_name`` identifies the plugin and is matched against
+    ``settings.transpilation_plugins`` to decide whether the plugin is registered
+    (see ``register_dialect_plugin``).
     """
 
     package_name: Optional[str] = "default"
-
-    def __init__(self):
-        """
-        Load the package
-        """
-        self.check_package()
-
-    def check_package(self):
-        """
-        Check that the selected SQL transpilation package is installed and loads it.
-        """
-        if self.package_name:  # pragma: no cover
-            try:
-                importlib.import_module(self.package_name)
-            except ImportError:
-                logger.warning(
-                    "The SQL transpilation package is not installed: %s",
-                    self.package_name,
-                )
 
     def transpile_sql(
         self,
@@ -80,8 +65,6 @@ class SQLGlotTranspilationPlugin(SQLTranspilationPlugin):
         """
         Transpile a given SQL query using the specific library.
         """
-        import sqlglot
-
         # Check to make sure that the output dialect is supported by sqlglot before transpiling
         if (
             input_dialect
