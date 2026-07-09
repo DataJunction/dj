@@ -764,9 +764,7 @@ def _build_parent_columns_map(
         if parent.name in failed_names:
             continue
         parent_node = (
-            loaded_nodes.get(parent.name)
-            or nodes_by_name.get(parent.name)
-            or parent
+            loaded_nodes.get(parent.name) or nodes_by_name.get(parent.name) or parent
         )
         if parent_node and parent_node.current and parent_node.current.columns:
             parent_map[parent.name] = {
