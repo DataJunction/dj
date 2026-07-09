@@ -832,7 +832,7 @@ async def test_export_namespaces(client_with_roads: AsyncClient):
             },
         ],
         "description": "An example cube so that the export path is tested",
-        "dimensions": ["default.hard_hat.hire_date", "default.hard_hat.city"],
+        "dimensions": ["default.hard_hat.city", "default.hard_hat.hire_date"],
         "directory": "",
         "display_name": "Example Cube",
         "filename": "example_cube.cube.yaml",
