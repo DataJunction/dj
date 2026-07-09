@@ -14,7 +14,8 @@ from datajunction_server.api.helpers import (
     get_node_namespace,
     COLUMN_NAME_REGEX,
     _resolve_required_dimensions,
-    map_dimensions_to_roles,
+    cube_element_roles,
+    dedupe_cube_elements,
 )
 from datajunction_server.construction.build_v2 import FullColumnName
 from datajunction_server.database import Node, NodeRevision
@@ -2631,7 +2632,9 @@ class DeploymentOrchestrator:
         # Build the "columns" for this node based on the cube elements
         node_columns = []
 
-        dimension_to_roles_mapping = map_dimensions_to_roles(
+        # Role suffix per cube element, aligned to metric_columns + dimension_columns.
+        element_roles = cube_element_roles(
+            len(validation_data.metric_columns),
             cube_spec.rendered_dimensions or [],
         )
 
@@ -2670,10 +2673,8 @@ class DeploymentOrchestrator:
                 ],
                 order=idx,
             )
-            if full_element_name in dimension_to_roles_mapping:
-                node_column.dimension_column = dimension_to_roles_mapping[
-                    full_element_name
-                ]
+            if element_roles[idx]:
+                node_column.dimension_column = element_roles[idx]
 
             # Apply partition from column spec if specified
             if full_element_name in column_spec_map:
@@ -2695,8 +2696,9 @@ class DeploymentOrchestrator:
             type=NodeType.CUBE,
             query="",
             columns=node_columns,
-            cube_elements=validation_data.metric_columns
-            + validation_data.dimension_columns,
+            cube_elements=dedupe_cube_elements(
+                validation_data.metric_columns + validation_data.dimension_columns,
+            ),
             parents=list(
                 set(validation_data.dimension_nodes + validation_data.metric_nodes),
             ),

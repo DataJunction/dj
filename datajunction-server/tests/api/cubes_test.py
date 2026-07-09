@@ -2948,6 +2948,25 @@ async def test_derive_sql_column():
     assert sql_column.display_name == expected_sql_column.display_name
     assert sql_column.type == expected_sql_column.type
 
+    # Role-qualified dimensions include the role, so two roles on the same
+    # column produce distinct SQL column names.
+    from_col = CubeElementMetadata(
+        name="dateint",
+        display_name="Date",
+        node_name="foo.dates",
+        type="dimension",
+        role="start",
+    ).derive_sql_column()
+    to_col = CubeElementMetadata(
+        name="dateint",
+        display_name="Date",
+        node_name="foo.dates",
+        type="dimension",
+        role="end",
+    ).derive_sql_column()
+    assert from_col.name != to_col.name
+    assert "start" in from_col.name and "end" in to_col.name
+
 
 @pytest.mark.asyncio
 async def test_cube_materialization_metadata(
@@ -3969,6 +3988,66 @@ class TestCubeMaterializeV2Endpoint:
         )
         assert response.status_code == 404
         assert "not found" in response.json()["message"].lower()
+
+
+class TestCubeRoleQualifiedDimensions:
+    """A cube may reference the same dimension attribute under two roles (e.g.
+    `v3.location.country[from]` and `[to]`) — regression for pk_cube."""
+
+    @pytest.mark.asyncio
+    async def test_create_cube_same_column_two_roles(
+        self,
+        module__client_with_build_v3: AsyncClient,
+    ):
+        """One column under two roles must not raise pk_cube; both survive on load."""
+        response = await module__client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.two_role_country_cube",
+                "metrics": ["v3.total_revenue"],
+                # Same column under two roles, plus a plain (roleless) dimension.
+                "dimensions": [
+                    "v3.location.country[from]",
+                    "v3.location.country[to]",
+                    "v3.product.category",
+                ],
+                "mode": "published",
+                "description": "Same location.country column under from/to roles",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        response = await module__client_with_build_v3.get(
+            "/cubes/v3.two_role_country_cube/",
+        )
+        assert response.status_code == 200, response.json()
+        cube = response.json()
+
+        # Both role-qualified dimensions survive — not collapsed to one — and the
+        # plain dimension is unaffected.
+        assert cube["cube_node_dimensions"] == [
+            "v3.location.country[from]",
+            "v3.location.country[to]",
+            "v3.product.category",
+        ]
+
+        # cube_node_dimensions above is the authoritative ordered list; cube_elements
+        # is a secondary view whose ordering across distinct source columns is
+        # pre-existing, so assert its contents as a set.
+        dimension_elements = {
+            (elem["node_name"], elem["name"], elem["role"])
+            for elem in cube["cube_elements"]
+            if elem["type"] == "dimension"
+        }
+        assert dimension_elements == {
+            ("v3.location", "country", "from"),
+            ("v3.location", "country", "to"),
+            ("v3.product", "category", None),
+        }
+
+        # SQL column names stay distinct (would collide if role were dropped).
+        sql_column_names = [col["name"] for col in cube["sql_columns"]]
+        assert len(sql_column_names) == len(set(sql_column_names))
 
 
 class TestCubeDeactivateEndpoint:

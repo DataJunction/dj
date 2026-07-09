@@ -1862,12 +1862,6 @@ def test_setup_claude_full_install(tmp_path, monkeypatch):
         assert skill_file.exists(), f"SKILL.md missing for {skill_name}"
         assert skill_file.read_text().startswith(f"---\nname: {skill_name}")
 
-        metadata_file = skill_dir / "metadata.json"
-        assert metadata_file.exists(), f"metadata.json missing for {skill_name}"
-        metadata = json.loads(metadata_file.read_text())
-        assert metadata["name"] == skill_name
-        assert "version" in metadata
-
     # Verify MCP config was created
     mcp_config_file = tmp_path / ".claude.json"
     assert mcp_config_file.exists(), "MCP config should be created"
@@ -1915,6 +1909,50 @@ def test_setup_claude_skills_only(tmp_path, monkeypatch):
     # Verify success message only for skills / subagent (not MCP)
     assert "Skill installed" in output or "skill" in output.lower()
     assert "MCP server" not in output
+
+
+def test_setup_claude_skips_non_skill_entries(tmp_path, monkeypatch):
+    """setup-claude ignores stray files and skill-less dirs in the bundle."""
+    import importlib.resources
+
+    # Fake packaged skills dir: one real skill plus entries that must be skipped.
+    fake_pkg = tmp_path / "pkg"
+    fake_skills = fake_pkg / "skills"
+    (fake_skills / "datajunction").mkdir(parents=True)
+    (fake_skills / "datajunction" / "SKILL.md").write_text(
+        "---\nname: datajunction\n---\nbody\n",
+    )
+    (fake_skills / "no-skill-md").mkdir()  # directory without SKILL.md -> skipped
+    (fake_skills / "stray.txt").write_text("junk")  # non-directory entry -> skipped
+
+    out_dir = tmp_path / "out"
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    with (
+        patch("pathlib.Path.home", return_value=tmp_path),
+        patch.object(importlib.resources, "files", lambda package: fake_pkg),
+        patch.object(
+            sys,
+            "argv",
+            [
+                "dj",
+                "setup-claude",
+                "--no-mcp",
+                "--no-agents",
+                "--output",
+                str(out_dir),
+            ],
+        ),
+        patch("sys.stdout", new_callable=StringIO),
+    ):
+        from datajunction import cli as dj_cli
+
+        dj_cli.main()
+
+    # Only the real skill was installed; the stray entries were skipped.
+    assert (out_dir / "datajunction" / "SKILL.md").exists()
+    assert not (out_dir / "no-skill-md").exists()
+    assert not (out_dir / "stray.txt").exists()
 
 
 def test_setup_claude_mcp_only(tmp_path, monkeypatch):

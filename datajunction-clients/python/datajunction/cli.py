@@ -5,7 +5,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 from rich import box
 from rich.console import Console, Group
@@ -1645,8 +1645,6 @@ class DJCLI:
         agents: bool = True,
     ):
         """Configure Claude Code integration with DJ."""
-        import json
-
         console = Console()
 
         console.print(
@@ -1663,131 +1661,28 @@ class DJCLI:
                     "[bold]📚 Installing DJ skills[/bold]\n",
                 )
 
-                from datajunction import __version__ as dj_version
-                from importlib.resources import files
+                from importlib.resources import files as _res_files
 
-                # All bundled DJ skills. ``datajunction`` is the core concepts
-                # skill (always loaded); the others are audience-specific
-                # extensions that compose on top of it.
-                bundled_skills: list[dict[str, Any]] = [
-                    {
-                        "name": "datajunction",
-                        "filename": "datajunction.md",
-                        "description": "Core DataJunction concepts and vocabulary",
-                        "keywords": [
-                            "DataJunction",
-                            "DJ",
-                            "semantic layer",
-                            "dimension link",
-                            "star schema",
-                            "node types",
-                        ],
-                    },
-                    {
-                        "name": "datajunction-query",
-                        "filename": "datajunction-query.md",
-                        "description": "Querying DJ metrics via MCP tools and APIs",
-                        "keywords": [
-                            "query metric",
-                            "generate SQL",
-                            "get metric data",
-                            "search_nodes",
-                            "build_metric_sql",
-                            "common dimensions",
-                        ],
-                    },
-                    {
-                        "name": "datajunction-semantic-model",
-                        "filename": "datajunction-semantic-model.md",
-                        "description": "DJ semantic modeling: query-to-nodes decomposition, ratio decomposition, naming, ownership",
-                        "keywords": [
-                            "semantic modeling",
-                            "decompose query",
-                            "ratio metric",
-                            "derived metric",
-                            "base metric",
-                            "metric naming",
-                            "namespace organization",
-                            "node ownership",
-                        ],
-                    },
-                    {
-                        "name": "datajunction-repo",
-                        "filename": "datajunction-repo.md",
-                        "description": "Authoring DJ nodes via YAML in a git-backed repository",
-                        "keywords": [
-                            "YAML nodes",
-                            "repo-backed namespace",
-                            "feature branch",
-                            "git workflow",
-                            "cube YAML",
-                            "metric YAML",
-                            "temporal partition",
-                        ],
-                    },
-                    {
-                        "name": "datajunction-api",
-                        "filename": "datajunction-api.md",
-                        "description": "Direct REST API authoring of DJ nodes for exploration / prototyping",
-                        "keywords": [
-                            "DJ API",
-                            "REST API",
-                            "curl",
-                            "POST nodes",
-                            "API authoring",
-                            "prototyping",
-                        ],
-                    },
-                ]
-
-                missing: list[str] = []
-                for skill in bundled_skills:
-                    dir_name = skill["name"]
-                    skill_dir = output_dir / dir_name
-                    skill_file = skill_dir / "SKILL.md"
-
-                    console.print(f"Installing [cyan]{dir_name}[/cyan]...")
-
-                    try:
-                        skill_file_path = files("datajunction").joinpath(
-                            f"skills/{skill['filename']}",
-                        )
-                        bundled_skill = skill_file_path.read_text(encoding="utf-8")
-                    except FileNotFoundError:  # pragma: no cover
-                        missing.append(skill["filename"])
+                skills_src = _res_files("datajunction").joinpath("skills")
+                installed = 0
+                for entry in sorted(skills_src.iterdir(), key=lambda p: p.name):
+                    src_skill = entry.joinpath("SKILL.md")
+                    if not entry.is_dir() or not src_skill.is_file():
                         continue
-
-                    skill_dir.mkdir(parents=True, exist_ok=True)
-
-                    with open(skill_file, "w") as f:
-                        f.write(bundled_skill)
-
-                    metadata_file = skill_dir / "metadata.json"
-                    with open(metadata_file, "w") as f:
-                        metadata = {
-                            "name": skill["name"],
-                            "version": dj_version,
-                            "description": skill["description"],
-                            "keywords": skill["keywords"],
-                            "metadata": {
-                                "source": "bundled",
-                                "dj_version": dj_version,
-                            },
-                        }
-                        json.dump(metadata, f, indent=2)
-
-                    console.print(f"[green]✓ Installed {skill_dir}/[/green]")
-                    console.print(
-                        f"  [dim]├─ SKILL.md ({len(bundled_skill)} chars)[/dim]",
+                    name = entry.name
+                    dest_dir = output_dir / name
+                    dest_dir.mkdir(parents=True, exist_ok=True)
+                    (dest_dir / "SKILL.md").write_text(
+                        src_skill.read_text(encoding="utf-8"),
+                        encoding="utf-8",
                     )
-                    console.print(
-                        f"  [dim]└─ metadata.json (v{dj_version})[/dim]\n",
-                    )
+                    console.print(f"[green]✓ Installed {dest_dir}/[/green]")
+                    installed += 1
 
-                if missing:  # pragma: no cover
+                if not installed:  # pragma: no cover
                     console.print(
-                        f"[red]✗ Bundled skills not found: {', '.join(missing)}. "
-                        f"Please ensure datajunction is properly installed.[/red]",
+                        "[red]✗ No bundled skills found. "
+                        "Please ensure datajunction is properly installed.[/red]",
                     )
                 else:
                     console.print(

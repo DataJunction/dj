@@ -445,17 +445,52 @@ async def resolve_downstream_references(
     return newly_valid_nodes
 
 
-def map_dimensions_to_roles(dimensions: List[str]) -> Dict[str, str]:
+def dimension_roles_in_order(dimensions: List[str]) -> List[Optional[str]]:
     """
-    Returns a mapping between dimension attributes and their roles.
-    For example, ["default.users.user_id[user]"] would turn into
-    {"default.users.user_id": "[user]"}
+    The `[role]` suffix (or None) for each dimension reference, in order.
+
+    One entry per reference (keyed by position, not column name), so two roles on
+    the same column are not collapsed. E.g.
+    `["a.x[start]", "a.x[end]", "b.y"]` -> `["[start]", "[end]", None]`.
     """
-    dimension_attrs = [FullColumnName(dim) for dim in dimensions]
-    return {
-        attr.node_name + SEPARATOR + attr.column_name: attr.role  # type: ignore
-        for attr in dimension_attrs
-    }
+    roles: List[Optional[str]] = []
+    for dim in dimensions:
+        attr = FullColumnName(dim)
+        roles.append(f"[{attr.role}]" if attr.role else None)
+    return roles
+
+
+def cube_element_roles(
+    num_metrics: int,
+    dimension_refs: List[str],
+) -> List[Optional[str]]:
+    """
+    Role suffix (or None) for each cube element, aligned to the cube's
+    node_columns.
+
+    A cube's node_columns are built metrics-first, then dimensions, so the result
+    is `num_metrics` Nones (metrics carry no role) followed by one `[role]`-or-None
+    per dimension reference. Callers index this by each node_column's position.
+    """
+    metric_roles: List[Optional[str]] = [None] * num_metrics
+    return metric_roles + dimension_roles_in_order(dimension_refs)
+
+
+def dedupe_cube_elements(columns: List[Column]) -> List[Column]:
+    """
+    Dedupe cube element columns by column id.
+
+    `cube_elements` is the many-to-many between a cube revision and the columns
+    it references (its metric columns and dimension attributes), keyed by
+    `(cube_id, column.id)`. A dimension attribute referenced under multiple roles
+    resolves to the same Column object, so appending it once per role would
+    violate `pk_cube`. Roles live on the cube's node_columns, so deduping here is
+    lossless.
+    """
+    deduped: Dict = {}
+    for col in columns:
+        deduped.setdefault(col.id if col.id is not None else id(col), col)
+    return list(deduped.values())
 
 
 async def validate_cube(

@@ -812,21 +812,16 @@ async def _cube_project_config(
         namespace_requested=namespace_requested,
     )
     cube_revision = await get_single_cube_revision_metadata(session, node.name)
-    metrics = []
-    dimensions = []
-    for element in cube_revision.cube_elements:
-        if element.type == NodeType.METRIC:
-            metrics.append(element.node_name)
-        else:
-            dimensions.append(f"{element.node_name}.{element.name}")
     return {
         "filename": filename,
         "directory": directory,
         "build_name": build_name,
         "display_name": cube_revision.display_name,
         "description": cube_revision.description,
-        "metrics": metrics,
-        "dimensions": dimensions,
+        # cube_node_metrics/cube_node_dimensions read the cube's node_columns and
+        # are already role-aware, so no manual role reconstruction is needed.
+        "metrics": cube_revision.cube_node_metrics,
+        "dimensions": cube_revision.cube_node_dimensions,
         "columns": [
             {
                 "name": column.name,

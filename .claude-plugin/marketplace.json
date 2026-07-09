@@ -1,0 +1,16 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "datajunction",
+  "description": "DataJunction Claude Code plugins",
+  "owner": {
+    "name": "DataJunction"
+  },
+  "plugins": [
+    {
+      "name": "datajunction",
+      "description": "DataJunction semantic layer skills, MCP server, and agent",
+      "source": "./plugins/datajunction",
+      "category": "development"
+    }
+  ]
+}

@@ -750,12 +750,22 @@ def _build_parent_columns_map(
     Looks up parents from the loaded nodes first, then falls back to
     the broader visited nodes index.  Parents that failed revalidation
     are excluded so that their children fail naturally.
+
+    A node's parents that are *not* part of the current impact set (e.g. an
+    independent sibling parent, unaffected by the change that triggered this
+    revalidation) appear in neither index.  For those we fall back to the
+    parent object already attached to ``node.current.parents``, whose columns
+    were eager-loaded in ``_batch_load_nodes_for_revalidation``.  Without this
+    fallback the sibling silently drops out of the map and the child fails
+    revalidation with "Table <sibling> not found in parent columns map".
     """
     parent_map: dict[str, dict[str, ColumnType]] = {}
     for parent in node.current.parents or []:
         if parent.name in failed_names:
             continue
-        parent_node = loaded_nodes.get(parent.name) or nodes_by_name.get(parent.name)
+        parent_node = (
+            loaded_nodes.get(parent.name) or nodes_by_name.get(parent.name) or parent
+        )
         if parent_node and parent_node.current and parent_node.current.columns:
             parent_map[parent.name] = {
                 col.name: col.type for col in parent_node.current.columns

@@ -1013,6 +1013,80 @@ async def test_multiple_roots_same_downstream(session, current_user: User):
 
 
 @pytest.mark.asyncio
+async def test_revalidation_independent_sibling_parent_not_dropped(
+    session,
+    current_user: User,
+):
+    """Only one of a child's two parents changes — the untouched sibling parent
+    must still be resolvable during revalidation.
+
+    Regression test: ``ns.source_b`` is not downstream of the changed node, so
+    it never appears in the impact BFS and is absent from both node indexes.
+    ``_build_parent_columns_map`` must fall back to the parent object attached
+    to the child (columns eager-loaded during the batch load); otherwise the
+    sibling silently drops out of the map and the child fails revalidation with
+    "Table `ns.source_b` not found in parent columns map".
+    """
+    session.add(NodeNamespace(namespace="ns"))
+
+    # source_a's id column has changed type (INT -> BIGINT). It is the only
+    # node in the changed set.
+    parent_a, parent_a_rev = _make_node(
+        "ns.source_a",
+        NodeType.SOURCE,
+        NodeStatus.VALID,
+        current_user.id,
+        columns=[("id", BigIntType())],
+    )
+    # source_b is independent of source_a and is never edited — it exists only
+    # as a second parent of the child.
+    parent_b, parent_b_rev = _make_node(
+        "ns.source_b",
+        NodeType.SOURCE,
+        NodeStatus.VALID,
+        current_user.id,
+        columns=[("id", BigIntType()), ("name", StringType())],
+    )
+    child, child_rev = _make_node(
+        "ns.transform",
+        NodeType.TRANSFORM,
+        NodeStatus.VALID,
+        current_user.id,
+        query="SELECT a.id, b.name FROM ns.source_a a JOIN ns.source_b b ON a.id = b.id",
+        columns=[("id", IntegerType()), ("name", StringType())],
+    )
+    await _persist(
+        session,
+        parent_a,
+        parent_a_rev,
+        parent_b,
+        parent_b_rev,
+        child,
+        child_rev,
+    )
+    await _persist(
+        session,
+        _link(parent_a, child_rev),
+        _link(parent_b, child_rev),
+    )
+
+    result = await propagate_impact(session, "ns", {"ns.source_a"})
+
+    by_name = {r.name: r for r in result}
+    assert "ns.transform" in by_name
+    impact = by_name["ns.transform"]
+    # The child revalidates cleanly: source_a's type change flows through and
+    # the untouched sibling source_b still resolves — not WILL_INVALIDATE.
+    assert impact.impact_type == ImpactType.MAY_AFFECT
+    assert "Column types changed" in impact.impact_reason
+    assert "not found in parent columns map" not in impact.impact_reason
+    # The child's id column picked up the new BIGINT type from source_a.
+    col_types = {col.name: col.type for col in child_rev.columns}
+    assert isinstance(col_types["id"], BigIntType)
+    assert child_rev.status == NodeStatus.VALID
+
+
+@pytest.mark.asyncio
 async def test_propagate_impact_dimension_link_stub(session, current_user: User):
     """Passing changed_link_node_names exercises the dimension link stub."""
     session.add(NodeNamespace(namespace="ns"))

@@ -4951,3 +4951,113 @@ async def test_validate_reference_dimension_link_good_attribute():
 
     # Should not raise
     await validate_reference_dimension_link(link, node, dim_node)
+
+
+@pytest.mark.xdist_group(name="deployments")
+class TestCubeRoleCollisionDeployment:
+    """pk_cube role-collision repro via the push path: a fact links one dimension
+    twice under two roles and a cube references the same column under both. The
+    real push previously crashed with a pk_cube UniqueViolation."""
+
+    @pytest.mark.asyncio
+    async def test_deploy_cube_same_column_two_roles(self, client):
+        namespace = "pk_cube_role"
+        nodes = [
+            SourceSpec(
+                name="orders_raw",
+                description="Raw orders",
+                catalog="default",
+                schema="roads",
+                table="orders_raw",
+                columns=[
+                    ColumnSpec(name="order_dateint", type="int"),
+                    ColumnSpec(name="ship_dateint", type="int"),
+                ],
+                dimension_links=[],
+                owners=["dj"],
+            ),
+            SourceSpec(
+                name="dates_raw",
+                description="Raw dates",
+                catalog="default",
+                schema="roads",
+                table="dates_raw",
+                columns=[
+                    ColumnSpec(name="dateint", type="int"),
+                    ColumnSpec(name="monthint", type="int"),
+                ],
+                dimension_links=[],
+                owners=["dj"],
+            ),
+            DimensionSpec(
+                name="dates_d",
+                description="Date dimension",
+                query="SELECT dateint, monthint FROM ${prefix}dates_raw",
+                primary_key=["dateint"],
+                dimension_links=[],
+                owners=["dj"],
+            ),
+            TransformSpec(
+                name="orders_f",
+                description="Orders fact linked to dates twice (order/ship)",
+                query="SELECT order_dateint, ship_dateint FROM ${prefix}orders_raw",
+                dimension_links=[
+                    DimensionJoinLinkSpec(
+                        dimension_node="${prefix}dates_d",
+                        join_type="left",
+                        join_on="${prefix}orders_f.order_dateint = ${prefix}dates_d.dateint",
+                        role="order_date",
+                    ),
+                    DimensionJoinLinkSpec(
+                        dimension_node="${prefix}dates_d",
+                        join_type="left",
+                        join_on="${prefix}orders_f.ship_dateint = ${prefix}dates_d.dateint",
+                        role="ship_date",
+                    ),
+                ],
+                owners=["dj"],
+            ),
+            MetricSpec(
+                name="order_count",
+                description="Order count",
+                query="SELECT COUNT(*) FROM ${prefix}orders_f",
+                dimension_links=[],
+                owners=["dj"],
+            ),
+            CubeSpec(
+                name="orders_cube",
+                display_name="Orders Cube",
+                description="Cube referencing dates_d.monthint under both roles",
+                metrics=["${prefix}order_count"],
+                dimensions=[
+                    "${prefix}dates_d.monthint[order_date]",
+                    "${prefix}dates_d.monthint[ship_date]",
+                ],
+                owners=["dj"],
+            ),
+        ]
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        # The real push must succeed — previously it raised a pk_cube UniqueViolation.
+        assert data["status"] == DeploymentStatus.SUCCESS.value, data
+
+        # Both role-qualified dimensions survive on the deployed cube.
+        response = await client.get(f"/cubes/{namespace}.orders_cube/")
+        assert response.status_code == 200, response.json()
+        cube = response.json()
+        assert cube["cube_node_dimensions"] == [
+            f"{namespace}.dates_d.monthint[order_date]",
+            f"{namespace}.dates_d.monthint[ship_date]",
+        ]
+        dimension_elements = [
+            (elem["node_name"], elem["name"], elem["role"])
+            for elem in cube["cube_elements"]
+            if elem["type"] == "dimension"
+        ]
+        assert dimension_elements == [
+            (f"{namespace}.dates_d", "monthint", "order_date"),
+            (f"{namespace}.dates_d", "monthint", "ship_date"),
+        ]

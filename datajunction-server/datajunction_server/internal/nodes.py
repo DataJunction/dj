@@ -21,12 +21,13 @@ from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.models.deployment import DeploymentResult
 from datajunction_server.models.query import QueryCreate
 from datajunction_server.api.helpers import (
+    cube_element_roles,
+    dedupe_cube_elements,
     get_attribute_type,
     get_catalog_by_name,
     get_column,
     get_node_by_name,
     get_node_namespace,
-    map_dimensions_to_roles,
     raise_if_node_exists,
     resolve_downstream_references,
     validate_cube,
@@ -637,7 +638,8 @@ async def create_cube_node_revision(
     # Build the "columns" for this node based on the cube elements. These are used
     # for marking partition columns when the cube gets materialized.
     node_columns = []
-    dimension_to_roles_mapping = map_dimensions_to_roles(data.dimensions or [])
+    # Role suffix per cube element, aligned to metric_columns + dimension_columns.
+    element_roles = cube_element_roles(len(metric_columns), data.dimensions or [])
     for idx, col in enumerate(metric_columns + dimension_columns):
         await session.refresh(col, ["node_revision"])
         referenced_node = col.node_revision
@@ -659,13 +661,8 @@ async def create_cube_node_revision(
             ],
             order=idx,
         )
-        if (
-            full_element_name in dimension_to_roles_mapping
-            and dimension_to_roles_mapping[full_element_name]
-        ):
-            node_column.dimension_column = (
-                "[" + dimension_to_roles_mapping[full_element_name] + "]"
-            )
+        if element_roles[idx]:
+            node_column.dimension_column = element_roles[idx]
 
         node_columns.append(node_column)
 
@@ -676,7 +673,7 @@ async def create_cube_node_revision(
         type=NodeType.CUBE,
         query="",
         columns=node_columns,
-        cube_elements=metric_columns + dimension_columns,
+        cube_elements=dedupe_cube_elements(metric_columns + dimension_columns),
         parents=list(set(dimension_nodes + metric_nodes)),
         status=status,
         catalog=catalog,
