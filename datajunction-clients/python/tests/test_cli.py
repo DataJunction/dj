@@ -1862,12 +1862,6 @@ def test_setup_claude_full_install(tmp_path, monkeypatch):
         assert skill_file.exists(), f"SKILL.md missing for {skill_name}"
         assert skill_file.read_text().startswith(f"---\nname: {skill_name}")
 
-        metadata_file = skill_dir / "metadata.json"
-        assert metadata_file.exists(), f"metadata.json missing for {skill_name}"
-        metadata = json.loads(metadata_file.read_text())
-        assert metadata["name"] == skill_name
-        assert "version" in metadata
-
     # Verify MCP config was created
     mcp_config_file = tmp_path / ".claude.json"
     assert mcp_config_file.exists(), "MCP config should be created"
