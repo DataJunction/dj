@@ -453,7 +453,9 @@ def map_dimensions_to_roles(dimensions: List[str]) -> Dict[str, str]:
     """
     dimension_attrs = [FullColumnName(dim) for dim in dimensions]
     return {
-        attr.node_name + SEPARATOR + attr.column_name: attr.role  # type: ignore
+        attr.node_name + SEPARATOR + attr.column_name: (
+            f"[{attr.role}]" if attr.role else None
+        )  # type: ignore
         for attr in dimension_attrs
     }
 

@@ -11,7 +11,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from datajunction_server.api import helpers
-from datajunction_server.api.helpers import find_required_dimensions
+from datajunction_server.api.helpers import (
+    find_required_dimensions,
+    map_dimensions_to_roles,
+)
 from datajunction_server.internal import sql
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import OAuthProvider, User
@@ -171,6 +174,36 @@ async def test_build_sql_for_multiple_metrics(
         dimensions=[],
     )
     assert built_sql is not None
+
+
+def test_map_dimensions_to_roles_wraps_role_in_brackets():
+    """
+    ``map_dimensions_to_roles`` must return each role wrapped in brackets,
+    e.g. ``"[user]"`` (not the bare ``"user"``).
+
+    The value is stored on the cube element's ``Column.dimension_column`` and later
+    concatenated directly onto the column name by ``NodeRevision.cube_dimensions()``
+    (``element.name + (element.dimension_column or "")``) to reconstruct
+    ``node.column[role]``. If the role is emitted bare (``"user"``), that concatenation
+    yields an invalid reference like ``default.users.user_iduser`` — which fails cube
+    materialization with ``INVALID_COLUMN``. Regression test for that bug.
+    """
+    # single-hop role
+    assert map_dimensions_to_roles(["default.users.user_id[user]"]) == {
+        "default.users.user_id": "[user]",
+    }
+    # chained role path (roles joined with ``->``)
+    assert map_dimensions_to_roles(["a.b.date_dim.year[order->birth_country]"]) == {
+        "a.b.date_dim.year": "[order->birth_country]",
+    }
+    # no role -> None (so cube_dimensions appends nothing)
+    assert map_dimensions_to_roles(["default.users.user_id"]) == {
+        "default.users.user_id": None,
+    }
+    # the stored value must round-trip back to the canonical "node.column[role]"
+    mapping = map_dimensions_to_roles(["default.users.user_id[user]"])
+    node_column, role_suffix = next(iter(mapping.items()))
+    assert node_column + (role_suffix or "") == "default.users.user_id[user]"
 
 
 @pytest.mark.asyncio
