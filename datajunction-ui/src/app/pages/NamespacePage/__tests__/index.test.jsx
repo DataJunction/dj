@@ -545,7 +545,7 @@ describe('NamespacePage', () => {
   describe('Git-root namespace (branch landing page)', () => {
     const gitRootConfig = {
       github_repo_path: 'org/repo',
-      git_branch: 'main',
+      git_branch: null,
       default_branch: 'main',
       parent_namespace: null,
       git_only: false,
@@ -636,8 +636,8 @@ describe('NamespacePage', () => {
         },
         { timeout: 3000 },
       );
-      // ...where the branch-creation entry point is still present.
-      expect(await screen.findByText('New Branch')).toBeInTheDocument();
+      // ...where the branch-creation entry point is still present (inside the Git menu).
+      expect(await screen.findByText('+ New Branch')).toBeInTheDocument();
     });
   });
 
@@ -773,5 +773,137 @@ describe('NamespacePage', () => {
       },
       { timeout: 1000 },
     );
+  });
+
+  describe('Read-only git states', () => {
+    it('shows the node table but no add/edit controls for a flat (read-only) namespace', async () => {
+      // A flat namespace: has a repo path AND its own git_branch, no parent_namespace.
+      // detectShape returns 'flat' → read-only; edit controls must be hidden.
+      const flatConfig = {
+        github_repo_path: 'corp/repo',
+        git_branch: 'main',
+        default_branch: null,
+        parent_namespace: null,
+        git_only: false,
+        git_root_namespace: 'magnesium.tech',
+      };
+      mockDjClient.getNamespaceGitConfig.mockResolvedValue(flatConfig);
+      mockDjClient.listNamespacesWithGit.mockResolvedValue([
+        { namespace: 'magnesium.tech', numNodes: 1, git: null },
+      ]);
+      mockDjClient.listNodesForLanding.mockResolvedValue({
+        data: {
+          findNodesPaginated: {
+            pageInfo: {
+              hasNextPage: false,
+              endCursor: null,
+              hasPrevPage: false,
+              startCursor: null,
+            },
+            edges: [
+              {
+                node: {
+                  name: 'magnesium.tech.some_metric',
+                  type: 'METRIC',
+                  currentVersion: 'v1.0',
+                  tags: [],
+                  editedBy: [],
+                  current: {
+                    displayName: 'Some Metric',
+                    status: 'VALID',
+                    mode: 'PUBLISHED',
+                    updatedAt: '2024-10-18T15:15:33.532949+00:00',
+                  },
+                  createdBy: { username: 'dj' },
+                },
+              },
+            ],
+          },
+        },
+      });
+
+      renderWithProviders(<NamespacePage />, {
+        route: '/namespaces/magnesium.tech',
+      });
+
+      // The node name should appear in the table.
+      expect(await screen.findByText('some_metric')).toBeInTheDocument();
+
+      // No add/edit controls for a read-only (flat) namespace.
+      expect(screen.queryByText(/\+ Add Node/i)).not.toBeInTheDocument();
+    });
+
+    it('never shows Add Node on a git-deployed branch namespace (no flash)', async () => {
+      // Regression guard: a branch namespace (gitShape === 'branch') that is
+      // git-deployed is read-only. NamespaceHeader fires onReadOnlyChange(true)
+      // via a useEffect — one render after showEditControls first becomes true.
+      // The guard must be `headerReadOnly === false` (not `!headerReadOnly`) so
+      // Add Node stays hidden during the intermediate render where headerReadOnly
+      // is still `undefined`.
+      const branchConfig = {
+        github_repo_path: 'org/repo',
+        git_branch: 'main',
+        git_path: 'nodes/',
+        git_only: false,
+        parent_namespace: 'ads',
+        branch_namespace: 'ads.main',
+        git_root_namespace: 'ads',
+      };
+      mockDjClient.getNamespaceGitConfig.mockResolvedValue(branchConfig);
+      mockDjClient.namespaceSources.mockResolvedValue({
+        total_deployments: 1,
+        primary_source: { type: 'git', repository: 'org/repo', branch: 'main' },
+      });
+      mockDjClient.listNamespacesWithGit.mockResolvedValue([
+        { namespace: 'ads', numNodes: 0, git: null },
+        { namespace: 'ads.main', numNodes: 3, git: null },
+      ]);
+      mockDjClient.listNodesForLanding.mockResolvedValue({
+        data: {
+          findNodesPaginated: {
+            pageInfo: {
+              hasNextPage: false,
+              endCursor: null,
+              hasPrevPage: false,
+              startCursor: null,
+            },
+            edges: [
+              {
+                node: {
+                  name: 'ads.main.revenue',
+                  type: 'METRIC',
+                  currentVersion: 'v1.0',
+                  tags: [],
+                  editedBy: [],
+                  current: {
+                    displayName: 'Revenue',
+                    status: 'VALID',
+                    mode: 'PUBLISHED',
+                    updatedAt: '2024-10-18T15:15:33.532949+00:00',
+                  },
+                  createdBy: { username: 'dj' },
+                },
+              },
+            ],
+          },
+        },
+      });
+
+      renderWithProviders(<NamespacePage />, {
+        route: '/namespaces/ads.main',
+      });
+
+      // Wait for the node table to settle (proves the component rendered fully,
+      // including all effects — onReadOnlyChange has fired by this point).
+      expect(await screen.findByText('revenue')).toBeInTheDocument();
+
+      // Add Node must never appear at any point. Because headerReadOnly starts
+      // as `undefined` (fixed) vs `false` (buggy), the old guard `!headerReadOnly`
+      // would render Add Node on the first pass when gitConfig resolves but before
+      // the namespaceSources effect fires onReadOnlyChange. The new guard
+      // `headerReadOnly === false` keeps it hidden until explicitly known editable.
+      // After all effects settle, Add Node must still be absent (git-deployed = read-only).
+      expect(screen.queryByText('+ Add Node')).not.toBeInTheDocument();
+    });
   });
 });

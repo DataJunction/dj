@@ -12,6 +12,7 @@ import { useCurrentUser } from '../../providers/UserProvider';
 import AddNodeDropdown from '../../components/AddNodeDropdown';
 import NodeListActions from '../../components/NodeListActions';
 import NamespaceHeader from '../../components/NamespaceHeader';
+import SplitFilter from '../../components/SplitFilter';
 import Tooltip from '../../components/Tooltip';
 import {
   secondaryButtonStyle,
@@ -24,6 +25,7 @@ import NamespaceNav from './NamespaceNav';
 import { isHiddenNamespace } from './namespaceOptions';
 import { NODE_TYPE_ORDER, NODE_TYPE_COLORS } from './nodeTypes';
 import { getDJUrl } from '../../services/DJService';
+import { detectShape } from '../../components/git/gitShape';
 
 import 'styles/node-list.css';
 import 'styles/sorted-table.css';
@@ -144,68 +146,6 @@ function relativeDate(value) {
     }
   }
   return 'just now';
-}
-
-function SplitFilter({ label, options, value, onChange }) {
-  return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '2px',
-        flex: '0 0 auto',
-      }}
-    >
-      <label
-        style={{
-          fontSize: '10px',
-          fontWeight: '600',
-          color: '#666',
-          textTransform: 'uppercase',
-          letterSpacing: '0.5px',
-        }}
-      >
-        {label}
-      </label>
-      <div
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          height: '32px',
-          border: '1px solid #cbd5e1',
-          borderRadius: '999px',
-          backgroundColor: '#ffffff',
-          overflow: 'hidden',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        {options.map((option, index) => {
-          const active = value === option.value;
-          return (
-            <button
-              key={option.value}
-              type="button"
-              onClick={() => onChange(active ? '' : option.value)}
-              style={{
-                height: '30px',
-                padding: '0 13px',
-                border: 'none',
-                borderLeft: index === 0 ? 'none' : '1px solid #e2e8f0',
-                backgroundColor: active ? '#e3f2fd' : 'transparent',
-                color: active ? '#1976d2' : '#475569',
-                fontSize: '12px',
-                fontWeight: active ? '600' : '500',
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {option.label}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
 }
 
 export function NamespacePage() {
@@ -432,6 +372,8 @@ export function NamespacePage() {
   }, [debouncedSearch]);
 
   const [typeCounts, setTypeCounts] = useState(null);
+  // undefined until NamespaceHeader reports the read-only verdict, so Add Node stays hidden until known
+  const [headerReadOnly, setHeaderReadOnly] = useState(undefined);
 
   // Only show edit/add controls once git config has loaded and namespace is not git-only
   const gitConfigLoaded = gitConfig !== undefined;
@@ -441,8 +383,12 @@ export function NamespacePage() {
     gitConfigLoaded &&
     !!gitConfig?.github_repo_path &&
     gitConfig?.git_root_namespace === namespace;
+  // Edit controls are only shown for editable shapes: plain (not-git) namespaces
+  // and branch namespaces. Flat and root git-backed namespaces are read-only in
+  // the UI — their nodes are managed via git.
+  const gitShape = gitConfigLoaded ? detectShape(gitConfig || {}) : null;
   const showEditControls =
-    gitConfigLoaded && !gitConfig?.git_only && !isGitRoot;
+    gitConfigLoaded && (gitShape === 'not-git' || gitShape === 'branch');
   // Sub-namespaces can be created from the rail only for plain (non-git-backed)
   // namespaces; git-backed ones are managed via git, not the UI. The git config
   // endpoint returns an object with null fields (not null) for non-git
@@ -465,24 +411,32 @@ export function NamespacePage() {
       message: response.json?.message || 'Failed to create namespace',
     };
   };
-  // A git root has no nodes of its own — they live on its default branch. The node
-  // table (and its filters/keyword search) therefore browse `<root>.<default_branch>`,
-  // so a git root shows the same browsable table as any other namespace.
+  // Distinguish a *child-spawning* git root (owns the repo, has no branch of its
+  // own — its nodes live on `<root>.<default_branch>`) from a *flat* git-backed
+  // namespace (has its own `git_branch`, e.g. tracks `main` directly, with no
+  // `<ns>.<branch>` children). Only the former is browsed via / redirected to its
+  // default branch; a flat namespace is its own branch and must stay put.
+  const isChildSpawningRoot = isGitRoot && !gitConfig?.git_branch;
+
+  // A child-spawning root has no nodes of its own — they live on its default
+  // branch — so the node table browses `<root>.<default_branch>`. A flat
+  // namespace browses itself.
   const tableNamespace =
-    isGitRoot && gitConfig?.default_branch
+    isChildSpawningRoot && gitConfig?.default_branch
       ? `${namespace}.${gitConfig.default_branch}`
       : namespace;
 
-  // A git root has no nodes of its own and isn't a browsable branch — redirect to
-  // its default branch so the URL is the branch (giving the breadcrumb its branch
-  // switcher) and everything is scoped consistently.
+  // A child-spawning root isn't a browsable branch — redirect to its default
+  // branch so the URL is the branch (giving the breadcrumb its branch switcher)
+  // and everything is scoped consistently. A flat git-backed namespace is NOT
+  // redirected: it *is* the branch, and `<ns>.<default_branch>` doesn't exist.
   useEffect(() => {
-    if (isGitRoot && gitConfig?.default_branch) {
+    if (isChildSpawningRoot && gitConfig?.default_branch) {
       navigate(`/namespaces/${namespace}.${gitConfig.default_branch}`, {
         replace: true,
       });
     }
-  }, [isGitRoot, gitConfig, namespace, navigate]);
+  }, [isChildSpawningRoot, gitConfig, namespace, navigate]);
 
   // Per-type node counts (recursive) for the current namespace, shown inline in
   // the TYPE filter options (e.g. "Metric (342)").
@@ -1302,6 +1256,7 @@ export function NamespacePage() {
           <NamespaceHeader
             namespace={namespace}
             onGitConfigLoaded={setGitConfig}
+            onReadOnlyChange={setHeaderReadOnly}
             namespaceOptions={rawNamespaces}
             currentNamespace={namespace}
           >
@@ -1353,7 +1308,9 @@ export function NamespacePage() {
                 </button>
               </Tooltip>
             )}
-            {showEditControls && <AddNodeDropdown namespace={namespace} />}
+            {showEditControls && headerReadOnly === false && (
+              <AddNodeDropdown namespace={namespace} />
+            )}
           </NamespaceHeader>
 
           <div className="table-responsive">

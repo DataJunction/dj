@@ -4639,6 +4639,58 @@ class TestGitOnlyNamespaceDeployments:
 
         assert data["status"] == DeploymentStatus.SUCCESS.value
 
+    @pytest.mark.asyncio
+    async def test_git_deploy_persists_repo_and_locks(self, client):
+        """A CI git deploy (with commit_sha) to a flat namespace persists the repo
+        it tracks, making it a repo owner that is UI-locked via is_repo_owner.
+        Unlock is a config change (detach the repo), not a git_only toggle."""
+        namespace = "git_autolock_flat"
+
+        source_spec = SourceSpec(
+            name="s1",
+            description="Test source",
+            catalog="default",
+            schema="test",
+            table="t1",
+            columns=[ColumnSpec(name="id", type="int")],
+        )
+
+        # First git deploy — namespace doesn't exist yet and has no repo, so
+        # commit verification is skipped and the deploy succeeds. The repo path
+        # gets normalized (github.com/corp/repo -> corp/repo) and persisted.
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[source_spec],
+                source=GitDeploymentSource(
+                    repository="github.com/corp/repo",
+                    branch="main",
+                    commit_sha="abc123",
+                ),
+            ),
+        )
+        assert data["status"] == DeploymentStatus.SUCCESS.value
+
+        # Repo + branch persisted → a flat repo owner. No git_only write.
+        cfg = (await client.get(f"/namespaces/{namespace}/git")).json()
+        assert cfg["github_repo_path"] == "corp/repo"
+        assert cfg["git_branch"] == "main"
+        assert not cfg["git_only"]
+
+        # Locked via is_repo_owner: a UI node mutation is blocked.
+        blocked = await client.delete(f"/nodes/{namespace}.s1/")
+        assert blocked.status_code == 422
+        assert "git-managed" in blocked.json()["message"]
+
+        # Unlock = detach the repo (config change), not a git_only toggle.
+        detach = await client.delete(f"/namespaces/{namespace}/git")
+        assert detach.status_code in (200, 204)
+
+        # Now editable again.
+        ok = await client.delete(f"/nodes/{namespace}.s1/")
+        assert ok.status_code in (200, 201)
+
 
 @pytest.mark.xdist_group(name="deployments")
 class TestDeploymentStatusUpdate:

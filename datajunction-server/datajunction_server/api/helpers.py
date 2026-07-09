@@ -102,11 +102,13 @@ async def check_namespace_not_git_only(
 
     Blocks mutations when any ancestor (or the namespace itself):
     - Has ``git_only=True`` (explicitly locked), OR
-    - Is a git root (``github_repo_path`` set and ``git_branch`` null).
+    - Is a repo owner (``github_repo_path`` set and no ``parent_namespace``).
 
-    Branch namespaces (children of a git root with a non-null ``git_branch``)
-    are intentionally allowed — edits there are valid and get synced back to
-    the git repo, so they don't trip this check.
+    A repo owner covers both a git root (spawns ``<ns>.<branch>`` children) and
+    a flat git-backed namespace (tracks a branch directly). Branch namespaces
+    (children with a ``parent_namespace``) are intentionally allowed — edits
+    there are valid and get synced back to the git repo, so they don't trip
+    this check.
 
     Implementation: namespace names contain their parent path (``a.b.c``),
     so we materialize every prefix and fire a single ``IN`` query. One round
@@ -125,15 +127,17 @@ async def check_namespace_not_git_only(
     )
 
     # Walk deepest-first so the most specific locked ancestor (the one the
-    # user can most usefully act on) wins the error message. ``is_git_root``
+    # user can most usefully act on) wins the error message. ``is_repo_owner``
     # only applies to the namespace itself — its branch children are
     # intentionally editable — so don't propagate that flag up the chain.
     for ns in sorted(matches, key=lambda n: len(n.namespace), reverse=True):
         is_self = ns.namespace == namespace
-        is_git_root = (
-            is_self and ns.github_repo_path is not None and ns.git_branch is None
+        is_repo_owner = (
+            is_self
+            and ns.github_repo_path is not None
+            and ns.parent_namespace is None
         )
-        if ns.git_only or is_git_root:
+        if ns.git_only or is_repo_owner:
             scope_msg = (
                 f"'{namespace}'"
                 if is_self

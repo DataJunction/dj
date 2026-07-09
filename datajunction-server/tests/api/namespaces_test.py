@@ -3014,28 +3014,36 @@ async def test_validate_git_path_allows_valid_relative_paths(
 
 
 @pytest.mark.asyncio
-async def test_validate_git_only_blocked_without_git_config(
+async def test_git_only_allowed_on_flat_namespace(
     module__client_with_all_examples: AsyncClient,
 ) -> None:
-    """Test that git_only=true is blocked when not a branch namespace."""
+    """git_only is a per-namespace lock, valid on a flat namespace with no
+    parent_namespace/git_branch (i.e. not following the <ns>.<branch> pattern)."""
     await module__client_with_all_examples.post("/namespaces/gitonly.test1/")
 
-    # Try to enable git_only without parent_namespace and git_branch
-    git_config = {
-        "git_only": True,
-        # Missing parent_namespace and git_branch (required for branch namespace)
-    }
+    # Enable git_only without parent_namespace or git_branch — previously
+    # rejected, now allowed on any namespace.
     response = await module__client_with_all_examples.patch(
         "/namespaces/gitonly.test1/git",
-        json=git_config,
+        json={"git_only": True},
     )
-    assert response.status_code == 422
-    assert response.json()["message"] == (
-        "git_only is only applicable to branch namespaces that have "
-        "parent_namespace and git_branch configured. "
-        "Git root namespaces are automatically locked when "
-        "github_repo_path is set."
+    assert response.status_code == 200
+    assert response.json()["git_only"] is True
+
+    # It persists on the namespace's git config.
+    fetched = await module__client_with_all_examples.get(
+        "/namespaces/gitonly.test1/git",
     )
+    assert fetched.status_code == 200
+    assert fetched.json()["git_only"] is True
+
+    # The lock can be toggled back off (the escape hatch).
+    reopened = await module__client_with_all_examples.patch(
+        "/namespaces/gitonly.test1/git",
+        json={"git_only": False},
+    )
+    assert reopened.status_code == 200
+    assert reopened.json()["git_only"] is False
 
 
 @pytest.mark.asyncio

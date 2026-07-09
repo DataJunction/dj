@@ -796,9 +796,6 @@ async def update_namespace_git_config(
         if config.parent_namespace is not None
         else node_namespace.parent_namespace
     )
-    new_git_only = (
-        config.git_only if config.git_only is not None else node_namespace.git_only
-    )
 
     # Early validations (independent of parent relationship)
     validate_git_path(new_path)
@@ -821,21 +818,13 @@ async def update_namespace_git_config(
                 "Remove parent_namespace if you want to configure this as a git root.",
             )
 
-    # Validate git_only - only meaningful for branch namespaces.
-    # Git root namespaces (those with github_repo_path) are auto-locked and do not
-    # need git_only to be set explicitly.
-    if new_git_only:
-        is_branch_namespace = new_parent and new_branch
-
-        if not is_branch_namespace:
-            raise DJInvalidInputException(
-                message=(
-                    "git_only is only applicable to branch namespaces that have "
-                    "parent_namespace and git_branch configured. "
-                    "Git root namespaces are automatically locked when "
-                    "github_repo_path is set."
-                ),
-            )
+    # git_only is a per-namespace lock and is valid on ANY namespace — flat,
+    # git root, or branch. Git roots are still auto-locked via is_git_root, but
+    # a flat git-backed namespace (one that does not follow the
+    # <namespace>.<branch> structure) can now be locked explicitly instead of
+    # silently staying UI-editable. Enforcement lives in
+    # check_namespace_not_git_only, which already honors the flag on any
+    # namespace and cascades to descendants.
 
     # Validate parent_namespace if provided
     if new_parent:
