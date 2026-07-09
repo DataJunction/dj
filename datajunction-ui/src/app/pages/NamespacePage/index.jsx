@@ -28,6 +28,25 @@ import { getDJUrl } from '../../services/DJService';
 import 'styles/node-list.css';
 import 'styles/sorted-table.css';
 
+const AVATAR_COLORS = [
+  ['#dbeafe', '#1e40af'],
+  ['#dcfce7', '#166534'],
+  ['#fef3c7', '#92400e'],
+  ['#fce7f3', '#9d174d'],
+  ['#ede9fe', '#5b21b6'],
+  ['#ffedd5', '#9a3412'],
+  ['#fee2e2', '#991b1b'],
+  ['#d1fae5', '#065f46'],
+];
+
+function avatarColorIndex(username) {
+  let hash = 0;
+  for (let i = 0; i < username.length; i++) {
+    hash = (hash * 31 + username.charCodeAt(i)) >>> 0;
+  }
+  return hash % AVATAR_COLORS.length;
+}
+
 const FIELD_CONFIG = {
   name: { label: 'Name' },
   displayName: { label: 'Display name' },
@@ -727,7 +746,6 @@ export function NamespacePage() {
         const { leafName, namespacePath } = splitNodeName(node.name);
         const stateInfo = nodeState(node.current);
         const owners = node.owners || [];
-        const [primaryOwner, ...additionalOwners] = owners;
         return (
           <tr
             key={node.name}
@@ -854,56 +872,36 @@ export function NamespacePage() {
             </td>
             <td style={MIDDLE_CELL_STYLE}>
               {owners.length > 0 && (
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    flexWrap: 'wrap',
-                    maxWidth: '180px',
-                  }}
-                >
-                  {primaryOwner ? (
-                    <span
-                      title={primaryOwner.username}
-                      style={{
-                        maxWidth: '100%',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        borderRadius: '999px',
-                        backgroundColor: '#fee2e2',
-                        color: '#991b1b',
-                        fontSize: '11px',
-                        fontWeight: '600',
-                        lineHeight: 1,
-                        padding: '5px 8px',
-                      }}
-                    >
-                      {primaryOwner.username}
-                    </span>
-                  ) : null}
-                  {additionalOwners.length > 0 ? (
-                    <Tooltip
-                      content={additionalOwners
-                        .map(owner => owner.username)
-                        .join(', ')}
-                    >
+                <div style={{ display: 'flex', gap: '2px' }}>
+                  {owners.slice(0, 3).map(owner => {
+                    const initials = owner.username
+                      .split('@')[0]
+                      .slice(0, 2)
+                      .toUpperCase();
+                    const [bg, fg] =
+                      AVATAR_COLORS[avatarColorIndex(owner.username)];
+                    return (
                       <span
+                        key={owner.username}
+                        title={owner.username}
                         style={{
-                          borderRadius: '999px',
-                          backgroundColor: '#f1f5f9',
-                          color: '#475569',
-                          fontSize: '11px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          width: '24px',
+                          height: '24px',
+                          borderRadius: '50%',
+                          backgroundColor: bg,
+                          color: fg,
+                          fontSize: '9px',
                           fontWeight: '600',
-                          lineHeight: 1,
-                          padding: '5px 8px',
+                          flexShrink: 0,
                         }}
                       >
-                        +{additionalOwners.length}
+                        {initials}
                       </span>
-                    </Tooltip>
-                  ) : null}
+                    );
+                  })}
                 </div>
               )}
             </td>

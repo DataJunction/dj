@@ -185,8 +185,7 @@ describe('NamespacePage', () => {
     expect(screen.getByText('Test Node')).toBeInTheDocument();
     expect(screen.getAllByText('Published').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Valid').length).toBeGreaterThan(0);
-    expect(screen.getByText('customer_service')).toBeInTheDocument();
-    expect(screen.getByText('+2')).toBeInTheDocument();
+    expect(screen.getByText('CU')).toBeInTheDocument();
 
     // --- Sorting ---
 
