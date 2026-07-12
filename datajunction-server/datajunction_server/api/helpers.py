@@ -133,9 +133,7 @@ async def check_namespace_not_git_only(
     for ns in sorted(matches, key=lambda n: len(n.namespace), reverse=True):
         is_self = ns.namespace == namespace
         is_repo_owner = (
-            is_self
-            and ns.github_repo_path is not None
-            and ns.parent_namespace is None
+            is_self and ns.github_repo_path is not None and ns.parent_namespace is None
         )
         if ns.git_only or is_repo_owner:
             scope_msg = (
