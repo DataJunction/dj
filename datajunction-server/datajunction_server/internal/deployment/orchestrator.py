@@ -2296,25 +2296,35 @@ class DeploymentOrchestrator:
             if p.current
         }
 
-        # Check dimension reachability using the pre-computed batched BFS
+        # Check dimension reachability using the pre-computed batched BFS.
+        # This is role-aware: a bare reference (no `[role]` suffix) is only
+        # reachable under a role-less join path, while a role-played reference
+        # must match a path carrying that exact role. This mirrors the
+        # role-aware availability check performed on revalidation, so a cube
+        # that would compute INVALID on revalidation is rejected here at deploy.
         dim_compat_errors: list[DJError] = []
         if cube_spec.rendered_dimensions:  # pragma: no branch
-            requested_dim_nodes = {
-                dim.rsplit(SEPARATOR, 1)[0] for dim in cube_spec.rendered_dimensions
+            requested_dim_roles = {
+                (
+                    FullColumnName(dim).node_name,
+                    FullColumnName(dim).role,
+                )
+                for dim in cube_spec.rendered_dimensions
             }
-            unreachable = reachability.unreachable_dimensions(
+            unreachable = reachability.unreachable_dimension_roles(
                 cube_parent_rev_ids,
-                requested_dim_nodes,
+                requested_dim_roles,
             )
-            for dim_name, missing_from_ids in unreachable.items():
+            for (dim_name, role), missing_from_ids in unreachable.items():
                 parent_names = sorted(
                     rev_id_to_parent.get(rid, str(rid)) for rid in missing_from_ids
                 )
+                dim_label = dim_name + (f"[{role}]" if role else "")
                 dim_compat_errors.append(
                     DJError(
                         code=ErrorCode.INVALID_DIMENSION,
                         message=(
-                            f"The dimension attribute `{dim_name}` is not "
+                            f"The dimension attribute `{dim_label}` is not "
                             f"reachable from parent node(s): {', '.join(parent_names)}. "
                             f"Add a dimension link to make it available."
                         ),

@@ -5061,3 +5061,136 @@ class TestCubeRoleCollisionDeployment:
             (f"{namespace}.dates_d", "monthint", "order_date"),
             (f"{namespace}.dates_d", "monthint", "ship_date"),
         ]
+
+
+@pytest.mark.xdist_group(name="deployments")
+class TestCubeBareDimRoleAwareDeployment:
+    """Deploy-time cube validation must be role-aware.
+
+    A cube that references a dimension attribute BARE (no role) while the
+    parent's ONLY link to that dimension is role-played must be rejected at
+    deploy time (the bare attribute is not available on every metric), matching
+    what a subsequent revalidation would compute. Previously the deploy path
+    used a role-agnostic reachability check and accepted the bare reference,
+    deploying green and then flipping to INVALID on revalidation.
+    """
+
+    def _nodes(self, bare: bool):
+        """Fact links dates_d ONLY under role `order_date`; cube references
+        dates_d.monthint bare (bare=True) or role-qualified (bare=False)."""
+        dim_ref = (
+            "${prefix}dates_d.monthint"
+            if bare
+            else "${prefix}dates_d.monthint[order_date]"
+        )
+        return [
+            SourceSpec(
+                name="orders_raw",
+                description="Raw orders",
+                catalog="default",
+                schema="roads",
+                table="orders_raw",
+                columns=[
+                    ColumnSpec(name="order_dateint", type="int"),
+                ],
+                dimension_links=[],
+                owners=["dj"],
+            ),
+            SourceSpec(
+                name="dates_raw",
+                description="Raw dates",
+                catalog="default",
+                schema="roads",
+                table="dates_raw",
+                columns=[
+                    ColumnSpec(name="dateint", type="int"),
+                    ColumnSpec(name="monthint", type="int"),
+                ],
+                dimension_links=[],
+                owners=["dj"],
+            ),
+            DimensionSpec(
+                name="dates_d",
+                description="Date dimension",
+                query="SELECT dateint, monthint FROM ${prefix}dates_raw",
+                primary_key=["dateint"],
+                dimension_links=[],
+                owners=["dj"],
+            ),
+            TransformSpec(
+                name="orders_f",
+                description="Orders fact linked to dates ONLY under role order_date",
+                query="SELECT order_dateint FROM ${prefix}orders_raw",
+                dimension_links=[
+                    DimensionJoinLinkSpec(
+                        dimension_node="${prefix}dates_d",
+                        join_type="left",
+                        join_on=(
+                            "${prefix}orders_f.order_dateint = ${prefix}dates_d.dateint"
+                        ),
+                        role="order_date",
+                    ),
+                ],
+                owners=["dj"],
+            ),
+            MetricSpec(
+                name="order_count",
+                description="Order count",
+                query="SELECT COUNT(*) FROM ${prefix}orders_f",
+                dimension_links=[],
+                owners=["dj"],
+            ),
+            CubeSpec(
+                name="orders_cube",
+                display_name="Orders Cube",
+                description="Cube referencing dates_d.monthint",
+                metrics=["${prefix}order_count"],
+                dimensions=[dim_ref],
+                owners=["dj"],
+            ),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_deploy_bare_dim_only_reachable_under_role_is_rejected(
+        self,
+        client,
+    ):
+        """Repro: bare `dates_d.monthint` where the only link carries a role
+        must be rejected at deploy time (INVALID_DIMENSION)."""
+        namespace = "cube_bare_role_reject"
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=self._nodes(bare=True)),
+        )
+        cube_result = next(
+            r for r in data["results"] if r["name"] == f"{namespace}.orders_cube"
+        )
+        assert cube_result["status"] in ("invalid", "failed"), cube_result
+        assert f"{namespace}.dates_d" in cube_result["message"], cube_result
+        assert (
+            "not reachable" in cube_result["message"]
+            or "not available on every metric" in cube_result["message"]
+        ), cube_result
+
+        # The deploy-time status must match what revalidation would compute.
+        response = await client.get(f"/nodes/{namespace}.orders_cube/")
+        assert response.status_code == 200, response.json()
+        assert response.json()["status"] == "invalid"
+
+    @pytest.mark.asyncio
+    async def test_deploy_role_qualified_dim_passes(self, client):
+        """The role-qualified version passes push and revalidates valid."""
+        namespace = "cube_role_qualified_ok"
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=self._nodes(bare=False)),
+        )
+        assert data["status"] == DeploymentStatus.SUCCESS.value, data
+        cube_result = next(
+            r for r in data["results"] if r["name"] == f"{namespace}.orders_cube"
+        )
+        assert cube_result["status"] not in ("invalid", "failed"), cube_result
+
+        response = await client.get(f"/nodes/{namespace}.orders_cube/")
+        assert response.status_code == 200, response.json()
+        assert response.json()["status"] == "valid"
