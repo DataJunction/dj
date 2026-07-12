@@ -296,9 +296,12 @@ export default function NamespaceHeader({
   const isBranch = gitShape === 'branch';
   const gitConfigOwnerNamespace = isBranch ? gitRootNamespace : namespace;
   const gitConfigOwnerConfig = isBranch ? parentGitConfig : gitConfig;
+  // Report the read-only verdict only once it's actually known (git config +
+  // sources loaded). Firing a premature `false` on mount makes consumers flash
+  // editable UI (e.g. the node edit form) before the real verdict arrives.
   useEffect(() => {
-    if (onReadOnlyChange) onReadOnlyChange(!!isGitManaged);
-  }, [isGitManaged, onReadOnlyChange]);
+    if (onReadOnlyChange && !gitConfigLoading) onReadOnlyChange(!!isGitManaged);
+  }, [isGitManaged, gitConfigLoading, onReadOnlyChange]);
 
   const viewInGitUrl = () => {
     const repo = gitConfig?.github_repo_path;

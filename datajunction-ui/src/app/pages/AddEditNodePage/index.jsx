@@ -44,6 +44,22 @@ export function AddEditNodePage({ extensions = {} }) {
   let { nodeType, initialNamespace, name } = useParams();
   const action = name !== undefined ? Action.Edit : Action.Add;
 
+  // A read-only (git-managed) node can't be edited in the UI. If someone hits
+  // the edit route directly, send them back to the node view once the
+  // namespace's read-only verdict (from NamespaceHeader) is known.
+  const [isReadOnly, setIsReadOnly] = useState(undefined);
+  useEffect(() => {
+    if (action === Action.Edit && isReadOnly === true) {
+      navigate(`/nodes/${name}`, { replace: true });
+    }
+  }, [action, isReadOnly, name, navigate]);
+
+  const headerNamespace = initialNamespace
+    ? initialNamespace
+    : name
+    ? name.substring(0, name.lastIndexOf('.'))
+    : '';
+
   const initialValues = {
     name: action === Action.Edit ? name : '',
     namespace: action === Action.Add ? initialNamespace : '',
@@ -414,16 +430,26 @@ export function AddEditNodePage({ extensions = {} }) {
     }
   };
 
+  // Editing a node we can't yet confirm is editable (verdict still loading) or
+  // one that is read-only: render just the header (which resolves the verdict
+  // and triggers the redirect above) — never the editor form. Avoids flashing
+  // the editor before redirecting a read-only node.
+  if (action === Action.Edit && isReadOnly !== false) {
+    return (
+      <div className="mid">
+        <NamespaceHeader
+          namespace={headerNamespace}
+          onReadOnlyChange={setIsReadOnly}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="mid">
       <NamespaceHeader
-        namespace={
-          initialNamespace
-            ? initialNamespace
-            : name
-            ? name.substring(0, name.lastIndexOf('.'))
-            : ''
-        }
+        namespace={headerNamespace}
+        onReadOnlyChange={setIsReadOnly}
       />
       <div className="node-builder">
         <div className="node-builder-main">
