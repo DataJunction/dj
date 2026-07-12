@@ -52,12 +52,20 @@ it('preselects flat mode from an existing flat config', () => {
 
 it('warns before connecting a namespace that already has nodes', () => {
   render(
-    <GitSettingsModal isOpen namespace="some.sandbox" nodeCount={4}
-      onClose={vi.fn()} onSave={vi.fn().mockResolvedValue({})}
-      onRemove={vi.fn()} currentConfig={null} />,
+    <GitSettingsModal
+      isOpen
+      namespace="some.sandbox"
+      nodeCount={4}
+      onClose={vi.fn()}
+      onSave={vi.fn().mockResolvedValue({})}
+      onRemove={vi.fn()}
+      currentConfig={null}
+    />,
   );
   fireEvent.click(screen.getByText(/git repo/i));
-  expect(screen.getByText(/4 nodes here aren't in the repo/i)).toBeInTheDocument();
+  expect(
+    screen.getByText(/4 nodes here aren't in the repo/i),
+  ).toBeInTheDocument();
   expect(screen.getByText(/replaced by the repo/i)).toBeInTheDocument();
 });
 
