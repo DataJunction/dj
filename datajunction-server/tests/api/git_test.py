@@ -1830,15 +1830,13 @@ class TestBranchManagement:
         from datajunction_server.internal.git.github_service import GitHubServiceError
 
         await client_with_service_setup.post("/namespaces/ns_cleanup.main")
-        await client_with_service_setup.patch(
-            "/namespaces/ns_cleanup.main/git",
-            json={
-                "github_repo_path": "myorg/myrepo",
-                "git_branch": "main",
-            },
-        )
 
-        # Create some nodes in parent namespace that will be copied
+        # Create some nodes in the parent namespace that will be copied into the
+        # branch. They must be authored BEFORE configuring git — once the
+        # namespace is a git repo owner, direct node creates are rejected. These
+        # nodes get copied into the branch namespace, so when the branch-create
+        # rollback fires, _cleanup_namespace_and_nodes has >=1 node to delete
+        # (exercising the delete-loop body).
         await client_with_service_setup.post(
             "/nodes/source/",
             json={
@@ -1857,6 +1855,14 @@ class TestBranchManagement:
                 "schema_": "test",
                 "table": "bar",
                 "columns": [{"name": "id", "type": "int"}],
+            },
+        )
+
+        await client_with_service_setup.patch(
+            "/namespaces/ns_cleanup.main/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
             },
         )
 
