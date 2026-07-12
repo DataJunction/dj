@@ -20,7 +20,10 @@ from datajunction_server.models.deployment import (
     LocalDeploymentSource,
 )
 from datajunction_server.internal.git.github_service import GitHubServiceError
-from datajunction_server.api.deployments import InProcessExecutor
+from datajunction_server.api.deployments import (
+    InProcessExecutor,
+    _normalize_repo_path,
+)
 from datajunction_server.models.dimensionlink import JoinType
 from datajunction_server.database.node import Node, NodeRelationship
 from datajunction_server.database.tag import Tag
@@ -4690,6 +4693,91 @@ class TestGitOnlyNamespaceDeployments:
         # Now editable again.
         ok = await client.delete(f"/nodes/{namespace}.s1/")
         assert ok.status_code in (200, 201)
+
+    @pytest.mark.parametrize(
+        "repository, expected",
+        [
+            # Already normalized.
+            ("corp/repo", "corp/repo"),
+            # Bare host-prefixed form (no scheme).
+            ("github.com/corp/repo", "corp/repo"),
+            # https:// scheme prefix + .git suffix stripped.
+            ("https://github.netflix.net/corp/repo.git", "corp/repo"),
+            # http:// scheme prefix.
+            ("http://github.com/org/repo", "org/repo"),
+            # ssh:// scheme prefix.
+            ("ssh://git@host/corp/repo.git", "corp/repo"),
+            # scp-style git@host:owner/repo (colon normalized to slash).
+            ("git@github.netflix.net:corp/repo", "corp/repo"),
+            # Single segment (no owner) — returned as-is.
+            ("repo", "repo"),
+        ],
+    )
+    def test_normalize_repo_path(self, repository, expected):
+        """_normalize_repo_path reduces any repo URL form to owner/repo.
+
+        Covers the scheme-prefix strip (https/http/ssh/git@), the ``.git``
+        suffix strip, colon->slash for scp-style URLs, and the single-segment
+        fallthrough.
+        """
+        assert _normalize_repo_path(repository) == expected
+
+    @pytest.mark.asyncio
+    async def test_git_only_namespace_no_repo_skips_verification(self, client):
+        """A git_only namespace with NO github_repo_path skips commit verification.
+
+        A namespace can be locked (git_only=True) without ever recording a repo
+        (e.g. a flat namespace locked via PATCH before its first git deploy).
+        There is no repo to verify the commit against, so _verify_git_deployment
+        must skip verification and let the git-sourced deploy proceed rather than
+        hard-failing.
+        """
+        namespace = "git_only_no_repo"
+
+        # Lock the namespace WITHOUT configuring a github_repo_path.
+        await client.post(f"/namespaces/{namespace}")
+        patched = await client.patch(
+            f"/namespaces/{namespace}/git",
+            json={"git_only": True},
+        )
+        assert patched.status_code == 200
+        cfg = (await client.get(f"/namespaces/{namespace}/git")).json()
+        assert cfg["git_only"] is True
+        assert cfg["github_repo_path"] is None
+
+        source_spec = SourceSpec(
+            name="s1",
+            description="Test source",
+            catalog="default",
+            schema="test",
+            table="t1",
+            columns=[ColumnSpec(name="id", type="int")],
+        )
+
+        # GitHubService should never be constructed since verification is skipped.
+        with patch(
+            "datajunction_server.api.deployments.GitHubService",
+        ) as mock_github_class:
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(
+                    namespace=namespace,
+                    nodes=[source_spec],
+                    source=GitDeploymentSource(
+                        repository="myorg/myrepo",
+                        branch="main",
+                        commit_sha="abc123def456",
+                    ),
+                ),
+            )
+            assert data["status"] == DeploymentStatus.SUCCESS.value
+            mock_github_class.assert_not_called()
+
+        # Still git_only-locked (repo never attached, git_only stays set), so a
+        # direct UI node mutation remains blocked.
+        blocked = await client.delete(f"/nodes/{namespace}.s1/")
+        assert blocked.status_code == 422
+        assert "git-managed" in blocked.json()["message"]
 
 
 @pytest.mark.xdist_group(name="deployments")

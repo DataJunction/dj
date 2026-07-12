@@ -2518,15 +2518,11 @@ class TestGitSync:
         """
         client = client_with_service_setup
 
-        # Create a namespace with a transform node
+        # Create a namespace with a transform node. Nodes are authored via the
+        # node API BEFORE configuring the namespace as a git repo owner —
+        # once github_repo_path is set (with no parent_namespace) the namespace
+        # becomes a read-only git root and direct node creates are rejected.
         await client.post("/namespaces/sync_test")
-        await client.patch(
-            "/namespaces/sync_test/git",
-            json={
-                "github_repo_path": "myorg/myrepo",
-                "git_branch": "main",
-            },
-        )
 
         # Create source for the transform to reference
         await client.post(
@@ -2551,6 +2547,15 @@ class TestGitSync:
                 "name": "sync_test.orders_fact",
                 "description": "Orders fact transform",
                 "query": "SELECT order_id, amount FROM sync_test.orders_source",
+            },
+        )
+
+        # Now configure git — this makes sync_test a git repo owner.
+        await client.patch(
+            "/namespaces/sync_test/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
             },
         )
 
@@ -2644,14 +2649,9 @@ columns:
         client = client_with_service_setup
 
         await client.post("/namespaces/orphan_test")
-        await client.patch(
-            "/namespaces/orphan_test/git",
-            json={
-                "github_repo_path": "myorg/myrepo",
-                "git_branch": "main",
-            },
-        )
 
+        # Author the node before configuring git — a git repo owner rejects
+        # direct node creates (they must be deployed from git).
         await client.post(
             "/nodes/source/",
             json={
@@ -2661,6 +2661,14 @@ columns:
                 "schema_": "public",
                 "table": "kept",
                 "columns": [{"name": "id", "type": "int"}],
+            },
+        )
+
+        await client.patch(
+            "/namespaces/orphan_test/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
             },
         )
 
@@ -3580,18 +3588,10 @@ class TestPullRequest:
         client_with_service_setup: AsyncClient,
     ):
         """Test finding nodes with git_info via both REST and GraphQL."""
-        # Create namespace with git config
+        # Create namespace and author the node BEFORE configuring git —
+        # once configured as a git repo owner the namespace is read-only for
+        # direct node creates.
         await client_with_service_setup.post("/namespaces/gql_test.main")
-        await client_with_service_setup.patch(
-            "/namespaces/gql_test.main/git",
-            json={
-                "github_repo_path": "myorg/metrics-repo",
-                "git_branch": "main",
-                "default_branch": "main",
-                "git_path": "definitions/",
-                "git_only": False,
-            },
-        )
 
         # Create a transform node in this namespace
         await client_with_service_setup.post(
@@ -3601,6 +3601,17 @@ class TestPullRequest:
                 "description": "Revenue metric",
                 "query": "SELECT SUM(amount) as revenue FROM sales",
                 "mode": "draft",
+            },
+        )
+
+        await client_with_service_setup.patch(
+            "/namespaces/gql_test.main/git",
+            json={
+                "github_repo_path": "myorg/metrics-repo",
+                "git_branch": "main",
+                "default_branch": "main",
+                "git_path": "definitions/",
+                "git_only": False,
             },
         )
 
@@ -4323,15 +4334,10 @@ class TestCopyNodesToNamespace:
         client_with_service_setup: AsyncClient,
     ):
         """Test that creating a branch copies nodes from parent namespace."""
-        # Create parent namespace with git config
+        # Create parent namespace and author its nodes BEFORE configuring git.
+        # Once the parent is a git repo owner, direct node creates are rejected,
+        # so seed the parent's nodes first, then configure git.
         await client_with_service_setup.post("/namespaces/copy_test.main")
-        await client_with_service_setup.patch(
-            "/namespaces/copy_test.main/git",
-            json={
-                "github_repo_path": "myorg/myrepo",
-                "git_branch": "main",
-            },
-        )
 
         # Create some nodes in the parent namespace
         response = await client_with_service_setup.post(
@@ -4359,6 +4365,14 @@ class TestCopyNodesToNamespace:
             },
         )
         assert response.status_code <= HTTPStatus.CREATED
+
+        await client_with_service_setup.patch(
+            "/namespaces/copy_test.main/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+            },
+        )
 
         # Create a branch - this should trigger copy_nodes_to_namespace
         with patch(
@@ -4437,12 +4451,10 @@ async def test_branch_copy_preserves_invalid_source_status(
     parent = "status_copy.main"
     branch_full = "status_copy.feature_copy"
 
-    # Set up parent namespace with git config and one transform.
+    # Set up parent namespace with one transform, THEN configure git.
+    # Direct node creates are rejected once the namespace is a git repo owner,
+    # so author the nodes before configuring git.
     await client.post(f"/namespaces/{parent}")
-    await client.patch(
-        f"/namespaces/{parent}/git",
-        json={"github_repo_path": "myorg/myrepo", "git_branch": "main"},
-    )
     response = await client.post(
         "/nodes/source/",
         json={
@@ -4462,6 +4474,10 @@ async def test_branch_copy_preserves_invalid_source_status(
         },
     )
     assert response.status_code <= HTTPStatus.CREATED
+    await client.patch(
+        f"/namespaces/{parent}/git",
+        json={"github_repo_path": "myorg/myrepo", "git_branch": "main"},
+    )
 
     # Mark the transform as INVALID directly. Going through the API to
     # reliably produce an INVALID node is fragile (validators tend to
@@ -5373,15 +5389,9 @@ class TestGitSyncEdgeCases:
         client_with_service_setup: AsyncClient,
     ):
         """Test syncing a node whose name doesn't start with namespace prefix."""
-        # Create a namespace
+        # Create a namespace and author the node BEFORE configuring git — a git
+        # repo owner rejects direct node creates.
         await client_with_service_setup.post("/namespaces/edge_test")
-        await client_with_service_setup.patch(
-            "/namespaces/edge_test/git",
-            json={
-                "github_repo_path": "myorg/myrepo",
-                "git_branch": "main",
-            },
-        )
 
         # Create a source node that has a short name matching namespace
         # (edge case where node_name doesn't start with "namespace.")
@@ -5397,6 +5407,14 @@ class TestGitSyncEdgeCases:
             },
         )
         assert response.status_code <= HTTPStatus.CREATED
+
+        await client_with_service_setup.patch(
+            "/namespaces/edge_test/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+            },
+        )
 
         with patch(
             "datajunction_server.api.git_sync.GitHubService",
