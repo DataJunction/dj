@@ -2296,20 +2296,15 @@ class DeploymentOrchestrator:
             if p.current
         }
 
-        # Check dimension reachability using the pre-computed batched BFS.
-        # This is role-aware: a bare reference (no `[role]` suffix) is only
-        # reachable under a role-less join path, while a role-played reference
-        # must match a path carrying that exact role. This mirrors the
-        # role-aware availability check performed on revalidation, so a cube
-        # that would compute INVALID on revalidation is rejected here at deploy.
+        # Role-aware reachability (see DimensionReachability): mirrors the
+        # revalidation availability check so a cube that would revalidate
+        # INVALID is rejected here at deploy.
         dim_compat_errors: list[DJError] = []
         if cube_spec.rendered_dimensions:  # pragma: no branch
             requested_dim_roles = {
-                (
-                    FullColumnName(dim).node_name,
-                    FullColumnName(dim).role,
-                )
+                (fcn.node_name, fcn.role)
                 for dim in cube_spec.rendered_dimensions
+                for fcn in (FullColumnName(dim),)
             }
             unreachable = reachability.unreachable_dimension_roles(
                 cube_parent_rev_ids,
@@ -2333,6 +2328,9 @@ class DeploymentOrchestrator:
 
         # Validate that dimensions referenced in filters are reachable
         # and that the specific columns exist on those dimension nodes.
+        # TODO: filter reachability is still role-agnostic; a bare filter dim
+        # reachable only under a role can deploy green and flip on revalidation,
+        # the same gap just closed above for cube dimensions.
         if cube_spec.rendered_filters and cube_parent_rev_ids:
             filter_refs = _extract_dimension_refs_from_filters(
                 cube_spec.rendered_filters,
