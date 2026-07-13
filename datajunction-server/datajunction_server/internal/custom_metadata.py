@@ -1,11 +1,16 @@
 """Resolution, validation, and filter translation for custom_metadata schemas."""
 
 import jsonschema
-from sqlalchemy import or_, select
+from sqlalchemy import Numeric, cast, or_, select, type_coerce
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.custom_metadata_schema import CustomMetadataSchema
 from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.models.custom_metadata import (
+    CustomMetadataFilter,
+    CustomMetadataOp,
+)
 from datajunction_server.models.node_type import NodeType
 
 
@@ -112,3 +117,26 @@ async def validate_custom_metadata(
         raise DJInvalidInputException(
             message="custom_metadata failed schema validation:\n" + "\n".join(errors),
         )
+
+
+def custom_metadata_clause(col, f: CustomMetadataFilter):
+    """Translate one CustomMetadataFilter into a SQLAlchemy boolean over a JSONB column."""
+    jsonb = type_coerce(col, JSONB)
+    if f.op == CustomMetadataOp.EXISTS:
+        return jsonb.has_key(f.key)
+    if f.op == CustomMetadataOp.EQ:
+        # containment => GIN-servable
+        return jsonb.contains({f.key: f.value})
+    if f.op == CustomMetadataOp.NE:
+        return ~jsonb.contains({f.key: f.value})
+    if f.op == CustomMetadataOp.CONTAINS:
+        return jsonb[f.key].contains(f.value)
+    # range operators: extract as text and cast to numeric
+    extracted = jsonb[f.key].astext
+    num = cast(extracted, Numeric)
+    return {
+        CustomMetadataOp.GT: num > f.value,
+        CustomMetadataOp.GTE: num >= f.value,
+        CustomMetadataOp.LT: num < f.value,
+        CustomMetadataOp.LTE: num <= f.value,
+    }[f.op]
