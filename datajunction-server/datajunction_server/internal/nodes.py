@@ -110,6 +110,7 @@ from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import parse, parse_rule
 from datajunction_server.typing import UTCDatetime
+from datajunction_server.internal.custom_metadata import validate_custom_metadata
 from datajunction_server.utils import (
     SEPARATOR,
     Version,
@@ -270,6 +271,13 @@ async def create_a_node(
     )
     node_revision = await create_node_revision(data, node_type, session, current_user)
 
+    await validate_custom_metadata(
+        session,
+        namespace=namespace,
+        node_type=node_type,
+        custom_metadata=data.custom_metadata,
+    )
+
     column_names = {col.name: col for col in node_revision.columns}
     if data.primary_key:
         if any(key_column not in column_names for key_column in data.primary_key):
@@ -346,6 +354,13 @@ async def create_a_cube(
         namespace=namespace,
     )
     data.namespace = namespace
+
+    await validate_custom_metadata(
+        session,
+        namespace=namespace,
+        node_type=NodeType.CUBE,
+        custom_metadata=data.custom_metadata,
+    )
 
     node = Node(
         name=data.name,
@@ -1215,6 +1230,14 @@ async def update_any_node(
     ):
         node.missing_table = data.missing_table  # type: ignore
         session.add(node)
+
+    if data.custom_metadata is not None:
+        await validate_custom_metadata(
+            session,
+            namespace=node.namespace,
+            node_type=node.type,  # type: ignore[arg-type]
+            custom_metadata=data.custom_metadata,
+        )
 
     if node.type == NodeType.CUBE:  # type: ignore
         node = await Node.get_cube_by_name(session, name)

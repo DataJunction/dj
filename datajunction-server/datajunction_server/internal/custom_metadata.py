@@ -1,9 +1,11 @@
 """Resolution, validation, and filter translation for custom_metadata schemas."""
 
+import jsonschema
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.custom_metadata_schema import CustomMetadataSchema
+from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.node_type import NodeType
 
 
@@ -84,3 +86,29 @@ async def resolve_schemas(
         if row.key not in best or score > best[row.key][0]:
             best[row.key] = (score, row.json_schema)
     return {key: schema for key, (_, schema) in best.items()}
+
+
+async def validate_custom_metadata(
+    session: AsyncSession,
+    namespace: str | None,
+    node_type: NodeType,
+    custom_metadata: dict | None,
+) -> None:
+    """Lax, write-time validation: validate only keys with a resolved schema."""
+    if not custom_metadata:
+        return
+    schemas = await resolve_schemas(session, namespace, node_type)
+    if not schemas:
+        return
+    errors: list[str] = []
+    for key, value in custom_metadata.items():
+        schema = schemas.get(key)
+        if schema is None:
+            continue  # lax: unregistered keys pass
+        validator = jsonschema.Draft202012Validator(schema)
+        for err in validator.iter_errors(value):
+            errors.append(f"custom_metadata.{key}: {err.message}")
+    if errors:
+        raise DJInvalidInputException(
+            message="custom_metadata failed schema validation:\n" + "\n".join(errors),
+        )
