@@ -1,7 +1,9 @@
 """Resolution, validation, and filter translation for custom_metadata schemas."""
 
+import re
+
 import jsonschema
-from sqlalchemy import Numeric, cast, or_, select, type_coerce
+from sqlalchemy import Numeric, cast, or_, select, text, type_coerce
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -117,6 +119,44 @@ async def validate_custom_metadata(
         raise DJInvalidInputException(
             message="custom_metadata failed schema validation:\n" + "\n".join(errors),
         )
+
+
+_NUMERIC_KINDS = {"number", "integer"}
+
+
+async def ensure_expression_index(
+    session: AsyncSession,
+    key: str,
+    value_kind: str | None,
+) -> str | None:
+    """Build a per-key expression index on noderevision for numeric-typed keys.
+
+    For ``value_kind in {"number", "integer"}`` executes:
+
+        CREATE INDEX IF NOT EXISTS ix_cm_<safe_key>
+          ON noderevision (((custom_metadata->>'<key>')::numeric))
+
+    The index name uses only ``[a-z0-9_]`` characters (safe for interpolation).
+    The raw key is embedded as a single-quoted SQL string literal via
+    ``key.replace("'", "''")`` — the standard SQL quoting escape — so that
+    special characters cannot break out of the string literal context.
+
+    Returns the index name on success, or ``None`` when no index is built.
+    """
+    if value_kind not in _NUMERIC_KINDS:
+        return None
+    safe = re.sub(r"[^a-z0-9_]", "_", key.lower())
+    idx_name = f"ix_cm_{safe}"
+    # Embed the key as a SQL string literal (single-quote escape only; no
+    # backslash sequences needed for JSONB ->> text extraction).
+    quoted_key = key.replace("'", "''")
+    await session.execute(
+        text(
+            f"CREATE INDEX IF NOT EXISTS {idx_name} ON noderevision "
+            f"(((custom_metadata->>'{quoted_key}')::numeric))",
+        ),
+    )
+    return idx_name
 
 
 def custom_metadata_clause(col, f: CustomMetadataFilter):
