@@ -74,6 +74,8 @@ from datajunction_server.models.node import (
     NodeMode,
     NodeStatus,
 )
+from datajunction_server.internal.custom_metadata import custom_metadata_clause
+from datajunction_server.models.custom_metadata import CustomMetadataFilter
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionType
 from datajunction_server.models.unit import (
@@ -891,6 +893,7 @@ class Node(Base):
         orphaned_dimension: bool = False,
         search: str | None = None,
         order_by: MappedColumn | None = None,
+        custom_metadata_filters: list[CustomMetadataFilter] | None = None,
     ):
         """
         Build a select statement for Node rows with all listed filters applied.
@@ -1127,6 +1130,16 @@ class Node(Base):
                 ~Node.id.in_(select(linked_dimension_subquery)),
             )
 
+        # Filter by custom_metadata predicates (JSONB column on NodeRevision)
+        if custom_metadata_filters:
+            if not join_revision:
+                statement = statement.join(NodeRevisionAlias, Node.current)
+                join_revision = True
+            for f in custom_metadata_filters:
+                statement = statement.where(
+                    custom_metadata_clause(NodeRevisionAlias.custom_metadata, f),
+                )
+
         # Always ensure only nodes with valid current revisions are returned
         # This prevents GraphQL errors when current is non-nullable
         if not join_revision:
@@ -1160,6 +1173,7 @@ class Node(Base):
         has_materialization: bool = False,
         orphaned_dimension: bool = False,
         search: str | None = None,
+        custom_metadata_filters: list[CustomMetadataFilter] | None = None,
     ) -> List["Node"]:
         """
         Finds a list of nodes by prefix
@@ -1190,6 +1204,7 @@ class Node(Base):
             orphaned_dimension=orphaned_dimension,
             search=search,
             order_by=order_by,
+            custom_metadata_filters=custom_metadata_filters,
         )
         if statement is None:
             return []
