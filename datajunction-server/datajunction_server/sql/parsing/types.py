@@ -250,29 +250,20 @@ class NestedField(ColumnType):
         is_optional: bool = True,
         doc: Optional[str] = None,
     ):
-        if isinstance(name, str):  # pragma: no cover
-            from datajunction_server.sql.parsing.ast import Name
-
-            name_str = name
-            name_obj = Name(name_str)
-        else:
-            name_str = name.name
-            name_obj = name
-
         doc_string = "" if doc is None else f", doc={repr(doc)}"
         super().__init__(
             (
-                f"{name_str} {field_type}"
+                f"{name.name} {field_type}"
                 f"{' NOT NULL' if not is_optional else ''}"
                 + ("" if doc is None else f" {doc}")
             ),
-            f"NestedField(name={repr(name_obj)}, "
+            f"NestedField(name={repr(name)}, "
             f"field_type={repr(field_type)}, "
             f"is_optional={is_optional}"
             f"{doc_string})",
         )
         object.__setattr__(self, "_is_optional", is_optional)
-        object.__setattr__(self, "_name", name_obj)
+        object.__setattr__(self, "_name", name)
         object.__setattr__(self, "_type", field_type)
         object.__setattr__(self, "_doc", doc)
 
