@@ -32,6 +32,7 @@ from datajunction_server.api.graphql.resolvers.users import user_load_options
 from datajunction_server.internal.access.group_membership import (
     get_group_membership_service,
 )
+from datajunction_server.models.custom_metadata import CustomMetadataFilter
 from datajunction_server.models.node import NodeMode, NodeStatus, NodeType
 
 
@@ -229,6 +230,7 @@ async def find_nodes_by(
     has_materialization: bool = False,
     orphaned_dimension: bool = False,
     search: Optional[str] = None,
+    custom_metadata_filters: Optional[List[CustomMetadataFilter]] = None,
 ) -> List[DBNode]:
     """
     Finds nodes based on the search parameters. This function also tries to optimize
@@ -290,6 +292,7 @@ async def find_nodes_by(
             orphaned_dimension=orphaned_dimension,
             dimensions=dimensions,
             search=search,
+            custom_metadata_filters=custom_metadata_filters,
         )
 
         # For the scalar-only cube path, fetch column data as raw tuples instead

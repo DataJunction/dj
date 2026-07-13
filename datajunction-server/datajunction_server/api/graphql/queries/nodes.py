@@ -7,6 +7,7 @@ from enum import Enum
 from typing import Annotated
 
 import strawberry
+from strawberry.scalars import JSON
 from strawberry.types import Info
 
 from datajunction_server.api.graphql.resolvers.nodes import (
@@ -23,7 +24,23 @@ from datajunction_server.api.graphql.scalars.node import (
 )
 from datajunction_server.api.graphql.utils import extract_fields
 from datajunction_server.database.node import Node as DBNode
+from datajunction_server.models.custom_metadata import (
+    CustomMetadataFilter,
+    CustomMetadataOp,
+)
 from datajunction_server.models.node import NodeCursor, NodeMode, NodeStatus, NodeType
+
+CustomMetadataOpGQL = strawberry.enum(CustomMetadataOp)
+
+
+@strawberry.input
+class CustomMetadataFilterInput:
+    """Input type for filtering nodes by custom metadata."""
+
+    key: str
+    op: CustomMetadataOpGQL = CustomMetadataOp.EQ  # type: ignore[valid-type]
+    value: JSON | None = None
+
 
 DEFAULT_LIMIT = 1000
 UPPER_LIMIT = 10000
@@ -171,6 +188,12 @@ async def find_nodes(
             description="Filter to dimension nodes that are not linked to by any other node",
         ),
     ] = False,
+    custom_metadata_filters: Annotated[
+        list[CustomMetadataFilterInput] | None,
+        strawberry.argument(
+            description="Filter to nodes matching ALL of these custom metadata conditions",
+        ),
+    ] = None,
     limit: Annotated[
         int | None,
         strawberry.argument(description="Limit nodes"),
@@ -195,6 +218,15 @@ async def find_nodes(
         )
         limit = UPPER_LIMIT
 
+    pyd_filters = (
+        [
+            CustomMetadataFilter(key=f.key, op=f.op, value=f.value)
+            for f in custom_metadata_filters
+        ]
+        if custom_metadata_filters
+        else None
+    )
+
     return await find_nodes_by(  # type: ignore
         info=info,
         names=names,
@@ -212,6 +244,7 @@ async def find_nodes(
         statuses=statuses,
         has_materialization=has_materialization,
         orphaned_dimension=orphaned_dimension,
+        custom_metadata_filters=pyd_filters,
         limit=limit,
         order_by=order_by,
         ascending=ascending,
