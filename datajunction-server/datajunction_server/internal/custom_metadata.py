@@ -13,6 +13,7 @@ from datajunction_server.models.custom_metadata import (
     CustomMetadataFilter,
     CustomMetadataOp,
 )
+from datajunction_server.models.deployment import CustomMetadataSchemaSpec
 from datajunction_server.models.node_type import NodeType
 
 
@@ -157,6 +158,75 @@ async def ensure_expression_index(
         ),
     )
     return idx_name
+
+
+async def upsert_schema_specs(
+    session: AsyncSession,
+    namespace: str,
+    specs: list[CustomMetadataSchemaSpec],
+) -> None:
+    """Upsert a list of CustomMetadataSchemaSpec rows, scoped to *namespace*.
+
+    Each spec is validated with jsonschema.Draft202012Validator.check_schema
+    before being written.  Existing rows (matched by key + namespace +
+    node_type) are updated in-place; missing rows are inserted.
+    """
+
+    for spec in specs:
+        try:
+            jsonschema.Draft202012Validator.check_schema(spec.json_schema)
+        except jsonschema.exceptions.SchemaError as exc:
+            raise DJInvalidInputException(
+                message=f"Invalid JSON Schema for custom_metadata key '{spec.key}': {exc.message}",
+            ) from exc
+        node_type_val = spec.node_type.value if spec.node_type is not None else None
+        node_type_clause = (
+            CustomMetadataSchema.node_type.is_(None)
+            if node_type_val is None
+            else CustomMetadataSchema.node_type == node_type_val
+        )
+        existing = (
+            await session.execute(
+                select(CustomMetadataSchema).where(
+                    CustomMetadataSchema.key == spec.key,
+                    CustomMetadataSchema.namespace == namespace,
+                    node_type_clause,
+                    CustomMetadataSchema.deactivated_at.is_(None),
+                ),
+            )
+        ).scalar_one_or_none()
+        kind = (
+            spec.json_schema.get("type")
+            if isinstance(spec.json_schema.get("type"), str)
+            else None
+        )
+        if existing is not None:
+            existing.json_schema = spec.json_schema
+            existing.value_kind = kind
+            existing.filterable = spec.filterable
+            existing.description = spec.description
+        else:
+            session.add(
+                CustomMetadataSchema(
+                    key=spec.key,
+                    namespace=namespace,
+                    node_type=node_type_val,
+                    json_schema=spec.json_schema,
+                    value_kind=kind,
+                    filterable=spec.filterable,
+                    description=spec.description,
+                ),
+            )
+    await session.commit()
+    for spec in specs:
+        if spec.filterable:
+            kind = (
+                spec.json_schema.get("type")
+                if isinstance(spec.json_schema.get("type"), str)
+                else None
+            )
+            await ensure_expression_index(session, spec.key, kind)
+    await session.commit()
 
 
 def custom_metadata_clause(col, f: CustomMetadataFilter):

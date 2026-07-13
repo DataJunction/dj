@@ -752,6 +752,20 @@ def diff(one: BaseModel, two: BaseModel, ignore_fields: list[str] = None) -> lis
     return changed_fields
 
 
+class CustomMetadataSchemaSpec(BaseModel):
+    """
+    Specification for a custom_metadata JSON Schema to register for a namespace.
+
+    The namespace is implicit: it comes from the enclosing DeploymentSpec.
+    """
+
+    key: str
+    node_type: NodeType | None = None
+    json_schema: dict
+    filterable: bool = True
+    description: str | None = None
+
+
 class GitDeploymentSource(BaseModel):
     """
     Deployment from a tracked git repository.
@@ -850,6 +864,9 @@ class DeploymentSpec(BaseModel):
     nodes: list[NodeUnion] = Field(default_factory=list)
     tags: list[TagSpec] = Field(default_factory=list)
     hierarchies: list[HierarchySpec] = Field(default_factory=list)
+    custom_metadata_schemas: list[CustomMetadataSchemaSpec] = Field(
+        default_factory=list,
+    )
     source: DeploymentSource | None = None  # CI/CD provenance tracking
     git_config: NamespaceGitConfig | None = None  # Git branch management config
     force: bool = Field(

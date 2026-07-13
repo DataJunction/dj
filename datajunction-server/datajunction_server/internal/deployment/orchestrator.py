@@ -471,6 +471,14 @@ class DeploymentOrchestrator:
         self.registry.add_owners(await self._setup_owners())
         self.registry.add_catalogs(await self._setup_catalogs())
         self.registry.add_attributes(await self._setup_attributes())
+        if self.deployment_spec.custom_metadata_schemas:
+            from datajunction_server.internal.custom_metadata import upsert_schema_specs
+
+            await upsert_schema_specs(
+                self.session,
+                self.deployment_spec.namespace,
+                self.deployment_spec.custom_metadata_schemas,
+            )
         logger.info(
             "Set up deployment resources: %d namespaces, %d tags, %d owners, %d catalogs, %d attributes",
             len(self.registry.namespaces),
