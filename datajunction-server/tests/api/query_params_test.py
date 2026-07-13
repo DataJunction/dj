@@ -309,3 +309,116 @@ async def test_query_parameters_metrics_sql_v3(
     assert response.json()["message"] == (
         "Missing value for query parameter: default.hard_hat.hard_hat_id"
     )
+
+
+@pytest.mark.asyncio
+async def test_query_parameter_in_dimension_link_join_condition(
+    client_with_service_setup,
+):
+    """
+    Test that query parameters are substituted in dimension link join conditions.
+
+    The FX conversion use case: the destination currency is a query-time parameter
+    so the same metric can be reported in USD, EUR, etc. without separate metrics.
+    The dimension link join_on contains : which should be
+    substituted with the supplied value before SQL generation.
+    """
+    client = client_with_service_setup
+
+    for r in [
+        await client.post(
+            "/nodes/source/",
+            json={
+                "name": "default.fx_src",
+                "catalog": "default",
+                "schema_": "finance",
+                "table": "fx_rates",
+                "columns": [
+                    {"name": "from_currency", "type": "string"},
+                    {"name": "to_currency", "type": "string"},
+                    {"name": "rate", "type": "double"},
+                    {"name": "rate_date", "type": "date"},
+                ],
+                "mode": "published",
+            },
+        ),
+        await client.post(
+            "/nodes/dimension/",
+            json={
+                "name": "default.fx_dim",
+                "query": "SELECT from_currency, to_currency, rate, rate_date FROM default.fx_src",
+                "primary_key": ["from_currency", "to_currency", "rate_date"],
+                "mode": "published",
+            },
+        ),
+        await client.post(
+            "/nodes/source/",
+            json={
+                "name": "default.rev_src",
+                "catalog": "default",
+                "schema_": "finance",
+                "table": "revenue",
+                "columns": [
+                    {"name": "amount", "type": "double"},
+                    {"name": "transaction_currency", "type": "string"},
+                    {"name": "txn_date", "type": "date"},
+                ],
+                "mode": "published",
+            },
+        ),
+        await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "default.rev_transform",
+                "query": "SELECT amount, transaction_currency, txn_date FROM default.rev_src",
+                "mode": "published",
+            },
+        ),
+        await client.post(
+            "/nodes/default.rev_transform/link/",
+            json={
+                "dimension_node": "default.fx_dim",
+                "join_type": "left",
+                "join_on": (
+                    "default.rev_transform.transaction_currency = default.fx_dim.from_currency "
+                    "AND default.rev_transform.txn_date = default.fx_dim.rate_date "
+                    "AND default.fx_dim.to_currency = :"
+                ),
+            },
+        ),
+        await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "default.rev_converted",
+                "description": "Revenue converted to reporting currency via FX rates",
+                "query": "SELECT SUM(default.rev_transform.amount * default.fx_dim.rate)",
+                "mode": "published",
+            },
+        ),
+    ]:
+        assert r.status_code in (200, 201), r.json()
+
+    # With query_params: : should be substituted with 'USD'
+    response = await client.get(
+        "/sql/metrics/v3/",
+        params={
+            "metrics": ["default.rev_converted"],
+            "dimensions": ["default.fx_dim.to_currency"],
+            "query_params": '{"reporting_currency": "USD"}',
+        },
+    )
+    assert response.status_code == 200, response.json()
+    sql = response.json()["sql"]
+    assert "'USD'" in sql or '"USD"' in sql, sql
+    assert "`reporting_currency`" not in sql
+
+    # Without query_params: should error on missing parameter
+    response_no_param = await client.get(
+        "/sql/metrics/v3/",
+        params={
+            "metrics": ["default.rev_converted"],
+            "dimensions": ["default.fx_dim.to_currency"],
+        },
+    )
+    assert response_no_param.status_code == 422
+    assert "reporting_currency" in response_no_param.json()["message"]
