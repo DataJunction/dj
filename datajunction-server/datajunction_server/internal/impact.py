@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
 from datajunction_server.database.node import Node, NodeRevision, NodeRelationship
+from datajunction_server.internal.nodes import bump_cube_versions
 from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.internal.deployment.dimension_reachability import (
     DimensionReachability,
@@ -64,6 +65,8 @@ async def propagate_impact(
     changed_node_names: set[str],
     deleted_node_names: frozenset[str] = frozenset(),
     changed_link_node_names: set[str] | None = None,
+    current_user=None,
+    save_history=None,
 ) -> list[DownstreamImpact]:
     """BFS downstream impact analysis with revalidation.
 
@@ -79,6 +82,10 @@ async def propagate_impact(
         deleted_node_names: Names of nodes about to be deleted (still in DB at
             call time — caller must invoke this before hard_delete_node).
         changed_link_node_names: Names of nodes whose dimension links changed.
+        current_user: If provided (with save_history), bumps the minor version of
+            every downstream cube so version-gated consumers see the change.
+        save_history: Callable(event, session) used to record the version-bump
+            history events. Required when current_user is provided.
 
     Returns:
         List of DownstreamImpact describing each affected downstream node.
@@ -111,6 +118,22 @@ async def propagate_impact(
 
     # Phase 3: revalidate all downstream nodes and apply status changes
     results = await _revalidate_and_apply(session, ctx, all_impacts)
+
+    # Phase 4: bump the minor version of every downstream cube so that
+    # version-gated consumers see the change. Cubes whose element list is
+    # unchanged don't get a new version from the normal diff path, but their
+    # effective SQL may have changed due to an upstream metric being updated.
+    # Only bumps cubes downstream of *changed* nodes — deleted-node downstreams
+    # become invalid and don't need a version bump.
+    if current_user and save_history and changed_node_names:
+        cube_names = [r.name for r in results if r.node_type == NodeType.CUBE]
+        if cube_names:
+            await bump_cube_versions(
+                session,
+                cube_names,
+                current_user,
+                save_history,
+            )
 
     _emit_metrics(start, results)
     return results

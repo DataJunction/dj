@@ -5020,6 +5020,73 @@ class TestValidateNodes:
         assert data["status"] in ("valid", "invalid")
 
     @pytest.mark.asyncio
+    async def test_propagate_update_bumps_dependent_cube_version(
+        self,
+        client_with_roads: AsyncClient,
+        session: AsyncSession,
+    ):
+        """
+        When a metric's query changes, every cube that depends on that metric must
+        get a minor version bump so that version-gated downstream consumers see
+        the change and regenerate any derived artifacts.
+        """
+        from sqlalchemy.orm import joinedload
+        from datajunction_server.internal.nodes import _propagate_update_downstream
+
+        response = await client_with_roads.post(
+            "/nodes/cube/",
+            json={
+                "name": "default.propagation_cube",
+                "metrics": ["default.avg_repair_price", "default.num_repair_orders"],
+                "dimensions": ["default.hard_hat.state"],
+                "description": "Cube for version-bump propagation test",
+                "mode": "published",
+            },
+        )
+        assert response.status_code < 400, response.json()
+
+        response = await client_with_roads.patch(
+            "/nodes/default.avg_repair_price/",
+            json={"query": "SELECT SUM(price) FROM default.repair_order_details"},
+        )
+        assert response.status_code == 200
+
+        metric = await Node.get_by_name(
+            session,
+            "default.avg_repair_price",
+            options=[joinedload(Node.current)],
+        )
+        cube = await Node.get_by_name(
+            session,
+            "default.propagation_cube",
+            options=[joinedload(Node.current)],
+        )
+        assert metric is not None
+        assert cube is not None
+        version_before = cube.current_version
+        user = await User.get_by_username(session, "dj")
+        assert user is not None
+
+        async def noop_save_history(event, session):
+            session.add(event)
+
+        # Call propagation directly with the test session so the newly created
+        # cube (not yet committed to the DB) is visible.
+        await _propagate_update_downstream(
+            session=session,
+            node_name=metric.name,
+            node_current_version=metric.current_version,
+            current_user=user,
+            save_history=noop_save_history,
+        )
+
+        await session.refresh(cube)
+        assert cube.current_version != version_before, (
+            f"Cube version should have bumped when upstream metric changed "
+            f"(was {version_before}, still {cube.current_version})"
+        )
+
+    @pytest.mark.asyncio
     async def test_update_dimension_remove_pk_column(
         self,
         client_with_roads: AsyncClient,

@@ -37,7 +37,8 @@ async def test_propagate_update_downstream_swallows_exceptions(caplog):
                 logger="datajunction_server.internal.nodes",
             ):
                 await propagate_update_downstream(
-                    node=MagicMock(name="test.node"),
+                    "test.node",
+                    "v1.0",
                     current_user=MagicMock(),
                     save_history=MagicMock(),
                 )
