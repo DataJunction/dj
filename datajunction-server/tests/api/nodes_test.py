@@ -8175,3 +8175,148 @@ async def test_get_dimension_dag_cube(
 
     # Clean up
     await client_with_roads.delete("/nodes/default.test_dim_dag_cube/")
+
+
+class TestDeprecateNode:
+    """
+    Test node deprecation, which is distinct from deactivation: a deprecated
+    node still resolves and is served, but signals that consumers should
+    migrate off of it (optionally to a named successor node).
+    """
+
+    @pytest.mark.asyncio
+    async def test_deprecate_node_with_successor(
+        self,
+        client_with_roads: AsyncClient,
+    ):
+        """
+        Deprecating a node with a valid successor should set `deprecated_at`
+        and expose the successor's name as `succeeded_by`.
+        """
+        response = await client_with_roads.get("/nodes/default.repair_orders/")
+        assert response.json()["deprecated_at"] is None
+        assert response.json()["succeeded_by"] is None
+
+        response = await client_with_roads.post(
+            "/nodes/default.repair_orders/deprecate/",
+            params={"successor": "default.repair_order_details"},
+        )
+        assert response.status_code == 200
+        assert response.json() == {
+            "message": (
+                "Node `default.repair_orders` has been successfully deprecated."
+            ),
+        }
+
+        response = await client_with_roads.get("/nodes/default.repair_orders/")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["deprecated_at"] is not None
+        assert data["succeeded_by"] == "default.repair_order_details"
+
+        # The node should still resolve / be served
+        response = await client_with_roads.get("/nodes/default.repair_orders/")
+        assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_deprecate_node_without_successor(
+        self,
+        client_with_roads: AsyncClient,
+    ):
+        """
+        Deprecating a node with no successor is allowed; `succeeded_by`
+        stays null.
+        """
+        response = await client_with_roads.post(
+            "/nodes/default.repair_type/deprecate/",
+        )
+        assert response.status_code == 200
+        assert response.json() == {
+            "message": ("Node `default.repair_type` has been successfully deprecated."),
+        }
+
+        response = await client_with_roads.get("/nodes/default.repair_type/")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["deprecated_at"] is not None
+        assert data["succeeded_by"] is None
+
+    @pytest.mark.asyncio
+    async def test_deprecate_node_with_nonexistent_successor(
+        self,
+        client_with_roads: AsyncClient,
+    ):
+        """
+        Deprecating a node with a successor that doesn't exist should fail.
+        """
+        response = await client_with_roads.post(
+            "/nodes/default.repair_orders/deprecate/",
+            params={"successor": "default.does_not_exist"},
+        )
+        assert response.status_code == 404
+        assert response.json() == {
+            "message": "Successor node `default.does_not_exist` does not exist.",
+            "errors": [],
+            "warnings": [],
+        }
+
+        response = await client_with_roads.get("/nodes/default.repair_orders/")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["deprecated_at"] is None
+        assert data["succeeded_by"] is None
+
+    @pytest.mark.asyncio
+    async def test_undeprecate_node(
+        self,
+        client_with_roads: AsyncClient,
+    ):
+        """
+        Undeprecating a node clears both `deprecated_at` and `succeeded_by`.
+        """
+        response = await client_with_roads.post(
+            "/nodes/default.repair_orders/deprecate/",
+            params={"successor": "default.repair_order_details"},
+        )
+        assert response.status_code == 200
+
+        response = await client_with_roads.get("/nodes/default.repair_orders/")
+        data = response.json()
+        assert data["deprecated_at"] is not None
+        assert data["succeeded_by"] == "default.repair_order_details"
+
+        response = await client_with_roads.post(
+            "/nodes/default.repair_orders/undeprecate/",
+        )
+        assert response.status_code == 200
+        assert response.json() == {
+            "message": (
+                "Node `default.repair_orders` has been successfully undeprecated."
+            ),
+        }
+
+        response = await client_with_roads.get("/nodes/default.repair_orders/")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["deprecated_at"] is None
+        assert data["succeeded_by"] is None
+
+    @pytest.mark.asyncio
+    async def test_undeprecate_node_not_deprecated(
+        self,
+        client_with_roads: AsyncClient,
+    ):
+        """
+        Undeprecating a node that isn't deprecated should fail.
+        """
+        response = await client_with_roads.post(
+            "/nodes/default.repair_orders/undeprecate/",
+        )
+        assert response.status_code == 400
+        assert response.json() == {
+            "message": (
+                "Cannot undeprecate `default.repair_orders`, node is not deprecated."
+            ),
+            "errors": [],
+            "warnings": [],
+        }

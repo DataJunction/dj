@@ -963,6 +963,8 @@ class GenericNodeOutputModel(BaseModel):
             "namespace": values.namespace,
             "created_at": values.created_at,
             "deactivated_at": values.deactivated_at,
+            "deprecated_at": values.deprecated_at,
+            "succeeded_by": values.succeeded_by.name if values.succeeded_by else None,
             "current_version": values.current_version,
             "catalog": values.current.catalog,
             "missing_table": values.missing_table,
@@ -1061,6 +1063,8 @@ class NodeOutput(GenericNodeOutputModel):
     custom_metadata: dict | None = None
     owners: list[UserNameOnly] = Field(default_factory=list)
     cube_filters: list[str] | None = None
+    deprecated_at: UTCDatetime | None = None
+    succeeded_by: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -1079,6 +1083,7 @@ class NodeOutput(GenericNodeOutputModel):
             joinedload(Node.tags),
             selectinload(Node.created_by),
             selectinload(Node.owners),
+            selectinload(Node.succeeded_by),
         ]
 
 

@@ -420,6 +420,23 @@ class Node(Base):
         nullable=True,
         default=None,
     )
+    deprecated_at: Mapped[UTCDatetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        default=None,
+    )
+    succeeded_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("node.id"),
+        nullable=True,
+        default=None,
+    )
+
+    succeeded_by: Mapped[Optional["Node"]] = relationship(
+        "Node",
+        foreign_keys=[succeeded_by_id],
+        remote_side="Node.id",
+        lazy="select",
+    )
 
     owner_associations = relationship(
         "NodeOwner",

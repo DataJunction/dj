@@ -3365,6 +3365,99 @@ async def activate_node(
     await session.commit()
 
 
+async def deprecate_node(
+    session: AsyncSession,
+    name: str,
+    current_user: User,
+    save_history: Callable,
+    successor: str = None,
+    message: str = None,
+):
+    """
+    Marks a node as deprecated. Deprecated nodes still resolve and are served,
+    but signal that consumers should migrate to the given successor (if any).
+    """
+    node = await Node.get_by_name(session, name, raise_if_not_exists=True)
+    assert node is not None  # raise_if_not_exists=True ensures this
+
+    successor_node = None
+    if successor is not None:
+        successor_node = await Node.get_by_name(
+            session,
+            successor,
+            raise_if_not_exists=False,
+        )
+        if successor_node is None:
+            raise DJInvalidInputException(
+                http_status_code=HTTPStatus.NOT_FOUND,
+                message=f"Successor node `{successor}` does not exist.",
+            )
+
+    now = datetime.now(timezone.utc)
+    node.deprecated_at = UTCDatetime(  # type: ignore
+        year=now.year,
+        month=now.month,
+        day=now.day,
+        hour=now.hour,
+        minute=now.minute,
+        second=now.second,
+    )
+    node.succeeded_by = successor_node
+    session.add(node)
+    await save_history(
+        event=History(
+            entity_type=EntityType.NODE,
+            entity_name=name,
+            node=name,
+            activity_type=ActivityType.STATUS_CHANGE,
+            details={
+                "deprecated": True,
+                **({"successor": successor} if successor else {}),
+                **({"message": message} if message else {}),
+            },
+            user=current_user.username,
+        ),
+        session=session,
+    )
+    await session.commit()
+    await session.refresh(node, ["current"])
+
+
+async def undeprecate_node(
+    session: AsyncSession,
+    name: str,
+    current_user: User,
+    save_history: Callable,
+    message: str = None,
+):
+    """
+    Clears the deprecation status (and successor) of a node.
+    """
+    node = await Node.get_by_name(session, name, raise_if_not_exists=True)
+    assert node is not None  # raise_if_not_exists=True ensures this
+    if not node.deprecated_at:
+        raise DJInvalidInputException(
+            http_status_code=HTTPStatus.BAD_REQUEST,
+            message=f"Cannot undeprecate `{name}`, node is not deprecated.",
+        )
+    node.deprecated_at = None  # type: ignore
+    node.succeeded_by = None
+    session.add(node)
+    await save_history(
+        event=History(
+            entity_type=EntityType.NODE,
+            entity_name=name,
+            node=name,
+            activity_type=ActivityType.STATUS_CHANGE,
+            details={"deprecated": False, **({"message": message} if message else {})},
+            user=current_user.username,
+        ),
+        session=session,
+    )
+    await session.commit()
+    await session.refresh(node, ["current"])
+
+
 async def revalidate_node(
     name: str,
     session: AsyncSession,

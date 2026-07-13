@@ -60,6 +60,8 @@ from datajunction_server.internal.nodes import (
     copy_to_new_node,
     create_a_node,
     deactivate_node,
+    deprecate_node,
+    undeprecate_node,
     get_column_level_lineage,
     get_node_column,
     hard_delete_node,
@@ -458,6 +460,68 @@ async def restore_node(
     return JSONResponse(
         status_code=HTTPStatus.OK,
         content={"message": f"Node `{name}` has been successfully restored."},
+    )
+
+
+@router.post("/nodes/{name}/deprecate/")
+async def deprecate_node_endpoint(
+    name: str,
+    *,
+    successor: Optional[str] = None,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    save_history: Callable = Depends(get_save_history),
+    access_checker: AccessChecker = Depends(get_access_checker),
+):
+    """
+    Deprecate the specified node. A deprecated node still resolves and is
+    served, but signals that consumers should migrate off of it (optionally
+    to the given successor node).
+    """
+    access_checker.add_request_by_node_name(name, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+    namespace = name.rsplit(".", 1)[0]
+    await check_namespace_not_git_only(session, namespace)
+
+    await deprecate_node(
+        session=session,
+        name=name,
+        current_user=current_user,
+        save_history=save_history,
+        successor=successor,
+    )
+    return JSONResponse(
+        status_code=HTTPStatus.OK,
+        content={"message": f"Node `{name}` has been successfully deprecated."},
+    )
+
+
+@router.post("/nodes/{name}/undeprecate/")
+async def undeprecate_node_endpoint(
+    name: str,
+    *,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    save_history: Callable = Depends(get_save_history),
+    access_checker: AccessChecker = Depends(get_access_checker),
+):
+    """
+    Clear the deprecation status of the specified node.
+    """
+    access_checker.add_request_by_node_name(name, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+    namespace = name.rsplit(".", 1)[0]
+    await check_namespace_not_git_only(session, namespace)
+
+    await undeprecate_node(
+        session=session,
+        name=name,
+        current_user=current_user,
+        save_history=save_history,
+    )
+    return JSONResponse(
+        status_code=HTTPStatus.OK,
+        content={"message": f"Node `{name}` has been successfully undeprecated."},
     )
 
 
