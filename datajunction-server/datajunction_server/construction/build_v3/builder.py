@@ -246,6 +246,7 @@ async def setup_build_context(
     include_temporal_filters: bool = False,
     lookback_window: str | None = None,
     matched_cube: Optional["NodeRevision"] = None,
+    aggregate: bool = True,
 ) -> BuildContext:
     """
     Create and initialize a BuildContext with all setup done.
@@ -266,6 +267,12 @@ async def setup_build_context(
         use_materialized: Whether to use materialized tables
         include_temporal_filters: Whether to include temporal partition filters from cube
         lookback_window: Lookback window for temporal filters
+        aggregate: Whether to apply server-side aggregation (GROUP BY). When False,
+            emits a flat SELECT projecting each component column under its
+            exact node column name (v3-compatible output format, not the v2
+            ``<node>_DOT_<column>`` convention) and bypasses pre-aggregation
+            table matching. Used by callers that apply their own aggregation
+            downstream (semantic parity with v2's ``preaggregate=False`` mode).
 
     Returns:
         Fully initialized BuildContext
@@ -289,6 +296,7 @@ async def setup_build_context(
         use_materialized=use_materialized,
         temporal_partition_columns=temporal_partition_columns or {},
         lookback_window=lookback_window,
+        aggregate=aggregate,
     )
 
     # Add filter-driven dimensions upfront — this only parses filter strings and
@@ -351,6 +359,7 @@ async def build_measures_sql(
     lookback_window: str | None = None,
     query_parameters: dict[str, Any] | None = None,
     matched_cube: Optional["NodeRevision"] = None,
+    aggregate: bool = True,
 ) -> GeneratedMeasuresSQL:
     """
     Build measures SQL for a set of metrics, dimensions, and filters.
@@ -375,6 +384,15 @@ async def build_measures_sql(
             incremental materialization and partition pruning.
         lookback_window: Lookback window for temporal filters (e.g., "3 DAY").
             If not provided, filters to exactly the logical timestamp partition.
+        aggregate: If True (default), apply server-side aggregation at the
+            requested grain. When False, emit a flat SELECT with no GROUP BY,
+            project each component column under its exact node column name
+            (v3-compatible output format, not the v2 ``<node>_DOT_<column>``
+            convention), and bypass pre-aggregation table matching. Intended
+            for callers that apply their own aggregation downstream (semantic
+            parity with v2's ``preaggregate=False`` mode). The
+            ``metric_formulas[].combiner`` field is still populated so callers
+            know how to aggregate the raw output.
 
     Returns:
         GeneratedMeasuresSQL with one GrainGroupSQL per aggregation level,
@@ -391,6 +409,7 @@ async def build_measures_sql(
         include_temporal_filters=include_temporal_filters,
         lookback_window=lookback_window,
         matched_cube=matched_cube,
+        aggregate=aggregate,
     )
 
     # Build grain groups from context

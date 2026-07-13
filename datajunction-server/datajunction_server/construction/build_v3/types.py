@@ -53,6 +53,15 @@ class BuildContext:
     # Set to False when building SQL for materialization to avoid circular references
     use_materialized: bool = True
 
+    # Whether to apply server-side aggregation (default: True)
+    # When False, emits a flat SELECT with no GROUP BY and projects each
+    # component column under its exact node column name (the v3-compatible
+    # output format, not the v2 `<node>_DOT_<column>` convention).
+    # Pre-aggregation table matching is also bypassed in this mode, since the
+    # callers asking for raw rows are typically applying their own aggregation
+    # downstream. This is the v3 equivalent of v2's `preaggregate=False` mode.
+    aggregate: bool = True
+
     # Temporal filter settings for incremental materialization
     # Dict mapping column refs to partition objects from cube (e.g., {"v3.date.date_id": partition_obj})
     # When provided, temporal filters are pushed down to parent nodes via dimension links
