@@ -963,8 +963,6 @@ class GenericNodeOutputModel(BaseModel):
             "namespace": values.namespace,
             "created_at": values.created_at,
             "deactivated_at": values.deactivated_at,
-            "deprecated_at": values.deprecated_at,
-            "succeeded_by": values.succeeded_by.name if values.succeeded_by else None,
             "current_version": values.current_version,
             "catalog": values.current.catalog,
             "missing_table": values.missing_table,
@@ -972,6 +970,18 @@ class GenericNodeOutputModel(BaseModel):
             "created_by": values.created_by,
             "owners": [owner for owner in values.owners or []],
         }
+        # `succeeded_by` accesses the `Node.succeeded_by` relationship, which is
+        # only eager-loaded for the single-node `NodeOutput` path (see
+        # `NodeOutput.load_options`). Models that don't declare this field (e.g.
+        # `DAGNodeOutput`, used for downstream/upstream/DAG listings) must never
+        # touch the relationship here, or an un-eager-loaded access inside an
+        # async session raises `MissingGreenlet`.
+        if "deprecated_at" in cls.model_fields:
+            final_dict["deprecated_at"] = values.deprecated_at
+        if "succeeded_by" in cls.model_fields:
+            final_dict["succeeded_by"] = (
+                values.succeeded_by.name if values.succeeded_by else None
+            )
         current_dict = dict(current.__dict__.items())
         for k, v in current_dict.items():
             final_dict[k] = v

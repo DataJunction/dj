@@ -8320,3 +8320,98 @@ class TestDeprecateNode:
             "errors": [],
             "warnings": [],
         }
+
+    @pytest.mark.asyncio
+    async def test_deprecated_node_with_successor_in_dag_listing(
+        self,
+        client_with_roads: AsyncClient,
+        session: AsyncSession,
+    ):
+        """
+        A node that has been deprecated with a successor should still be
+        listable via the DAG endpoints (downstream/upstream/dag) without
+        crashing. `DAGNodeOutput` (used for those endpoints) does not
+        eager-load the `succeeded_by` relationship, so serializing the
+        response must not touch that relationship at all.
+
+        The successor node here (`default.dep_bug_successor`) is deliberately
+        kept unrelated to (not referenced by column/dimension/parent links
+        from) both the deprecated node and the node whose DAG we're listing,
+        so it can't be incidentally pulled into the session's identity map by
+        some other eager-load path -- that would mask the lazy-load crash by
+        letting SQLAlchemy's many-to-one `use_get` optimization resolve the
+        relationship from memory instead of the DB.
+
+        The `client` fixture wires every request in this test to the *same*
+        `session`, unlike production where each request gets its own fresh
+        `AsyncSession`. That means the successor node loaded while handling
+        the deprecate request would otherwise still be sitting in the
+        session's identity map when the subsequent DAG listing request
+        reaches `flatten_current` -- letting SQLAlchemy's `use_get`
+        optimization resolve `Node.succeeded_by` from memory (no lazy-load,
+        no crash) and silently hide the bug. We `expunge_all()` right before
+        the DAG listing call to evict everything from the identity map,
+        faithfully reproducing the empty-identity-map state a brand new
+        per-request session would actually have.
+        """
+        response = await client_with_roads.post(
+            "/nodes/source/",
+            json={
+                "name": "default.dep_bug_predecessor",
+                "description": "Node to be deprecated with a successor",
+                "columns": [{"name": "id", "type": "int"}],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "roads",
+                "table": "dep_bug_predecessor",
+            },
+        )
+        assert response.status_code in (200, 201)
+
+        response = await client_with_roads.post(
+            "/nodes/source/",
+            json={
+                "name": "default.dep_bug_successor",
+                "description": "Unrelated successor node",
+                "columns": [{"name": "id", "type": "int"}],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "roads",
+                "table": "dep_bug_successor",
+            },
+        )
+        assert response.status_code in (200, 201)
+
+        response = await client_with_roads.post(
+            "/nodes/dimension/",
+            json={
+                "name": "default.dep_bug_dimension",
+                "description": "Dimension downstream of the predecessor",
+                "query": "SELECT id FROM default.dep_bug_predecessor",
+                "primary_key": ["id"],
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201)
+
+        response = await client_with_roads.post(
+            "/nodes/default.dep_bug_predecessor/deprecate/",
+            params={"successor": "default.dep_bug_successor"},
+        )
+        assert response.status_code == 200
+
+        # Evict everything from the shared session's identity map so the
+        # upcoming DAG listing request sees an empty identity map, just like
+        # it would with its own fresh per-request session in production.
+        session.expunge_all()
+
+        # `default.dep_bug_dimension`'s query selects from
+        # `default.dep_bug_predecessor`, so the deprecated node with a
+        # successor will show up in its upstream DAG listing.
+        response = await client_with_roads.get(
+            "/nodes/default.dep_bug_dimension/upstream/",
+        )
+        assert response.status_code == 200
+        data = response.json()
+        names = {node["name"] for node in data}
+        assert "default.dep_bug_predecessor" in names
