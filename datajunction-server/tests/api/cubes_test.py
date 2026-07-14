@@ -4049,6 +4049,88 @@ class TestCubeRoleQualifiedDimensions:
         sql_column_names = [col["name"] for col in cube["sql_columns"]]
         assert len(sql_column_names) == len(set(sql_column_names))
 
+    @pytest.mark.asyncio
+    async def test_partition_targets_role_qualified_column(
+        self,
+        module__client_with_build_v3: AsyncClient,
+    ):
+        """
+        The column-scoped partition endpoints resolve a role-qualified column
+        identity, so a partition can be pinned to one role-played dimension
+        without touching the other. A bare (ambiguous) name is rejected rather
+        than silently binding the last-iterated column (Defects A and B).
+        """
+        cube_name = "v3.partition_role_cube"
+        response = await module__client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": cube_name,
+                "metrics": ["v3.total_revenue"],
+                "dimensions": [
+                    "v3.location.country[from]",
+                    "v3.location.country[to]",
+                    "v3.product.category",
+                ],
+                "mode": "published",
+                "description": "Role-playing country dim for partition targeting",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        async def country_columns_by_role():
+            """Map role suffix -> column dict for the collided `country` columns."""
+            cube = (
+                await module__client_with_build_v3.get(f"/cubes/{cube_name}/")
+            ).json()
+            return {
+                col["dimension_column"]: col
+                for col in cube["columns"]
+                if col["name"] == "v3.location.country"
+            }
+
+        # Role-qualified POST targets exactly the [from] role column.
+        response = await module__client_with_build_v3.post(
+            f"/nodes/{cube_name}/columns/v3.location.country[from]/partition",
+            json={"type_": "categorical"},
+        )
+        assert response.status_code == 201, response.json()
+        body = response.json()
+        assert body["name"] == "v3.location.country"
+        assert body["dimension_column"] == "[from]"
+        assert body["partition"]["type_"] == "categorical"
+
+        # The [to] role column is untouched.
+        country_cols = await country_columns_by_role()
+        assert country_cols["[from]"]["partition"] is not None
+        assert country_cols["[to]"]["partition"] is None
+
+        # Bare (ambiguous) name refuses to silently pick a winner.
+        response = await module__client_with_build_v3.post(
+            f"/nodes/{cube_name}/columns/v3.location.country/partition",
+            json={"type_": "categorical"},
+        )
+        assert response.status_code == 422, response.json()
+        message = response.json()["message"]
+        assert "ambiguous" in message
+        assert "v3.location.country[from]" in message
+        assert "v3.location.country[to]" in message
+
+        # ...and the ambiguous attempt didn't set a partition on either column.
+        country_cols = await country_columns_by_role()
+        assert country_cols["[from]"]["partition"] is not None
+        assert country_cols["[to]"]["partition"] is None
+
+        # Role-qualified DELETE removes the partition from [from] only.
+        response = await module__client_with_build_v3.delete(
+            f"/nodes/{cube_name}/columns/v3.location.country[from]/partition",
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["partition"] is None
+
+        country_cols = await country_columns_by_role()
+        assert country_cols["[from]"]["partition"] is None
+        assert country_cols["[to]"]["partition"] is None
+
 
 class TestCubeDeactivateEndpoint:
     """Tests for DELETE /cubes/{name}/materialize endpoint."""
