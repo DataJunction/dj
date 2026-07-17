@@ -91,10 +91,17 @@ async def create_node_namespace(
     current_user: User = Depends(get_current_user),
     *,
     save_history: Callable = Depends(get_save_history),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> JSONResponse:
     """
     Create a node namespace
     """
+    # Creating or reactivating a namespace mutates its parent boundary, so require
+    # WRITE there; a top-level namespace is governed on the namespace itself.
+    parent_boundary = namespace.rsplit(".", 1)[0] if "." in namespace else namespace
+    access_checker.add_namespace(parent_boundary, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     if node_namespace := await NodeNamespace.get(
         session,
         namespace,

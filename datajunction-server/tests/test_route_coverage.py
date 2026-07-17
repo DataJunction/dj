@@ -74,44 +74,25 @@ def _mutating_routes():
 # that adds its check(), and the set MUST be empty once step 0 is complete
 # (asserted by test_step0_backlog_reaches_empty). Do not add non-step-0 routes here.
 PENDING_COVERAGE: dict[tuple[str, str], str] = {
-    (
-        "DELETE",
-        "/nodes/{node_name}/link",
-    ): "step0 PR2: dimension-link removal check pending",
-    ("POST", "/namespaces/{namespace}"): "step0 PR3: namespace-create check pending",
-    (
-        "DELETE",
-        "/nodes/{node_name}/materializations",
-    ): "step0 PR4: materialization coverage pending",
-    (
-        "POST",
-        "/nodes/{node_name}/materializations/{materialization_name}/backfill",
-    ): "step0 PR4: materialization coverage pending",
-    ("POST", "/preaggs/plan"): "step0 PR4: preaggregation coverage pending",
-    ("DELETE", "/preaggs/workflows"): "step0 PR4: preaggregation coverage pending",
+    # Preaggregation writes. A preagg is keyed by preagg_id (or a plan body), not a
+    # node name, so the correct (resource, action) needs a preagg->node/namespace
+    # resolution decision before wiring check(). Tracked as the remaining step0 work.
+    ("POST", "/preaggs/plan"): "step0: preaggregation coverage pending",
+    ("DELETE", "/preaggs/workflows"): "step0: preaggregation coverage pending",
     (
         "POST",
         "/preaggs/{preagg_id}/availability",
-    ): "step0 PR4: preaggregation coverage pending",
-    (
-        "POST",
-        "/preaggs/{preagg_id}/backfill",
-    ): "step0 PR4: preaggregation coverage pending",
-    (
-        "PATCH",
-        "/preaggs/{preagg_id}/config",
-    ): "step0 PR4: preaggregation coverage pending",
+    ): "step0: preaggregation coverage pending",
+    ("POST", "/preaggs/{preagg_id}/backfill"): "step0: preaggregation coverage pending",
+    ("PATCH", "/preaggs/{preagg_id}/config"): "step0: preaggregation coverage pending",
     (
         "POST",
         "/preaggs/{preagg_id}/materialize",
-    ): "step0 PR4: preaggregation coverage pending",
+    ): "step0: preaggregation coverage pending",
     (
         "DELETE",
         "/preaggs/{preagg_id}/workflow",
-    ): "step0 PR4: preaggregation coverage pending",
-    ("POST", "/cubes/{name}/backfill"): "step0 PR5: cube coverage pending",
-    ("POST", "/cubes/{name}/materialize"): "step0 PR5: cube coverage pending",
-    ("DELETE", "/cubes/{name}/materialize"): "step0 PR5: cube coverage pending",
+    ): "step0: preaggregation coverage pending",
 }
 
 # INTENTIONAL_EXCLUSIONS: mutating routes deliberately not node-RBAC-governed.

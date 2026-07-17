@@ -1006,6 +1006,7 @@ async def remove_complex_dimension_link(
         link_identifier.dimension_node,
         ResourceAction.READ,
     )
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
     return await remove_dimension_link(
         session,
         node_name,
