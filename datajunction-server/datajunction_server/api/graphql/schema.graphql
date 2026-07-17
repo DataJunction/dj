@@ -382,6 +382,7 @@ type NodeRevision {
   primaryKey: [String!]!
   metricMetadata: MetricMetadata
   isDerivedMetric: Boolean!
+  isMeasure: Boolean!
   extractedMeasures: DecomposedMetric
   cubeMetrics: [NodeRevision!]!
   cubeFilters: [String!]!

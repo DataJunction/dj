@@ -16,6 +16,71 @@ from datajunction_server.models.node_type import NodeType
 from datajunction_server.typing import UTCDatetime
 
 
+@pytest.mark.parametrize(
+    "query, expected",
+    [
+        ("SELECT SUM(x) FROM a", True),
+        ("SELECT COUNT(x) FROM a", True),
+        ("SELECT COUNT(DISTINCT x) FROM a", True),
+        ("SELECT MAX(x) FROM a", True),
+        ("SELECT SUM(x * price) FROM a", True),
+        ("SELECT SUM(x) AS total FROM a", True),  # aliased projection
+        # AVG decomposes into SUM + COUNT (two components), so it is NOT a
+        # 1:1-mappable measure — model it as a derived metric over its own
+        # SUM and COUNT measures instead.
+        ("SELECT AVG(x) FROM a", False),
+        ("SELECT AVG(x) AS avg_x FROM a", False),  # aliased AVG
+        ("SELECT SUM(x) / COUNT(y) AS ratio FROM a", False),  # aliased ratio
+        ("SELECT SUM(x) / COUNT(y) FROM a", False),
+        ("SELECT 1.5 * SUM(x) FROM a", False),
+        ("SELECT SUM(x) + SUM(y) FROM a", False),
+        ("SELECT SUM(x), COUNT(y) FROM a", False),  # more than one projection
+        ("SELECT MAX_BY(x, y) FROM a", False),  # single agg, but non-decomposable
+    ],
+)
+def test_is_measure(query: str, expected: bool) -> None:
+    """
+    A metric is a measure iff its query is a single top-level aggregation call
+    (no cross-measure arithmetic).
+    """
+    revision = NodeRevision(
+        name="m",
+        type=NodeType.METRIC,
+        version="1",
+        query=query,
+        parents=[],
+    )
+    assert revision.is_measure is expected
+
+
+def test_is_measure_false_for_non_metric() -> None:
+    """Only metric nodes can be measures."""
+    revision = NodeRevision(
+        name="t",
+        type=NodeType.TRANSFORM,
+        version="1",
+        query="SELECT SUM(x) FROM a",
+        parents=[],
+    )
+    assert revision.is_measure is False
+
+
+def test_is_measure_false_for_derived_metric() -> None:
+    """
+    A metric that references another metric is derived, not a measure, even if
+    its top-level expression looks like a single aggregation.
+    """
+    base = Node(name="base", type=NodeType.METRIC, current_version="1")
+    revision = NodeRevision(
+        name="m",
+        type=NodeType.METRIC,
+        version="1",
+        query="SELECT SUM(base) FROM base",
+        parents=[base],
+    )
+    assert revision.is_measure is False
+
+
 def test_node_relationship(session: AsyncSession) -> None:
     """
     Test the n:n self-referential relationships.

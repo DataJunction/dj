@@ -626,6 +626,129 @@ class TestFindMatchingPreagg:
         assert result is not None
         assert result.id == preagg.id
 
+    @pytest.mark.asyncio
+    async def test_non_additive_measure_requires_exact_grain(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+        metric_node: Node,
+    ):
+        """A non-additive (LIMITED) measure must NOT be rolled up to a coarser
+        grain: a finer-grain pre-agg cannot satisfy a coarser-grain query
+        because re-aggregating a distinct count double-counts."""
+        avail = AvailabilityState(
+            catalog="test",
+            schema_="test",
+            table="preagg",
+            valid_through_ts=9999999999,
+        )
+        session.add(avail)
+        await session.flush()
+
+        preagg = PreAggregation(
+            node_revision_id=parent_node.current.id,
+            grain_columns=["dim1", "dim2"],
+            measures=[
+                make_preagg_measure(
+                    "num_users",
+                    "DISTINCT user_id",
+                    aggregation="COUNT",
+                ),
+            ],
+            sql="SELECT ...",
+            grain_group_hash="hash_na1",
+            preagg_hash="naex1",
+            availability_id=avail.id,
+        )
+        session.add(preagg)
+        await session.flush()
+
+        ctx = BuildContext(
+            session=session,
+            metrics=["test.metric"],
+            dimensions=["test.dim"],
+            use_materialized=True,
+            available_preaggs={parent_node.current.id: [preagg]},
+        )
+
+        component = MetricComponent(
+            name="num_users",
+            expression="DISTINCT user_id",
+            aggregation="COUNT",
+            merge="SUM",
+            rule=AggregationRule(type=Aggregability.LIMITED, level=["user_id"]),
+        )
+        grain_group = make_grain_group(parent_node, [(metric_node, component)])
+
+        # Requesting a coarser grain than the pre-agg: must NOT match.
+        result = find_matching_preagg(ctx, parent_node, ["dim1"], grain_group)
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_non_additive_measure_matches_exact_grain(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+        metric_node: Node,
+    ):
+        """A non-additive measure still matches when the pre-agg grain is exactly
+        the requested grain (no roll-up needed, so the value is correct)."""
+        avail = AvailabilityState(
+            catalog="test",
+            schema_="test",
+            table="preagg",
+            valid_through_ts=9999999999,
+        )
+        session.add(avail)
+        await session.flush()
+
+        preagg = PreAggregation(
+            node_revision_id=parent_node.current.id,
+            grain_columns=["dim1", "dim2"],
+            measures=[
+                make_preagg_measure(
+                    "num_users",
+                    "DISTINCT user_id",
+                    aggregation="COUNT",
+                ),
+            ],
+            sql="SELECT ...",
+            grain_group_hash="hash_na2",
+            preagg_hash="naex2",
+            availability_id=avail.id,
+        )
+        session.add(preagg)
+        await session.flush()
+
+        ctx = BuildContext(
+            session=session,
+            metrics=["test.metric"],
+            dimensions=["test.dim"],
+            use_materialized=True,
+            available_preaggs={parent_node.current.id: [preagg]},
+        )
+
+        component = MetricComponent(
+            name="num_users",
+            expression="DISTINCT user_id",
+            aggregation="COUNT",
+            merge="SUM",
+            rule=AggregationRule(type=Aggregability.LIMITED, level=["user_id"]),
+        )
+        grain_group = make_grain_group(parent_node, [(metric_node, component)])
+
+        # Requesting exactly the pre-agg grain: no roll-up, so this is valid.
+        result = find_matching_preagg(
+            ctx,
+            parent_node,
+            ["dim1", "dim2"],
+            grain_group,
+        )
+
+        assert result is not None
+        assert result.id == preagg.id
+
 
 class TestGetPreaggMeasureColumn:
     """Tests for get_preagg_measure_column function."""
