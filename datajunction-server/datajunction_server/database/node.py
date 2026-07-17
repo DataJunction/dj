@@ -1811,6 +1811,48 @@ class NodeRevision(
         return any(parent.type == NodeType.METRIC for parent in self.parents)
 
     @property
+    def is_measure(self) -> bool:
+        """
+        Whether this metric is a "measure": its query is a single aggregation
+        that decomposes into exactly one storable, re-aggregatable component
+        (e.g. ``SUM(x)``, ``COUNT(x)``, ``MIN(x)``, ``COUNT(DISTINCT x)``), and
+        it does not reference other metrics.
+
+        Aggregations that decompose into multiple components are NOT measures:
+        ``AVG(x)`` is stored as separate ``SUM`` and ``COUNT`` components (and
+        recombined as ``SUM(sum)/SUM(count)``), so it cannot map to a single
+        column — it must be modelled as a derived metric over its own ``SUM``
+        and ``COUNT`` measures. Cross-measure arithmetic (``SUM(x)/COUNT(y)``,
+        ``1.5 * SUM(x)``) and non-decomposable aggregations (``MAX_BY``) are not
+        measures either.
+
+        Only measures can be mapped 1:1 to a column in an externally-built
+        pre-aggregation table.
+        """
+        if self.type != NodeType.METRIC:
+            return False
+        if self.is_derived_metric:
+            return False
+        from datajunction_server.sql.decompose import get_decomposition
+        from datajunction_server.sql.parsing import ast
+        from datajunction_server.sql.parsing.backends.antlr4 import parse
+
+        projections = parse(self.query).select.projection
+        if len(projections) != 1:
+            return False
+        # Strip a trailing ``AS name`` alias to reach the underlying expression.
+        projection = projections[0]
+        expression = (
+            projection.child if isinstance(projection, ast.Alias) else projection
+        )
+        if not (isinstance(expression, ast.Function) and expression.is_aggregation()):
+            return False
+        # A measure maps 1:1 to a single stored column, so its aggregation must
+        # decompose into exactly one component (SUM/COUNT/MIN/MAX/COUNT DISTINCT).
+        decomposition = get_decomposition(expression.function())
+        return decomposition is not None and len(decomposition.components) == 1
+
+    @property
     def metric_parents(self) -> List["Node"]:
         """
         Get the list of parent nodes that are metrics.

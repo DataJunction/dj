@@ -550,11 +550,12 @@ def load_node_revision_options(node_revision_fields, is_current: bool = True):
         defer(DBNodeRevision.query_ast),
         defer(DBNodeRevision.lineage),
     ]
-    # query is also used by metric_metadata and extracted_measures resolvers
+    # query is also used by metric_metadata, extracted_measures and is_measure
     needs_query = (
         "query" in node_revision_fields
         or "metric_metadata" in node_revision_fields
         or "extracted_measures" in node_revision_fields
+        or "is_measure" in node_revision_fields
     )
     if not needs_query:
         options.append(defer(DBNodeRevision.query))
@@ -628,8 +629,8 @@ def load_node_revision_options(node_revision_fields, is_current: bool = True):
     else:
         options.append(noload(DBNodeRevision.catalog))
 
-    # Handle parents
-    if "parents" in node_revision_fields:
+    # Handle parents (is_measure inspects parents to exclude derived metrics)
+    if "parents" in node_revision_fields or "is_measure" in node_revision_fields:
         options.append(selectinload(DBNodeRevision.parents))
     else:
         options.append(noload(DBNodeRevision.parents))

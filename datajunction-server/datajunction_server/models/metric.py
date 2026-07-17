@@ -50,6 +50,11 @@ class Metric(BaseModel):
     unit: Optional[Dict] = None
     required_dimensions: List[str]
 
+    # Whether the metric is a single aggregation call (a "measure") that can map
+    # 1:1 to a column in an externally-built pre-aggregation table. Derived/ratio
+    # metrics are not measures. Computed on the fly from the metric's expression.
+    is_measure: bool
+
     incompatible_druid_functions: List[str]
 
     measures: List[MetricComponent]
@@ -98,6 +103,7 @@ class Metric(BaseModel):
                 node.current.columns[0].unit if node.current.columns else None,
             ),
             required_dimensions=[dim.name for dim in node.current.required_dimensions],
+            is_measure=node.current.is_measure,
             incompatible_druid_functions=incompatible_druid_functions,
             measures=measures,
             derived_query=str(derived_sql).strip(),
