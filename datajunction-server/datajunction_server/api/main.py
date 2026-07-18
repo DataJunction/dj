@@ -55,6 +55,9 @@ from datajunction_server.api import (
 
 from datajunction_server.api.access.authentication import basic, whoami, service_account
 from datajunction_server.api.attributes import default_attribute_types
+from datajunction_server.internal.access.authorization.readiness import (
+    verify_rbac_admins,
+)
 from datajunction_server.internal.seed import seed_default_catalogs
 from datajunction_server.api.graphql.main import graphql_app, schema as graphql_schema  # noqa: F401
 from datajunction_server.constants import AUTH_COOKIE, LOGGED_IN_FLAG_COOKIE
@@ -84,6 +87,7 @@ async def lifespan(app: FastAPI):  # pragma: no cover
     async with session_factory() as session:
         await default_attribute_types(session)
         await seed_default_catalogs(session)
+        await verify_rbac_admins(session, settings)
 
     yield
 

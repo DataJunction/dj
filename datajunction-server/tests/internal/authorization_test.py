@@ -1,5 +1,6 @@
 """Tests for RBAC authorization logic."""
 
+import logging
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -588,7 +589,7 @@ class TestAuthorizationService:
 class TestAdminBypass:
     """Tests for the admin break-glass bypass in RBACAuthorizationService."""
 
-    async def test_admin_bypasses_restrictive_policy(self, mocker):
+    async def test_admin_bypasses_restrictive_policy(self, mocker, caplog):
         """An admin is approved for everything, even under restrictive policy."""
         mock_settings = mocker.patch(
             "datajunction_server.internal.access.authorization.service.settings",
@@ -619,9 +620,18 @@ class TestAdminBypass:
                 ),
             ),
         ]
-        decisions = service.authorize(auth_context, requests)
+        with caplog.at_level(
+            logging.WARNING,
+            logger="datajunction.audit.rbac",
+        ):
+            decisions = service.authorize(auth_context, requests)
+
         assert all(decision.approved for decision in decisions)
-        assert all(decision.reason == "admin" for decision in decisions)
+        assert all(decision.reason == "admin_bypass" for decision in decisions)
+        assert len(caplog.messages) == 1
+        assert caplog.messages[0].startswith(
+            "event=rbac_admin_bypass reason=admin_bypass actor=root actor_id=1",
+        )
 
     async def test_non_admin_denied_under_restrictive(self, mocker):
         """A non-admin with no grants is denied under restrictive policy."""

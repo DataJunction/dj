@@ -19,6 +19,9 @@ services:
       # Allow the slot's UI origin through CORS. The default whitelist only
       # permits :3000 so slots running on other ports are blocked without this.
       - CORS_ORIGIN_WHITELIST=["http://localhost:${DJ_UI_PORT:-3000}"]
+      # Verify the local break-glass account without changing the access policy.
+      - RBAC_REQUIRE_ADMIN=${RBAC_REQUIRE_ADMIN:-true}
+      - RBAC_ADMIN_USERS=${RBAC_ADMIN_USERS:-["dj"]}
     build:
       context: ./datajunction-server
       args:
@@ -30,8 +33,12 @@ services:
     ports:
       - "${DJ_PORT:-8000}:8000"
     depends_on:
-      - db-migration
-      - postgres_metadata
+      db-migration:
+        condition: service_completed_successfully
+      db-seed:
+        condition: service_completed_successfully
+      postgres_metadata:
+        condition: service_healthy
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:

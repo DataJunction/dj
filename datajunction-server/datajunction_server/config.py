@@ -213,6 +213,12 @@ class Settings(BaseSettings):  # pragma: no cover
     # - "restrictive": Deny by default
     default_access_policy: str = "permissive"  # or "restrictive"
 
+    # Require configured break-glass admins before serving requests.
+    # Restrictive default access also enables this check automatically.
+    # RBAC_ADMIN_USERS uses JSON list syntax, for example ["admin-user"].
+    rbac_require_admin: bool = False
+    rbac_admin_users: List[str] = Field(default_factory=list)
+
     # Interval in seconds with which to expire caching of any indexes
     index_cache_expire: int = 60
 
