@@ -47,6 +47,7 @@ class CustomMetadataSchemaOutput(BaseModel):
     description: Optional[str] = None
     owner: str | None = None
     reserved: bool = False
+    created_by_id: int | None = None
     updated_by_id: int | None = None
 
     class Config:

@@ -554,6 +554,7 @@ async def test_created_by_id_and_updated_by_id_populated(
         )
     assert resp.status_code in (200, 201)
     body = resp.json()
+    assert body["created_by_id"] == admin_id
     assert body["updated_by_id"] == admin_id
 
 
