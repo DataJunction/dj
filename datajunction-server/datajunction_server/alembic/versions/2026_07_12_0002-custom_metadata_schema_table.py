@@ -36,23 +36,36 @@ def upgrade():
         ),
         sa.Column("description", sa.String(), nullable=True),
         sa.Column("created_by_id", sa.BigInteger(), nullable=True),
+        sa.Column("owner", sa.String(), nullable=True),
+        sa.Column("updated_by_id", sa.BigInteger(), nullable=True),
+        sa.Column(
+            "reserved",
+            sa.Boolean(),
+            server_default=sa.text("false"),
+            nullable=False,
+        ),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("deactivated_at", sa.DateTime(timezone=True), nullable=True),
         sa.ForeignKeyConstraint(["created_by_id"], ["users.id"]),
+        sa.ForeignKeyConstraint(["updated_by_id"], ["users.id"]),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index(
-        "uq_custommetadataschema_key_type_ns",
+        "uq_custommetadataschema_key_scope",
         "custommetadataschema",
-        ["key", "node_type", "namespace"],
+        [
+            sa.text("key"),
+            sa.text("coalesce(node_type, '')"),
+            sa.text("coalesce(namespace, '')"),
+        ],
         unique=True,
     )
 
 
 def downgrade():
     op.drop_index(
-        "uq_custommetadataschema_key_type_ns",
+        "uq_custommetadataschema_key_scope",
         table_name="custommetadataschema",
     )
     op.drop_table("custommetadataschema")

@@ -200,7 +200,7 @@ async def test_namespace_scoped_row_does_not_apply_to_none_namespace(session):
 
 @pytest.mark.asyncio
 async def test_equal_specificity_second_row_does_not_displace_first(session):
-    """Two global rows for the same key: the second-seen does not beat the first (branch 68->64)."""
+    """Two namespace-scoped rows for the same key at equal specificity: first-seen is kept."""
     schema_a = {"type": "string"}
     schema_b = {"type": "boolean"}
     session.add_all(
@@ -208,14 +208,14 @@ async def test_equal_specificity_second_row_does_not_displace_first(session):
             CustomMetadataSchema(
                 key="k",
                 node_type=None,
-                namespace=None,
+                namespace="alpha",
                 json_schema=schema_a,
                 value_kind="string",
             ),
             CustomMetadataSchema(
                 key="k",
                 node_type=None,
-                namespace=None,
+                namespace="beta",
                 json_schema=schema_b,
                 value_kind="boolean",
             ),
@@ -223,10 +223,106 @@ async def test_equal_specificity_second_row_does_not_displace_first(session):
     )
     await session.commit()
 
+    # Query with a namespace that matches only "alpha" — only schema_a qualifies
     resolved = await resolve_schemas(
         session,
-        namespace=None,
+        namespace="alpha.sub",
         node_type=NodeType.METRIC,
     )
-    assert len(resolved) == 1
-    assert resolved["k"] in (schema_a, schema_b)
+    assert resolved["k"] == schema_a
+
+
+@pytest.mark.asyncio
+async def test_reserved_global_wins_over_scoped(session):
+    """A reserved global row supersedes a more-specific namespace-scoped row for the same key."""
+    session.add_all(
+        [
+            CustomMetadataSchema(
+                key="tier",
+                node_type=None,
+                namespace=None,
+                json_schema={"type": "string", "description": "global-reserved"},
+                value_kind="string",
+                reserved=True,
+            ),
+            CustomMetadataSchema(
+                key="tier",
+                node_type=None,
+                namespace="eng",
+                json_schema={"type": "number", "description": "namespace-scoped"},
+                value_kind="number",
+            ),
+        ],
+    )
+    await session.commit()
+
+    resolved = await resolve_schemas(
+        session,
+        namespace="eng.backend",
+        node_type=NodeType.METRIC,
+    )
+    # Reserved global must win even though namespace-scoped is more specific
+    assert resolved["tier"] == {"type": "string", "description": "global-reserved"}
+
+
+@pytest.mark.asyncio
+async def test_non_reserved_global_loses_to_scoped(session):
+    """A non-reserved global row still loses to a more-specific namespace-scoped row."""
+    session.add_all(
+        [
+            CustomMetadataSchema(
+                key="tier",
+                node_type=None,
+                namespace=None,
+                json_schema={"type": "string", "description": "global-non-reserved"},
+                value_kind="string",
+                reserved=False,
+            ),
+            CustomMetadataSchema(
+                key="tier",
+                node_type=None,
+                namespace="eng",
+                json_schema={"type": "number", "description": "namespace-scoped"},
+                value_kind="number",
+            ),
+        ],
+    )
+    await session.commit()
+
+    resolved = await resolve_schemas(
+        session,
+        namespace="eng.backend",
+        node_type=NodeType.METRIC,
+    )
+    # Non-reserved global: namespace-scoped still wins
+    assert resolved["tier"] == {"type": "number", "description": "namespace-scoped"}
+
+
+@pytest.mark.asyncio
+async def test_duplicate_global_violates_unique_index(session):
+    """Inserting two global rows with the same key should raise an IntegrityError."""
+    import pytest
+    from sqlalchemy.exc import IntegrityError
+
+    session.add(
+        CustomMetadataSchema(
+            key="dup",
+            node_type=None,
+            namespace=None,
+            json_schema={"type": "string"},
+            value_kind="string",
+        ),
+    )
+    await session.commit()
+
+    session.add(
+        CustomMetadataSchema(
+            key="dup",
+            node_type=None,
+            namespace=None,
+            json_schema={"type": "number"},
+            value_kind="number",
+        ),
+    )
+    with pytest.raises(IntegrityError):
+        await session.commit()
