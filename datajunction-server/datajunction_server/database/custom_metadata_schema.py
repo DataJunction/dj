@@ -4,7 +4,8 @@ import datetime
 from functools import partial
 from typing import Optional
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Index, String
+import sqlalchemy as sa
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, String, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -18,10 +19,10 @@ class CustomMetadataSchema(Base):
     __tablename__ = "custommetadataschema"
     __table_args__ = (
         Index(
-            "uq_custommetadataschema_key_type_ns",
-            "key",
-            "node_type",
-            "namespace",
+            "uq_custommetadataschema_key_scope",
+            text("key"),
+            text("coalesce(node_type, '')"),
+            text("coalesce(namespace, '')"),
             unique=True,
         ),
     )
@@ -41,6 +42,12 @@ class CustomMetadataSchema(Base):
         ForeignKey("users.id"),
         default=None,
     )
+    owner: Mapped[Optional[str]] = mapped_column(String, default=None)
+    updated_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id"),
+        default=None,
+    )
+    reserved: Mapped[bool] = mapped_column(default=False, server_default=sa.false())
     created_at: Mapped[UTCDatetime] = mapped_column(
         DateTime(timezone=True),
         default=partial(datetime.datetime.now, datetime.timezone.utc),

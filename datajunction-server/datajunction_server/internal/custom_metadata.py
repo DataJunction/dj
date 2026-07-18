@@ -48,6 +48,10 @@ async def resolve_schemas(
 
     Among qualifying rows for the same key the one with the highest
     :func:`_specificity` score wins.
+
+    Exception: if a key has a global row (``node_type IS NULL, namespace IS NULL``)
+    with ``reserved=True``, that row's schema is always used for that key —
+    any more-specific scoped rows for the same key are ignored.
     """
     stmt = select(CustomMetadataSchema).where(
         CustomMetadataSchema.deactivated_at.is_(None),
@@ -58,10 +62,24 @@ async def resolve_schemas(
     )
     rows = (await session.execute(stmt)).scalars().all()
 
+    # First pass: identify keys that have a reserved global row
+    reserved_global_keys: set[str] = {
+        row.key
+        for row in rows
+        if row.reserved
+        and row.node_type is None
+        and row.namespace is None
+        and row.deactivated_at is None
+    }
+
     best: dict[str, tuple[int, dict]] = {}
     for row in rows:
         if not _namespace_matches(row.namespace, namespace):
             continue
+        # If this key is reserved-global, only accept the global row itself
+        if row.key in reserved_global_keys:
+            if row.node_type is not None or row.namespace is not None:
+                continue  # skip scoped rows for reserved keys
         score = _specificity(row)
         if row.key not in best or score > best[row.key][0]:
             best[row.key] = (score, row.json_schema)
