@@ -1,6 +1,7 @@
 """Tests for custom_metadata schema resolution helper."""
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from datajunction_server.database.custom_metadata_schema import CustomMetadataSchema
 from datajunction_server.internal.custom_metadata import resolve_schemas
@@ -199,13 +200,16 @@ async def test_namespace_scoped_row_does_not_apply_to_none_namespace(session):
 
 
 @pytest.mark.asyncio
-async def test_equal_specificity_second_row_does_not_displace_first(session):
-    """Two global rows for the same key at equal specificity: one is kept (84->76 branch)."""
+async def test_lower_specificity_row_does_not_displace_higher(session):
+    """A lower-specificity global row does not displace a higher-specificity typed row.
+
+    Exercises the ``score > best[row.key][0]`` false branch in resolve_schemas.
+    The assertion ``resolved["k"] == schema_a`` holds regardless of DB row-return
+    order because the typed row (score=1) always beats the global row (score=0).
+    """
     schema_a = {"type": "string"}
     schema_b = {"type": "boolean"}
-    # Use node_type-scoped rows so both match the same query; unique index only
-    # prevents duplicate (key, node_type, namespace) combos, so we use two
-    # different node_types to avoid a constraint violation.
+    # node_type-scoped (score=1) and global (score=0) for the same key.
     session.add_all(
         [
             CustomMetadataSchema(
@@ -215,9 +219,6 @@ async def test_equal_specificity_second_row_does_not_displace_first(session):
                 json_schema=schema_a,
                 value_kind="string",
             ),
-            # A global row (score=0) is added AFTER the typed row (score=1);
-            # since score=0 < score=1 the global row must NOT displace the typed
-            # row — this exercises the false branch of `score > best[row.key][0]`.
             CustomMetadataSchema(
                 key="k",
                 node_type=None,
@@ -234,7 +235,7 @@ async def test_equal_specificity_second_row_does_not_displace_first(session):
         namespace=None,
         node_type=NodeType.METRIC,
     )
-    # The typed row (score=1) wins; global row (score=0) does not displace it
+    # The typed row (score=1) must win; global row (score=0) must not displace it.
     assert resolved["k"] == schema_a
 
 
@@ -307,9 +308,6 @@ async def test_non_reserved_global_loses_to_scoped(session):
 @pytest.mark.asyncio
 async def test_duplicate_global_violates_unique_index(session):
     """Inserting two global rows with the same key should raise an IntegrityError."""
-    import pytest
-    from sqlalchemy.exc import IntegrityError
-
     session.add(
         CustomMetadataSchema(
             key="dup",
