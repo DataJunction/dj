@@ -78,6 +78,48 @@ class TestDimensionReachabilityInMemory:
         # dim.date is reachable (role doesn't affect node-level reachability)
         assert r.is_reachable(10, "dim.date")
 
+    def test_role_aware_reachability(self):
+        """Role-aware check: bare matches only role-less paths; a role matches
+        only that exact role path."""
+        paths = {
+            (10, "dim.date", ""): [100],
+            (10, "dim.date", "order"): [101],
+            (10, "dim.geo", "signup"): [102],
+        }
+        r = DimensionReachability(paths)
+        # Bare request: matches only the role-less path.
+        assert r.is_reachable_under_role(10, "dim.date", None)
+        # Role request: matches only that exact role.
+        assert r.is_reachable_under_role(10, "dim.date", "order")
+        assert not r.is_reachable_under_role(10, "dim.date", "ship")
+        # dim.geo is only reachable under the `signup` role, not bare.
+        assert not r.is_reachable_under_role(10, "dim.geo", None)
+        assert r.is_reachable_under_role(10, "dim.geo", "signup")
+        # The node-level check stays role-agnostic.
+        assert r.is_reachable(10, "dim.geo")
+
+    def test_unreachable_dimension_roles(self):
+        """Bare reference to a role-only-linked dim is reported unreachable,
+        while the role-qualified reference is reachable."""
+        paths = {
+            (10, "dim.geo", "signup"): [100],
+            (20, "dim.geo", "signup"): [200],
+        }
+        r = DimensionReachability(paths)
+        # Bare request is unreachable from both sources.
+        assert r.unreachable_dimension_roles(
+            {10, 20},
+            {("dim.geo", None)},
+        ) == {("dim.geo", None): {10, 20}}
+        # Role-qualified request is reachable from both.
+        assert r.unreachable_dimension_roles({10, 20}, {("dim.geo", "signup")}) == {}
+
+    def test_local_names_are_role_less(self):
+        """Local dimensions are role-less (bare) reachable."""
+        r = DimensionReachability({}, local_names={10: "node.fact"})
+        assert r.is_reachable_under_role(10, "node.fact", None)
+        assert not r.is_reachable_under_role(10, "node.fact", "x")
+
     def test_local_names(self):
         """Local names make each source reachable from itself."""
         paths = {(10, "dim.country", ""): [100]}

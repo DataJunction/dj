@@ -29,6 +29,10 @@ from datajunction_server.models.deployment import (
 )
 
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
+from datajunction_server.internal.git.github_service import (
+    GitHubService,
+    GitHubServiceError,
+)
 from datajunction_server.internal.git.yaml_export import (
     fetch_existing_yaml_map,
     generate_namespace_yaml_files,
@@ -792,9 +796,6 @@ async def update_namespace_git_config(
         if config.parent_namespace is not None
         else node_namespace.parent_namespace
     )
-    new_git_only = (
-        config.git_only if config.git_only is not None else node_namespace.git_only
-    )
 
     # Early validations (independent of parent relationship)
     validate_git_path(new_path)
@@ -817,21 +818,13 @@ async def update_namespace_git_config(
                 "Remove parent_namespace if you want to configure this as a git root.",
             )
 
-    # Validate git_only - only meaningful for branch namespaces.
-    # Git root namespaces (those with github_repo_path) are auto-locked and do not
-    # need git_only to be set explicitly.
-    if new_git_only:
-        is_branch_namespace = new_parent and new_branch
-
-        if not is_branch_namespace:
-            raise DJInvalidInputException(
-                message=(
-                    "git_only is only applicable to branch namespaces that have "
-                    "parent_namespace and git_branch configured. "
-                    "Git root namespaces are automatically locked when "
-                    "github_repo_path is set."
-                ),
-            )
+    # git_only is a per-namespace lock and is valid on ANY namespace — flat,
+    # git root, or branch. Git roots are still auto-locked via is_git_root, but
+    # a flat git-backed namespace (one that does not follow the
+    # <namespace>.<branch> structure) can now be locked explicitly instead of
+    # silently staying UI-editable. Enforcement lives in
+    # check_namespace_not_git_only, which already honors the flag on any
+    # namespace and cascades to descendants.
 
     # Validate parent_namespace if provided
     if new_parent:
@@ -886,6 +879,62 @@ async def update_namespace_git_config(
                 f"path '{new_path or '(root)'}'. Each namespace must have a unique "
                 "git location to avoid overwriting files.",
             )
+
+    # --- Git-config invariants (guard against the class of misconfiguration that
+    # silently strands namespaces on branches that don't exist). Only relevant when
+    # the branch is actually changing, so we skip the DB/GitHub lookups otherwise. ---
+    new_branch_val = config.git_branch or None
+    if config.git_branch is not None and new_branch_val != node_namespace.git_branch:
+        # Resolve the effective git config for THIS namespace before the update so
+        # the guards can reason about the default branch and the repo to check.
+        current_info = await get_git_info_for_namespace(session, namespace)
+        default_branch = (current_info or {}).get("default_branch")
+
+        # Guard 1: protect the canonical default-branch namespace. If this namespace
+        # is currently pinned to its repo's default branch, its git_branch must not
+        # be repointed to some other branch here — that is what corrupts the "main"
+        # view for everyone. Branch work belongs in Create Branch, which spins up a
+        # separate branch namespace instead of mutating the default one.
+        if default_branch and node_namespace.git_branch == default_branch:
+            raise DJInvalidInputException(
+                message=(
+                    f"'{namespace}' is pinned to the default branch "
+                    f"'{default_branch}' and its git branch cannot be repointed here. "
+                    f"Use Create Branch to make a new branch namespace instead of "
+                    f"changing the default branch."
+                ),
+            )
+
+        # Guard 2: the target branch must actually exist on the remote. A branch that
+        # was deleted (or never created) leaves the namespace pointing at a ghost ref,
+        # so every sync silently fails. Only enforced when GitHub is configured; if the
+        # API is unreachable we fail open rather than blocking namespace administration.
+        if new_branch_val and (settings.github_service_token or settings.github_app_id):
+            check_repo = new_repo
+            if not check_repo and new_parent:
+                check_repo, _, _ = await resolve_git_config(session, new_parent)
+            if check_repo:
+                try:
+                    exists = await GitHubService().branch_exists(
+                        check_repo,
+                        new_branch_val,
+                    )
+                except GitHubServiceError as exc:  # pragma: no cover
+                    _logger.warning(
+                        "Could not verify branch '%s' in '%s' (%s); allowing update.",
+                        new_branch_val,
+                        check_repo,
+                        exc,
+                    )
+                    exists = True
+                if not exists:
+                    raise DJInvalidInputException(
+                        message=(
+                            f"Branch '{new_branch_val}' does not exist in "
+                            f"'{check_repo}'. Create the branch on the remote (or use "
+                            f"Create Branch) before pointing this namespace at it."
+                        ),
+                    )
 
     # Update only provided fields (None means no change)
     if config.github_repo_path is not None:

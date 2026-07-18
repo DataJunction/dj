@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 import sqlalchemy as sa
 from pydantic import ConfigDict
 from sqlalchemy import JSON, and_, case, desc, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import aliased
 
 from sqlalchemy import Column as SqlalchemyColumn
@@ -618,10 +619,25 @@ class Node(Base):
                 legacy_from_md,
             )
 
+            # A required dimension that is a direct column on a parent node is
+            # exported as its bare column name (portable as-is). One that lives on
+            # a node elsewhere on the graph (e.g. a linked dimension) is exported
+            # as its fully-qualified `node.column` path, so a re-deploy into a
+            # different namespace can still find it — the bare name would fail to
+            # resolve against the parents. Prefix parameterization (`${prefix}`) is
+            # applied later, in get_node_specs_for_export, and only for in-deploy
+            # nodes. Only touch ``parents`` when there are required dims to classify.
+            required_dimensions_spec: list[str] = []
+            if self.current.required_dimensions:
+                parent_names = {parent.name for parent in self.current.parents}
+                required_dimensions_spec = sorted(
+                    col.name
+                    if col.node_revision.name in parent_names
+                    else col.full_name()
+                    for col in self.current.required_dimensions
+                )
             extra_kwargs.update(
-                required_dimensions=sorted(
-                    col.name for col in self.current.required_dimensions
-                ),
+                required_dimensions=required_dimensions_spec,
                 direction=self.current.metric_metadata.direction
                 if self.current.metric_metadata
                 else None,
@@ -1445,6 +1461,12 @@ class NodeRevision(
             postgresql_using="gin",
             postgresql_ops={"description": "gin_trgm_ops"},
         ),
+        Index(
+            "ix_noderevision_custom_metadata_gin",
+            "custom_metadata",
+            postgresql_using="gin",
+            postgresql_ops={"custom_metadata": "jsonb_path_ops"},
+        ),
     )
 
     id: Mapped[int] = mapped_column(
@@ -1603,7 +1625,7 @@ class NodeRevision(
     )
 
     custom_metadata: Mapped[Optional[Dict]] = mapped_column(
-        JSON,
+        JSON().with_variant(JSONB(), "postgresql"),
         default=None,
     )
 
@@ -1727,7 +1749,11 @@ class NodeRevision(
                 ),
                 joinedload(DimensionLink.node_revision),
             ),
-            selectinload(NodeRevision.required_dimensions),
+            selectinload(NodeRevision.required_dimensions).options(
+                # to_spec reads col.full_name() -> col.node_revision.name for
+                # off-graph required dimensions; preload it to avoid MissingGreenlet.
+                joinedload(Column.node_revision).load_only(NodeRevision.name),
+            ),
             selectinload(NodeRevision.cube_elements)
             .selectinload(Column.node_revision)
             .options(
@@ -1790,6 +1816,48 @@ class NodeRevision(
         if self.type != NodeType.METRIC:
             return False
         return any(parent.type == NodeType.METRIC for parent in self.parents)
+
+    @property
+    def is_measure(self) -> bool:
+        """
+        Whether this metric is a "measure": its query is a single aggregation
+        that decomposes into exactly one storable, re-aggregatable component
+        (e.g. ``SUM(x)``, ``COUNT(x)``, ``MIN(x)``, ``COUNT(DISTINCT x)``), and
+        it does not reference other metrics.
+
+        Aggregations that decompose into multiple components are NOT measures:
+        ``AVG(x)`` is stored as separate ``SUM`` and ``COUNT`` components (and
+        recombined as ``SUM(sum)/SUM(count)``), so it cannot map to a single
+        column — it must be modelled as a derived metric over its own ``SUM``
+        and ``COUNT`` measures. Cross-measure arithmetic (``SUM(x)/COUNT(y)``,
+        ``1.5 * SUM(x)``) and non-decomposable aggregations (``MAX_BY``) are not
+        measures either.
+
+        Only measures can be mapped 1:1 to a column in an externally-built
+        pre-aggregation table.
+        """
+        if self.type != NodeType.METRIC:
+            return False
+        if self.is_derived_metric:
+            return False
+        from datajunction_server.sql.decompose import get_decomposition
+        from datajunction_server.sql.parsing import ast
+        from datajunction_server.sql.parsing.backends.antlr4 import parse
+
+        projections = parse(self.query).select.projection
+        if len(projections) != 1:
+            return False
+        # Strip a trailing ``AS name`` alias to reach the underlying expression.
+        projection = projections[0]
+        expression = (
+            projection.child if isinstance(projection, ast.Alias) else projection
+        )
+        if not (isinstance(expression, ast.Function) and expression.is_aggregation()):
+            return False
+        # A measure maps 1:1 to a single stored column, so its aggregation must
+        # decompose into exactly one component (SUM/COUNT/MIN/MAX/COUNT DISTINCT).
+        decomposition = get_decomposition(expression.function())
+        return decomposition is not None and len(decomposition.components) == 1
 
     @property
     def metric_parents(self) -> List["Node"]:

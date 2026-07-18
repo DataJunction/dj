@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from datajunction_server.internal.git.github_service import GitHubServiceError
 from datajunction_server.internal.git.yaml_export import fetch_existing_yaml_map
 
 
@@ -72,6 +73,42 @@ async def test_fetch_existing_yaml_map_empty_archive():
             git_path=None,
         )
     assert result == {}
+
+
+@pytest.mark.asyncio
+async def test_fetch_existing_yaml_map_download_error_best_effort():
+    """When the archive can't be fetched and raise_on_error is False (default),
+    the error is swallowed and an empty map is returned for best-effort use."""
+    with patch(
+        "datajunction_server.internal.git.yaml_export.GitHubService",
+    ) as mock_cls:
+        mock_cls.return_value.download_archive = AsyncMock(
+            side_effect=GitHubServiceError("boom"),
+        )
+        result = await fetch_existing_yaml_map(
+            github_repo_path="org/repo",
+            git_branch="main",
+            git_path=None,
+        )
+    assert result == {}
+
+
+@pytest.mark.asyncio
+async def test_fetch_existing_yaml_map_download_error_raises():
+    """When raise_on_error is True, the underlying GitHubServiceError propagates."""
+    with patch(
+        "datajunction_server.internal.git.yaml_export.GitHubService",
+    ) as mock_cls:
+        mock_cls.return_value.download_archive = AsyncMock(
+            side_effect=GitHubServiceError("boom"),
+        )
+        with pytest.raises(GitHubServiceError):
+            await fetch_existing_yaml_map(
+                github_repo_path="org/repo",
+                git_branch="main",
+                git_path=None,
+                raise_on_error=True,
+            )
 
 
 @pytest.mark.asyncio

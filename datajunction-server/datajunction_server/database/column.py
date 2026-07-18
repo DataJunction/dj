@@ -178,7 +178,7 @@ class Column(Base):  # type: ignore
         """
         Full column name that includes the node it belongs to, i.e., default.hard_hat.first_name
         """
-        return f"{self.node_revision.name}.{self.name}"  # type: ignore  # pragma: no cover
+        return f"{self.node_revision.name}.{self.name}"  # type: ignore
 
     def copy(self) -> "Column":
         """

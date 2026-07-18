@@ -107,6 +107,7 @@ class DeploymentService:
         console: Console | None = None,
         verbose: bool = False,
         force: bool = False,
+        allow_empty: bool = False,
     ):
         """
         Push a local project to a namespace.
@@ -159,6 +160,8 @@ class DeploymentService:
                 )
         if force:
             deployment_spec["force"] = True
+        if allow_empty:
+            deployment_spec["allow_empty"] = True
         deployment_data = self.client.deploy(deployment_spec)
         deployment_uuid = deployment_data["uuid"]
 
@@ -475,6 +478,16 @@ class DeploymentService:
         Reads exported YAML files and reconstructs a DeploymentSpec-compatible dict.
         Returns (deployment_spec, warnings).
         """
+        # A non-existent directory silently yields zero node files, which the
+        # server would interpret as "delete every node in the namespace". Fail
+        # fast with a clear error instead of forming an empty spec (issue #2301).
+        if not Path(base_dir).is_dir():
+            raise DJClientException(
+                f"Directory not found: {base_dir}. Refusing to push an empty "
+                f"deployment -- an empty node set would soft-delete the nodes in "
+                f"the target namespace. Check the path.",
+            )
+
         project_metadata = self._read_project_yaml(base_dir)
         nodes, warnings = self._collect_nodes_from_dir(base_dir)
 

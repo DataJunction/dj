@@ -84,7 +84,7 @@ jobs:
 
           # Install dependencies (each package has different extras)
           if [ "${{ matrix.library }}" = "server" ]; then
-            uv sync --group test --extra transpilation --python ${{ matrix.python-version }}
+            uv sync --group test --python ${{ matrix.python-version }}
           elif [ "${{ matrix.library }}" = "client" ]; then
             uv sync --group test --extra mcp --python ${{ matrix.python-version }}
           else

@@ -1376,20 +1376,7 @@ describe('SelectionPanel', () => {
       expect(onRunQuery).toHaveBeenCalled();
     });
 
-    it('shows hint when metrics selected but no dimensions', () => {
-      render(
-        <SelectionPanel
-          {...defaultProps}
-          selectedMetrics={['default.num_repair_orders']}
-          canRunQuery={false}
-        />,
-      );
-      expect(
-        screen.getByText('Select at least one dimension'),
-      ).toBeInTheDocument();
-    });
-
-    it('shows hint when no metrics and no dimensions selected', () => {
+    it('shows metric hint when query cannot run (no metrics selected)', () => {
       render(
         <SelectionPanel
           {...defaultProps}
@@ -1398,8 +1385,26 @@ describe('SelectionPanel', () => {
         />,
       );
       expect(
-        screen.getByText('Select metrics and dimensions to run a query'),
+        screen.getByText('Select at least one metric to run a query'),
       ).toBeInTheDocument();
+    });
+
+    it('shows no run hint once a metric is selected (dimensions optional)', () => {
+      render(
+        <SelectionPanel
+          {...defaultProps}
+          selectedMetrics={['default.num_repair_orders']}
+          selectedDimensions={[]}
+          canRunQuery={true}
+          onRunQuery={vi.fn()}
+        />,
+      );
+      expect(
+        screen.queryByText('Select at least one metric to run a query'),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.getByText('Run Query').closest('button'),
+      ).not.toBeDisabled();
     });
   });
 });

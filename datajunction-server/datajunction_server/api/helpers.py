@@ -102,11 +102,13 @@ async def check_namespace_not_git_only(
 
     Blocks mutations when any ancestor (or the namespace itself):
     - Has ``git_only=True`` (explicitly locked), OR
-    - Is a git root (``github_repo_path`` set and ``git_branch`` null).
+    - Is a repo owner (``github_repo_path`` set and no ``parent_namespace``).
 
-    Branch namespaces (children of a git root with a non-null ``git_branch``)
-    are intentionally allowed — edits there are valid and get synced back to
-    the git repo, so they don't trip this check.
+    A repo owner covers both a git root (spawns ``<ns>.<branch>`` children) and
+    a flat git-backed namespace (tracks a branch directly). Branch namespaces
+    (children with a ``parent_namespace``) are intentionally allowed — edits
+    there are valid and get synced back to the git repo, so they don't trip
+    this check.
 
     Implementation: namespace names contain their parent path (``a.b.c``),
     so we materialize every prefix and fire a single ``IN`` query. One round
@@ -125,15 +127,15 @@ async def check_namespace_not_git_only(
     )
 
     # Walk deepest-first so the most specific locked ancestor (the one the
-    # user can most usefully act on) wins the error message. ``is_git_root``
+    # user can most usefully act on) wins the error message. ``is_repo_owner``
     # only applies to the namespace itself — its branch children are
     # intentionally editable — so don't propagate that flag up the chain.
     for ns in sorted(matches, key=lambda n: len(n.namespace), reverse=True):
         is_self = ns.namespace == namespace
-        is_git_root = (
-            is_self and ns.github_repo_path is not None and ns.git_branch is None
+        is_repo_owner = (
+            is_self and ns.github_repo_path is not None and ns.parent_namespace is None
         )
-        if ns.git_only or is_git_root:
+        if ns.git_only or is_repo_owner:
             scope_msg = (
                 f"'{namespace}'"
                 if is_self
@@ -445,17 +447,52 @@ async def resolve_downstream_references(
     return newly_valid_nodes
 
 
-def map_dimensions_to_roles(dimensions: List[str]) -> Dict[str, str]:
+def dimension_roles_in_order(dimensions: List[str]) -> List[Optional[str]]:
     """
-    Returns a mapping between dimension attributes and their roles.
-    For example, ["default.users.user_id[user]"] would turn into
-    {"default.users.user_id": "[user]"}
+    The `[role]` suffix (or None) for each dimension reference, in order.
+
+    One entry per reference (keyed by position, not column name), so two roles on
+    the same column are not collapsed. E.g.
+    `["a.x[start]", "a.x[end]", "b.y"]` -> `["[start]", "[end]", None]`.
     """
-    dimension_attrs = [FullColumnName(dim) for dim in dimensions]
-    return {
-        attr.node_name + SEPARATOR + attr.column_name: attr.role  # type: ignore
-        for attr in dimension_attrs
-    }
+    roles: List[Optional[str]] = []
+    for dim in dimensions:
+        attr = FullColumnName(dim)
+        roles.append(f"[{attr.role}]" if attr.role else None)
+    return roles
+
+
+def cube_element_roles(
+    num_metrics: int,
+    dimension_refs: List[str],
+) -> List[Optional[str]]:
+    """
+    Role suffix (or None) for each cube element, aligned to the cube's
+    node_columns.
+
+    A cube's node_columns are built metrics-first, then dimensions, so the result
+    is `num_metrics` Nones (metrics carry no role) followed by one `[role]`-or-None
+    per dimension reference. Callers index this by each node_column's position.
+    """
+    metric_roles: List[Optional[str]] = [None] * num_metrics
+    return metric_roles + dimension_roles_in_order(dimension_refs)
+
+
+def dedupe_cube_elements(columns: List[Column]) -> List[Column]:
+    """
+    Dedupe cube element columns by column id.
+
+    `cube_elements` is the many-to-many between a cube revision and the columns
+    it references (its metric columns and dimension attributes), keyed by
+    `(cube_id, column.id)`. A dimension attribute referenced under multiple roles
+    resolves to the same Column object, so appending it once per role would
+    violate `pk_cube`. Roles live on the cube's node_columns, so deduping here is
+    lossless.
+    """
+    deduped: Dict = {}
+    for col in columns:
+        deduped.setdefault(col.id if col.id is not None else id(col), col)
+    return list(deduped.values())
 
 
 async def validate_cube(

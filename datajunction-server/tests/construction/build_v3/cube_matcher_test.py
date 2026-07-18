@@ -2872,3 +2872,120 @@ class TestDataEndpointCubePath:
         finally:
             if get_query_service_client in client.app.dependency_overrides:
                 del client.app.dependency_overrides[get_query_service_client]
+
+
+class TestResolveDialectPinAware:
+    """
+    Tests that ``resolve_dialect_and_engine_for_metrics`` honors a pinned cube.
+
+    Reproduces the latent correctness bug where the resolver derived the dialect
+    from *any* materialized superset cube (via ``find_matching_cube``) rather than
+    from the cube the caller actually pinned. When a pinned cube A is UNmaterialized
+    but a separate materialized cube B covers the same metrics+dims, the old resolver
+    returned DRUID (from B) while the build rendered A's source SQL — an unrunnable
+    Druid-dialect query. With the fix, a pin resolves the dialect from the pinned
+    cube's own availability (falling through to the Trino-preferring fallback when the
+    pinned cube is unmaterialized).
+    """
+
+    @pytest.mark.asyncio
+    async def test_pinned_unmaterialized_cube_does_not_inherit_other_cubes_dialect(
+        self,
+        client_with_build_v3,
+        session,
+    ):
+        """Pin an UNmaterialized cube A while a materialized cube B covers the same
+        metrics+dims. Discovery (no pin) picks B → DRUID; pinning A → the
+        Trino-preferring fallback (A has no availability) → TRINO."""
+        from datajunction_server.construction.build_v3.cube_matcher import (
+            resolve_dialect_and_engine_for_metrics,
+        )
+        from datajunction_server.database.node import Node
+
+        client = client_with_build_v3
+
+        metrics = ["v3.total_revenue"]
+        dimensions = ["v3.product.category"]
+
+        # Give the default catalog a Trino engine so the metric-catalog fallback
+        # has a Trino engine to prefer (BUILD_V3's default catalog ships with only
+        # spark + druid). Rolled back with the function-scoped session.
+        response = await client.post(
+            "/engines/",
+            json={"name": "trino", "version": "", "dialect": "trino"},
+        )
+        assert response.status_code in (200, 201), response.json()
+        response = await client.post(
+            "/catalogs/default/engines/",
+            json=[{"name": "trino", "version": "", "dialect": "trino"}],
+        )
+        assert response.status_code in (200, 201), response.json()
+
+        # Cube A: UNmaterialized (no availability).
+        response = await client.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.pin_cube_unmaterialized",
+                "metrics": metrics,
+                "dimensions": dimensions,
+                "mode": "published",
+                "description": "Pinned unmaterialized cube A",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        # Cube B: MATERIALIZED (availability on the default catalog, which has a
+        # druid engine) covering the same metrics+dims.
+        response = await client.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.pin_cube_materialized",
+                "metrics": metrics,
+                "dimensions": dimensions,
+                "mode": "published",
+                "description": "Materialized superset cube B",
+            },
+        )
+        assert response.status_code == 201, response.json()
+        response = await client.post(
+            "/data/v3.pin_cube_materialized/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "analytics",
+                "table": "pin_cube_materialized",
+                "valid_through_ts": int(time.time() * 1000),
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        # Discovery path (no pin): find_matching_cube picks the materialized B, so
+        # the dialect comes from B's availability catalog → DRUID.
+        discovered = await resolve_dialect_and_engine_for_metrics(
+            session,
+            metrics=metrics,
+            dimensions=dimensions,
+        )
+        assert discovered.dialect == Dialect.DRUID
+        assert discovered.cube is not None
+        assert discovered.cube.name == "v3.pin_cube_materialized"
+
+        # Pinned path: pin the UNmaterialized cube A. Its availability is falsy, so
+        # the resolver must NOT return B's DRUID dialect; it falls through to the
+        # metric-catalog fallback which prefers Trino → TRINO. This is the assertion
+        # that proves the bug is fixed.
+        cube_a_node = await Node.get_cube_by_name(
+            session,
+            "v3.pin_cube_unmaterialized",
+        )
+        cube_a_rev = cube_a_node.current
+        assert cube_a_rev.availability is None
+
+        pinned = await resolve_dialect_and_engine_for_metrics(
+            session,
+            metrics=metrics,
+            dimensions=dimensions,
+            matched_cube=cube_a_rev,
+        )
+        assert pinned.dialect == Dialect.TRINO
+        # Fell through to the metric-catalog fallback, so no cube is returned.
+        assert pinned.cube is None

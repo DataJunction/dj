@@ -3,6 +3,7 @@ Unit tests for DeploymentOrchestrator
 """
 
 import pytest
+from types import SimpleNamespace
 from sqlalchemy import select
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
@@ -31,6 +32,8 @@ from datajunction_server.internal.deployment.validation import (
 from datajunction_server.models.deployment import (
     ColumnSpec,
     DeploymentSpec,
+    HierarchySpec,
+    HierarchyLevelSpec,
     PartitionType,
     PartitionSpec,
     TagSpec,
@@ -157,6 +160,121 @@ def mock_registry():
     )
 
     return registry
+
+
+class TestGuardAgainstAccidentalWipe:
+    """Regression for issue #2301: an empty deployment spec must not silently
+    soft-delete an entire namespace.
+
+    A ``dj push`` against a non-existent/mistyped directory resolves to zero
+    node files, which the diff would otherwise interpret as "delete every node
+    in the namespace". The guard refuses that unless ``allow_empty`` is set.
+    """
+
+    @staticmethod
+    def _make_orchestrator(
+        session,
+        current_user,
+        *,
+        nodes,
+        hierarchies=None,
+        tags=None,
+        allow_empty=False,
+    ):
+        spec = DeploymentSpec(
+            namespace="test",
+            nodes=nodes,
+            hierarchies=hierarchies or [],
+            tags=tags or [],
+            allow_empty=allow_empty,
+        )
+        mock_context = MagicMock(spec=DeploymentContext)
+        mock_context.current_user = current_user
+        return DeploymentOrchestrator(
+            deployment_spec=spec,
+            deployment_id="test-wipe-guard",
+            session=session,
+            context=mock_context,
+        )
+
+    @staticmethod
+    def _plan_deleting(count):
+        """A stand-in plan that would delete ``count`` nodes."""
+        return SimpleNamespace(
+            to_delete=[
+                SimpleNamespace(rendered_name=f"test.node_{i}") for i in range(count)
+            ],
+        )
+
+    def test_allow_empty_bypasses_guard(self, session, current_user):
+        """allow_empty=True opts into deleting a namespace from an empty spec."""
+        orchestrator = self._make_orchestrator(
+            session,
+            current_user,
+            nodes=[],
+            allow_empty=True,
+        )
+        # Would delete 3 nodes, but the caller opted in -> no raise.
+        orchestrator._guard_against_accidental_wipe(self._plan_deleting(3))
+
+    def test_non_empty_spec_bypasses_guard(self, orchestrator):
+        """A spec with nodes -> deletions are a genuine diff, never guarded."""
+        orchestrator._guard_against_accidental_wipe(self._plan_deleting(3))
+
+    def test_hierarchy_only_spec_bypasses_guard(self, session, current_user):
+        """A spec carrying a hierarchy (but no nodes) is intentional content,
+        not an accidental empty push -- e.g. a sync-from-git push of a hierarchy.
+        It must not be guarded even though it would delete nodes.
+        """
+        orchestrator = self._make_orchestrator(
+            session,
+            current_user,
+            nodes=[],
+            hierarchies=[
+                HierarchySpec(
+                    name="h",
+                    levels=[
+                        HierarchyLevelSpec(name="l1", dimension_node="test.d"),
+                        HierarchyLevelSpec(name="l2", dimension_node="test.d"),
+                    ],
+                ),
+            ],
+        )
+        orchestrator._guard_against_accidental_wipe(self._plan_deleting(3))
+
+    def test_tag_only_spec_bypasses_guard(self, session, current_user):
+        """A spec carrying only tags (no nodes) is intentional content too."""
+        orchestrator = self._make_orchestrator(
+            session,
+            current_user,
+            nodes=[],
+            tags=[TagSpec(name="t", display_name="T")],
+        )
+        orchestrator._guard_against_accidental_wipe(self._plan_deleting(3))
+
+    def test_empty_spec_no_deletions_is_ok(self, session, current_user):
+        """An empty spec that deletes nothing is harmless."""
+        orchestrator = self._make_orchestrator(session, current_user, nodes=[])
+        orchestrator._guard_against_accidental_wipe(self._plan_deleting(0))
+
+    def test_empty_spec_refuses_wipe(self, session, current_user):
+        """Empty spec + pending deletions -> refused, with a listing preview."""
+        orchestrator = self._make_orchestrator(session, current_user, nodes=[])
+        with pytest.raises(
+            DJInvalidDeploymentConfig,
+            match=r"contains no nodes.*soft-delete 2 existing node\(s\)",
+        ) as exc:
+            orchestrator._guard_against_accidental_wipe(self._plan_deleting(2))
+        # 2 <= 5 deletions -> no truncation ellipsis
+        assert "…" not in exc.value.message
+
+    def test_empty_spec_refuses_wipe_truncates_preview(self, session, current_user):
+        """More than 5 pending deletions -> preview is truncated with an ellipsis."""
+        orchestrator = self._make_orchestrator(session, current_user, nodes=[])
+        with pytest.raises(DJInvalidDeploymentConfig) as exc:
+            orchestrator._guard_against_accidental_wipe(self._plan_deleting(7))
+        assert "soft-delete 7 existing node(s)" in exc.value.message
+        assert "…" in exc.value.message
 
 
 class TestResourceSetup:

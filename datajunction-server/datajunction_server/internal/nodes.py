@@ -21,12 +21,13 @@ from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.models.deployment import DeploymentResult
 from datajunction_server.models.query import QueryCreate
 from datajunction_server.api.helpers import (
+    cube_element_roles,
+    dedupe_cube_elements,
     get_attribute_type,
     get_catalog_by_name,
     get_column,
     get_node_by_name,
     get_node_namespace,
-    map_dimensions_to_roles,
     raise_if_node_exists,
     resolve_downstream_references,
     validate_cube,
@@ -371,15 +372,40 @@ async def create_a_cube(
 
 def get_node_column(node: Node, column_name: str) -> Column:
     """
-    Gets the specified column on a node
+    Gets the specified column on a node.
+
+    Resolution order:
+      1. Role-qualified identity: `<name>[<role>]` (i.e. name + dimension_column),
+         so a caller can target a specific role-played dimension column.
+      2. Bare name, when unambiguous (backward compatible).
+      3. Bare name that maps to multiple role-played columns -> raise, listing the
+         role-qualified options, instead of silently binding the last one.
     """
-    column_map = {column.name: column for column in node.current.columns}
-    if column_name not in column_map:
+    columns = node.current.columns
+
+    # 1. exact role-qualified match: name + dimension_column (e.g. "...dateint[epoch_date]")
+    by_role_qualified = {
+        col.name + (col.dimension_column or ""): col for col in columns
+    }
+    if column_name in by_role_qualified:
+        return by_role_qualified[column_name]
+
+    # 2/3. bare-name resolution
+    same_name = [col for col in columns if col.name == column_name]
+    if not same_name:
         raise DJDoesNotExistException(
             message=f"Column `{column_name}` does not exist on node `{node.name}`!",
         )
-    column = column_map[column_name]
-    return column
+    if len(same_name) > 1:
+        options = sorted(col.name + (col.dimension_column or "") for col in same_name)
+        raise DJInvalidInputException(
+            message=(
+                f"Column `{column_name}` on node `{node.name}` is ambiguous across "
+                f"multiple role-played dimensions. Specify the role-qualified column, "
+                f"one of: {options}"
+            ),
+        )
+    return same_name[0]
 
 
 async def validate_and_build_attribute(
@@ -637,7 +663,8 @@ async def create_cube_node_revision(
     # Build the "columns" for this node based on the cube elements. These are used
     # for marking partition columns when the cube gets materialized.
     node_columns = []
-    dimension_to_roles_mapping = map_dimensions_to_roles(data.dimensions or [])
+    # Role suffix per cube element, aligned to metric_columns + dimension_columns.
+    element_roles = cube_element_roles(len(metric_columns), data.dimensions or [])
     for idx, col in enumerate(metric_columns + dimension_columns):
         await session.refresh(col, ["node_revision"])
         referenced_node = col.node_revision
@@ -659,13 +686,8 @@ async def create_cube_node_revision(
             ],
             order=idx,
         )
-        if (
-            full_element_name in dimension_to_roles_mapping
-            and dimension_to_roles_mapping[full_element_name]
-        ):
-            node_column.dimension_column = (
-                "[" + dimension_to_roles_mapping[full_element_name] + "]"
-            )
+        if element_roles[idx]:
+            node_column.dimension_column = element_roles[idx]
 
         node_columns.append(node_column)
 
@@ -676,7 +698,7 @@ async def create_cube_node_revision(
         type=NodeType.CUBE,
         query="",
         columns=node_columns,
-        cube_elements=metric_columns + dimension_columns,
+        cube_elements=dedupe_cube_elements(metric_columns + dimension_columns),
         parents=list(set(dimension_nodes + metric_nodes)),
         status=status,
         catalog=catalog,

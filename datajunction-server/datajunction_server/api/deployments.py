@@ -97,12 +97,18 @@ async def _verify_git_deployment(
         deployment_spec.namespace,
     )
 
-    # Verify commit exists in the configured repository
+    # Verify commit exists in the configured repository. A namespace can be
+    # git_only without a github_repo_path (e.g. auto-locked on first git deploy,
+    # or a flat namespace locked via PATCH). There's no repo to verify the
+    # commit against, so skip verification rather than hard-failing the deploy —
+    # the lock is about blocking UI edits, and this deploy is already git-sourced.
     if not github_repo_path:
-        raise DJInvalidInputException(  # pragma: no cover
-            message=f"Namespace '{deployment_spec.namespace}' is git-only but has no "
-            "github_repo_path configured. Cannot verify commit.",
+        logger.info(
+            "Namespace %s is git-only with no github_repo_path; "
+            "skipping commit verification.",
+            deployment_spec.namespace,
         )
+        return
 
     try:
         github = GitHubService()
@@ -127,6 +133,69 @@ async def _verify_git_deployment(
         deployment_spec.source.commit_sha[:8],
         namespace_obj.github_repo_path if namespace_obj else github_repo_path,
     )
+
+
+def _normalize_repo_path(repository: str) -> str:
+    """
+    Normalize a deployment source repository to the ``owner/repo`` form stored in
+    ``NodeNamespace.github_repo_path``. Accepts ``github.com/org/repo``,
+    ``https://github.netflix.net/corp/repo.git``, ``git@host:corp/repo``, or an
+    already-normalized ``corp/repo`` — and returns the trailing ``owner/repo``.
+    """
+    repo = repository.strip()
+    for prefix in ("https://", "http://", "ssh://", "git@"):
+        if repo.startswith(prefix):
+            repo = repo[len(prefix) :]
+    repo = repo.replace(":", "/")
+    if repo.endswith(".git"):
+        repo = repo[: -len(".git")]
+    parts = [segment for segment in repo.split("/") if segment]
+    return "/".join(parts[-2:]) if len(parts) >= 2 else repo
+
+
+async def _maybe_autolock_git_namespace(deployment_spec: DeploymentSpec) -> None:
+    """
+    Default-on-git-push: when a namespace is deployed from git, record the repo it
+    tracks (``github_repo_path`` + ``git_branch``) so it becomes a *repo owner* and
+    is UI-locked via ``is_repo_owner`` — the single "git-managed ⇒ read-only"
+    signal. No ``git_only`` write, so unlock is a config change (detach the repo).
+
+    Guards:
+    - Only a git deploy carrying a ``commit_sha`` — a reproducible, CI-driven
+      deployment. Looser branch-only git deploys are left editable.
+    - Only a non-branch namespace (no ``parent_namespace``) — branch namespaces
+      are meant to be git-deployed *and* editable (edit, sync back).
+    - Only when ``github_repo_path`` is unset — never clobber an intentional
+      config on later deploys.
+    - ``git_branch`` is set to the deployed branch (non-null) so the namespace is
+      a *flat* repo owner, not mistaken for a child-spawning git root.
+
+    Called only after a successful deploy, so the namespace already exists.
+    """
+    src = deployment_spec.source
+    if (
+        not src
+        or src.type != DeploymentSourceType.GIT
+        or not getattr(src, "commit_sha", None)
+        or not getattr(src, "repository", None)
+    ):
+        return
+    async with session_context() as session:
+        ns = await NodeNamespace.get(
+            session,
+            deployment_spec.namespace,
+            raise_if_not_exists=False,
+        )
+        if (
+            ns is None
+            or ns.parent_namespace is not None
+            or ns.github_repo_path is not None
+        ):
+            return
+        ns.github_repo_path = _normalize_repo_path(src.repository)
+        ns.git_branch = getattr(src, "branch", None) or ns.git_branch
+        session.add(ns)
+        await session.commit()
 
 
 class DeploymentExecutor(ABC):
@@ -222,6 +291,8 @@ class InProcessExecutor(DeploymentExecutor):
                     results,
                     downstream_impacts=execute_result.downstream_impacts,
                 )
+                if final_status == DeploymentStatus.SUCCESS:
+                    await _maybe_autolock_git_namespace(deployment_spec)
         except Exception as exc:
             logger.error("Deployment %s failed: %s", deployment_id, exc, exc_info=True)
             await InProcessExecutor.update_status(
@@ -274,18 +345,21 @@ async def create_deployment(
     )
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
-    # Check git_only enforcement
+    # Git-managed namespaces (explicitly git_only, or a repo owner) require a
+    # verified git deployment. A repo owner is any namespace that directly owns
+    # a repo (github_repo_path set, no parent) — covers both git roots and flat
+    # git-backed namespaces.
     namespace_obj = await NodeNamespace.get(
         session,
         deployment_spec.namespace,
         raise_if_not_exists=False,
     )
-    is_git_root = (
+    is_repo_owner = (
         namespace_obj is not None
         and namespace_obj.github_repo_path is not None
-        and namespace_obj.git_branch is None
+        and namespace_obj.parent_namespace is None
     )
-    if namespace_obj and (namespace_obj.git_only or is_git_root):
+    if namespace_obj and (namespace_obj.git_only or is_repo_owner):
         await _verify_git_deployment(session, deployment_spec, namespace_obj)
 
     _t0 = time.monotonic()
@@ -305,6 +379,7 @@ async def create_deployment(
             cache=cache,
         ),
     )
+
     deployment = await session.get(Deployment, deployment_id)
     status = deployment.status.value if deployment else "unknown"
     get_metrics_provider().timer(

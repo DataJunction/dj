@@ -20,7 +20,10 @@ from datajunction_server.models.deployment import (
     LocalDeploymentSource,
 )
 from datajunction_server.internal.git.github_service import GitHubServiceError
-from datajunction_server.api.deployments import InProcessExecutor
+from datajunction_server.api.deployments import (
+    InProcessExecutor,
+    _normalize_repo_path,
+)
 from datajunction_server.models.dimensionlink import JoinType
 from datajunction_server.database.node import Node, NodeRelationship
 from datajunction_server.database.tag import Tag
@@ -1599,6 +1602,101 @@ class TestDeployments:
         )
 
     @pytest.mark.asyncio
+    async def test_required_dimension_from_linked_dimension_roundtrips(
+        self,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        A metric whose required dimension lives on a dimension linked to its
+        upstream transform must survive a pull-from-A / push-to-B round trip.
+
+        Regression test for the bug where such a required dimension exported as
+        its bare column name, which then failed to resolve against the metric's
+        parents in the target namespace ("references to columns as required
+        dimensions that are not on parent nodes").
+        """
+        # A transform that carries a dimension link to us_state, and a metric on
+        # that transform whose required dimension is a *us_state* column — i.e. a
+        # dimension elsewhere on the graph, not a direct column of the parent.
+        hard_hat_facts = TransformSpec(
+            name="default.hard_hat_facts",
+            node_type=NodeType.TRANSFORM,
+            query="SELECT hard_hat_id, state FROM ${prefix}default.hard_hats",
+            dimension_links=[
+                DimensionJoinLinkSpec(
+                    dimension_node="${prefix}default.us_state",
+                    join_type="inner",
+                    join_on=(
+                        "${prefix}default.hard_hat_facts.state = "
+                        "${prefix}default.us_state.state_short"
+                    ),
+                ),
+            ],
+            owners=["dj"],
+        )
+        # Two required dims on the SAME linked dimension node — exercises the
+        # dedup when adding deploy-ordering edges (the node is only added once).
+        num_hard_hats = MetricSpec(
+            name="default.num_hard_hats",
+            node_type=NodeType.METRIC,
+            query="SELECT COUNT(*) FROM ${prefix}default.hard_hat_facts",
+            required_dimensions=[
+                "${prefix}default.us_state.state_name",
+                "${prefix}default.us_state.state_region",
+            ],
+            owners=["dj"],
+        )
+        nodes = [
+            default_hard_hats,
+            default_us_states,
+            default_us_state,
+            hard_hat_facts,
+            num_hard_hats,
+        ]
+
+        # Deploy to namespace A.
+        data_a = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace="rt_a", nodes=nodes),
+        )
+        assert data_a["status"] == "success", data_a["results"]
+
+        # Export A: the required dimension is on a linked dimension (not a parent
+        # column), so it must export as a ${prefix}-parameterized full path.
+        export_a = (await client.get("/namespaces/rt_a/export/spec")).json()["nodes"]
+        metric_a = next(
+            spec
+            for spec in export_a
+            if spec["name"] == "${prefix}default.num_hard_hats"
+        )
+        assert metric_a["required_dimensions"] == [
+            "${prefix}default.us_state.state_name",
+            "${prefix}default.us_state.state_region",
+        ]
+
+        # Push the exported specs to namespace B — this is what failed before.
+        deployment_b = DeploymentSpec.model_validate(
+            {"namespace": "rt_b", "nodes": export_a},
+        )
+        data_b = await deploy_and_wait(client, deployment_b)
+        assert data_b["status"] == "success", data_b["results"]
+
+        # The required dimension survived the round trip and re-bound in B.
+        export_b = (await client.get("/namespaces/rt_b/export/spec")).json()["nodes"]
+        metric_b = next(
+            spec
+            for spec in export_b
+            if spec["name"] == "${prefix}default.num_hard_hats"
+        )
+        assert metric_b["required_dimensions"] == [
+            "${prefix}default.us_state.state_name",
+            "${prefix}default.us_state.state_region",
+        ]
+
+    @pytest.mark.asyncio
     async def test_deploy_dimension_with_update(
         self,
         client,
@@ -2326,9 +2424,11 @@ class TestDeployments:
             ),
         )
         assert data["status"] == "success"
+        # Deleting every node via an empty spec is intentional here, so opt in
+        # with allow_empty (the accidental-wipe guard otherwise refuses it).
         data = await deploy_and_wait(
             client,
-            DeploymentSpec(namespace=namespace, nodes=[]),
+            DeploymentSpec(namespace=namespace, nodes=[], allow_empty=True),
         )
         deletes = {
             (r["deploy_type"], r["name"]): r
@@ -4542,6 +4642,143 @@ class TestGitOnlyNamespaceDeployments:
 
         assert data["status"] == DeploymentStatus.SUCCESS.value
 
+    @pytest.mark.asyncio
+    async def test_git_deploy_persists_repo_and_locks(self, client):
+        """A CI git deploy (with commit_sha) to a flat namespace persists the repo
+        it tracks, making it a repo owner that is UI-locked via is_repo_owner.
+        Unlock is a config change (detach the repo), not a git_only toggle."""
+        namespace = "git_autolock_flat"
+
+        source_spec = SourceSpec(
+            name="s1",
+            description="Test source",
+            catalog="default",
+            schema="test",
+            table="t1",
+            columns=[ColumnSpec(name="id", type="int")],
+        )
+
+        # First git deploy — namespace doesn't exist yet and has no repo, so
+        # commit verification is skipped and the deploy succeeds. The repo path
+        # gets normalized (github.com/corp/repo -> corp/repo) and persisted.
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[source_spec],
+                source=GitDeploymentSource(
+                    repository="github.com/corp/repo",
+                    branch="main",
+                    commit_sha="abc123",
+                ),
+            ),
+        )
+        assert data["status"] == DeploymentStatus.SUCCESS.value
+
+        # Repo + branch persisted → a flat repo owner. No git_only write.
+        cfg = (await client.get(f"/namespaces/{namespace}/git")).json()
+        assert cfg["github_repo_path"] == "corp/repo"
+        assert cfg["git_branch"] == "main"
+        assert not cfg["git_only"]
+
+        # Locked via is_repo_owner: a UI node mutation is blocked.
+        blocked = await client.delete(f"/nodes/{namespace}.s1/")
+        assert blocked.status_code == 422
+        assert "git-managed" in blocked.json()["message"]
+
+        # Unlock = detach the repo (config change), not a git_only toggle.
+        detach = await client.delete(f"/namespaces/{namespace}/git")
+        assert detach.status_code in (200, 204)
+
+        # Now editable again.
+        ok = await client.delete(f"/nodes/{namespace}.s1/")
+        assert ok.status_code in (200, 201)
+
+    @pytest.mark.parametrize(
+        "repository, expected",
+        [
+            # Already normalized.
+            ("corp/repo", "corp/repo"),
+            # Bare host-prefixed form (no scheme).
+            ("github.com/corp/repo", "corp/repo"),
+            # https:// scheme prefix + .git suffix stripped.
+            ("https://github.netflix.net/corp/repo.git", "corp/repo"),
+            # http:// scheme prefix.
+            ("http://github.com/org/repo", "org/repo"),
+            # ssh:// scheme prefix.
+            ("ssh://git@host/corp/repo.git", "corp/repo"),
+            # scp-style git@host:owner/repo (colon normalized to slash).
+            ("git@github.netflix.net:corp/repo", "corp/repo"),
+            # Single segment (no owner) — returned as-is.
+            ("repo", "repo"),
+        ],
+    )
+    def test_normalize_repo_path(self, repository, expected):
+        """_normalize_repo_path reduces any repo URL form to owner/repo.
+
+        Covers the scheme-prefix strip (https/http/ssh/git@), the ``.git``
+        suffix strip, colon->slash for scp-style URLs, and the single-segment
+        fallthrough.
+        """
+        assert _normalize_repo_path(repository) == expected
+
+    @pytest.mark.asyncio
+    async def test_git_only_namespace_no_repo_skips_verification(self, client):
+        """A git_only namespace with NO github_repo_path skips commit verification.
+
+        A namespace can be locked (git_only=True) without ever recording a repo
+        (e.g. a flat namespace locked via PATCH before its first git deploy).
+        There is no repo to verify the commit against, so _verify_git_deployment
+        must skip verification and let the git-sourced deploy proceed rather than
+        hard-failing.
+        """
+        namespace = "git_only_no_repo"
+
+        # Lock the namespace WITHOUT configuring a github_repo_path.
+        await client.post(f"/namespaces/{namespace}")
+        patched = await client.patch(
+            f"/namespaces/{namespace}/git",
+            json={"git_only": True},
+        )
+        assert patched.status_code == 200
+        cfg = (await client.get(f"/namespaces/{namespace}/git")).json()
+        assert cfg["git_only"] is True
+        assert cfg["github_repo_path"] is None
+
+        source_spec = SourceSpec(
+            name="s1",
+            description="Test source",
+            catalog="default",
+            schema="test",
+            table="t1",
+            columns=[ColumnSpec(name="id", type="int")],
+        )
+
+        # GitHubService should never be constructed since verification is skipped.
+        with patch(
+            "datajunction_server.api.deployments.GitHubService",
+        ) as mock_github_class:
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(
+                    namespace=namespace,
+                    nodes=[source_spec],
+                    source=GitDeploymentSource(
+                        repository="myorg/myrepo",
+                        branch="main",
+                        commit_sha="abc123def456",
+                    ),
+                ),
+            )
+            assert data["status"] == DeploymentStatus.SUCCESS.value
+            mock_github_class.assert_not_called()
+
+        # Still git_only-locked (repo never attached, git_only stays set), so a
+        # direct UI node mutation remains blocked.
+        blocked = await client.delete(f"/nodes/{namespace}.s1/")
+        assert blocked.status_code == 422
+        assert "git-managed" in blocked.json()["message"]
+
 
 @pytest.mark.xdist_group(name="deployments")
 class TestDeploymentStatusUpdate:
@@ -4854,3 +5091,246 @@ async def test_validate_reference_dimension_link_good_attribute():
 
     # Should not raise
     await validate_reference_dimension_link(link, node, dim_node)
+
+
+@pytest.mark.xdist_group(name="deployments")
+class TestCubeRoleCollisionDeployment:
+    """pk_cube role-collision repro via the push path: a fact links one dimension
+    twice under two roles and a cube references the same column under both. The
+    real push previously crashed with a pk_cube UniqueViolation."""
+
+    @pytest.mark.asyncio
+    async def test_deploy_cube_same_column_two_roles(self, client):
+        namespace = "pk_cube_role"
+        nodes = [
+            SourceSpec(
+                name="orders_raw",
+                description="Raw orders",
+                catalog="default",
+                schema="roads",
+                table="orders_raw",
+                columns=[
+                    ColumnSpec(name="order_dateint", type="int"),
+                    ColumnSpec(name="ship_dateint", type="int"),
+                ],
+                dimension_links=[],
+                owners=["dj"],
+            ),
+            SourceSpec(
+                name="dates_raw",
+                description="Raw dates",
+                catalog="default",
+                schema="roads",
+                table="dates_raw",
+                columns=[
+                    ColumnSpec(name="dateint", type="int"),
+                    ColumnSpec(name="monthint", type="int"),
+                ],
+                dimension_links=[],
+                owners=["dj"],
+            ),
+            DimensionSpec(
+                name="dates_d",
+                description="Date dimension",
+                query="SELECT dateint, monthint FROM ${prefix}dates_raw",
+                primary_key=["dateint"],
+                dimension_links=[],
+                owners=["dj"],
+            ),
+            TransformSpec(
+                name="orders_f",
+                description="Orders fact linked to dates twice (order/ship)",
+                query="SELECT order_dateint, ship_dateint FROM ${prefix}orders_raw",
+                dimension_links=[
+                    DimensionJoinLinkSpec(
+                        dimension_node="${prefix}dates_d",
+                        join_type="left",
+                        join_on="${prefix}orders_f.order_dateint = ${prefix}dates_d.dateint",
+                        role="order_date",
+                    ),
+                    DimensionJoinLinkSpec(
+                        dimension_node="${prefix}dates_d",
+                        join_type="left",
+                        join_on="${prefix}orders_f.ship_dateint = ${prefix}dates_d.dateint",
+                        role="ship_date",
+                    ),
+                ],
+                owners=["dj"],
+            ),
+            MetricSpec(
+                name="order_count",
+                description="Order count",
+                query="SELECT COUNT(*) FROM ${prefix}orders_f",
+                dimension_links=[],
+                owners=["dj"],
+            ),
+            CubeSpec(
+                name="orders_cube",
+                display_name="Orders Cube",
+                description="Cube referencing dates_d.monthint under both roles",
+                metrics=["${prefix}order_count"],
+                dimensions=[
+                    "${prefix}dates_d.monthint[order_date]",
+                    "${prefix}dates_d.monthint[ship_date]",
+                ],
+                owners=["dj"],
+            ),
+        ]
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        # The real push must succeed — previously it raised a pk_cube UniqueViolation.
+        assert data["status"] == DeploymentStatus.SUCCESS.value, data
+
+        # Both role-qualified dimensions survive on the deployed cube.
+        response = await client.get(f"/cubes/{namespace}.orders_cube/")
+        assert response.status_code == 200, response.json()
+        cube = response.json()
+        assert cube["cube_node_dimensions"] == [
+            f"{namespace}.dates_d.monthint[order_date]",
+            f"{namespace}.dates_d.monthint[ship_date]",
+        ]
+        dimension_elements = [
+            (elem["node_name"], elem["name"], elem["role"])
+            for elem in cube["cube_elements"]
+            if elem["type"] == "dimension"
+        ]
+        assert dimension_elements == [
+            (f"{namespace}.dates_d", "monthint", "order_date"),
+            (f"{namespace}.dates_d", "monthint", "ship_date"),
+        ]
+
+
+@pytest.mark.xdist_group(name="deployments")
+class TestCubeBareDimRoleAwareDeployment:
+    """Deploy-time cube validation must be role-aware.
+
+    A cube that references a dimension attribute BARE (no role) while the
+    parent's ONLY link to that dimension is role-played must be rejected at
+    deploy time (the bare attribute is not available on every metric), matching
+    what a subsequent revalidation would compute. Previously the deploy path
+    used a role-agnostic reachability check and accepted the bare reference,
+    deploying green and then flipping to INVALID on revalidation.
+    """
+
+    def _nodes(self, bare: bool):
+        """Fact links dates_d ONLY under role `order_date`; cube references
+        dates_d.monthint bare (bare=True) or role-qualified (bare=False)."""
+        dim_ref = (
+            "${prefix}dates_d.monthint"
+            if bare
+            else "${prefix}dates_d.monthint[order_date]"
+        )
+        return [
+            SourceSpec(
+                name="orders_raw",
+                description="Raw orders",
+                catalog="default",
+                schema="roads",
+                table="orders_raw",
+                columns=[
+                    ColumnSpec(name="order_dateint", type="int"),
+                ],
+                dimension_links=[],
+                owners=["dj"],
+            ),
+            SourceSpec(
+                name="dates_raw",
+                description="Raw dates",
+                catalog="default",
+                schema="roads",
+                table="dates_raw",
+                columns=[
+                    ColumnSpec(name="dateint", type="int"),
+                    ColumnSpec(name="monthint", type="int"),
+                ],
+                dimension_links=[],
+                owners=["dj"],
+            ),
+            DimensionSpec(
+                name="dates_d",
+                description="Date dimension",
+                query="SELECT dateint, monthint FROM ${prefix}dates_raw",
+                primary_key=["dateint"],
+                dimension_links=[],
+                owners=["dj"],
+            ),
+            TransformSpec(
+                name="orders_f",
+                description="Orders fact linked to dates ONLY under role order_date",
+                query="SELECT order_dateint FROM ${prefix}orders_raw",
+                dimension_links=[
+                    DimensionJoinLinkSpec(
+                        dimension_node="${prefix}dates_d",
+                        join_type="left",
+                        join_on=(
+                            "${prefix}orders_f.order_dateint = ${prefix}dates_d.dateint"
+                        ),
+                        role="order_date",
+                    ),
+                ],
+                owners=["dj"],
+            ),
+            MetricSpec(
+                name="order_count",
+                description="Order count",
+                query="SELECT COUNT(*) FROM ${prefix}orders_f",
+                dimension_links=[],
+                owners=["dj"],
+            ),
+            CubeSpec(
+                name="orders_cube",
+                display_name="Orders Cube",
+                description="Cube referencing dates_d.monthint",
+                metrics=["${prefix}order_count"],
+                dimensions=[dim_ref],
+                owners=["dj"],
+            ),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_deploy_bare_dim_only_reachable_under_role_is_rejected(
+        self,
+        client,
+    ):
+        """Repro: bare `dates_d.monthint` where the only link carries a role
+        must be rejected at deploy time (INVALID_DIMENSION)."""
+        namespace = "cube_bare_role_reject"
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=self._nodes(bare=True)),
+        )
+        cube_result = next(
+            r for r in data["results"] if r["name"] == f"{namespace}.orders_cube"
+        )
+        assert cube_result["status"] in ("invalid", "failed"), cube_result
+        assert f"{namespace}.dates_d" in cube_result["message"], cube_result
+        assert (
+            "not reachable" in cube_result["message"]
+            or "not available on every metric" in cube_result["message"]
+        ), cube_result
+
+        # The deploy-time status must match what revalidation would compute.
+        response = await client.get(f"/nodes/{namespace}.orders_cube/")
+        assert response.status_code == 200, response.json()
+        assert response.json()["status"] == "invalid"
+
+    @pytest.mark.asyncio
+    async def test_deploy_role_qualified_dim_passes(self, client):
+        """The role-qualified version passes push and revalidates valid."""
+        namespace = "cube_role_qualified_ok"
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=self._nodes(bare=False)),
+        )
+        assert data["status"] == DeploymentStatus.SUCCESS.value, data
+        cube_result = next(
+            r for r in data["results"] if r["name"] == f"{namespace}.orders_cube"
+        )
+        assert cube_result["status"] not in ("invalid", "failed"), cube_result
+
+        response = await client.get(f"/nodes/{namespace}.orders_cube/")
+        assert response.status_code == 200, response.json()
+        assert response.json()["status"] == "valid"

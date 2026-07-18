@@ -11,13 +11,49 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from datajunction_server.api import helpers
-from datajunction_server.api.helpers import find_required_dimensions
+from datajunction_server.api.helpers import (
+    dedupe_cube_elements,
+    dimension_roles_in_order,
+    find_required_dimensions,
+)
+from datajunction_server.database.column import Column
 from datajunction_server.internal import sql
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.errors import DJDoesNotExistException, DJException
 from datajunction_server.internal.nodes import propagate_valid_status
 from datajunction_server.models.node import NodeStatus
+from datajunction_server.sql.parsing.types import IntegerType
+
+
+def test_dimension_roles_in_order():
+    """One [role] suffix (or None) per reference — two roles on the same column
+    are NOT collapsed."""
+    assert dimension_roles_in_order(
+        [
+            "v3.location.country[from]",
+            "v3.location.country[to]",
+            "v3.product.category",
+        ],
+    ) == ["[from]", "[to]", None]
+
+
+def test_dedupe_cube_elements_same_object():
+    """The same Column appended twice (two roles on one column) is deduped."""
+    col_a = Column(name="a", type=IntegerType())
+    col_b = Column(name="b", type=IntegerType())
+    assert dedupe_cube_elements([col_a, col_a, col_b]) == [col_a, col_b]
+
+
+def test_dedupe_cube_elements_by_column_id():
+    """Distinct Column objects that share a persisted id (the pk_cube key) dedupe."""
+    col1 = Column(name="dateint", type=IntegerType())
+    col1.id = 5
+    col2 = Column(name="dateint", type=IntegerType())
+    col2.id = 5
+    col3 = Column(name="other", type=IntegerType())
+    col3.id = 6
+    assert dedupe_cube_elements([col1, col2, col3]) == [col1, col3]
 
 
 @pytest.mark.asyncio

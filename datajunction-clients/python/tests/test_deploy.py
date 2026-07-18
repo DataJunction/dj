@@ -601,6 +601,66 @@ def test_reconstruct_deployment_spec(tmp_path):
     assert spec["nodes"][0]["name"] == "foo.bar"
 
 
+def test_reconstruct_deployment_spec_missing_dir_raises(tmp_path):
+    """A non-existent directory must fail fast rather than form an empty spec.
+
+    Regression for issue #2301: an empty node set would otherwise be sent to
+    the server and interpreted as "delete every node in the namespace".
+    """
+    svc = DeploymentService(MagicMock())
+    missing = tmp_path / "does_not_exist"
+    with pytest.raises(DJClientException, match="Directory not found"):
+        svc._reconstruct_deployment_spec(missing)
+
+
+def _write_min_project(tmp_path):
+    """Write a minimal valid project (dj.yaml + one node) under tmp_path."""
+    (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "foo"}))
+    node_dir = tmp_path / "foo"
+    node_dir.mkdir()
+    (node_dir / "bar.yaml").write_text(
+        yaml.safe_dump({"name": "foo.bar", "query": "SELECT 1"}),
+    )
+
+
+def test_push_threads_allow_empty(tmp_path):
+    """push(allow_empty=True) must set allow_empty on the deployment spec."""
+    _write_min_project(tmp_path)
+    svc = DeploymentService(MagicMock())
+
+    captured = {}
+
+    def fake_deploy(spec):
+        captured["spec"] = spec
+        # Short-circuit before the poll/print machinery -- we only care that
+        # the spec handed to the server carries the flag.
+        raise DJClientException("stop")
+
+    svc.client.deploy = MagicMock(side_effect=fake_deploy)
+
+    with pytest.raises(DJClientException, match="stop"):
+        svc.push(tmp_path, namespace="foo", allow_empty=True)
+    assert captured["spec"]["allow_empty"] is True
+
+
+def test_push_omits_allow_empty_by_default(tmp_path):
+    """Without allow_empty, the flag must not appear on the deployment spec."""
+    _write_min_project(tmp_path)
+    svc = DeploymentService(MagicMock())
+
+    captured = {}
+
+    def fake_deploy(spec):
+        captured["spec"] = spec
+        raise DJClientException("stop")
+
+    svc.client.deploy = MagicMock(side_effect=fake_deploy)
+
+    with pytest.raises(DJClientException, match="stop"):
+        svc.push(tmp_path, namespace="foo")
+    assert "allow_empty" not in captured["spec"]
+
+
 def test_system_seed_matches_server_deployment_spec():
     """
     The bundled system-node seed is deployed at bootstrap by

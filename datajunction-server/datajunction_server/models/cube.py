@@ -72,13 +72,14 @@ class CubeElementMetadata(BaseModel):
         """
         Derives the column name in the generated Cube SQL based on the CubeElement
         """
-        query_column_name = (
-            self.name
-            if self.type == "metric"
-            else amenable_name(
-                f"{self.node_name}{SEPARATOR}{self.name}",
-            )
-        )
+        if self.type == "metric":
+            query_column_name = self.name
+        else:
+            full_name = f"{self.node_name}{SEPARATOR}{self.name}"
+            # Include the role so two roles on one column get distinct names.
+            if self.role:
+                full_name = f"{full_name}[{self.role}]"
+            query_column_name = amenable_name(full_name)
         return ColumnOutput(
             name=query_column_name,
             display_name=self.display_name,
@@ -131,30 +132,32 @@ class CubeRevisionMetadata(BaseModel):
             key=lambda elem: element_ordering.get(from_amenable_name(elem.name), 0),
         )
 
-        # Cube columns hold the role suffix in `dimension_column` for any
-        # element selected via a named role. Build a lookup keyed by the same
-        # full dotted name we'll reconstruct for each dimension element below.
-        roles_by_full_name: dict[str, str] = {
-            col.name: col.dimension_column
-            for col in cube.columns
-            if col.dimension_column
-        }
-
         # Parse the database object into a pydantic object
         cube_metadata = cls.model_validate(cube)
 
-        # Attach role to each dimension element by matching its reconstructed
-        # full name (`<node_name>.<element_name>`) against the cube columns.
-        for elem_meta, raw_elem in zip(
-            cube_metadata.cube_elements,
-            cube.cube_elements,
-        ):
-            if elem_meta.type == "metric":
+        # node_columns are the role-aware source of truth (one per role); the
+        # cube_elements many-to-many holds each referenced column only once. Expand
+        # each dimension element into one entry per role so both survive on load.
+        metric_names = {metric.name for metric in cube.cube_metrics()}
+        roles_by_full_name: dict[str, List[Optional[str]]] = {}
+        for col in sorted(cube.columns, key=lambda c: c.order):
+            if col.name in metric_names:
                 continue
-            full_name = f"{raw_elem.node_revision.name}.{raw_elem.name}"
-            role_suffix = roles_by_full_name.get(full_name)
-            if role_suffix:
-                elem_meta.role = role_suffix.strip("[]")
+            role = col.dimension_column.strip("[]") if col.dimension_column else None
+            roles_by_full_name.setdefault(col.name, []).append(role)
+
+        expanded_elements: List[CubeElementMetadata] = []
+        for elem_meta in cube_metadata.cube_elements:
+            if elem_meta.type == "metric":
+                expanded_elements.append(elem_meta)
+                continue
+            full_name = f"{elem_meta.node_name}{SEPARATOR}{elem_meta.name}"
+            roles = roles_by_full_name.get(full_name, [None])
+            for position, role in enumerate(roles):
+                element = elem_meta if position == 0 else elem_meta.model_copy()
+                element.role = role
+                expanded_elements.append(element)
+        cube_metadata.cube_elements = expanded_elements
 
         # Populate metric measures
         cube_metadata.measures = []

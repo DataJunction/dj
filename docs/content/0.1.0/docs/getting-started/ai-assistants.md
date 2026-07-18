@@ -25,7 +25,26 @@ The integration has three components that work together:
 - Access to a running DataJunction server instance
 - Claude Code (CLI) or Claude Desktop
 
-### Install and set up
+There are two ways to add DataJunction to Claude Code. Installing the **DJ plugin** is the quickest path for Claude Code — it bundles all three components and Claude Code keeps it versioned and updatable from one place. If you use Claude Desktop, or prefer to copy the components into your home directory yourself, run **`dj setup-claude`** instead. Both are described below.
+
+### Install as a Claude Code plugin
+
+The DJ plugin bundles the DataJunction skills, the MCP server configuration, and the DJ subagent. Add the DataJunction marketplace, then install the plugin:
+
+```
+/plugin marketplace add DataJunction/dj
+/plugin install datajunction@datajunction
+```
+
+The skills and subagent work as soon as the plugin is installed. The MCP tools run through the `dj-mcp` command, which ships with the Python client, so install that as well if you want Claude to query your live instance:
+
+```bash
+pip install datajunction[mcp]
+```
+
+The plugin's MCP server reads your DJ instance URL from the `DJ_API_URL` environment variable (it defaults to `http://localhost:8000`), so set that to point at your server before starting Claude Code.
+
+### Set up with the DJ CLI
 
 Install the DataJunction Python client with the MCP extra:
 

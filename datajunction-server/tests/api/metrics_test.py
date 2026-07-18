@@ -451,11 +451,13 @@ async def test_read_metrics(module__client_with_roads: AsyncClient) -> None:
     assert data["upstream_node"] == "default.repair_orders_fact"
     assert data["expression"] == "count(repair_order_id)"
     assert data["custom_metadata"] == {"foo": "bar"}
+    assert data["is_measure"] is True  # single COUNT aggregation
 
     response = await module__client_with_roads.get(
         "/metrics/default.discounted_orders_rate",
     )
     data = response.json()
+    assert data["is_measure"] is False  # ratio: sum(...) / count(*)
     assert data["incompatible_druid_functions"] == ["IF"]
     assert data["measures"] == [
         {

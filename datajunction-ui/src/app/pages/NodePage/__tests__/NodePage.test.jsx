@@ -409,6 +409,44 @@ describe('<NodePage />', () => {
     expect(container.getElementsByClassName('language-sql')).toMatchSnapshot();
   }, 60000);
 
+  it('hides Edit and shows the read-only badge for a node in a read-only (flat git) namespace', async () => {
+    const djClient = mockDJClient();
+    djClient.DataJunctionAPI.node.mockReturnValue(mocks.mockMetricNode);
+    djClient.DataJunctionAPI.getMetric.mockResolvedValue(
+      mocks.mockMetricNodeJson,
+    );
+    // magnesium.tech is a flat git-backed namespace (github_repo_path +
+    // git_branch, no parent) → read-only via shape, even though git_only is
+    // not set. Regression guard: node pages must honor shape-based read-only,
+    // not just the git_only flag.
+    djClient.DataJunctionAPI.getNamespaceGitConfig.mockResolvedValue({
+      github_repo_path: 'corp/tech-realtime-guardrails',
+      git_branch: 'main',
+      git_root_namespace: 'magnesium.tech',
+    });
+    const element = (
+      <DJClientContext.Provider value={djClient}>
+        <NodePage {...defaultProps} />
+      </DJClientContext.Provider>
+    );
+    render(
+      <MemoryRouter
+        initialEntries={['/nodes/magnesium.tech.withinapp_ttr_log/info']}
+      >
+        <Routes>
+          <Route path="nodes/:name/:tab" element={element} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    // The read-only badge appears once the namespace git config resolves...
+    expect(await screen.findByLabelText('ReadOnly')).toBeInTheDocument();
+    // ...and the Edit button is not offered.
+    expect(
+      screen.queryByRole('button', { name: 'Edit' }),
+    ).not.toBeInTheDocument();
+  }, 60000);
+
   it('renders the NodeInfo tab correctly for cube nodes', async () => {
     const djClient = mockDJClient();
     djClient.DataJunctionAPI.node.mockReturnValue(mocks.mockCubeNode);

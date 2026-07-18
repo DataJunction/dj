@@ -26,7 +26,7 @@ services:
     volumes:
       - ./datajunction-server:/code
       - /code/.venv  # Isolate container venv from local
-    command: /bin/sh -c "uv sync --extra uvicorn --extra transpilation --no-dev && uv run opentelemetry-instrument uvicorn datajunction_server.api.main:app --host 0.0.0.0 --port 8000 --reload"
+    command: /bin/sh -c "uv sync --extra uvicorn --no-dev && uv run opentelemetry-instrument uvicorn datajunction_server.api.main:app --host 0.0.0.0 --port 8000 --reload"
     ports:
       - "${DJ_PORT:-8000}:8000"
     depends_on:

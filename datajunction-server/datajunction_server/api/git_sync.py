@@ -72,6 +72,20 @@ router = SecureAPIRouter(tags=["git-sync"])
 _node_spec_adapter = TypeAdapter(NodeUnion)
 
 
+def _ghost_branch_exception(
+    git_branch: str,
+    github_repo_path: str,
+) -> DJInvalidInputException:
+    """Consistent error for syncing to a branch that no longer exists on the remote."""
+    return DJInvalidInputException(
+        message=(
+            f"Branch '{git_branch}' does not exist in '{github_repo_path}'. "
+            f"It may have been deleted on the remote. Recreate the branch or "
+            f"update this namespace's git configuration before syncing."
+        ),
+    )
+
+
 def _specs_are_equivalent(existing_yaml: str, new_spec: NodeUnion) -> bool:
     """
     Compare a YAML spec from git with a NodeSpec using semantic comparison.
@@ -338,6 +352,12 @@ async def sync_node_to_git(
     try:
         github = GitHubService()
 
+        # A sync targeting a branch that no longer exists on the remote would
+        # otherwise fail deep inside commit_file with an opaque "get ref Not Found".
+        # Check up front so the user gets a clear, actionable message instead.
+        if not await github.branch_exists(github_repo_path, git_branch):
+            raise _ghost_branch_exception(git_branch, github_repo_path)
+
         # Try to read existing YAML content to preserve comments
         # Also get the file SHA if it exists for the commit
         existing_yaml = None
@@ -442,12 +462,28 @@ async def sync_namespace_to_git(
         )
 
     # Fetch existing YAML from the repo so the serializer can preserve comments
-    # and key ordering in files that already exist in the branch.
-    existing_files_map = await fetch_existing_yaml_map(
-        github_repo_path,
-        git_branch,
-        git_path,
-    )
+    # and key ordering in files that already exist in the branch. This map is also
+    # the baseline for orphan-deletion detection, so we must NOT silently treat an
+    # unreadable branch as empty — that could delete/clobber files. A missing branch
+    # (404) is the ghost-branch case; any other failure means we can't trust the
+    # baseline. Either way, abort loudly rather than committing blind.
+    try:
+        existing_files_map = await fetch_existing_yaml_map(
+            github_repo_path,
+            git_branch,
+            git_path,
+            raise_on_error=True,
+        )
+    except GitHubServiceError as e:
+        if e.github_status == 404:
+            raise _ghost_branch_exception(git_branch, github_repo_path) from e
+        raise DJInvalidInputException(
+            message=(
+                f"Could not read the current state of branch '{git_branch}' in "
+                f"'{github_repo_path}' ({e.message}). Aborting sync to avoid "
+                f"committing against an incomplete view of the branch."
+            ),
+        ) from e
 
     files = await generate_namespace_yaml_files(
         session,

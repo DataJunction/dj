@@ -34,8 +34,9 @@ export function NodePage() {
   });
 
   const [node, setNode] = useState(null);
-  // Use undefined to indicate "not yet loaded", null means "loaded but no config"
-  const [gitConfig, setGitConfig] = useState(undefined);
+  // undefined = not yet known; NamespaceHeader reports the read-only verdict
+  // (git_only, flat/root shape, or git-deployed) once its config + sources load.
+  const [isReadOnly, setIsReadOnly] = useState(undefined);
 
   const onClickTab = id => () => {
     // Preview tab redirects to Query Planner instead of showing content
@@ -140,7 +141,7 @@ export function NodePage() {
         <NodeColumnTab
           node={node}
           djClient={djClient}
-          readOnly={!!gitConfig?.git_only}
+          readOnly={!!isReadOnly}
         />
       );
       break;
@@ -177,8 +178,6 @@ export function NodePage() {
       tabToDisplay = <NodeInfoTab node={node} />;
   }
 
-  const isGitOnly = gitConfig?.git_only;
-
   const buttonStyle = {
     height: '28px',
     padding: '0 10px',
@@ -194,13 +193,10 @@ export function NodePage() {
     whiteSpace: 'nowrap',
   };
 
-  // Don't show buttons until git config has loaded (undefined = not loaded yet)
-  const gitConfigLoaded = gitConfig !== undefined;
-
   const NodeButtons = () => {
     return (
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-        {gitConfigLoaded && !isGitOnly && (
+        {isReadOnly === false && (
           <button
             style={buttonStyle}
             onClick={() => navigate(`/nodes/${node?.name}/edit`)}
@@ -224,7 +220,7 @@ export function NodePage() {
     <div className="node__header">
       <NamespaceHeader
         namespace={name.split('.').slice(0, -1).join('.')}
-        onGitConfigLoaded={setGitConfig}
+        onReadOnlyChange={setIsReadOnly}
       />
       <div className="card">
         {node === undefined ? (
@@ -259,7 +255,7 @@ export function NodePage() {
                   >
                     {node?.type}
                   </span>
-                  {gitConfigLoaded && isGitOnly && (
+                  {isReadOnly === true && (
                     <span
                       style={{
                         display: 'inline-flex',

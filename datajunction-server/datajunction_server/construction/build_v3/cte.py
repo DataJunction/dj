@@ -1478,10 +1478,19 @@ def _build_local_dim_aliases(node: "Node") -> dict[str, str]:
     for link in node.current.dimension_links:
         # ``foreign_keys_reversed`` maps dim PK columns → node FK columns.
         # Both sides are fully-qualified (``<node>.<col>``) identifiers.
+        #
+        # A *role-qualified* link is keyed WITH its role (e.g.
+        # ``v3.date.date_id[planned_launch]``) so it only matches a filter
+        # that carries that same role. Keying it by the bare, role-stripped
+        # FQN would let an *unqualified* filter (e.g. ``v3.date.date_id``,
+        # meaning the fact's own date) silently bind to this dim's role
+        # column, over-filtering the CTE. Unqualified links (role=None) keep
+        # the bare key.
         for dim_col_fqn, fk_fqn in (link.foreign_keys_reversed or {}).items():
             if not fk_fqn:  # pragma: no cover
                 continue
-            result[dim_col_fqn] = get_short_name(fk_fqn)
+            key = f"{dim_col_fqn}[{link.role}]" if link.role else dim_col_fqn
+            result[key] = get_short_name(fk_fqn)
     return result
 
 

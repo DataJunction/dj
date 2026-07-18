@@ -236,13 +236,18 @@ table {
 /* Node search box in the namespace main panel */
 .dj-node-search {
   width: 100%;
-  max-width: 360px;
   box-sizing: border-box;
-  padding: 9px 12px;
-  font-size: 14px;
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  margin-bottom: 12px;
+  height: 32px;
+  padding: 0 10px 0 28px; /* left room for the search icon */
+  font-size: 12px;
+  border: 1px solid #cccccc;
+  border-radius: 4px;
+  background-color: #ffffff;
+}
+.dj-node-search:focus {
+  outline: none;
+  border-color: #2684ff;
+  box-shadow: 0 0 0 1px #2684ff;
 }
 .dj-node-search::placeholder {
   color: #94a3b8;

@@ -22,6 +22,25 @@ class TestMetricsSQLBasic:
         assert "SELECT" in result["sql"].upper()
 
     @pytest.mark.asyncio
+    async def test_explicit_dialect_is_honored(self, client_with_build_v3):
+        """
+        An explicit ``dialect`` param bypasses auto-resolution: the shared
+        ``generate_metrics_sql`` helper uses the caller-supplied dialect instead
+        of resolving one from cube availability / the metric's catalog.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+                "dialect": "trino",
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["dialect"] == "trino"
+
+    @pytest.mark.asyncio
     async def test_simple_single_metric(self, client_with_build_v3):
         """
         Test metrics SQL for a single simple metric (SUM).

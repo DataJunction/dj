@@ -191,6 +191,10 @@ class GitHubService:
             self._handle_error(resp, "get branch")
             return resp.json()
 
+    async def branch_exists(self, repo_path: str, branch: str) -> bool:
+        """Return True if the branch exists on the remote (False on 404)."""
+        return await self.get_branch(repo_path, branch) is not None
+
     async def create_branch(
         self,
         repo_path: str,

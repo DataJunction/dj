@@ -260,6 +260,24 @@ class TestGetBranch:
             assert branch is None
 
 
+class TestBranchExists:
+    """Tests for branch_exists method."""
+
+    @pytest.mark.asyncio
+    async def test_branch_exists_true(self, github_service):
+        """Should return True when get_branch resolves to a branch payload."""
+        github_service.get_branch = AsyncMock(return_value={"name": "main"})
+        assert await github_service.branch_exists("owner/repo", "main") is True
+        github_service.get_branch.assert_awaited_once_with("owner/repo", "main")
+
+    @pytest.mark.asyncio
+    async def test_branch_exists_false(self, github_service):
+        """Should return False when get_branch returns None (404)."""
+        github_service.get_branch = AsyncMock(return_value=None)
+        assert await github_service.branch_exists("owner/repo", "ghost") is False
+        github_service.get_branch.assert_awaited_once_with("owner/repo", "ghost")
+
+
 class TestCreateBranch:
     """Tests for create_branch method."""
 

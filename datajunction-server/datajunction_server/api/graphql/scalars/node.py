@@ -472,6 +472,18 @@ class NodeRevision:
         return root.is_derived_metric
 
     @strawberry.field
+    def is_measure(self, root: "DBNodeRevision") -> bool:
+        """
+        Returns True if this metric is a "measure": a single top-level aggregation
+        call (e.g. SUM(x), COUNT(x), AVG(x)) with no cross-measure arithmetic that
+        does not reference other metrics. Only measures map 1:1 to a column in an
+        externally-built pre-aggregation table.
+        """
+        if root.type != NodeType_.METRIC:
+            return False
+        return root.is_measure
+
+    @strawberry.field
     async def extracted_measures(
         self,
         root: "DBNodeRevision",

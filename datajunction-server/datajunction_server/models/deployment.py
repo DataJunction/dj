@@ -581,6 +581,22 @@ class MetricSpec(NodeSpec):
             return None
         return self.unit_enum.value.name.lower()
 
+    @property
+    def rendered_required_dimensions(self) -> list[str]:
+        """
+        Required dimensions with `${prefix}` resolved to this spec's namespace.
+
+        Full `node.column` paths that were parameterized on export (in-deploy
+        nodes) map back to the target namespace here; bare column names and raw
+        external paths contain no `${prefix}` and pass through unchanged.
+        """
+        return [
+            render_prefixes(required_dim, self.namespace)
+            if "${prefix}" in required_dim
+            else required_dim
+            for required_dim in (self.required_dimensions or [])
+        ]
+
     def model_dump(self, **kwargs):  # pragma: no cover
         base = super().model_dump(**kwargs)
         base["unit"] = self.unit
@@ -842,6 +858,16 @@ class DeploymentSpec(BaseModel):
             "If True, all nodes are treated as changed and will be updated even if "
             "they are identical to the existing version. Useful for forcing a full "
             "re-deployment (e.g., after infrastructure changes)."
+        ),
+    )
+    allow_empty: bool = Field(
+        default=False,
+        description=(
+            "If True, permit a deployment whose spec contains zero nodes to "
+            "soft-delete the existing nodes in the target namespace. Guards "
+            "against an accidental empty push (e.g. a mistyped `directory` "
+            "argument that resolves to no node files) silently wiping a "
+            "namespace."
         ),
     )
     auto_register_sources: bool = Field(

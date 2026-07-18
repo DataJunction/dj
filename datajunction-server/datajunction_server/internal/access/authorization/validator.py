@@ -109,6 +109,28 @@ class AccessChecker:
             for namespace in namespaces
         )
 
+    def add_scope(
+        self,
+        scope_type: ResourceType,
+        scope_value: str,
+        action: ResourceAction,
+    ):
+        """
+        Add a request for the resource targeted by an RBAC scope.
+
+        An empty or ``*`` scope value targets every resource of that type, so it
+        requires a matching global grant.
+        """
+        self.add_request(
+            ResourceRequest(
+                verb=action,
+                access_object=Resource(
+                    name=scope_value or "*",
+                    resource_type=scope_type,
+                ),
+            ),
+        )
+
     async def check(
         self,
         on_denied: AccessDenialMode = AccessDenialMode.FILTER,

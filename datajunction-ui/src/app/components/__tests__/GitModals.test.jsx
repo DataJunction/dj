@@ -741,23 +741,14 @@ describe('<GitSettingsModal />', () => {
     isOpen: true,
     onClose: vi.fn(),
     onSave: vi.fn(),
+    onRemove: vi.fn(),
     currentConfig: null,
     namespace: 'analytics.prod',
+    nodeCount: 0,
   };
 
   beforeEach(() => {
     vi.clearAllMocks();
-    // Mock fetch for parent config fetching
-    global.fetch = vi.fn(() =>
-      Promise.resolve({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            github_repo_path: 'test/repo',
-            git_path: 'nodes/',
-          }),
-      }),
-    );
   });
 
   it('should not render when isOpen is false', () => {
@@ -765,113 +756,151 @@ describe('<GitSettingsModal />', () => {
     expect(screen.queryByText('Git Configuration')).not.toBeInTheDocument();
   });
 
-  it('should render the modal with git root form fields', () => {
+  it('should render the modal heading and source toggle', () => {
     render(<GitSettingsModal {...defaultProps} />);
 
-    expect(screen.getByText('Git Configuration')).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'Git Configuration' }),
+    ).toBeInTheDocument();
+    // Source of definitions toggle is always visible
+    expect(screen.getByText('Edited in DataJunction')).toBeInTheDocument();
+    expect(screen.getByText('Git repo')).toBeInTheDocument();
+    // By default, source is "dj" so git-specific fields are hidden
+    expect(screen.queryByLabelText(/Repository/)).not.toBeInTheDocument();
+  });
+
+  it('should show Repository and Branch fields when Git repo is selected', async () => {
+    render(<GitSettingsModal {...defaultProps} />);
+
+    await userEvent.click(screen.getByText('Git repo'));
+
     expect(screen.getByLabelText(/Repository/)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Path/)).toBeInTheDocument();
-    // Branch field (from branch mode) should NOT be present in git root mode
-    expect(screen.queryByLabelText(/^Branch \*/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/^Branch$/)).toBeInTheDocument();
+    // No checkbox — intent-based modal has no git_only toggle
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
   });
 
-  it('should pre-fill form with git root config', () => {
-    const config = {
-      github_repo_path: 'myorg/repo',
-      git_path: 'definitions/',
-    };
+  it('should show Default branch field in root (Feature branches + PRs) mode', async () => {
+    render(<GitSettingsModal {...defaultProps} />);
 
-    render(<GitSettingsModal {...defaultProps} currentConfig={config} />);
+    await userEvent.click(screen.getByText('Git repo'));
+    await userEvent.click(screen.getByText('Feature branches + PRs'));
 
-    expect(screen.getByLabelText(/Repository/)).toHaveValue('myorg/repo');
-    expect(screen.getByLabelText(/Path/)).toHaveValue('definitions/');
-    // Branch field (from branch mode) should NOT be present in git root mode
-    expect(screen.queryByLabelText(/^Branch \*/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/Default branch/)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/^Branch$/)).not.toBeInTheDocument();
   });
 
-  it('should pre-fill git_only checkbox from branch namespace config', () => {
-    const config = {
-      parent_namespace: 'analytics',
-      git_branch: 'feature',
-      git_only: false,
-    };
+  it('should preselect flat mode from an existing flat (branch-tracking) config', () => {
+    render(
+      <GitSettingsModal
+        {...defaultProps}
+        currentConfig={{
+          github_repo_path: 'myorg/repo',
+          git_branch: 'develop',
+        }}
+      />,
+    );
+
+    // Source should default to "git", flat mode active
+    expect(screen.getByDisplayValue('myorg/repo')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('develop')).toBeInTheDocument();
+    expect(screen.getByText('Tracks a branch')).toBeInTheDocument();
+  });
+
+  it('should preselect root mode from an existing root config', () => {
+    render(
+      <GitSettingsModal
+        {...defaultProps}
+        currentConfig={{
+          github_repo_path: 'myorg/repo',
+          default_branch: 'main',
+        }}
+      />,
+    );
+
+    expect(screen.getByDisplayValue('myorg/repo')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('main')).toBeInTheDocument();
+    expect(screen.getByText('Feature branches + PRs')).toBeInTheDocument();
+  });
+
+  it('should call onSave with flat payload when Tracks a branch form is submitted', async () => {
+    defaultProps.onSave.mockResolvedValue({});
+
+    render(<GitSettingsModal {...defaultProps} />);
+
+    await userEvent.click(screen.getByText('Git repo'));
+    await userEvent.type(screen.getByLabelText(/Repository/), 'corp/defs');
+    await userEvent.clear(screen.getByLabelText(/^Branch$/));
+    await userEvent.type(screen.getByLabelText(/^Branch$/), 'develop');
+    await userEvent.click(screen.getByRole('button', { name: /^Save$/ }));
+
+    await waitFor(() => {
+      expect(defaultProps.onSave).toHaveBeenCalledWith({
+        github_repo_path: 'corp/defs',
+        git_branch: 'develop',
+      });
+    });
+  });
+
+  it('should call onSave with root payload when Feature branches + PRs is selected', async () => {
+    defaultProps.onSave.mockResolvedValue({});
+
+    render(<GitSettingsModal {...defaultProps} />);
+
+    await userEvent.click(screen.getByText('Git repo'));
+    await userEvent.click(screen.getByText('Feature branches + PRs'));
+    await userEvent.type(screen.getByLabelText(/Repository/), 'corp/defs');
+    await userEvent.clear(screen.getByLabelText(/Default branch/));
+    await userEvent.type(screen.getByLabelText(/Default branch/), 'trunk');
+    await userEvent.click(screen.getByRole('button', { name: /^Save$/ }));
+
+    await waitFor(() => {
+      expect(defaultProps.onSave).toHaveBeenCalledWith({
+        github_repo_path: 'corp/defs',
+        default_branch: 'trunk',
+      });
+    });
+  });
+
+  it('should call onRemove (not onSave) when Edited in DataJunction is selected', async () => {
+    defaultProps.onSave.mockResolvedValue({});
+    defaultProps.onRemove.mockResolvedValue({});
 
     render(
       <GitSettingsModal
         {...defaultProps}
-        namespace="analytics.feature"
-        currentConfig={config}
+        currentConfig={{ github_repo_path: 'myorg/repo', git_branch: 'main' }}
       />,
     );
 
-    const checkbox = screen.getByRole('checkbox');
-    expect(checkbox).not.toBeChecked();
-  });
-
-  it('should default path to nodes/ for new config', () => {
-    render(<GitSettingsModal {...defaultProps} />);
-    expect(screen.getByLabelText(/Path/)).toHaveValue('nodes/');
-  });
-
-  it('should not show git_only checkbox in git root mode for new config', () => {
-    render(<GitSettingsModal {...defaultProps} />);
-    // Git root mode has no checkbox
-    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
-  });
-
-  it('should call onSave when git root form is submitted', async () => {
-    defaultProps.onSave.mockResolvedValue({ success: true });
-
-    render(<GitSettingsModal {...defaultProps} />);
-
-    await userEvent.type(screen.getByLabelText(/Repository/), 'myorg/repo');
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Save Settings' }),
-    );
+    // Source is already "git" from currentConfig; switch back to dj
+    await userEvent.click(screen.getByText('Edited in DataJunction'));
+    await userEvent.click(screen.getByRole('button', { name: /^Save$/ }));
 
     await waitFor(() => {
-      expect(defaultProps.onSave).toHaveBeenCalledWith({
-        default_branch: 'main',
-        github_repo_path: 'myorg/repo',
-        git_path: 'nodes/',
-      });
+      expect(defaultProps.onRemove).toHaveBeenCalled();
     });
+    expect(defaultProps.onSave).not.toHaveBeenCalled();
   });
 
-  it('should call onSave with git_only when branch namespace form is submitted', async () => {
-    defaultProps.onSave.mockResolvedValue({ success: true });
+  it('should show an error when Repository is empty and Git repo is selected', async () => {
+    render(<GitSettingsModal {...defaultProps} />);
 
-    render(
-      <GitSettingsModal {...defaultProps} namespace="analytics.feature" />,
-    );
+    await userEvent.click(screen.getByText('Git repo'));
+    await userEvent.click(screen.getByRole('button', { name: /^Save$/ }));
 
-    // Switch to branch mode
-    await userEvent.click(screen.getByText('Branch Namespace'));
-
-    await userEvent.type(screen.getByLabelText(/Branch/), 'feature-x');
-    await userEvent.click(screen.getByRole('checkbox')); // Uncheck git_only
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Save Settings' }),
-    );
-
-    await waitFor(() => {
-      expect(defaultProps.onSave).toHaveBeenCalledWith({
-        git_branch: 'feature-x',
-        parent_namespace: 'analytics',
-        git_only: false,
-      });
-    });
+    expect(screen.getByText('Repository is required')).toBeInTheDocument();
+    expect(defaultProps.onSave).not.toHaveBeenCalled();
   });
 
   it('should show success message after save', async () => {
-    defaultProps.onSave.mockResolvedValue({ success: true });
+    defaultProps.onSave.mockResolvedValue({});
 
     render(<GitSettingsModal {...defaultProps} />);
 
+    await userEvent.click(screen.getByText('Git repo'));
     await userEvent.type(screen.getByLabelText(/Repository/), 'myorg/repo');
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Save Settings' }),
-    );
+    await userEvent.click(screen.getByRole('button', { name: /^Save$/ }));
 
     await waitFor(() => {
       expect(
@@ -880,7 +909,7 @@ describe('<GitSettingsModal />', () => {
     });
   });
 
-  it('should show error when save fails', async () => {
+  it('should show error when onSave returns _error response', async () => {
     defaultProps.onSave.mockResolvedValue({
       _error: true,
       message: 'Invalid repository',
@@ -888,10 +917,9 @@ describe('<GitSettingsModal />', () => {
 
     render(<GitSettingsModal {...defaultProps} />);
 
+    await userEvent.click(screen.getByText('Git repo'));
     await userEvent.type(screen.getByLabelText(/Repository/), 'invalid');
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Save Settings' }),
-    );
+    await userEvent.click(screen.getByRole('button', { name: /^Save$/ }));
 
     await waitFor(() => {
       expect(screen.getByText('Invalid repository')).toBeInTheDocument();
@@ -903,25 +931,23 @@ describe('<GitSettingsModal />', () => {
 
     render(<GitSettingsModal {...defaultProps} />);
 
+    await userEvent.click(screen.getByText('Git repo'));
     await userEvent.type(screen.getByLabelText(/Repository/), 'myorg/repo');
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Save Settings' }),
-    );
+    await userEvent.click(screen.getByRole('button', { name: /^Save$/ }));
 
     await waitFor(() => {
       expect(screen.getByText('Network error')).toBeInTheDocument();
     });
   });
 
-  it('should show default error when onSave throws without message', async () => {
+  it('should show default error message when onSave throws without message', async () => {
     defaultProps.onSave.mockRejectedValue({});
 
     render(<GitSettingsModal {...defaultProps} />);
 
+    await userEvent.click(screen.getByText('Git repo'));
     await userEvent.type(screen.getByLabelText(/Repository/), 'myorg/repo');
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Save Settings' }),
-    );
+    await userEvent.click(screen.getByRole('button', { name: /^Save$/ }));
 
     await waitFor(() => {
       expect(
@@ -930,26 +956,16 @@ describe('<GitSettingsModal />', () => {
     });
   });
 
-  it('should not show git-only checkbox in git root mode', async () => {
-    render(<GitSettingsModal {...defaultProps} />);
-
-    // Git root mode should not have git_only checkbox
-    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
-  });
-
-  it('should toggle git-only checkbox in branch mode', async () => {
+  it('should warn when switching a namespace with existing nodes to git', async () => {
     render(
-      <GitSettingsModal {...defaultProps} namespace="analytics.feature" />,
+      <GitSettingsModal {...defaultProps} currentConfig={null} nodeCount={3} />,
     );
 
-    // Switch to branch mode
-    await userEvent.click(screen.getByText('Branch Namespace'));
+    await userEvent.click(screen.getByText('Git repo'));
 
-    const checkbox = screen.getByRole('checkbox');
-    expect(checkbox).toBeChecked(); // Default is true
-
-    await userEvent.click(checkbox);
-    expect(checkbox).not.toBeChecked();
+    expect(
+      screen.getByText(/3 nodes here aren't in the repo/),
+    ).toBeInTheDocument();
   });
 
   it('should call onClose when Cancel is clicked', async () => {
@@ -974,7 +990,7 @@ describe('<GitSettingsModal />', () => {
     expect(defaultProps.onClose).toHaveBeenCalled();
   });
 
-  it('should show Saving... button text while saving', async () => {
+  it('should show Saving... and disable the button while saving', async () => {
     let resolveSave;
     defaultProps.onSave.mockImplementation(
       () =>
@@ -985,27 +1001,24 @@ describe('<GitSettingsModal />', () => {
 
     render(<GitSettingsModal {...defaultProps} />);
 
+    await userEvent.click(screen.getByText('Git repo'));
     await userEvent.type(screen.getByLabelText(/Repository/), 'myorg/repo');
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Save Settings' }),
-    );
+    await userEvent.click(screen.getByRole('button', { name: /^Save$/ }));
 
     expect(screen.getByText('Saving...')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Saving...' })).toBeDisabled();
 
-    // Resolve to complete the test
-    resolveSave({ success: true });
+    resolveSave({});
   });
 
-  it('should clear error and success when closed', async () => {
-    defaultProps.onSave.mockResolvedValue({ success: true });
+  it('should show Close button after success and call onClose when clicked', async () => {
+    defaultProps.onSave.mockResolvedValue({});
 
     render(<GitSettingsModal {...defaultProps} />);
 
+    await userEvent.click(screen.getByText('Git repo'));
     await userEvent.type(screen.getByLabelText(/Repository/), 'myorg/repo');
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Save Settings' }),
-    );
+    await userEvent.click(screen.getByRole('button', { name: /^Save$/ }));
 
     await waitFor(() => {
       expect(
@@ -1013,19 +1026,10 @@ describe('<GitSettingsModal />', () => {
       ).toBeInTheDocument();
     });
 
-    // After success, button changes from "Cancel" to "Close"
-    await userEvent.click(screen.getByRole('button', { name: 'Close' }));
+    // Button changes from "Cancel" to "Close" after success
+    const closeBtn = screen.getByRole('button', { name: 'Close' });
+    await userEvent.click(closeBtn);
     expect(defaultProps.onClose).toHaveBeenCalled();
-  });
-
-  it('should update path field', async () => {
-    render(<GitSettingsModal {...defaultProps} />);
-
-    const pathInput = screen.getByLabelText(/Path/);
-    await userEvent.clear(pathInput);
-    await userEvent.type(pathInput, 'definitions/');
-
-    expect(pathInput).toHaveValue('definitions/');
   });
 });
 

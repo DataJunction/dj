@@ -7,12 +7,12 @@ import {
   useRef,
   useMemo,
 } from 'react';
-import NodeStatus from '../NodePage/NodeStatus';
 import DJClientContext from '../../providers/djclient';
 import { useCurrentUser } from '../../providers/UserProvider';
 import AddNodeDropdown from '../../components/AddNodeDropdown';
 import NodeListActions from '../../components/NodeListActions';
 import NamespaceHeader from '../../components/NamespaceHeader';
+import SplitFilter from '../../components/SplitFilter';
 import Tooltip from '../../components/Tooltip';
 import {
   secondaryButtonStyle,
@@ -25,19 +25,20 @@ import NamespaceNav from './NamespaceNav';
 import { isHiddenNamespace } from './namespaceOptions';
 import { NODE_TYPE_ORDER, NODE_TYPE_COLORS } from './nodeTypes';
 import { getDJUrl } from '../../services/DJService';
+import { detectShape } from '../../components/git/gitShape';
 
 import 'styles/node-list.css';
 import 'styles/sorted-table.css';
 
 const AVATAR_COLORS = [
-  ['#dbeafe', '#1e40af'], // blue
-  ['#dcfce7', '#166534'], // green
-  ['#fef3c7', '#92400e'], // amber
-  ['#fce7f3', '#9d174d'], // pink
-  ['#ede9fe', '#5b21b6'], // purple
-  ['#ffedd5', '#9a3412'], // orange
-  ['#fee2e2', '#991b1b'], // red
-  ['#d1fae5', '#065f46'], // teal
+  ['#dbeafe', '#1e40af'],
+  ['#dcfce7', '#166534'],
+  ['#fef3c7', '#92400e'],
+  ['#fce7f3', '#9d174d'],
+  ['#ede9fe', '#5b21b6'],
+  ['#ffedd5', '#9a3412'],
+  ['#fee2e2', '#991b1b'],
+  ['#d1fae5', '#065f46'],
 ];
 
 function avatarColorIndex(username) {
@@ -46,6 +47,105 @@ function avatarColorIndex(username) {
     hash = (hash * 31 + username.charCodeAt(i)) >>> 0;
   }
   return hash % AVATAR_COLORS.length;
+}
+
+const FIELD_CONFIG = {
+  name: { label: 'Name' },
+  displayName: { label: 'Display name' },
+  type: { label: 'Type' },
+  status: {
+    label: 'Validation',
+    tooltip: 'Whether this node validates successfully.',
+  },
+  mode: {
+    label: 'Publish state',
+    tooltip: 'Whether this node is published or still a draft.',
+  },
+  owners: { label: 'Owners' },
+  updatedAt: { label: 'Updated' },
+};
+
+const CELL_STYLE = {
+  padding: '8px 16px',
+};
+
+const MIDDLE_CELL_STYLE = {
+  ...CELL_STYLE,
+  verticalAlign: 'middle',
+};
+
+const NODE_TYPE_DESCRIPTIONS = {
+  CUBE: 'A curated set of metrics and dimensions for querying together.',
+  DIMENSION: 'Descriptive attributes used to group, filter, and join metrics.',
+  METRIC: 'A reusable business calculation or measure.',
+  SOURCE: 'A physical table registered in DJ as a source node.',
+  TRANSFORM: 'A SQL-defined node derived from sources or other DJ nodes.',
+};
+
+function splitNodeName(nodeName) {
+  const lastDot = nodeName.lastIndexOf('.');
+  if (lastDot === -1) {
+    return { leafName: nodeName, namespacePath: '' };
+  }
+  return {
+    leafName: nodeName.slice(lastDot + 1),
+    namespacePath: nodeName.slice(0, lastDot),
+  };
+}
+
+function nodeState(current) {
+  const isPublished = current.mode === 'PUBLISHED';
+  const isValid = current.status === 'VALID';
+  return {
+    isPublished,
+    isValid,
+    publishLabel: isPublished ? 'Published' : 'Draft',
+    validationLabel: isValid ? 'Valid' : 'Needs fixes',
+    publishTooltip: isPublished
+      ? 'This version is published and expected to be usable by downstream nodes.'
+      : 'This version is a draft and may still be incomplete.',
+    validationTooltip: isValid
+      ? 'This node validates successfully.'
+      : 'This node has validation errors. Open it to see what needs to be fixed.',
+    needsAttention: !isPublished || !isValid,
+    borderColor: isValid && isPublished ? '#28a745' : '#d39e00',
+    backgroundColor: isValid && isPublished ? '#eaf7ee' : '#fff7df',
+    color: isValid && isPublished ? '#1f7a3a' : '#8a5b00',
+  };
+}
+
+function exactDateTime(value) {
+  return new Date(value).toLocaleString('en-us', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+function relativeDate(value) {
+  const updatedAt = new Date(value);
+  const diffMs = Date.now() - updatedAt.getTime();
+  const absMs = Math.abs(diffMs);
+  const units = [
+    ['year', 365 * 24 * 60 * 60 * 1000],
+    ['month', 30 * 24 * 60 * 60 * 1000],
+    ['week', 7 * 24 * 60 * 60 * 1000],
+    ['day', 24 * 60 * 60 * 1000],
+    ['hour', 60 * 60 * 1000],
+    ['minute', 60 * 1000],
+  ];
+
+  for (const [unit, ms] of units) {
+    if (absMs >= ms) {
+      const valueForUnit = Math.round(absMs / ms);
+      return `${valueForUnit} ${unit}${valueForUnit === 1 ? '' : 's'} ${
+        diffMs >= 0 ? 'ago' : 'from now'
+      }`;
+    }
+  }
+  return 'just now';
 }
 
 export function NamespacePage() {
@@ -272,6 +372,8 @@ export function NamespacePage() {
   }, [debouncedSearch]);
 
   const [typeCounts, setTypeCounts] = useState(null);
+  // undefined until NamespaceHeader reports the read-only verdict, so Add Node stays hidden until known
+  const [headerReadOnly, setHeaderReadOnly] = useState(undefined);
 
   // Only show edit/add controls once git config has loaded and namespace is not git-only
   const gitConfigLoaded = gitConfig !== undefined;
@@ -281,8 +383,12 @@ export function NamespacePage() {
     gitConfigLoaded &&
     !!gitConfig?.github_repo_path &&
     gitConfig?.git_root_namespace === namespace;
+  // Edit controls are only shown for editable shapes: plain (not-git) namespaces
+  // and branch namespaces. Flat and root git-backed namespaces are read-only in
+  // the UI — their nodes are managed via git.
+  const gitShape = gitConfigLoaded ? detectShape(gitConfig || {}) : null;
   const showEditControls =
-    gitConfigLoaded && !gitConfig?.git_only && !isGitRoot;
+    gitConfigLoaded && (gitShape === 'not-git' || gitShape === 'branch');
   // Sub-namespaces can be created from the rail only for plain (non-git-backed)
   // namespaces; git-backed ones are managed via git, not the UI. The git config
   // endpoint returns an object with null fields (not null) for non-git
@@ -305,24 +411,32 @@ export function NamespacePage() {
       message: response.json?.message || 'Failed to create namespace',
     };
   };
-  // A git root has no nodes of its own — they live on its default branch. The node
-  // table (and its filters/keyword search) therefore browse `<root>.<default_branch>`,
-  // so a git root shows the same browsable table as any other namespace.
+  // Distinguish a *child-spawning* git root (owns the repo, has no branch of its
+  // own — its nodes live on `<root>.<default_branch>`) from a *flat* git-backed
+  // namespace (has its own `git_branch`, e.g. tracks `main` directly, with no
+  // `<ns>.<branch>` children). Only the former is browsed via / redirected to its
+  // default branch; a flat namespace is its own branch and must stay put.
+  const isChildSpawningRoot = isGitRoot && !gitConfig?.git_branch;
+
+  // A child-spawning root has no nodes of its own — they live on its default
+  // branch — so the node table browses `<root>.<default_branch>`. A flat
+  // namespace browses itself.
   const tableNamespace =
-    isGitRoot && gitConfig?.default_branch
+    isChildSpawningRoot && gitConfig?.default_branch
       ? `${namespace}.${gitConfig.default_branch}`
       : namespace;
 
-  // A git root has no nodes of its own and isn't a browsable branch — redirect to
-  // its default branch so the URL is the branch (giving the breadcrumb its branch
-  // switcher) and everything is scoped consistently.
+  // A child-spawning root isn't a browsable branch — redirect to its default
+  // branch so the URL is the branch (giving the breadcrumb its branch switcher)
+  // and everything is scoped consistently. A flat git-backed namespace is NOT
+  // redirected: it *is* the branch, and `<ns>.<default_branch>` doesn't exist.
   useEffect(() => {
-    if (isGitRoot && gitConfig?.default_branch) {
+    if (isChildSpawningRoot && gitConfig?.default_branch) {
       navigate(`/namespaces/${namespace}.${gitConfig.default_branch}`, {
         replace: true,
       });
     }
-  }, [isGitRoot, gitConfig, namespace, navigate]);
+  }, [isChildSpawningRoot, gitConfig, namespace, navigate]);
 
   // Per-type node counts (recursive) for the current namespace, shown inline in
   // the TYPE filter options (e.g. "Metric (342)").
@@ -568,7 +682,7 @@ export function NamespacePage() {
 
   const statusOptions = [
     { value: 'VALID', label: 'Valid' },
-    { value: 'INVALID', label: 'Invalid' },
+    { value: 'INVALID', label: 'Needs fixes' },
   ];
 
   const userOptions = useMemo(
@@ -582,131 +696,187 @@ export function NamespacePage() {
 
   const nodesList = retrieved ? (
     state.nodes.length > 0 ? (
-      state.nodes.map(node => (
-        <tr key={node.name}>
-          <td
+      state.nodes.map(node => {
+        const { leafName, namespacePath } = splitNodeName(node.name);
+        const stateInfo = nodeState(node.current);
+        const owners = node.owners || [];
+        return (
+          <tr
+            key={node.name}
             style={{
-              maxWidth: '300px',
-              overflow: 'hidden',
-              whiteSpace: 'nowrap',
-              textOverflow: 'ellipsis',
+              backgroundColor: stateInfo.needsAttention ? '#fffbeb' : undefined,
             }}
           >
-            <a
-              href={'/nodes/' + node.name}
-              className="link-table"
-              title={node.name}
-            >
-              {/* Show names relative to the namespace in view — the table is already
-                  scoped to tableNamespace, so the prefix is redundant on every row. */}
-              {tableNamespace && node.name.startsWith(tableNamespace + '.')
-                ? node.name.slice(tableNamespace.length + 1)
-                : node.name}
-            </a>
-            <span
-              className="rounded-pill badge bg-secondary-soft"
-              style={{ marginLeft: '0.5rem' }}
-            >
-              {node.currentVersion}
-            </span>
-          </td>
-          <td
-            style={{
-              maxWidth: '250px',
-              overflow: 'hidden',
-              whiteSpace: 'nowrap',
-              textOverflow: 'ellipsis',
-            }}
-          >
-            <a href={'/nodes/' + node.name} className="link-table">
-              {node.type !== 'source' ? node.current.displayName : ''}
-            </a>
-          </td>
-          <td>
-            <span
-              className={
-                'node_type__' + node.type.toLowerCase() + ' badge node_type'
-              }
-            >
-              {node.type}
-            </span>
-          </td>
-          <td>
-            <NodeStatus node={node} revalidate={false} />
-          </td>
-          <td>
-            <span
+            <td
               style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: '24px',
-                height: '24px',
-                borderRadius: '50%',
-                border: `2px solid ${
-                  node.current.mode === 'PUBLISHED' ? '#28a745' : '#ffc107'
-                }`,
-                backgroundColor: 'transparent',
-                color:
-                  node.current.mode === 'PUBLISHED' ? '#28a745' : '#d39e00',
-                fontWeight: '600',
-                fontSize: '12px',
+                ...CELL_STYLE,
+                maxWidth: '300px',
+                overflow: 'hidden',
+                whiteSpace: 'nowrap',
+                textOverflow: 'ellipsis',
               }}
-              title={node.current.mode === 'PUBLISHED' ? 'Published' : 'Draft'}
             >
-              {node.current.mode === 'PUBLISHED' ? 'P' : 'D'}
-            </span>
-          </td>
-          <td>
-            {node.owners?.length > 0 && (
-              <div style={{ display: 'flex', gap: '2px' }}>
-                {node.owners.slice(0, 3).map(owner => {
-                  const initials = owner.username
-                    .split('@')[0]
-                    .slice(0, 2)
-                    .toUpperCase();
-                  const [bg, fg] =
-                    AVATAR_COLORS[avatarColorIndex(owner.username)];
-                  return (
-                    <span
-                      key={owner.username}
-                      title={owner.username}
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        width: '24px',
-                        height: '24px',
-                        borderRadius: '50%',
-                        backgroundColor: bg,
-                        color: fg,
-                        fontSize: '9px',
-                        fontWeight: '600',
-                        flexShrink: 0,
-                      }}
-                    >
-                      {initials}
-                    </span>
-                  );
-                })}
+              <div>
+                <a
+                  href={'/nodes/' + node.name}
+                  className="link-table"
+                  title={node.name}
+                  style={{ fontWeight: 600, color: '#334155' }}
+                >
+                  {leafName}
+                </a>
+                <span
+                  className="rounded-pill badge bg-secondary-soft"
+                  style={{ marginLeft: '0.5rem' }}
+                >
+                  {node.currentVersion}
+                </span>
               </div>
-            )}
-          </td>
-          <td>
-            <span className="status">
-              {new Date(node.current.updatedAt).toLocaleDateString('en-us')}
-            </span>
-          </td>
-          {showEditControls && (
-            <td>
-              <NodeListActions nodeName={node?.name} />
+              {namespacePath ? (
+                <div
+                  title={namespacePath}
+                  style={{
+                    color: '#64748b',
+                    fontSize: '12px',
+                    marginTop: '2px',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  {namespacePath}
+                </div>
+              ) : null}
             </td>
-          )}
-        </tr>
-      ))
+            <td
+              style={{
+                ...MIDDLE_CELL_STYLE,
+                maxWidth: '250px',
+                overflow: 'hidden',
+                whiteSpace: 'nowrap',
+                textOverflow: 'ellipsis',
+                color: '#64748b',
+              }}
+            >
+              <a
+                href={'/nodes/' + node.name}
+                className="link-table"
+                style={{ color: '#475569', fontWeight: 400 }}
+              >
+                {node.type !== 'source' ? node.current.displayName : ''}
+              </a>
+            </td>
+            <td style={MIDDLE_CELL_STYLE}>
+              <Tooltip content={NODE_TYPE_DESCRIPTIONS[node.type]}>
+                <span
+                  className={
+                    'node_type__' + node.type.toLowerCase() + ' badge node_type'
+                  }
+                >
+                  {node.type}
+                </span>
+              </Tooltip>
+            </td>
+            <td style={MIDDLE_CELL_STYLE}>
+              <Tooltip content={stateInfo.validationTooltip}>
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    borderRadius: '999px',
+                    border: `1px solid ${
+                      stateInfo.isValid ? '#28a745' : '#d39e00'
+                    }`,
+                    backgroundColor: stateInfo.isValid ? '#eaf7ee' : '#fff7df',
+                    color: stateInfo.isValid ? '#1f7a3a' : '#8a5b00',
+                    fontWeight: '600',
+                    fontSize: '12px',
+                    lineHeight: 1.2,
+                    padding: '6px 10px',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {stateInfo.validationLabel}
+                </span>
+              </Tooltip>
+            </td>
+            <td style={MIDDLE_CELL_STYLE}>
+              <Tooltip content={stateInfo.publishTooltip}>
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    borderRadius: '999px',
+                    border: `1px solid ${
+                      stateInfo.isPublished ? '#28a745' : '#d39e00'
+                    }`,
+                    backgroundColor: stateInfo.isPublished
+                      ? '#eaf7ee'
+                      : '#fff7df',
+                    color: stateInfo.isPublished ? '#1f7a3a' : '#8a5b00',
+                    fontWeight: '600',
+                    fontSize: '12px',
+                    lineHeight: 1.2,
+                    padding: '6px 10px',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {stateInfo.publishLabel}
+                </span>
+              </Tooltip>
+            </td>
+            <td style={MIDDLE_CELL_STYLE}>
+              {owners.length > 0 && (
+                <div style={{ display: 'flex', gap: '2px' }}>
+                  {owners.slice(0, 3).map(owner => {
+                    const initials = owner.username
+                      .split('@')[0]
+                      .slice(0, 2)
+                      .toUpperCase();
+                    const [bg, fg] =
+                      AVATAR_COLORS[avatarColorIndex(owner.username)];
+                    return (
+                      <span
+                        key={owner.username}
+                        title={owner.username}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          width: '24px',
+                          height: '24px',
+                          borderRadius: '50%',
+                          backgroundColor: bg,
+                          color: fg,
+                          fontSize: '9px',
+                          fontWeight: '600',
+                          flexShrink: 0,
+                        }}
+                      >
+                        {initials}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+            </td>
+            <td style={MIDDLE_CELL_STYLE}>
+              <Tooltip content={exactDateTime(node.current.updatedAt)}>
+                <span className="status">
+                  {relativeDate(node.current.updatedAt)}
+                </span>
+              </Tooltip>
+            </td>
+            {showEditControls && (
+              <td style={MIDDLE_CELL_STYLE}>
+                <NodeListActions nodeName={node?.name} />
+              </td>
+            )}
+          </tr>
+        );
+      })
     ) : (
       <tr>
-        <td colSpan={8}>
+        <td colSpan={fields.length + (showEditControls ? 1 : 0)}>
           <span
             style={{
               display: 'block',
@@ -746,8 +916,9 @@ export function NamespacePage() {
     </tr>
   );
 
-  // Count active quality filters (the ones in the "More" dropdown)
+  // Count active filters tucked behind "More filters".
   const moreFiltersCount = [
+    !!filters.edited_by,
     filters.missingDescription,
     filters.hasMaterialization,
     filters.orphanedDimension,
@@ -864,49 +1035,6 @@ export function NamespacePage() {
                   testId="select-node-type"
                 />
                 <CompactSelect
-                  label="Tags"
-                  name="tags"
-                  options={tagOptions}
-                  value={filters.tags}
-                  onChange={e =>
-                    updateFilters({
-                      ...filters,
-                      tags: e ? e.map(t => t.value) : [],
-                    })
-                  }
-                  isMulti
-                  isLoading={tagsLoading}
-                  onMenuOpen={ensureTags}
-                  flex={1.5}
-                  minWidth="100px"
-                  testId="select-tag"
-                />
-                <CompactSelect
-                  label="Edited By"
-                  name="editedBy"
-                  options={userOptions}
-                  value={filters.edited_by}
-                  onChange={e =>
-                    updateFilters({ ...filters, edited_by: e?.value || '' })
-                  }
-                  isLoading={usersLoading}
-                  onMenuOpen={ensureUsers}
-                  flex={1}
-                  minWidth="80px"
-                  testId="select-user"
-                />
-                <CompactSelect
-                  label="Mode"
-                  name="mode"
-                  options={modeOptions}
-                  value={filters.mode}
-                  onChange={e =>
-                    updateFilters({ ...filters, mode: e?.value || '' })
-                  }
-                  flex={1}
-                  minWidth="80px"
-                />
-                <CompactSelect
                   label="Owner"
                   name="owner"
                   options={userOptions}
@@ -920,18 +1048,39 @@ export function NamespacePage() {
                   minWidth="80px"
                 />
                 <CompactSelect
-                  label="Status"
-                  name="status"
+                  label="Tags"
+                  name="tags"
+                  options={tagOptions}
+                  value={filters.tags}
+                  onChange={e =>
+                    updateFilters({
+                      ...filters,
+                      tags: e ? e.map(t => t.value) : [],
+                    })
+                  }
+                  isMulti
+                  isLoading={tagsLoading}
+                  onMenuOpen={ensureTags}
+                  flex={1.2}
+                  minWidth="100px"
+                  testId="select-tag"
+                />
+                <SplitFilter
+                  label="Publish state"
+                  options={modeOptions}
+                  value={filters.mode}
+                  onChange={value => updateFilters({ ...filters, mode: value })}
+                />
+                <SplitFilter
+                  label="Validation"
                   options={statusOptions}
                   value={filters.statuses}
-                  onChange={e =>
-                    updateFilters({ ...filters, statuses: e?.value || '' })
+                  onChange={value =>
+                    updateFilters({ ...filters, statuses: value })
                   }
-                  flex={1}
-                  minWidth="80px"
                 />
 
-                {/* More Filters (Quality) */}
+                {/* More Filters */}
                 <div
                   style={{ position: 'relative', flex: 0, minWidth: 'auto' }}
                 >
@@ -951,12 +1100,13 @@ export function NamespacePage() {
                         letterSpacing: '0.5px',
                       }}
                     >
-                      Quality
+                      More filters
                     </label>
                     <button
                       onClick={() => setMoreFiltersOpen(!moreFiltersOpen)}
                       style={{
                         height: '32px',
+                        minHeight: '32px',
                         padding: '0 12px',
                         fontSize: '12px',
                         border: '1px solid #ccc',
@@ -973,7 +1123,7 @@ export function NamespacePage() {
                     >
                       {moreFiltersCount > 0
                         ? `${moreFiltersCount} active`
-                        : 'Issues'}
+                        : 'Filters'}
                       <span style={{ fontSize: '8px' }}>
                         {moreFiltersOpen ? '▲' : '▼'}
                       </span>
@@ -993,77 +1143,109 @@ export function NamespacePage() {
                         borderRadius: '8px',
                         boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
                         zIndex: 1000,
-                        minWidth: '200px',
+                        minWidth: '320px',
                       }}
                     >
-                      <label
+                      <div
                         style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '8px',
-                          fontSize: '12px',
-                          color: '#444',
-                          marginBottom: '8px',
-                          cursor: 'pointer',
+                          display: 'grid',
+                          gap: '12px',
+                          marginBottom: '12px',
                         }}
                       >
-                        <input
-                          type="checkbox"
-                          checked={filters.missingDescription}
+                        <CompactSelect
+                          label="Edited By"
+                          name="editedBy"
+                          options={userOptions}
+                          value={filters.edited_by}
                           onChange={e =>
                             updateFilters({
                               ...filters,
-                              missingDescription: e.target.checked,
+                              edited_by: e?.value || '',
                             })
                           }
+                          isLoading={usersLoading}
+                          onMenuOpen={ensureUsers}
+                          flex="none"
+                          minWidth="100%"
+                          testId="select-user"
                         />
-                        Missing Description
-                      </label>
-                      <label
+                      </div>
+                      <div
                         style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '8px',
-                          fontSize: '12px',
-                          color: '#444',
-                          marginBottom: '8px',
-                          cursor: 'pointer',
+                          borderTop: '1px solid #e2e8f0',
+                          paddingTop: '12px',
                         }}
                       >
-                        <input
-                          type="checkbox"
-                          checked={filters.orphanedDimension}
-                          onChange={e =>
-                            updateFilters({
-                              ...filters,
-                              orphanedDimension: e.target.checked,
-                            })
-                          }
-                        />
-                        Orphaned Dimensions
-                      </label>
-                      <label
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '8px',
-                          fontSize: '12px',
-                          color: '#444',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={filters.hasMaterialization}
-                          onChange={e =>
-                            updateFilters({
-                              ...filters,
-                              hasMaterialization: e.target.checked,
-                            })
-                          }
-                        />
-                        Has Materialization
-                      </label>
+                        <label
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            fontSize: '12px',
+                            color: '#444',
+                            marginBottom: '8px',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={filters.missingDescription}
+                            onChange={e =>
+                              updateFilters({
+                                ...filters,
+                                missingDescription: e.target.checked,
+                              })
+                            }
+                          />
+                          Missing Description
+                        </label>
+                        <label
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            fontSize: '12px',
+                            color: '#444',
+                            marginBottom: '8px',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={filters.orphanedDimension}
+                            onChange={e =>
+                              updateFilters({
+                                ...filters,
+                                orphanedDimension: e.target.checked,
+                              })
+                            }
+                          />
+                          Orphaned Dimensions
+                        </label>
+                        <label
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            fontSize: '12px',
+                            color: '#444',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={filters.hasMaterialization}
+                            onChange={e =>
+                              updateFilters({
+                                ...filters,
+                                hasMaterialization: e.target.checked,
+                              })
+                            }
+                          />
+                          Has Materialization
+                        </label>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1074,6 +1256,7 @@ export function NamespacePage() {
           <NamespaceHeader
             namespace={namespace}
             onGitConfigLoaded={setGitConfig}
+            onReadOnlyChange={setHeaderReadOnly}
             namespaceOptions={rawNamespaces}
             currentNamespace={namespace}
           >
@@ -1125,7 +1308,9 @@ export function NamespacePage() {
                 </button>
               </Tooltip>
             )}
-            {showEditControls && <AddNodeDropdown namespace={namespace} />}
+            {showEditControls && headerReadOnly === false && (
+              <AddNodeDropdown namespace={namespace} />
+            )}
           </NamespaceHeader>
 
           <div className="table-responsive">
@@ -1174,6 +1359,8 @@ export function NamespacePage() {
                   <thead>
                     <tr>
                       {fields.map(field => {
+                        const fieldConfig = FIELD_CONFIG[field] || {};
+                        const sortable = fieldConfig.sortable !== false;
                         const thStyle = {
                           fontFamily:
                             "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
@@ -1188,20 +1375,35 @@ export function NamespacePage() {
                         };
                         return (
                           <th key={field} style={thStyle}>
-                            <button
-                              type="button"
-                              onClick={() => requestSort(field)}
-                              className={'sortable ' + getClassNamesFor(field)}
-                              style={{
-                                fontSize: 'inherit',
-                                fontWeight: 'inherit',
-                                letterSpacing: 'inherit',
-                                textTransform: 'inherit',
-                                fontFamily: 'inherit',
-                              }}
+                            <Tooltip
+                              content={fieldConfig.tooltip}
+                              placement="top"
                             >
-                              {field.replace(/([a-z](?=[A-Z]))/g, '$1 ')}
-                            </button>
+                              {sortable ? (
+                                <button
+                                  type="button"
+                                  onClick={() => requestSort(field)}
+                                  className={
+                                    'sortable ' + getClassNamesFor(field)
+                                  }
+                                  style={{
+                                    fontSize: 'inherit',
+                                    fontWeight: 'inherit',
+                                    letterSpacing: 'inherit',
+                                    textTransform: 'inherit',
+                                    fontFamily: 'inherit',
+                                  }}
+                                >
+                                  {fieldConfig.label ||
+                                    field.replace(/([a-z](?=[A-Z]))/g, '$1 ')}
+                                </button>
+                              ) : (
+                                <span>
+                                  {fieldConfig.label ||
+                                    field.replace(/([a-z](?=[A-Z]))/g, '$1 ')}
+                                </span>
+                              )}
+                            </Tooltip>
                           </th>
                         );
                       })}

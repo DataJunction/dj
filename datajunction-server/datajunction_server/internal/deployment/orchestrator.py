@@ -13,7 +13,9 @@ from sqlalchemy.orm import joinedload, selectinload, defer, load_only, noload
 from datajunction_server.api.helpers import (
     get_node_namespace,
     COLUMN_NAME_REGEX,
-    map_dimensions_to_roles,
+    _resolve_required_dimensions,
+    cube_element_roles,
+    dedupe_cube_elements,
 )
 from datajunction_server.construction.build_v2 import FullColumnName
 from datajunction_server.database import Node, NodeRevision
@@ -431,6 +433,8 @@ class DeploymentOrchestrator:
                     f"{len(deployment_plan.to_delete)} to delete",
                 )
             self.deployed_results.extend(pre_results)
+
+        self._guard_against_accidental_wipe(deployment_plan)
 
         if deployment_plan.is_empty() and not self.deployment_spec.hierarchies:
             return DeploymentExecuteResult(
@@ -1577,8 +1581,26 @@ class DeploymentOrchestrator:
 
         deployed_results, deployed_nodes = [], {}
 
+        # Deploy-ordering graph: augment the dependency graph with each metric's
+        # required-dimension nodes, so a dimension referenced only via
+        # required_dimensions (not a query parent) still deploys before the metric
+        # that needs it. Kept separate from plan.node_graph so it never leaks into
+        # parent classification — these are ordering edges, not parents.
+        ordering_graph = {name: list(deps) for name, deps in plan.node_graph.items()}
+        for node_spec in plan.to_deploy:
+            if isinstance(node_spec, MetricSpec) and node_spec.required_dimensions:
+                for required_dim in node_spec.rendered_required_dimensions:
+                    if SEPARATOR not in required_dim:
+                        continue
+                    dim_node = required_dim.rsplit(SEPARATOR, 1)[0]
+                    if dim_node == node_spec.rendered_name:  # pragma: no cover
+                        continue
+                    deps = ordering_graph.setdefault(node_spec.rendered_name, [])
+                    if dim_node not in deps:
+                        deps.append(dim_node)
+
         # Order nodes topologically based on dependencies
-        levels = topological_levels(plan.node_graph, ascending=False)
+        levels = topological_levels(ordering_graph, ascending=False)
         logger.info(
             "Deploying nodes in topological order with %d levels",
             len(levels),
@@ -2274,25 +2296,30 @@ class DeploymentOrchestrator:
             if p.current
         }
 
-        # Check dimension reachability using the pre-computed batched BFS
+        # Role-aware reachability (see DimensionReachability): mirrors the
+        # revalidation availability check so a cube that would revalidate
+        # INVALID is rejected here at deploy.
         dim_compat_errors: list[DJError] = []
         if cube_spec.rendered_dimensions:  # pragma: no branch
-            requested_dim_nodes = {
-                dim.rsplit(SEPARATOR, 1)[0] for dim in cube_spec.rendered_dimensions
+            requested_dim_roles = {
+                (fcn.node_name, fcn.role)
+                for dim in cube_spec.rendered_dimensions
+                for fcn in (FullColumnName(dim),)
             }
-            unreachable = reachability.unreachable_dimensions(
+            unreachable = reachability.unreachable_dimension_roles(
                 cube_parent_rev_ids,
-                requested_dim_nodes,
+                requested_dim_roles,
             )
-            for dim_name, missing_from_ids in unreachable.items():
+            for (dim_name, role), missing_from_ids in unreachable.items():
                 parent_names = sorted(
                     rev_id_to_parent.get(rid, str(rid)) for rid in missing_from_ids
                 )
+                dim_label = dim_name + (f"[{role}]" if role else "")
                 dim_compat_errors.append(
                     DJError(
                         code=ErrorCode.INVALID_DIMENSION,
                         message=(
-                            f"The dimension attribute `{dim_name}` is not "
+                            f"The dimension attribute `{dim_label}` is not "
                             f"reachable from parent node(s): {', '.join(parent_names)}. "
                             f"Add a dimension link to make it available."
                         ),
@@ -2301,6 +2328,9 @@ class DeploymentOrchestrator:
 
         # Validate that dimensions referenced in filters are reachable
         # and that the specific columns exist on those dimension nodes.
+        # TODO: filter reachability is still role-agnostic; a bare filter dim
+        # reachable only under a role can deploy green and flip on revalidation,
+        # the same gap just closed above for cube dimensions.
         if cube_spec.rendered_filters and cube_parent_rev_ids:
             filter_refs = _extract_dimension_refs_from_filters(
                 cube_spec.rendered_filters,
@@ -2610,7 +2640,9 @@ class DeploymentOrchestrator:
         # Build the "columns" for this node based on the cube elements
         node_columns = []
 
-        dimension_to_roles_mapping = map_dimensions_to_roles(
+        # Role suffix per cube element, aligned to metric_columns + dimension_columns.
+        element_roles = cube_element_roles(
+            len(validation_data.metric_columns),
             cube_spec.rendered_dimensions or [],
         )
 
@@ -2649,10 +2681,8 @@ class DeploymentOrchestrator:
                 ],
                 order=idx,
             )
-            if full_element_name in dimension_to_roles_mapping:
-                node_column.dimension_column = dimension_to_roles_mapping[
-                    full_element_name
-                ]
+            if element_roles[idx]:
+                node_column.dimension_column = element_roles[idx]
 
             # Apply partition from column spec if specified
             if full_element_name in column_spec_map:
@@ -2674,8 +2704,9 @@ class DeploymentOrchestrator:
             type=NodeType.CUBE,
             query="",
             columns=node_columns,
-            cube_elements=validation_data.metric_columns
-            + validation_data.dimension_columns,
+            cube_elements=dedupe_cube_elements(
+                validation_data.metric_columns + validation_data.dimension_columns,
+            ),
             parents=list(
                 set(validation_data.dimension_nodes + validation_data.metric_nodes),
             ),
@@ -2984,6 +3015,42 @@ class DeploymentOrchestrator:
         ]
 
         return to_create + to_update, to_skip, to_delete
+
+    def _guard_against_accidental_wipe(self, plan: "DeploymentPlan") -> None:
+        """Refuse to wipe a populated namespace from a *fully empty* spec.
+
+        A deployment that carries no content at all -- no nodes, hierarchies, or
+        tags -- is the signature of an accidental empty push (e.g. a mistyped or
+        empty ``directory`` that yielded nothing). Treating that as "delete
+        everything" is a data-loss footgun, so it's refused unless the caller
+        explicitly opts in with ``allow_empty``.
+
+        A spec that carries *any* content (even just a hierarchy or a tag, as a
+        ``sync-from-git`` push may) is an intentional diff and is never guarded --
+        deleting nodes that are genuinely absent from a real spec is the expected
+        sync behavior. Also fires on dry-run, so a preview surfaces the refusal
+        instead of quietly listing deletions.
+        """
+        spec = self.deployment_spec
+        if spec.allow_empty or spec.nodes or spec.hierarchies or spec.tags:
+            # Opted in, or the spec carries content -> the deletions are a
+            # genuine diff, not an accidental wipe.
+            return
+        if not plan.to_delete:
+            return  # empty spec, nothing to delete -- harmless
+
+        names = sorted(node.rendered_name for node in plan.to_delete)
+        preview = ", ".join(names[:5]) + (", …" if len(names) > 5 else "")
+        raise DJInvalidDeploymentConfig(
+            message=(
+                f"Refusing to deploy to namespace "
+                f"`{self.deployment_spec.namespace}`: the deployment spec "
+                f"contains no nodes, but this would soft-delete "
+                f"{len(plan.to_delete)} existing node(s) ({preview}). This "
+                f"usually means an empty or mistyped source directory. If you "
+                f"really intend to remove all nodes, re-run with `allow_empty`."
+            ),
+        )
 
     async def check_external_deps(
         self,
@@ -3775,17 +3842,29 @@ class DeploymentOrchestrator:
                     min_decimal_exponent=metric_spec.min_decimal_exponent,
                 )
 
-            # Assign required dimensions if specified and present in columns
+            # Bind required dimensions. A required dim is either a bare column on a
+            # parent, or a fully-qualified `node.column` path pointing at a node
+            # elsewhere on the graph (e.g. a dimension linked to a parent). Resolve
+            # both against the accumulated in-flight node map (dependency_nodes) —
+            # the same context validation uses. `${prefix}` is rendered to the target
+            # namespace so cross-namespace deploys bind to the right node.
+            #
+            # The referenced dim node is guaranteed to already be in dependency_nodes
+            # because the deploy-ordering graph adds it as an ordering dependency, so
+            # it deploys in an earlier topological level than this metric.
             if metric_spec.required_dimensions:
-                required_dimensions = []
-                origin_node = new_revision.parents[0].current
-                columns_mapping = {col.name: col for col in origin_node.columns}
-                for dim in metric_spec.required_dimensions:
-                    if dim in columns_mapping:
-                        required_dimensions.append(
-                            columns_mapping[dim],
-                        )  # pragma: no cover
-                new_revision.required_dimensions = required_dimensions
+                parent_columns = [
+                    col
+                    for parent in new_revision.parents
+                    if parent.current
+                    for col in parent.current.columns
+                ]
+                _, matched_columns = _resolve_required_dimensions(
+                    metric_spec.rendered_required_dimensions,
+                    parent_columns,
+                    dependency_nodes,
+                )
+                new_revision.required_dimensions = matched_columns
         return new_revision
 
     def _resolve_metric_unit(

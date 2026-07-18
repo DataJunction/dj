@@ -1936,3 +1936,206 @@ class TestDimLabelFilterNameCollision:
             """,
             normalize_aliases=True,
         )
+
+
+class TestFilterPushdownRoleQualifiedSharedDim:
+    """A filter on an *unqualified* shared dimension must bind only to nodes
+    that link to it via an *unqualified* link — it must not fan out onto other
+    nodes that reach the same dimension through a *role-qualified* link.
+
+    Regression: a fact linked a date dimension unqualified while a dimension
+    node in the same join graph linked that date dimension via a role. An
+    unqualified filter on the date leaked onto the dimension's role link,
+    over-filtering the dimension subquery to near-zero rows and silently
+    dropping the result.
+    """
+
+    @pytest.fixture
+    async def setup_show_activity_chain(self, client_with_build_v3):
+        """Fact ``v3.show_activity`` links to the shared ``v3.date`` dimension
+        UNqualified (role=None) via ``region_date``. The ``v3.show`` dimension
+        links to the same ``v3.date`` via role ``planned_launch``. Reproduces
+        the fact/dimension shape that surfaces the shared-dimension leak.
+
+        Defined locally so only this test pays the setup cost; the global
+        BUILD_V3 fixture is unaffected.
+        """
+        c = client_with_build_v3
+        r = await c.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_show_events",
+                "description": "Per-show viewing events by region date",
+                "columns": [
+                    {"name": "show_id", "type": "int"},
+                    {"name": "region_date", "type": "int"},
+                    {"name": "view_secs", "type": "int"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "show_events",
+            },
+        )
+        assert r.status_code in (200, 201, 409), r.json()
+        r = await c.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_shows",
+                "description": "Show catalog with planned launch date",
+                "columns": [
+                    {"name": "show_id", "type": "int"},
+                    {"name": "show_title", "type": "string"},
+                    {"name": "planned_launch_date", "type": "int"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "shows",
+            },
+        )
+        assert r.status_code in (200, 201, 409), r.json()
+        r = await c.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.show_activity",
+                "query": (
+                    "SELECT show_id, region_date, view_secs FROM v3.src_show_events"
+                ),
+                "mode": "published",
+            },
+        )
+        assert r.status_code in (200, 201, 409), r.json()
+        r = await c.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.show",
+                "query": (
+                    "SELECT show_id, show_title, planned_launch_date FROM v3.src_shows"
+                ),
+                "primary_key": ["show_id"],
+                "mode": "published",
+            },
+        )
+        assert r.status_code in (200, 201, 409), r.json()
+        r = await c.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.show_view_secs",
+                "query": "SELECT SUM(view_secs) FROM v3.show_activity",
+                "mode": "published",
+            },
+        )
+        assert r.status_code in (200, 201, 409), r.json()
+        # fact -> date, UNqualified (role=None) on region_date
+        r = await c.post(
+            "/nodes/v3.show_activity/link",
+            json={
+                "dimension_node": "v3.date",
+                "join_on": "v3.show_activity.region_date = v3.date.date_id",
+            },
+        )
+        assert r.status_code in (200, 201, 409), r.json()
+        # fact -> show (role=None) on show_id
+        r = await c.post(
+            "/nodes/v3.show_activity/link",
+            json={
+                "dimension_node": "v3.show",
+                "join_on": "v3.show_activity.show_id = v3.show.show_id",
+            },
+        )
+        assert r.status_code in (200, 201, 409), r.json()
+        # show dim -> date, role 'planned_launch' on planned_launch_date
+        r = await c.post(
+            "/nodes/v3.show/link",
+            json={
+                "dimension_node": "v3.date",
+                "join_on": "v3.show.planned_launch_date = v3.date.date_id",
+                "role": "planned_launch",
+            },
+        )
+        assert r.status_code in (200, 201, 409), r.json()
+
+    @pytest.mark.asyncio
+    async def test_unqualified_shared_dim_filter_does_not_leak_into_role_link(
+        self,
+        client_with_build_v3,
+        setup_show_activity_chain,
+    ):
+        """Filtering unqualified ``v3.date.date_id`` must push into the fact CTE
+        (``region_date``, the unqualified link) and MUST NOT be injected into the
+        ``v3_show`` CTE via its role-qualified ``planned_launch`` link.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.show_view_secs"],
+                "dimensions": ["v3.show.show_title"],
+                "filters": ["v3.date.date_id BETWEEN 20240101 AND 20240201"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            get_first_grain_group(response.json())["sql"],
+            """
+            WITH
+            v3_show AS (
+              SELECT show_id, show_title
+              FROM default.v3.shows
+            ),
+            v3_show_activity AS (
+              SELECT show_id, region_date, view_secs
+              FROM default.v3.show_events
+              WHERE region_date BETWEEN 20240101 AND 20240201
+            )
+            SELECT t2.show_title,
+              SUM(t1.view_secs) view_secs_sum_HASH
+            FROM v3_show_activity t1
+            LEFT OUTER JOIN v3_show t2 ON t1.show_id = t2.show_id
+            GROUP BY t2.show_title
+            """,
+            normalize_aliases=True,
+        )
+
+    @pytest.mark.asyncio
+    async def test_role_qualified_shared_dim_filter_binds_to_role_link(
+        self,
+        client_with_build_v3,
+        setup_show_activity_chain,
+    ):
+        """The role-qualified counterpart still works: filtering
+        ``v3.date.date_id[planned_launch]`` binds to the ``v3.show`` role link
+        (``planned_launch_date``) and does NOT touch the fact's own date.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.show_view_secs"],
+                "dimensions": ["v3.show.show_title"],
+                "filters": [
+                    "v3.date.date_id[planned_launch] BETWEEN 20240101 AND 20240201",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            get_first_grain_group(response.json())["sql"],
+            """
+            WITH
+            v3_show AS (
+              SELECT show_id, show_title, planned_launch_date
+              FROM default.v3.shows
+            ),
+            v3_show_activity AS (
+              SELECT show_id, view_secs
+              FROM default.v3.show_events
+            )
+            SELECT t2.show_title,
+              SUM(t1.view_secs) view_secs_sum_HASH
+            FROM v3_show_activity t1
+            LEFT OUTER JOIN v3_show t2 ON t1.show_id = t2.show_id
+            WHERE t2.planned_launch_date BETWEEN 20240101 AND 20240201
+            GROUP BY t2.show_title
+            """,
+            normalize_aliases=True,
+        )

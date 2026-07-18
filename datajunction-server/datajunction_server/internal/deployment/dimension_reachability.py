@@ -19,7 +19,12 @@ from datajunction_server.construction.build_v3.loaders import find_join_paths_ba
 
 
 class DimensionReachability:
-    """Batched dimension reachability — one BFS query, in-memory lookups."""
+    """Batched dimension reachability — one BFS query, in-memory lookups.
+
+    Tracks reachability node-level (role-agnostic, for impact propagation) and
+    role-aware (for cube deploy validation). See `is_reachable_under_role` for
+    the bare-vs-role matching rule.
+    """
 
     def __init__(
         self,
@@ -27,15 +32,22 @@ class DimensionReachability:
         local_names: dict[int, str] | None = None,
     ):
         self._paths = paths
-        # Fast lookup: source_rev_id → set of reachable dimension node names
-        self._reachable: dict[int, set[str]] = {}
-        for (src_id, dim_name, _role), _links in paths.items():
-            self._reachable.setdefault(src_id, set()).add(dim_name)
-        # Local dimensions: a node can always reach itself (its own columns
-        # are "local dimensions" that don't need a join path).
-        if local_names:
-            for rev_id, node_name in local_names.items():
-                self._reachable.setdefault(rev_id, set()).add(node_name)
+        # Reachable (dimension, role) pairs for each source node; role is "" for
+        # a role-less path. Keying on role — not just the dimension — is what
+        # rejects a bare reference that's only reachable under a role.
+        self._reachable_roles: dict[int, set[tuple[str, str]]] = {}
+        for (src_id, dim_name, role_path), _links in paths.items():
+            self._reachable_roles.setdefault(src_id, set()).add(
+                (dim_name, role_path),
+            )
+        # A node always reaches its own columns ("local dimensions"), role-less.
+        for rev_id, node_name in (local_names or {}).items():
+            self._reachable_roles.setdefault(rev_id, set()).add((node_name, ""))
+        # Node-level (role-agnostic) view, derived once for O(1) lookups.
+        self._reachable: dict[int, set[str]] = {
+            sid: {name for name, _role in roles}
+            for sid, roles in self._reachable_roles.items()
+        }
 
     @classmethod
     async def build(
@@ -63,8 +75,23 @@ class DimensionReachability:
         return cls(paths, local_names)
 
     def is_reachable(self, source_rev_id: int, dim_name: str) -> bool:
-        """Check if a dimension is reachable from a source node."""
+        """Node-level (role-agnostic) check: is the dimension reachable at all?"""
         return dim_name in self._reachable.get(source_rev_id, set())
+
+    def is_reachable_under_role(
+        self,
+        source_rev_id: int,
+        dim_name: str,
+        role: str | None,
+    ) -> bool:
+        """Role-aware check. A bare reference (role=None) matches only a
+        role-less join path; a role string matches only that exact role path
+        (e.g. "order_date", or "a->b" for multi-hop).
+        """
+        return (dim_name, role or "") in self._reachable_roles.get(
+            source_rev_id,
+            set(),
+        )
 
     def reachable_from(self, source_rev_id: int) -> set[str]:
         """All dimension names reachable from a source node."""
@@ -95,4 +122,25 @@ class DimensionReachability:
             }
             if unreachable_from:
                 missing[dim] = unreachable_from
+        return missing
+
+    def unreachable_dimension_roles(
+        self,
+        source_rev_ids: set[int],
+        requested: set[tuple[str, str | None]],
+    ) -> dict[tuple[str, str | None], set[int]]:
+        """Role-aware variant of unreachable_dimensions. `requested` is a set of
+        (dim_node_name, role) pairs (role=None for bare); see
+        is_reachable_under_role for matching. Returns {(dim, role): set of source
+        rev ids that lack a path}.
+        """
+        missing: dict[tuple[str, str | None], set[int]] = {}
+        for dim_name, role in requested:
+            unreachable_from = {
+                sid
+                for sid in source_rev_ids
+                if not self.is_reachable_under_role(sid, dim_name, role)
+            }
+            if unreachable_from:
+                missing[(dim_name, role)] = unreachable_from
         return missing

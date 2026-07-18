@@ -14,9 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.utils import get_current_user
 from datajunction_server.construction.build_v3 import (
     build_combiner_sql,
-    build_metrics_sql,
     build_measures_sql,
-    resolve_dialect_and_engine_for_metrics,
 )
 from datajunction_server.construction.build_v3.combiners import (
     build_combiner_sql_from_preaggs,
@@ -38,6 +36,7 @@ from datajunction_server.database.user import User
 from datajunction_server.database.queryrequest import QueryBuildType
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
+from datajunction_server.internal.sql import generate_metrics_sql
 from datajunction_server.models.metric import TranslatedSQL, V3TranslatedSQL
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import V3ColumnMetadata
@@ -635,73 +634,20 @@ async def get_metrics_sql_v3(
             Set to False when generating SQL for materialization refresh to avoid
             circular references.
     """
-    merged_filters = list(filters)
-    matched_cube = None
-
-    if cube:
-        # User explicitly specified a cube — load it directly, apply its filters.
-        cube_node = await Node.get_cube_by_name(session, cube)
-        if cube_node:
-            matched_cube = cube_node.current
-            if matched_cube.cube_filters:
-                merged_filters = matched_cube.cube_filters + merged_filters
-            if not metrics:
-                metrics = matched_cube.cube_node_metrics
-                if not dimensions:
-                    dimensions = matched_cube.cube_node_dimensions
-
-    # Auto-resolve dialect if not explicitly provided
-    resolved_dialect = dialect
-    if resolved_dialect is None:  # pragma: no branch
-        execution_ctx = await resolve_dialect_and_engine_for_metrics(
-            session=session,
-            metrics=metrics,
-            dimensions=dimensions,
-            use_materialized=use_materialized,
-        )
-        resolved_dialect = execution_ctx.dialect
-        # Only reuse the resolved cube if the user didn't explicitly provide one
-        if matched_cube is None:
-            matched_cube = execution_ctx.cube
-
-    _t0 = time.monotonic()
-    result = await build_metrics_sql(
-        session=session,
+    # Shared metrics-SQL core (cube pinning, cube_filters prepend, dialect
+    # auto-resolve, build_metrics_sql, and the build-latency metrics + [SQL] log).
+    # Also used by the semantic-layer endpoint.
+    result = await generate_metrics_sql(
+        session,
         metrics=metrics,
         dimensions=dimensions,
-        filters=merged_filters,
+        filters=filters,
+        cube=cube,
         orderby=orderby if orderby else None,
         limit=limit,
-        dialect=resolved_dialect,
         use_materialized=use_materialized,
-        matched_cube=matched_cube,
+        dialect=dialect,
         query_parameters=json.loads(query_params) or None,
-    )
-    elapsed_ms = (time.monotonic() - _t0) * 1000
-    _tags = {"query_type": "metrics", "query_version": "v3"}
-    get_metrics_provider().timer(
-        "dj.sql.build_latency_ms",
-        elapsed_ms,
-        _tags,
-    )
-    get_metrics_provider().counter("dj.sql.requests", tags=_tags)
-
-    _logger.info(
-        "[SQL] endpoint=%s metrics=%s dimensions=%s filters=%s elapsed_ms=%.1f",
-        "/sql/metrics/v3/",
-        metrics,
-        dimensions,
-        merged_filters,
-        elapsed_ms,
-        extra={
-            "endpoint": "/sql/metrics/v3/",
-            "query_type": "metrics",
-            "query_version": "v3",
-            "metrics": metrics,
-            "dimensions": dimensions,
-            "filters": merged_filters,
-            "elapsed_ms": elapsed_ms,
-        },
     )
 
     return V3TranslatedSQL(

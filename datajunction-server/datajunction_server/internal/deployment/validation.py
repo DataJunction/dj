@@ -601,7 +601,9 @@ class NodeSpecBulkValidator:
         """
         req_dim_node_names: set[str] = set()
         for spec in specs:
-            for req_dim in getattr(spec, "required_dimensions", None) or []:
+            # Use rendered (${prefix}-resolved) paths so the dim node names match
+            # the deployed/target namespace, not the parameterized export form.
+            for req_dim in getattr(spec, "rendered_required_dimensions", None) or []:
                 if SEPARATOR in req_dim:
                     dim_node_name = req_dim.rsplit(SEPARATOR, 1)[0]
                     req_dim_node_names.add(dim_node_name)
@@ -685,7 +687,9 @@ class NodeSpecBulkValidator:
         pre-populated in a single batch query by _prefetch_required_dimension_nodes
         rather than per-node.
         """
-        required_dimensions = getattr(spec, "required_dimensions", None) or []
+        # Rendered (${prefix}-resolved) paths so full-path required dims resolve
+        # against the deployed namespace's nodes rather than the export form.
+        required_dimensions = getattr(spec, "rendered_required_dimensions", None) or []
         if not required_dimensions:
             return None
 

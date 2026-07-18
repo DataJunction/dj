@@ -35,13 +35,22 @@ async def fetch_existing_yaml_map(
     github_repo_path: str,
     git_branch: str,
     git_path: Optional[str],
+    *,
+    raise_on_error: bool = False,
 ) -> Dict[str, str]:
     """
     Download the configured git branch as a tarball and return a mapping of
     `<git_path>/<file>.yaml` -> file contents for every YAML in the repo
     (or under git_path if configured).
 
-    Returns an empty dict if the archive cannot be fetched or extracted.
+    When ``raise_on_error`` is False (default) this returns an empty dict if the
+    archive cannot be fetched — appropriate for best-effort comment preservation.
+
+    When ``raise_on_error`` is True the underlying ``GitHubServiceError`` is
+    re-raised instead. Callers that use this map as the *baseline* for a commit
+    (e.g. sync-to-git, which computes orphan deletions from it) must pass True:
+    silently treating an unreadable branch as empty would let the commit clobber
+    or mis-diff the branch — a silent failure with real data consequences.
     """
     existing_files_map: Dict[str, str] = {}
 
@@ -53,6 +62,8 @@ async def fetch_existing_yaml_map(
             format="tarball",
         )
     except GitHubServiceError as e:
+        if raise_on_error:
+            raise
         _logger.warning(
             "Failed to download git archive for namespace export merge: %s",
             e,

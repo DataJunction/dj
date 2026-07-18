@@ -16,7 +16,7 @@ from datajunction_server.database.preaggregation import (
     get_measure_expr_hashes,
     compute_expression_hash,
 )
-from datajunction_server.models.decompose import MetricComponent
+from datajunction_server.models.decompose import Aggregability, MetricComponent
 from datajunction_server.models.preaggregation import TemporalPartitionColumn
 from datajunction_server.naming import SEPARATOR
 from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
@@ -90,6 +90,16 @@ def find_matching_preagg(
     # Normalize requested grain to a set for comparison
     requested_grain_set = set(requested_grain)
 
+    # Non-additive measures (e.g. COUNT(DISTINCT ...), raw AVG components) cannot
+    # be rolled up to a coarser grain without producing wrong results. When any
+    # required component is not fully additive, a pre-agg can only satisfy the
+    # query if its grain EXACTLY matches the requested grain (no roll-up). Fully
+    # additive measures may still be rolled up via a superset (subset) match.
+    requires_exact_grain = any(
+        component.rule.type != Aggregability.FULL
+        for _, component in grain_group.components
+    )
+
     # Find a matching pre-agg
     best_match: PreAggregation | None = None
     best_grain_size = float("inf")
@@ -97,9 +107,18 @@ def find_matching_preagg(
     for preagg in available:
         preagg_grain_set = set(preagg.grain_columns or [])
 
-        # Check grain compatibility: requested grain must be a subset of pre-agg grain
-        # This means pre-agg is at same or finer grain (can roll up)
-        if not requested_grain_set.issubset(preagg_grain_set):
+        # Check grain compatibility. For additive measures the pre-agg may be at
+        # the same or a finer grain (roll-up allowed → subset match). For
+        # non-additive measures the pre-agg grain must exactly match the request.
+        if requires_exact_grain:
+            if requested_grain_set != preagg_grain_set:
+                logger.debug(
+                    f"[BuildV3] Pre-agg {preagg.id} grain {preagg_grain_set} "
+                    f"must exactly match requested grain {requested_grain_set} "
+                    f"because the grain group has non-additive measures",
+                )
+                continue
+        elif not requested_grain_set.issubset(preagg_grain_set):
             logger.debug(
                 f"[BuildV3] Pre-agg {preagg.id} grain {preagg_grain_set} "
                 f"doesn't cover requested grain {requested_grain_set}",

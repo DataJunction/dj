@@ -180,6 +180,7 @@ async def resolve_dialect_and_engine_for_metrics(
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
     dialect_override: Optional[Dialect] = None,
+    matched_cube: Optional[NodeRevision] = None,
 ) -> ResolvedExecutionContext:
     """
     Resolve dialect and engine for a metrics query in a single lookup.
@@ -206,6 +207,9 @@ async def resolve_dialect_and_engine_for_metrics(
         engine_version: Optional explicit engine version override
         dialect_override: Optional dialect to force, overrides auto-resolution for
             both SQL generation and engine selection
+        matched_cube: When provided, resolve the dialect from THIS cube's
+            availability instead of discovering one via find_matching_cube — so a
+            pinned query's dialect matches the cube it actually builds from.
 
     Returns:
         ResolvedExecutionContext with dialect, engine, catalog_name, and optional cube
@@ -221,11 +225,19 @@ async def resolve_dialect_and_engine_for_metrics(
         dialect_override is None or dialect_override == Dialect.DRUID
     )
     if use_cube:
-        cube = await find_matching_cube(
-            session,
-            metrics,
-            dimensions,
-            require_availability=True,
+        # When a cube is pinned, resolve the dialect from that specific cube's
+        # availability rather than discovering an arbitrary superset cube — this
+        # keeps the resolved dialect consistent with the cube the build actually
+        # renders from. Otherwise, discover a materialized cube as before.
+        cube = (
+            matched_cube
+            if matched_cube is not None
+            else await find_matching_cube(
+                session,
+                metrics,
+                dimensions,
+                require_availability=True,
+            )
         )
 
         if cube and cube.availability:

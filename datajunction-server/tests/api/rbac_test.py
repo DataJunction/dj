@@ -11,7 +11,50 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.database.history import History
 from datajunction_server.database.rbac import RoleScope, RoleAssignment
 from datajunction_server.database.user import User
+from datajunction_server.internal.access.authorization import AuthorizationService
 from datajunction_server.internal.history import ActivityType, EntityType
+from datajunction_server.models import access
+
+VALIDATOR_AUTH_SERVICE = (
+    "datajunction_server.internal.access.authorization."
+    "validator.get_authorization_service"
+)
+
+
+class DenyManageAuthorizationService(AuthorizationService):
+    """Approves every action except MANAGE (e.g. a read/write user)."""
+
+    name = "rbac_test_deny_manage"
+
+    def authorize(self, auth_context, requests):
+        return [
+            access.AccessDecision(
+                request=request,
+                approved=request.verb != access.ResourceAction.MANAGE,
+            )
+            for request in requests
+        ]
+
+
+class ScopedManageAuthorizationService(AuthorizationService):
+    """Grants MANAGE only on a fixed set of namespace patterns."""
+
+    name = "rbac_test_scoped_manage"
+
+    def __init__(self, manage_namespaces: list[str]):
+        self.manage_namespaces = manage_namespaces
+
+    def authorize(self, auth_context, requests):
+        return [
+            access.AccessDecision(
+                request=request,
+                approved=(
+                    request.verb == access.ResourceAction.MANAGE
+                    and request.access_object.name in self.manage_namespaces
+                ),
+            )
+            for request in requests
+        ]
 
 
 @pytest.mark.asyncio
@@ -914,3 +957,166 @@ async def test_audit_logging_for_role_assignments(
     assert delete_log is not None
     assert delete_log.pre["principal_username"] == user.username
     assert delete_log.pre["role_name"] == "audit-assignment-role"
+
+
+# ============================================================================
+# MANAGE Enforcement Tests
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_create_role_with_scopes_requires_manage(
+    client_with_basic: AsyncClient,
+    mocker,
+):
+    """Defining a scope requires MANAGE on the resource it targets."""
+    mocker.patch(VALIDATOR_AUTH_SERVICE, lambda: DenyManageAuthorizationService())
+
+    response = await client_with_basic.post(
+        "/roles/",
+        json={
+            "name": "needs-manage-role",
+            "scopes": [
+                {
+                    "action": "read",
+                    "scope_type": "namespace",
+                    "scope_value": "finance.*",
+                },
+            ],
+        },
+    )
+    assert response.status_code == 403
+    assert "Access denied" in response.json()["message"]
+
+
+@pytest.mark.asyncio
+async def test_create_empty_role_requires_global_manage(
+    client_with_basic: AsyncClient,
+    mocker,
+):
+    """Creating a scope-less role requires baseline RBAC administration access."""
+    mocker.patch(VALIDATOR_AUTH_SERVICE, lambda: DenyManageAuthorizationService())
+
+    response = await client_with_basic.post(
+        "/roles/",
+        json={"name": "empty-role-no-manage"},
+    )
+    assert response.status_code == 403
+    assert "Access denied" in response.json()["message"]
+
+
+@pytest.mark.asyncio
+async def test_add_scope_requires_manage(client_with_basic: AsyncClient, mocker):
+    """Adding a scope to a role requires MANAGE on the scope's resource."""
+    await client_with_basic.post("/roles/", json={"name": "scope-guard-role"})
+
+    mocker.patch(VALIDATOR_AUTH_SERVICE, lambda: DenyManageAuthorizationService())
+
+    response = await client_with_basic.post(
+        "/roles/scope-guard-role/scopes/",
+        json={
+            "action": "write",
+            "scope_type": "namespace",
+            "scope_value": "growth.*",
+        },
+    )
+    assert response.status_code == 403
+    assert "Access denied" in response.json()["message"]
+
+
+@pytest.mark.asyncio
+async def test_delete_scope_requires_manage(client_with_basic: AsyncClient, mocker):
+    """Removing a scope requires MANAGE on the scope's resource."""
+    from urllib.parse import quote
+
+    await client_with_basic.post(
+        "/roles/",
+        json={
+            "name": "del-scope-guard-role",
+            "scopes": [
+                {"action": "read", "scope_type": "namespace", "scope_value": "x.*"},
+            ],
+        },
+    )
+
+    mocker.patch(VALIDATOR_AUTH_SERVICE, lambda: DenyManageAuthorizationService())
+
+    scope_value = quote("x.*", safe="")
+    response = await client_with_basic.delete(
+        f"/roles/del-scope-guard-role/scopes/read/namespace/{scope_value}",
+    )
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_assign_role_requires_manage(
+    client_with_basic: AsyncClient,
+    session: AsyncSession,
+    mocker,
+):
+    """Handing out a role requires MANAGE on every resource it grants."""
+    await client_with_basic.post(
+        "/roles/",
+        json={
+            "name": "assign-guard-role",
+            "scopes": [
+                {
+                    "action": "read",
+                    "scope_type": "namespace",
+                    "scope_value": "finance.*",
+                },
+            ],
+        },
+    )
+    user_result = await session.execute(select(User).limit(1))
+    user = user_result.scalar_one()
+
+    mocker.patch(VALIDATOR_AUTH_SERVICE, lambda: DenyManageAuthorizationService())
+
+    response = await client_with_basic.post(
+        "/roles/assign-guard-role/assign",
+        json={"principal_username": user.username},
+    )
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_scoped_manage_limits_role_creation(
+    client_with_basic: AsyncClient,
+    mocker,
+):
+    """A namespace manager can only create roles within namespaces they manage."""
+    mocker.patch(
+        VALIDATOR_AUTH_SERVICE,
+        lambda: ScopedManageAuthorizationService(manage_namespaces=["finance.*"]),
+    )
+
+    allowed = await client_with_basic.post(
+        "/roles/",
+        json={
+            "name": "finance-mgr-role",
+            "scopes": [
+                {
+                    "action": "write",
+                    "scope_type": "namespace",
+                    "scope_value": "finance.*",
+                },
+            ],
+        },
+    )
+    assert allowed.status_code == 201
+
+    denied = await client_with_basic.post(
+        "/roles/",
+        json={
+            "name": "growth-mgr-role",
+            "scopes": [
+                {
+                    "action": "write",
+                    "scope_type": "namespace",
+                    "scope_value": "growth.*",
+                },
+            ],
+        },
+    )
+    assert denied.status_code == 403
