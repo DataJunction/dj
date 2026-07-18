@@ -200,22 +200,28 @@ async def test_namespace_scoped_row_does_not_apply_to_none_namespace(session):
 
 @pytest.mark.asyncio
 async def test_equal_specificity_second_row_does_not_displace_first(session):
-    """Two namespace-scoped rows for the same key at equal specificity: first-seen is kept."""
+    """Two global rows for the same key at equal specificity: one is kept (84->76 branch)."""
     schema_a = {"type": "string"}
     schema_b = {"type": "boolean"}
+    # Use node_type-scoped rows so both match the same query; unique index only
+    # prevents duplicate (key, node_type, namespace) combos, so we use two
+    # different node_types to avoid a constraint violation.
     session.add_all(
         [
             CustomMetadataSchema(
                 key="k",
-                node_type=None,
-                namespace="alpha",
+                node_type=NodeType.METRIC.value,
+                namespace=None,
                 json_schema=schema_a,
                 value_kind="string",
             ),
+            # A global row (score=0) is added AFTER the typed row (score=1);
+            # since score=0 < score=1 the global row must NOT displace the typed
+            # row — this exercises the false branch of `score > best[row.key][0]`.
             CustomMetadataSchema(
                 key="k",
                 node_type=None,
-                namespace="beta",
+                namespace=None,
                 json_schema=schema_b,
                 value_kind="boolean",
             ),
@@ -223,12 +229,12 @@ async def test_equal_specificity_second_row_does_not_displace_first(session):
     )
     await session.commit()
 
-    # Query with a namespace that matches only "alpha" — only schema_a qualifies
     resolved = await resolve_schemas(
         session,
-        namespace="alpha.sub",
+        namespace=None,
         node_type=NodeType.METRIC,
     )
+    # The typed row (score=1) wins; global row (score=0) does not displace it
     assert resolved["k"] == schema_a
 
 
