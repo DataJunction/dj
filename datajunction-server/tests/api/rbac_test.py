@@ -11,7 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.database.history import History
 from datajunction_server.database.rbac import RoleScope, RoleAssignment
 from datajunction_server.database.user import User
-from datajunction_server.internal.access.authorization import AuthorizationService
+from datajunction_server.internal.access.authorization import (
+    AuthorizationService,
+    PassthroughAuthorizationService,
+    RBACAuthorizationService,
+)
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.models import access
 
@@ -35,6 +39,9 @@ class DenyManageAuthorizationService(AuthorizationService):
             for request in requests
         ]
 
+    def authorize_explicit_grants(self, auth_context, requests):
+        return self.authorize(auth_context, requests)
+
 
 class ScopedManageAuthorizationService(AuthorizationService):
     """Grants MANAGE only on a fixed set of namespace patterns."""
@@ -55,6 +62,18 @@ class ScopedManageAuthorizationService(AuthorizationService):
             )
             for request in requests
         ]
+
+    def authorize_explicit_grants(self, auth_context, requests):
+        return self.authorize(auth_context, requests)
+
+
+@pytest.fixture(autouse=True)
+def allow_control_plane_by_default(mocker):
+    """Keep existing endpoint tests focused on role behavior."""
+    mocker.patch(
+        VALIDATOR_AUTH_SERVICE,
+        lambda: PassthroughAuthorizationService(),
+    )
 
 
 @pytest.mark.asyncio
@@ -962,6 +981,34 @@ async def test_audit_logging_for_role_assignments(
 # ============================================================================
 # MANAGE Enforcement Tests
 # ============================================================================
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scope_type", ["node", "namespace"])
+async def test_global_scope_requires_explicit_manage_under_permissive_policy(
+    client_with_basic: AsyncClient,
+    mocker,
+    scope_type: str,
+):
+    """Permissive policy cannot authorize global grant delegation."""
+    mocker.patch(VALIDATOR_AUTH_SERVICE, lambda: RBACAuthorizationService())
+
+    response = await client_with_basic.post(
+        "/roles/",
+        json={
+            "name": f"blocked-global-{scope_type}",
+            "scopes": [
+                {
+                    "action": "write",
+                    "scope_type": scope_type,
+                    "scope_value": "*",
+                },
+            ],
+        },
+    )
+
+    assert response.status_code == 403
+    assert "Access denied" in response.json()["message"]
 
 
 @pytest.mark.asyncio

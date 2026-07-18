@@ -1,6 +1,8 @@
 """Tests for RBAC authorization logic."""
 
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+from typing import cast
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +14,7 @@ from datajunction_server.internal.access.authorization import (
     AccessChecker,
     AccessDenialMode,
     AuthContext,
+    AuthorizationService,
     PassthroughAuthorizationService,
     RBACAuthorizationService,
     get_authorization_service,
@@ -19,6 +22,7 @@ from datajunction_server.internal.access.authorization import (
 from datajunction_server.errors import DJAuthorizationException
 from datajunction_server.internal.access.authentication.basic import get_user
 from datajunction_server.models.access import (
+    AccessDecision,
     Resource,
     ResourceAction,
     ResourceRequest,
@@ -27,6 +31,15 @@ from datajunction_server.models.access import (
 from datajunction_server.internal.access.group_membership import (
     GroupMembershipService,
 )
+
+
+class PermissiveFallbackAuthorizationService(AuthorizationService):
+    """Test provider with a permissive normal authorization path."""
+
+    name = "test_permissive_fallback"
+
+    def authorize(self, auth_context, requests):
+        return [AccessDecision(request=request, approved=True) for request in requests]
 
 
 class TestResourceMatching:
@@ -146,6 +159,202 @@ class TestResourceMatching:
 
         # It would only match if resource literally starts with "finance.*.revenue."
         # which is unlikely in practice
+
+
+class TestScopeContainment:
+    """Tests for delegated scope containment."""
+
+    @pytest.mark.parametrize(
+        "granted_type,granted_value,delegated_type,delegated_value,expected",
+        [
+            (ResourceType.NAMESPACE, "*", ResourceType.NAMESPACE, "*", True),
+            (ResourceType.NAMESPACE, "finance.*", ResourceType.NAMESPACE, "*", False),
+            (ResourceType.NODE, "*", ResourceType.NODE, "*", True),
+            (ResourceType.NODE, "finance.*", ResourceType.NODE, "*", False),
+            (
+                ResourceType.NAMESPACE,
+                "finance.*",
+                ResourceType.NAMESPACE,
+                "finance.revenue.*",
+                True,
+            ),
+            (
+                ResourceType.NAMESPACE,
+                "finance.revenue.*",
+                ResourceType.NAMESPACE,
+                "finance.*",
+                False,
+            ),
+            (
+                ResourceType.NAMESPACE,
+                "finance.*",
+                ResourceType.NODE,
+                "finance.revenue",
+                True,
+            ),
+            (ResourceType.NAMESPACE, "*", ResourceType.NODE, "*", False),
+        ],
+    )
+    def test_scope_contains_scope(
+        self,
+        granted_type,
+        granted_value,
+        delegated_type,
+        delegated_value,
+        expected,
+    ) -> None:
+        assert (
+            RBACAuthorizationService.scope_contains_scope(
+                granted_type,
+                granted_value,
+                delegated_type,
+                delegated_value,
+            )
+            is expected
+        )
+
+    @pytest.mark.parametrize(
+        "pattern",
+        ["finance*", ".*", "**", "finance.*.revenue", "finance..*"],
+    )
+    def test_global_manage_rejects_malformed_scope(self, pattern: str) -> None:
+        assert not RBACAuthorizationService.scope_contains_scope(
+            ResourceType.NAMESPACE,
+            "*",
+            ResourceType.NAMESPACE,
+            pattern,
+        )
+
+
+@pytest.mark.parametrize("scope_type", [ResourceType.NODE, ResourceType.NAMESPACE])
+def test_explicit_authorization_ignores_permissive_fallback(
+    scope_type: ResourceType,
+    mocker,
+) -> None:
+    mock_settings = mocker.patch(
+        "datajunction_server.internal.access.authorization.service.settings",
+    )
+    mock_settings.default_access_policy = "permissive"
+    context = AuthContext(1, "no-grants", "basic", [])
+    request = ResourceRequest(
+        ResourceAction.MANAGE,
+        Resource(name="*", resource_type=scope_type),
+        scope_target=True,
+    )
+    service = RBACAuthorizationService()
+
+    assert service.authorize(context, [request])[0].approved is True
+    assert service.authorize_explicit_grants(context, [request])[0].approved is False
+
+
+def test_explicit_authorization_uses_scope_containment() -> None:
+    assignment = SimpleNamespace(
+        expires_at=None,
+        role=SimpleNamespace(
+            scopes=[
+                SimpleNamespace(
+                    action=ResourceAction.MANAGE,
+                    scope_type=ResourceType.NAMESPACE,
+                    scope_value="finance.*",
+                ),
+            ],
+        ),
+    )
+    context = AuthContext(
+        1,
+        "finance-owner",
+        "basic",
+        [cast(RoleAssignment, assignment)],
+    )
+    request = ResourceRequest(
+        ResourceAction.MANAGE,
+        Resource("finance.revenue.*", ResourceType.NAMESPACE),
+        scope_target=True,
+    )
+
+    decision = RBACAuthorizationService().authorize_explicit_grants(
+        context,
+        [request],
+    )[0]
+    assert decision.approved is True
+    assert decision.reason == "explicit_grant"
+
+
+def test_custom_provider_must_opt_in_to_control_plane_authorization() -> None:
+    context = AuthContext(1, "custom-provider-user", "basic", [])
+    request = ResourceRequest(
+        ResourceAction.MANAGE,
+        Resource("*", ResourceType.NAMESPACE),
+        scope_target=True,
+    )
+    service = PermissiveFallbackAuthorizationService()
+
+    assert service.authorize(context, [request])[0].approved is True
+    assert service.authorize_explicit_grants(context, [request])[0].approved is False
+
+
+def test_admin_authorizes_explicit_grants_via_bypass() -> None:
+    context = AuthContext(1, "root", "basic", [], is_admin=True)
+    request = ResourceRequest(
+        ResourceAction.MANAGE,
+        Resource("*", ResourceType.NAMESPACE),
+        scope_target=True,
+    )
+
+    decision = RBACAuthorizationService().authorize_explicit_grants(
+        context,
+        [request],
+    )[0]
+
+    assert decision.approved is True
+    assert decision.reason == "admin"
+
+
+def _scope(action, scope_type, scope_value):
+    return SimpleNamespace(
+        action=action,
+        scope_type=scope_type,
+        scope_value=scope_value,
+    )
+
+
+def _assignment(scopes, expires_at=None):
+    return cast(
+        RoleAssignment,
+        SimpleNamespace(expires_at=expires_at, role=SimpleNamespace(scopes=scopes)),
+    )
+
+
+def test_has_scope_permission_allows_exact_grant() -> None:
+    assignments = [
+        _assignment(
+            [_scope(ResourceAction.MANAGE, ResourceType.NAMESPACE, "finance")],
+        ),
+    ]
+
+    assert RBACAuthorizationService.has_scope_permission(
+        assignments=assignments,
+        action=ResourceAction.MANAGE,
+        scope_type=ResourceType.NAMESPACE,
+        scope_value="finance",
+    )
+
+
+def test_has_scope_permission_skips_expired_and_mismatched_scopes() -> None:
+    expired = _assignment(
+        [_scope(ResourceAction.MANAGE, ResourceType.NAMESPACE, "finance.*")],
+        expires_at=datetime.now(timezone.utc) - timedelta(hours=1),
+    )
+    wrong_action = _assignment(
+        [_scope(ResourceAction.READ, ResourceType.NAMESPACE, "finance.*")],
+    )
+
+    assert not RBACAuthorizationService.has_scope_permission(
+        assignments=[expired, wrong_action],
+        action=ResourceAction.MANAGE,
+        scope_type=ResourceType.NAMESPACE,
+        scope_value="finance.revenue",
+    )
 
 
 @pytest.mark.asyncio
@@ -490,6 +699,9 @@ class TestAuthorizationService:
 
         assert len(result) == 2
         assert all(req.approved for req in result)
+        assert all(
+            req.approved for req in service.authorize_explicit_grants(user, requests)
+        )
 
     async def test_rbac_service_with_permissions(
         self,

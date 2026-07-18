@@ -62,16 +62,24 @@ class ResourceRequest:
     """
     Resource Requests provide the information
     that is available to grant access to a resource
+
+    ``scope_target`` marks a delegated scope pattern so authorization can
+    prove containment instead of treating it as one concrete resource.
     """
 
     verb: ResourceAction
     access_object: Resource
+    scope_target: bool = False
 
     def __hash__(self) -> int:
-        return hash((self.verb, self.access_object))
+        return hash((self.verb, self.access_object, self.scope_target))
 
     def __eq__(self, other) -> bool:
-        return self.verb == other.verb and self.access_object == other.access_object
+        return (
+            self.verb == other.verb
+            and self.access_object == other.access_object
+            and self.scope_target == other.scope_target
+        )
 
     def __str__(self) -> str:
         return (

@@ -64,7 +64,10 @@ async def enforce_scope_management(
             scope.scope_value,
             ResourceAction.MANAGE,
         )
-    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+    await access_checker.check(
+        on_denied=AccessDenialMode.RAISE,
+        require_explicit_grant=True,
+    )
 
 
 async def log_activity(
@@ -463,8 +466,16 @@ async def delete_scope_from_role(
         include_deleted=False,
     )
 
-    access_checker.add_scope(scope_type, scope_value, ResourceAction.MANAGE)
-    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+    await enforce_scope_management(
+        access_checker,
+        [
+            RoleScopeInput(
+                action=action,
+                scope_type=scope_type,
+                scope_value=scope_value,
+            ),
+        ],
+    )
 
     # Find the scope by composite key
     delete_stmt = (
