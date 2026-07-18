@@ -143,7 +143,8 @@ class RBACAuthorizationService(AuthorizationService):
                 AccessDecision(request=request, approved=True, reason="admin")
                 for request in requests
             ]
-        return [self._make_decision(auth_context, request) for request in requests]
+        candidate_scopes = self.candidate_scopes(auth_context)
+        return [self._make_decision(request, candidate_scopes) for request in requests]
 
     @classmethod
     def candidate_scopes(cls, auth_context: AuthContext) -> List["RoleScope"]:
@@ -167,15 +168,15 @@ class RBACAuthorizationService(AuthorizationService):
 
     def _make_decision(
         self,
-        auth_context: AuthContext,
         request: ResourceRequest,
+        candidate_scopes: List["RoleScope"],
     ) -> AccessDecision:
         """
         Convert ResourceRequest to AccessDecision.
 
-        Gathers all applicable scopes (explicit grants + default-access role)
-        and approves if any grants the request. Otherwise falls back to the
-        configured default_access_policy.
+        Evaluates the candidate scopes (explicit grants + default-access role)
+        collected once per authorize() call and approves if any grants the
+        request. Otherwise falls back to the configured default_access_policy.
         """
         granted = any(
             self._scope_grants_permission(
@@ -184,7 +185,7 @@ class RBACAuthorizationService(AuthorizationService):
                 request.access_object.resource_type,
                 request.access_object.name,
             )
-            for scope in self.candidate_scopes(auth_context)
+            for scope in candidate_scopes
         )
         if granted:
             return AccessDecision(request=request, approved=True)
