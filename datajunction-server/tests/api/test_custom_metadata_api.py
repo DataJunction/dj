@@ -165,6 +165,30 @@ async def test_delete_schema_not_found(client: AsyncClient) -> None:
     assert resp.status_code == 404
 
 
+@pytest.mark.asyncio
+async def test_delete_global_key_non_admin_forbidden(
+    client: AsyncClient,
+    session: AsyncSession,
+) -> None:
+    """A non-admin deleting a global (namespace=None) schema key → 403."""
+    from datajunction_server.database.custom_metadata_schema import (
+        CustomMetadataSchema,
+    )
+
+    row = CustomMetadataSchema(
+        key="global_del_key",
+        node_type=None,
+        namespace=None,
+        json_schema={"type": "string"},
+        value_kind="string",
+    )
+    session.add(row)
+    await session.commit()
+
+    resp = await client.delete(f"/custom-metadata/schemas/{row.id}")
+    assert resp.status_code == 403
+
+
 # ---------------------------------------------------------------------------
 # GET /custom-metadata/facets/ — filterable-only catalog
 # ---------------------------------------------------------------------------
@@ -416,10 +440,16 @@ async def test_register_global_key_admin_succeeds(
             "/custom-metadata/schemas/",
             json={"key": "admin_global_key", "json_schema": {"type": "string"}},
         )
-    assert resp.status_code in (200, 201)
-    body = resp.json()
-    assert body["key"] == "admin_global_key"
-    assert body["namespace"] is None
+        assert resp.status_code in (200, 201)
+        body = resp.json()
+        assert body["key"] == "admin_global_key"
+        assert body["namespace"] is None
+
+        # Admin can also delete a global key (covers the admin-delete-global path).
+        del_resp = await admin_client.delete(
+            f"/custom-metadata/schemas/{body['id']}",
+        )
+        assert del_resp.status_code == 200
 
 
 @pytest.mark.asyncio
