@@ -17,7 +17,15 @@ from datajunction_server.models.custom_metadata import (
     ViolationReport,
     ViolationSample,
 )
-from datajunction_server.utils import get_session
+from datajunction_server.database.user import User
+from datajunction_server.errors import DJAuthorizationException
+from datajunction_server.internal.access.authorization import (
+    AccessChecker,
+    AccessDenialMode,
+    get_access_checker,
+)
+from datajunction_server.models.access import ResourceAction
+from datajunction_server.utils import get_current_user, get_session
 
 router = SecureAPIRouter(tags=["custom-metadata"])
 
@@ -33,6 +41,8 @@ async def register_schema(
     data: CustomMetadataSchemaCreate,
     *,
     session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> CustomMetadataSchema:
     """Create or upsert a custom_metadata schema registration."""
     # Validate that json_schema is itself a valid JSON Schema
@@ -43,6 +53,42 @@ async def register_schema(
             status_code=422,
             detail=f"Invalid JSON Schema: {exc.message}",
         )
+
+    # --- Two-tier authorization ---
+    # 1. Global key (namespace is None) → require admin
+    if data.namespace is None and not current_user.is_admin:
+        raise DJAuthorizationException(
+            message="Only administrators may register global schema keys.",
+        )
+
+    # 2. reserved=True → require admin
+    if data.reserved and not current_user.is_admin:
+        raise DJAuthorizationException(
+            message="Only administrators may register reserved schema keys.",
+        )
+
+    # 3. Namespace-scoped → require write access to the namespace
+    if data.namespace is not None:
+        access_checker.add_namespace(data.namespace, ResourceAction.WRITE)
+        await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
+    # 4. Check if a reserved global row exists for this key
+    if data.namespace is not None:
+        reserved_global = (
+            await session.execute(
+                select(CustomMetadataSchema).where(
+                    CustomMetadataSchema.key == data.key,
+                    CustomMetadataSchema.namespace.is_(None),
+                    CustomMetadataSchema.reserved.is_(True),
+                    CustomMetadataSchema.deactivated_at.is_(None),
+                ),
+            )
+        ).scalar_one_or_none()
+        if reserved_global is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Key '{data.key}' is reserved globally and cannot be registered at namespace scope.",
+            )
 
     node_type_val = data.node_type.value if data.node_type else None
 
@@ -73,6 +119,9 @@ async def register_schema(
         existing.value_kind = _value_kind(data.json_schema)
         existing.filterable = data.filterable
         existing.description = data.description
+        existing.owner = data.owner
+        existing.reserved = data.reserved
+        existing.updated_by_id = current_user.id
         row = existing
     else:
         row = CustomMetadataSchema(
@@ -83,6 +132,10 @@ async def register_schema(
             value_kind=_value_kind(data.json_schema),
             filterable=data.filterable,
             description=data.description,
+            owner=data.owner,
+            reserved=data.reserved,
+            created_by_id=current_user.id,
+            updated_by_id=current_user.id,
         )
         session.add(row)
     await session.commit()
@@ -119,6 +172,8 @@ async def delete_schema(
     schema_id: int,
     *,
     session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> dict:
     """Soft-delete a schema registration by setting deactivated_at."""
     row = (
@@ -134,6 +189,15 @@ async def delete_schema(
             status_code=404,
             detail=f"Schema {schema_id} not found or already deleted",
         )
+    # Authorization
+    if row.namespace is None:
+        if not current_user.is_admin:
+            raise DJAuthorizationException(
+                message="Only administrators may delete global schema keys.",
+            )
+    else:
+        access_checker.add_namespace(row.namespace, ResourceAction.WRITE)
+        await access_checker.check(on_denied=AccessDenialMode.RAISE)
     row.deactivated_at = datetime.datetime.now(datetime.timezone.utc)
     await session.commit()
     return {"id": schema_id, "deactivated": True}

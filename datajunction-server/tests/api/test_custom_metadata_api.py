@@ -26,6 +26,7 @@ async def test_register_and_list_schema(client: AsyncClient) -> None:
         "/custom-metadata/schemas/",
         json={
             "key": "table_group",
+            "namespace": "test.ns",
             "json_schema": {"type": "string"},
             "description": "arc",
         },
@@ -69,6 +70,7 @@ async def test_register_schema_reject_invalid_json_schema(client: AsyncClient) -
         "/custom-metadata/schemas/",
         json={
             "key": "bad",
+            "namespace": "test.ns",
             "json_schema": {"type": "not-a-real-type"},
         },
     )
@@ -80,6 +82,7 @@ async def test_register_schema_upsert_updates_existing(client: AsyncClient) -> N
     """POSTing the same (key, node_type, namespace) twice should upsert, not duplicate."""
     payload = {
         "key": "grain",
+        "namespace": "test.ns",
         "json_schema": {"type": "string"},
         "description": "first",
     }
@@ -92,6 +95,7 @@ async def test_register_schema_upsert_updates_existing(client: AsyncClient) -> N
         "/custom-metadata/schemas/",
         json={
             "key": "grain",
+            "namespace": "test.ns",
             "json_schema": {"type": "integer"},
             "description": "updated",
         },
@@ -137,7 +141,11 @@ async def test_delete_schema_soft_deletes(client: AsyncClient) -> None:
     """DELETE sets deactivated_at and removes the schema from active listing."""
     create_resp = await client.post(
         "/custom-metadata/schemas/",
-        json={"key": "to_delete", "json_schema": {"type": "string"}},
+        json={
+            "key": "to_delete",
+            "namespace": "test.ns",
+            "json_schema": {"type": "string"},
+        },
     )
     assert create_resp.status_code in (200, 201)
     schema_id = create_resp.json()["id"]
@@ -167,11 +175,21 @@ async def test_facets_only_lists_filterable(client: AsyncClient) -> None:
     """GET /custom-metadata/facets/ excludes schemas with filterable=False."""
     await client.post(
         "/custom-metadata/schemas/",
-        json={"key": "notes", "json_schema": {"type": "string"}, "filterable": False},
+        json={
+            "key": "notes",
+            "namespace": "test.ns",
+            "json_schema": {"type": "string"},
+            "filterable": False,
+        },
     )
     await client.post(
         "/custom-metadata/schemas/",
-        json={"key": "score", "json_schema": {"type": "number"}, "filterable": True},
+        json={
+            "key": "score",
+            "namespace": "test.ns",
+            "json_schema": {"type": "number"},
+            "filterable": True,
+        },
     )
     facets = await client.get("/custom-metadata/facets/")
     assert facets.status_code == 200
@@ -210,7 +228,11 @@ async def test_violations_returns_report_for_clean_nodes(
     # Register schema
     create_resp = await client.post(
         "/custom-metadata/schemas/",
-        json={"key": "grain", "json_schema": {"type": "string"}},
+        json={
+            "key": "grain",
+            "namespace": "test.ns",
+            "json_schema": {"type": "string"},
+        },
     )
     assert create_resp.status_code in (200, 201)
     schema_id = create_resp.json()["id"]
@@ -230,6 +252,7 @@ async def test_list_schemas_filter_by_node_type(client: AsyncClient) -> None:
         json={
             "key": "nt_metric",
             "node_type": "metric",
+            "namespace": "test.ns",
             "json_schema": {"type": "string"},
         },
     )
@@ -238,6 +261,7 @@ async def test_list_schemas_filter_by_node_type(client: AsyncClient) -> None:
         json={
             "key": "nt_source",
             "node_type": "source",
+            "namespace": "test.ns",
             "json_schema": {"type": "string"},
         },
     )
@@ -260,7 +284,11 @@ async def test_violations_node_has_key_but_passes(
 
     create_resp = await client.post(
         "/custom-metadata/schemas/",
-        json={"key": "grain", "json_schema": {"type": "string"}},
+        json={
+            "key": "grain",
+            "namespace": "test.ns",
+            "json_schema": {"type": "string"},
+        },
     )
     assert create_resp.status_code in (200, 201)
     schema_id = create_resp.json()["id"]
@@ -298,7 +326,11 @@ async def test_violations_detects_violating_nodes(
     # Create a schema requiring "grain" to be a string
     create_resp = await client.post(
         "/custom-metadata/schemas/",
-        json={"key": "grain", "json_schema": {"type": "string"}},
+        json={
+            "key": "grain",
+            "namespace": "test.ns",
+            "json_schema": {"type": "string"},
+        },
     )
     assert create_resp.status_code in (200, 201)
     schema_id = create_resp.json()["id"]
@@ -330,3 +362,242 @@ async def test_violations_detects_violating_nodes(
         sample = body["samples"][0]
         assert "node_name" in sample
         assert "errors" in sample
+
+
+# ---------------------------------------------------------------------------
+# Authorization tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_register_global_key_non_admin_forbidden(client: AsyncClient) -> None:
+    """Non-admin registering a global key (namespace=None) → 403."""
+    resp = await client.post(
+        "/custom-metadata/schemas/",
+        json={"key": "global_key", "json_schema": {"type": "string"}},
+    )
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_register_global_key_admin_succeeds(
+    client: AsyncClient,
+    session: AsyncSession,
+) -> None:
+    """Admin registering a global key → success."""
+    from datajunction_server.database.user import User
+    from datajunction_server.models.user import OAuthProvider
+    from datajunction_server.internal.access.authentication.tokens import create_token
+    from datetime import timedelta
+    import httpx
+    from datajunction_server.api.main import app
+
+    admin_user = User(
+        username="admin_test_global",
+        email=None,
+        name=None,
+        oauth_provider=OAuthProvider.BASIC,
+        is_admin=True,
+    )
+    session.add(admin_user)
+    await session.commit()
+    admin_token = create_token(
+        {"username": "admin_test_global"},
+        secret="a-fake-secretkey",
+        iss="http://localhost:8000/",
+        expires_delta=timedelta(hours=24),
+    )
+    async with AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://test",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    ) as admin_client:
+        resp = await admin_client.post(
+            "/custom-metadata/schemas/",
+            json={"key": "admin_global_key", "json_schema": {"type": "string"}},
+        )
+    assert resp.status_code in (200, 201)
+    body = resp.json()
+    assert body["key"] == "admin_global_key"
+    assert body["namespace"] is None
+
+
+@pytest.mark.asyncio
+async def test_register_namespace_key_with_access_succeeds(
+    client: AsyncClient,
+) -> None:
+    """Namespace-scoped key with access (PassthroughAuth approves all) → success."""
+    resp = await client.post(
+        "/custom-metadata/schemas/",
+        json={
+            "key": "ns_key",
+            "namespace": "my.namespace",
+            "json_schema": {"type": "string"},
+        },
+    )
+    assert resp.status_code in (200, 201)
+    body = resp.json()
+    assert body["namespace"] == "my.namespace"
+
+
+@pytest.mark.asyncio
+async def test_register_reserved_true_non_admin_forbidden(
+    client: AsyncClient,
+) -> None:
+    """Non-admin setting reserved=True → 403."""
+    resp = await client.post(
+        "/custom-metadata/schemas/",
+        json={
+            "key": "some_ns_key",
+            "namespace": "my.namespace",
+            "reserved": True,
+            "json_schema": {"type": "string"},
+        },
+    )
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_register_namespace_key_blocked_by_reserved_global(
+    client: AsyncClient,
+    session: AsyncSession,
+) -> None:
+    """Namespace registration of a key with a reserved global row → 409."""
+    from datajunction_server.database.user import User
+    from datajunction_server.models.user import OAuthProvider
+    from datajunction_server.internal.access.authentication.tokens import create_token
+    from datetime import timedelta
+    import httpx
+    from datajunction_server.api.main import app
+
+    # First, create the reserved global schema as admin
+    admin_user = User(
+        username="admin_reserved",
+        email=None,
+        name=None,
+        oauth_provider=OAuthProvider.BASIC,
+        is_admin=True,
+    )
+    session.add(admin_user)
+    await session.commit()
+    admin_token = create_token(
+        {"username": "admin_reserved"},
+        secret="a-fake-secretkey",
+        iss="http://localhost:8000/",
+        expires_delta=timedelta(hours=24),
+    )
+    async with AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://test",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    ) as admin_client:
+        resp = await admin_client.post(
+            "/custom-metadata/schemas/",
+            json={
+                "key": "reserved_key",
+                "reserved": True,
+                "json_schema": {"type": "string"},
+            },
+        )
+    assert resp.status_code in (200, 201)
+
+    # Now try to register namespace-scoped (non-admin, namespace write OK via Passthrough)
+    resp2 = await client.post(
+        "/custom-metadata/schemas/",
+        json={
+            "key": "reserved_key",
+            "namespace": "some.namespace",
+            "json_schema": {"type": "string"},
+        },
+    )
+    assert resp2.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_created_by_id_and_updated_by_id_populated(
+    client: AsyncClient,
+    session: AsyncSession,
+) -> None:
+    """created_by_id and updated_by_id are set from the current user."""
+    from datajunction_server.database.user import User
+    from datajunction_server.models.user import OAuthProvider
+    from datajunction_server.internal.access.authentication.tokens import create_token
+    from datetime import timedelta
+    import httpx
+    from datajunction_server.api.main import app
+
+    admin_user = User(
+        username="admin_audit",
+        email=None,
+        name=None,
+        oauth_provider=OAuthProvider.BASIC,
+        is_admin=True,
+    )
+    session.add(admin_user)
+    await session.commit()
+    await session.refresh(admin_user)
+    admin_id = admin_user.id
+    admin_token = create_token(
+        {"username": "admin_audit"},
+        secret="a-fake-secretkey",
+        iss="http://localhost:8000/",
+        expires_delta=timedelta(hours=24),
+    )
+    async with AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://test",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    ) as admin_client:
+        resp = await admin_client.post(
+            "/custom-metadata/schemas/",
+            json={"key": "audit_key", "json_schema": {"type": "string"}},
+        )
+    assert resp.status_code in (200, 201)
+    body = resp.json()
+    assert body["updated_by_id"] == admin_id
+
+
+@pytest.mark.asyncio
+async def test_owner_round_trips(
+    client: AsyncClient,
+    session: AsyncSession,
+) -> None:
+    """owner field is persisted and returned in output."""
+    from datajunction_server.database.user import User
+    from datajunction_server.models.user import OAuthProvider
+    from datajunction_server.internal.access.authentication.tokens import create_token
+    from datetime import timedelta
+    import httpx
+    from datajunction_server.api.main import app
+
+    admin_user = User(
+        username="admin_owner",
+        email=None,
+        name=None,
+        oauth_provider=OAuthProvider.BASIC,
+        is_admin=True,
+    )
+    session.add(admin_user)
+    await session.commit()
+    admin_token = create_token(
+        {"username": "admin_owner"},
+        secret="a-fake-secretkey",
+        iss="http://localhost:8000/",
+        expires_delta=timedelta(hours=24),
+    )
+    async with AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://test",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    ) as admin_client:
+        resp = await admin_client.post(
+            "/custom-metadata/schemas/",
+            json={
+                "key": "owner_key",
+                "json_schema": {"type": "string"},
+                "owner": "team-data-eng",
+            },
+        )
+    assert resp.status_code in (200, 201)
+    body = resp.json()
+    assert body["owner"] == "team-data-eng"
