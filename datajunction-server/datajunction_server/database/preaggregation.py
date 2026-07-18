@@ -378,6 +378,41 @@ class PreAggregation(Base):
         return result.scalar_one_or_none()
 
     @classmethod
+    async def get_external_by_namespace(
+        cls,
+        session: AsyncSession,
+        namespace: str,
+    ) -> List["PreAggregation"]:
+        """
+        Get all EXTERNAL-strategy pre-aggregations whose node lives in the given
+        namespace. Used by deploy-time reconciliation to diff against the spec.
+        """
+        from sqlalchemy.orm import joinedload
+
+        from datajunction_server.database.node import Node
+
+        statement = (
+            select(cls)
+            .join(NodeRevision, cls.node_revision_id == NodeRevision.id)
+            .join(Node, NodeRevision.node_id == Node.id)
+            .options(
+                joinedload(cls.node_revision),
+                joinedload(cls.availability),
+            )
+            .where(
+                # The deployment namespace is a prefix: nodes live in it or in a
+                # sub-namespace (e.g. "ns" and "ns.default").
+                sa.or_(
+                    Node.namespace == namespace,
+                    Node.namespace.like(f"{namespace}.%"),
+                ),
+                cls.strategy == MaterializationStrategy.EXTERNAL,
+            )
+        )
+        result = await session.execute(statement)
+        return list(result.scalars().unique().all())
+
+    @classmethod
     async def find_matching(
         cls,
         session: AsyncSession,

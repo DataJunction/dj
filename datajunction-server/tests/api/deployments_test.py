@@ -3,6 +3,7 @@ import json
 from unittest import mock
 import uuid
 from contextlib import asynccontextmanager
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from datajunction_server.models.deployment import (
@@ -18,7 +19,9 @@ from datajunction_server.models.deployment import (
     DimensionJoinLinkSpec,
     GitDeploymentSource,
     LocalDeploymentSource,
+    PreAggSpec,
 )
+from datajunction_server.utils import get_query_service_client
 from datajunction_server.internal.git.github_service import GitHubServiceError
 from datajunction_server.api.deployments import (
     InProcessExecutor,
@@ -1695,6 +1698,105 @@ class TestDeployments:
             "${prefix}default.us_state.state_name",
             "${prefix}default.us_state.state_region",
         ]
+
+    @pytest.mark.asyncio
+    async def test_deploy_reconciles_external_preaggregation(
+        self,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        An externally-built pre-aggregation declared in the deployment spec is
+        registered at deploy time and reconciled away when dropped from the spec.
+        """
+        hard_hat_facts = TransformSpec(
+            name="default.hard_hat_facts",
+            node_type=NodeType.TRANSFORM,
+            query="SELECT hard_hat_id, state FROM ${prefix}default.hard_hats",
+            dimension_links=[
+                DimensionJoinLinkSpec(
+                    dimension_node="${prefix}default.us_state",
+                    join_type="inner",
+                    join_on=(
+                        "${prefix}default.hard_hat_facts.state = "
+                        "${prefix}default.us_state.state_short"
+                    ),
+                ),
+            ],
+            owners=["dj"],
+        )
+        count_hard_hats = MetricSpec(
+            name="default.count_hard_hats",
+            node_type=NodeType.METRIC,
+            query="SELECT COUNT(*) FROM ${prefix}default.hard_hat_facts",
+            owners=["dj"],
+        )
+        nodes = [
+            default_hard_hats,
+            default_us_states,
+            default_us_state,
+            hard_hat_facts,
+            count_hard_hats,
+        ]
+
+        async def _fake_columns(*args, **kwargs):
+            return [
+                SimpleNamespace(name="hard_hat_count"),
+                SimpleNamespace(name="state_name"),
+            ]
+
+        mock_qs = MagicMock()
+        mock_qs.get_columns_for_table = _fake_columns
+        client.app.dependency_overrides[get_query_service_client] = lambda: mock_qs
+        fact_node = "preagg_deploy.default.hard_hat_facts"
+        try:
+            preagg_spec = PreAggSpec(
+                name="hard_hats_by_state",
+                metrics=["${prefix}default.count_hard_hats"],
+                dimensions=["${prefix}default.us_state.state_name"],
+                catalog="default",
+                schema="analytics",
+                table="hard_hats_agg",
+                valid_through_ts=1700000000,
+                measure_columns={
+                    "${prefix}default.count_hard_hats": "hard_hat_count",
+                },
+            )
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(
+                    namespace="preagg_deploy",
+                    nodes=nodes,
+                    preaggregations=[preagg_spec],
+                ),
+            )
+            assert data["status"] == "success", data["results"]
+
+            # The external pre-agg was registered against the fact node.
+            listing = await client.get("/preaggs/", params={"node_name": fact_node})
+            assert listing.status_code == 200, listing.text
+            items = listing.json()["items"]
+            assert len(items) == 1
+            preagg = items[0]
+            assert preagg["name"] == "preagg_deploy.hard_hats_by_state"
+            assert preagg["strategy"] == "external"
+            assert any(
+                measure["source_column"] == "hard_hat_count"
+                for measure in preagg["measures"]
+            )
+
+            # Re-deploy without the preaggregation -> it is reconciled away.
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(namespace="preagg_deploy", nodes=nodes),
+            )
+            assert data["status"] == "success", data["results"]
+            listing = await client.get("/preaggs/", params={"node_name": fact_node})
+            assert listing.json()["items"] == []
+        finally:
+            del client.app.dependency_overrides[get_query_service_client]
 
     @pytest.mark.asyncio
     async def test_deploy_dimension_with_update(

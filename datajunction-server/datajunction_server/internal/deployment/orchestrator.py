@@ -35,6 +35,7 @@ from datajunction_server.database.user import User, OAuthProvider
 from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.errors import (
     DJError,
+    DJException,
     DJInvalidDeploymentConfig,
     DJInvalidInputException,
     DJWarning,
@@ -437,10 +438,24 @@ class DeploymentOrchestrator:
         self._guard_against_accidental_wipe(deployment_plan)
 
         if deployment_plan.is_empty() and not self.deployment_spec.hierarchies:
-            return DeploymentExecuteResult(
-                results=await self._handle_no_changes(),
-                downstream_impacts=[],
+            # Pre-aggregations still need reconciling on an otherwise-empty
+            # deploy: to register specs, or to delete external pre-aggs that were
+            # dropped from the spec.
+            from datajunction_server.database.preaggregation import PreAggregation
+
+            needs_preagg_reconcile = bool(
+                self.deployment_spec.preaggregations,
+            ) or bool(
+                await PreAggregation.get_external_by_namespace(
+                    self.session,
+                    self.deployment_spec.namespace,
+                ),
             )
+            if not needs_preagg_reconcile:
+                return DeploymentExecuteResult(
+                    results=await self._handle_no_changes(),
+                    downstream_impacts=[],
+                )
 
         downstream = await self._execute_deployment_plan(deployment_plan)
         return DeploymentExecuteResult(
@@ -1017,6 +1032,92 @@ class DeploymentOrchestrator:
         await self.session.flush()
         logger.info("Upserted %d hierarchies", len(valid_specs))
 
+    async def _reconcile_preaggregations(self) -> None:
+        """
+        Register externally-built pre-aggregations declared in the spec, and
+        remove EXTERNAL pre-aggs in this namespace that were dropped from it.
+
+        Runs after nodes/links/cubes so the referenced metrics and dimensions
+        exist. Skipped during dry runs (registration introspects the external
+        table and mutates state). Reuses the same core as POST /preaggs/register.
+        """
+        from datajunction_server.api.preaggregations import (
+            register_external_preaggregations,
+        )
+        from datajunction_server.database.preaggregation import PreAggregation
+        from datajunction_server.models.preaggregation import ExternalPreAggTable
+
+        specs = self.deployment_spec.preaggregations
+        namespace = self.deployment_spec.namespace
+
+        existing = await PreAggregation.get_external_by_namespace(
+            self.session,
+            namespace,
+        )
+        if not specs and not existing:
+            return
+        if self.dry_run:
+            return
+
+        query_service_client = self.context.query_service_client
+        if specs and not query_service_client:
+            self.errors.append(
+                DJError(
+                    code=ErrorCode.QUERY_SERVICE_ERROR,
+                    message=(
+                        "Registering pre-aggregations requires a configured query "
+                        "service for column inference."
+                    ),
+                ),
+            )
+            return
+        request_headers = (
+            dict(self.context.request.headers) if self.context.request else {}
+        )
+
+        # Upsert each spec; track which pre-agg rows this deploy touched.
+        upserted_ids: set[int] = set()
+        for spec in specs:
+            # Guaranteed by the guard above: a non-empty spec list implies a
+            # configured query service. (assert narrows the Optional for mypy.)
+            assert query_service_client is not None
+            try:
+                created = await register_external_preaggregations(
+                    self.session,
+                    query_service_client,
+                    request_headers,
+                    name=spec.rendered_name,
+                    metrics=spec.rendered_metrics,
+                    dimensions=spec.rendered_dimensions,
+                    table=ExternalPreAggTable(
+                        catalog=spec.catalog,
+                        schema=spec.schema_,
+                        table=spec.table,
+                        valid_through_ts=spec.valid_through_ts,
+                    ),
+                    measure_columns=spec.rendered_measure_columns,
+                )
+                upserted_ids.update(preagg.id for preagg in created)
+            except DJException as exc:
+                self.errors.append(
+                    DJError(
+                        code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                        message=f"Pre-aggregation '{spec.rendered_name}': {exc.message}",
+                    ),
+                )
+
+        # Delete-on-removal: any EXTERNAL pre-agg in this namespace not (re)created
+        # by this deploy has been dropped from the spec.
+        for preagg in await PreAggregation.get_external_by_namespace(
+            self.session,
+            namespace,
+        ):
+            if preagg.id not in upserted_ids:
+                await self.session.delete(preagg)
+
+        await self.session.flush()
+        logger.info("Reconciled %d pre-aggregation spec(s)", len(specs))
+
     async def _setup_owners(self):
         """
         Validate that all owners defined in the deployment spec exist.
@@ -1469,6 +1570,10 @@ class DeploymentOrchestrator:
         # (no node changes) are not silently dropped.
         with timer.phase("deploy hierarchies"):
             await self._setup_hierarchies()
+
+        # Register/reconcile externally-built pre-aggregations after nodes exist.
+        with timer.phase("reconcile preaggregations"):
+            await self._reconcile_preaggregations()
 
         # Run impact propagation before deletions so deleted nodes'
         # children are still reachable via NodeRelationship.

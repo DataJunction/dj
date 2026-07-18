@@ -489,7 +489,13 @@ class DeploymentService:
             )
 
         project_metadata = self._read_project_yaml(base_dir)
-        nodes, warnings = self._collect_nodes_from_dir(base_dir)
+        collected, warnings = self._collect_nodes_from_dir(base_dir)
+
+        # Pre-aggregation specs live in the same YAML tree but are not nodes;
+        # identify them by the ``measure_columns`` field and route them to the
+        # deployment's ``preaggregations`` list.
+        preaggregations = [item for item in collected if "measure_columns" in item]
+        nodes = [item for item in collected if "measure_columns" not in item]
 
         # Deduplicate nodes by name (keep last occurrence)
         seen_names: dict[str, dict] = {}
@@ -508,6 +514,7 @@ class DeploymentService:
             or project_metadata.get("prefix", ""),
             "nodes": nodes,
             "tags": project_metadata.get("tags", []),
+            "preaggregations": preaggregations,
         }
 
         # Add deployment source if available from env vars
