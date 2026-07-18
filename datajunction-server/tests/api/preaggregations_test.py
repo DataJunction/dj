@@ -2583,3 +2583,93 @@ class TestRegisterPreAggregations:
             assert "query service" in response.text
         finally:
             del client_with_build_v3.app.dependency_overrides[get_query_service_client]
+
+    @pytest.mark.asyncio
+    async def test_register_sets_external_strategy_and_name(
+        self,
+        client_with_build_v3: AsyncClient,
+    ):
+        """A registered pre-agg is marked EXTERNAL and keeps its handle."""
+        _mock_query_service(client_with_build_v3, ["revenue_total", "order_cnt"])
+        try:
+            response = await client_with_build_v3.post(
+                "/preaggs/register",
+                json={
+                    "name": "aov_by_category",
+                    "metrics": ["v3.avg_order_value"],
+                    "dimensions": ["v3.product.category"],
+                    "table": {
+                        "catalog": "default",
+                        "schema": "analytics",
+                        "table": "aov_agg",
+                        "valid_through_ts": 1700000000,
+                    },
+                    "measure_columns": {
+                        "v3.total_revenue": "revenue_total",
+                        "v3.order_count": "order_cnt",
+                    },
+                },
+            )
+            assert response.status_code == 201, response.text
+            preagg = response.json()["preaggs"][0]
+            assert preagg["strategy"] == "external"
+            assert preagg["name"] == "aov_by_category"
+        finally:
+            del client_with_build_v3.app.dependency_overrides[get_query_service_client]
+
+    async def _register_external(self, client, table_name):
+        """Register a simple external pre-agg and return its id."""
+        response = await client.post(
+            "/preaggs/register",
+            json={
+                "metrics": ["v3.avg_order_value"],
+                "dimensions": ["v3.product.category"],
+                "table": {
+                    "catalog": "default",
+                    "schema": "analytics",
+                    "table": table_name,
+                    "valid_through_ts": 1700000000,
+                },
+                "measure_columns": {
+                    "v3.total_revenue": "revenue_total",
+                    "v3.order_count": "order_cnt",
+                },
+            },
+        )
+        assert response.status_code == 201, response.text
+        return response.json()["preaggs"][0]["id"]
+
+    @pytest.mark.asyncio
+    async def test_external_preagg_cannot_be_materialized(
+        self,
+        client_with_build_v3: AsyncClient,
+    ):
+        """DJ must not materialize (overwrite) an externally-built table."""
+        _mock_query_service(client_with_build_v3, ["revenue_total", "order_cnt"])
+        try:
+            preagg_id = await self._register_external(client_with_build_v3, "aov_mat")
+            response = await client_with_build_v3.post(
+                f"/preaggs/{preagg_id}/materialize",
+            )
+            assert response.status_code == 422
+            assert "externally-registered" in response.text
+        finally:
+            del client_with_build_v3.app.dependency_overrides[get_query_service_client]
+
+    @pytest.mark.asyncio
+    async def test_external_preagg_cannot_be_backfilled(
+        self,
+        client_with_build_v3: AsyncClient,
+    ):
+        """DJ must not backfill an externally-built table."""
+        _mock_query_service(client_with_build_v3, ["revenue_total", "order_cnt"])
+        try:
+            preagg_id = await self._register_external(client_with_build_v3, "aov_bf")
+            response = await client_with_build_v3.post(
+                f"/preaggs/{preagg_id}/backfill",
+                json={"start_date": "2026-01-01"},
+            )
+            assert response.status_code == 422
+            assert "externally-registered" in response.text
+        finally:
+            del client_with_build_v3.app.dependency_overrides[get_query_service_client]

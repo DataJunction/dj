@@ -243,6 +243,10 @@ class PreAggregation(Base):
         unique=True,
     )
 
+    # Optional stable, human-supplied handle for externally-registered pre-aggs.
+    # Used by YAML deploy reconciliation and availability-by-name callbacks.
+    name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
     # === Materialization Config ===
     strategy: Mapped[Optional[MaterializationStrategy]] = mapped_column(
         Enum(MaterializationStrategy),

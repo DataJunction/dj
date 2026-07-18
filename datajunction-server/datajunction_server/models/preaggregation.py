@@ -118,6 +118,13 @@ class RegisterPreAggregationsRequest(BaseModel):
     pre-aggregation so grain resolution can route queries to it.
     """
 
+    name: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional stable handle for the pre-aggregation, used by YAML deploy "
+            "reconciliation and availability-by-name callbacks."
+        ),
+    )
     metrics: List[str] = Field(
         description="Metric node names the external table should serve",
     )
@@ -208,6 +215,7 @@ class PreAggregationInfo(BaseModel):
     sql: str  # The generated SQL for materializing this pre-agg
     grain_group_hash: str
     preagg_hash: str  # Unique hash including measures (used for table/workflow naming)
+    name: Optional[str] = None  # Stable handle for externally-registered pre-aggs
 
     # Materialization config
     strategy: Optional[MaterializationStrategy] = None

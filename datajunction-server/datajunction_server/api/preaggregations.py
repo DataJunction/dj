@@ -201,6 +201,7 @@ async def _preagg_to_info(
         sql=preagg.sql,
         grain_group_hash=preagg.grain_group_hash,
         preagg_hash=preagg.preagg_hash,
+        name=preagg.name,
         strategy=preagg.strategy,
         schedule=preagg.schedule,
         lookback_window=preagg.lookback_window,
@@ -838,6 +839,8 @@ async def register_preaggregations(
             existing.measures = measures
             existing.columns = columns
             existing.sql = grain_group.sql
+            existing.strategy = MaterializationStrategy.EXTERNAL
+            existing.name = data.name
             preagg = existing
         else:
             preagg = PreAggregation(
@@ -852,6 +855,8 @@ async def register_preaggregations(
                     grain_columns,
                     measures,
                 ),
+                strategy=MaterializationStrategy.EXTERNAL,
+                name=data.name,
             )
             session.add(preagg)
         created_preaggs.append(preagg)
@@ -938,6 +943,12 @@ async def materialize_preaggregation(
 
     if not preagg:
         raise DJDoesNotExistException(f"Pre-aggregation with ID {preagg_id} not found")
+
+    if preagg.strategy == MaterializationStrategy.EXTERNAL:
+        raise DJInvalidInputException(
+            message="Cannot materialize an externally-registered pre-aggregation; "
+            "its table is built and maintained by an external pipeline.",
+        )
 
     # Validate strategy is set
     if not preagg.strategy:
@@ -1443,6 +1454,12 @@ async def run_preagg_backfill(
 
     if not preagg:
         raise DJDoesNotExistException(f"Pre-aggregation with ID {preagg_id} not found")
+
+    if preagg.strategy == MaterializationStrategy.EXTERNAL:
+        raise DJInvalidInputException(
+            "Cannot backfill an externally-registered pre-aggregation; its table "
+            "is built and maintained by an external pipeline.",
+        )
 
     # Validate: workflow must exist
     if not preagg.workflow_urls:
