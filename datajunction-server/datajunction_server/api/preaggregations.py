@@ -57,6 +57,7 @@ from datajunction_server.models.preaggregation import (
     BackfillResponse,
     BulkDeactivateWorkflowsResponse,
     DeactivatedWorkflowInfo,
+    ExternalPreAggTable,
     GrainMode,
     DEFAULT_SCHEDULE,
     PlanPreAggregationsRequest,
@@ -686,42 +687,31 @@ async def plan_preaggregations(
     )
 
 
-@router.post(
-    "/preaggs/register",
-    response_model=PlanPreAggregationsResponse,
-    status_code=HTTPStatus.CREATED,
-    name="Register External Pre-aggregations",
-)
-async def register_preaggregations(
-    data: RegisterPreAggregationsRequest,
+async def register_external_preaggregations(
+    session: AsyncSession,
+    query_service_client: QueryServiceClient,
+    request_headers: dict[str, str],
     *,
-    session: AsyncSession = Depends(get_session),
-    request: Request,
-    query_service_client: QueryServiceClient = Depends(get_query_service_client),
-) -> PlanPreAggregationsResponse:
+    name: Optional[str],
+    metrics: list[str],
+    dimensions: list[str],
+    table: ExternalPreAggTable,
+    measure_columns: dict[str, str],
+) -> list[PreAggregation]:
     """
-    Register an externally-built pre-aggregation table.
+    Core logic for adopting an externally-built pre-aggregation table.
 
-    Unlike ``/preaggs/plan`` (where DJ generates and owns the materialization),
-    this adopts a table built by an external pipeline. DJ decomposes the
-    requested metrics into component measures, binds each measure to a physical
-    column via ``measure_columns``, validates them against the table, records
-    the pre-aggregation, and — when ``valid_through_ts`` is supplied — marks it
-    available so grain resolution can route queries to it.
+    Decomposes ``metrics`` into component measures, binds each to a physical
+    column via ``measure_columns``, validates them against ``table``, and upserts
+    the pre-aggregation(s) marked ``EXTERNAL``. Flushes but does NOT commit — the
+    caller owns the transaction (the endpoint commits; the deploy orchestrator
+    commits its whole plan). Callers must ensure ``query_service_client`` is
+    configured. Returns the created/updated pre-aggregations.
     """
-    request_headers = dict(request.headers)
-    if not query_service_client:
-        raise DJConfigurationException(
-            message=(
-                "Registering external pre-aggregations requires a configured "
-                "query service for column inference."
-            ),
-        )
-
     # 1. Validate each mapped metric is a measure, and map its single component's
     #    expression hash to the declared physical column.
     measure_hash_to_column: dict[str, str] = {}
-    for metric_name, physical_column in data.measure_columns.items():
+    for metric_name, physical_column in measure_columns.items():
         node = await Node.get_by_name(
             session,
             metric_name,
@@ -754,18 +744,18 @@ async def register_preaggregations(
     # 2. Decompose the requested metrics into grain groups (no SQL is executed).
     measures_result = await build_measures_sql(
         session=session,
-        metrics=data.metrics,
-        dimensions=data.dimensions,
+        metrics=metrics,
+        dimensions=dimensions,
         dialect=Dialect.SPARK,
         use_materialized=False,
     )
 
     # 3. Introspect the external table and confirm the declared columns exist.
-    catalog = await get_catalog_by_name(session=session, name=data.table.catalog)
+    catalog = await get_catalog_by_name(session=session, name=table.catalog)
     table_columns = await query_service_client.get_columns_for_table(
         catalog.name,
-        data.table.schema_,
-        data.table.table,
+        table.schema_,
+        table.table,
         request_headers,
         catalog.engines[0] if catalog.engines else None,
     )
@@ -779,8 +769,7 @@ async def register_preaggregations(
         raise DJInvalidInputException(
             message=(
                 f"Columns {missing_columns} declared in measure_columns were not "
-                f"found in table "
-                f"{data.table.catalog}.{data.table.schema_}.{data.table.table}."
+                f"found in table {table.catalog}.{table.schema_}.{table.table}."
             ),
         )
 
@@ -794,7 +783,7 @@ async def register_preaggregations(
         node_revision_id = parent_node.current.id
         grain_columns = list(measures_result.requested_dimensions)
 
-        measures: list[PreAggMeasure] = []
+        grain_measures: list[PreAggMeasure] = []
         for component in grain_group.components:
             expr_hash = compute_expression_hash(component.expression)
             if expr_hash not in measure_hash_to_column:
@@ -805,7 +794,7 @@ async def register_preaggregations(
                         f"is_measure metric it corresponds to."
                     ),
                 )
-            measures.append(
+            grain_measures.append(
                 PreAggMeasure(
                     **{
                         **component.model_dump(),
@@ -833,47 +822,93 @@ async def register_preaggregations(
             session=session,
             node_revision_id=node_revision_id,
             grain_columns=grain_columns,
-            measure_expr_hashes={m.expr_hash for m in measures if m.expr_hash},
+            measure_expr_hashes={m.expr_hash for m in grain_measures if m.expr_hash},
         )
         if existing:
-            existing.measures = measures
+            existing.measures = grain_measures
             existing.columns = columns
             existing.sql = grain_group.sql
             existing.strategy = MaterializationStrategy.EXTERNAL
-            existing.name = data.name
+            existing.name = name
             preagg = existing
         else:
             preagg = PreAggregation(
                 node_revision_id=node_revision_id,
                 grain_columns=grain_columns,
-                measures=measures,
+                measures=grain_measures,
                 columns=columns,
                 sql=grain_group.sql,
                 grain_group_hash=grain_group_hash,
                 preagg_hash=compute_preagg_hash(
                     node_revision_id,
                     grain_columns,
-                    measures,
+                    grain_measures,
                 ),
                 strategy=MaterializationStrategy.EXTERNAL,
-                name=data.name,
+                name=name,
             )
             session.add(preagg)
         created_preaggs.append(preagg)
 
         # 5. Set availability immediately when freshness is provided; otherwise
         #    leave it pending for the availability callback to report.
-        if data.table.valid_through_ts is not None:
+        if table.valid_through_ts is not None:
             availability = AvailabilityState(
-                catalog=data.table.catalog,
-                schema_=data.table.schema_,
-                table=data.table.table,
-                valid_through_ts=data.table.valid_through_ts,
+                catalog=table.catalog,
+                schema_=table.schema_,
+                table=table.table,
+                valid_through_ts=table.valid_through_ts,
             )
             session.add(availability)
             await session.flush()
             preagg.availability_id = availability.id
 
+    await session.flush()
+    return created_preaggs
+
+
+@router.post(
+    "/preaggs/register",
+    response_model=PlanPreAggregationsResponse,
+    status_code=HTTPStatus.CREATED,
+    name="Register External Pre-aggregations",
+)
+async def register_preaggregations(
+    data: RegisterPreAggregationsRequest,
+    *,
+    session: AsyncSession = Depends(get_session),
+    request: Request,
+    query_service_client: QueryServiceClient = Depends(get_query_service_client),
+) -> PlanPreAggregationsResponse:
+    """
+    Register an externally-built pre-aggregation table.
+
+    Unlike ``/preaggs/plan`` (where DJ generates and owns the materialization),
+    this adopts a table built by an external pipeline. DJ decomposes the
+    requested metrics into component measures, binds each measure to a physical
+    column via ``measure_columns``, validates them against the table, records
+    the pre-aggregation, and — when ``valid_through_ts`` is supplied — marks it
+    available so grain resolution can route queries to it.
+    """
+    request_headers = dict(request.headers)
+    if not query_service_client:
+        raise DJConfigurationException(
+            message=(
+                "Registering external pre-aggregations requires a configured "
+                "query service for column inference."
+            ),
+        )
+
+    created_preaggs = await register_external_preaggregations(
+        session,
+        query_service_client,
+        request_headers,
+        name=data.name,
+        metrics=data.metrics,
+        dimensions=data.dimensions,
+        table=data.table,
+        measure_columns=data.measure_columns,
+    )
     await session.commit()
 
     preagg_ids = [p.id for p in created_preaggs]
