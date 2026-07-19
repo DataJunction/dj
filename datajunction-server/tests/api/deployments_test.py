@@ -5436,3 +5436,291 @@ class TestCubeBareDimRoleAwareDeployment:
         response = await client.get(f"/nodes/{namespace}.orders_cube/")
         assert response.status_code == 200, response.json()
         assert response.json()["status"] == "valid"
+
+
+def _hard_hat_deploy_nodes(default_hard_hats, default_us_states, default_us_state):
+    """Fact + dimension + link + a COUNT measure metric, for pre-agg deploy tests."""
+    hard_hat_facts = TransformSpec(
+        name="default.hard_hat_facts",
+        node_type=NodeType.TRANSFORM,
+        query="SELECT hard_hat_id, state FROM ${prefix}default.hard_hats",
+        dimension_links=[
+            DimensionJoinLinkSpec(
+                dimension_node="${prefix}default.us_state",
+                join_type="inner",
+                join_on=(
+                    "${prefix}default.hard_hat_facts.state = "
+                    "${prefix}default.us_state.state_short"
+                ),
+            ),
+        ],
+        owners=["dj"],
+    )
+    count_hard_hats = MetricSpec(
+        name="default.count_hard_hats",
+        node_type=NodeType.METRIC,
+        query="SELECT COUNT(*) FROM ${prefix}default.hard_hat_facts",
+        owners=["dj"],
+    )
+    return [
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+        hard_hat_facts,
+        count_hard_hats,
+    ]
+
+
+def _override_query_service(client, columns):
+    async def _fake_columns(*args, **kwargs):
+        return [SimpleNamespace(name=name) for name in columns]
+
+    mock_qs = MagicMock()
+    mock_qs.get_columns_for_table = _fake_columns
+    client.app.dependency_overrides[get_query_service_client] = lambda: mock_qs
+
+
+def _clear_query_service(client):
+    client.app.dependency_overrides.pop(get_query_service_client, None)
+
+
+def _preagg_spec(name, table, measure_columns, dimensions=None):
+    return PreAggSpec(
+        name=name,
+        metrics=["${prefix}default.count_hard_hats"],
+        dimensions=dimensions or ["${prefix}default.us_state.state_name"],
+        catalog="default",
+        schema="analytics",
+        table=table,
+        valid_through_ts=1700000000,
+        measure_columns=measure_columns,
+    )
+
+
+class TestExternalPreAggDeploy:
+    """Deploy-time reconciliation of externally-registered pre-aggregations."""
+
+    @pytest.mark.asyncio
+    async def test_deploy_preagg_invalid_metric_fails(
+        self,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """A pre-agg whose measure_columns key is not a valid measure is rejected;
+        no pre-agg is created."""
+        _override_query_service(client, ["hard_hat_count", "state_name"])
+        try:
+            bad = _preagg_spec(
+                "bad_preagg",
+                "hh_bad",
+                {"${prefix}default.does_not_exist": "hard_hat_count"},
+            )
+            await deploy_and_wait(
+                client,
+                DeploymentSpec(
+                    namespace="preagg_bad",
+                    nodes=_hard_hat_deploy_nodes(
+                        default_hard_hats,
+                        default_us_states,
+                        default_us_state,
+                    ),
+                    preaggregations=[bad],
+                ),
+            )
+            listing = await client.get(
+                "/preaggs/",
+                params={"node_name": "preagg_bad.default.hard_hat_facts"},
+            )
+            assert listing.status_code == 200
+            assert listing.json()["items"] == []
+        finally:
+            _clear_query_service(client)
+
+    @pytest.mark.asyncio
+    async def test_deploy_preagg_without_query_service(
+        self,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """Registering pre-aggs needs a query service; without one, none are created."""
+        client.app.dependency_overrides[get_query_service_client] = lambda: None
+        try:
+            spec = _preagg_spec(
+                "needs_qs",
+                "hh_qs",
+                {"${prefix}default.count_hard_hats": "hard_hat_count"},
+            )
+            await deploy_and_wait(
+                client,
+                DeploymentSpec(
+                    namespace="preagg_noqs",
+                    nodes=_hard_hat_deploy_nodes(
+                        default_hard_hats,
+                        default_us_states,
+                        default_us_state,
+                    ),
+                    preaggregations=[spec],
+                ),
+            )
+            listing = await client.get(
+                "/preaggs/",
+                params={"node_name": "preagg_noqs.default.hard_hat_facts"},
+            )
+            assert listing.json()["items"] == []
+        finally:
+            _clear_query_service(client)
+
+    @pytest.mark.asyncio
+    async def test_dry_run_skips_preagg_reconcile(
+        self,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """A dry-run (impact preview) does not register pre-aggregations."""
+        _override_query_service(client, ["hard_hat_count", "state_name"])
+        try:
+            nodes = _hard_hat_deploy_nodes(
+                default_hard_hats,
+                default_us_states,
+                default_us_state,
+            )
+            # Real deploy of the nodes (no pre-agg) so the fact node exists.
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(namespace="preagg_dry", nodes=nodes),
+            )
+            assert data["status"] == "success", data["results"]
+            # Dry-run impact WITH a pre-agg -> reconcile is skipped.
+            spec = _preagg_spec(
+                "dry_preagg",
+                "hh_dry",
+                {"${prefix}default.count_hard_hats": "hard_hat_count"},
+            )
+            await client.post(
+                "/deployments/impact",
+                json=DeploymentSpec(
+                    namespace="preagg_dry",
+                    nodes=nodes,
+                    preaggregations=[spec],
+                ).model_dump(),
+            )
+            listing = await client.get(
+                "/preaggs/",
+                params={"node_name": "preagg_dry.default.hard_hat_facts"},
+            )
+            assert listing.json()["items"] == []
+        finally:
+            _clear_query_service(client)
+
+    @pytest.mark.asyncio
+    async def test_delete_on_removal_scoped_to_namespace(
+        self,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """A deploy to one namespace does not remove pre-aggs in another."""
+        _override_query_service(client, ["hard_hat_count", "state_name"])
+        try:
+            nodes = _hard_hat_deploy_nodes(
+                default_hard_hats,
+                default_us_states,
+                default_us_state,
+            )
+            spec = _preagg_spec(
+                "keep_me",
+                "hh_keep",
+                {"${prefix}default.count_hard_hats": "hard_hat_count"},
+            )
+            # Namespace A gets a pre-agg.
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(
+                    namespace="preagg_a",
+                    nodes=nodes,
+                    preaggregations=[spec],
+                ),
+            )
+            assert data["status"] == "success", data["results"]
+            # Namespace B deploys with no pre-aggs.
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(namespace="preagg_b", nodes=nodes),
+            )
+            assert data["status"] == "success", data["results"]
+            # A's pre-agg is untouched.
+            listing = await client.get(
+                "/preaggs/",
+                params={"node_name": "preagg_a.default.hard_hat_facts"},
+            )
+            assert len(listing.json()["items"]) == 1
+        finally:
+            _clear_query_service(client)
+
+    @pytest.mark.asyncio
+    async def test_deploy_updates_existing_preagg(
+        self,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """Re-deploying the same pre-agg with a different table/column updates it
+        in place rather than creating a duplicate."""
+        nodes = _hard_hat_deploy_nodes(
+            default_hard_hats,
+            default_us_states,
+            default_us_state,
+        )
+        try:
+            _override_query_service(client, ["hh_count_v1", "state_name"])
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(
+                    namespace="preagg_upd",
+                    nodes=nodes,
+                    preaggregations=[
+                        _preagg_spec(
+                            "hh_agg",
+                            "hh_agg_v1",
+                            {"${prefix}default.count_hard_hats": "hh_count_v1"},
+                        ),
+                    ],
+                ),
+            )
+            assert data["status"] == "success", data["results"]
+
+            _override_query_service(client, ["hh_count_v2", "state_name"])
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(
+                    namespace="preagg_upd",
+                    nodes=nodes,
+                    preaggregations=[
+                        _preagg_spec(
+                            "hh_agg",
+                            "hh_agg_v2",
+                            {"${prefix}default.count_hard_hats": "hh_count_v2"},
+                        ),
+                    ],
+                ),
+            )
+            assert data["status"] == "success", data["results"]
+
+            listing = await client.get(
+                "/preaggs/",
+                params={"node_name": "preagg_upd.default.hard_hat_facts"},
+            )
+            items = listing.json()["items"]
+            assert len(items) == 1
+            source_columns = {m["source_column"] for m in items[0]["measures"]}
+            assert source_columns == {"hh_count_v2"}
+        finally:
+            _clear_query_service(client)

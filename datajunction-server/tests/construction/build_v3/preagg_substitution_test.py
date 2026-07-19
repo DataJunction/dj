@@ -31,8 +31,161 @@ from datajunction_server.models.decompose import (
     MetricComponent,
     PreAggMeasure,
 )
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
 from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.utils import get_query_service_client
 from . import assert_sql_equal, get_first_grain_group
+
+
+async def _register_external_preagg(
+    client,
+    *,
+    metrics,
+    dimensions,
+    table_ref,
+    measure_columns,
+    table_columns,
+):
+    """
+    Register an externally-built pre-aggregation via /preaggs/register with a
+    mocked query service that reports ``table_columns`` for the external table.
+    Returns the created pre-agg payloads.
+    """
+
+    async def _fake_columns(*args, **kwargs):
+        return [SimpleNamespace(name=name) for name in table_columns]
+
+    mock_qs = MagicMock()
+    mock_qs.get_columns_for_table = _fake_columns
+    client.app.dependency_overrides[get_query_service_client] = lambda: mock_qs
+    try:
+        response = await client.post(
+            "/preaggs/register",
+            json={
+                "metrics": metrics,
+                "dimensions": dimensions,
+                "table": table_ref,
+                "measure_columns": measure_columns,
+            },
+        )
+        assert response.status_code == 201, response.text
+        return response.json()["preaggs"]
+    finally:
+        del client.app.dependency_overrides[get_query_service_client]
+
+
+class TestExternalPreAggRouting:
+    """Queries route to externally-registered pre-agg tables via source_column."""
+
+    @pytest.mark.asyncio
+    async def test_external_preagg_used_at_exact_grain(self, client_with_build_v3):
+        """An exact-grain query reads the external table's physical source column."""
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.order_details.status"],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "revenue_by_status",
+                "valid_through_ts": 20250101,
+            },
+            measure_columns={"v3.total_revenue": "revenue_sum"},
+            table_columns=["status", "revenue_sum"],
+        )
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+        assert response.status_code == 200
+        sql = get_first_grain_group(response.json())["sql"]
+        # Routed to the external table, reading the mapped physical column.
+        assert "default.analytics.revenue_by_status" in sql
+        assert "revenue_sum" in sql
+
+    @pytest.mark.asyncio
+    async def test_external_preagg_rolls_up_additive(self, client_with_build_v3):
+        """An additive measure rolls up from an external pre-agg at a coarser grain."""
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.order_details.status"],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "revenue_by_status",
+                "valid_through_ts": 20250101,
+            },
+            measure_columns={"v3.total_revenue": "revenue_sum"},
+            table_columns=["status", "revenue_sum"],
+        )
+        # Query at a coarser grain (no dimensions) -> roll up the additive sum.
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={"metrics": ["v3.total_revenue"]},
+        )
+        assert response.status_code == 200
+        sql = get_first_grain_group(response.json())["sql"]
+        assert "default.analytics.revenue_by_status" in sql
+        assert "revenue_sum" in sql
+
+    @pytest.mark.asyncio
+    async def test_external_non_additive_not_rolled_up(self, client_with_build_v3):
+        """A non-additive measure (COUNT DISTINCT) does not roll up to a coarser
+        grain; the query falls back to raw sources."""
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.order_count"],
+            dimensions=["v3.order_details.status"],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "orders_by_status",
+                "valid_through_ts": 20250101,
+            },
+            measure_columns={"v3.order_count": "order_cnt"},
+            table_columns=["status", "order_cnt"],
+        )
+        # Coarser grain than the pre-agg -> a distinct count cannot be summed.
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={"metrics": ["v3.order_count"]},
+        )
+        assert response.status_code == 200
+        sql = get_first_grain_group(response.json())["sql"]
+        assert "default.analytics.orders_by_status" not in sql
+
+    @pytest.mark.asyncio
+    async def test_external_preagg_pending_not_used(self, client_with_build_v3):
+        """A registered pre-agg with no availability (no valid_through_ts) is not
+        used to answer queries."""
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.order_details.status"],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "revenue_pending",
+            },
+            measure_columns={"v3.total_revenue": "revenue_sum"},
+            table_columns=["status", "revenue_sum"],
+        )
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+        assert response.status_code == 200
+        sql = get_first_grain_group(response.json())["sql"]
+        assert "default.analytics.revenue_pending" not in sql
 
 
 class TestMetricsSQLWithPreAggregation:
