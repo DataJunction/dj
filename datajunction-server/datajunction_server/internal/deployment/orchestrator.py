@@ -1056,10 +1056,75 @@ class DeploymentOrchestrator:
         )
         if not specs and not existing:
             return
+
+        # Never mass-deregister external pre-aggs from a deploy that declares
+        # none: they may be managed out of band (POST /preaggs/register), or the
+        # pre-agg files may simply be absent from this push. Removing them all
+        # requires an explicit ``allow_empty`` opt-in (mirrors the node wipe
+        # guard). This is the real footgun -- the fully-empty-spec case is
+        # already refused upstream because a pre-agg's parent node is deleted too.
+        if not specs and not self.deployment_spec.allow_empty:
+            self.warnings.append(
+                DJError(
+                    code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                    message=(
+                        f"{len(existing)} external pre-aggregation(s) in "
+                        f"namespace '{namespace}' were left intact because the "
+                        f"deployment declares none. Re-run with allow_empty to "
+                        f"deregister them."
+                    ),
+                ),
+            )
+            logger.info(
+                "Skipped deregistering %d external pre-agg(s) in %s "
+                "(no specs declared, allow_empty not set)",
+                len(existing),
+                namespace,
+            )
+            return
+
+        declared_names = {spec.rendered_name for spec in specs}
+        existing_ids = {preagg.id for preagg in existing}
+        existing_names = {preagg.name for preagg in existing}
+
+        # Dry run: report the planned register/delete without mutating anything
+        # (no registration, so no external-table introspection either). Delete
+        # planning is name-level here; the wet run below deletes by row identity.
         if self.dry_run:
+            for spec in specs:
+                self.deployed_results.append(
+                    DeploymentResult(
+                        name=spec.rendered_name,
+                        deploy_type=DeploymentResult.Type.PREAGG,
+                        status=DeploymentResult.Status.SUCCESS,
+                        operation=(
+                            DeploymentResult.Operation.UPDATE
+                            if spec.rendered_name in existing_names
+                            else DeploymentResult.Operation.CREATE
+                        ),
+                        message="externally-built pre-aggregation",
+                    ),
+                )
+            for preagg in existing:
+                if preagg.name not in declared_names:
+                    self.deployed_results.append(
+                        DeploymentResult(
+                            name=preagg.name or f"preaggregation:{preagg.id}",
+                            deploy_type=DeploymentResult.Type.PREAGG,
+                            status=DeploymentResult.Status.SUCCESS,
+                            operation=DeploymentResult.Operation.DELETE,
+                            message="dropped from spec",
+                        ),
+                    )
             return
 
         query_service_client = self.context.query_service_client
+        request_headers = (
+            dict(self.context.request.headers) if self.context.request else {}
+        )
+
+        errors_before = len(self.errors)
+        upserted_ids: set[int] = set()
         if specs and not query_service_client:
             self.errors.append(
                 DJError(
@@ -1070,49 +1135,76 @@ class DeploymentOrchestrator:
                     ),
                 ),
             )
-            return
-        request_headers = (
-            dict(self.context.request.headers) if self.context.request else {}
-        )
+        else:
+            # Upsert each spec; track which pre-agg rows this deploy touched.
+            for spec in specs:
+                # A non-empty spec list implies a configured query service
+                # (guarded above). The assert narrows the Optional for mypy.
+                assert query_service_client is not None
+                try:
+                    created = await register_external_preaggregations(
+                        self.session,
+                        query_service_client,
+                        request_headers,
+                        name=spec.rendered_name,
+                        metrics=spec.rendered_metrics,
+                        dimensions=spec.rendered_dimensions,
+                        table=ExternalPreAggTable(
+                            catalog=spec.catalog,
+                            schema=spec.schema_,
+                            table=spec.table,
+                            valid_through_ts=spec.valid_through_ts,
+                        ),
+                        measure_columns=spec.rendered_measure_columns,
+                    )
+                    upserted_ids.update(preagg.id for preagg in created)
+                    for preagg in created:
+                        self.deployed_results.append(
+                            DeploymentResult(
+                                name=spec.rendered_name,
+                                deploy_type=DeploymentResult.Type.PREAGG,
+                                status=DeploymentResult.Status.SUCCESS,
+                                operation=(
+                                    DeploymentResult.Operation.UPDATE
+                                    if preagg.id in existing_ids
+                                    else DeploymentResult.Operation.CREATE
+                                ),
+                                message="externally-built pre-aggregation",
+                            ),
+                        )
+                except DJException as exc:
+                    self.errors.append(
+                        DJError(
+                            code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                            message=(
+                                f"Pre-aggregation '{spec.rendered_name}': {exc.message}"
+                            ),
+                        ),
+                    )
 
-        # Upsert each spec; track which pre-agg rows this deploy touched.
-        upserted_ids: set[int] = set()
-        for spec in specs:
-            # Guaranteed by the guard above: a non-empty spec list implies a
-            # configured query service. (assert narrows the Optional for mypy.)
-            assert query_service_client is not None
-            try:
-                created = await register_external_preaggregations(
-                    self.session,
-                    query_service_client,
-                    request_headers,
-                    name=spec.rendered_name,
-                    metrics=spec.rendered_metrics,
-                    dimensions=spec.rendered_dimensions,
-                    table=ExternalPreAggTable(
-                        catalog=spec.catalog,
-                        schema=spec.schema_,
-                        table=spec.table,
-                        valid_through_ts=spec.valid_through_ts,
-                    ),
-                    measure_columns=spec.rendered_measure_columns,
-                )
-                upserted_ids.update(preagg.id for preagg in created)
-            except DJException as exc:
-                self.errors.append(
-                    DJError(
-                        code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
-                        message=f"Pre-aggregation '{spec.rendered_name}': {exc.message}",
-                    ),
-                )
+        # If any spec failed to register, abort before deleting anything: a
+        # transient failure must not deregister a still-declared pre-agg, and
+        # the error must surface (the outer SAVEPOINT rolls the deploy back).
+        if len(self.errors) > errors_before:
+            raise DJInvalidDeploymentConfig(
+                message="Failed to reconcile pre-aggregations",
+                errors=self.errors,
+                warnings=self.warnings,
+            )
 
         # Delete-on-removal: any EXTERNAL pre-agg in this namespace not (re)created
-        # by this deploy has been dropped from the spec.
-        for preagg in await PreAggregation.get_external_by_namespace(
-            self.session,
-            namespace,
-        ):
+        # by this deploy has been dropped from the spec (or is a stale grain).
+        for preagg in existing:
             if preagg.id not in upserted_ids:
+                self.deployed_results.append(
+                    DeploymentResult(
+                        name=preagg.name or f"preaggregation:{preagg.id}",
+                        deploy_type=DeploymentResult.Type.PREAGG,
+                        status=DeploymentResult.Status.SUCCESS,
+                        operation=DeploymentResult.Operation.DELETE,
+                        message="dropped from spec",
+                    ),
+                )
                 await self.session.delete(preagg)
 
         await self.session.flush()
@@ -3135,6 +3227,11 @@ class DeploymentOrchestrator:
         deleting nodes that are genuinely absent from a real spec is the expected
         sync behavior. Also fires on dry-run, so a preview surfaces the refusal
         instead of quietly listing deletions.
+
+        Note: external pre-aggregations are protected transitively -- they hang
+        off parent nodes, so a fully-empty spec that would deregister them also
+        deletes those parents and is refused here. The case where a *content-ful*
+        spec omits pre-aggs is handled in ``_reconcile_preaggregations``.
         """
         spec = self.deployment_spec
         if spec.allow_empty or spec.nodes or spec.hierarchies or spec.tags:

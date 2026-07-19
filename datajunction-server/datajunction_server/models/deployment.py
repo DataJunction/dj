@@ -992,6 +992,7 @@ class DeploymentResult(BaseModel):
         LINK = "link"
         TAG = "tag"
         NAMESPACE = "namespace"
+        PREAGG = "preaggregation"
         GENERAL = "general"
 
     name: str

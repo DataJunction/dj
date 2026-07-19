@@ -1787,10 +1787,15 @@ class TestDeployments:
                 for measure in preagg["measures"]
             )
 
-            # Re-deploy without the preaggregation -> it is reconciled away.
+            # Re-deploy without the preaggregation -> declaring none never
+            # mass-deregisters, so allow_empty is required to reconcile it away.
             data = await deploy_and_wait(
                 client,
-                DeploymentSpec(namespace="preagg_deploy", nodes=nodes),
+                DeploymentSpec(
+                    namespace="preagg_deploy",
+                    nodes=nodes,
+                    allow_empty=True,
+                ),
             )
             assert data["status"] == "success", data["results"]
             listing = await client.get("/preaggs/", params={"node_name": fact_node})
@@ -5517,8 +5522,8 @@ class TestExternalPreAggDeploy:
         default_us_states,
         default_us_state,
     ):
-        """A pre-agg whose measure_columns key is not a valid measure is rejected;
-        no pre-agg is created."""
+        """A pre-agg whose measure_columns key is not a valid measure fails the
+        whole deploy and rolls it back -- no nodes or pre-aggs are left behind."""
         _override_query_service(client, ["hard_hat_count", "state_name"])
         try:
             bad = _preagg_spec(
@@ -5526,7 +5531,7 @@ class TestExternalPreAggDeploy:
                 "hh_bad",
                 {"${prefix}default.does_not_exist": "hard_hat_count"},
             )
-            await deploy_and_wait(
+            data = await deploy_and_wait(
                 client,
                 DeploymentSpec(
                     namespace="preagg_bad",
@@ -5538,12 +5543,13 @@ class TestExternalPreAggDeploy:
                     preaggregations=[bad],
                 ),
             )
-            listing = await client.get(
-                "/preaggs/",
-                params={"node_name": "preagg_bad.default.hard_hat_facts"},
-            )
-            assert listing.status_code == 200
-            assert listing.json()["items"] == []
+            assert data["status"] == "failed"
+            message = data["results"][-1]["message"]
+            assert "Failed to reconcile pre-aggregations" in message
+            assert "is not a metric node" in message
+            # The whole deploy rolled back: the fact node was not created.
+            node_resp = await client.get("/nodes/preagg_bad.default.hard_hat_facts")
+            assert node_resp.status_code == 404
         finally:
             _clear_query_service(client)
 
@@ -5555,7 +5561,8 @@ class TestExternalPreAggDeploy:
         default_us_states,
         default_us_state,
     ):
-        """Registering pre-aggs needs a query service; without one, none are created."""
+        """Registering pre-aggs needs a query service; without one the deploy
+        fails and rolls back rather than silently skipping."""
         client.app.dependency_overrides[get_query_service_client] = lambda: None
         try:
             spec = _preagg_spec(
@@ -5563,7 +5570,7 @@ class TestExternalPreAggDeploy:
                 "hh_qs",
                 {"${prefix}default.count_hard_hats": "hard_hat_count"},
             )
-            await deploy_and_wait(
+            data = await deploy_and_wait(
                 client,
                 DeploymentSpec(
                     namespace="preagg_noqs",
@@ -5575,23 +5582,25 @@ class TestExternalPreAggDeploy:
                     preaggregations=[spec],
                 ),
             )
-            listing = await client.get(
-                "/preaggs/",
-                params={"node_name": "preagg_noqs.default.hard_hat_facts"},
+            assert data["status"] == "failed"
+            assert (
+                "requires a configured query service" in data["results"][-1]["message"]
             )
-            assert listing.json()["items"] == []
+            # The whole deploy rolled back: the fact node was not created.
+            node_resp = await client.get("/nodes/preagg_noqs.default.hard_hat_facts")
+            assert node_resp.status_code == 404
         finally:
             _clear_query_service(client)
 
     @pytest.mark.asyncio
-    async def test_dry_run_skips_preagg_reconcile(
+    async def test_dry_run_reports_preagg_reconcile(
         self,
         client,
         default_hard_hats,
         default_us_states,
         default_us_state,
     ):
-        """A dry-run (impact preview) does not register pre-aggregations."""
+        """A dry-run reports the planned pre-agg register without persisting it."""
         _override_query_service(client, ["hard_hat_count", "state_name"])
         try:
             nodes = _hard_hat_deploy_nodes(
@@ -5605,25 +5614,64 @@ class TestExternalPreAggDeploy:
                 DeploymentSpec(namespace="preagg_dry", nodes=nodes),
             )
             assert data["status"] == "success", data["results"]
-            # Dry-run impact WITH a pre-agg -> reconcile is skipped.
+
             spec = _preagg_spec(
                 "dry_preagg",
                 "hh_dry",
                 {"${prefix}default.count_hard_hats": "hard_hat_count"},
             )
-            await client.post(
-                "/deployments/impact",
-                json=DeploymentSpec(
-                    namespace="preagg_dry",
-                    nodes=nodes,
-                    preaggregations=[spec],
-                ).model_dump(),
-            )
+
+            async def _impact_preagg_results(preaggs, allow_empty=False):
+                impact = await client.post(
+                    "/deployments/impact",
+                    json=DeploymentSpec(
+                        namespace="preagg_dry",
+                        nodes=nodes,
+                        preaggregations=preaggs,
+                        allow_empty=allow_empty,
+                    ).model_dump(),
+                )
+                return [
+                    r
+                    for r in impact.json()["results"]
+                    if r["deploy_type"] == "preaggregation"
+                ]
+
+            # Not yet registered -> planned CREATE, nothing persisted.
+            results = await _impact_preagg_results([spec])
+            assert len(results) == 1
+            assert results[0]["name"] == "preagg_dry.dry_preagg"
+            assert results[0]["operation"] == "create"
             listing = await client.get(
                 "/preaggs/",
                 params={"node_name": "preagg_dry.default.hard_hat_facts"},
             )
             assert listing.json()["items"] == []
+
+            # Actually register it, then dry-run again.
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(
+                    namespace="preagg_dry",
+                    nodes=nodes,
+                    preaggregations=[spec],
+                ),
+            )
+            assert data["status"] == "success", data["results"]
+
+            # Re-declaring it -> planned UPDATE.
+            results = await _impact_preagg_results([spec])
+            assert [r["operation"] for r in results] == ["update"]
+
+            # Dropping it (allow_empty) -> planned DELETE, still there afterward.
+            results = await _impact_preagg_results([], allow_empty=True)
+            assert len(results) == 1
+            assert results[0]["operation"] == "delete"
+            listing = await client.get(
+                "/preaggs/",
+                params={"node_name": "preagg_dry.default.hard_hat_facts"},
+            )
+            assert len(listing.json()["items"]) == 1
         finally:
             _clear_query_service(client)
 
@@ -5731,5 +5779,64 @@ class TestExternalPreAggDeploy:
             assert len(items) == 1
             source_columns = {m["source_column"] for m in items[0]["measures"]}
             assert source_columns == {"hh_count_v2"}
+        finally:
+            _clear_query_service(client)
+
+    @pytest.mark.asyncio
+    async def test_preagg_kept_when_none_declared(
+        self,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """A content-ful deploy that declares no pre-aggs leaves existing
+        external pre-aggs intact; allow_empty is required to deregister them."""
+        _override_query_service(client, ["hard_hat_count", "state_name"])
+        try:
+            nodes = _hard_hat_deploy_nodes(
+                default_hard_hats,
+                default_us_states,
+                default_us_state,
+            )
+            fact_node = "preagg_keep.default.hard_hat_facts"
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(
+                    namespace="preagg_keep",
+                    nodes=nodes,
+                    preaggregations=[
+                        _preagg_spec(
+                            "keep_me2",
+                            "hh_keep2",
+                            {"${prefix}default.count_hard_hats": "hard_hat_count"},
+                        ),
+                    ],
+                ),
+            )
+            assert data["status"] == "success", data["results"]
+
+            # Re-deploy the same nodes with NO pre-aggs -> the pre-agg is kept,
+            # not silently deregistered.
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(namespace="preagg_keep", nodes=nodes),
+            )
+            assert data["status"] == "success", data["results"]
+            listing = await client.get("/preaggs/", params={"node_name": fact_node})
+            assert len(listing.json()["items"]) == 1
+
+            # allow_empty opts into the deregistration.
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(
+                    namespace="preagg_keep",
+                    nodes=nodes,
+                    allow_empty=True,
+                ),
+            )
+            assert data["status"] == "success", data["results"]
+            listing = await client.get("/preaggs/", params={"node_name": fact_node})
+            assert listing.json()["items"] == []
         finally:
             _clear_query_service(client)
