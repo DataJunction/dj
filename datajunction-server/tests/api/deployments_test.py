@@ -1743,8 +1743,8 @@ class TestDeployments:
 
         async def _fake_columns(*args, **kwargs):
             return [
-                SimpleNamespace(name="hard_hat_count"),
-                SimpleNamespace(name="state_name"),
+                SimpleNamespace(name="hard_hat_count", type="bigint"),
+                SimpleNamespace(name="state_name", type="string"),
             ]
 
         mock_qs = MagicMock()
@@ -5472,8 +5472,17 @@ def _hard_hat_deploy_nodes(default_hard_hats, default_us_states, default_us_stat
 
 
 def _override_query_service(client, columns):
+    items = (
+        columns.items()
+        if isinstance(columns, dict)
+        else [(name, "bigint") for name in columns]
+    )
+    table_columns = [
+        SimpleNamespace(name=name, type=type_str) for name, type_str in items
+    ]
+
     async def _fake_columns(*args, **kwargs):
-        return [SimpleNamespace(name=name) for name in columns]
+        return table_columns
 
     mock_qs = MagicMock()
     mock_qs.get_columns_for_table = _fake_columns

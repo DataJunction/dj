@@ -54,8 +54,14 @@ async def _register_external_preagg(
     Returns the created pre-agg payloads.
     """
 
+    items = (
+        table_columns.items()
+        if isinstance(table_columns, dict)
+        else [(name, "double") for name in table_columns]
+    )
+
     async def _fake_columns(*args, **kwargs):
-        return [SimpleNamespace(name=name) for name in table_columns]
+        return [SimpleNamespace(name=name, type=type_str) for name, type_str in items]
 
     mock_qs = MagicMock()
     mock_qs.get_columns_for_table = _fake_columns

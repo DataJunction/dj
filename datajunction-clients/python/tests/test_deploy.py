@@ -46,12 +46,13 @@ def test_pull_extracts_zip_from_server(tmp_path):
 
 
 def test_reconstruct_deployment_spec_separates_preaggregations(tmp_path):
-    """Pre-agg YAML files (identified by measure_columns) route to preaggregations."""
+    """Files with ``kind: preagg`` route to preaggregations; the rest are nodes."""
     (tmp_path / "dj.yaml").write_text("namespace: ns\n")
     (tmp_path / "revenue.yaml").write_text(
         "name: ns.revenue\nnode_type: metric\nquery: SELECT SUM(amount) FROM ns.fct\n",
     )
-    (tmp_path / "revenue_agg.preagg.yaml").write_text(
+    (tmp_path / "revenue_by_day.yaml").write_text(
+        "kind: preagg\n"
         "name: revenue_by_day\n"
         "metrics:\n  - ns.revenue\n"
         "dimensions:\n  - ns.date.day\n"
@@ -64,12 +65,24 @@ def test_reconstruct_deployment_spec_separates_preaggregations(tmp_path):
     svc = DeploymentService(MagicMock())
     spec, _ = svc._reconstruct_deployment_spec(tmp_path)
 
+    # The node file (no kind → node) stays a node.
     assert [node["name"] for node in spec["nodes"]] == ["ns.revenue"]
     assert len(spec["preaggregations"]) == 1
-    assert spec["preaggregations"][0]["name"] == "revenue_by_day"
-    assert spec["preaggregations"][0]["measure_columns"] == {
-        "ns.revenue": "revenue_sum",
-    }
+    preagg = spec["preaggregations"][0]
+    assert preagg["name"] == "revenue_by_day"
+    assert preagg["measure_columns"] == {"ns.revenue": "revenue_sum"}
+    # The discriminator is stripped before reaching the payload.
+    assert "kind" not in preagg
+
+
+def test_reconstruct_deployment_spec_rejects_unknown_kind(tmp_path):
+    """An unrecognized ``kind`` fails loudly instead of silently becoming a node."""
+    (tmp_path / "dj.yaml").write_text("namespace: ns\n")
+    (tmp_path / "mystery.yaml").write_text("kind: widget\nname: ns.mystery\n")
+
+    svc = DeploymentService(MagicMock())
+    with pytest.raises(DJClientException, match="Unknown kind 'widget'"):
+        svc._reconstruct_deployment_spec(tmp_path)
 
 
 def test_pull_uploads_existing_yaml_files(tmp_path):

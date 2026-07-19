@@ -687,6 +687,48 @@ async def plan_preaggregations(
     )
 
 
+def _assert_measure_column_compatible(
+    *,
+    measure_name: str,
+    physical_column: str,
+    expected_type: Optional[str],
+    actual_type: object,
+    table: "ExternalPreAggTable",
+) -> None:
+    """
+    Reject a ``measure_columns`` mapping whose physical column type is
+    incompatible with the measure's expected type (e.g. a SUM measure bound to
+    a string column).
+
+    Conservative by design: both types are re-parsed into concrete
+    ``ColumnType`` subclasses (the query service wraps physical types as a bare
+    ``ColumnType`` string, which ``is_compatible`` cannot reason about), and the
+    check is skipped whenever a type is unknown or unparseable. Only clear
+    cross-family mismatches are rejected, so int-vs-bigint never false-fails.
+    """
+    from typing import cast
+
+    from datajunction_server.sql.parsing.backends.antlr4 import parse_rule
+    from datajunction_server.sql.parsing.types import ColumnType
+
+    if expected_type is None:  # pragma: no cover - defensive
+        return
+    try:
+        expected = cast(ColumnType, parse_rule(str(expected_type), "dataType"))
+        actual = cast(ColumnType, parse_rule(str(actual_type), "dataType"))
+    except Exception:  # pragma: no cover - defensive
+        return
+    if not expected.is_compatible(actual):
+        raise DJInvalidInputException(
+            message=(
+                f"Column '{physical_column}' (type {actual}) in table "
+                f"{table.catalog}.{table.schema_}.{table.table} is not "
+                f"type-compatible with measure '{measure_name}' "
+                f"(expected {expected})."
+            ),
+        )
+
+
 async def register_external_preaggregations(
     session: AsyncSession,
     query_service_client: QueryServiceClient,
@@ -759,11 +801,11 @@ async def register_external_preaggregations(
         request_headers,
         catalog.engines[0] if catalog.engines else None,
     )
-    table_column_names = {col.name for col in table_columns}
+    table_columns_by_name = {col.name: col.type for col in table_columns}
     missing_columns = sorted(
         column
         for column in measure_hash_to_column.values()
-        if column not in table_column_names
+        if column not in table_columns_by_name
     )
     if missing_columns:
         raise DJInvalidInputException(
@@ -783,6 +825,14 @@ async def register_external_preaggregations(
         node_revision_id = parent_node.current.id
         grain_columns = list(measures_result.requested_dimensions)
 
+        # Expected measure types, keyed by measure name, for the physical-column
+        # type-compatibility check below.
+        measure_types = {
+            col.name: col.type
+            for col in grain_group.columns
+            if col.semantic_type in ("metric_component", "measure", "metric")
+        }
+
         grain_measures: list[PreAggMeasure] = []
         for component in grain_group.components:
             expr_hash = compute_expression_hash(component.expression)
@@ -794,17 +844,27 @@ async def register_external_preaggregations(
                         f"is_measure metric it corresponds to."
                     ),
                 )
+            physical_column = measure_hash_to_column[expr_hash]
+            measure_name = grain_group.component_aliases.get(
+                component.name,
+                component.name,
+            )
+            _assert_measure_column_compatible(
+                measure_name=component.name,
+                physical_column=physical_column,
+                expected_type=measure_types.get(measure_name)
+                or measure_types.get(component.name),
+                actual_type=table_columns_by_name[physical_column],
+                table=table,
+            )
             grain_measures.append(
                 PreAggMeasure(
                     **{
                         **component.model_dump(),
-                        "name": grain_group.component_aliases.get(
-                            component.name,
-                            component.name,
-                        ),
+                        "name": measure_name,
                     },
                     expr_hash=expr_hash,
-                    source_column=measure_hash_to_column[expr_hash],
+                    source_column=physical_column,
                 ),
             )
 

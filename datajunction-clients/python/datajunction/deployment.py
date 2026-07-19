@@ -491,11 +491,26 @@ class DeploymentService:
         project_metadata = self._read_project_yaml(base_dir)
         collected, warnings = self._collect_nodes_from_dir(base_dir)
 
-        # Pre-aggregation specs live in the same YAML tree but are not nodes;
-        # identify them by the ``measure_columns`` field and route them to the
-        # deployment's ``preaggregations`` list.
-        preaggregations = [item for item in collected if "measure_columns" in item]
-        nodes = [item for item in collected if "measure_columns" not in item]
+        # Every YAML file declares its ``kind``. An absent discriminator means
+        # ``node`` (backwards compatible: existing files carry no ``kind``).
+        # Pre-aggregation specs live in the same tree but are not nodes, so they
+        # are routed to the deployment's ``preaggregations`` list. The key is
+        # stripped so it never reaches the node/pre-agg payload.
+        valid_kinds = {"node", "preagg"}
+        nodes: list[dict[str, Any]] = []
+        preaggregations: list[dict[str, Any]] = []
+        for item in collected:
+            kind = item.pop("kind", "node")
+            if kind == "node":
+                nodes.append(item)
+            elif kind == "preagg":
+                preaggregations.append(item)
+            else:
+                raise DJClientException(
+                    f"Unknown kind '{kind}' in "
+                    f"'{item.get('name', '<unnamed>')}'; expected one of "
+                    f"{sorted(valid_kinds)}.",
+                )
 
         # Deduplicate nodes by name (keep last occurrence)
         seen_names: dict[str, dict] = {}
