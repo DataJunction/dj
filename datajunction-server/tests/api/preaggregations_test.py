@@ -2502,6 +2502,47 @@ class TestRegisterPreAggregations:
             del client_with_build_v3.app.dependency_overrides[get_query_service_client]
 
     @pytest.mark.asyncio
+    async def test_register_accepts_compatible_but_different_type(
+        self,
+        client_with_build_v3: AsyncClient,
+    ):
+        """Type checking is category-level: a numeric measure binds to a numeric
+        column even when the exact type differs (e.g. bigint vs the inferred
+        double), so int/bigint/decimal never false-reject a valid registration."""
+        _mock_query_service(
+            client_with_build_v3,
+            {
+                "revenue_total": "bigint",  # compatible with the numeric measure
+                "order_cnt": "int",
+                "category": "string",
+            },
+        )
+        try:
+            response = await client_with_build_v3.post(
+                "/preaggs/register",
+                json={
+                    "metrics": ["v3.avg_order_value"],
+                    "dimensions": ["v3.product.category"],
+                    "table": {
+                        "catalog": "default",
+                        "schema": "analytics",
+                        "table": "compatible_types_agg",
+                    },
+                    "measure_columns": {
+                        "v3.total_revenue": "revenue_total",
+                        "v3.order_count": "order_cnt",
+                    },
+                },
+            )
+            assert response.status_code == 201, response.text
+            source_columns = {
+                m["source_column"] for m in response.json()["preaggs"][0]["measures"]
+            }
+            assert source_columns == {"revenue_total", "order_cnt"}
+        finally:
+            del client_with_build_v3.app.dependency_overrides[get_query_service_client]
+
+    @pytest.mark.asyncio
     async def test_register_without_valid_through_ts_is_pending(
         self,
         client_with_build_v3: AsyncClient,
