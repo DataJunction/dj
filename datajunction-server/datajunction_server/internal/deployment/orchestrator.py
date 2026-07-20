@@ -1041,7 +1041,7 @@ class DeploymentOrchestrator:
         exist. Skipped during dry runs (registration introspects the external
         table and mutates state). Reuses the same core as POST /preaggs/register.
         """
-        from datajunction_server.api.preaggregations import (
+        from datajunction_server.internal.preaggregations import (
             register_external_preaggregations,
         )
         from datajunction_server.database.preaggregation import PreAggregation
