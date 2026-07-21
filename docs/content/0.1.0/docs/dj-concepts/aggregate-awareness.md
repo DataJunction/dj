@@ -170,34 +170,40 @@ Notice that `view_rate`, a ratio metric, is listed under `metrics` but doesn't a
 `measure_columns` — it doesn't need a column, because it's derived from `view_secs` and
 `session_count`, which are the two measures that do have columns.
 
-On registration DJ decomposes every metric you listed, checks (via query-service introspection) that
-every column you named actually exists in the table, confirms that each key in `measure_columns` really
-is a measure, and confirms that every measure any of your metrics decomposes into is covered by some
-column. If all of that checks out, DJ records the pre-aggregation. If you also pass a
+On registration DJ decomposes every metric you listed, then validates the binding: it confirms each key
+in `measure_columns` really is a measure, checks (via query-service introspection) that every column you
+named actually exists in the table **and is type-compatible with the measure it backs** — a numeric
+`SUM` can't bind to a string column, for instance (the check is category-level, so `int` vs `bigint`
+vs `decimal` are all fine) — and confirms that every measure any of your metrics decomposes into is
+covered by some column. If all of that checks out, DJ records the pre-aggregation. If you also pass a
 `valid_through_ts`, DJ marks it available immediately so routing can start using it right away.
 
-#### YAML: `*.preagg.yaml`
+#### YAML: a `kind: preagg` file
 
-For anything durable, define the pre-aggregation as a deployment artifact instead. The DJ client
-recognizes any YAML file containing a `measure_columns:` key as a pre-aggregation spec and routes it
-into the deployment's pre-aggregations alongside your nodes, cubes, and other definitions.
+For anything durable, define the pre-aggregation as a deployment artifact instead. Every file in a
+deployment declares a `kind`: files with no `kind` are nodes (the default), and a pre-aggregation
+sets `kind: preagg`. The DJ client routes each `kind: preagg` file into the deployment's
+pre-aggregations alongside your nodes, cubes, and other definitions.
 
 Given these two measure metrics and one derived metric:
 
 ```yaml
-# nodes/view_secs.metric.yaml
+# view_secs.yaml
+node_type: metric
 description: Total time spent viewing
 query: SELECT SUM(view_secs) FROM ${prefix}fct_views
 ```
 
 ```yaml
-# nodes/session_count.metric.yaml
+# session_count.yaml
+node_type: metric
 description: Number of viewing sessions
 query: SELECT COUNT(session_id) FROM ${prefix}fct_views
 ```
 
 ```yaml
-# nodes/view_rate.metric.yaml
+# view_rate.yaml
+node_type: metric
 description: Average view seconds per session
 query: SELECT ${prefix}view_secs / ${prefix}session_count
 ```
@@ -206,7 +212,8 @@ the pre-aggregation spec that binds `view_secs` and `session_count` to an extern
 like this:
 
 ```yaml
-# preaggs/views_by_page.preagg.yaml
+# views_by_page.yaml
+kind: preagg
 name: views_by_page
 metrics:
   - ${prefix}view_rate
@@ -225,10 +232,12 @@ against its underlying measures — DJ resolves `view_rate`'s dependency on `vie
 `session_count`, sees both are covered by columns in `measure_columns`, and considers `view_rate`
 covered as a result.
 
-On deploy, DJ registers any pre-aggregation specs it finds, and — because deployments are the source of
-truth for what should exist — removes any previously-registered pre-aggregation whose spec was deleted
-from the deployment. You manage these the same way you manage nodes: add a file to declare one, delete
-the file to remove it.
+On deploy, DJ registers any pre-aggregation specs it finds. Because deployments are the source of truth,
+it also removes a previously-registered pre-aggregation once you drop its spec from a deploy that still
+declares others — the same way removing a node file deletes that node. As a safeguard against an
+accidental or partial push wiping externally-managed tables, a deploy that declares *no* pre-aggregations
+at all never mass-deregisters the existing ones; removing your last one is an explicit action, done by
+passing `allow_empty` on the deploy.
 
 ### Freshness is reported separately from the binding
 
@@ -241,7 +250,7 @@ it's committed.
 Instead, the external pipeline reports freshness after each build completes, by calling:
 
 ```
-POST /preaggs/{name}/availability/
+POST /preaggs/{preagg_id}/availability/
 ```
 
 ```json
@@ -249,9 +258,13 @@ POST /preaggs/{name}/availability/
   "catalog": "warehouse",
   "schema": "analytics",
   "table": "views_by_page_daily",
-  "valid_through_ts": "2026-07-19T00:00:00Z"
+  "valid_through_ts": 20260721
 }
 ```
+
+The `preagg_id` is the id returned when the pre-aggregation is registered (in the `POST
+/preaggs/register` response, or from `GET /preaggs/?node_name=<parent>`). `valid_through_ts` is an
+integer timestamp in the table's partition/temporal format (e.g. `yyyyMMdd`), not an ISO string.
 
 Until this call has been made at least once, the pre-aggregation exists but has no availability, so
 routing won't send queries to it — the same rule that applies to any DJ-materialized pre-aggregation
