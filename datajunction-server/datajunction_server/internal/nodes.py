@@ -21,7 +21,6 @@ from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.models.deployment import DeploymentResult
 from datajunction_server.models.query import QueryCreate
 from datajunction_server.api.helpers import (
-    cube_element_roles,
     dedupe_cube_elements,
     get_attribute_type,
     get_catalog_by_name,
@@ -644,6 +643,7 @@ async def create_cube_node_revision(
         metric_nodes,
         dimension_nodes,
         dimension_columns,
+        dimension_roles,
         catalog,
     ) = await validate_cube(
         session,
@@ -664,7 +664,10 @@ async def create_cube_node_revision(
     # for marking partition columns when the cube gets materialized.
     node_columns = []
     # Role suffix per cube element, aligned to metric_columns + dimension_columns.
-    element_roles = cube_element_roles(len(metric_columns), data.dimensions or [])
+    # Metrics never carry a role; validate_cube returns dimension_roles 1:1 with
+    # the resolved dimension_columns, so a silently-skipped (unresolvable)
+    # dimension reference can't shift roles onto the wrong column.
+    element_roles = [None] * len(metric_columns) + dimension_roles
     for idx, col in enumerate(metric_columns + dimension_columns):
         await session.refresh(col, ["node_revision"])
         referenced_node = col.node_revision

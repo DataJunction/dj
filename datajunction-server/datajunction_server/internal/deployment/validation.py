@@ -77,6 +77,14 @@ class CubeValidationData:
     dimension_nodes: list
     dimension_columns: list
     catalog: Optional[object]
+    # Role suffix ("[role]" or None) for each entry in dimension_columns, kept
+    # strictly 1:1 with it. The role must travel WITH its resolved column: a cube
+    # can reference the same dimension column under two FK roles (e.g.
+    # dt_date_d.dateint[epoch_date] and dt_date_d.dateint[region_date]), and
+    # unresolvable references are skipped during validation, so aligning roles by
+    # position against the original dimension list goes off-by-one and drops or
+    # mis-binds them.
+    dimension_column_roles: list = field(default_factory=list)
     # Optional: Column → Node mapping. When provided, _create_cube_node_revision...
     # uses it instead of session.refresh(col, ["node_revision"]) to get the owning
     # node. Populated by the copy fast-path to avoid per-column DB round-trips.

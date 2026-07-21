@@ -447,37 +447,6 @@ async def resolve_downstream_references(
     return newly_valid_nodes
 
 
-def dimension_roles_in_order(dimensions: List[str]) -> List[Optional[str]]:
-    """
-    The `[role]` suffix (or None) for each dimension reference, in order.
-
-    One entry per reference (keyed by position, not column name), so two roles on
-    the same column are not collapsed. E.g.
-    `["a.x[start]", "a.x[end]", "b.y"]` -> `["[start]", "[end]", None]`.
-    """
-    roles: List[Optional[str]] = []
-    for dim in dimensions:
-        attr = FullColumnName(dim)
-        roles.append(f"[{attr.role}]" if attr.role else None)
-    return roles
-
-
-def cube_element_roles(
-    num_metrics: int,
-    dimension_refs: List[str],
-) -> List[Optional[str]]:
-    """
-    Role suffix (or None) for each cube element, aligned to the cube's
-    node_columns.
-
-    A cube's node_columns are built metrics-first, then dimensions, so the result
-    is `num_metrics` Nones (metrics carry no role) followed by one `[role]`-or-None
-    per dimension reference. Callers index this by each node_column's position.
-    """
-    metric_roles: List[Optional[str]] = [None] * num_metrics
-    return metric_roles + dimension_roles_in_order(dimension_refs)
-
-
 def dedupe_cube_elements(columns: List[Column]) -> List[Column]:
     """
     Dedupe cube element columns by column id.
@@ -500,9 +469,23 @@ async def validate_cube(
     metric_names: List[str],
     dimension_names: List[str],
     require_dimensions: bool = False,
-) -> Tuple[List[Column], List[Node], List[Node], List[Column], Optional[Catalog]]:
+) -> Tuple[
+    List[Column],
+    List[Node],
+    List[Node],
+    List[Column],
+    List[Optional[str]],
+    Optional[Catalog],
+]:
     """
     Validate that a set of metrics and dimensions can be built together.
+
+    Returns (in order): metric columns, metric nodes, dimension nodes, resolved
+    dimension columns, the "[role]"-or-None suffix for each resolved dimension
+    column (kept strictly 1:1 with it), and the shared catalog. The roles are
+    returned alongside their columns rather than recomputed by position because
+    unresolvable references are skipped below — a position-based alignment would
+    drop or mis-bind roles on cubes that reach one dimension via two FK roles.
     """
     metric_nodes = await check_metrics_exist(session, metric_names)
     catalogs = [metric.current.catalog for metric in metric_nodes]
@@ -543,6 +526,7 @@ async def validate_cube(
         for attr in dimension_attributes
     }
     dimensions: List[Column] = []
+    dimension_roles: List[Optional[str]] = []
     for attr in dimension_attributes:
         dimension_node = dimension_mapping[
             f"{attr.node_name}{SEPARATOR}{attr.column_name}"
@@ -556,6 +540,7 @@ async def validate_cube(
 
         if column_name_without_role in columns:  # pragma: no cover
             dimensions.append(columns[column_name_without_role])
+            dimension_roles.append(f"[{attr.role}]" if attr.role else None)
 
     if require_dimensions and not dimensions:
         raise DJInvalidInputException(  # pragma: no cover
@@ -582,7 +567,14 @@ async def validate_cube(
             metric_nodes,
             dimension_names,
         )
-    return metrics, metric_nodes, list(dimension_nodes.values()), dimensions, catalog
+    return (
+        metrics,
+        metric_nodes,
+        list(dimension_nodes.values()),
+        dimensions,
+        dimension_roles,
+        catalog,
+    )
 
 
 async def check_metrics_exist(session: AsyncSession, metrics: list[str]) -> list[Node]:
