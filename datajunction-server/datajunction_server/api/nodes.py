@@ -673,6 +673,11 @@ async def register_table(
     name = f"{namespace}.{table}"
     await raise_if_node_exists(session, name)
 
+    # Authorize before any mutation: creating/reactivating the namespace below
+    # (which can commit) must not happen for a caller without WRITE.
+    access_checker.add_namespace(namespace, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     # Create the namespace if required (idempotent)
     await create_or_reactivate_namespace(
         namespace=namespace,
@@ -681,8 +686,6 @@ async def register_table(
         current_user=current_user,
         save_history=save_history,
     )
-    access_checker.add_namespace(namespace, ResourceAction.WRITE)
-    await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     # Use reflection to get column names and types
     _catalog = await get_catalog_by_name(session=session, name=catalog)

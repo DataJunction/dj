@@ -20,6 +20,8 @@ from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRelationship, NodeRevision
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJDoesNotExistException
+from datajunction_server.internal.access.authorization import AuthorizationService
+from datajunction_server.models import access as access_models
 from datajunction_server.internal.materializations import decompose_expression
 from datajunction_server.models.node import NodeStatus
 from datajunction_server.models.node_type import NodeType
@@ -356,6 +358,29 @@ async def test_get_nodes_with_details(client_with_examples: AsyncClient):
         "v3.wow_aov_change",
         "v3.first_product_when_any_quantity",
     }
+
+
+# NOTE: duplicated in write_enforcement_test.py and preaggregations_test.py; a
+# follow-up consolidates these into one shared test helper.
+VALIDATOR_AUTH_SERVICE = (
+    "datajunction_server.internal.access.authorization."
+    "validator.get_authorization_service"
+)
+
+
+class DenyWriteAuthorizationService(AuthorizationService):
+    """Approves everything except WRITE (a caller without write access)."""
+
+    name = "nodes_test_deny_write"
+
+    def authorize(self, auth_context, requests):
+        return [
+            access_models.AccessDecision(
+                request=request,
+                approved=request.verb != access_models.ResourceAction.WRITE,
+            )
+            for request in requests
+        ]
 
 
 class TestNodeCRUD:
@@ -1805,6 +1830,29 @@ class TestNodeCRUD:
         assert response.status_code == 201
 
     @pytest.mark.asyncio
+    async def test_register_table_denies_before_creating_namespace(
+        self,
+        module__client_with_basic,
+        mocker,
+    ):
+        """
+        A caller without WRITE must be denied *before* the namespace is created or
+        reactivated (regression: register_table used to mutate then check).
+        """
+        mocker.patch(
+            VALIDATOR_AUTH_SERVICE,
+            lambda: DenyWriteAuthorizationService(),
+        )
+        response = await module__client_with_basic.post(
+            "/register/table/public/denied_reg/widgets/",
+        )
+        assert response.status_code == 403
+        assert "Access denied" in response.json()["message"]
+
+        # The namespace must not have been created (mutation must not precede auth).
+        namespaces = await module__client_with_basic.get("/namespaces/")
+        assert "source.public.denied_reg" not in namespaces.text
+
     async def test_create_source_node_with_query_service(
         self,
         module__client_with_basic,
