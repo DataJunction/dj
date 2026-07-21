@@ -636,8 +636,10 @@ describe('NamespacePage', () => {
         },
         { timeout: 3000 },
       );
-      // ...where the branch-creation entry point is still present (inside the Git menu).
-      expect(await screen.findByText('+ New Branch')).toBeInTheDocument();
+      // ...where the branch-creation entry point is still present. The default
+      // branch is read-only, so it renders the read-only menu's inline
+      // "New Branch" rather than the editable Git menu's "+ New Branch".
+      expect(await screen.findByText('New Branch')).toBeInTheDocument();
     });
   });
 
@@ -849,7 +851,20 @@ describe('NamespacePage', () => {
         branch_namespace: 'ads.main',
         git_root_namespace: 'ads',
       };
-      mockDjClient.getNamespaceGitConfig.mockResolvedValue(branchConfig);
+      // The git root carries default_branch, so `ads.main` is recognized as the
+      // default branch — read-only. (A git-deployed *feature* branch would be
+      // editable; only the default branch / 1:1 / git root are locked.)
+      const adsRootConfig = {
+        github_repo_path: 'org/repo',
+        git_branch: null,
+        default_branch: 'main',
+        parent_namespace: null,
+        git_only: false,
+        git_root_namespace: 'ads',
+      };
+      mockDjClient.getNamespaceGitConfig.mockImplementation(ns =>
+        Promise.resolve(ns === 'ads' ? adsRootConfig : branchConfig),
+      );
       mockDjClient.namespaceSources.mockResolvedValue({
         total_deployments: 1,
         primary_source: { type: 'git', repository: 'org/repo', branch: 'main' },

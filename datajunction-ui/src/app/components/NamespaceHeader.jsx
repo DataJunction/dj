@@ -282,13 +282,32 @@ export default function NamespaceHeader({
 
   // Git state derivations
   const gitShape = detectShape(gitConfig || {});
-  const isReadOnly =
-    !!gitConfig?.git_only || gitShape === 'flat' || gitShape === 'root';
+  // Read-only follows the branch, not the resolved config's flat/root shape.
+  // A sub-namespace inside a feature branch resolves as `flat` (it inherits
+  // github_repo_path + git_branch from the branch but carries no
+  // parent_namespace of its own), so the shape test alone wrongly locks
+  // editable feature branches — the actual regression here. Instead: content
+  // on the repo's default branch, on a git root, or in a 1:1 flat namespace is
+  // read-only; a non-default (feature) branch and its sub-namespaces are
+  // editable. `rootDefaultBranch` is resolved above from the git root's config
+  // (parentGitConfig), which has finished loading by the time the verdict fires
+  // below — setGitConfigLoading(false) runs after that fetch.
+  const onSubBranch = !!branchNamespace && branchNamespace !== gitRootNamespace;
+  const isDefaultBranch = onSubBranch
+    ? gitConfig?.git_branch === rootDefaultBranch
+    : gitShape === 'root' || gitShape === 'flat';
+  const isReadOnly = !!gitConfig?.git_only || isDefaultBranch;
   const isGitDeployed =
     !!sources &&
     sources.total_deployments > 0 &&
     sources.primary_source?.type === 'git';
-  const isGitManaged = isGitDeployed || isReadOnly;
+  // A non-default (feature) branch and its sub-namespaces stay editable even
+  // when git-deployed — editing then syncing back is the point. The
+  // git-deployed lock only applies elsewhere (default branch, 1:1 flat, git
+  // root, or an unrecognized-but-git-deployed shape), which `isReadOnly`
+  // already covers for the recognized cases.
+  const isFeatureBranch = onSubBranch && !isDefaultBranch;
+  const isGitManaged = isReadOnly || (isGitDeployed && !isFeatureBranch);
   // Repo config is owned by the git root. On a branch, edits target the root
   // (its config is parentGitConfig — branches sit one level below the root); a
   // flat or plain namespace owns its own config. This keeps flat namespaces
