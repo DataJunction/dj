@@ -2595,11 +2595,17 @@ class DeploymentOrchestrator:
             column_name_without_role = column_name
             role = None
             match = re.fullmatch(COLUMN_NAME_REGEX, column_name)
-            if match:  # pragma: no cover
+            # no branch: the regex matches every valid column identifier, so the
+            # `not match` path is effectively unreachable — but the body (role
+            # extraction) is exercised, so keep it under line coverage.
+            if match:  # pragma: no branch
                 column_name_without_role = match.groups()[0]
                 role = match.groups()[1]
 
-            if column_name_without_role in columns:  # pragma: no cover
+            # no branch: the resolve-succeeds path is exercised; the silent-skip
+            # (column missing) path is a defensive guard that keeps
+            # cube_dimension_roles 1:1 with cube_dimensions.
+            if column_name_without_role in columns:  # pragma: no branch
                 cube_dimensions.append(columns[column_name_without_role])
                 cube_dimension_roles.append(role)
 
