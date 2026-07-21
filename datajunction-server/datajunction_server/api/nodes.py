@@ -26,7 +26,7 @@ from datajunction_server.api.helpers import (
     raise_if_node_exists,
     get_save_history,
 )
-from datajunction_server.api.namespaces import create_node_namespace
+from datajunction_server.api.namespaces import create_or_reactivate_namespace
 from datajunction_server.api.tags import get_tags_by_name
 from datajunction_server.database.attributetype import ColumnAttribute
 from datajunction_server.database.column import Column
@@ -674,8 +674,9 @@ async def register_table(
     await raise_if_node_exists(session, name)
 
     # Create the namespace if required (idempotent)
-    await create_node_namespace(
+    await create_or_reactivate_namespace(
         namespace=namespace,
+        include_parents=False,
         session=session,
         current_user=current_user,
         save_history=save_history,
@@ -778,8 +779,9 @@ async def register_view(
     )
 
     # Create the namespace if required (idempotent)
-    await create_node_namespace(
+    await create_or_reactivate_namespace(
         namespace=namespace,
+        include_parents=False,
         session=session,
         current_user=current_user,
         save_history=save_history,

@@ -83,25 +83,22 @@ router = SecureAPIRouter(tags=["namespaces"])
 # If parent_namespace is set, clients can GET the parent to understand inheritance
 
 
-@router.post("/namespaces/{namespace}/", status_code=HTTPStatus.CREATED)
-async def create_node_namespace(
+async def create_or_reactivate_namespace(
     namespace: str,
-    include_parents: Optional[bool] = False,
-    session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user),
     *,
-    save_history: Callable = Depends(get_save_history),
-    access_checker: AccessChecker = Depends(get_access_checker),
+    include_parents: bool,
+    session: AsyncSession,
+    current_user: User,
+    save_history: Callable,
 ) -> JSONResponse:
     """
-    Create a node namespace
-    """
-    # Creating or reactivating a namespace mutates its parent boundary, so require
-    # WRITE there; a top-level namespace is governed on the namespace itself.
-    parent_boundary = namespace.rsplit(".", 1)[0] if "." in namespace else namespace
-    access_checker.add_namespace(parent_boundary, ResourceAction.WRITE)
-    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+    Create or reactivate a node namespace.
 
+    Shared by the create-namespace endpoint and the internal register_table /
+    register_view callers. Access control is enforced by each caller (the endpoint
+    below and the register_* handlers), not here, so this must only be reached from
+    a path that has already authorized the write.
+    """
     if node_namespace := await NodeNamespace.get(
         session,
         namespace,
@@ -143,7 +140,7 @@ async def create_node_namespace(
     created_namespaces = await create_namespace(
         session=session,
         namespace=namespace,
-        include_parents=include_parents,  # type: ignore
+        include_parents=include_parents,
         current_user=current_user,
         save_history=save_history,
     )
@@ -155,6 +152,33 @@ async def create_node_namespace(
                 + ", ".join(created_namespaces)
             ),
         },
+    )
+
+
+@router.post("/namespaces/{namespace}/", status_code=HTTPStatus.CREATED)
+async def create_node_namespace(
+    namespace: str,
+    include_parents: Optional[bool] = False,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    *,
+    save_history: Callable = Depends(get_save_history),
+    access_checker: AccessChecker = Depends(get_access_checker),
+) -> JSONResponse:
+    """
+    Create a node namespace
+    """
+    # Creating or reactivating a namespace mutates its parent boundary, so require
+    # WRITE there; a top-level namespace is governed on itself.
+    parent_boundary = namespace.rsplit(".", 1)[0] if "." in namespace else namespace
+    access_checker.add_namespace(parent_boundary, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+    return await create_or_reactivate_namespace(
+        namespace=namespace,
+        include_parents=bool(include_parents),
+        session=session,
+        current_user=current_user,
+        save_history=save_history,
     )
 
 
