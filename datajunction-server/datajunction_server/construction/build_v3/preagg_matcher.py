@@ -174,7 +174,9 @@ def get_preagg_measure_column(
 
     for measure in preagg.measures:
         if measure.expr_hash == target_hash:
-            return measure.name
+            # Externally-registered pre-aggs bind the measure to a physical
+            # column name that may differ from the DJ component name.
+            return measure.source_column or measure.name
 
     return None
 

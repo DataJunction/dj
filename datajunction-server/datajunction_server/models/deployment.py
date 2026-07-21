@@ -115,6 +115,41 @@ class HierarchySpec(NamespacedSpec):
     levels: list[HierarchyLevelSpec] = Field(default_factory=list, min_length=2)
 
 
+class PreAggSpec(NamespacedSpec):
+    """
+    Specification for an externally-built pre-aggregation table adopted at deploy
+    time (equivalent to POST /preaggs/register). ``name`` is a stable handle used
+    for reconciliation and availability callbacks. Metric/dimension references may
+    use ``${prefix}`` or be fully qualified; they are rendered against the
+    deployment namespace.
+    """
+
+    metrics: list[str] = Field(default_factory=list)
+    dimensions: list[str] = Field(default_factory=list)
+    catalog: str
+    schema_: str = Field(alias="schema")
+    table: str
+    valid_through_ts: int | None = None
+    measure_columns: dict[str, str] = Field(default_factory=dict)
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    @property
+    def rendered_metrics(self) -> list[str]:
+        return [render_prefixes(metric, self.namespace) for metric in self.metrics]
+
+    @property
+    def rendered_dimensions(self) -> list[str]:
+        return [render_prefixes(dim, self.namespace) for dim in self.dimensions]
+
+    @property
+    def rendered_measure_columns(self) -> dict[str, str]:
+        return {
+            render_prefixes(metric, self.namespace): column
+            for metric, column in self.measure_columns.items()
+        }
+
+
 class PartitionSpec(BaseModel):
     """
     Represents a partition
@@ -850,6 +885,7 @@ class DeploymentSpec(BaseModel):
     nodes: list[NodeUnion] = Field(default_factory=list)
     tags: list[TagSpec] = Field(default_factory=list)
     hierarchies: list[HierarchySpec] = Field(default_factory=list)
+    preaggregations: list[PreAggSpec] = Field(default_factory=list)
     source: DeploymentSource | None = None  # CI/CD provenance tracking
     git_config: NamespaceGitConfig | None = None  # Git branch management config
     force: bool = Field(
@@ -916,6 +952,9 @@ class DeploymentSpec(BaseModel):
         for hierarchy in self.hierarchies:
             if not hierarchy.namespace:
                 hierarchy.namespace = self.namespace
+        for preagg in self.preaggregations:
+            if not preagg.namespace:
+                preagg.namespace = self.namespace
         return self
 
 
@@ -953,6 +992,7 @@ class DeploymentResult(BaseModel):
         LINK = "link"
         TAG = "tag"
         NAMESPACE = "namespace"
+        PREAGG = "preaggregation"
         GENERAL = "general"
 
     name: str
