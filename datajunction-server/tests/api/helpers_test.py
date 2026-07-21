@@ -197,6 +197,7 @@ async def test_build_sql_for_multiple_metrics(
         mock_metric_nodes,
         _,
         dimension_columns,
+        [None, None],
         _,
     )
     mock_session = AsyncMock()
