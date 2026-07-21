@@ -733,6 +733,17 @@ async def register_preaggregations(
             ),
         )
 
+    # A pre-agg is governed by the node it is based on; require WRITE on the
+    # parent node of every metric being registered.
+    measures_result = await build_measures_sql(
+        session=session,
+        metrics=data.metrics,
+        dimensions=data.dimensions,
+    )
+    for parent_name in {gg.parent_name for gg in measures_result.grain_groups}:
+        access_checker.add_request_by_node_name(parent_name, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     created_preaggs = await register_external_preaggregations(
         session,
         query_service_client,
@@ -743,23 +754,6 @@ async def register_preaggregations(
         table=data.table,
         measure_columns=data.measure_columns,
     )
-
-    # A pre-agg is governed by the node it is based on. The helper flushes but
-    # does not commit, so check WRITE on each pre-agg's node before committing;
-    # a denial raises and the transaction is rolled back.
-    node_rev_ids = {preagg.node_revision_id for preagg in created_preaggs}
-    node_names = (
-        (
-            await session.execute(
-                select(NodeRevision.name).where(NodeRevision.id.in_(node_rev_ids)),
-            )
-        )
-        .scalars()
-        .all()
-    )
-    for node_name in node_names:
-        access_checker.add_request_by_node_name(node_name, ResourceAction.WRITE)
-    await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     await session.commit()
 
