@@ -733,8 +733,11 @@ async def register_preaggregations(
             ),
         )
 
-    # A pre-agg is governed by the node it is based on; require WRITE on the
-    # parent node of every metric being registered.
+    # A pre-agg is governed by the node it is based on. Authorize up front, before
+    # register_external_preaggregations does its work (query-service column
+    # inference and row creation): resolve the requested metrics' parent nodes
+    # read-only and require WRITE, so an unauthorized caller is rejected without
+    # doing the work.
     measures_result = await build_measures_sql(
         session=session,
         metrics=data.metrics,
