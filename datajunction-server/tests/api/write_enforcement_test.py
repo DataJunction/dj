@@ -61,6 +61,11 @@ COVERED_WRITE_ENDPOINTS: list[tuple[str, str, Any]] = [
     ("POST", "/cubes/enforce_test/materialize", {"schedule": "0 0 * * *"}),
     ("DELETE", "/cubes/enforce_test/materialize", None),
     ("POST", "/cubes/enforce_test/backfill", {"start_date": "2024-01-01"}),
+    # PR4: preaggregation bulk workflow deactivation (governed by the node in the
+    # query param, so the check fires before loading -- no real node needed here).
+    # The other preagg endpoints check after loading a real pre-agg and are tested
+    # in preaggregations_test.py where pre-agg fixtures exist.
+    ("DELETE", "/preaggs/workflows?node_name=enforce_test", None),
 ]
 
 

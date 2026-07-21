@@ -73,28 +73,11 @@ def _mutating_routes():
 # reach check(). This is a TEMPORARY backlog: each entry is removed in the same PR
 # that adds its check(), and the set MUST be empty once step 0 is complete
 # (asserted by test_step0_backlog_reaches_empty). Do not add non-step-0 routes here.
-PENDING_COVERAGE: dict[tuple[str, str], str] = {
-    # Preaggregation writes. A preagg is keyed by preagg_id (or a plan body), not a
-    # node name, so the correct (resource, action) needs a preagg->node/namespace
-    # resolution decision before wiring check(). Tracked as the remaining step0 work.
-    ("POST", "/preaggs/plan"): "step0: preaggregation coverage pending",
-    ("POST", "/preaggs/register"): "step0: preaggregation coverage pending",
-    ("DELETE", "/preaggs/workflows"): "step0: preaggregation coverage pending",
-    (
-        "POST",
-        "/preaggs/{preagg_id}/availability",
-    ): "step0: preaggregation coverage pending",
-    ("POST", "/preaggs/{preagg_id}/backfill"): "step0: preaggregation coverage pending",
-    ("PATCH", "/preaggs/{preagg_id}/config"): "step0: preaggregation coverage pending",
-    (
-        "POST",
-        "/preaggs/{preagg_id}/materialize",
-    ): "step0: preaggregation coverage pending",
-    (
-        "DELETE",
-        "/preaggs/{preagg_id}/workflow",
-    ): "step0: preaggregation coverage pending",
-}
+# Empty: all step-0 route coverage has landed (namespace, dimension link,
+# materialization, cube, and the user-facing preaggregation writes). The remaining
+# step-0 work (action/resource correctness, and internal/deployment/background
+# mutation paths) is not route-coverage and is tracked separately.
+PENDING_COVERAGE: dict[tuple[str, str], str] = {}
 
 # INTENTIONAL_EXCLUSIONS: mutating routes deliberately not node-RBAC-governed.
 INTENTIONAL_EXCLUSIONS: dict[tuple[str, str], str] = {
@@ -108,6 +91,13 @@ INTENTIONAL_EXCLUSIONS: dict[tuple[str, str], str] = {
     ("POST", "/engines"): "not in #2234 step-0 coverage fixes; follow-up",
     ("POST", "/tags"): "not in #2234 step-0 coverage fixes; follow-up",
     ("PATCH", "/tags/{name}"): "not in #2234 step-0 coverage fixes; follow-up",
+    # Query-service callback (reports materialization completion), not a user
+    # action. Governing it with user WRITE would break callbacks; it needs a
+    # service-identity model, tracked with the internal-path work.
+    (
+        "POST",
+        "/preaggs/{preagg_id}/availability",
+    ): "query-service callback; govern via service identity (follow-up)",
     # Read-only / enforced elsewhere (not a write-governance target).
     ("POST", "/nodes/validate"): "read-only validation, mutates nothing",
     ("POST", "/graphql"): "GraphQL; access enforced within resolvers, not the route",

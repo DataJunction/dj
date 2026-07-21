@@ -10,6 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from datajunction_server.database.preaggregation import PreAggregation
+from datajunction_server.internal.access.authorization import AuthorizationService
+from datajunction_server.models import access
 from datajunction_server.models.preaggregation import WorkflowUrl
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.partition import Partition
@@ -2768,3 +2770,78 @@ class TestRegisterPreAggregations:
             assert "externally-registered" in response.text
         finally:
             del client_with_build_v3.app.dependency_overrides[get_query_service_client]
+
+
+VALIDATOR_AUTH_SERVICE = (
+    "datajunction_server.internal.access.authorization."
+    "validator.get_authorization_service"
+)
+
+
+class _DenyWriteAuthorizationService(AuthorizationService):
+    """Approves everything except WRITE (a caller without write access)."""
+
+    name = "preagg_test_deny_write"
+
+    def authorize(self, auth_context, requests):
+        return [
+            access.AccessDecision(
+                request=request,
+                approved=request.verb != access.ResourceAction.WRITE,
+            )
+            for request in requests
+        ]
+
+
+@pytest.mark.xdist_group(name="preaggregations")
+class TestPreaggWriteEnforcement:
+    """
+    A pre-agg write must return 403 when the caller lacks WRITE on the node the
+    pre-agg is based on. These verify the check *bites* (the route-coverage guard
+    only proves it is reached). Fixtures create real pre-aggs first; the deny
+    override is applied inside each test so setup runs with normal access.
+    """
+
+    @pytest.mark.asyncio
+    async def test_id_endpoints_deny_without_write(
+        self,
+        client_with_preaggs,
+        mock_qs_for_preaggs,
+        mocker,
+    ):
+        """The {preagg_id} write endpoints return 403 without WRITE."""
+        client = client_with_preaggs["client"]
+        preagg_id = client_with_preaggs["preagg1"].id
+        mocker.patch(VALIDATOR_AUTH_SERVICE, lambda: _DenyWriteAuthorizationService())
+
+        cases = [
+            ("POST", f"/preaggs/{preagg_id}/materialize", None),
+            ("PATCH", f"/preaggs/{preagg_id}/config", {}),
+            ("DELETE", f"/preaggs/{preagg_id}/workflow", None),
+            ("POST", f"/preaggs/{preagg_id}/backfill", {"start_date": "2024-01-01"}),
+        ]
+        for method, path, body in cases:
+            response = await client.request(method, path, json=body)
+            assert response.status_code == 403, (
+                f"{method} {path} not enforced ({response.status_code}): "
+                f"{response.text[:200]}"
+            )
+            assert "Access denied" in response.json()["message"]
+
+    @pytest.mark.asyncio
+    async def test_plan_denies_without_write(
+        self,
+        client_with_build_v3,
+        mocker,
+    ):
+        """POST /preaggs/plan returns 403 without WRITE on the metrics' parent node."""
+        mocker.patch(VALIDATOR_AUTH_SERVICE, lambda: _DenyWriteAuthorizationService())
+        response = await client_with_build_v3.post(
+            "/preaggs/plan",
+            json={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+        assert response.status_code == 403, response.text
+        assert "Access denied" in response.json()["message"]

@@ -46,6 +46,12 @@ from datajunction_server.errors import (
     DJQueryServiceClientException,
 )
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
+from datajunction_server.internal.access.authorization import (
+    AccessChecker,
+    AccessDenialMode,
+    get_access_checker,
+)
+from datajunction_server.models.access import ResourceAction
 from datajunction_server.internal.preaggregations import (
     register_external_preaggregations,
 )
@@ -501,6 +507,7 @@ async def plan_preaggregations(
     data: PlanPreAggregationsRequest,
     *,
     session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> PlanPreAggregationsResponse:
     """
     Create pre-aggregations from metrics + dimensions.
@@ -543,6 +550,12 @@ async def plan_preaggregations(
         include_temporal_filters=include_temporal_filters,
         lookback_window=data.lookback_window if include_temporal_filters else None,
     )
+
+    # A pre-agg is governed by the node it is based on; require WRITE on the
+    # parent node of every grain group we would create a pre-agg for.
+    for parent_name in {gg.parent_name for gg in measures_result.grain_groups}:
+        access_checker.add_request_by_node_name(parent_name, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     created_preaggs: list[PreAggregation] = []
 
@@ -699,6 +712,7 @@ async def register_preaggregations(
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> PlanPreAggregationsResponse:
     """
     Register an externally-built pre-aggregation table.
@@ -729,6 +743,24 @@ async def register_preaggregations(
         table=data.table,
         measure_columns=data.measure_columns,
     )
+
+    # A pre-agg is governed by the node it is based on. The helper flushes but
+    # does not commit, so check WRITE on each pre-agg's node before committing;
+    # a denial raises and the transaction is rolled back.
+    node_rev_ids = {preagg.node_revision_id for preagg in created_preaggs}
+    node_names = (
+        (
+            await session.execute(
+                select(NodeRevision.name).where(NodeRevision.id.in_(node_rev_ids)),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for node_name in node_names:
+        access_checker.add_request_by_node_name(node_name, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     await session.commit()
 
     preagg_ids = [p.id for p in created_preaggs]
@@ -758,6 +790,7 @@ async def materialize_preaggregation(
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> PreAggregationInfo:
     """
     Create/update a scheduled workflow for this pre-aggregation.
@@ -798,6 +831,13 @@ async def materialize_preaggregation(
 
     if not preagg:
         raise DJDoesNotExistException(f"Pre-aggregation with ID {preagg_id} not found")
+
+    # A pre-agg is governed by the node it is based on.
+    access_checker.add_request_by_node_name(
+        preagg.node_revision.name,
+        ResourceAction.WRITE,
+    )
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     if preagg.strategy == MaterializationStrategy.EXTERNAL:
         raise DJInvalidInputException(
@@ -995,6 +1035,7 @@ async def update_preaggregation_config(
     data: UpdatePreAggregationConfigRequest,
     *,
     session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> PreAggregationInfo:
     """
     Update the materialization configuration of a single pre-aggregation.
@@ -1016,6 +1057,13 @@ async def update_preaggregation_config(
 
     if not preagg:
         raise DJDoesNotExistException(f"Pre-aggregation with ID {preagg_id} not found")
+
+    # A pre-agg is governed by the node it is based on.
+    access_checker.add_request_by_node_name(
+        preagg.node_revision.name,
+        ResourceAction.WRITE,
+    )
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     # Update only the fields that are provided
     if data.strategy is not None:
@@ -1055,6 +1103,7 @@ async def delete_preagg_workflow(
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> WorkflowResponse:
     """
     Deactivate (pause) the scheduled workflow for this pre-aggregation.
@@ -1076,6 +1125,13 @@ async def delete_preagg_workflow(
 
     if not preagg:
         raise DJDoesNotExistException(f"Pre-aggregation with ID {preagg_id} not found")
+
+    # A pre-agg is governed by the node it is based on.
+    access_checker.add_request_by_node_name(
+        preagg.node_revision.name,
+        ResourceAction.WRITE,
+    )
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     if not preagg.workflow_urls:
         return WorkflowResponse(
@@ -1150,6 +1206,7 @@ async def bulk_deactivate_preagg_workflows(
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> BulkDeactivateWorkflowsResponse:
     """
     Bulk deactivate workflows for pre-aggregations of a node.
@@ -1161,6 +1218,10 @@ async def bulk_deactivate_preagg_workflows(
     Staleness is determined by comparing the pre-agg's node_revision_id
     to the node's current revision.
     """
+    # Deactivating a node's pre-agg workflows is governed by WRITE on that node.
+    access_checker.add_request_by_node_name(node_name, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     # Get the node and its current revision
     node = await Node.get_by_name(
         session,
@@ -1286,6 +1347,7 @@ async def run_preagg_backfill(
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> BackfillResponse:
     """
     Run a backfill for the specified date range.
@@ -1309,6 +1371,13 @@ async def run_preagg_backfill(
 
     if not preagg:
         raise DJDoesNotExistException(f"Pre-aggregation with ID {preagg_id} not found")
+
+    # A pre-agg is governed by the node it is based on.
+    access_checker.add_request_by_node_name(
+        preagg.node_revision.name,
+        ResourceAction.WRITE,
+    )
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     if preagg.strategy == MaterializationStrategy.EXTERNAL:
         raise DJInvalidInputException(
