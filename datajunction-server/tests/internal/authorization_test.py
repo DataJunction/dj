@@ -192,7 +192,16 @@ class TestScopeContainment:
                 "finance.revenue",
                 True,
             ),
-            (ResourceType.NAMESPACE, "*", ResourceType.NODE, "*", False),
+            # A global namespace grant contains node scopes: managing every
+            # namespace implies managing every node within them.
+            (ResourceType.NAMESPACE, "*", ResourceType.NODE, "*", True),
+            (ResourceType.NAMESPACE, "*", ResourceType.NODE, "finance.revenue", True),
+            # A subtree namespace grant still cannot delegate all nodes.
+            (ResourceType.NAMESPACE, "finance.*", ResourceType.NODE, "*", False),
+            # Node grants never contain namespace scopes, so managing all nodes
+            # cannot be escalated into managing namespaces, groups, or roles.
+            (ResourceType.NODE, "*", ResourceType.NAMESPACE, "*", False),
+            (ResourceType.NODE, "*", ResourceType.NAMESPACE, "finance.*", False),
         ],
     )
     def test_scope_contains_scope(

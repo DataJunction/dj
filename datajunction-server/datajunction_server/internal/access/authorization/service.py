@@ -335,7 +335,6 @@ class RBACAuthorizationService(AuthorizationService):
         if granted_type != delegated_type and not (
             granted_type == ResourceType.NAMESPACE
             and delegated_type == ResourceType.NODE
-            and granted_pattern[0] != "global"
         ):
             return False
 
