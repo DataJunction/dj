@@ -1378,6 +1378,168 @@ class TestCubeDeployment:
         await session.refresh(revision_2, ["columns"])
         assert len(revision_2.columns) == 2
 
+    @pytest.mark.asyncio
+    async def test_cube_role_played_dimension_roles_and_partition(
+        self,
+        session,
+        current_user,
+    ):
+        """
+        Regression (AIE-3105): a cube that reaches one date dimension via two FK
+        roles produces two cube columns with the same bare name
+        (``test.date.dateint``) distinguished only by ``dimension_column``
+        (``[epoch_date]`` vs ``[region_date]``).
+
+        The declarative deploy path must (1) preserve BOTH roles and (2) apply a
+        YAML-declared partition to the role it was declared on
+        (``...dateint[epoch_date]``) and to that role only. Previously the role
+        was dropped (positional off-by-one against the resolved-dimension list)
+        and the partition was keyed by the bare element name, so it never matched
+        a role-qualified column and was silently dropped.
+        """
+        catalog = Catalog(name="test_catalog")
+        session.add(catalog)
+
+        date_node = Node(
+            name="test.date",
+            type="dimension",
+            current_version="v1.0",
+            created_by_id=current_user.id,
+        )
+        revenue_node = Node(
+            name="test.revenue",
+            type="metric",
+            current_version="v1.0",
+            created_by_id=current_user.id,
+        )
+        session.add_all([date_node, revenue_node])
+
+        date_revision = NodeRevision(
+            name="test.date",
+            display_name="Date",
+            type="dimension",
+            node=date_node,
+            version="v1.0",
+            query="SELECT dateint FROM dates",
+            created_by_id=current_user.id,
+        )
+        revenue_revision = NodeRevision(
+            name="test.revenue",
+            display_name="Revenue",
+            type="metric",
+            node=revenue_node,
+            version="v1.0",
+            query="SELECT SUM(amount) FROM sales",
+            created_by_id=current_user.id,
+        )
+        session.add_all([date_revision, revenue_revision])
+        await session.commit()
+
+        date_column = Column(
+            name="dateint",
+            type="int",
+            node_revision_id=date_revision.id,
+            node_revision=date_revision,
+            attributes=[],
+        )
+        revenue_column = Column(
+            name="revenue",
+            type="bigint",
+            node_revision_id=revenue_revision.id,
+            node_revision=revenue_revision,
+            attributes=[],
+        )
+        session.add_all([date_column, revenue_column])
+        await session.commit()
+
+        await session.refresh(date_column, ["node_revision", "attributes"])
+        await session.refresh(revenue_column, ["node_revision", "attributes"])
+
+        # The same date column resolved under two roles -> two dimension columns,
+        # with the roles captured 1:1 alongside them (as the validation path does).
+        validation_data = CubeValidationData(
+            metric_columns=[revenue_column],
+            dimension_columns=[date_column, date_column],
+            dimension_column_roles=["[epoch_date]", "[region_date]"],
+            metric_nodes=[revenue_node],
+            dimension_nodes=[date_node],
+            catalog=catalog,
+        )
+
+        cube_node = Node(
+            name="test.role_cube",
+            type="cube",
+            current_version="v1.0",
+            created_by_id=current_user.id,
+        )
+        session.add(cube_node)
+        await session.commit()
+
+        # Partition declared on the epoch_date role only.
+        cube_spec = CubeSpec(
+            name="test.role_cube",
+            node_type="cube",
+            metrics=["test.revenue"],
+            dimensions=[
+                "test.date.dateint[epoch_date]",
+                "test.date.dateint[region_date]",
+            ],
+            namespace="test",
+            columns=[
+                ColumnSpec(
+                    name="test.date.dateint[epoch_date]",
+                    partition=PartitionSpec(
+                        type=PartitionType.TEMPORAL,
+                        granularity=Granularity.DAY,
+                        format="yyyyMMdd",
+                    ),
+                ),
+            ],
+        )
+
+        context = DeploymentContext(
+            current_user=current_user,
+            request=Mock(),
+            query_service_client=Mock(),
+            background_tasks=Mock(),
+            cache=Mock(),
+        )
+        orchestrator = DeploymentOrchestrator(
+            deployment_id="test-deployment",
+            deployment_spec=DeploymentSpec(namespace="test", nodes=[]),
+            session=session,
+            context=context,
+        )
+
+        node_revision = (
+            await orchestrator._create_cube_node_revision_from_validation_data(
+                cube_spec=cube_spec,
+                validation_data=validation_data,
+                new_node=cube_node,
+            )
+        )
+        session.add(node_revision)
+        await session.commit()
+        await session.refresh(node_revision, ["columns"])
+
+        # Bug 2: both roles preserved (neither dropped nor mis-bound).
+        date_cols = [
+            col for col in node_revision.columns if col.name == "test.date.dateint"
+        ]
+        assert len(date_cols) == 2
+        by_role = {col.dimension_column: col for col in date_cols}
+        assert set(by_role) == {"[epoch_date]", "[region_date]"}
+
+        # Bug 1: the YAML partition lands on the epoch_date role, and ONLY there.
+        await session.refresh(by_role["[epoch_date]"], ["partition"])
+        await session.refresh(by_role["[region_date]"], ["partition"])
+        epoch_partition = by_role["[epoch_date]"].partition
+        assert epoch_partition is not None
+        assert epoch_partition.type_ == PartitionType.TEMPORAL
+        assert epoch_partition.granularity == Granularity.DAY
+        assert epoch_partition.format == "yyyyMMdd"
+        assert by_role["[region_date]"].partition is None
+
 
 @pytest.mark.asyncio
 async def test_auto_register_sources_disabled(
