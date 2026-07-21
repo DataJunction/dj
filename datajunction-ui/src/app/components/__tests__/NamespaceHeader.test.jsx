@@ -59,6 +59,53 @@ const renderHeaderState = ({ namespace, gitConfig, sources }) => {
   );
 };
 
+// Render for the read-only verdict (onReadOnlyChange). `configByNamespace` maps
+// each namespace NamespaceHeader fetches (the target, its branch, the git root)
+// to its git config — namespace-keyed so it's independent of fetch order.
+const renderReadOnlyVerdict = ({ namespace, configByNamespace, sources }) => {
+  const onReadOnlyChange = vi.fn();
+  const mockDjClient = {
+    namespaceSources: vi
+      .fn()
+      .mockResolvedValue(
+        sources || { total_deployments: 0, primary_source: null },
+      ),
+    listDeployments: vi.fn().mockResolvedValue([]),
+    getNamespaceGitConfig: vi.fn(ns => Promise.resolve(configByNamespace[ns])),
+    getNamespaceBranches: vi.fn().mockResolvedValue([]),
+    getPullRequest: vi.fn().mockResolvedValue(null),
+  };
+  render(
+    <MemoryRouter>
+      <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+        <NamespaceHeader
+          namespace={namespace}
+          onReadOnlyChange={onReadOnlyChange}
+        />
+      </DJClientContext.Provider>
+    </MemoryRouter>,
+  );
+  return { onReadOnlyChange };
+};
+
+// Git configs for a repo `test` whose default branch is `main`, a feature
+// branch `feature`, and their sub-namespaces. Reused across the verdict cases.
+const GIT_ROOT = {
+  github_repo_path: 'test/repo',
+  git_branch: null,
+  default_branch: 'main',
+  git_root_namespace: 'test',
+};
+const branchCfg = (branch, ns, extra = {}) => ({
+  github_repo_path: 'test/repo',
+  git_branch: branch,
+  git_only: false,
+  branch_namespace: `test.${branch}`,
+  git_root_namespace: 'test',
+  ...(ns === `test.${branch}` ? { parent_namespace: 'test' } : {}),
+  ...extra,
+});
+
 describe('<NamespaceHeader />', () => {
   it('should render and match the snapshot', async () => {
     const mockDjClient = {
@@ -697,6 +744,59 @@ describe('<NamespaceHeader />', () => {
     ).toBeInTheDocument();
   });
 
+  describe('read-only verdict (onReadOnlyChange)', () => {
+    // Regression: a sub-namespace inside a feature branch resolves as `flat`
+    // (inherited git_branch, no parent_namespace of its own). It must be
+    // editable (its branch isn't the default), while the default branch — and
+    // a git-deployed feature branch stays editable too.
+    const cases = [
+      {
+        what: 'a sub-namespace of a feature branch as EDITABLE',
+        namespace: 'test.feature.metrics',
+        configByNamespace: {
+          'test.feature.metrics': branchCfg('feature', 'test.feature.metrics'),
+          'test.feature': branchCfg('feature', 'test.feature'),
+          test: GIT_ROOT,
+        },
+        expectedReadOnly: false,
+      },
+      {
+        what: 'a sub-namespace of the default branch as READ-ONLY',
+        namespace: 'test.main.metrics',
+        configByNamespace: {
+          'test.main.metrics': branchCfg('main', 'test.main.metrics'),
+          'test.main': branchCfg('main', 'test.main'),
+          test: GIT_ROOT,
+        },
+        expectedReadOnly: true,
+      },
+      {
+        what: 'a git-deployed feature branch as EDITABLE (deploy status does not lock it)',
+        namespace: 'test.feature',
+        configByNamespace: {
+          'test.feature': branchCfg('feature', 'test.feature'),
+          test: GIT_ROOT,
+        },
+        sources: { total_deployments: 2, primary_source: { type: 'git' } },
+        expectedReadOnly: false,
+      },
+    ];
+
+    cases.forEach(
+      ({ what, namespace, configByNamespace, sources, expectedReadOnly }) => {
+        it(`reports ${what}`, async () => {
+          const { onReadOnlyChange } = renderReadOnlyVerdict({
+            namespace,
+            configByNamespace,
+            sources,
+          });
+          await waitFor(() => expect(onReadOnlyChange).toHaveBeenCalled());
+          expect(onReadOnlyChange).toHaveBeenLastCalledWith(expectedReadOnly);
+        });
+      },
+    );
+  });
+
   it('should open Create Branch modal when button is clicked', async () => {
     const mockDjClient = {
       namespaceSources: vi.fn().mockResolvedValue({
@@ -913,13 +1013,15 @@ describe('<NamespaceHeader />', () => {
     // to start a new branch is the branch switcher on the branch page. Creating
     // one must still target the git root (`test`), not the current branch.
     const gitConfigByNamespace = {
-      'test.feature': {
+      // The default-branch page (the git root redirects here). It's read-only,
+      // so it renders the inline "New Branch" toolbar flow this test drives.
+      'test.main': {
         github_repo_path: 'test/repo',
-        git_branch: 'feature',
+        git_branch: 'main',
         git_path: 'nodes/',
         git_only: false,
         parent_namespace: 'test',
-        branch_namespace: 'test.feature',
+        branch_namespace: 'test.main',
         git_root_namespace: 'test',
       },
       test: {
@@ -962,7 +1064,7 @@ describe('<NamespaceHeader />', () => {
     render(
       <MemoryRouter>
         <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
-          <NamespaceHeader namespace="test.feature" />
+          <NamespaceHeader namespace="test.main" />
         </DJClientContext.Provider>
       </MemoryRouter>,
     );
@@ -975,7 +1077,7 @@ describe('<NamespaceHeader />', () => {
     // Click the branch-crumb button (not the <code> in the git strip).
     fireEvent.click(
       screen
-        .getAllByText('feature')
+        .getAllByText('main')
         .find(el => el.closest('button') && el.tagName !== 'CODE'),
     );
     expect(await screen.findByText('New branch')).toBeInTheDocument();
