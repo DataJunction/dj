@@ -2340,12 +2340,27 @@ class TestIncrementalTimeMaterialization:
         assert temporal_partition.granularity == "day"
 
 
-def _mock_query_service(client_with_build_v3, columns: list[str]):
-    """Override the query service so get_columns_for_table returns ``columns``."""
+def _mock_query_service(client_with_build_v3, columns):
+    """
+    Override the query service so get_columns_for_table returns ``columns``.
+
+    ``columns`` may be a list of column names (each defaulting to a numeric
+    type) or a mapping of column name -> SQL type string, for exercising the
+    measure/column type-compatibility check.
+    """
     from types import SimpleNamespace
 
+    items = (
+        columns.items()
+        if isinstance(columns, dict)
+        else [(name, "double") for name in columns]
+    )
+    table_columns = [
+        SimpleNamespace(name=name, type=type_str) for name, type_str in items
+    ]
+
     async def _fake_get_columns(*args, **kwargs):
-        return [SimpleNamespace(name=name) for name in columns]
+        return table_columns
 
     mock_client = MagicMock()
     mock_client.get_columns_for_table = _fake_get_columns
@@ -2444,6 +2459,86 @@ class TestRegisterPreAggregations:
             )
             assert response.status_code == 422
             assert "not found in table" in response.text
+        finally:
+            del client_with_build_v3.app.dependency_overrides[get_query_service_client]
+
+    @pytest.mark.asyncio
+    async def test_register_rejects_incompatible_column_type(
+        self,
+        client_with_build_v3: AsyncClient,
+    ):
+        """A numeric measure bound to a non-numeric column is rejected."""
+        _mock_query_service(
+            client_with_build_v3,
+            {
+                "revenue_total": "string",  # incompatible: measure is numeric
+                "order_cnt": "double",
+                "category": "string",
+            },
+        )
+        try:
+            response = await client_with_build_v3.post(
+                "/preaggs/register",
+                json={
+                    "metrics": ["v3.avg_order_value"],
+                    "dimensions": ["v3.product.category"],
+                    "table": {
+                        "catalog": "default",
+                        "schema": "analytics",
+                        "table": "bad_types_agg",
+                    },
+                    "measure_columns": {
+                        "v3.total_revenue": "revenue_total",
+                        "v3.order_count": "order_cnt",
+                    },
+                },
+            )
+            assert response.status_code == 422
+            message = response.json()["message"]
+            assert "'revenue_total' (type string)" in message
+            assert "default.analytics.bad_types_agg" in message
+            assert "is not type-compatible" in message
+        finally:
+            del client_with_build_v3.app.dependency_overrides[get_query_service_client]
+
+    @pytest.mark.asyncio
+    async def test_register_accepts_compatible_but_different_type(
+        self,
+        client_with_build_v3: AsyncClient,
+    ):
+        """Type checking is category-level: a numeric measure binds to a numeric
+        column even when the exact type differs (e.g. bigint vs the inferred
+        double), so int/bigint/decimal never false-reject a valid registration."""
+        _mock_query_service(
+            client_with_build_v3,
+            {
+                "revenue_total": "bigint",  # compatible with the numeric measure
+                "order_cnt": "int",
+                "category": "string",
+            },
+        )
+        try:
+            response = await client_with_build_v3.post(
+                "/preaggs/register",
+                json={
+                    "metrics": ["v3.avg_order_value"],
+                    "dimensions": ["v3.product.category"],
+                    "table": {
+                        "catalog": "default",
+                        "schema": "analytics",
+                        "table": "compatible_types_agg",
+                    },
+                    "measure_columns": {
+                        "v3.total_revenue": "revenue_total",
+                        "v3.order_count": "order_cnt",
+                    },
+                },
+            )
+            assert response.status_code == 201, response.text
+            source_columns = {
+                m["source_column"] for m in response.json()["preaggs"][0]["measures"]
+            }
+            assert source_columns == {"revenue_total", "order_cnt"}
         finally:
             del client_with_build_v3.app.dependency_overrides[get_query_service_client]
 
