@@ -2830,7 +2830,7 @@ class TestPreaggWriteEnforcement:
         client_with_build_v3,
         mocker,
     ):
-        """POST /preaggs/register returns 403 without WRITE (rolled back, not committed)."""
+        """POST /preaggs/register returns 403 without WRITE, before any registration work."""
         _mock_query_service(
             client_with_build_v3,
             ["revenue_total", "order_cnt", "category"],
