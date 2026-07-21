@@ -78,6 +78,7 @@ PENDING_COVERAGE: dict[tuple[str, str], str] = {
     # node name, so the correct (resource, action) needs a preagg->node/namespace
     # resolution decision before wiring check(). Tracked as the remaining step0 work.
     ("POST", "/preaggs/plan"): "step0: preaggregation coverage pending",
+    ("POST", "/preaggs/register"): "step0: preaggregation coverage pending",
     ("DELETE", "/preaggs/workflows"): "step0: preaggregation coverage pending",
     (
         "POST",
