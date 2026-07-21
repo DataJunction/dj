@@ -447,21 +447,6 @@ async def resolve_downstream_references(
     return newly_valid_nodes
 
 
-def dimension_roles_in_order(dimensions: List[str]) -> List[Optional[str]]:
-    """
-    The `[role]` suffix (or None) for each dimension reference, in order.
-
-    One entry per reference (keyed by position, not column name), so two roles on
-    the same column are not collapsed. E.g.
-    `["a.x[start]", "a.x[end]", "b.y"]` -> `["[start]", "[end]", None]`.
-    """
-    roles: List[Optional[str]] = []
-    for dim in dimensions:
-        attr = FullColumnName(dim)
-        roles.append(f"[{attr.role}]" if attr.role else None)
-    return roles
-
-
 def dedupe_cube_elements(columns: List[Column]) -> List[Column]:
     """
     Dedupe cube element columns by column id.
