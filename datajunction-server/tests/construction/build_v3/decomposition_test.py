@@ -17,14 +17,13 @@ class TestGetBaseMetricsForDerived:
 
     def test_skips_dimension_parents(self):
         """
-        Test that get_base_metrics_for_derived skips dimension node parents.
-
-        This covers line 270: continue when parent.type == NodeType.DIMENSION
+        Test that a required-dimension link on the derived metric doesn't derail
+        base-metric detection.
 
         When a derived metric has a dimension as a parent (e.g., for required_dimensions
-        in window functions), that dimension should be skipped and not cause the metric
-        to be treated as a base metric. It should continue to find the actual metric
-        or fact/transform parent.
+        in window functions), that dimension link should be ignored: it is not a metric
+        (so it isn't recursed into) and it must not cause the derived metric itself to be
+        treated as a base metric. Only the real metric parent's base is collected.
         """
         # Create mock nodes
         dimension_node = MagicMock()
@@ -99,6 +98,65 @@ class TestGetBaseMetricsForDerived:
         # Should find the metric as a base metric (via fact parent)
         assert len(result) == 1
         assert result[0].name == "v3.some_metric"
+
+    def test_collects_base_metric_defined_on_dimension_source(self):
+        """
+        A derived ratio whose two base metrics have DIFFERENT parents -- one on a
+        fact/transform, the other defined directly on a dimension node -- must
+        collect BOTH base metrics.
+
+        Regression for the cross-parent ratio bug: a base metric whose data source
+        is a dimension node was mistaken for a bare required-dimension reference and
+        dropped, so its grain group was never built and the generated SQL referenced
+        an aggregate column that no CTE computed.
+        """
+        fact_node = MagicMock()
+        fact_node.name = "v3.visits_fact"
+        fact_node.type = NodeType.TRANSFORM
+
+        dim_source = MagicMock()
+        dim_source.name = "v3.accounts_dim"
+        dim_source.type = NodeType.DIMENSION
+
+        date_dim = MagicMock()
+        date_dim.name = "v3.date"
+        date_dim.type = NodeType.DIMENSION
+
+        numerator = MagicMock()
+        numerator.name = "v3.visited_accounts"
+        numerator.type = NodeType.METRIC
+
+        denominator = MagicMock()
+        denominator.name = "v3.eligible_accounts"
+        denominator.type = NodeType.METRIC
+
+        derived = MagicMock()
+        derived.name = "v3.visit_rate"
+        derived.type = NodeType.METRIC
+
+        ctx = MagicMock(spec=BuildContext)
+        ctx.nodes = {
+            n.name: n
+            for n in [fact_node, dim_source, date_dim, numerator, denominator, derived]
+        }
+        # date is a required-dimension link on each metric; the numerator's data
+        # source is a fact, the denominator's data source is a dimension node.
+        ctx.parent_map = {
+            "v3.visit_rate": [
+                "v3.visited_accounts",
+                "v3.eligible_accounts",
+                "v3.date",
+            ],
+            "v3.visited_accounts": ["v3.visits_fact", "v3.date"],
+            "v3.eligible_accounts": ["v3.accounts_dim", "v3.date"],
+        }
+
+        result = get_base_metrics_for_derived(ctx, derived)
+
+        assert {n.name for n in result} == {
+            "v3.visited_accounts",
+            "v3.eligible_accounts",
+        }
 
 
 class TestIsDerivedMetric:
@@ -176,7 +234,8 @@ async def test_decomposition_with_dimension_parent_integration(
     - required_dimensions: ["v3.date.date_id[order]"] - creates dimension parent
     - References v3.total_revenue - creates metric parent
 
-    This exercises line 270 (skip dimension) in a real scenario.
+    This exercises the required-dimension-link path in a real scenario: the
+    dimension parent must not be mistaken for a data source.
     """
     client = module__client_with_build_v3
 
