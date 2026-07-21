@@ -111,6 +111,9 @@ class PreAggMeasure(MetricComponent):
 
     expr_hash: str | None = None  # Hash of expression for identity matching
     used_by_metrics: list[MetricRef] | None = None  # Metrics that use this measure
+    # Physical column holding this measure in an externally-registered pre-agg
+    # table. None for DJ-managed pre-aggs (the component name IS the column).
+    source_column: str | None = None
 
 
 class DecomposedMetric(BaseModel):

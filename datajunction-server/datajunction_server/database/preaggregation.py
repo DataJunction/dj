@@ -243,6 +243,10 @@ class PreAggregation(Base):
         unique=True,
     )
 
+    # Optional stable, human-supplied handle for externally-registered pre-aggs.
+    # Used by YAML deploy reconciliation and availability-by-name callbacks.
+    name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
     # === Materialization Config ===
     strategy: Mapped[Optional[MaterializationStrategy]] = mapped_column(
         Enum(MaterializationStrategy),
@@ -372,6 +376,41 @@ class PreAggregation(Base):
         statement = select(cls).where(cls.id == pre_agg_id)
         result = await session.execute(statement)
         return result.scalar_one_or_none()
+
+    @classmethod
+    async def get_external_by_namespace(
+        cls,
+        session: AsyncSession,
+        namespace: str,
+    ) -> List["PreAggregation"]:
+        """
+        Get all EXTERNAL-strategy pre-aggregations whose node lives in the given
+        namespace. Used by deploy-time reconciliation to diff against the spec.
+        """
+        from sqlalchemy.orm import joinedload
+
+        from datajunction_server.database.node import Node
+
+        statement = (
+            select(cls)
+            .join(NodeRevision, cls.node_revision_id == NodeRevision.id)
+            .join(Node, NodeRevision.node_id == Node.id)
+            .options(
+                joinedload(cls.node_revision),
+                joinedload(cls.availability),
+            )
+            .where(
+                # The deployment namespace is a prefix: nodes live in it or in a
+                # sub-namespace (e.g. "ns" and "ns.default").
+                sa.or_(
+                    Node.namespace == namespace,
+                    Node.namespace.like(f"{namespace}.%"),
+                ),
+                cls.strategy == MaterializationStrategy.EXTERNAL,
+            )
+        )
+        result = await session.execute(statement)
+        return list(result.scalars().unique().all())
 
     @classmethod
     async def find_matching(

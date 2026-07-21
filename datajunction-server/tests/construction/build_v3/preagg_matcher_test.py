@@ -791,6 +791,47 @@ class TestGetPreaggMeasureColumn:
         assert result == "total_revenue"
 
     @pytest.mark.asyncio
+    async def test_prefers_source_column(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """Externally-registered measures resolve to their physical source_column."""
+        avail = AvailabilityState(
+            catalog="test",
+            schema_="test",
+            table="preagg",
+            valid_through_ts=9999999999,
+        )
+        session.add(avail)
+        await session.flush()
+
+        measure = PreAggMeasure(
+            name="total_revenue",
+            expression="price * quantity",
+            aggregation="SUM",
+            merge="SUM",
+            rule=AggregationRule(type=Aggregability.FULL),
+            expr_hash=compute_expression_hash("price * quantity"),
+            source_column="revenue_physical",
+        )
+        preagg = PreAggregation(
+            node_revision_id=parent_node.current.id,
+            grain_columns=["dim1"],
+            measures=[measure],
+            sql="SELECT ...",
+            grain_group_hash="hash_sc",
+            preagg_hash="srccol1",
+            availability_id=avail.id,
+        )
+        session.add(preagg)
+        await session.flush()
+
+        component = make_component("sum_revenue", "price * quantity")
+
+        assert get_preagg_measure_column(preagg, component) == "revenue_physical"
+
+    @pytest.mark.asyncio
     async def test_returns_none_when_no_match(
         self,
         session: AsyncSession,
