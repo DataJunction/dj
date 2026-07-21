@@ -13,7 +13,6 @@ from sqlalchemy.orm import selectinload
 from datajunction_server.api import helpers
 from datajunction_server.api.helpers import (
     dedupe_cube_elements,
-    dimension_roles_in_order,
     find_required_dimensions,
 )
 from datajunction_server.database.column import Column
@@ -24,18 +23,6 @@ from datajunction_server.errors import DJDoesNotExistException, DJException
 from datajunction_server.internal.nodes import propagate_valid_status
 from datajunction_server.models.node import NodeStatus
 from datajunction_server.sql.parsing.types import IntegerType
-
-
-def test_dimension_roles_in_order():
-    """One [role] suffix (or None) per reference — two roles on the same column
-    are NOT collapsed."""
-    assert dimension_roles_in_order(
-        [
-            "v3.location.country[from]",
-            "v3.location.country[to]",
-            "v3.product.category",
-        ],
-    ) == ["[from]", "[to]", None]
 
 
 def test_dedupe_cube_elements_same_object():
@@ -197,6 +184,7 @@ async def test_build_sql_for_multiple_metrics(
         mock_metric_nodes,
         _,
         dimension_columns,
+        [None, None],
         _,
     )
     mock_session = AsyncMock()
