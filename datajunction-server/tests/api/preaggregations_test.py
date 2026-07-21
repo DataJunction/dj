@@ -10,14 +10,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from datajunction_server.database.preaggregation import PreAggregation
-from datajunction_server.internal.access.authorization import AuthorizationService
-from datajunction_server.models import access
 from datajunction_server.models.preaggregation import WorkflowUrl
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.partition import Partition
 from datajunction_server.models.materialization import MaterializationStrategy
 from datajunction_server.models.partition import Granularity, PartitionType
 from datajunction_server.utils import get_query_service_client
+from tests.authz import DenyWriteAuthorizationService, VALIDATOR_AUTH_SERVICE
 
 
 @pytest.fixture
@@ -2772,27 +2771,6 @@ class TestRegisterPreAggregations:
             del client_with_build_v3.app.dependency_overrides[get_query_service_client]
 
 
-VALIDATOR_AUTH_SERVICE = (
-    "datajunction_server.internal.access.authorization."
-    "validator.get_authorization_service"
-)
-
-
-class _DenyWriteAuthorizationService(AuthorizationService):
-    """Approves everything except WRITE (a caller without write access)."""
-
-    name = "preagg_test_deny_write"
-
-    def authorize(self, auth_context, requests):
-        return [
-            access.AccessDecision(
-                request=request,
-                approved=request.verb != access.ResourceAction.WRITE,
-            )
-            for request in requests
-        ]
-
-
 @pytest.mark.xdist_group(name="preaggregations")
 class TestPreaggWriteEnforcement:
     """
@@ -2812,7 +2790,7 @@ class TestPreaggWriteEnforcement:
         """The {preagg_id} write endpoints return 403 without WRITE."""
         client = client_with_preaggs["client"]
         preagg_id = client_with_preaggs["preagg1"].id
-        mocker.patch(VALIDATOR_AUTH_SERVICE, lambda: _DenyWriteAuthorizationService())
+        mocker.patch(VALIDATOR_AUTH_SERVICE, lambda: DenyWriteAuthorizationService())
 
         cases = [
             ("POST", f"/preaggs/{preagg_id}/materialize", None),
@@ -2835,7 +2813,7 @@ class TestPreaggWriteEnforcement:
         mocker,
     ):
         """POST /preaggs/plan returns 403 without WRITE on the metrics' parent node."""
-        mocker.patch(VALIDATOR_AUTH_SERVICE, lambda: _DenyWriteAuthorizationService())
+        mocker.patch(VALIDATOR_AUTH_SERVICE, lambda: DenyWriteAuthorizationService())
         response = await client_with_build_v3.post(
             "/preaggs/plan",
             json={
@@ -2845,3 +2823,41 @@ class TestPreaggWriteEnforcement:
         )
         assert response.status_code == 403, response.text
         assert "Access denied" in response.json()["message"]
+
+    @pytest.mark.asyncio
+    async def test_register_denies_without_write(
+        self,
+        client_with_build_v3,
+        mocker,
+    ):
+        """POST /preaggs/register returns 403 without WRITE (rolled back, not committed)."""
+        _mock_query_service(
+            client_with_build_v3,
+            ["revenue_total", "order_cnt", "category"],
+        )
+        try:
+            mocker.patch(
+                VALIDATOR_AUTH_SERVICE,
+                lambda: DenyWriteAuthorizationService(),
+            )
+            response = await client_with_build_v3.post(
+                "/preaggs/register",
+                json={
+                    "metrics": ["v3.avg_order_value"],
+                    "dimensions": ["v3.product.category"],
+                    "table": {
+                        "catalog": "default",
+                        "schema": "analytics",
+                        "table": "denied_agg",
+                        "valid_through_ts": 1700000000,
+                    },
+                    "measure_columns": {
+                        "v3.total_revenue": "revenue_total",
+                        "v3.order_count": "order_cnt",
+                    },
+                },
+            )
+            assert response.status_code == 403, response.text
+            assert "Access denied" in response.json()["message"]
+        finally:
+            del client_with_build_v3.app.dependency_overrides[get_query_service_client]
