@@ -673,8 +673,9 @@ async def register_table(
     name = f"{namespace}.{table}"
     await raise_if_node_exists(session, name)
 
-    # Authorize before any mutation: creating/reactivating the namespace below
-    # (which can commit) must not happen for a caller without WRITE.
+    # Authorize before the idempotent namespace create/reactivate below (which can
+    # commit). Uses the node's own namespace (node-create semantics); the namespace
+    # endpoint's parent-boundary rule is intentionally different (see PR description).
     access_checker.add_namespace(namespace, ResourceAction.WRITE)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
@@ -752,6 +753,7 @@ async def register_view(
     view_name = f"{schema_}.{view}"
     await raise_if_node_exists(session, node_name)
 
+    # Node-create semantics: authorize on the node's own namespace (see register_table).
     access_checker.add_namespace(namespace, ResourceAction.WRITE)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 

@@ -3,6 +3,10 @@ Route-coverage guard.
 
 RBAC in DJ is opt-in per endpoint: a request is only authorized if the handler
 reaches AccessChecker.check().
+
+Coverage detection is static and conservative: it treats any ``*.check(...)`` call
+as coverage and follows only bare-name helper calls. A false "uncovered" only costs
+an allowlist entry, so we never report a route covered without a literal ``.check(``.
 """
 
 import ast
