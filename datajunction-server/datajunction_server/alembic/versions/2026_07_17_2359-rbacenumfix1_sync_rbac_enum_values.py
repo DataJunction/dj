@@ -3,7 +3,7 @@
 from alembic import op
 
 revision = "rbacenumfix1"
-down_revision = "cm0001jsonbgin"
+down_revision = "pa0002external"
 branch_labels = None
 depends_on = None
 
