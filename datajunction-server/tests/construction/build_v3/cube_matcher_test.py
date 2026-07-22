@@ -13,67 +13,83 @@ import pytest
 
 from datajunction_server.construction.build_v3.builder import build_metrics_sql
 from datajunction_server.construction.build_v3.cube_matcher import (
-    _cube_covers_filter_dims,
-    _filter_dimension_refs,
     build_sql_from_cube,
     build_synthetic_grain_group,
     find_matching_cube,
+    validate_pinned_cube_covers_filters,
 )
 from datajunction_server.construction.build_v3.decomposition import (
     decompose_and_group_metrics,
 )
 from datajunction_server.construction.build_v3.loaders import load_nodes
 from datajunction_server.construction.build_v3.types import BuildContext
+from datajunction_server.construction.build_v3.utils import (
+    extract_filter_dimension_refs,
+)
+from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.decompose import Aggregability
 from datajunction_server.models.dialect import Dialect
 
 from tests.construction.build_v3 import assert_sql_equal
 
 
-class TestFilterDimensionCoverageHelpers:
-    """Unit tests for the filter-dimension coverage helpers."""
+class TestExtractFilterDimensionRefs:
+    """Unit tests for the shared filter-dimension extraction helper.
 
-    def test_filter_dimension_refs_extracts_qualified_only(self):
-        """Only namespaced (node.column) refs are returned; bare cols ignored."""
-        refs = _filter_dimension_refs(
+    These are pure/DB-free and cover predicate shapes that could otherwise be
+    silent no-ops in cube coverage: IN, BETWEEN, function-wrapped columns, and
+    role subscripts.
+    """
+
+    def test_extracts_qualified_only(self):
+        """Only namespaced (node.column) refs are returned; bare cols dropped."""
+        refs = extract_filter_dimension_refs(
             [
                 "v3.product.category = 'Electronics'",
-                # A bare column ref has no owning node and cannot identify a
-                # dimension — it must be dropped (exercises the non-SEPARATOR branch).
+                # A bare column ref has no owning node — must be dropped.
                 "status = 'active'",
             ],
         )
         assert refs == ["v3.product.category"]
 
-    def test_filter_dimension_refs_empty(self):
+    def test_empty(self):
         """No filters -> no refs."""
-        assert _filter_dimension_refs(None) == []
-        assert _filter_dimension_refs([]) == []
+        assert extract_filter_dimension_refs(None) == []
+        assert extract_filter_dimension_refs([]) == []
 
-    def test_cube_covers_filter_dims_empty_is_true(self):
-        """A cube trivially covers an empty set of filter dims."""
-        assert _cube_covers_filter_dims({"v3.product.category"}, []) is True
+    def test_in_predicate(self):
+        """IN predicates expose their column ref."""
+        assert extract_filter_dimension_refs(
+            ["v3.product.category IN ('Electronics', 'Clothing')"],
+        ) == ["v3.product.category"]
 
-    def test_cube_covers_filter_dims_ignores_role_suffix(self):
-        """Coverage matches on (node, column), so a role-qualified cube dim
-        still covers a role-less filter ref for the same column."""
-        assert (
-            _cube_covers_filter_dims(
-                {"v3.date.date_id[order]"},
-                ["v3.date.date_id"],
-            )
-            is True
+    def test_between_predicate(self):
+        """BETWEEN predicates expose their column ref."""
+        assert extract_filter_dimension_refs(
+            ["v3.product.subcategory BETWEEN 'A' AND 'M'"],
+        ) == ["v3.product.subcategory"]
+
+    def test_function_wrapped_column(self):
+        """A column wrapped in a function (e.g. UPPER(...)) is still extracted."""
+        assert extract_filter_dimension_refs(
+            ["UPPER(v3.product.category) = 'ELECTRONICS'"],
+        ) == ["v3.product.category"]
+
+    def test_role_subscript_is_preserved(self):
+        """Role-qualified refs keep their [role] suffix (role-sensitive coverage)."""
+        assert extract_filter_dimension_refs(
+            ["v3.date.date_id[order] = 20240101"],
+        ) == ["v3.date.date_id[order]"]
+
+    def test_multiple_refs_deduped(self):
+        """Refs across predicates are collected and de-duplicated."""
+        refs = extract_filter_dimension_refs(
+            [
+                "v3.product.category = 'Electronics'",
+                "v3.product.category != 'Books' AND v3.product.subcategory = 'X'",
+            ],
         )
-
-    def test_cube_covers_filter_dims_missing_is_false(self):
-        """An uncovered filter dim makes coverage fail."""
-        assert (
-            _cube_covers_filter_dims(
-                {"v3.product.category"},
-                ["v3.product.subcategory"],
-            )
-            is False
-        )
+        assert refs == ["v3.product.category", "v3.product.subcategory"]
 
 
 class TestFindMatchingCube:
@@ -686,6 +702,49 @@ class TestFindMatchingCube:
         assert result is None
 
     @pytest.mark.asyncio
+    async def test_bare_column_filter_imposes_no_coverage(
+        self,
+        client_with_build_v3,
+        session,
+    ):
+        """A filter with only bare (non-namespaced) column refs yields no required
+        dimensions, so an otherwise-covered cube still matches (exercises the
+        'no namespaced refs' branch in _required_filter_dimensions)."""
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.test_cube_bare_filter",
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.product.category"],
+                "mode": "published",
+                "description": "Cube for bare-column-filter coverage",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        valid_through_ts = int(time.time() * 1000)
+        response = await client_with_build_v3.post(
+            "/data/v3.test_cube_bare_filter/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "analytics",
+                "table": "cube_bare_filter",
+                "valid_through_ts": valid_through_ts,
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        # "1 = 1" has no column refs at all -> no required filter dims.
+        result = await find_matching_cube(
+            session,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.product.category"],
+            filters=["1 = 1"],
+        )
+        assert result is not None
+        assert result.name == "v3.test_cube_bare_filter"
+
+    @pytest.mark.asyncio
     async def test_matches_cube_when_filter_dim_is_covered(
         self,
         client_with_build_v3,
@@ -784,11 +843,323 @@ class TestFindMatchingCube:
 
         assert result is not None
         assert result.sql is not None
-        # The generated SQL must NOT read from the cube's materialized table.
+        # The generated SQL must NOT read from the cube's materialized table...
         assert "cube_fallback" not in result.sql
         assert result.cube_name is None
-        # The filter must still be applied on the (fact-derived) subcategory.
-        assert "subcategory" in result.sql
+        # ...and must instead read the fact source that backs v3.total_revenue,
+        # joining the product dimension so the subcategory filter is valid.
+        sql_lower = result.sql.lower()
+        assert "order_details" in sql_lower, result.sql
+        assert "join" in sql_lower and "product" in sql_lower, result.sql
+        # The subcategory filter must still be applied.
+        assert "subcategory" in sql_lower
+
+    @pytest.mark.asyncio
+    async def test_metric_having_filter_still_matches_cube(
+        self,
+        client_with_build_v3,
+        session,
+    ):
+        """A metric-threshold (HAVING) filter must NOT reject an otherwise-covered cube.
+
+        Regression: ``v3.total_revenue > 100`` references a METRIC node, not a
+        dimension the cube must materialize (it's applied as HAVING on the
+        aggregated result). Treating it as a required dimension would wrongly
+        reject the cube and force a fallback even though the cube fully covers
+        the query.
+        """
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.test_cube_having_filter",
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.product.category"],
+                "mode": "published",
+                "description": "Cube for HAVING-filter matching",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        valid_through_ts = int(time.time() * 1000)
+        response = await client_with_build_v3.post(
+            "/data/v3.test_cube_having_filter/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "analytics",
+                "table": "cube_having_filter",
+                "valid_through_ts": valid_through_ts,
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        result = await find_matching_cube(
+            session,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.product.category"],
+            filters=["v3.total_revenue > 100"],
+        )
+        assert result is not None
+        assert result.name == "v3.test_cube_having_filter"
+
+    @pytest.mark.asyncio
+    async def test_rejects_when_filter_role_differs_from_cube_role(
+        self,
+        client_with_build_v3,
+        session,
+    ):
+        """Role-sensitive filter coverage: a cube materialized for one role must
+        NOT match a filter that needs a different role of the same column."""
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.test_cube_role_order",
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.date.date_id[order]"],
+                "mode": "published",
+                "description": "Cube materialized for the order role",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        valid_through_ts = int(time.time() * 1000)
+        response = await client_with_build_v3.post(
+            "/data/v3.test_cube_role_order/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "analytics",
+                "table": "cube_role_order",
+                "valid_through_ts": valid_through_ts,
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        # Filter needs the ship role — the cube only has the order role.
+        result = await find_matching_cube(
+            session,
+            metrics=["v3.total_revenue"],
+            dimensions=[],
+            filters=["v3.date.date_id[ship] = 20240101"],
+        )
+        assert result is None
+
+        # Same role as the cube -> matches.
+        result = await find_matching_cube(
+            session,
+            metrics=["v3.total_revenue"],
+            dimensions=[],
+            filters=["v3.date.date_id[order] = 20240101"],
+        )
+        assert result is not None
+        assert result.name == "v3.test_cube_role_order"
+
+    @pytest.mark.asyncio
+    async def test_unparseable_filter_fails_safe(
+        self,
+        client_with_build_v3,
+        session,
+        monkeypatch,
+    ):
+        """If a filter can't be parsed, coverage can't be proven -> reject (fail safe).
+
+        We can't easily craft a string that the parser rejects but the router
+        accepts, so we force ``extract_filter_dimension_refs`` to raise and assert
+        the matcher declines rather than fails open onto the cube.
+        """
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.test_cube_failsafe",
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.product.category"],
+                "mode": "published",
+                "description": "Cube for fail-safe test",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        valid_through_ts = int(time.time() * 1000)
+        response = await client_with_build_v3.post(
+            "/data/v3.test_cube_failsafe/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "analytics",
+                "table": "cube_failsafe",
+                "valid_through_ts": valid_through_ts,
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        def _boom(_filters):
+            raise ValueError("unparseable filter")
+
+        monkeypatch.setattr(
+            "datajunction_server.construction.build_v3.cube_matcher."
+            "extract_filter_dimension_refs",
+            _boom,
+        )
+
+        result = await find_matching_cube(
+            session,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.product.category"],
+            filters=["v3.product.category = 'Electronics'"],
+        )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_pinned_cube_uncovered_filter_raises(
+        self,
+        client_with_build_v3,
+        session,
+    ):
+        """A pinned cube that doesn't cover a filtered dim must fail LOUD.
+
+        find_matching_cube's coverage check is bypassed when a cube is pinned,
+        so validate_pinned_cube_covers_filters guards that path with a clear error.
+        """
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.test_cube_pinned",
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.product.category"],
+                "mode": "published",
+                "description": "Pinned cube missing the filtered dimension",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        valid_through_ts = int(time.time() * 1000)
+        response = await client_with_build_v3.post(
+            "/data/v3.test_cube_pinned/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "analytics",
+                "table": "cube_pinned",
+                "valid_through_ts": valid_through_ts,
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        cube = await find_matching_cube(
+            session,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.product.category"],
+        )
+        assert cube is not None
+
+        # Uncovered filter -> raises.
+        with pytest.raises(DJInvalidInputException) as exc:
+            await validate_pinned_cube_covers_filters(
+                session,
+                cube,
+                dimensions=[],
+                filters=["v3.product.subcategory = 'Smartphones'"],
+            )
+        assert "does not cover" in str(exc.value)
+
+        # Covered filter (a HAVING metric filter imposes no coverage) -> no raise.
+        await validate_pinned_cube_covers_filters(
+            session,
+            cube,
+            dimensions=["v3.product.category"],
+            filters=["v3.total_revenue > 100"],
+        )
+
+    @pytest.mark.asyncio
+    async def test_validate_pinned_cube_unparseable_filter_raises(
+        self,
+        client_with_build_v3,
+        session,
+        monkeypatch,
+    ):
+        """Pinned-cube validation also fails loud on an unparseable filter."""
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.test_cube_pinned_failsafe",
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.product.category"],
+                "mode": "published",
+                "description": "Pinned cube for unparseable-filter validation",
+            },
+        )
+        assert response.status_code == 201, response.json()
+        cube = await find_matching_cube(
+            session,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.product.category"],
+            require_availability=False,
+        )
+        assert cube is not None
+
+        def _boom(_filters):
+            raise ValueError("unparseable filter")
+
+        monkeypatch.setattr(
+            "datajunction_server.construction.build_v3.cube_matcher."
+            "extract_filter_dimension_refs",
+            _boom,
+        )
+        with pytest.raises(DJInvalidInputException) as exc:
+            await validate_pinned_cube_covers_filters(
+                session,
+                cube,
+                dimensions=[],
+                filters=["v3.product.category = 'Electronics'"],
+            )
+        assert "could not be parsed" in str(exc.value)
+
+    @pytest.mark.asyncio
+    async def test_pinned_cube_non_druid_dialect_skips_validation(
+        self,
+        client_with_build_v3,
+        session,
+    ):
+        """When a pinned cube won't back the build (non-Druid dialect), the
+        pinned-cube filter-coverage validation is skipped — an uncovered filter
+        does NOT raise, because the query runs on the metric's own engine."""
+        from datajunction_server.internal.sql import generate_metrics_sql
+
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.test_cube_pinned_trino",
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.product.category"],
+                "mode": "published",
+                "description": "Pinned cube, queried via non-Druid dialect",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        valid_through_ts = int(time.time() * 1000)
+        response = await client_with_build_v3.post(
+            "/data/v3.test_cube_pinned_trino/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "analytics",
+                "table": "cube_pinned_trino",
+                "valid_through_ts": valid_through_ts,
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        # Pin the cube but force a non-Druid dialect: the cube won't be used, so
+        # the uncovered subcategory filter must NOT raise (validation skipped).
+        result = await generate_metrics_sql(
+            session,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.product.category"],
+            filters=["v3.product.subcategory = 'Smartphones'"],
+            cube="v3.test_cube_pinned_trino",
+            dialect=Dialect.TRINO,
+            use_materialized=True,
+        )
+        assert result is not None
+        assert result.sql is not None
+        # Ran off the cube (Trino source), not the materialized cube table.
+        assert "cube_pinned_trino" not in result.sql
 
 
 class TestBuildSqlFromCube:
