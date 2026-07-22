@@ -272,7 +272,10 @@ async def deactivate_a_namespace(
     """
     Deactivates a node namespace
     """
-    access_checker.add_namespace(namespace, ResourceAction.WRITE)
+    # Deactivation is a delete-class operation (it can cascade-delete nodes), so
+    # it requires DELETE -- matching node deactivation and namespace hard-delete,
+    # not the weaker WRITE.
+    access_checker.add_namespace(namespace, ResourceAction.DELETE)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     node_namespace = await NodeNamespace.get(
