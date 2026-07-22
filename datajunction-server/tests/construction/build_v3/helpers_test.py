@@ -21,6 +21,7 @@ from datajunction_server.construction.build_v3.decomposition import (
     get_native_grain,
 )
 from datajunction_server.construction.build_v3.dimensions import (
+    _local_reference_dimension_column,
     parse_dimension_ref,
 )
 from datajunction_server.construction.build_v3.filters import (
@@ -34,6 +35,8 @@ from datajunction_server.construction.build_v3.measures import (
     collect_cte_nodes_and_needed_columns,
 )
 from datajunction_server.construction.build_v3.types import (
+    BuildContext,
+    DimensionRef,
     JoinPath,
     ResolvedDimension,
 )
@@ -104,6 +107,106 @@ class TestDimensionRefParsing:
         with an empty ``node_name`` that would silently match the wrong node."""
         with pytest.raises(DJInvalidInputException, match="not fully qualified"):
             parse_dimension_ref("status")
+
+
+def _make_ref_column(
+    name: str,
+    dimension_id: int | None,
+    dimension_column: str | None,
+) -> MagicMock:
+    """Build a Column mock exposing the reference-dimension scalars."""
+    col = MagicMock()
+    col.name = name
+    col.dimension_id = dimension_id
+    col.dimension_column = dimension_column
+    return col
+
+
+def _make_ref_ctx(
+    columns: list[MagicMock],
+    reference_dimension_names: dict[int, str],
+) -> tuple[MagicMock, MagicMock]:
+    """Build a (ctx, parent_node) pair for reference-dimension resolution."""
+    rev = MagicMock()
+    rev.columns = columns
+    parent_node = MagicMock()
+    parent_node.name = "v3.fact"
+    parent_node.current = rev
+
+    ctx = MagicMock(spec=BuildContext)
+    ctx.reference_dimension_names = reference_dimension_names
+    return ctx, parent_node
+
+
+class TestLocalReferenceDimensionColumn:
+    """Branch coverage for ``_local_reference_dimension_column``."""
+
+    def test_resolves_from_tagged_column(self):
+        """A column tagged with the requested dim node + attribute resolves locally."""
+        col = _make_ref_column(
+            "page_type",
+            dimension_id=7,
+            dimension_column="plan_label",
+        )
+        ctx, parent_node = _make_ref_ctx([col], {7: "v3.plan_dim"})
+        dim_ref = DimensionRef(node_name="v3.plan_dim", column_name="plan_label")
+        assert (
+            _local_reference_dimension_column(ctx, parent_node, dim_ref) == "page_type"
+        )
+
+    def test_falls_back_to_column_name_when_dimension_column_unset(self):
+        """When ``dimension_column`` is None, the column's own name is the target."""
+        col = _make_ref_column("plan_label", dimension_id=7, dimension_column=None)
+        ctx, parent_node = _make_ref_ctx([col], {7: "v3.plan_dim"})
+        dim_ref = DimensionRef(node_name="v3.plan_dim", column_name="plan_label")
+        assert (
+            _local_reference_dimension_column(ctx, parent_node, dim_ref) == "plan_label"
+        )
+
+    def test_strips_role_suffix_from_dimension_column(self):
+        """A ``[role]`` suffix on ``dimension_column`` is stripped before matching."""
+        col = _make_ref_column(
+            "page_type",
+            dimension_id=7,
+            dimension_column="plan_label[order]",
+        )
+        ctx, parent_node = _make_ref_ctx([col], {7: "v3.plan_dim"})
+        dim_ref = DimensionRef(node_name="v3.plan_dim", column_name="plan_label")
+        assert (
+            _local_reference_dimension_column(ctx, parent_node, dim_ref) == "page_type"
+        )
+
+    def test_skips_column_without_dimension_id(self):
+        """A column with no ``dimension_id`` is skipped; only the tagged one matches."""
+        untagged = _make_ref_column("view_id", dimension_id=None, dimension_column=None)
+        tagged = _make_ref_column(
+            "page_type",
+            dimension_id=7,
+            dimension_column="plan_label",
+        )
+        ctx, parent_node = _make_ref_ctx([untagged, tagged], {7: "v3.plan_dim"})
+        dim_ref = DimensionRef(node_name="v3.plan_dim", column_name="plan_label")
+        assert (
+            _local_reference_dimension_column(ctx, parent_node, dim_ref) == "page_type"
+        )
+
+    def test_skips_column_tagged_with_different_dimension_node(self):
+        """A column tagged with a *different* dim node than requested is skipped."""
+        col = _make_ref_column(
+            "page_type",
+            dimension_id=9,
+            dimension_column="plan_label",
+        )
+        ctx, parent_node = _make_ref_ctx([col], {9: "v3.other_dim"})
+        dim_ref = DimensionRef(node_name="v3.plan_dim", column_name="plan_label")
+        assert _local_reference_dimension_column(ctx, parent_node, dim_ref) is None
+
+    def test_returns_none_when_attribute_does_not_match(self):
+        """A column tagged with the right node but a different attribute doesn't match."""
+        col = _make_ref_column("page_type", dimension_id=7, dimension_column="plan_key")
+        ctx, parent_node = _make_ref_ctx([col], {7: "v3.plan_dim"})
+        dim_ref = DimensionRef(node_name="v3.plan_dim", column_name="plan_label")
+        assert _local_reference_dimension_column(ctx, parent_node, dim_ref) is None
 
 
 def _make_node_with_columns(name: str, columns: list[str]) -> MagicMock:
