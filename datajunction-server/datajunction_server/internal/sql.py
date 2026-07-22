@@ -239,6 +239,7 @@ async def generate_metrics_sql(
             dimensions=dimensions,
             use_materialized=use_materialized,
             matched_cube=matched_cube,
+            filters=merged_filters,
         )
         resolved_dialect = execution_ctx.dialect
         # Only reuse the resolved cube if the caller didn't provide one.

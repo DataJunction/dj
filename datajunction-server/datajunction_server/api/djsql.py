@@ -223,6 +223,7 @@ async def _build_djsql_query(
         use_materialized=use_materialized,
         engine_name=engine_name,
         engine_version=engine_version,
+        filters=filters if filters else None,
     )
     generated_sql = await build_metrics_sql(
         session=session,
