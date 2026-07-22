@@ -483,6 +483,7 @@ async def get_data_for_metrics(
         engine_name=engine_name,
         engine_version=engine_version,
         dialect_override=dialect,
+        filters=filters if filters else None,
     )
 
     # Build SQL with the resolved dialect
@@ -564,6 +565,7 @@ async def get_data_stream_for_metrics(
         use_materialized=use_materialized,
         engine_name=engine_name,
         engine_version=engine_version,
+        filters=filters if filters else None,
     )
 
     # Build SQL with the resolved dialect

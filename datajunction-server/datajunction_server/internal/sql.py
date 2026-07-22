@@ -212,6 +212,7 @@ async def generate_metrics_sql(
     from datajunction_server.construction.build_v3 import (  # noqa: PLC0415
         build_metrics_sql,
         resolve_dialect_and_engine_for_metrics,
+        validate_pinned_cube_covers_filters,
     )
 
     _t0 = time.monotonic()
@@ -230,6 +231,18 @@ async def generate_metrics_sql(
             if not dimensions:
                 dimensions = matched_cube.cube_node_dimensions
 
+        # A pinned cube bypasses find_matching_cube's coverage check. When that
+        # cube will actually back the build (materialized, Druid or auto-dialect),
+        # verify it covers every filtered dimension so we fail loud here instead
+        # of emitting Druid SQL that references a column the cube table lacks.
+        if use_materialized and dialect in (None, Dialect.DRUID):
+            await validate_pinned_cube_covers_filters(
+                session,
+                matched_cube,
+                dimensions,
+                merged_filters,
+            )
+
     # Auto-resolve dialect if not explicitly provided.
     resolved_dialect = dialect
     if resolved_dialect is None:
@@ -239,6 +252,7 @@ async def generate_metrics_sql(
             dimensions=dimensions,
             use_materialized=use_materialized,
             matched_cube=matched_cube,
+            filters=merged_filters,
         )
         resolved_dialect = execution_ctx.dialect
         # Only reuse the resolved cube if the caller didn't provide one.

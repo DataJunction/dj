@@ -21,6 +21,7 @@ from datajunction_server.construction.build_v3.cube_matcher import (
     build_sql_from_cube,
     find_matching_cube,
     resolve_dialect_and_engine_for_metrics,
+    validate_pinned_cube_covers_filters,
 )
 from datajunction_server.construction.build_v3.types import (
     BuildContext,
@@ -45,6 +46,7 @@ __all__ = [
     "find_matching_cube",
     "build_sql_from_cube",
     "resolve_dialect_and_engine_for_metrics",
+    "validate_pinned_cube_covers_filters",
     # Combiners
     "build_combiner_sql",
     "CombinedGrainGroupResult",

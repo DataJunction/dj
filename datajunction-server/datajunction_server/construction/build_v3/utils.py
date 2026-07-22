@@ -324,36 +324,43 @@ def add_dimensions_from_metric_expressions(
                         )
 
 
-def add_dimensions_from_filters(ctx: "BuildContext") -> None:
+def extract_filter_dimension_refs(
+    filters: list[str] | None,
+    include_bare: bool = False,
+) -> list[str]:
     """
-    Scan filter expressions for dimension references and add them to ctx.dimensions.
+    Extract the column references from a set of filter predicates.
 
-    Dimensions referenced in filters but not in the GROUP BY dimensions are needed
-    for filter resolution but should not appear in the output projection. These are
-    tracked in ctx.filter_dimensions.
+    Returns role-qualified refs in the ``node.column`` / ``node.column[role]``
+    form — the SAME normalization used to auto-add filter-only dimensions to the
+    build context. Subscript role markers are always excluded.
 
-    This function processes ALL filters (both dimension and metric filters) because
-    it's called BEFORE filter classification. Metric filters that reference dimensions
-    (rare but possible) will have those dimensions added, which is correct.
+    ``include_bare`` controls handling of non-namespaced (bare) column refs:
+      - False (default): bare refs are dropped — used by cube matching, where a
+        bare ref can't identify a cube dimension.
+      - True: bare refs are included — used by ``add_dimensions_from_filters``,
+        which must still SEE them to reject the unqualified ``node.column``
+        contract (v3 requires fully-qualified filter refs).
 
-    Args:
-        ctx: BuildContext with filters and dimensions lists to update
+    This is a pure, DB-free helper shared by ``add_dimensions_from_filters`` and
+    cube matching, so the two paths can't drift on how filters map to dimensions.
+
+    Raises ``DJInvalidInputException`` (via ``parse_filter``) only for a filter
+    that cannot be parsed at all; callers decide how to treat that.
     """
     # Import here to avoid circular imports (cte.py imports utils.py)
     from datajunction_server.construction.build_v3.cte import get_column_full_name
-    from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
 
-    if not ctx.filters:
-        return
+    refs: list[str] = []
 
-    existing_dims = set(ctx.dimensions)
+    def _add(ref: str) -> None:
+        if not ref or ref in refs:
+            return
+        if include_bare or SEPARATOR in ref:
+            refs.append(ref)
 
-    for filter_str in ctx.filters:
-        try:
-            filter_ast = parse_filter(filter_str)
-        except Exception:  # pragma: no cover
-            logger.warning("[BuildV3] Failed to parse filter: %s", filter_str)
-            continue
+    for filter_str in filters or []:
+        filter_ast = parse_filter(filter_str)
 
         # Track base column refs handled via role-qualified subscript notation
         # (e.g., "v3.location.country" from "v3.location.country[customer->home]")
@@ -363,7 +370,7 @@ def add_dimensions_from_filters(ctx: "BuildContext") -> None:
         # Role markers inside subscripts are parsed as Column nodes (e.g. the
         # `to` in `v3.location.country[to]`) but are not real filter column
         # references — identify them so the second pass doesn't treat them
-        # as bare column refs and reject them.
+        # as bare column refs.
         role_marker_ids: set[int] = set()
 
         # First pass: handle Subscript nodes for role-qualified dimension refs.
@@ -386,8 +393,8 @@ def add_dimensions_from_filters(ctx: "BuildContext") -> None:
             # Mark this base ref as handled so the Column pass skips it
             subscript_handled_refs.add(base_col_ref)
 
-            # Mark any Column nodes used as the role marker so we don't raise
-            # on them as bare refs.
+            # Mark any Column nodes used as the role marker so we don't treat
+            # them as bare refs.
             if isinstance(subscript.index, ast.Column):
                 role_marker_ids.add(id(subscript.index))
             for inner_col in (
@@ -397,78 +404,82 @@ def add_dimensions_from_filters(ctx: "BuildContext") -> None:
             ):
                 role_marker_ids.add(id(inner_col))
 
-            if full_name in existing_dims:
-                continue
+            _add(full_name)
 
-            if full_name in ctx.metrics:  # pragma: no cover
-                continue
-
-            dim_ref = parse_dimension_ref(full_name)
-            is_covered = False
-            for existing_dim in ctx.dimensions:
-                existing_ref = parse_dimension_ref(existing_dim)
-                if (
-                    existing_ref.node_name == dim_ref.node_name
-                    and existing_ref.column_name == dim_ref.column_name
-                    and existing_ref.role == dim_ref.role
-                ):
-                    is_covered = True  # pragma: no cover
-                    break  # pragma: no cover
-
-            if not is_covered:  # pragma: no branch
-                logger.info(
-                    "[BuildV3] Auto-adding filter-only dimension %s",
-                    full_name,
-                )
-                ctx.dimensions.append(full_name)
-                ctx.filter_dimensions.add(full_name)
-                existing_dims.add(full_name)
-
-        # Second pass: handle regular Column references.
-        # Skip columns that were already added via the subscript pass above.
+        # Second pass: handle regular Column references. This also catches
+        # columns wrapped in functions (e.g. DATE(v3.date.date_id)) or inside
+        # IN / BETWEEN predicates, since find_all(ast.Column) walks the whole tree.
         for col in filter_ast.find_all(ast.Column):
             # Role markers inside subscripts (e.g. `to` in `dim.col[to]`) are
             # parsed as Columns but don't refer to real data columns.
             if id(col) in role_marker_ids:
                 continue
             full_name = get_column_full_name(col)
-            if not full_name:
-                continue  # pragma: no cover
-
             # Skip if already handled as a role-qualified subscript ref
             if full_name in subscript_handled_refs:
                 continue
+            _add(full_name)
 
-            if full_name in existing_dims:
-                # Already in dimensions, no need to add
-                continue
+    return refs
 
-            # Skip if this is a metric reference, not a dimension
-            # Metrics in WHERE clauses should be treated as HAVING conditions,
-            # not dimension joins
-            if full_name in ctx.metrics:
-                continue
 
-            # Check if any existing dimension already covers this (node, column)
-            dim_ref = parse_dimension_ref(full_name)
-            is_covered = False
-            for existing_dim in ctx.dimensions:
-                existing_ref = parse_dimension_ref(existing_dim)
-                if (
-                    existing_ref.node_name == dim_ref.node_name
-                    and existing_ref.column_name == dim_ref.column_name
-                ):
-                    is_covered = True  # pragma: no cover
-                    break  # pragma: no cover
+def add_dimensions_from_filters(ctx: "BuildContext") -> None:
+    """
+    Scan filter expressions for dimension references and add them to ctx.dimensions.
 
-            if not is_covered:  # pragma: no branch
-                logger.info(
-                    "[BuildV3] Auto-adding filter-only dimension %s",
-                    full_name,
-                )
-                ctx.dimensions.append(full_name)
-                ctx.filter_dimensions.add(full_name)
-                existing_dims.add(full_name)
+    Dimensions referenced in filters but not in the GROUP BY dimensions are needed
+    for filter resolution but should not appear in the output projection. These are
+    tracked in ctx.filter_dimensions.
+
+    This function processes ALL filters (both dimension and metric filters) because
+    it's called BEFORE filter classification. Metric filters that reference dimensions
+    (rare but possible) will have those dimensions added, which is correct.
+
+    Args:
+        ctx: BuildContext with filters and dimensions lists to update
+    """
+    from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
+
+    if not ctx.filters:
+        return
+
+    existing_dims = set(ctx.dimensions)
+
+    # include_bare=True so unqualified refs still reach parse_dimension_ref below,
+    # which rejects them (v3 requires the fully-qualified node.column form).
+    for full_name in extract_filter_dimension_refs(ctx.filters, include_bare=True):
+        if full_name in existing_dims:
+            continue
+
+        # Skip if this is a metric reference, not a dimension. Metrics in WHERE
+        # clauses are treated as HAVING conditions, not dimension joins.
+        if full_name in ctx.metrics:
+            continue
+
+        # Check if any existing dimension already covers this (node, column[, role]).
+        # Role-qualified refs match role-sensitively; role-less refs ignore role.
+        # parse_dimension_ref raises DJInvalidInputException for a bare (unqualified)
+        # ref, enforcing the node.column contract.
+        dim_ref = parse_dimension_ref(full_name)
+        is_covered = False
+        for existing_dim in ctx.dimensions:
+            existing_ref = parse_dimension_ref(existing_dim)
+            if (
+                existing_ref.node_name == dim_ref.node_name
+                and existing_ref.column_name == dim_ref.column_name
+                and (dim_ref.role is None or existing_ref.role == dim_ref.role)
+            ):
+                is_covered = True  # pragma: no cover
+                break  # pragma: no cover
+
+        if not is_covered:  # pragma: no branch
+            logger.info(
+                "[BuildV3] Auto-adding filter-only dimension %s",
+                full_name,
+            )
+            ctx.dimensions.append(full_name)
+            ctx.filter_dimensions.add(full_name)
+            existing_dims.add(full_name)
 
 
 def build_join_from_clause(
