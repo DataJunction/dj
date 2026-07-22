@@ -168,6 +168,7 @@ class TestScopeContainment:
         "granted_type,granted_value,delegated_type,delegated_value,expected",
         [
             (ResourceType.NAMESPACE, "*", ResourceType.NAMESPACE, "*", True),
+            (ResourceType.NAMESPACE, "", ResourceType.NAMESPACE, "finance", True),
             (ResourceType.NAMESPACE, "finance.*", ResourceType.NAMESPACE, "*", False),
             (ResourceType.NODE, "*", ResourceType.NODE, "*", True),
             (ResourceType.NODE, "finance.*", ResourceType.NODE, "*", False),

@@ -14,6 +14,7 @@ from datajunction_server.models.access import (
     ResourceAction,
     ResourceRequest,
     ResourceType,
+    parse_scope_pattern,
 )
 from datajunction_server.internal.access.authorization.context import (
     AuthContext,
@@ -327,8 +328,8 @@ class RBACAuthorizationService(AuthorizationService):
         delegated_value: str,
     ) -> bool:
         """Return whether one supported scope pattern contains another."""
-        granted_pattern = cls._parse_scope_pattern(granted_value)
-        delegated_pattern = cls._parse_scope_pattern(delegated_value)
+        granted_pattern = parse_scope_pattern(granted_value)
+        delegated_pattern = parse_scope_pattern(delegated_value)
         if granted_pattern is None or delegated_pattern is None:
             return False
 
@@ -351,24 +352,6 @@ class RBACAuthorizationService(AuthorizationService):
         return delegated_prefix == granted_prefix or delegated_prefix.startswith(
             granted_prefix + SEPARATOR,
         )
-
-    @staticmethod
-    def _parse_scope_pattern(value: str) -> tuple[str, str] | None:
-        """Parse exact, trailing-wildcard, and global scope patterns."""
-        if not value or value == "*":
-            return ("global", "")
-        if (
-            value.startswith(SEPARATOR)
-            or value.endswith(SEPARATOR)
-            or SEPARATOR * 2 in value
-        ):
-            return None
-        if "*" not in value:
-            return ("exact", value)
-        if value.count("*") != 1 or not value.endswith(f"{SEPARATOR}*"):
-            return None
-        prefix = value[: -len(f"{SEPARATOR}*")]
-        return ("subtree", prefix) if prefix else None
 
     @classmethod
     def _scope_grants_permission(

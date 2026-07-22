@@ -32,6 +32,7 @@ from datajunction_server.models.rbac import (
     RoleScopeInput,
     RoleScopeOutput,
     RoleUpdate,
+    ScopeValue,
 )
 from datajunction_server.utils import get_session, get_current_user
 from datajunction_server.models.user import UserOutput
@@ -448,7 +449,7 @@ async def delete_scope_from_role(
     role_name: str,
     action: ResourceAction,
     scope_type: ResourceType,
-    scope_value: str,
+    scope_value: ScopeValue,
     *,
     session: AsyncSession = Depends(get_session),
     current_user: UserOutput = Depends(get_current_user),

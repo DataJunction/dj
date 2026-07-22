@@ -133,6 +133,64 @@ async def test_create_role_with_scopes(client_with_basic: AsyncClient):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("scope_value", ["", " ", "\t"])
+async def test_create_role_rejects_blank_scope_value(
+    client_with_basic: AsyncClient,
+    scope_value: str,
+):
+    """Global scopes must use an explicit wildcard."""
+    response = await client_with_basic.post(
+        "/roles/",
+        json={
+            "name": "invalid-blank-scope",
+            "scopes": [
+                {
+                    "action": "read",
+                    "scope_type": "namespace",
+                    "scope_value": scope_value,
+                },
+            ],
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == [
+        "body",
+        "scopes",
+        0,
+        "scope_value",
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "scope_value",
+    ["finance*", ".*", "**", "finance.*.revenue", "finance..*", ".finance"],
+)
+async def test_create_role_rejects_malformed_scope_value(
+    client_with_basic: AsyncClient,
+    scope_value: str,
+):
+    """Malformed scope patterns fail request validation."""
+    response = await client_with_basic.post(
+        "/roles/",
+        json={
+            "name": "invalid-malformed-scope",
+            "scopes": [
+                {
+                    "action": "read",
+                    "scope_type": "namespace",
+                    "scope_value": scope_value,
+                },
+            ],
+        },
+    )
+
+    assert response.status_code == 422
+    assert "exact scope" in response.json()["detail"][0]["msg"]
+
+
+@pytest.mark.asyncio
 async def test_create_role_duplicate_name(client_with_basic: AsyncClient):
     """Test that creating a role with duplicate name fails."""
     # Create first role
@@ -503,6 +561,19 @@ async def test_delete_scope_not_found(client_with_basic: AsyncClient):
         f"/roles/test-role/scopes/read/namespace/{scope_value}",
     )
     assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_scope_rejects_malformed_scope_value(
+    client_with_basic: AsyncClient,
+):
+    """Path scope values use the same validation as request bodies."""
+    response = await client_with_basic.delete(
+        "/roles/test-role/scopes/read/namespace/finance*",
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["path", "scope_value"]
 
 
 @pytest.mark.asyncio
