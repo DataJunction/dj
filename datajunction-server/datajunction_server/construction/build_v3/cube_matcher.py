@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, selectinload, noload
+from sqlalchemy.orm import joinedload, selectinload, noload, load_only
 
 from datajunction_server.construction.build_v3.decomposition import is_derived_metric
 from datajunction_server.models.dialect import Dialect
@@ -89,7 +89,13 @@ async def _required_filter_dimensions(
     # A filter ref whose FULL name is a metric node (e.g. "v3.total_revenue" in
     # "v3.total_revenue > 100") is a HAVING predicate, not a dimension the cube
     # must materialize — mirrors classify_filters' metric/dimension split.
-    metric_nodes = await Node.get_by_names(session, refs)
+    # Only name/type are needed to spot metric refs; skip the default heavy
+    # NodeRevision eager-load tree.
+    metric_nodes = await Node.get_by_names(
+        session,
+        refs,
+        options=[load_only(Node.name, Node.type)],
+    )
     metric_ref_names = {
         node.name for node in metric_nodes if node.type == NodeType.METRIC
     }
@@ -244,7 +250,7 @@ async def validate_pinned_cube_covers_filters(
     filters: list[str] | None,
 ) -> None:
     """
-    Ensure an EXPLICITLY PINNED cube covers every filtered dimension.
+    Ensure an explicitly pinned cube covers every filtered dimension.
 
     Cube matching (find_matching_cube) already rejects cubes that don't cover a
     filtered dimension and falls back. But when the caller pins a specific cube
