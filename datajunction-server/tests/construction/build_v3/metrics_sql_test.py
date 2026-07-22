@@ -6453,6 +6453,76 @@ class TestReferenceDimensionResolution:
             """,
         )
 
+    @pytest.mark.asyncio
+    async def test_reference_dimension_used_only_as_filter(self, client_with_build_v3):
+        """
+        A reference dimension used purely as a filter (not grouped) also resolves
+        from the local tagged column: the predicate is pushed onto the parent CTE,
+        with no join to the unreachable dimension node. Filter-only dims flow
+        through resolve_dimensions, so the same reference resolution applies.
+        """
+        resp = await client_with_build_v3.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.plan_src",
+                "description": "Plan catalog",
+                "columns": [
+                    {"name": "plan_key", "type": "string"},
+                    {"name": "plan_label", "type": "string"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "plans",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        resp = await client_with_build_v3.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.plan_dim",
+                "description": "Plan dimension (unlinked)",
+                "query": "SELECT plan_key, plan_label FROM v3.plan_src",
+                "mode": "published",
+                "primary_key": ["plan_key"],
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        resp = await client_with_build_v3.post(
+            "/nodes/v3.page_views_enriched/columns/page_type/link",
+            params={"dimension_node": "v3.plan_dim", "dimension_column": "plan_label"},
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.page_view_count"],
+                "filters": ["v3.plan_dim.plan_label = 'checkout'"],
+                "dialect": "trino",
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = response.json()["sql"]
+        assert "plan_dim" not in sql, sql
+        assert_sql_equal(
+            sql,
+            """
+            WITH
+            v3_page_views_enriched AS (
+              SELECT view_id, page_type
+              FROM default.v3.page_views
+              WHERE page_type = 'checkout'
+            ),
+            page_views_enriched_0 AS (
+              SELECT COUNT(t1.view_id) view_id_count_f41e2db4
+              FROM v3_page_views_enriched t1
+            )
+            SELECT SUM(page_views_enriched_0.view_id_count_f41e2db4) AS page_view_count
+            FROM page_views_enriched_0
+            """,
+        )
+
 
 class TestMetricOnDimensionNode:
     @pytest.mark.asyncio
