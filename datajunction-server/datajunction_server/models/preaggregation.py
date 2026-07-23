@@ -85,6 +85,63 @@ class PlanPreAggregationsResponse(BaseModel):
     preaggs: List["PreAggregationInfo"]
 
 
+class ExternalPreAggTable(BaseModel):
+    """An externally-built table backing a registered pre-aggregation."""
+
+    catalog: str = Field(description="Catalog where the external table exists")
+    schema_: str = Field(
+        alias="schema",
+        description="Schema where the external table exists",
+    )
+    table: str = Field(description="Name of the external table")
+    valid_through_ts: Optional[int] = Field(
+        default=None,
+        description=(
+            "Timestamp (epoch) through which the external data is valid. When "
+            "provided, availability is set immediately; otherwise the pre-agg is "
+            "registered as pending until reported via the availability endpoint."
+        ),
+    )
+
+    class Config:
+        populate_by_name = True
+
+
+class RegisterPreAggregationsRequest(BaseModel):
+    """
+    Request model for registering an externally-built pre-aggregation table.
+
+    Unlike /preaggs/plan (where DJ generates and owns the materialization), this
+    adopts a table already built by an external pipeline. DJ decomposes the
+    metrics to determine the required measures, binds each to a physical column
+    via ``measure_columns``, validates them against the table, and records the
+    pre-aggregation so grain resolution can route queries to it.
+    """
+
+    name: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional stable handle for the pre-aggregation, used by YAML deploy "
+            "reconciliation and availability-by-name callbacks."
+        ),
+    )
+    metrics: List[str] = Field(
+        description="Metric node names the external table should serve",
+    )
+    dimensions: List[str] = Field(
+        description="Dimension references defining the table's grain",
+    )
+    table: ExternalPreAggTable = Field(description="The externally-built table")
+    measure_columns: Dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Maps each is_measure metric name to the physical column in the "
+            "external table holding its pre-aggregated value. Every component "
+            "measure of the requested metrics must be covered."
+        ),
+    )
+
+
 class UpdatePreAggregationAvailabilityRequest(BaseModel):
     """Request model for updating pre-aggregation availability."""
 
@@ -158,6 +215,7 @@ class PreAggregationInfo(BaseModel):
     sql: str  # The generated SQL for materializing this pre-agg
     grain_group_hash: str
     preagg_hash: str  # Unique hash including measures (used for table/workflow naming)
+    name: Optional[str] = None  # Stable handle for externally-registered pre-aggs
 
     # Materialization config
     strategy: Optional[MaterializationStrategy] = None

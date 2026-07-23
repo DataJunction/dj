@@ -13,6 +13,7 @@ from datajunction_server.models.deployment import (
     TransformSpec,
     ColumnSpec,
     PartitionSpec,
+    PreAggSpec,
     Granularity,
     PartitionType,
     eq_columns,
@@ -243,6 +244,7 @@ def test_deployment_spec():
         ],
         "tags": [],
         "hierarchies": [],
+        "preaggregations": [],
         "source": None,
         "auto_register_sources": True,
         "force": False,
@@ -597,3 +599,32 @@ def test_deployment_results_property_getter():
     assert len(results) == 1
     assert results[0].name == "test_node"
     assert results[0].status == DeploymentResult.Status.SUCCESS
+
+
+def test_deployment_spec_preserves_explicit_preagg_namespace():
+    """
+    set_namespaces propagates the deployment namespace onto pre-agg specs that
+    don't have one, but leaves an already-namespaced pre-agg spec untouched.
+    """
+    spec = DeploymentSpec(
+        namespace="ns",
+        preaggregations=[
+            PreAggSpec(
+                name="already_scoped",
+                namespace="explicit",
+                catalog="c",
+                schema="s",
+                table="t",
+                measure_columns={},
+            ),
+            PreAggSpec(
+                name="unscoped",
+                catalog="c",
+                schema="s",
+                table="t",
+                measure_columns={},
+            ),
+        ],
+    )
+    assert spec.preaggregations[0].namespace == "explicit"
+    assert spec.preaggregations[1].namespace == "ns"

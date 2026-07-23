@@ -940,6 +940,92 @@ class TestCrossFactDimensions:
         validator = NodeSpecBulkValidator(context)
         assert validator._check_cross_fact_dimensions(spec) is None
 
+    def test_pending_links_suppress_false_negative(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """Shared dimension reachable only via links created in the SAME deploy.
+
+        Dimension links are deployed after nodes (orchestrator: _deploy_nodes runs
+        before _deploy_links), so at validation time get_dimensions can only see
+        each base metric's parent-local columns — no shared dimension yet. The
+        check must not emit a false negative when the pending links in this deploy
+        would establish a common dimension node.
+        """
+        num = _make_metric_node("test.fd_num")  # parent transform test.fd_fact
+        den = _make_metric_node("test.fd_den")  # parent dimension test.fd_dim
+        context = ValidationContext(
+            session=session,
+            node_graph={
+                "test.fd_ratio": [num.name, den.name],
+                "test.fd_num": ["test.fd_fact"],
+                "test.fd_den": ["test.fd_dim"],
+            },
+            dependency_nodes={num.name: num, den.name: den},
+            # Dimension links declared in THIS deploy: both parents link the
+            # conformed date dim, so the base metrics can share it once the
+            # links land.
+            deployment_link_targets={
+                "test.fd_fact": {"test.dt_date_d_v2", "test.fd_dim"},
+                "test.fd_dim": {"test.dt_date_d_v2"},
+            },
+        )
+        spec = MetricSpec(
+            name="test.fd_ratio",
+            query="SELECT test_fd_num / test_fd_den FROM test.fd_num, test.fd_den",
+        )
+        validator = NodeSpecBulkValidator(context)
+        # Committed graph (links not created yet): each base metric only sees its
+        # own parent's local/PK columns — no shared dimension at column level.
+        validator._metric_dimensions = {
+            num.name: {"test.fd_fact.account_id", "test.fd_fact.dateint"},
+            den.name: {
+                "test.fd_dim.account_id",
+                "test.fd_dim.dateint",
+                "test.fd_dim.plan",
+            },
+        }
+
+        assert validator._check_cross_fact_dimensions(spec) is None
+
+    def test_pending_links_unrelated_still_invalid(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """Fail-open must not disable the check: base metrics that cannot share a
+        dimension even with the deploy's pending links still fail."""
+        ma = _make_metric_node("test.metric_a")  # parent test.fact_a
+        mb = _make_metric_node("test.metric_b")  # parent test.fact_b
+        context = ValidationContext(
+            session=session,
+            node_graph={
+                "test.derived": [ma.name, mb.name],
+                "test.metric_a": ["test.fact_a"],
+                "test.metric_b": ["test.fact_b"],
+            },
+            dependency_nodes={ma.name: ma, mb.name: mb},
+            # Pending links go to different dimension nodes — no common dimension.
+            deployment_link_targets={
+                "test.fact_a": {"test.dim_a"},
+                "test.fact_b": {"test.dim_b"},
+            },
+        )
+        spec = MetricSpec(
+            name="test.derived",
+            query="SELECT test_metric_a + test_metric_b FROM test.metric_a, test.metric_b",
+        )
+        validator = NodeSpecBulkValidator(context)
+        validator._metric_dimensions = {
+            ma.name: {"test.fact_a.x"},
+            mb.name: {"test.fact_b.y"},
+        }
+
+        err = validator._check_cross_fact_dimensions(spec)
+        assert err is not None
+        assert err.code == ErrorCode.INVALID_PARENT
+
     # ------------------------------------------------------------------ prefetch tests
 
     @pytest.mark.asyncio

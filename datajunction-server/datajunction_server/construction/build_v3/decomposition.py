@@ -249,7 +249,8 @@ def get_base_metrics_for_derived(ctx: BuildContext, metric_node: Node) -> list[N
     """
     For a derived metric, get all the base metrics it depends on.
 
-    Returns list of base metric nodes (metrics that SELECT FROM a fact/transform, not other metrics).
+    Returns list of base metric nodes (metrics that SELECT FROM a fact/transform
+    or a dimension source, not other metrics).
     """
     base_metrics = []
     visited = set()
@@ -259,24 +260,22 @@ def get_base_metrics_for_derived(ctx: BuildContext, metric_node: Node) -> list[N
             return
         visited.add(node.name)
 
-        parent_names = ctx.parent_map.get(node.name, [])
-        for parent_name in parent_names:
+        # Recurse through metric parents. A node with any metric parent is itself
+        # derived; a node with no metric parent is a base metric -- regardless of
+        # whether its data source is a fact/transform or a dimension node (a base
+        # metric can be defined directly on a dimension node). Classifying by
+        # "has a metric parent" avoids mistaking a dimension-sourced base metric
+        # for a bare required-dimension reference, which would drop its grain group.
+        has_metric_parent = False
+        for parent_name in ctx.parent_map.get(node.name, []):
             parent = ctx.nodes.get(parent_name)
             if not parent:  # pragma: no cover
                 continue
-
             if parent.type == NodeType.METRIC:
-                # Parent is also a metric - recurse
+                has_metric_parent = True
                 collect_bases(parent)
-            elif parent.type == NodeType.DIMENSION:
-                # Skip dimension nodes - they're for required dimensions (e.g., in window
-                # functions), not the actual data source. Don't treat the derived metric
-                # as a base metric just because it references a dimension.
-                continue  # pragma: no cover
-            else:
-                # Parent is a fact/transform - this is a base metric
-                base_metrics.append(node)
-                break  # Found the base, don't check other parents
+        if not has_metric_parent:
+            base_metrics.append(node)
 
     collect_bases(metric_node)
     return base_metrics

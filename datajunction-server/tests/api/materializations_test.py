@@ -181,6 +181,7 @@ async def test_materialization_info(module__client: AsyncClient) -> None:
             {"label": "Snapshot Partition", "name": "snapshot_partition"},
             {"label": "Incremental Time", "name": "incremental_time"},
             {"label": "View", "name": "view"},
+            {"label": "External", "name": "external"},
         ],
     }
 

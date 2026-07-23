@@ -86,6 +86,11 @@ class MaterializationStrategy(StrEnum):
     # -> Availability state: single view
     VIEW = "view"
 
+    # An externally-built pre-aggregation table adopted via /preaggs/register.
+    # DJ does not generate, run, or refresh it; it only routes queries to it.
+    # -> Availability state: single table, reported by the external pipeline
+    EXTERNAL = "external"
+
 
 class GenericMaterializationInput(BaseModel):
     """

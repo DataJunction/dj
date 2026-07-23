@@ -25,7 +25,6 @@ import NamespaceNav from './NamespaceNav';
 import { isHiddenNamespace } from './namespaceOptions';
 import { NODE_TYPE_ORDER, NODE_TYPE_COLORS } from './nodeTypes';
 import { getDJUrl } from '../../services/DJService';
-import { detectShape } from '../../components/git/gitShape';
 
 import 'styles/node-list.css';
 import 'styles/sorted-table.css';
@@ -383,12 +382,14 @@ export function NamespacePage() {
     gitConfigLoaded &&
     !!gitConfig?.github_repo_path &&
     gitConfig?.git_root_namespace === namespace;
-  // Edit controls are only shown for editable shapes: plain (not-git) namespaces
-  // and branch namespaces. Flat and root git-backed namespaces are read-only in
-  // the UI — their nodes are managed via git.
-  const gitShape = gitConfigLoaded ? detectShape(gitConfig || {}) : null;
-  const showEditControls =
-    gitConfigLoaded && (gitShape === 'not-git' || gitShape === 'branch');
+  // Node-edit controls follow the single read-only verdict from NamespaceHeader
+  // (`headerReadOnly`), which correctly treats the default branch, 1:1/root git
+  // namespaces, git_only, and git-deployed non-feature content as read-only
+  // while leaving feature branches (and plain namespaces) editable. It's
+  // `undefined` until the header reports, so controls stay hidden until the
+  // verdict is known (no flash). Deriving a second, shape-based verdict here is
+  // what let the default branch (shape 'branch') wrongly show edit controls.
+  const showEditControls = headerReadOnly === false;
   // Sub-namespaces can be created from the rail only for plain (non-git-backed)
   // namespaces; git-backed ones are managed via git, not the UI. The git config
   // endpoint returns an object with null fields (not null) for non-git
@@ -1308,9 +1309,7 @@ export function NamespacePage() {
                 </button>
               </Tooltip>
             )}
-            {showEditControls && headerReadOnly === false && (
-              <AddNodeDropdown namespace={namespace} />
-            )}
+            {showEditControls && <AddNodeDropdown namespace={namespace} />}
           </NamespaceHeader>
 
           <div className="table-responsive">

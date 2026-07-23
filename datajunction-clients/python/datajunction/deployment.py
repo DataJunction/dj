@@ -46,6 +46,24 @@ class ResultStatus(str, Enum):
     NOOP = "noop"
 
 
+class SpecKind(str, Enum):
+    """
+    Top-level ``kind`` discriminator on a project YAML file.
+
+    A file with no ``kind`` defaults to ``NODE`` (backwards compatible: existing
+    files carry no discriminator). Pre-aggregations live in the same tree but
+    are not nodes, so they declare ``kind: preagg`` and route to the
+    deployment's ``preaggregations`` list.
+    """
+
+    NODE = "node"
+    PREAGG = "preagg"
+
+    @classmethod
+    def default(cls) -> "SpecKind":
+        return cls.NODE
+
+
 class DeploymentService:
     """
     High-level deployment client for exporting and importing DJ namespaces.
@@ -489,7 +507,29 @@ class DeploymentService:
             )
 
         project_metadata = self._read_project_yaml(base_dir)
-        nodes, warnings = self._collect_nodes_from_dir(base_dir)
+        collected, warnings = self._collect_nodes_from_dir(base_dir)
+
+        # Every YAML file declares its ``kind`` (see SpecKind); an absent
+        # discriminator defaults to a node. Pre-aggregation specs live in the
+        # same tree but are not nodes, so they are routed to the deployment's
+        # ``preaggregations`` list. The key is stripped so it never reaches the
+        # node/pre-agg payload.
+        nodes: list[dict[str, Any]] = []
+        preaggregations: list[dict[str, Any]] = []
+        for item in collected:
+            raw_kind = item.pop("kind", SpecKind.default().value)
+            try:
+                kind = SpecKind(raw_kind)
+            except ValueError:
+                raise DJClientException(
+                    f"Unknown kind '{raw_kind}' in "
+                    f"'{item.get('name', '<unnamed>')}'; expected one of "
+                    f"{[k.value for k in SpecKind]}.",
+                )
+            if kind is SpecKind.PREAGG:
+                preaggregations.append(item)
+            else:
+                nodes.append(item)
 
         # Deduplicate nodes by name (keep last occurrence)
         seen_names: dict[str, dict] = {}
@@ -508,6 +548,7 @@ class DeploymentService:
             or project_metadata.get("prefix", ""),
             "nodes": nodes,
             "tags": project_metadata.get("tags", []),
+            "preaggregations": preaggregations,
         }
 
         # Add deployment source if available from env vars

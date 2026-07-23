@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, selectinload, noload
+from sqlalchemy.orm import joinedload, selectinload, noload, load_only
 
 from datajunction_server.construction.build_v3.decomposition import is_derived_metric
 from datajunction_server.models.dialect import Dialect
@@ -23,6 +23,9 @@ from datajunction_server.construction.build_v3.filters import (
 )
 from datajunction_server.construction.build_v3.metrics import (
     generate_metrics_sql,
+)
+from datajunction_server.construction.build_v3.utils import (
+    extract_filter_dimension_refs,
 )
 from datajunction_server.construction.build_v3.types import (
     BuildContext,
@@ -50,19 +53,74 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+# Sentinel returned by _required_filter_dimensions when a filter cannot be
+# parsed: coverage can't be proven, so cube matching must fail SAFE (reject the
+# cube and fall back) rather than fail open and emit invalid SQL.
+_FILTER_COVERAGE_UNKNOWN = object()
+
+
+async def _required_filter_dimensions(
+    session: AsyncSession,
+    filters: list[str] | None,
+) -> list[str] | object:
+    """
+    The role-qualified dimension refs a cube must cover for a set of filters.
+
+    Uses the shared ``extract_filter_dimension_refs`` normalization (so this
+    can't drift from the builder's filter→dimension handling) and then drops
+    refs that point at METRIC nodes: those are HAVING predicates applied on the
+    aggregated result, not columns that must exist in the cube's table.
+
+    Returns the list of required dimension refs, or ``_FILTER_COVERAGE_UNKNOWN``
+    if any filter cannot be parsed (caller must then reject the cube).
+    """
+    if not filters:
+        return []
+    try:
+        refs = extract_filter_dimension_refs(filters)
+    except Exception:  # noqa: BLE001
+        # A filter we can't parse can't be proven covered — fail safe.
+        logger.warning("[BuildV3] Unparseable filter; skipping cube match")
+        return _FILTER_COVERAGE_UNKNOWN
+
+    if not refs:
+        return []
+
+    # A filter ref whose FULL name is a metric node (e.g. "v3.total_revenue" in
+    # "v3.total_revenue > 100") is a HAVING predicate, not a dimension the cube
+    # must materialize — mirrors classify_filters' metric/dimension split.
+    # Only name/type are needed to spot metric refs; skip the default heavy
+    # NodeRevision eager-load tree.
+    metric_nodes = await Node.get_by_names(
+        session,
+        refs,
+        options=[load_only(Node.name, Node.type)],
+    )
+    metric_ref_names = {
+        node.name for node in metric_nodes if node.type == NodeType.METRIC
+    }
+    return [ref for ref in refs if ref not in metric_ref_names]
+
+
 @timed("dj.cube_matching.ms")
 async def find_matching_cube(
     session: AsyncSession,
     metrics: list[str],
     dimensions: list[str],
     require_availability: bool = True,
+    filters: list[str] | None = None,
 ) -> Optional[NodeRevision]:
     """
     Find a cube that covers all requested metrics and dimensions.
 
     A cube matches if:
     1. It contains all requested metrics (by node name)
-    2. It contains all requested dimensions
+    2. It covers every REQUIRED dimension — the union of requested ``dimensions``
+       and the dimension refs used in ``filters`` (a filter on a dimension the
+       cube's materialized table lacks would produce invalid SQL, so such cubes
+       are rejected and the query falls back to the metric's own engine).
+       Coverage is role-sensitive (``date_id[order]`` is not satisfied by
+       ``date_id[ship]``). Metric-threshold filters (HAVING) are NOT required.
     3. Cube has availability state (materialized) - configurable with require_availability
 
     Args:
@@ -70,12 +128,22 @@ async def find_matching_cube(
         metrics: List of metric node names
         dimensions: List of dimension references (e.g., "default.date_dim.date_id")
         require_availability: If True, only consider cubes with availability defined
+        filters: Optional filter predicates. Any DIMENSION referenced here must
+            also be covered by the cube, even when it is not a requested
+            ``dimension``. Metric (HAVING) filters impose no coverage requirement.
 
     Returns:
         Matching cube NodeRevision if found, None otherwise
     """
     if not metrics:
         return None
+
+    required_filter_dims = await _required_filter_dimensions(session, filters)
+    if required_filter_dims is _FILTER_COVERAGE_UNKNOWN:
+        # Couldn't prove filter coverage — fail safe, don't match any cube.
+        return None
+    # The full role-sensitive coverage requirement: requested dims ∪ filter dims.
+    required_dims = set(dimensions) | set(required_filter_dims)  # type: ignore[arg-type]
 
     # Build query for cubes
     statement = (
@@ -143,14 +211,17 @@ async def find_matching_cube(
             )
             continue
 
-        # Check dimension coverage: requested dims must be subset of cube dims
+        # Coverage: the cube must cover every REQUIRED dimension — requested
+        # grouping dims AND dimensions referenced in filters. A single
+        # role-sensitive subset check keeps grouping and filter coverage
+        # consistent (a filter on a dim the cube lacks would otherwise emit
+        # Druid SQL referencing a missing column).
         cube_dims = set(cube_rev.cube_dimensions())
-        requested_dims = set(dimensions)
 
-        if not requested_dims.issubset(cube_dims):
+        if not required_dims.issubset(cube_dims):
             logger.debug(
                 f"[BuildV3] Cube {cube_rev.name} dims {cube_dims} "
-                f"don't cover requested {requested_dims}",
+                f"don't cover required {required_dims}",
             )
             continue
 
@@ -172,6 +243,46 @@ async def find_matching_cube(
     return best_match
 
 
+async def validate_pinned_cube_covers_filters(
+    session: AsyncSession,
+    cube: NodeRevision,
+    dimensions: list[str],
+    filters: list[str] | None,
+) -> None:
+    """
+    Ensure an explicitly pinned cube covers every filtered dimension.
+
+    Cube matching (find_matching_cube) already rejects cubes that don't cover a
+    filtered dimension and falls back. But when the caller pins a specific cube
+    (``cube=`` param), that discovery is skipped — so a filter on a dimension the
+    pinned cube's table lacks would silently produce invalid Druid SQL.
+
+    Here we fail LOUD instead of falling back: the caller asked for THIS cube, so
+    a clear error is more useful than quietly running on a different engine.
+
+    Raises:
+        DJInvalidInputException: if a filter references a dimension the pinned
+            cube does not materialize (or a filter can't be parsed).
+    """
+    required = await _required_filter_dimensions(session, filters)
+    if required is _FILTER_COVERAGE_UNKNOWN:
+        raise DJInvalidInputException(
+            f"Cannot verify that pinned cube `{cube.name}` covers the requested "
+            "filters because a filter could not be parsed.",
+            http_status_code=422,
+        )
+    required_dims = set(dimensions) | set(required)  # type: ignore[arg-type]
+    cube_dims = set(cube.cube_dimensions())
+    missing = required_dims - cube_dims
+    if missing:
+        raise DJInvalidInputException(
+            f"Pinned cube `{cube.name}` does not cover dimension(s) "
+            f"{sorted(missing)} referenced by the query. Remove the filter/"
+            "dimension, or pick a cube that materializes it.",
+            http_status_code=422,
+        )
+
+
 async def resolve_dialect_and_engine_for_metrics(
     session: AsyncSession,
     metrics: list[str],
@@ -181,6 +292,7 @@ async def resolve_dialect_and_engine_for_metrics(
     engine_version: Optional[str] = None,
     dialect_override: Optional[Dialect] = None,
     matched_cube: Optional[NodeRevision] = None,
+    filters: Optional[list[str]] = None,
 ) -> ResolvedExecutionContext:
     """
     Resolve dialect and engine for a metrics query in a single lookup.
@@ -210,6 +322,11 @@ async def resolve_dialect_and_engine_for_metrics(
         matched_cube: When provided, resolve the dialect from THIS cube's
             availability instead of discovering one via find_matching_cube — so a
             pinned query's dialect matches the cube it actually builds from.
+        filters: Optional filter predicates, threaded into cube discovery so a
+            cube is only chosen when it also covers every filter-referenced
+            dimension (see find_matching_cube). A filter on an uncovered
+            dimension therefore resolves to the metric's own engine instead of
+            an unusable Druid cube.
 
     Returns:
         ResolvedExecutionContext with dialect, engine, catalog_name, and optional cube
@@ -237,6 +354,7 @@ async def resolve_dialect_and_engine_for_metrics(
                 metrics,
                 dimensions,
                 require_availability=True,
+                filters=filters,
             )
         )
 

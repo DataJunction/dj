@@ -93,9 +93,15 @@ async def batch_load_nodes_with_dependencies(
                 # mapped and downstream code (get_native_grain) reads
                 # col.has_primary_key_attribute().
                 selectinload(NodeRevision.columns).options(
+                    # dimension_id / dimension_column carry column-level reference
+                    # (denormalized) dimension links; load_nodes() maps the ids to
+                    # names so resolve_dimensions can serve them from the local
+                    # column without a node join, matching commonDimensions.
                     load_only(
                         Column.name,
                         Column.type,
+                        Column.dimension_id,
+                        Column.dimension_column,
                     ),
                 ),
                 # NOTE: don't noload Catalog.engines — see load_dimension_links_batch.
@@ -474,6 +480,25 @@ async def load_nodes(ctx: BuildContext) -> None:
     # Cache all loaded nodes
     for node in nodes:
         ctx.nodes[node.name] = node
+
+    # Map column-level reference-dimension ids -> dimension node names. The
+    # Column.dimension relationship doesn't reliably eager-load in this build,
+    # so resolve_dimensions uses this map (plus the reliably-loaded
+    # dimension_id/dimension_column scalars) to serve reference dimensions.
+    ref_dim_ids = {
+        col.dimension_id
+        for node in ctx.nodes.values()
+        if node.current
+        for col in node.current.columns
+        if col.dimension_id is not None
+    }
+    if ref_dim_ids:
+        rows = (
+            await ctx.session.execute(
+                select(Node.id, Node.name).where(Node.id.in_(ref_dim_ids)),
+            )
+        ).all()
+        ctx.reference_dimension_names = {row[0]: row[1] for row in rows}
 
     # Collect required dimensions from metrics and add to context
     # Required dimensions are stored as Column objects, so they don't have role info.

@@ -1768,9 +1768,11 @@ async def copy_node(
     new_node_namespace = ".".join(new_name.split(".")[:-1])
     await get_node_namespace(session, new_node_namespace, raise_if_not_exists=True)
 
-    # Check that the user has access to read the existing node and write to the new namespace
+    # Check that the user has access to read the existing node and write to the new
+    # namespace. The write target is the new node's parent namespace, not the full
+    # new node name.
     access_checker.add_request_by_node_name(node_name, ResourceAction.READ)
-    access_checker.add_namespace(new_name, ResourceAction.WRITE)
+    access_checker.add_namespace(new_node_namespace, ResourceAction.WRITE)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     # Check if there is already a node with the new name

@@ -14,7 +14,6 @@ from datajunction_server.api.helpers import (
     get_node_namespace,
     COLUMN_NAME_REGEX,
     _resolve_required_dimensions,
-    cube_element_roles,
     dedupe_cube_elements,
 )
 from datajunction_server.construction.build_v2 import FullColumnName
@@ -35,6 +34,7 @@ from datajunction_server.database.user import User, OAuthProvider
 from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.errors import (
     DJError,
+    DJException,
     DJInvalidDeploymentConfig,
     DJInvalidInputException,
     DJWarning,
@@ -437,10 +437,24 @@ class DeploymentOrchestrator:
         self._guard_against_accidental_wipe(deployment_plan)
 
         if deployment_plan.is_empty() and not self.deployment_spec.hierarchies:
-            return DeploymentExecuteResult(
-                results=await self._handle_no_changes(),
-                downstream_impacts=[],
+            # Pre-aggregations still need reconciling on an otherwise-empty
+            # deploy: to register specs, or to delete external pre-aggs that were
+            # dropped from the spec.
+            from datajunction_server.database.preaggregation import PreAggregation
+
+            needs_preagg_reconcile = bool(
+                self.deployment_spec.preaggregations,
+            ) or bool(
+                await PreAggregation.get_external_by_namespace(
+                    self.session,
+                    self.deployment_spec.namespace,
+                ),
             )
+            if not needs_preagg_reconcile:
+                return DeploymentExecuteResult(
+                    results=await self._handle_no_changes(),
+                    downstream_impacts=[],
+                )
 
         downstream = await self._execute_deployment_plan(deployment_plan)
         return DeploymentExecuteResult(
@@ -1017,6 +1031,184 @@ class DeploymentOrchestrator:
         await self.session.flush()
         logger.info("Upserted %d hierarchies", len(valid_specs))
 
+    async def _reconcile_preaggregations(self) -> None:
+        """
+        Register externally-built pre-aggregations declared in the spec, and
+        remove EXTERNAL pre-aggs in this namespace that were dropped from it.
+
+        Runs after nodes/links/cubes so the referenced metrics and dimensions
+        exist. Skipped during dry runs (registration introspects the external
+        table and mutates state). Reuses the same core as POST /preaggs/register.
+        """
+        from datajunction_server.internal.preaggregations import (
+            register_external_preaggregations,
+        )
+        from datajunction_server.database.preaggregation import PreAggregation
+        from datajunction_server.models.preaggregation import ExternalPreAggTable
+
+        specs = self.deployment_spec.preaggregations
+        namespace = self.deployment_spec.namespace
+
+        existing = await PreAggregation.get_external_by_namespace(
+            self.session,
+            namespace,
+        )
+        if not specs and not existing:
+            return
+
+        # Never mass-deregister external pre-aggs from a deploy that declares
+        # none: they may be managed out of band (POST /preaggs/register), or the
+        # pre-agg files may simply be absent from this push. Removing them all
+        # requires an explicit ``allow_empty`` opt-in (mirrors the node wipe
+        # guard). This is the real footgun -- the fully-empty-spec case is
+        # already refused upstream because a pre-agg's parent node is deleted too.
+        if not specs and not self.deployment_spec.allow_empty:
+            self.warnings.append(
+                DJError(
+                    code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                    message=(
+                        f"{len(existing)} external pre-aggregation(s) in "
+                        f"namespace '{namespace}' were left intact because the "
+                        f"deployment declares none. Re-run with allow_empty to "
+                        f"deregister them."
+                    ),
+                ),
+            )
+            logger.info(
+                "Skipped deregistering %d external pre-agg(s) in %s "
+                "(no specs declared, allow_empty not set)",
+                len(existing),
+                namespace,
+            )
+            return
+
+        declared_names = {spec.rendered_name for spec in specs}
+        existing_ids = {preagg.id for preagg in existing}
+        existing_names = {preagg.name for preagg in existing}
+
+        # Dry run: report the planned register/delete without mutating anything
+        # (no registration, so no external-table introspection either). Delete
+        # planning is name-level here; the wet run below deletes by row identity.
+        if self.dry_run:
+            for spec in specs:
+                self.deployed_results.append(
+                    DeploymentResult(
+                        name=spec.rendered_name,
+                        deploy_type=DeploymentResult.Type.PREAGG,
+                        status=DeploymentResult.Status.SUCCESS,
+                        operation=(
+                            DeploymentResult.Operation.UPDATE
+                            if spec.rendered_name in existing_names
+                            else DeploymentResult.Operation.CREATE
+                        ),
+                        message="externally-built pre-aggregation",
+                    ),
+                )
+            for preagg in existing:
+                if preagg.name not in declared_names:
+                    self.deployed_results.append(
+                        DeploymentResult(
+                            name=preagg.name or f"preaggregation:{preagg.id}",
+                            deploy_type=DeploymentResult.Type.PREAGG,
+                            status=DeploymentResult.Status.SUCCESS,
+                            operation=DeploymentResult.Operation.DELETE,
+                            message="dropped from spec",
+                        ),
+                    )
+            return
+
+        query_service_client = self.context.query_service_client
+        request_headers = (
+            dict(self.context.request.headers) if self.context.request else {}
+        )
+
+        errors_before = len(self.errors)
+        upserted_ids: set[int] = set()
+        if specs and not query_service_client:
+            self.errors.append(
+                DJError(
+                    code=ErrorCode.QUERY_SERVICE_ERROR,
+                    message=(
+                        "Registering pre-aggregations requires a configured query "
+                        "service for column inference."
+                    ),
+                ),
+            )
+        else:
+            # Upsert each spec; track which pre-agg rows this deploy touched.
+            for spec in specs:
+                # A non-empty spec list implies a configured query service
+                # (guarded above). The assert narrows the Optional for mypy.
+                assert query_service_client is not None
+                try:
+                    created = await register_external_preaggregations(
+                        self.session,
+                        query_service_client,
+                        request_headers,
+                        name=spec.rendered_name,
+                        metrics=spec.rendered_metrics,
+                        dimensions=spec.rendered_dimensions,
+                        table=ExternalPreAggTable(
+                            catalog=spec.catalog,
+                            schema=spec.schema_,
+                            table=spec.table,
+                            valid_through_ts=spec.valid_through_ts,
+                        ),
+                        measure_columns=spec.rendered_measure_columns,
+                    )
+                    upserted_ids.update(preagg.id for preagg in created)
+                    for preagg in created:
+                        self.deployed_results.append(
+                            DeploymentResult(
+                                name=spec.rendered_name,
+                                deploy_type=DeploymentResult.Type.PREAGG,
+                                status=DeploymentResult.Status.SUCCESS,
+                                operation=(
+                                    DeploymentResult.Operation.UPDATE
+                                    if preagg.id in existing_ids
+                                    else DeploymentResult.Operation.CREATE
+                                ),
+                                message="externally-built pre-aggregation",
+                            ),
+                        )
+                except DJException as exc:
+                    self.errors.append(
+                        DJError(
+                            code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                            message=(
+                                f"Pre-aggregation '{spec.rendered_name}': {exc.message}"
+                            ),
+                        ),
+                    )
+
+        # If any spec failed to register, abort before deleting anything: a
+        # transient failure must not deregister a still-declared pre-agg, and
+        # the error must surface (the outer SAVEPOINT rolls the deploy back).
+        if len(self.errors) > errors_before:
+            raise DJInvalidDeploymentConfig(
+                message="Failed to reconcile pre-aggregations",
+                errors=self.errors,
+                warnings=self.warnings,
+            )
+
+        # Delete-on-removal: any EXTERNAL pre-agg in this namespace not (re)created
+        # by this deploy has been dropped from the spec (or is a stale grain).
+        for preagg in existing:
+            if preagg.id not in upserted_ids:
+                self.deployed_results.append(
+                    DeploymentResult(
+                        name=preagg.name or f"preaggregation:{preagg.id}",
+                        deploy_type=DeploymentResult.Type.PREAGG,
+                        status=DeploymentResult.Status.SUCCESS,
+                        operation=DeploymentResult.Operation.DELETE,
+                        message="dropped from spec",
+                    ),
+                )
+                await self.session.delete(preagg)
+
+        await self.session.flush()
+        logger.info("Reconciled %d pre-aggregation spec(s)", len(specs))
+
     async def _setup_owners(self):
         """
         Validate that all owners defined in the deployment spec exist.
@@ -1469,6 +1661,10 @@ class DeploymentOrchestrator:
         # (no node changes) are not silently dropped.
         with timer.phase("deploy hierarchies"):
             await self._setup_hierarchies()
+
+        # Register/reconcile externally-built pre-aggregations after nodes exist.
+        with timer.phase("reconcile preaggregations"):
+            await self._reconcile_preaggregations()
 
         # Run impact propagation before deletions so deleted nodes'
         # children are still reachable via NodeRelationship.
@@ -2373,9 +2569,15 @@ class DeploymentOrchestrator:
                             ),
                         )
 
-        # Get dimensions for this cube from batch-loaded data
+        # Get dimensions for this cube from batch-loaded data.
+        # cube_dimension_roles is kept strictly 1:1 with cube_dimensions so the
+        # "[role]" suffix travels with each resolved column. References that don't
+        # resolve are skipped, so downstream code must NOT recompute roles by
+        # position from rendered_dimensions (that off-by-one drops/mis-binds roles
+        # on cubes that reach one dimension via two FK roles).
         cube_dimension_nodes = []
         cube_dimensions = []
+        cube_dimension_roles = []
         dimension_attributes = [
             dimension_attribute.rsplit(SEPARATOR, 1)
             for dimension_attribute in (cube_spec.rendered_dimensions or [])
@@ -2391,12 +2593,21 @@ class DeploymentOrchestrator:
             # Get the actual column
             columns = {col.name: col for col in dimension_node.current.columns}
             column_name_without_role = column_name
+            role = None
             match = re.fullmatch(COLUMN_NAME_REGEX, column_name)
-            if match:  # pragma: no cover
+            # no branch: the regex matches every valid column identifier, so the
+            # `not match` path is effectively unreachable — but the body (role
+            # extraction) is exercised, so keep it under line coverage.
+            if match:  # pragma: no branch
                 column_name_without_role = match.groups()[0]
+                role = match.groups()[1]
 
-            if column_name_without_role in columns:  # pragma: no cover
+            # no branch: the resolve-succeeds path is exercised; the silent-skip
+            # (column missing) path is a defensive guard that keeps
+            # cube_dimension_roles 1:1 with cube_dimensions.
+            if column_name_without_role in columns:  # pragma: no branch
                 cube_dimensions.append(columns[column_name_without_role])
+                cube_dimension_roles.append(role)
 
         invalid_dims = [
             d for d in cube_dimension_nodes if d.current.status == NodeStatus.INVALID
@@ -2427,6 +2638,7 @@ class DeploymentOrchestrator:
                 metric_nodes=cube_metric_nodes,
                 dimension_nodes=cube_dimension_nodes,
                 dimension_columns=cube_dimensions,
+                dimension_column_roles=cube_dimension_roles,
                 catalog=catalog,
             ),
         )
@@ -2462,8 +2674,12 @@ class DeploymentOrchestrator:
             if node.current and node.current.columns
         }
 
+        # cube_dimension_roles stays 1:1 with cube_dimensions (see
+        # _validate_single_cube / CubeValidationData) so the "[role]" suffix
+        # travels with each resolved column instead of being aligned by position.
         cube_dimension_nodes: list[Node] = []
         cube_dimensions: list[Column] = []
+        cube_dimension_roles: list = []
         for dim_attr in cube_spec.rendered_dimensions or []:
             node_name, col_name_raw = dim_attr.rsplit(SEPARATOR, 1)
             node = self.registry.nodes.get(node_name)
@@ -2473,9 +2689,11 @@ class DeploymentOrchestrator:
                 cube_dimension_nodes.append(node)
             match = re.fullmatch(COLUMN_NAME_REGEX, col_name_raw)
             col_name = match.groups()[0] if match else col_name_raw
+            role = match.groups()[1] if match else None
             for col in node.current.columns or []:  # pragma: no branch
                 if col.name == col_name:  # pragma: no branch
                     cube_dimensions.append(col)
+                    cube_dimension_roles.append(role)
                     col_to_node[col] = node
                     break
 
@@ -2493,6 +2711,7 @@ class DeploymentOrchestrator:
                 metric_nodes=cube_metric_nodes,
                 dimension_nodes=cube_dimension_nodes,
                 dimension_columns=cube_dimensions,
+                dimension_column_roles=cube_dimension_roles,
                 catalog=catalog,
                 col_to_node=col_to_node,
             ),
@@ -2641,12 +2860,27 @@ class DeploymentOrchestrator:
         node_columns = []
 
         # Role suffix per cube element, aligned to metric_columns + dimension_columns.
-        element_roles = cube_element_roles(
-            len(validation_data.metric_columns),
-            cube_spec.rendered_dimensions or [],
-        )
+        # Metrics never carry a role; each resolved dimension column carries the
+        # "[role]" it was referenced under, which was captured 1:1 during validation
+        # (dimension_column_roles). This must NOT be recomputed by position from
+        # rendered_dimensions: unresolvable references are skipped during
+        # validation, so a position-based alignment goes off-by-one and drops the
+        # role on cubes that reach one dimension via two FK roles.
+        dimension_roles = list(validation_data.dimension_column_roles)
+        # Guard against legacy/partial validation data (e.g. built directly without
+        # roles): pad so a missing role never IndexErrors the deploy — an unpaired
+        # dimension column is simply treated as unroled. Production validation
+        # paths always populate this 1:1 with dimension_columns.
+        if len(dimension_roles) < len(validation_data.dimension_columns):
+            dimension_roles += [None] * (
+                len(validation_data.dimension_columns) - len(dimension_roles)
+            )
+        element_roles = [None] * len(validation_data.metric_columns) + dimension_roles
 
-        # Build a mapping from column name to column spec for partition lookups
+        # Build a mapping from column spec name to column spec for partition
+        # lookups. col_spec.name keeps the "[role]" suffix (e.g.
+        # "...dt_date_d.dateint[epoch_date]"), so the lookup below must key by the
+        # same role-qualified identity.
         column_spec_map = {}
         if cube_spec.columns:
             for col_spec in cube_spec.rendered_columns:
@@ -2684,9 +2918,14 @@ class DeploymentOrchestrator:
             if element_roles[idx]:
                 node_column.dimension_column = element_roles[idx]
 
-            # Apply partition from column spec if specified
-            if full_element_name in column_spec_map:
-                col_spec = column_spec_map[full_element_name]
+            # Apply partition from column spec if specified. Key by the
+            # role-qualified identity (bare element name + "[role]") — the same
+            # identity DJ uses for cube elements — so a partition declared on a
+            # role-played column (e.g. "...dateint[epoch_date]") lands on the right
+            # role instead of being silently dropped.
+            element_key = full_element_name + (node_column.dimension_column or "")
+            if element_key in column_spec_map:
+                col_spec = column_spec_map[element_key]
                 if col_spec.partition:  # pragma: no branch
                     node_column.partition = Partition(
                         type_=col_spec.partition.type,
@@ -3030,6 +3269,11 @@ class DeploymentOrchestrator:
         deleting nodes that are genuinely absent from a real spec is the expected
         sync behavior. Also fires on dry-run, so a preview surfaces the refusal
         instead of quietly listing deletions.
+
+        Note: external pre-aggregations are protected transitively -- they hang
+        off parent nodes, so a fully-empty spec that would deregister them also
+        deletes those parents and is refused here. The case where a *content-ful*
+        spec omits pre-aggs is handled in ``_reconcile_preaggregations``.
         """
         spec = self.deployment_spec
         if spec.allow_empty or spec.nodes or spec.hierarchies or spec.tags:
@@ -3255,6 +3499,24 @@ class DeploymentOrchestrator:
 
         return to_deploy, []
 
+    def _deployment_link_targets(self) -> dict[str, set[str]]:
+        """Map each linkable node to the dimension nodes it links to, across the
+        whole deployment (rendered names, to match node_graph).
+
+        Links deploy only after every node level, so per-level validation can't
+        see links on nodes in other levels via the committed graph. The
+        cross-fact check uses this to avoid a false negative when base metrics
+        share a dimension only through links this deployment will create.
+        """
+        targets: dict[str, set[str]] = {}
+        for node_spec in self.deployment_spec.nodes:
+            if isinstance(node_spec, LinkableNodeSpec) and node_spec.dimension_links:
+                for link in node_spec.dimension_links:
+                    targets.setdefault(node_spec.rendered_name, set()).add(
+                        link.rendered_dimension_node,
+                    )
+        return targets
+
     async def bulk_deploy_nodes_in_level(
         self,
         node_specs: list[NodeSpec],
@@ -3298,6 +3560,7 @@ class DeploymentOrchestrator:
                     self.session,
                     dependency_nodes=dependency_nodes,
                     deployment_namespace=self.deployment_spec.namespace,
+                    deployment_link_targets=self._deployment_link_targets(),
                 )
             p.append(f"{len(validation_results)} results")
 

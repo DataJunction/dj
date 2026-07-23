@@ -40,11 +40,15 @@ from datajunction_server.database.preaggregation import (
     compute_preagg_hash,
 )
 from datajunction_server.errors import (
+    DJConfigurationException,
     DJDoesNotExistException,
     DJInvalidInputException,
     DJQueryServiceClientException,
 )
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
+from datajunction_server.internal.preaggregations import (
+    register_external_preaggregations,
+)
 from datajunction_server.models.node_type import NodeNameVersion, NodeType
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.materialization import MaterializationStrategy
@@ -61,6 +65,7 @@ from datajunction_server.models.preaggregation import (
     PreAggregationInfo,
     PreAggregationListResponse,
     PreAggMaterializationInput,
+    RegisterPreAggregationsRequest,
     UpdatePreAggregationAvailabilityRequest,
     WorkflowResponse,
     WorkflowStatus,
@@ -182,6 +187,7 @@ async def _preagg_to_info(
                 used_by_metrics=sorted(measure_metrics, key=lambda m: m.name)
                 if measure_metrics
                 else None,
+                source_column=measure.source_column,
             ),
         )
 
@@ -196,6 +202,7 @@ async def _preagg_to_info(
         sql=preagg.sql,
         grain_group_hash=preagg.grain_group_hash,
         preagg_hash=preagg.preagg_hash,
+        name=preagg.name,
         strategy=preagg.strategy,
         schedule=preagg.schedule,
         lookback_window=preagg.lookback_window,
@@ -681,6 +688,66 @@ async def plan_preaggregations(
 
 
 @router.post(
+    "/preaggs/register",
+    response_model=PlanPreAggregationsResponse,
+    status_code=HTTPStatus.CREATED,
+    name="Register External Pre-aggregations",
+)
+async def register_preaggregations(
+    data: RegisterPreAggregationsRequest,
+    *,
+    session: AsyncSession = Depends(get_session),
+    request: Request,
+    query_service_client: QueryServiceClient = Depends(get_query_service_client),
+) -> PlanPreAggregationsResponse:
+    """
+    Register an externally-built pre-aggregation table.
+
+    Unlike ``/preaggs/plan`` (where DJ generates and owns the materialization),
+    this adopts a table built by an external pipeline. DJ decomposes the
+    requested metrics into component measures, binds each measure to a physical
+    column via ``measure_columns``, validates them against the table, records
+    the pre-aggregation, and — when ``valid_through_ts`` is supplied — marks it
+    available so grain resolution can route queries to it.
+    """
+    request_headers = dict(request.headers)
+    if not query_service_client:
+        raise DJConfigurationException(
+            message=(
+                "Registering external pre-aggregations requires a configured "
+                "query service for column inference."
+            ),
+        )
+
+    created_preaggs = await register_external_preaggregations(
+        session,
+        query_service_client,
+        request_headers,
+        name=data.name,
+        metrics=data.metrics,
+        dimensions=data.dimensions,
+        table=data.table,
+        measure_columns=data.measure_columns,
+    )
+    await session.commit()
+
+    preagg_ids = [p.id for p in created_preaggs]
+    stmt = (
+        select(PreAggregation)
+        .options(
+            joinedload(PreAggregation.node_revision),
+            joinedload(PreAggregation.availability),
+        )
+        .where(PreAggregation.id.in_(preagg_ids))
+    )
+    result = await session.execute(stmt)
+    loaded = list(result.scalars().unique().all())
+    return PlanPreAggregationsResponse(
+        preaggs=[await _preagg_to_info(p, session) for p in loaded],
+    )
+
+
+@router.post(
     "/preaggs/{preagg_id}/materialize",
     response_model=PreAggregationInfo,
     name="Materialize Pre-aggregation",
@@ -731,6 +798,12 @@ async def materialize_preaggregation(
 
     if not preagg:
         raise DJDoesNotExistException(f"Pre-aggregation with ID {preagg_id} not found")
+
+    if preagg.strategy == MaterializationStrategy.EXTERNAL:
+        raise DJInvalidInputException(
+            message="Cannot materialize an externally-registered pre-aggregation; "
+            "its table is built and maintained by an external pipeline.",
+        )
 
     # Validate strategy is set
     if not preagg.strategy:
@@ -1236,6 +1309,12 @@ async def run_preagg_backfill(
 
     if not preagg:
         raise DJDoesNotExistException(f"Pre-aggregation with ID {preagg_id} not found")
+
+    if preagg.strategy == MaterializationStrategy.EXTERNAL:
+        raise DJInvalidInputException(
+            "Cannot backfill an externally-registered pre-aggregation; its table "
+            "is built and maintained by an external pipeline.",
+        )
 
     # Validate: workflow must exist
     if not preagg.workflow_urls:

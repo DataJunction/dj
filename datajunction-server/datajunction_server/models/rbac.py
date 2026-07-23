@@ -1,9 +1,33 @@
 """Pydantic models for RBAC."""
 
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Annotated
 
-from datajunction_server.models.access import ResourceAction, ResourceType
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints
+
+from datajunction_server.models.access import (
+    ResourceAction,
+    ResourceType,
+    parse_scope_pattern,
+)
 from datajunction_server.typing import UTCDatetime
+
+
+def validate_scope_value(value: str) -> str:
+    """Reject scope values outside the supported containment grammar."""
+    if not value.strip():
+        raise ValueError("scope_value cannot be blank; use '*' for a global scope")
+    if value != value.strip() or parse_scope_pattern(value) is None:
+        raise ValueError(
+            "scope_value must be '*', an exact scope, or a subtree ending in '.*'",
+        )
+    return value
+
+
+ScopeValue = Annotated[
+    str,
+    StringConstraints(max_length=500),
+    AfterValidator(validate_scope_value),
+]
 
 
 class PrincipalOutput(BaseModel):
@@ -20,7 +44,7 @@ class RoleScopeInput(BaseModel):
 
     action: ResourceAction
     scope_type: ResourceType
-    scope_value: str = Field(..., max_length=500)
+    scope_value: ScopeValue
 
 
 class RoleScopeOutput(BaseModel):
