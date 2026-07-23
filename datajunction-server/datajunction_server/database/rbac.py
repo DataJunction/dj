@@ -220,9 +220,18 @@ class RoleScope(Base):
         nullable=False,
     )
 
-    action: Mapped[ResourceAction] = mapped_column(Enum(ResourceAction), nullable=False)
+    action: Mapped[ResourceAction] = mapped_column(
+        Enum(
+            ResourceAction,
+            values_callable=lambda enum: [item.value for item in enum],
+        ),
+        nullable=False,
+    )
     scope_type: Mapped[ResourceType] = mapped_column(
-        Enum(ResourceType),
+        Enum(
+            ResourceType,
+            values_callable=lambda enum: [item.value for item in enum],
+        ),
         nullable=False,
     )
     scope_value: Mapped[str] = mapped_column(String(500), nullable=False)

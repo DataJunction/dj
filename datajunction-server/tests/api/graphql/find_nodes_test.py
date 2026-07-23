@@ -1976,15 +1976,25 @@ async def _setup_team_ownership(client: AsyncClient) -> None:
       - default.repair_order_details.owners == ['team-analytics']  (group only)
       - default.repair_orders_fact still has 'dj' as an owner
     """
-    # Register the group and add 'dj' as a member.
-    resp = await client.post("/groups/", params={"username": "team-analytics"})
-    assert resp.status_code == 201, resp.text
-
-    resp = await client.post(
-        "/groups/team-analytics/members/",
-        params={"member_username": "dj"},
+    # Register the group and add 'dj' as a member. Group administration now
+    # requires an explicit MANAGE grant, so authorize this setup as passthrough.
+    from datajunction_server.internal.access.authorization import (
+        PassthroughAuthorizationService,
     )
-    assert resp.status_code == 201, resp.text
+
+    with mock.patch(
+        "datajunction_server.internal.access.authorization."
+        "validator.get_authorization_service",
+        return_value=PassthroughAuthorizationService(),
+    ):
+        resp = await client.post("/groups/", params={"username": "team-analytics"})
+        assert resp.status_code == 201, resp.text
+
+        resp = await client.post(
+            "/groups/team-analytics/members/",
+            params={"member_username": "dj"},
+        )
+        assert resp.status_code == 201, resp.text
 
     # Re-assign a node so the group is the sole owner (dj no longer owns it).
     resp = await client.patch(

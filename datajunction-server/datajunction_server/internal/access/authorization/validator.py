@@ -128,12 +128,14 @@ class AccessChecker:
                     name=scope_value or "*",
                     resource_type=scope_type,
                 ),
+                scope_target=True,
             ),
         )
 
     async def check(
         self,
         on_denied: AccessDenialMode = AccessDenialMode.FILTER,
+        require_explicit_grant: bool = False,
     ) -> list[AccessDecision]:
         """
         Validate all requests using AuthorizationService.
@@ -143,9 +145,14 @@ class AccessChecker:
                 - FILTER: Return only approved (default)
                 - RAISE: Raise exception if any denied
                 - RETURN_ALL: Return all with approved field set
+            require_explicit_grant: Ignore provider fallback authorization
         """
         auth_service = get_authorization_service()
-        access_decisions = auth_service.authorize(self.auth_context, self.requests)
+        access_decisions = (
+            auth_service.authorize_explicit_grants(self.auth_context, self.requests)
+            if require_explicit_grant
+            else auth_service.authorize(self.auth_context, self.requests)
+        )
 
         if on_denied == AccessDenialMode.RETURN:
             return access_decisions
