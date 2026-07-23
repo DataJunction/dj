@@ -66,6 +66,11 @@ class ValidationContext:
     node_graph: Dict[str, List[str]]
     dependency_nodes: Dict[str, Node]
     deployment_namespace: Optional[str] = None
+    # Source node name -> dimension nodes it links to, across the whole
+    # deployment (rendered names). Links deploy after all node levels, so the
+    # cross-fact check uses this to see dimensions the committed graph can't yet.
+    # Empty for single-node validation.
+    deployment_link_targets: Dict[str, set] = field(default_factory=dict)
 
 
 @dataclass
@@ -806,6 +811,22 @@ class NodeSpecBulkValidator:
         if shared:
             return None
 
+        # Fail-open: links deploy after nodes, so get_dimensions can't yet see
+        # links created in this same deployment and the intersection above is
+        # spuriously empty. Suppress the error if the base metrics can reach a
+        # common dimension node once those links land; a genuine offender (no
+        # common dimension even then) still fails below.
+        reachable = [
+            self._reachable_dimension_nodes(node.name) for node in metric_parents
+        ]
+        reachable = [nodes for nodes in reachable if nodes]
+        if len(reachable) >= 2:
+            common = reachable[0]
+            for nodes in reachable[1:]:
+                common = common & nodes
+            if common:
+                return None
+
         metric_names = [m.name for m in metric_parents]
         return DJError(
             code=ErrorCode.INVALID_PARENT,
@@ -816,6 +837,35 @@ class NodeSpecBulkValidator:
                 f"at least one shared dimension for joining."
             ),
         )
+
+    def _reachable_dimension_nodes(self, base_metric_name: str) -> set[str]:
+        """
+        Dimension nodes a base metric can be sliced by: committed dimensions
+        (from get_dimensions, reduced from ``<dim_node>.<col>[role]`` to the node
+        name) unioned with dimension nodes reachable from the metric's parent(s)
+        via this deployment's links (walked transitively for multi-hop chains).
+
+        Node-level granularity is what join-feasibility needs. Used only as a
+        fail-open guard for the cross-fact check while links are still pending.
+        """
+        nodes: set[str] = set()
+        for dim_name in self._metric_dimensions.get(base_metric_name, set()):
+            base = dim_name.split("[", 1)[0]
+            if "." in base:
+                nodes.add(base.rsplit(".", 1)[0])
+
+        # Walk this deployment's links from the base metric's parent node(s).
+        pending = self.context.deployment_link_targets
+        frontier = list(self.context.node_graph.get(base_metric_name, []))
+        seen = set(frontier)
+        while frontier:
+            current = frontier.pop()
+            for target in pending.get(current, set()):
+                nodes.add(target)
+                if target not in seen:
+                    seen.add(target)
+                    frontier.append(target)
+        return nodes
 
     def _create_error_result(
         self,
@@ -903,6 +953,7 @@ async def bulk_validate_node_data(
     session: AsyncSession,
     dependency_nodes: Dict[str, Node],
     deployment_namespace: Optional[str] = None,
+    deployment_link_targets: Optional[Dict[str, set]] = None,
 ) -> List[NodeValidationResult]:
     """
     Bulk validate node specifications.
@@ -925,6 +976,7 @@ async def bulk_validate_node_data(
         node_graph=node_graph,
         dependency_nodes=dependency_nodes,
         deployment_namespace=deployment_namespace,
+        deployment_link_targets=deployment_link_targets or {},
     )
     validator = NodeSpecBulkValidator(context)
 

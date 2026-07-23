@@ -35,7 +35,10 @@ async def enforce_group_administration(access_checker: AccessChecker) -> None:
     privileged, cross-cutting operation rather than a per-namespace one.
     """
     access_checker.add_scope(ResourceType.NAMESPACE, "*", ResourceAction.MANAGE)
-    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+    await access_checker.check(
+        on_denied=AccessDenialMode.RAISE,
+        require_explicit_grant=True,
+    )
 
 
 @router.post("/groups/", response_model=GroupOutput, status_code=201)

@@ -32,6 +32,7 @@ from datajunction_server.models.rbac import (
     RoleScopeInput,
     RoleScopeOutput,
     RoleUpdate,
+    ScopeValue,
 )
 from datajunction_server.utils import get_session, get_current_user
 from datajunction_server.models.user import UserOutput
@@ -64,7 +65,10 @@ async def enforce_scope_management(
             scope.scope_value,
             ResourceAction.MANAGE,
         )
-    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+    await access_checker.check(
+        on_denied=AccessDenialMode.RAISE,
+        require_explicit_grant=True,
+    )
 
 
 async def log_activity(
@@ -445,7 +449,7 @@ async def delete_scope_from_role(
     role_name: str,
     action: ResourceAction,
     scope_type: ResourceType,
-    scope_value: str,
+    scope_value: ScopeValue,
     *,
     session: AsyncSession = Depends(get_session),
     current_user: UserOutput = Depends(get_current_user),
@@ -463,8 +467,16 @@ async def delete_scope_from_role(
         include_deleted=False,
     )
 
-    access_checker.add_scope(scope_type, scope_value, ResourceAction.MANAGE)
-    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+    await enforce_scope_management(
+        access_checker,
+        [
+            RoleScopeInput(
+                action=action,
+                scope_type=scope_type,
+                scope_value=scope_value,
+            ),
+        ],
+    )
 
     # Find the scope by composite key
     delete_stmt = (
