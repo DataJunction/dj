@@ -436,6 +436,14 @@ class DeploymentOrchestrator:
 
         self._guard_against_accidental_wipe(deployment_plan)
 
+        # Fail-closed authorization in the internal mutation path. The HTTP
+        # entrypoint only checked WRITE on the deployment's root namespace, but
+        # the orchestrator runs detached and bulk-mutates nodes/namespaces;
+        # #2234 step 0 requires every mutation path to authorize with the
+        # correct action. A denial raises inside the SAVEPOINT, rolling back
+        # setup-phase writes.
+        await self._authorize_deployment_plan(deployment_plan)
+
         if deployment_plan.is_empty() and not self.deployment_spec.hierarchies:
             # Pre-aggregations still need reconciling on an otherwise-empty
             # deploy: to register specs, or to delete external pre-aggs that were
@@ -461,6 +469,50 @@ class DeploymentOrchestrator:
             results=self.deployed_results,
             downstream_impacts=downstream,
         )
+
+    async def _authorize_deployment_plan(self, plan: DeploymentPlan) -> None:
+        """
+        Fail-closed authorization for the mutations this deploy will perform.
+
+        Deploys run in a detached background task and bulk-create/update/delete
+        nodes and namespaces, so re-authorize here against the deploying user,
+        matching how the HTTP endpoints govern each resource: WRITE on the
+        namespace a node is written into, DELETE on nodes and namespaces being
+        removed. Names are the rendered (fully-qualified) names, since that is
+        what the deploy actually mutates and what RBAC scopes match against.
+        """
+        from datajunction_server.internal.access.authorization import (
+            AccessChecker,
+            AccessDenialMode,
+        )
+        from datajunction_server.internal.access.authorization.context import (
+            AuthContext,
+        )
+        from datajunction_server.models.access import ResourceAction
+
+        auth_context = await AuthContext.from_user(
+            self.session,
+            self.context.current_user,
+        )
+        access_checker = AccessChecker(auth_context)
+
+        # WRITE: the deployment root plus the namespace each deployed node lands in.
+        namespaces_to_write = {self.deployment_spec.namespace}
+        for node_spec in plan.to_deploy:
+            namespaces_to_write.add(get_namespace_from_name(node_spec.rendered_name))
+        for namespace in sorted(namespaces_to_write):
+            access_checker.add_namespace(namespace, ResourceAction.WRITE)
+
+        # DELETE: nodes and namespaces removed by this deploy.
+        for node_spec in plan.to_delete:
+            access_checker.add_request_by_node_name(
+                node_spec.rendered_name,
+                ResourceAction.DELETE,
+            )
+        for namespace in plan.to_delete_namespaces:
+            access_checker.add_namespace(namespace, ResourceAction.DELETE)
+
+        await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     async def _update_deployment_status(self):
         """

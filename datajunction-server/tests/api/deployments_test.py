@@ -36,7 +36,38 @@ from datajunction_server.models.node import (
     NodeMode,
     NodeType,
 )
+from datajunction_server.internal.access.authorization import AuthorizationService
+from datajunction_server.models import access
 import pytest
+
+
+# Patch target: the name as imported into the validator module, where
+# AccessChecker.check() looks the authorization service up.
+_VALIDATOR_AUTH_SERVICE = (
+    "datajunction_server.internal.access.authorization."
+    "validator.get_authorization_service"
+)
+
+
+class _DenyDeleteAuthorizationService(AuthorizationService):
+    """
+    Approves everything except DELETE -- a caller with WRITE but not DELETE.
+
+    The deployment HTTP entrypoint only checks WRITE on the root namespace, so
+    such a caller passes the entrypoint; this isolates the orchestrator's own
+    DELETE authorization on nodes/namespaces it removes.
+    """
+
+    name = "test_deny_delete_deploy"
+
+    def authorize(self, auth_context, requests):
+        return [
+            access.AccessDecision(
+                request=request,
+                approved=request.verb != access.ResourceAction.DELETE,
+            )
+            for request in requests
+        ]
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -1283,6 +1314,50 @@ async def deploy_and_wait(client, deployment_spec: DeploymentSpec):
         response = await client.get(f"/deployments/{deployment_uuid}")
         data = response.json()
     return data
+
+
+@pytest.mark.xdist_group(name="deployments")
+class TestDeploymentAuthorization:
+    @pytest.mark.asyncio
+    async def test_deploy_delete_denied_without_delete_is_fail_closed(
+        self,
+        client,
+        default_hard_hats,
+        mocker,
+    ):
+        """
+        A deploy runs detached and can DELETE nodes/namespaces, but the HTTP
+        entrypoint only checks WRITE on the root namespace -- and WRITE does not
+        imply DELETE. So a WRITE-but-not-DELETE caller passes the entrypoint yet
+        must be denied by the orchestrator's internal DELETE authorization; the
+        deletion fails and the node survives (fail-closed).
+        """
+        namespace = "deploy_delete_denied"
+
+        # First deploy (default passthrough auth) creates the node.
+        created = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=[default_hard_hats]),
+        )
+        assert created["status"] == "success", created
+
+        # Now deny DELETE (WRITE still allowed, so the HTTP entrypoint passes) and
+        # try to delete everything via an empty spec.
+        mocker.patch(
+            _VALIDATOR_AUTH_SERVICE,
+            lambda: _DenyDeleteAuthorizationService(),
+        )
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=[], allow_empty=True),
+        )
+
+        assert data["status"] == DeploymentStatus.FAILED.value, data
+        assert "Access denied" in json.dumps(data["results"])
+
+        # Fail-closed: the node was not deleted.
+        node_check = await client.get(f"/nodes/{namespace}.default.hard_hats/")
+        assert node_check.status_code == 200
 
 
 @pytest.mark.xdist_group(name="deployments")
