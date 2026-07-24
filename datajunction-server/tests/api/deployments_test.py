@@ -1804,6 +1804,130 @@ class TestDeployments:
             del client.app.dependency_overrides[get_query_service_client]
 
     @pytest.mark.asyncio
+    async def test_deploy_preagg_applies_dimension_columns(
+        self,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        A pre-agg declared in a deployment spec with ``dimension_columns`` binds
+        each grain dimension to its physical column, and the generated measures
+        SQL reads that physical column (aliased back to the DJ name) instead of
+        the DJ dimension name.
+
+        Regression: the ``dimension_columns`` feature was only covered through the
+        POST /preaggs/register API path; the deployment/orchestrator path (what
+        ``dj push`` uses) had no coverage. This exercises the two shapes that path
+        must get right: a joined dimension's *key* satisfied by a differently
+        named parent foreign-key column (``dim.state_short`` via ``fact.state``),
+        and a *local* fact column (``fact.hard_hat_id``).
+        """
+        fact = TransformSpec(
+            name="default.dimcol_facts",
+            node_type=NodeType.TRANSFORM,
+            query="SELECT hard_hat_id, state FROM ${prefix}default.hard_hats",
+            dimension_links=[
+                DimensionJoinLinkSpec(
+                    dimension_node="${prefix}default.us_state",
+                    join_type="inner",
+                    join_on=(
+                        "${prefix}default.dimcol_facts.state = "
+                        "${prefix}default.us_state.state_short"
+                    ),
+                ),
+            ],
+            primary_key=["hard_hat_id"],
+            owners=["dj"],
+        )
+        metric = MetricSpec(
+            name="default.dimcol_count",
+            node_type=NodeType.METRIC,
+            query="SELECT COUNT(*) FROM ${prefix}default.dimcol_facts",
+            owners=["dj"],
+        )
+
+        async def _fake_columns(*args, **kwargs):
+            return [
+                SimpleNamespace(name="cnt", type="bigint"),
+                SimpleNamespace(name="st_code", type="string"),
+                SimpleNamespace(name="hh_id_col", type="int"),
+            ]
+
+        mock_qs = MagicMock()
+        mock_qs.get_columns_for_table = _fake_columns
+        client.app.dependency_overrides[get_query_service_client] = lambda: mock_qs
+        try:
+            preagg = PreAggSpec(
+                name="dimcol_agg",
+                metrics=["${prefix}default.dimcol_count"],
+                dimensions=[
+                    "${prefix}default.us_state.state_short",
+                    "${prefix}default.dimcol_facts.hard_hat_id",
+                ],
+                catalog="default",
+                schema="analytics",
+                table="dimcol_agg_tbl",
+                valid_through_ts=1700000000,
+                measure_columns={"${prefix}default.dimcol_count": "cnt"},
+                dimension_columns={
+                    "${prefix}default.us_state.state_short": "st_code",
+                    "${prefix}default.dimcol_facts.hard_hat_id": "hh_id_col",
+                },
+            )
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(
+                    namespace="preagg_dimcol",
+                    nodes=[
+                        default_hard_hats,
+                        default_us_states,
+                        default_us_state,
+                        fact,
+                        metric,
+                    ],
+                    preaggregations=[preagg],
+                ),
+            )
+            assert data["status"] == "success", data["results"]
+
+            # The registered dimensions carry their physical source_column binding.
+            listing = await client.get(
+                "/preaggs/",
+                params={"node_name": "preagg_dimcol.default.dimcol_facts"},
+            )
+            preagg_row = listing.json()["items"][0]
+            source_cols = {
+                col["source_column"]
+                for col in preagg_row["columns"]
+                if col.get("semantic_type") == "dimension"
+            }
+            assert source_cols == {"st_code", "hh_id_col"}, preagg_row["columns"]
+
+            # The measures SQL reads the physical columns from the agg table and
+            # re-aggregates over them -- no join back to the dimension node.
+            response = await client.get(
+                "/sql/measures/v3/",
+                params={
+                    "metrics": ["preagg_dimcol.default.dimcol_count"],
+                    "dimensions": [
+                        "preagg_dimcol.default.us_state.state_short",
+                        "preagg_dimcol.default.dimcol_facts.hard_hat_id",
+                    ],
+                },
+            )
+            assert response.status_code == 200, response.text
+            grain_sql = response.json()["grain_groups"][0]["sql"]
+            lowered = grain_sql.lower()
+            assert "default.analytics.dimcol_agg_tbl" in grain_sql
+            assert "st_code" in grain_sql
+            assert "hh_id_col" in grain_sql
+            assert "join" not in lowered
+        finally:
+            del client.app.dependency_overrides[get_query_service_client]
+
+    @pytest.mark.asyncio
     async def test_deploy_dimension_with_update(
         self,
         client,
