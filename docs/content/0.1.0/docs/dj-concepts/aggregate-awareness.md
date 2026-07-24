@@ -1,24 +1,41 @@
 ---
 weight: 86
 title: "Query Routing & Aggregate Awareness"
+mermaid: true
 ---
 
 Query routing is how DataJunction decides where a metric query reads from: a pre-aggregated
 (materialized) dataset, or a live computation from source tables. When a suitable materialization
 exists, DJ routes the query to it automatically — you don't ask for a specific cube or
 pre-aggregation, you just request metrics and dimensions and DJ picks the best available source.
-This automatic selection of a pre-aggregated source is what's meant by **aggregate awareness**.
+This automatic selection of a pre-aggregated source is called **aggregate awareness**.
 
 ## How routing chooses a source
 
-DJ routes by **per-query matching**. On each request it gathers the candidate materializations for
-the requested metrics and checks, in the moment, whether any of them can satisfy the query, using the
-rules in the next section. There is no precomputed query-to-table mapping it consults; the match is
-decided fresh each time against whatever materializations currently exist.
+When you request metrics and dimensions (e.g. via the SQL or data endpoints), DJ decides which
+tables to read from based on the aggregates available.
 
-What you manage is the set of **materializations** themselves — the cubes and pre-aggregations that
-exist for your nodes. Routing then matches against whatever is currently available; a new
-materialization becomes usable as soon as it has data.
+An aggregate becomes available in one of two ways: **DJ materializes it for you** — a cube or
+pre-aggregation it builds and keeps refreshed — or **you register an externally-built table** that an
+outside pipeline already produces. Routing treats both the same. Registering an external table is
+described [below](#registering-externally-built-pre-aggregations); for DJ-managed materialization see
+[Materialization](../materialization/).
+
+Say `total_revenue` has an aggregate at `order_date × region` grain. Different requests route
+differently:
+
+{{< mermaid class="bg-light text-center" >}}
+graph LR
+  Q1["total_revenue<br/>by region"] -->|rolls up over order_date| A["aggregate<br/>order_date × region"]
+  Q2["total_revenue<br/>by order_date, region"] -->|exact grain| A
+  Q3["total_revenue<br/>by product"] -->|product not in<br/>the aggregate| S["source tables<br/>computed live"]
+  style A fill:#79d60080,stroke:#ccc,stroke-width:1px
+  style S fill:#21b8ff40,stroke:#ccc,stroke-width:1px
+{{< /mermaid >}}
+
+When more than one aggregate can serve a request, DJ picks the coarsest that still covers it (the
+fewest dimensions to roll up). The match is decided fresh on each request against whatever aggregates
+currently exist and have data, so a new one becomes usable the moment it's ready.
 
 > **Under the hood:** each pre-aggregation does persist an indexed `grain_group_hash` and a unique
 > `preagg_hash` (derived from the parent node, grain, and measure expression hashes). Today these are
