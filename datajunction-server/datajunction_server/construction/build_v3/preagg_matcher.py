@@ -181,6 +181,24 @@ def get_preagg_measure_column(
     return None
 
 
+def get_preagg_dimension_column(
+    preagg: PreAggregation,
+    dimension_ref: str,
+    default_column: str,
+) -> str:
+    """
+    Physical column in the pre-agg backing a resolved grain dimension.
+
+    External pre-aggs may store a dimension under a different column name (kept as
+    source_column). Matched by dimension reference (semantic_name == original_ref,
+    so role-safe), falling back to the DJ column name.
+    """
+    for col in preagg.columns or []:
+        if col.semantic_type == "dimension" and col.semantic_name == dimension_ref:
+            return col.source_column or col.name
+    return default_column
+
+
 def get_temporal_partitions(preagg: PreAggregation) -> list[TemporalPartitionColumn]:
     """
     Get temporal partition columns for a pre-aggregation.

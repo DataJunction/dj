@@ -802,6 +802,57 @@ class TestAvailabilityState:
         assert data["message"] == "Availability state successfully posted"
 
     @pytest.mark.asyncio
+    async def test_availability_matching_node_version_is_accepted(
+        self,
+        module__client_with_account_revenue: AsyncClient,
+    ) -> None:
+        """
+        Availability tagged with the node's current version is accepted.
+        """
+        node_name = "default.large_revenue_payments_and_business_only"
+        node = (
+            await module__client_with_account_revenue.get(f"/nodes/{node_name}/")
+        ).json()
+        response = await module__client_with_account_revenue.post(
+            f"/data/{node_name}/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "accounting",
+                "table": "pmts",
+                "valid_through_ts": 20230125,
+                "max_temporal_partition": ["2023", "01", "25"],
+                "min_temporal_partition": ["2022", "01", "01"],
+                "node_version": node["version"],
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["message"] == "Availability state successfully posted"
+
+    @pytest.mark.asyncio
+    async def test_availability_unknown_node_version_is_rejected(
+        self,
+        module__client_with_account_revenue: AsyncClient,
+    ) -> None:
+        """
+        Availability tagged with a version the node has never had is rejected.
+        """
+        node_name = "default.large_revenue_payments_and_business_only"
+        response = await module__client_with_account_revenue.post(
+            f"/data/{node_name}/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "accounting",
+                "table": "pmts",
+                "valid_through_ts": 20230125,
+                "max_temporal_partition": ["2023", "01", "25"],
+                "min_temporal_partition": ["2022", "01", "01"],
+                "node_version": "v99.0",
+            },
+        )
+        assert response.status_code == 422
+        assert "has no version v99.0" in response.json()["message"]
+
+    @pytest.mark.asyncio
     async def test_setting_availability_state_multiple_times(
         self,
         module__session: AsyncSession,

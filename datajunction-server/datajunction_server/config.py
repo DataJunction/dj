@@ -213,6 +213,12 @@ class Settings(BaseSettings):  # pragma: no cover
     # - "restrictive": Deny by default
     default_access_policy: str = "permissive"  # or "restrictive"
 
+    # Optional role name whose scopes are evaluated as a fallback when no
+    # explicit grant matches. Lets a deployment express graceful defaults such
+    # as "everyone gets read on *" without flipping the whole policy to
+    # permissive. Applied before the default_access_policy fallback.
+    default_access_role: Optional[str] = None
+
     # Require configured break-glass admins before serving requests.
     # Restrictive default access also enables this check automatically.
     # RBAC_ADMIN_USERS uses JSON list syntax, for example ["admin-user"].
