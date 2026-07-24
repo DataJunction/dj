@@ -126,18 +126,10 @@ For how metrics are broken into the additive measures that pre-aggregations stor
 
 ## Registering externally-built pre-aggregations
 
-Everything above assumes DJ built the pre-aggregation itself. But the pre-aggregation matcher doesn't
-actually care who built the table — only that its shape and grain are known. That means you can hand DJ
-a table an outside pipeline already built — a nightly Spark job, a dbt model, an ETL DAG someone on
-your data platform team owns — and have query routing treat it exactly like a pre-aggregation DJ
-materialized on its own. DJ never runs, refreshes, or owns the table; it only learns enough about the
-table's shape to route matching queries to it. This is DJ's equivalent of Oracle's
-`MATERIALIZED VIEW ... ON PREBUILT TABLE` for a semantic layer: you bring the data, DJ brings the query
-routing.
-
-Because the matching rules are unchanged, the only new concept is *how* the pre-aggregation comes into
-existence — instead of DJ generating and running the build SQL, you tell DJ where an already-built
-table lives and how its columns map to measures.
+Everything above assumes DJ built the pre-aggregation itself, but the matcher doesn't care who built
+the table — only that its shape and grain are known. So you can register a table an external pipeline
+already produces: you tell DJ where it lives and how its columns map to measures, and routing then
+treats it exactly like a pre-aggregation DJ built.
 
 ### The core modeling rule: only measures can be mapped
 
