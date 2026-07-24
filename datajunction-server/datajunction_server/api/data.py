@@ -8,6 +8,7 @@ from typing import Callable, Dict, List, Optional, cast
 
 from fastapi import BackgroundTasks, Depends, Query, Request
 from fastapi.responses import JSONResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 from sse_starlette.sse import EventSourceResponse
@@ -37,6 +38,9 @@ from datajunction_server.internal.access.authorization import (
 )
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.models import access
+from datajunction_server.models.cube_materialization import (
+    version_from_materialized_table,
+)
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.node import AvailabilityStateBase
 from datajunction_server.models.node_type import NodeType
@@ -99,6 +103,52 @@ async def add_availability_state(
         ),
     )
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
+    # Scope the availability to the revision it was produced for. A
+    # materialization workflow left running after a non-trivial redefinition
+    # (e.g. a cube whose dimensions/metrics changed) posts for a superseded
+    # version; that data belongs on its own revision — still valid for pinned
+    # queries — not on the current revision, whose schema differs. The target
+    # version is an explicit node_version if the producer sends one, else it is
+    # derived from the materialized table name (which encodes
+    # <node>_<version>_<hash>); absent both, the current revision is used (prior
+    # behavior). An explicitly-supplied unknown version is rejected; a derived
+    # version that resolves to no revision falls back to the current revision.
+    target_version = data.node_version or version_from_materialized_table(
+        data.table,
+        node_name,
+    )
+    if target_version and target_version != node_revision.version:
+        resolved = (
+            await session.execute(
+                select(NodeRevision)
+                .where(
+                    NodeRevision.name == node_name,
+                    NodeRevision.version == target_version,
+                )
+                .options(
+                    selectinload(NodeRevision.catalog),
+                    selectinload(NodeRevision.availability),
+                ),
+            )
+        ).scalar_one_or_none()
+        if resolved is not None:
+            node_revision = resolved
+            _logger.warning(
+                "Availability for node=%s targets non-current version %s "
+                "(current=%s); scoping it to that revision. A materialization "
+                "workflow may still be running against a superseded revision.",
+                node_name,
+                target_version,
+                node.current.version,  # type: ignore
+            )
+        elif data.node_version:
+            raise DJInvalidInputException(
+                message=(
+                    f"Cannot set availability state: node {node_name} has no "
+                    f"version {data.node_version}."
+                ),
+            )
 
     if node.current.type == NodeType.SOURCE:  # type: ignore
         if (
