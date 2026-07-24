@@ -239,6 +239,44 @@ accidental or partial push wiping externally-managed tables, a deploy that decla
 at all never mass-deregisters the existing ones; removing your last one is an explicit action, done by
 passing `allow_empty` on the deploy.
 
+#### Mapping dimension columns
+
+Externally-built tables rarely name their grain columns exactly the way DJ names dimension attributes — a
+date column might be `ds`, an entity column `entity_id`. Just as `measure_columns` binds a measure to a
+physical column, `dimension_columns` binds a dimension reference to the physical column that holds it,
+keyed by the same references you list under `dimensions`. Any dimension you don't map is read under DJ's
+own column name, so existing registrations need no changes.
+
+```yaml
+kind: preagg
+name: views_by_page
+metrics:
+  - ${prefix}view_rate
+dimensions:
+  - ${prefix}page_d.page_id
+  - ${prefix}geo_country_d.country_iso_code
+catalog: warehouse
+schema: analytics
+table: views_by_page_daily
+measure_columns:
+  ${prefix}view_secs: view_secs_sum
+  ${prefix}session_count: session_cnt
+dimension_columns:
+  ${prefix}page_d.page_id: page
+  ${prefix}geo_country_d.country_iso_code: country
+```
+
+When a query routes to this table, DJ reads the physical column and aliases it back to the dimension's
+name, so the mapping is invisible to whoever is querying — it only changes how the table is read, never
+how a pre-aggregation matches a query (matching is always by dimension identity, not physical column
+names). Mapped dimension columns are validated like measures: each must exist in the table and be
+type-compatible with the dimension it backs.
+
+A mapped dimension can be a joined attribute, not just a local column or foreign key. If your last-mile
+table has already denormalized an attribute — say it stores `country` directly rather than an account key
+you would otherwise join through — you can list that attribute under `dimensions` and map it to its
+column, and DJ reads it straight from the table with no join.
+
 ### Freshness is reported separately from the binding
 
 You'll notice the YAML spec above has no `valid_through_ts`. That's deliberate: the YAML describes the
@@ -283,10 +321,11 @@ match and staying out of its way otherwise.
 External pre-aggregation registration covers the common case well, but there are some edges worth
 knowing about:
 
-- **Only measure columns are validated.** DJ checks that each column in `measure_columns` exists and
-  backs a real measure, but it currently trusts that your grain/dimension columns already match DJ's
-  expected output names. Naming your dimension columns the same way DJ would (as if it had built the
-  table itself) avoids surprises.
+- **Dimensions that live only in the aggregate table can't be introduced.** You can map a grain column
+  to a differently-named physical column with `dimension_columns` (see above), including a joined
+  attribute the table denormalized. But an attribute that exists *only* in the aggregate, with no link
+  path from the parent node, isn't a dimension DJ can route by — add the dimension link to the model
+  first, then map the column.
 - **Non-additive measures have a narrower routing window.** A column backing `COUNT(DISTINCT x)` can
   only serve queries at the exact grain it was built at, since distinct counts can't be rolled up to a
   coarser grain from a pre-aggregated table without the underlying row-level values.
