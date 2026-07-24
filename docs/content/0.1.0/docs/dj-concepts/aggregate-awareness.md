@@ -228,41 +228,6 @@ metrics:
   - ${prefix}view_rate
 dimensions:
   - ${prefix}page_d.page_id
-catalog: warehouse
-schema: analytics
-table: views_by_page_daily
-measure_columns:
-  ${prefix}view_secs: view_secs_sum
-  ${prefix}session_count: session_cnt
-```
-
-`view_rate` is listed as the metric you care about querying, but the column mapping is still declared
-against its underlying measures — DJ resolves `view_rate`'s dependency on `view_secs` and
-`session_count`, sees both are covered by columns in `measure_columns`, and considers `view_rate`
-covered as a result.
-
-On deploy, DJ registers any pre-aggregation specs it finds. Because deployments are the source of truth,
-it also removes a previously-registered pre-aggregation once you drop its spec from a deploy that still
-declares others — the same way removing a node file deletes that node. As a safeguard against an
-accidental or partial push wiping externally-managed tables, a deploy that declares *no* pre-aggregations
-at all never mass-deregisters the existing ones; removing your last one is an explicit action, done by
-passing `allow_empty` on the deploy.
-
-#### Mapping dimension columns
-
-Externally-built tables rarely name their grain columns exactly the way DJ names dimension attributes — a
-date column might be `ds`, an entity column `entity_id`. Just as `measure_columns` binds a measure to a
-physical column, `dimension_columns` binds a dimension reference to the physical column that holds it,
-keyed by the same references you list under `dimensions`. Any dimension you don't map is read under DJ's
-own column name, so existing registrations need no changes.
-
-```yaml
-kind: preagg
-name: views_by_page
-metrics:
-  - ${prefix}view_rate
-dimensions:
-  - ${prefix}page_d.page_id
   - ${prefix}geo_country_d.country_iso_code
 catalog: warehouse
 schema: analytics
@@ -275,16 +240,25 @@ dimension_columns:
   ${prefix}geo_country_d.country_iso_code: country
 ```
 
-When a query routes to this table, DJ reads the physical column and aliases it back to the dimension's
-name, so the mapping is invisible to whoever is querying — it only changes how the table is read, never
-how a pre-aggregation matches a query (matching is always by dimension identity, not physical column
-names). Mapped dimension columns are validated like measures: each must exist in the table and be
-type-compatible with the dimension it backs.
+`view_rate` is listed as the metric you care about querying, but the column mapping is still declared
+against its underlying measures — DJ resolves `view_rate`'s dependency on `view_secs` and
+`session_count`, sees both are covered by columns in `measure_columns`, and considers `view_rate`
+covered as a result.
 
-A mapped dimension can be a joined attribute, not just a local column or foreign key. If your last-mile
-table has already denormalized an attribute — say it stores `country` directly rather than an account key
-you would otherwise join through — you can list that attribute under `dimensions` and map it to its
-column, and DJ reads it straight from the table with no join.
+Grain columns are mapped the same way: the optional `dimension_columns` map binds each dimension
+reference to the physical column holding it (here `page_d.page_id` is stored as `page` and the country
+as `country`), and unmapped dimensions are read under DJ's own name. It's validated like `measure_columns` — the column must exist
+and be type-compatible — and only changes how the table is read, not how it's matched. A mapped
+dimension can even be a joined attribute the table has denormalized (say it stores `country` directly
+rather than an account key you'd otherwise join through), which DJ then reads straight from the table
+with no join.
+
+On deploy, DJ registers any pre-aggregation specs it finds. Because deployments are the source of truth,
+it also removes a previously-registered pre-aggregation once you drop its spec from a deploy that still
+declares others — the same way removing a node file deletes that node. As a safeguard against an
+accidental or partial push wiping externally-managed tables, a deploy that declares *no* pre-aggregations
+at all never mass-deregisters the existing ones; removing your last one is an explicit action, done by
+passing `allow_empty` on the deploy.
 
 ### Freshness is reported separately from the binding
 
