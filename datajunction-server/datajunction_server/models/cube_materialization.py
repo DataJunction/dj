@@ -31,6 +31,48 @@ __all__ = [
 ]
 
 
+def materialized_table_name(
+    node_name: str,
+    node_version: str,
+    unique_hash: str,
+) -> str:
+    """Canonical output table name for a materialized node revision.
+
+    Format: ``<node_name>_<node_version>_<hash>`` with dots replaced by
+    underscores. The Druid datasource additionally carries the
+    ``druid_datasource_prefix``. ``version_from_materialized_table`` is the
+    inverse; keep the two in lock-step (a round-trip test enforces it).
+    """
+    return f"{node_name}_{node_version}_{unique_hash}".replace(".", "_")
+
+
+def version_from_materialized_table(
+    table: str,
+    node_name: str,
+) -> Optional[str]:
+    """Recover the node version encoded in a materialized table/datasource name.
+
+    Inverse of ``materialized_table_name``. Tolerates an optional
+    ``druid_datasource_prefix`` (Druid datasources are prefixed; other engines
+    report the bare table). Returns ``None`` when ``table`` is not a
+    materialized name for ``node_name`` (e.g. a source table or another node),
+    so callers can fall back safely.
+    """
+    from datajunction_server.utils import get_settings  # noqa: PLC0415
+
+    candidate = table
+    prefix = get_settings().druid_datasource_prefix
+    if prefix and candidate.startswith(prefix):
+        candidate = candidate[len(prefix) :]
+    stem = f"{node_name}_".replace(".", "_")
+    if not candidate.startswith(stem):
+        return None
+    version_part, sep, hash_part = candidate[len(stem) :].rpartition("_")
+    if not sep or not version_part or not hash_part:
+        return None
+    return version_part.replace("_", ".")
+
+
 class MetricMeasures(BaseModel):
     """
     Represent a metric as a set of measures, along with the expression for
@@ -115,7 +157,11 @@ class MeasuresMaterialization(BaseModel):
             ],
         )
         unique_hash = hashlib.sha256(unique_string.encode()).hexdigest()[:16]
-        return f"{self.node.name}_{self.node.version}_{unique_hash}".replace(".", "_")
+        return materialized_table_name(
+            self.node.name,
+            str(self.node.version),
+            unique_hash,
+        )
 
     def model_dump(self, **kwargs):  # pragma: no cover
         base = super().model_dump(**kwargs)
@@ -303,7 +349,11 @@ class CombineMaterialization(BaseModel):
             ],
         )
         unique_hash = hashlib.sha256(unique_string.encode()).hexdigest()[:16]
-        return f"{self.node.name}_{self.node.version}_{unique_hash}".replace(".", "_")
+        return materialized_table_name(
+            self.node.name,
+            str(self.node.version),
+            unique_hash,
+        )
 
     def metrics_spec(self) -> list[dict[str, Any]]:
         """

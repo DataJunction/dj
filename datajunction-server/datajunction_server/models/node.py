@@ -331,6 +331,16 @@ class AvailabilityStateBase(TemporalPartitionRange):
     url: str | None = Field(default=None)
     links: Dict[str, Any] | None = Field(default_factory=dict)
 
+    # Optional explicit override for the node version this availability was
+    # produced for. The POST scopes availability to the matching revision so a
+    # workflow left running after a non-trivial redefinition (e.g. a cube whose
+    # dimensions/metrics changed) updates its own revision rather than stamping a
+    # stale, schema-mismatched table onto the new revision. Usually unnecessary:
+    # the version is derived from the materialized table name when absent. When
+    # supplied, an unknown version is rejected (vs. a best-effort derived one).
+    # Request-only hint; excluded from serialization.
+    node_version: str | None = Field(default=None, exclude=True)
+
     # An ordered list of categorical partitions like ["country", "group_id"]
     # or ["region_id", "age_group"]
     categorical_partitions: list[str] | None = Field(default_factory=list)

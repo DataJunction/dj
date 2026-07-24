@@ -140,6 +140,14 @@ class RegisterPreAggregationsRequest(BaseModel):
             "measure of the requested metrics must be covered."
         ),
     )
+    dimension_columns: Dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Optional map of dimension reference to the physical column in the "
+            "external table backing it, when the column name differs from the "
+            "dimension's. Unmapped dimensions default to their DJ column name."
+        ),
+    )
 
 
 class UpdatePreAggregationAvailabilityRequest(BaseModel):

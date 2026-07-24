@@ -15,8 +15,11 @@ from datajunction_server.models.cube_materialization import (
     DruidCubeV3Config,
     MeasuresMaterialization,
     PreAggTableInfo,
+    materialized_table_name,
+    version_from_materialized_table,
 )
 from datajunction_server.models.materialization import MaterializationStrategy
+from datajunction_server.utils import get_settings
 from datajunction_server.models.node_type import NodeNameVersion
 from datajunction_server.models.partition import Granularity
 from datajunction_server.models.decompose import (
@@ -343,3 +346,68 @@ class TestFromMeasuresQueryRoleResolution:
                 measures_query,
                 temporal_partition,
             )
+
+
+class TestMaterializedTableNameRoundTrip:
+    """`materialized_table_name` and `version_from_materialized_table` must stay
+    inverses — the availability endpoint derives the node version from the table
+    name, so a drift between the two would silently misroute availability."""
+
+    def test_round_trip_unprefixed(self):
+        table = materialized_table_name("foo.bar.baz", "v2.1", "abc123def4560000")
+        assert table == "foo_bar_baz_v2_1_abc123def4560000"
+        assert version_from_materialized_table(table, "foo.bar.baz") == "v2.1"
+
+    def test_round_trip_with_druid_prefix(self):
+        prefix = get_settings().druid_datasource_prefix
+        table = prefix + materialized_table_name(
+            "cs.main.perf",
+            "v1.0",
+            "deadbeefdeadbeef",
+        )
+        assert version_from_materialized_table(table, "cs.main.perf") == "v1.0"
+
+    def test_non_materialized_names_return_none(self):
+        # A bare source table.
+        assert version_from_materialized_table("pmts", "default.revenue") is None
+        # A datasource for a different node.
+        assert (
+            version_from_materialized_table(
+                "dj__other_v1_0_abcd1234",
+                "default.revenue",
+            )
+            is None
+        )
+        # Matches the node stem but has no <version>_<hash> suffix.
+        assert (
+            version_from_materialized_table("dj__default_revenue_v1", "default.revenue")
+            is None
+        )
+
+    def test_round_trip_multi_digit_versions(self):
+        # Only the trailing hash token is peeled off, never a version digit.
+        for version in ("v1.10", "v10.2", "v10.10"):
+            table = materialized_table_name("a.b", version, "0011223344556677")
+            assert version_from_materialized_table(table, "a.b") == version
+            prefixed = get_settings().druid_datasource_prefix + table
+            assert version_from_materialized_table(prefixed, "a.b") == version
+
+    def test_round_trip_node_name_with_version_like_suffix(self):
+        # Anchoring on the full node stem handles node names that themselves
+        # look version-ish or contain underscores.
+        node_name = "default.foo_v2"
+        table = get_settings().druid_datasource_prefix + materialized_table_name(
+            node_name,
+            "v1.0",
+            "abcd1234abcd1234",
+        )
+        assert version_from_materialized_table(table, node_name) == "v1.0"
+
+    def test_boundary_inputs_return_none(self):
+        prefix = get_settings().druid_datasource_prefix
+        # Just the prefix, nothing else.
+        assert version_from_materialized_table(prefix, "default.x") is None
+        # Node stem present but nothing after it.
+        assert (
+            version_from_materialized_table(f"{prefix}default_x_", "default.x") is None
+        )

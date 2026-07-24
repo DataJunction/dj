@@ -47,11 +47,13 @@ async def _register_external_preagg(
     table_ref,
     measure_columns,
     table_columns,
+    dimension_columns=None,
+    expected_status=201,
 ):
     """
     Register an externally-built pre-aggregation via /preaggs/register with a
     mocked query service that reports ``table_columns`` for the external table.
-    Returns the created pre-agg payloads.
+    Returns the response (asserts ``expected_status``).
     """
 
     items = (
@@ -67,17 +69,17 @@ async def _register_external_preagg(
     mock_qs.get_columns_for_table = _fake_columns
     client.app.dependency_overrides[get_query_service_client] = lambda: mock_qs
     try:
-        response = await client.post(
-            "/preaggs/register",
-            json={
-                "metrics": metrics,
-                "dimensions": dimensions,
-                "table": table_ref,
-                "measure_columns": measure_columns,
-            },
-        )
-        assert response.status_code == 201, response.text
-        return response.json()["preaggs"]
+        payload = {
+            "metrics": metrics,
+            "dimensions": dimensions,
+            "table": table_ref,
+            "measure_columns": measure_columns,
+        }
+        if dimension_columns is not None:
+            payload["dimension_columns"] = dimension_columns
+        response = await client.post("/preaggs/register", json=payload)
+        assert response.status_code == expected_status, response.text
+        return response
     finally:
         del client.app.dependency_overrides[get_query_service_client]
 
@@ -650,6 +652,176 @@ class TestExternalPreAggRouting:
             FULL OUTER JOIN page_views_enriched_0
                 ON order_details_0.customer_id = page_views_enriched_0.customer_id
             GROUP BY 1
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_external_preagg_renamed_dimension_column(
+        self,
+        client_with_build_v3,
+    ):
+        """A grain dimension stored under a different physical column name is read
+        via dimension_columns and aliased back to the DJ name."""
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.order_details.status"],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "revenue_by_status",
+                "valid_through_ts": 20250101,
+            },
+            measure_columns={"v3.total_revenue": "revenue_sum"},
+            dimension_columns={"v3.order_details.status": "order_status"},
+            table_columns={"order_status": "string", "revenue_sum": "double"},
+        )
+        measures_response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+        assert measures_response.status_code == 200
+        measures_sql = get_first_grain_group(measures_response.json())["sql"]
+        assert_sql_equal(
+            measures_sql,
+            """
+            SELECT order_status status, SUM(revenue_sum) revenue_sum
+            FROM default.analytics.revenue_by_status
+            GROUP BY order_status
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_external_preagg_dimension_column_must_exist(
+        self,
+        client_with_build_v3,
+    ):
+        """A dimension_columns mapping to a column absent from the table is
+        rejected; an unknown dimension key is rejected too."""
+        missing = await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.order_details.status"],
+            table_ref={"catalog": "default", "schema": "analytics", "table": "t"},
+            measure_columns={"v3.total_revenue": "revenue_sum"},
+            dimension_columns={"v3.order_details.status": "nope"},
+            table_columns=["order_status", "revenue_sum"],
+            expected_status=422,
+        )
+        assert "not found in table" in missing.json()["message"]
+
+        unknown = await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.order_details.status"],
+            table_ref={"catalog": "default", "schema": "analytics", "table": "t"},
+            measure_columns={"v3.total_revenue": "revenue_sum"},
+            dimension_columns={"v3.order_details.not_a_dim": "x"},
+            table_columns=["order_status", "revenue_sum", "x"],
+            expected_status=422,
+        )
+        assert "not in the pre-aggregation's dimensions" in unknown.json()["message"]
+
+        # A string dimension bound to a numeric column is type-incompatible.
+        bad_type = await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.order_details.status"],
+            table_ref={"catalog": "default", "schema": "analytics", "table": "t"},
+            measure_columns={"v3.total_revenue": "revenue_sum"},
+            dimension_columns={"v3.order_details.status": "status_num"},
+            table_columns={"status_num": "bigint", "revenue_sum": "double"},
+            expected_status=422,
+        )
+        assert (
+            "not type-compatible with dimension 'v3.order_details.status'"
+            in bad_type.json()["message"]
+        )
+
+    @pytest.mark.asyncio
+    async def test_external_preagg_joined_attribute_read_directly(
+        self,
+        client_with_build_v3,
+    ):
+        """A joined dimension attribute stored (denormalized) in the external
+        table is read directly from it via dimension_columns -- no join back to
+        the dimension node."""
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.product.category"],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "revenue_by_category",
+                "valid_through_ts": 20250101,
+            },
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            dimension_columns={"v3.product.category": "cat"},
+            table_columns={"cat": "string", "rev_sum": "double"},
+        )
+        measures_response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.product.category"],
+            },
+        )
+        assert measures_response.status_code == 200
+        measures_sql = get_first_grain_group(measures_response.json())["sql"]
+        # No JOIN to the product dimension -- the attribute is read from the agg.
+        assert "join" not in measures_sql.lower()
+        assert_sql_equal(
+            measures_sql,
+            """
+            SELECT cat category, SUM(rev_sum) rev_sum
+            FROM default.analytics.revenue_by_category
+            GROUP BY cat
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_external_preagg_renamed_measure_and_dimensions(
+        self,
+        client_with_build_v3,
+    ):
+        """Renamed measure and multiple renamed dimensions (a local column and a
+        joined attribute) coexist on one external table."""
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.order_details.status", "v3.product.category"],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "revenue_by_status_category",
+                "valid_through_ts": 20250101,
+            },
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            dimension_columns={
+                "v3.order_details.status": "st",
+                "v3.product.category": "cat",
+            },
+            table_columns={"st": "string", "cat": "string", "rev_sum": "double"},
+        )
+        measures_response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status", "v3.product.category"],
+            },
+        )
+        assert measures_response.status_code == 200
+        measures_sql = get_first_grain_group(measures_response.json())["sql"]
+        assert_sql_equal(
+            measures_sql,
+            """
+            SELECT st status, cat category, SUM(rev_sum) rev_sum
+            FROM default.analytics.revenue_by_status_category
+            GROUP BY st, cat
             """,
         )
 

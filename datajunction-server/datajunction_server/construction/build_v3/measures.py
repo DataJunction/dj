@@ -72,6 +72,7 @@ from datajunction_server.construction.build_v3.dimensions import (
 )
 from datajunction_server.construction.build_v3.preagg_matcher import (
     find_matching_preagg,
+    get_preagg_dimension_column,
     get_preagg_measure_column,
 )
 from datajunction_server.internal.scan_estimation import calculate_scan_estimate
@@ -1785,16 +1786,30 @@ def build_grain_group_from_preagg(
     unique_components: list[MetricComponent] = []
     seen_components: set[str] = set()
 
-    # Add dimension columns (grain columns)
+    # Dimension (grain) columns. grain_col_names = logical output names;
+    # group_by_cols = physical columns read (they differ only when an external
+    # pre-agg remaps a dimension's column).
     grain_col_names: list[str] = []
+    group_by_cols: list[str] = []
     for dim in resolved_dimensions:
         col_name = dim.column_name
         grain_col_names.append(col_name)
 
-        col_ref = ast.Column(name=ast.Name(col_name))
-        select_items.append(col_ref)
+        # Read the physical column (may be remapped) and alias to the DJ name.
+        physical_col = get_preagg_dimension_column(preagg, dim.original_ref, col_name)
+        group_by_cols.append(physical_col)
 
-        # Get type from pre-agg columns if available
+        if physical_col == col_name:
+            select_items.append(ast.Column(name=ast.Name(col_name)))
+        else:
+            select_items.append(
+                ast.Alias(
+                    child=ast.Column(name=ast.Name(physical_col)),
+                    alias=ast.Name(col_name),
+                ),
+            )
+
+        # Type metadata is keyed by the DJ name, not the physical column.
         col_type = preagg.get_column_type(col_name, default="string")
         columns.append(
             ColumnMetadata(
@@ -1843,6 +1858,7 @@ def build_grain_group_from_preagg(
             # No merge - output grain column directly, add to GROUP BY
             select_items.append(col_ref)
             grain_col_names.append(measure_col)
+            group_by_cols.append(measure_col)
             output_alias = measure_col
             component_aliases[component.name] = output_alias
 
@@ -1857,10 +1873,10 @@ def build_grain_group_from_preagg(
             ),
         )
 
-    # Build GROUP BY clause (list of column references)
+    # Build GROUP BY clause (physical columns actually read from the table)
     group_by: list[ast.Expression] = []
-    if grain_col_names:
-        group_by = [ast.Column(name=ast.Name(col)) for col in grain_col_names]
+    if group_by_cols:
+        group_by = [ast.Column(name=ast.Name(col)) for col in group_by_cols]
 
     # Build FROM clause using the helper method
     preagg_table = SEPARATOR.join(table_parts)

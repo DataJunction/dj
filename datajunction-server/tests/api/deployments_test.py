@@ -5498,7 +5498,7 @@ def _clear_query_service(client):
     client.app.dependency_overrides.pop(get_query_service_client, None)
 
 
-def _preagg_spec(name, table, measure_columns, dimensions=None):
+def _preagg_spec(name, table, measure_columns, dimensions=None, dimension_columns=None):
     return PreAggSpec(
         name=name,
         metrics=["${prefix}default.count_hard_hats"],
@@ -5508,6 +5508,7 @@ def _preagg_spec(name, table, measure_columns, dimensions=None):
         table=table,
         valid_through_ts=1700000000,
         measure_columns=measure_columns,
+        dimension_columns=dimension_columns or {},
     )
 
 
@@ -5838,6 +5839,59 @@ class TestExternalPreAggDeploy:
             assert data["status"] == "success", data["results"]
             listing = await client.get("/preaggs/", params={"node_name": fact_node})
             assert listing.json()["items"] == []
+        finally:
+            _clear_query_service(client)
+
+    @pytest.mark.asyncio
+    async def test_deploy_preagg_with_dimension_columns(
+        self,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """dimension_columns on a deployed pre-agg flows through reconcile so the
+        renamed physical dimension column is read at query time."""
+        _override_query_service(
+            client,
+            {"hh_state": "string", "hard_hat_count": "bigint"},
+        )
+        try:
+            nodes = _hard_hat_deploy_nodes(
+                default_hard_hats,
+                default_us_states,
+                default_us_state,
+            )
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(
+                    namespace="preagg_dimcol",
+                    nodes=nodes,
+                    preaggregations=[
+                        _preagg_spec(
+                            "hh_by_state",
+                            "hh_by_state_agg",
+                            {"${prefix}default.count_hard_hats": "hard_hat_count"},
+                            dimension_columns={
+                                "${prefix}default.us_state.state_name": "hh_state",
+                            },
+                        ),
+                    ],
+                ),
+            )
+            assert data["status"] == "success", data["results"]
+            # The registered pre-agg reads the renamed physical dimension column.
+            response = await client.get(
+                "/sql/measures/v3/",
+                params={
+                    "metrics": ["preagg_dimcol.default.count_hard_hats"],
+                    "dimensions": ["preagg_dimcol.default.us_state.state_name"],
+                },
+            )
+            assert response.status_code == 200
+            sql = response.json()["grain_groups"][0]["sql"]
+            assert "default.analytics.hh_by_state_agg" in sql
+            assert "hh_state" in sql
         finally:
             _clear_query_service(client)
 

@@ -11,6 +11,7 @@ from pydantic import (
     AnyHttpUrl,
     Field,
     field_serializer,
+    model_serializer,
     RootModel,
     ConfigDict,
 )
@@ -78,8 +79,19 @@ class V3ColumnMetadata(BaseModel):
         serialization_alias="semantic_entity",
     )
     semantic_type: str  # "dimension" or "metric"
+    # Physical column backing this element when it differs from name (external
+    # pre-aggs); None means it matches name. Mirrors PreAggMeasure.source_column.
+    source_column: str | None = None
 
     model_config = ConfigDict(populate_by_name=True)
+
+    @model_serializer(mode="wrap")
+    def _omit_null_source_column(self, handler):
+        # Keep output backward-compatible: only surface source_column when set.
+        data = handler(self)
+        if isinstance(data, dict) and data.get("source_column") is None:
+            data.pop("source_column", None)
+        return data
 
     def __hash__(self):
         return hash((self.name, self.type, self.semantic_name))  # pragma: no cover

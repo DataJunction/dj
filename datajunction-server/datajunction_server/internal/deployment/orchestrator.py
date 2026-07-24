@@ -1155,6 +1155,7 @@ class DeploymentOrchestrator:
                             valid_through_ts=spec.valid_through_ts,
                         ),
                         measure_columns=spec.rendered_measure_columns,
+                        dimension_columns=spec.rendered_dimension_columns,
                     )
                     upserted_ids.update(preagg.id for preagg in created)
                     for preagg in created:

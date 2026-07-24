@@ -6,7 +6,10 @@ import logging
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from functools import lru_cache
-from typing import List
+from typing import List, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from datajunction_server.database.rbac import RoleScope
 
 
 from datajunction_server.models.access import (
@@ -160,7 +163,28 @@ class RBACAuthorizationService(AuthorizationService):
                 )
                 for request in requests
             ]
-        return [self._make_decision(auth_context, request) for request in requests]
+        candidate_scopes = self.candidate_scopes(auth_context)
+        return [self._make_decision(request, candidate_scopes) for request in requests]
+
+    @classmethod
+    def candidate_scopes(cls, auth_context: AuthContext) -> List["RoleScope"]:
+        """
+        Collect every scope that could grant a request for this context.
+
+        This is the union of the principal's own (non-expired) role scopes and
+        the configured default-access role's scopes. Collecting all candidates
+        up front (rather than short-circuiting source by source) keeps the
+        decision a single resolve step, leaving room for future deny/precedence
+        rules without restructuring.
+        """
+        scopes: List["RoleScope"] = []
+        now = datetime.now(timezone.utc)
+        for assignment in auth_context.role_assignments:
+            if assignment.expires_at and assignment.expires_at < now:
+                continue
+            scopes.extend(assignment.role.scopes)
+        scopes.extend(auth_context.default_scopes)
+        return scopes
 
     def authorize_explicit_grants(
         self,
@@ -177,21 +201,30 @@ class RBACAuthorizationService(AuthorizationService):
 
     def _make_decision(
         self,
-        auth_context: AuthContext,
         request: ResourceRequest,
+        candidate_scopes: List["RoleScope"],
     ) -> AccessDecision:
         """
         Convert ResourceRequest to AccessDecision.
+
+        Evaluates the candidate scopes (explicit grants + default-access role)
+        collected once per authorize() call and approves if any grants the
+        request. Otherwise falls back to the configured default_access_policy.
         """
-        has_grant = self.has_permission(
-            assignments=auth_context.role_assignments,
-            action=request.verb,
-            resource_type=request.access_object.resource_type,
-            resource_name=request.access_object.name,
+        granted = any(
+            self._scope_grants_permission(
+                scope,
+                request.verb,
+                request.access_object.resource_type,
+                request.access_object.name,
+            )
+            for scope in candidate_scopes
         )
+        if granted:
+            return AccessDecision(request=request, approved=True)
         return AccessDecision(
             request=request,
-            approved=(has_grant or settings.default_access_policy == "permissive"),
+            approved=(settings.default_access_policy == "permissive"),
         )
 
     def _make_explicit_grant_decision(
