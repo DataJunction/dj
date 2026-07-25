@@ -1792,28 +1792,42 @@ def build_grain_group_from_preagg(
     grain_col_names: list[str] = []
     group_by_cols: list[str] = []
     for dim in resolved_dimensions:
-        col_name = dim.column_name
-        grain_col_names.append(col_name)
+        # Output name the rest of the query references this grain column by. It
+        # must match the alias the source-built path would emit (role-qualified,
+        # via the alias registry) -- the combiner/metrics layer references grain
+        # columns by that alias, not by the parent's physical column name. Using
+        # dim.column_name here breaks whenever it differs from the alias, e.g. a
+        # joined dimension's key satisfied by a differently-named parent FK
+        # column (order_details.order_date = date.date_id[order]): the CTE would
+        # expose ``order_date`` while the outer query selects ``date_id_order``.
+        output_alias = ctx.alias_registry.register(dim.original_ref)
+        grain_col_names.append(output_alias)
 
-        # Read the physical column (may be remapped) and alias to the DJ name.
-        physical_col = get_preagg_dimension_column(preagg, dim.original_ref, col_name)
+        # Physical column actually read from the pre-agg table. It may be remapped
+        # via dimension_columns; otherwise it defaults to the parent's grain
+        # column name. This is independent of the output alias above.
+        physical_col = get_preagg_dimension_column(
+            preagg,
+            dim.original_ref,
+            dim.column_name,
+        )
         group_by_cols.append(physical_col)
 
-        if physical_col == col_name:
-            select_items.append(ast.Column(name=ast.Name(col_name)))
+        if physical_col == output_alias:
+            select_items.append(ast.Column(name=ast.Name(output_alias)))
         else:
             select_items.append(
                 ast.Alias(
                     child=ast.Column(name=ast.Name(physical_col)),
-                    alias=ast.Name(col_name),
+                    alias=ast.Name(output_alias),
                 ),
             )
 
-        # Type metadata is keyed by the DJ name, not the physical column.
-        col_type = preagg.get_column_type(col_name, default="string")
+        # Type metadata is keyed by the output (DJ) name, not the physical column.
+        col_type = preagg.get_column_type(output_alias, default="string")
         columns.append(
             ColumnMetadata(
-                name=col_name,
+                name=output_alias,
                 semantic_name=dim.original_ref,
                 type=col_type,
                 semantic_type="dimension",

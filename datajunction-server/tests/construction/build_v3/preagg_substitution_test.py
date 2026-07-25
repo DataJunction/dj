@@ -695,6 +695,84 @@ class TestExternalPreAggRouting:
         )
 
     @pytest.mark.asyncio
+    async def test_external_preagg_joined_key_via_foreign_key_column(
+        self,
+        client_with_build_v3,
+    ):
+        """A joined dimension's *key* requested through a differently-named parent
+        foreign-key column reads the mapped physical column and aliases it to the
+        dimension's DJ alias -- the name the outer metrics query references -- not
+        the parent FK column name.
+
+        Regression: the pre-agg grain group aliased the grain column to
+        ``dim.column_name`` (the parent FK column, e.g. ``order_date``) instead of
+        the alias-registry alias (``date_id_order``) used by the source-built
+        path. The metrics query then selected ``date_id_order`` from a CTE that
+        only exposed ``order_date``, producing SQL that could not execute.
+        ``order_details.order_date = date.date_id[order]`` exercises this: the
+        requested key ``date.date_id[order]`` is satisfied by the FK
+        ``order_date``, whose name differs from both the DJ alias and the mapped
+        physical column.
+        """
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.date.date_id[order]"],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "revenue_by_day",
+                "valid_through_ts": 20250101,
+            },
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            dimension_columns={"v3.date.date_id[order]": "day_key"},
+            table_columns={"day_key": "int", "rev_sum": "double"},
+        )
+        # Measures SQL: reads the mapped physical column (day_key) and aliases it
+        # to the dimension alias (date_id_order); no join back to the date dim.
+        measures_response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.date.date_id[order]"],
+            },
+        )
+        assert measures_response.status_code == 200
+        measures_sql = get_first_grain_group(measures_response.json())["sql"]
+        assert_sql_equal(
+            measures_sql,
+            """
+            SELECT day_key date_id_order, SUM(rev_sum) rev_sum
+            FROM default.analytics.revenue_by_day
+            GROUP BY day_key
+            """,
+        )
+        # Metrics SQL: the outer query references the same alias the CTE exposes
+        # (date_id_order), so the query is internally consistent.
+        metrics_response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.date.date_id[order]"],
+            },
+        )
+        assert metrics_response.status_code == 200
+        assert_sql_equal(
+            metrics_response.json()["sql"],
+            """
+            WITH order_details_0 AS (
+                SELECT day_key date_id_order, SUM(rev_sum) rev_sum
+                FROM default.analytics.revenue_by_day
+                GROUP BY day_key
+            )
+            SELECT order_details_0.date_id_order AS date_id_order,
+                   SUM(order_details_0.rev_sum) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.date_id_order
+            """,
+        )
+
+    @pytest.mark.asyncio
     async def test_external_preagg_dimension_column_must_exist(
         self,
         client_with_build_v3,

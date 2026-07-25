@@ -36,6 +36,7 @@ from datajunction_server.models.node import (
     NodeMode,
     NodeType,
 )
+from tests.construction.build_v3 import assert_sql_equal
 import pytest
 
 
@@ -1919,11 +1920,51 @@ class TestDeployments:
             )
             assert response.status_code == 200, response.text
             grain_sql = response.json()["grain_groups"][0]["sql"]
-            lowered = grain_sql.lower()
-            assert "default.analytics.dimcol_agg_tbl" in grain_sql
-            assert "st_code" in grain_sql
-            assert "hh_id_col" in grain_sql
-            assert "join" not in lowered
+            # Reads the mapped physical columns (st_code, hh_id_col) from the agg
+            # table, aliased to the DJ dimension aliases (state_short,
+            # hard_hat_id) the metrics layer references; groups by the physical
+            # columns; no join back to the dimension node.
+            assert_sql_equal(
+                grain_sql,
+                """
+                SELECT st_code state_short,
+                       hh_id_col hard_hat_id,
+                       SUM(cnt) cnt
+                FROM default.analytics.dimcol_agg_tbl
+                GROUP BY st_code, hh_id_col
+                """,
+            )
+
+            # The outer metrics query references the SAME aliases the CTE exposes
+            # (state_short, hard_hat_id), so inner/outer aliasing is consistent.
+            metrics_response = await client.get(
+                "/sql/metrics/v3/",
+                params={
+                    "metrics": ["preagg_dimcol.default.dimcol_count"],
+                    "dimensions": [
+                        "preagg_dimcol.default.us_state.state_short",
+                        "preagg_dimcol.default.dimcol_facts.hard_hat_id",
+                    ],
+                },
+            )
+            assert metrics_response.status_code == 200, metrics_response.text
+            assert_sql_equal(
+                metrics_response.json()["sql"],
+                """
+                WITH dimcol_facts_0 AS (
+                    SELECT st_code state_short,
+                           hh_id_col hard_hat_id,
+                           SUM(cnt) cnt
+                    FROM default.analytics.dimcol_agg_tbl
+                    GROUP BY st_code, hh_id_col
+                )
+                SELECT dimcol_facts_0.state_short AS state_short,
+                       dimcol_facts_0.hard_hat_id AS hard_hat_id,
+                       SUM(dimcol_facts_0.cnt) AS dimcol_count
+                FROM dimcol_facts_0
+                GROUP BY dimcol_facts_0.state_short, dimcol_facts_0.hard_hat_id
+                """,
+            )
         finally:
             del client.app.dependency_overrides[get_query_service_client]
 
