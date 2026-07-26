@@ -107,6 +107,12 @@ async def upsert_materialization(
     Add or update a materialization of the specified node. If a node_name is specified
     for the materialization config, it will always update that named config.
     """
+    # Materializing a node is a write on that node, same as deactivate/backfill below.
+    # The cube path also runs READ checks while building its config, but those cover
+    # the cube's metrics and dimensions, not the node being materialized.
+    access_checker.add_request_by_node_name(node_name, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     request_headers = dict(request.headers)
     node = await Node.get_by_name(session, node_name, raise_if_not_exists=True)
     if node.type == NodeType.SOURCE:  # type: ignore

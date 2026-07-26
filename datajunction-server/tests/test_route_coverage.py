@@ -7,6 +7,13 @@ reaches AccessChecker.check().
 Coverage detection is static and conservative: it treats any ``*.check(...)`` call
 as coverage and follows only bare-name helper calls. A false "uncovered" only costs
 an allowlist entry, so we never report a route covered without a literal ``.check(``.
+
+What this guard does NOT prove: that the check asks for the right thing. A route
+counts as covered as soon as *some* ``.check()`` is reachable, even if it authorizes
+a different action on a different resource. ``upsert_materialization`` was the real
+example -- it reached a ``READ`` check on a cube's metrics while writing to the node
+itself, and this guard was green. Only a denial test catches that, so every route
+here must also have one; see ``tests/api/write_enforcement_test.py``.
 """
 
 import ast

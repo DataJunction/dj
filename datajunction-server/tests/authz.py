@@ -25,3 +25,23 @@ class DenyWriteAuthorizationService(AuthorizationService):
             )
             for request in requests
         ]
+
+
+class DenyDeleteAuthorizationService(AuthorizationService):
+    """
+    Approves everything except DELETE -- a caller with WRITE but not DELETE.
+
+    Needed for delete-governed endpoints: a DELETE grant implies WRITE, so denying
+    WRITE alone would not exercise them.
+    """
+
+    name = "test_deny_delete"
+
+    def authorize(self, auth_context, requests):
+        return [
+            access.AccessDecision(
+                request=request,
+                approved=request.verb != access.ResourceAction.DELETE,
+            )
+            for request in requests
+        ]
