@@ -2923,7 +2923,7 @@ class DeploymentOrchestrator:
             # identity DJ uses for cube elements — so a partition declared on a
             # role-played column (e.g. "...dateint[epoch_date]") lands on the right
             # role instead of being silently dropped.
-            element_key = full_element_name + (node_column.dimension_column or "")
+            element_key = node_column.cube_element_name
             if element_key in column_spec_map:
                 col_spec = column_spec_map[element_key]
                 if col_spec.partition:  # pragma: no branch
@@ -3788,7 +3788,12 @@ class DeploymentOrchestrator:
         # Track changes to node columns
         old_revision = existing.current if existing else None
         existing_columns_map = {
-            col.name: col for col in (old_revision.columns if old_revision else [])
+            (
+                col.cube_element_name
+                if old_revision and old_revision.type == NodeType.CUBE
+                else col.name
+            ): col
+            for col in (old_revision.columns if old_revision else [])
         }
         changed_count = [
             column_changed(new_col, existing_columns_map.get(new_col.name))

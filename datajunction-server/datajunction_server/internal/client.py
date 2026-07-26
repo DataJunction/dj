@@ -108,7 +108,9 @@ async def python_client_code_for_setting_column_attributes(
     snippets = [
         template.render(
             node_short_name=node_short_name,
-            column_name=col.name,
+            column_name=(
+                col.cube_element_name if node.type == NodeType.CUBE else col.name
+            ),
             attributes=[
                 attr.attribute_type
                 for attr in col.attributes

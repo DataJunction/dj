@@ -824,7 +824,7 @@ async def _cube_project_config(
         "dimensions": cube_revision.cube_node_dimensions,
         "columns": [
             {
-                "name": column.name,
+                "name": column.cube_element_name,
                 **_partition_config(column),
             }
             for column in cube_revision.columns

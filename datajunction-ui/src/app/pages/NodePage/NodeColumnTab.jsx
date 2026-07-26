@@ -8,6 +8,7 @@ import { labelize } from '../../../utils/form';
 import PartitionColumnPopover from './PartitionColumnPopover';
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import foundation from 'react-syntax-highlighter/dist/esm/styles/hljs/foundation';
+import { getColumnIdentifier } from '../../utils/column';
 
 export default function NodeColumnTab({ node, djClient, readOnly = false }) {
   const [attributes, setAttributes] = useState([]);
@@ -50,10 +51,11 @@ export default function NodeColumnTab({ node, djClient, readOnly = false }) {
   }, [djClient]);
 
   const showColumnAttributes = col => {
+    const columnIdentifier = getColumnIdentifier(node, col);
     return col.attributes.map((attr, idx) => (
       <span
         className="node_type__dimension badge node_type"
-        key={`col-attr-${col.name}-${idx}`}
+        key={`col-attr-${columnIdentifier}-${idx}`}
       >
         {attr.attribute_type.name.replace(/_/, ' ')}
       </span>
@@ -133,6 +135,7 @@ export default function NodeColumnTab({ node, djClient, readOnly = false }) {
 
   const columnList = columns => {
     return columns?.map(col => {
+      const columnIdentifier = getColumnIdentifier(node, col);
       // FK Links: Only show links that specifically reference THIS column's foreign keys
       // Filter out complex dimension links that may join on multiple columns
       const fkLinksForColumn = (
@@ -155,14 +158,14 @@ export default function NodeColumnTab({ node, djClient, readOnly = false }) {
           }
         : null;
       return (
-        <tr key={col.name} className="column-row">
+        <tr key={columnIdentifier} className="column-row">
           <td
             className="text-start"
             role="columnheader"
             aria-label="ColumnName"
             aria-hidden="false"
           >
-            {col.name}
+            {columnIdentifier}
           </td>
           <td>
             <span

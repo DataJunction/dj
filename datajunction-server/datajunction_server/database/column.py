@@ -107,11 +107,25 @@ class Column(Base):  # type: ignore
         cascade="all,delete",
     )
 
-    def to_spec(self):
+    @property
+    def cube_element_name(self) -> str:
+        """Role-qualified identity for a column on a cube revision.
+
+        Cube columns store the dimension attribute FQN in ``name`` and the
+        role suffix (for example, ``[order_date]``) separately in
+        ``dimension_column``.  Both parts are required to distinguish two
+        role-played uses of the same dimension attribute.
+
+        ``dimension_column`` has different semantics on non-cube columns, so
+        callers should only use this property for columns owned by cubes.
+        """
+        return self.name + (self.dimension_column or "")
+
+    def to_spec(self, *, include_cube_role: bool = False):
         from datajunction_server.models.deployment import ColumnSpec
 
         return ColumnSpec(
-            name=self.name,
+            name=self.cube_element_name if include_cube_role else self.name,
             type=str(self.type),
             display_name=self.display_name,
             description=self.description,

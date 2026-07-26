@@ -374,62 +374,6 @@ def repairs_cube_elements():
             "type": "metric",
         },
         {
-            "display_name": "Company Name",
-            "name": "company_name",
-            "node_name": "default.dispatcher",
-            "partition": None,
-            "role": None,
-            "type": "dimension",
-        },
-        {
-            "display_name": "Local Region",
-            "name": "local_region",
-            "node_name": "default.municipality_dim",
-            "partition": None,
-            "role": None,
-            "type": "dimension",
-        },
-        {
-            "display_name": "Hire Date",
-            "name": "hire_date",
-            "node_name": "default.hard_hat",
-            "partition": None,
-            "role": None,
-            "type": "dimension",
-        },
-        {
-            "display_name": "City",
-            "name": "city",
-            "node_name": "default.hard_hat",
-            "partition": None,
-            "role": None,
-            "type": "dimension",
-        },
-        {
-            "display_name": "State",
-            "name": "state",
-            "node_name": "default.hard_hat",
-            "partition": None,
-            "role": None,
-            "type": "dimension",
-        },
-        {
-            "display_name": "Postal Code",
-            "name": "postal_code",
-            "node_name": "default.hard_hat",
-            "partition": None,
-            "role": None,
-            "type": "dimension",
-        },
-        {
-            "display_name": "Country",
-            "name": "country",
-            "node_name": "default.hard_hat",
-            "partition": None,
-            "role": None,
-            "type": "dimension",
-        },
-        {
             "display_name": "Num Repair Orders",
             "name": "default_DOT_num_repair_orders",
             "node_name": "default.num_repair_orders",
@@ -468,6 +412,62 @@ def repairs_cube_elements():
             "partition": None,
             "role": None,
             "type": "metric",
+        },
+        {
+            "display_name": "Country",
+            "name": "country",
+            "node_name": "default.hard_hat",
+            "partition": None,
+            "role": None,
+            "type": "dimension",
+        },
+        {
+            "display_name": "Postal Code",
+            "name": "postal_code",
+            "node_name": "default.hard_hat",
+            "partition": None,
+            "role": None,
+            "type": "dimension",
+        },
+        {
+            "display_name": "City",
+            "name": "city",
+            "node_name": "default.hard_hat",
+            "partition": None,
+            "role": None,
+            "type": "dimension",
+        },
+        {
+            "display_name": "Hire Date",
+            "name": "hire_date",
+            "node_name": "default.hard_hat",
+            "partition": None,
+            "role": None,
+            "type": "dimension",
+        },
+        {
+            "display_name": "State",
+            "name": "state",
+            "node_name": "default.hard_hat",
+            "partition": None,
+            "role": None,
+            "type": "dimension",
+        },
+        {
+            "display_name": "Company Name",
+            "name": "company_name",
+            "node_name": "default.dispatcher",
+            "partition": None,
+            "role": None,
+            "type": "dimension",
+        },
+        {
+            "display_name": "Local Region",
+            "name": "local_region",
+            "node_name": "default.municipality_dim",
+            "partition": None,
+            "role": None,
+            "type": "dimension",
         },
     ]
 
@@ -2171,16 +2171,16 @@ async def test_changing_node_upstream_from_cube(
             "role": None,
         },
         {
-            "name": "municipality_id",
-            "display_name": "Municipality Id",
+            "name": "hard_hat_id",
+            "display_name": "Hard Hat Id",
             "node_name": "default.repair_order_dim__one",
             "type": "dimension",
             "partition": None,
             "role": None,
         },
         {
-            "name": "hard_hat_id",
-            "display_name": "Hard Hat Id",
+            "name": "municipality_id",
+            "display_name": "Municipality Id",
             "node_name": "default.repair_order_dim__one",
             "type": "dimension",
             "partition": None,
@@ -4130,6 +4130,214 @@ class TestCubeRoleQualifiedDimensions:
         country_cols = await country_columns_by_role()
         assert country_cols["[from]"]["partition"] is None
         assert country_cols["[to]"]["partition"] is None
+
+    @pytest.mark.asyncio
+    async def test_partition_history_uses_resolved_cube_column_identity(
+        self,
+        module__client_with_build_v3: AsyncClient,
+    ):
+        """Legacy bare lookups must not erase the resolved role from history."""
+        cube_name = "v3.single_role_partition_history_cube"
+        response = await module__client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": cube_name,
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.location.country[from]"],
+                "mode": "published",
+                "description": "Role-aware partition history regression",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        # A unique bare name remains supported for compatibility, but the
+        # resulting audit record must retain the resolved role.
+        response = await module__client_with_build_v3.post(
+            f"/nodes/{cube_name}/columns/v3.location.country/partition",
+            json={"type_": "categorical"},
+        )
+        assert response.status_code == 201, response.json()
+        response = await module__client_with_build_v3.delete(
+            f"/nodes/{cube_name}/columns/v3.location.country/partition",
+        )
+        assert response.status_code == 200, response.json()
+
+        response = await module__client_with_build_v3.get(
+            f"/history?node={cube_name}",
+        )
+        assert response.status_code == 200, response.json()
+        partition_events = [
+            event for event in response.json() if event["entity_type"] == "partition"
+        ]
+        assert [event["details"]["column"] for event in partition_events] == [
+            "v3.location.country[from]",
+            "v3.location.country[from]",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_update_and_exports_keep_role_played_partitions_distinct(
+        self,
+        module__client_with_build_v3: AsyncClient,
+    ):
+        """A cube update must preserve metadata by role-qualified identity.
+
+        The reordered dimensions deliberately put another dimension between two
+        roles of the same column. This catches both last-wins partition copying
+        and read/export paths that reconstruct roles from a bare-name map.
+        """
+        cube_name = "v3.role_partition_update_cube"
+        response = await module__client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": cube_name,
+                "metrics": ["v3.total_revenue"],
+                "dimensions": [
+                    "v3.location.country[from]",
+                    "v3.location.country[to]",
+                    "v3.product.category",
+                ],
+                "mode": "published",
+                "description": "Role-aware cube update regression",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        for role in ("from", "to"):
+            response = await module__client_with_build_v3.post(
+                f"/nodes/{cube_name}/columns/v3.location.country[{role}]/partition",
+                json={"type_": "categorical"},
+            )
+            assert response.status_code == 201, response.json()
+
+        response = await module__client_with_build_v3.patch(
+            f"/nodes/{cube_name}",
+            json={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": [
+                    "v3.location.country[from]",
+                    "v3.product.category",
+                    "v3.location.country[to]",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        for role, description in (
+            ("from", "Country of origin"),
+            ("to", "Destination country"),
+        ):
+            response = await module__client_with_build_v3.patch(
+                f"/nodes/{cube_name}/columns/v3.location.country[{role}]/description",
+                params={"description": description},
+            )
+            assert response.status_code == 201, response.json()
+
+        response = await module__client_with_build_v3.get(f"/cubes/{cube_name}/")
+        assert response.status_code == 200, response.json()
+        cube = response.json()
+        assert cube["cube_node_dimensions"] == [
+            "v3.location.country[from]",
+            "v3.product.category",
+            "v3.location.country[to]",
+        ]
+        dimension_elements = [
+            (element["node_name"], element["name"], element["role"])
+            for element in cube["cube_elements"]
+            if element["type"] == "dimension"
+        ]
+        assert dimension_elements == [
+            ("v3.location", "country", "from"),
+            ("v3.product", "category", None),
+            ("v3.location", "country", "to"),
+        ]
+        by_role = {
+            col["dimension_column"]: col
+            for col in cube["columns"]
+            if col["name"] == "v3.location.country"
+        }
+        assert by_role["[from]"]["partition"]["type_"] == "categorical"
+        assert by_role["[to]"]["partition"]["type_"] == "categorical"
+        assert by_role["[from]"]["description"] == "Country of origin"
+        assert by_role["[to]"]["description"] == "Destination country"
+
+        response = await module__client_with_build_v3.post(
+            f"/data/{cube_name}/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "roads",
+                "table": "role_partition_update_cube",
+                "valid_through_ts": 1010129120,
+            },
+        )
+        assert response.status_code == 200, response.json()
+        response = await module__client_with_build_v3.get(
+            f"/cubes/{cube_name}/dimensions/sql",
+            params=[
+                ("dimensions", "v3.location.country[from]"),
+                ("dimensions", "v3.location.country[to]"),
+            ],
+        )
+        assert response.status_code == 200, response.json()
+        assert [
+            (column["semantic_entity"], column["type"])
+            for column in response.json()["columns"]
+        ] == [
+            ("v3.location.country[from]", "string"),
+            ("v3.location.country[to]", "string"),
+        ]
+
+        # Requesting `attribute` forces the full ORM cube-elements GraphQL path.
+        response = await module__client_with_build_v3.post(
+            "/graphql",
+            json={
+                "query": """
+                {
+                  findNodes(names: ["v3.role_partition_update_cube"]) {
+                    current {
+                      cubeDimensions { name role attribute }
+                    }
+                  }
+                }
+                """,
+            },
+        )
+        assert response.status_code == 200, response.json()
+        graphql_data = response.json()
+        assert "errors" not in graphql_data, graphql_data
+        graphql_dims = graphql_data["data"]["findNodes"][0]["current"]["cubeDimensions"]
+        assert [(dim["name"], dim["role"]) for dim in graphql_dims] == [
+            ("v3.location.country[from]", "[from]"),
+            ("v3.product.category", ""),
+            ("v3.location.country[to]", "[to]"),
+        ]
+
+        response = await module__client_with_build_v3.get(
+            "/namespaces/v3/export/spec",
+        )
+        assert response.status_code == 200, response.json()
+        exported_cube = next(
+            node
+            for node in response.json()["nodes"]
+            if node["name"] == "${prefix}role_partition_update_cube"
+        )
+        assert {
+            col["name"] for col in exported_cube["columns"] if col.get("partition")
+        } == {
+            "${prefix}location.country[from]",
+            "${prefix}location.country[to]",
+        }
+
+        response = await module__client_with_build_v3.get("/namespaces/v3/export/")
+        assert response.status_code == 200, response.json()
+        project_cube = next(
+            node
+            for node in response.json()
+            if node["build_name"] == "role_partition_update_cube"
+        )
+        assert {col["name"] for col in project_cube["columns"]} == {
+            "v3.location.country[from]",
+            "v3.location.country[to]",
+        }
 
 
 class TestCubeDeactivateEndpoint:

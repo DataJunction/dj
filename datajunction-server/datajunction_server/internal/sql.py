@@ -319,7 +319,14 @@ async def build_sql_for_multiple_metrics(
     if not orderby:
         orderby = []
 
-    metric_columns, metric_nodes, _, dimension_columns, _, _ = await validate_cube(
+    (
+        metric_columns,
+        metric_nodes,
+        _,
+        dimension_columns,
+        dimension_roles,
+        _,
+    ) = await validate_cube(
         session,
         metrics,
         dimensions,
@@ -349,6 +356,7 @@ async def build_sql_for_multiple_metrics(
         session,
         metric_columns,
         dimension_columns,
+        dimension_roles,
         materialized=True,
     )
     materialized_cube_catalog = None

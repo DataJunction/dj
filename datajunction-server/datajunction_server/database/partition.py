@@ -108,7 +108,7 @@ class Partition(Base):  # type: ignore
             )
         return None  # pragma: no cover
 
-    def categorical_expression(self):
+    def categorical_expression(self, column_name: Optional[str] = None):
         """
         Expression for the categorical partition
         """
@@ -117,7 +117,7 @@ class Partition(Base):  # type: ignore
         # Register a DJ function (inherits the `datajunction_server.sql.functions.Function` class)
         # that has the partition column name as the function name. This will be substituted at
         # runtime with the partition column name
-        amenable_partition_name = amenable_name(self.column.name)
+        amenable_partition_name = amenable_name(column_name or self.column.name)
         clazz = type(
             amenable_partition_name,
             (Function,),

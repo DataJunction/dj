@@ -9,6 +9,10 @@ import Tab from '../../components/Tab';
 import NodeRevisionMaterializationTab from './NodeRevisionMaterializationTab';
 import AvailabilityStateBlock from './AvailabilityStateBlock';
 import cronstrue from 'cronstrue';
+import {
+  decodeColumnIdentifier,
+  getColumnIdentifier,
+} from '../../utils/column';
 
 /**
  * Cube materialization tab - shows cube-specific materializations.
@@ -109,7 +113,7 @@ export default function NodeMaterializationTab({
     ? Object.fromEntries(
         node?.columns
           .filter(col => col.partition !== null)
-          .map(col => [col.name, col.display_name]),
+          .map(col => [getColumnIdentifier(node, col), col.display_name]),
       )
     : {};
   const cron = materialization => {
@@ -440,9 +444,8 @@ export default function NodeMaterializationTab({
                                     <div>
                                       {
                                         partitionColumnsMap[
-                                          partition.column_name.replaceAll(
-                                            '_DOT_',
-                                            '.',
+                                          decodeColumnIdentifier(
+                                            partition.column_name,
                                           )
                                         ]
                                       }{' '}
@@ -474,7 +477,7 @@ export default function NodeMaterializationTab({
                     .filter(col => col.partition !== null)
                     .map(column => {
                       return (
-                        <li key={column.name}>
+                        <li key={getColumnIdentifier(node, column)}>
                           <div className="partitionLink">
                             {column.display_name}
                             <span className="badge partition_value">

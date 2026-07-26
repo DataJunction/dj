@@ -105,7 +105,9 @@ def _raw_columns_ordering(raw_columns: list) -> dict:
     ``_attach_raw_columns`` attaches on ``_cube_raw_columns``.
     """
     return {
-        col.name.replace("_DOT_", "."): (col.order if col.order is not None else idx)
+        col.cube_element_name.replace("_DOT_", "."): (
+            col.order if col.order is not None else idx
+        )
         for idx, col in enumerate(raw_columns)
     }
 
@@ -606,7 +608,7 @@ class NodeRevision:
             return sorted(
                 [
                     DimensionAttribute(  # type: ignore
-                        name=col.name + (col.dimension_column or ""),
+                        name=col.cube_element_name,
                         attribute=None,
                         role=col.dimension_column or "",
                         properties=[],
@@ -622,18 +624,19 @@ class NodeRevision:
                 ),
             )
 
-        # Full path: node_revision loaded on each cube element. Cube columns
-        # store the full dotted name (e.g. "ns.dim.col") and the role suffix
-        # (e.g. "[event_date]") separately, so build the role lookup keyed by
-        # the same full name we reconstruct from each cube element below.
-        dimension_to_roles = {
-            col.name: col.dimension_column or "" for col in root.columns
-        }
-        ordering = root.ordering()
+        # Full path: cube_elements contains each referenced DB column once,
+        # while root.columns contains one ordered entry per role. Join the two
+        # views by bare element name, then expand in root.columns order.
+        dimensions_by_name = {}
+        for element, node_revision in root.cube_elements_with_nodes():
+            if node_revision and node_revision.type != NodeType.METRIC:
+                dimensions_by_name[f"{node_revision.name}.{element.name}"] = (
+                    element,
+                    node_revision,
+                )
 
-        def make_attr(element, node_revision):
+        def make_attr(element, node_revision, role):
             full_name = f"{node_revision.name}.{element.name}"
-            role = dimension_to_roles.get(full_name, "")
             return DimensionAttribute(  # type: ignore
                 name=full_name + role,
                 attribute=element.name,
@@ -643,19 +646,11 @@ class NodeRevision:
                 properties=element.attribute_names(),
             )
 
-        return sorted(
-            [
-                make_attr(element, node_revision)
-                for element, node_revision in root.cube_elements_with_nodes()
-                if node_revision and node_revision.type != NodeType.METRIC
-            ],
-            # Strip the role suffix when ordering — `ordering` is keyed by the
-            # role-less column name.
-            key=lambda x: ordering.get(
-                x.name,
-                ordering.get(x.name.split("[", 1)[0], 0),
-            ),
-        )
+        return [
+            make_attr(*dimensions_by_name[col.name], col.dimension_column or "")
+            for col in root.columns
+            if col.name in dimensions_by_name
+        ]
 
 
 @strawberry.type

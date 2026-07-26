@@ -46,6 +46,11 @@ class _RawColumn:
         self.type = col_type
         self.order = order
 
+    @property
+    def cube_element_name(self) -> str:
+        """Role-qualified identity matching the ORM Column contract."""
+        return self.name + (self.dimension_column or "")
+
 
 async def _attach_raw_columns(session, nodes):
     """

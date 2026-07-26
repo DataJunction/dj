@@ -14,11 +14,16 @@ from datajunction_server.errors import (
     DJInvalidInputException,
 )
 from datajunction_server.internal.nodes import get_node_column
+from datajunction_server.models.node_type import NodeType
 
 
 def _make_node(name: str, columns):
     """Lightweight stand-in exposing the attributes ``get_node_column`` reads."""
-    return SimpleNamespace(name=name, current=SimpleNamespace(columns=columns))
+    return SimpleNamespace(
+        name=name,
+        type=NodeType.CUBE,
+        current=SimpleNamespace(columns=columns),
+    )
 
 
 def _role_playing_node():

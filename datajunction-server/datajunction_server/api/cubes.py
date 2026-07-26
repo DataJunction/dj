@@ -542,14 +542,18 @@ async def materialize_cube(
     # value when the cube hasn't declared one.
     if cube_tps:
         cube_tp = cube_tps[0]
-        cube_partition_ref = cube_tp.name
+        cube_partition_ref = cube_tp.cube_element_name
         # Look up the actual output column name by semantic identity
         output_col = next(
             (
                 c
                 for c in combined_result.columns
                 if c.semantic_name
-                and strip_role_suffix(c.semantic_name) == cube_partition_ref
+                and (
+                    c.semantic_name == cube_partition_ref
+                    if cube_tp.dimension_column
+                    else strip_role_suffix(c.semantic_name) == cube_partition_ref
+                )
             ),
             None,
         )

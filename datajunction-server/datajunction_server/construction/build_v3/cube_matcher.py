@@ -547,8 +547,8 @@ async def build_sql_from_cube(
 
 def _build_mat_col_lookup(cube: NodeRevision) -> dict[str, str]:
     """
-    Build a mapping from short column name -> physical column name by reading
-    the cube's materialization config columns.
+    Build a mapping from semantic column reference -> physical column name by
+    reading the cube's materialization config columns.
 
     Example entry in config["columns"]:
       {
@@ -559,9 +559,9 @@ def _build_mat_col_lookup(cube: NodeRevision) -> dict[str, str]:
         ...
       }
 
-    We key on ``column`` (the short name) because that is what
-    parse_dimension_ref().column_name returns, and it is stable across
-    different namespace / path representations.
+    New configs key ``column`` by the full semantic reference, including a
+    role suffix when present. Older configs used a short column name; callers
+    retain a short-name fallback for compatibility.
 
     Returns {} when no materialization config is available (e.g. in tests that
     set availability directly without going through the materialization pipeline),
@@ -578,6 +578,19 @@ def _build_mat_col_lookup(cube: NodeRevision) -> dict[str, str]:
     return lookup
 
 
+def _materialized_dimension_column(
+    lookup: dict[str, str],
+    dimension_ref: str,
+    default: str,
+) -> str:
+    """Resolve a materialized dimension by role first, then legacy short name."""
+    parsed = parse_dimension_ref(dimension_ref)
+    return lookup.get(
+        dimension_ref,
+        lookup.get(parsed.column_name, default),
+    )
+
+
 def build_synthetic_grain_group(
     ctx: BuildContext,
     decomposed_metrics: dict[str, DecomposedMetricInfo],
@@ -586,14 +599,10 @@ def build_synthetic_grain_group(
     """
     Build a synthetic GrainGroupSQL that reads from the cube's materialized Druid table.
 
-    Physical column names are resolved from the cube's materialization config
-    (``materialization.config["columns"]``).  Each entry there carries a
-    ``column`` key (the short column name, e.g. ``dateint``) and a ``name`` key
-    (the physical column name as it exists in the Druid table, e.g.
-    ``common_DOT_dimensions_DOT_time_DOT_date_DOT_dateint``).  We key on the
-    short column name because that is what parse_dimension_ref().column_name
-    returns.  When a match is found the physical name is used; otherwise we fall
-    back to the short name (which is correct for new-style materializations).
+    Physical column names are resolved from the cube's materialization config.
+    New configs use the full semantic reference (including any role) as the
+    ``column`` key; legacy configs used a short bare name. When neither exists,
+    the generated role-aware alias is already the correct fallback.
     """
     all_components = []
     component_aliases: dict[str, str] = {}
@@ -610,7 +619,7 @@ def build_synthetic_grain_group(
             p for p in [avail.catalog, avail.schema_, avail.table] if p
         )
 
-    # short_col_name -> physical column name from the materialization config.
+    # Semantic reference (or legacy short name) -> physical column name.
     # Empty when no materialization config is present (tests / direct calls).
     mat_col_lookup = _build_mat_col_lookup(cube)
 
@@ -646,7 +655,11 @@ def build_synthetic_grain_group(
         short_name = parsed_dim.column_name
         if parsed_dim.role:
             short_name = f"{short_name}_{parsed_dim.role}"
-        physical_name = mat_col_lookup.get(parsed_dim.column_name, short_name)
+        physical_name = _materialized_dimension_column(
+            mat_col_lookup,
+            dim_ref,
+            short_name,
+        )
         dim_short_names.append(short_name)
         dim_physical_names.append(physical_name)
         # Use the physical column name for WHERE clause resolution:
