@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING
 
 from datajunction_server.database.preaggregation import (
     PreAggregation,
-    get_measure_expr_hashes,
     compute_expression_hash,
 )
 from datajunction_server.models.decompose import Aggregability, MetricComponent
@@ -38,11 +37,39 @@ def get_required_measure_hashes(grain_group: "GrainGroup") -> set[str]:
     Returns:
         Set of expression hashes (MD5 hashes of normalized expressions)
     """
-    hashes = set()
-    for _, component in grain_group.components:
-        expr_hash = compute_expression_hash(component.expression)
-        hashes.add(expr_hash)
-    return hashes
+    return {
+        compute_expression_hash(component.expression)
+        for _, component in grain_group.components
+    }
+
+
+def _normalize_aggregation(aggregation: str | None) -> str:
+    """Normalize a Phase-1 aggregation function name for identity comparison."""
+    return (aggregation or "").strip().upper()
+
+
+def get_required_measure_identities(
+    grain_group: "GrainGroup",
+) -> set[tuple[str, str]]:
+    """
+    Identity of each measure a grain group needs: (expression hash, Phase-1
+    aggregation function).
+
+    The aggregation is part of the identity because a pre-aggregation stores
+    partials produced by a specific Phase-1 function, and the expression hash
+    covers only the inner expression -- not the function. Two metrics that share
+    an inner expression but aggregate it differently (e.g. SUM(x) vs MAX(x))
+    would otherwise collide, letting a MAX metric bind to a SUM pre-agg column
+    and compute MAX(sum) instead of MAX(row). A SUM partial cannot serve a MAX
+    (or MIN) metric, so the aggregation must match for the pre-agg to be usable.
+    """
+    return {
+        (
+            compute_expression_hash(component.expression),
+            _normalize_aggregation(component.aggregation),
+        )
+        for _, component in grain_group.components
+    }
 
 
 def find_matching_preagg(
@@ -82,8 +109,8 @@ def find_matching_preagg(
     if not available:
         return None
 
-    # Get required measure hashes
-    required_measures = get_required_measure_hashes(grain_group)
+    # Get required measure identities (expression hash + Phase-1 aggregation)
+    required_measures = get_required_measure_identities(grain_group)
     if not required_measures:
         return None
 
@@ -125,11 +152,18 @@ def find_matching_preagg(
             )
             continue
 
-        # Check measure coverage: required measures must be subset of pre-agg measures
-        preagg_measure_hashes = get_measure_expr_hashes(preagg.measures)
-        if not required_measures.issubset(preagg_measure_hashes):
+        # Check measure coverage: every required measure identity (expression hash
+        # + Phase-1 aggregation) must be present in the pre-agg. Matching on the
+        # aggregation too prevents a MAX/MIN metric from binding to a SUM-built
+        # column (or vice versa) just because they share an inner expression.
+        preagg_measures = {
+            (measure.expr_hash, _normalize_aggregation(measure.aggregation))
+            for measure in preagg.measures
+            if measure.expr_hash
+        }
+        if not required_measures.issubset(preagg_measures):
             logger.debug(
-                f"[BuildV3] Pre-agg {preagg.id} measures {preagg_measure_hashes} "
+                f"[BuildV3] Pre-agg {preagg.id} measures {preagg_measures} "
                 f"don't cover required measures {required_measures}",
             )
             continue
@@ -141,7 +175,7 @@ def find_matching_preagg(
             best_grain_size = len(preagg_grain_set)
             logger.debug(
                 f"[BuildV3] Found matching pre-agg {preagg.id} "
-                f"(grain={preagg_grain_set}, measures={len(preagg_measure_hashes)})",
+                f"(grain={preagg_grain_set}, measures={len(preagg_measures)})",
             )
 
     if best_match:

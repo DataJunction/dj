@@ -223,6 +223,73 @@ class TestExternalPreAggRouting:
         assert "default.analytics.orders_by_status" not in sql
 
     @pytest.mark.asyncio
+    async def test_external_preagg_not_used_for_incompatible_aggregation(
+        self,
+        client_with_build_v3,
+    ):
+        """A pre-agg built with SUM must not satisfy a metric that needs MAX of
+        the same column. ``total_unit_price = SUM(unit_price)`` and
+        ``max_unit_price = MAX(unit_price)`` share the inner expression
+        ``unit_price``; matching on the expression hash alone routed the MAX
+        metric to the SUM pre-agg and computed MAX(sum) instead of MAX(row). The
+        matcher must also require the Phase-1 aggregation to match: the SUM metric
+        keeps using the agg, the MAX metric falls back to the base fact.
+        """
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_unit_price"],
+            dimensions=["v3.order_details.status"],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "unit_price_by_status",
+                "valid_through_ts": 20250101,
+            },
+            measure_columns={"v3.total_unit_price": "unit_price_sum"},
+            table_columns=["status", "unit_price_sum"],
+        )
+        # SUM metric routes to the agg (control).
+        sum_response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_unit_price"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+        assert sum_response.status_code == 200
+        assert_sql_equal(
+            get_first_grain_group(sum_response.json())["sql"],
+            """
+            SELECT status, SUM(unit_price_sum) unit_price_sum
+            FROM default.analytics.unit_price_by_status
+            GROUP BY status
+            """,
+        )
+        # MAX metric shares the inner expression but not the aggregation -> it must
+        # NOT bind the SUM column; it builds MAX from the base fact instead.
+        max_response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.max_unit_price"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+        assert max_response.status_code == 200
+        assert_sql_equal(
+            get_first_grain_group(max_response.json())["sql"],
+            """
+            WITH v3_order_details AS (
+                SELECT o.status, oi.unit_price
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t1.status, MAX(t1.unit_price) unit_price_max_55cff00f
+            FROM v3_order_details t1
+            GROUP BY t1.status
+            """,
+        )
+
+    @pytest.mark.asyncio
     async def test_external_preagg_pending_not_used(self, client_with_build_v3):
         """A registered pre-agg with no availability (no valid_through_ts) is not
         used to answer queries."""
