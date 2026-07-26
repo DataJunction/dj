@@ -16,7 +16,8 @@ from datajunction_server.database.partition import Partition
 from datajunction_server.models.materialization import MaterializationStrategy
 from datajunction_server.models.partition import Granularity, PartitionType
 from datajunction_server.utils import get_query_service_client
-from tests.authz import DenyWriteAuthorizationService, VALIDATOR_AUTH_SERVICE
+from datajunction_server.models.access import ResourceAction
+from tests.authz import VALIDATOR_AUTH_SERVICE, deny
 
 
 @pytest.fixture
@@ -2790,7 +2791,7 @@ class TestPreaggWriteEnforcement:
         """The {preagg_id} write endpoints return 403 without WRITE."""
         client = client_with_preaggs["client"]
         preagg_id = client_with_preaggs["preagg1"].id
-        mocker.patch(VALIDATOR_AUTH_SERVICE, lambda: DenyWriteAuthorizationService())
+        mocker.patch(VALIDATOR_AUTH_SERVICE, deny(ResourceAction.WRITE))
 
         cases = [
             ("POST", f"/preaggs/{preagg_id}/materialize", None),
@@ -2813,7 +2814,7 @@ class TestPreaggWriteEnforcement:
         mocker,
     ):
         """POST /preaggs/plan returns 403 without WRITE on the metrics' parent node."""
-        mocker.patch(VALIDATOR_AUTH_SERVICE, lambda: DenyWriteAuthorizationService())
+        mocker.patch(VALIDATOR_AUTH_SERVICE, deny(ResourceAction.WRITE))
         response = await client_with_build_v3.post(
             "/preaggs/plan",
             json={
@@ -2838,7 +2839,7 @@ class TestPreaggWriteEnforcement:
         try:
             mocker.patch(
                 VALIDATOR_AUTH_SERVICE,
-                lambda: DenyWriteAuthorizationService(),
+                deny(ResourceAction.WRITE),
             )
             response = await client_with_build_v3.post(
                 "/preaggs/register",

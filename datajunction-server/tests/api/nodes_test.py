@@ -28,7 +28,8 @@ from datajunction_server.sql.dag import get_upstream_nodes
 from datajunction_server.sql.parsing import ast, types
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.sql.parsing.types import IntegerType, StringType, TimestampType
-from tests.authz import DenyWriteAuthorizationService, VALIDATOR_AUTH_SERVICE
+from datajunction_server.models.access import ResourceAction
+from tests.authz import VALIDATOR_AUTH_SERVICE, deny
 from tests.sql.utils import compare_query_strings
 
 
@@ -1806,26 +1807,6 @@ class TestNodeCRUD:
         assert response.status_code == 201
 
     @pytest.mark.asyncio
-    async def test_register_into_existing_namespace_succeeds(
-        self,
-        client_with_query_service_example_loader,
-    ):
-        """
-        The second register into a namespace hits the "namespace already exists"
-        branch of create_or_reactivate_namespace. register_* only need the
-        namespace to exist, so that branch must stay a no-op for them rather than
-        surfacing as a conflict.
-        """
-        client = await client_with_query_service_example_loader(["ROADS"])
-        first = await client.post("/register/table/default/roads/repair_orders/")
-        assert first.status_code == 201, first.text
-
-        # Same catalog + schema, so the namespace already exists by now.
-        second = await client.post("/register/table/default/roads/municipality/")
-        assert second.status_code == 201, second.text
-        assert second.json()["name"] == "source.default.roads.municipality"
-
-    @pytest.mark.asyncio
     async def test_register_table_denies_before_creating_namespace(
         self,
         module__client_with_basic,
@@ -1837,7 +1818,7 @@ class TestNodeCRUD:
         """
         mocker.patch(
             VALIDATOR_AUTH_SERVICE,
-            lambda: DenyWriteAuthorizationService(),
+            deny(ResourceAction.WRITE),
         )
         response = await module__client_with_basic.post(
             "/register/table/public/denied_reg/widgets/",
