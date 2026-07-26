@@ -728,6 +728,7 @@ async def register_preaggregations(
         dimensions=data.dimensions,
         table=data.table,
         measure_columns=data.measure_columns,
+        dimension_columns=data.dimension_columns,
     )
     await session.commit()
 

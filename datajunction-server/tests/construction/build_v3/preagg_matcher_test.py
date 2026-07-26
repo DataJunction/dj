@@ -8,10 +8,12 @@ from sqlalchemy.orm import joinedload, selectinload
 
 from datajunction_server.construction.build_v3.preagg_matcher import (
     find_matching_preagg,
+    get_preagg_dimension_column,
     get_preagg_measure_column,
     get_required_measure_hashes,
     get_temporal_partitions,
 )
+from datajunction_server.models.query import V3ColumnMetadata
 from datajunction_server.construction.build_v3.types import BuildContext, GrainGroup
 from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.column import Column
@@ -67,6 +69,33 @@ def make_preagg_measure(
         rule=AggregationRule(type=Aggregability.FULL),
         expr_hash=compute_expression_hash(expression),
     )
+
+
+def test_get_preagg_dimension_column():
+    """Returns the mapped physical column when present, else the DJ column name."""
+    preagg = PreAggregation(
+        columns=[
+            V3ColumnMetadata(
+                name="status",
+                type="string",
+                semantic_name="v3.order_details.status",
+                semantic_type="dimension",
+                source_column="order_status",
+            ),
+        ],
+    )
+    # Mapped dimension -> its physical source column.
+    assert (
+        get_preagg_dimension_column(preagg, "v3.order_details.status", "status")
+        == "order_status"
+    )
+    # A dimension not in the pre-agg's columns falls back to the DJ column name.
+    assert (
+        get_preagg_dimension_column(preagg, "v3.order_details.other", "other")
+        == "other"
+    )
+    # No columns at all also falls back.
+    assert get_preagg_dimension_column(PreAggregation(columns=None), "x", "y") == "y"
 
 
 @pytest_asyncio.fixture

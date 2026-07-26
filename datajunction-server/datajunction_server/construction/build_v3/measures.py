@@ -72,6 +72,7 @@ from datajunction_server.construction.build_v3.dimensions import (
 )
 from datajunction_server.construction.build_v3.preagg_matcher import (
     find_matching_preagg,
+    get_preagg_dimension_column,
     get_preagg_measure_column,
 )
 from datajunction_server.internal.scan_estimation import calculate_scan_estimate
@@ -1785,20 +1786,48 @@ def build_grain_group_from_preagg(
     unique_components: list[MetricComponent] = []
     seen_components: set[str] = set()
 
-    # Add dimension columns (grain columns)
+    # Dimension (grain) columns. grain_col_names = logical output names;
+    # group_by_cols = physical columns read (they differ only when an external
+    # pre-agg remaps a dimension's column).
     grain_col_names: list[str] = []
+    group_by_cols: list[str] = []
     for dim in resolved_dimensions:
-        col_name = dim.column_name
-        grain_col_names.append(col_name)
+        # Output name the rest of the query references this grain column by. It
+        # must match the alias the source-built path would emit (role-qualified,
+        # via the alias registry) -- the combiner/metrics layer references grain
+        # columns by that alias, not by the parent's physical column name. Using
+        # dim.column_name here breaks whenever it differs from the alias, e.g. a
+        # joined dimension's key satisfied by a differently-named parent FK
+        # column (order_details.order_date = date.date_id[order]): the CTE would
+        # expose ``order_date`` while the outer query selects ``date_id_order``.
+        output_alias = ctx.alias_registry.register(dim.original_ref)
+        grain_col_names.append(output_alias)
 
-        col_ref = ast.Column(name=ast.Name(col_name))
-        select_items.append(col_ref)
+        # Physical column actually read from the pre-agg table. It may be remapped
+        # via dimension_columns; otherwise it defaults to the parent's grain
+        # column name. This is independent of the output alias above.
+        physical_col = get_preagg_dimension_column(
+            preagg,
+            dim.original_ref,
+            dim.column_name,
+        )
+        group_by_cols.append(physical_col)
 
-        # Get type from pre-agg columns if available
-        col_type = preagg.get_column_type(col_name, default="string")
+        if physical_col == output_alias:
+            select_items.append(ast.Column(name=ast.Name(output_alias)))
+        else:
+            select_items.append(
+                ast.Alias(
+                    child=ast.Column(name=ast.Name(physical_col)),
+                    alias=ast.Name(output_alias),
+                ),
+            )
+
+        # Type metadata is keyed by the output (DJ) name, not the physical column.
+        col_type = preagg.get_column_type(output_alias, default="string")
         columns.append(
             ColumnMetadata(
-                name=col_name,
+                name=output_alias,
                 semantic_name=dim.original_ref,
                 type=col_type,
                 semantic_type="dimension",
@@ -1843,6 +1872,7 @@ def build_grain_group_from_preagg(
             # No merge - output grain column directly, add to GROUP BY
             select_items.append(col_ref)
             grain_col_names.append(measure_col)
+            group_by_cols.append(measure_col)
             output_alias = measure_col
             component_aliases[component.name] = output_alias
 
@@ -1857,10 +1887,10 @@ def build_grain_group_from_preagg(
             ),
         )
 
-    # Build GROUP BY clause (list of column references)
+    # Build GROUP BY clause (physical columns actually read from the table)
     group_by: list[ast.Expression] = []
-    if grain_col_names:
-        group_by = [ast.Column(name=ast.Name(col)) for col in grain_col_names]
+    if group_by_cols:
+        group_by = [ast.Column(name=ast.Name(col)) for col in group_by_cols]
 
     # Build FROM clause using the helper method
     preagg_table = SEPARATOR.join(table_parts)
