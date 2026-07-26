@@ -26,7 +26,6 @@ from datajunction_server.api.helpers import (
     raise_if_node_exists,
     get_save_history,
 )
-from datajunction_server.api.namespaces import create_or_reactivate_namespace
 from datajunction_server.api.tags import get_tags_by_name
 from datajunction_server.database.attributetype import ColumnAttribute
 from datajunction_server.database.column import Column
@@ -50,7 +49,10 @@ from datajunction_server.internal.access.authorization import (
 )
 from datajunction_server.models.access import ResourceAction
 from datajunction_server.internal.history import ActivityType, EntityType
-from datajunction_server.internal.namespaces import get_git_info_for_namespace
+from datajunction_server.internal.namespaces import (
+    create_or_reactivate_namespace,
+    get_git_info_for_namespace,
+)
 from datajunction_server.internal.nodes import (
     activate_node,
     create_a_cube,

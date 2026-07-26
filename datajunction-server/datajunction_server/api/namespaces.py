@@ -43,7 +43,7 @@ from datajunction_server.internal.access.authorization import (
     AccessDenialMode,
 )
 from datajunction_server.internal.namespaces import (
-    create_namespace,
+    create_or_reactivate_namespace,
     get_git_info_for_namespace,
     get_nodes_in_namespace,
     get_nodes_in_namespace_detailed,
@@ -61,6 +61,7 @@ from datajunction_server.internal.namespaces import (
 )
 from datajunction_server.internal.nodes import activate_node, deactivate_node
 from datajunction_server.models import access
+from datajunction_server.models.namespace import NamespaceWriteStatus
 from datajunction_server.models.node import (
     NamespaceOutput,
     NodeMinimumDetail,
@@ -83,78 +84,6 @@ router = SecureAPIRouter(tags=["namespaces"])
 # If parent_namespace is set, clients can GET the parent to understand inheritance
 
 
-async def create_or_reactivate_namespace(
-    namespace: str,
-    *,
-    include_parents: bool,
-    session: AsyncSession,
-    current_user: User,
-    save_history: Callable,
-) -> JSONResponse:
-    """
-    Create or reactivate a node namespace.
-
-    Shared by the create-namespace endpoint and the internal register_table /
-    register_view callers. Access control is enforced by each caller (the endpoint
-    below and the register_* handlers), not here, so this must only be reached from
-    a path that has already authorized the write.
-    """
-    if node_namespace := await NodeNamespace.get(
-        session,
-        namespace,
-        raise_if_not_exists=False,
-    ):  # pragma: no cover
-        if node_namespace.deactivated_at:
-            node_namespace.deactivated_at = None
-            session.add(node_namespace)
-            await session.commit()
-            return JSONResponse(
-                status_code=HTTPStatus.CREATED,
-                content={
-                    "message": (
-                        "The following node namespace has been successfully reactivated: "
-                        + namespace
-                    ),
-                },
-            )
-        return JSONResponse(
-            status_code=409,
-            content={
-                "message": f"Node namespace `{namespace}` already exists",
-            },
-        )
-    # Block creating child namespaces under a git root — only branch namespaces
-    # (configured via PATCH /namespaces/{name}/git with parent_namespace + git_branch)
-    # are allowed there.
-    parent = namespace.rsplit(".", 1)[0] if "." in namespace else None
-    if parent:
-        parent_ns = await NodeNamespace.get(session, parent, raise_if_not_exists=False)
-        if parent_ns and parent_ns.github_repo_path and parent_ns.git_branch is None:
-            raise DJInvalidInputException(
-                message=(
-                    f"Cannot create namespace '{namespace}' under git root '{parent}'. "
-                    "Create a new branch under this namespace instead."
-                ),
-            )
-
-    created_namespaces = await create_namespace(
-        session=session,
-        namespace=namespace,
-        include_parents=include_parents,
-        current_user=current_user,
-        save_history=save_history,
-    )
-    return JSONResponse(
-        status_code=HTTPStatus.CREATED,
-        content={
-            "message": (
-                "The following node namespaces have been successfully created: "
-                + ", ".join(created_namespaces)
-            ),
-        },
-    )
-
-
 @router.post("/namespaces/{namespace}/", status_code=HTTPStatus.CREATED)
 async def create_node_namespace(
     namespace: str,
@@ -173,12 +102,37 @@ async def create_node_namespace(
     parent_boundary = namespace.rsplit(".", 1)[0] if "." in namespace else namespace
     access_checker.add_namespace(parent_boundary, ResourceAction.WRITE)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
-    return await create_or_reactivate_namespace(
+
+    result = await create_or_reactivate_namespace(
         namespace=namespace,
         include_parents=bool(include_parents),
         session=session,
         current_user=current_user,
         save_history=save_history,
+    )
+    if result.status == NamespaceWriteStatus.ALREADY_EXISTS:
+        return JSONResponse(
+            status_code=HTTPStatus.CONFLICT,
+            content={"message": f"Node namespace `{namespace}` already exists"},
+        )
+    if result.status == NamespaceWriteStatus.REACTIVATED:  # pragma: no cover
+        return JSONResponse(
+            status_code=HTTPStatus.CREATED,
+            content={
+                "message": (
+                    "The following node namespace has been successfully reactivated: "
+                    + namespace
+                ),
+            },
+        )
+    return JSONResponse(
+        status_code=HTTPStatus.CREATED,
+        content={
+            "message": (
+                "The following node namespaces have been successfully created: "
+                + ", ".join(result.namespaces)
+            ),
+        },
     )
 
 
