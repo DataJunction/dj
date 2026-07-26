@@ -9,7 +9,11 @@ import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 
-from datajunction_server.errors import DJQueryServiceClientException
+from datajunction_server.api.cubes import _resolve_cube_partition_output_column
+from datajunction_server.errors import (
+    DJInvalidInputException,
+    DJQueryServiceClientException,
+)
 from datajunction_server.construction.build_v3.combiners import (
     PreAggSourceInfo,
     TemporalPartitionInfo,
@@ -22,6 +26,73 @@ from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.utils import get_query_service_client
 from tests.sql.utils import compare_query_strings
 from tests.construction.build_v3 import assert_sql_equal
+
+
+def test_cube_partition_output_prefers_exact_unqualified_match():
+    """An exact bare semantic match wins even when a role appears first."""
+    role_column = V3ColumnMetadata(
+        name="date_id_ship",
+        type="int",
+        semantic_name="common.date.date_id[ship_date]",
+        semantic_type="dimension",
+    )
+    exact_column = V3ColumnMetadata(
+        name="date_id",
+        type="int",
+        semantic_name="common.date.date_id",
+        semantic_type="dimension",
+    )
+
+    result = _resolve_cube_partition_output_column(
+        [role_column, exact_column],
+        "common.date.date_id",
+        allow_role_fallback=True,
+    )
+
+    assert result is exact_column
+
+
+def test_cube_partition_output_allows_unique_role_fallback():
+    """A single role match remains valid for legacy bare partitions."""
+    role_column = V3ColumnMetadata(
+        name="date_id_order",
+        type="int",
+        semantic_name="common.date.date_id[order_date]",
+        semantic_type="dimension",
+    )
+
+    result = _resolve_cube_partition_output_column(
+        [role_column],
+        "common.date.date_id",
+        allow_role_fallback=True,
+    )
+
+    assert result is role_column
+
+
+def test_cube_partition_output_rejects_ambiguous_role_fallback():
+    """A bare partition cannot silently choose between multiple roles."""
+    columns = [
+        V3ColumnMetadata(
+            name="date_id_ship",
+            type="int",
+            semantic_name="common.date.date_id[ship_date]",
+            semantic_type="dimension",
+        ),
+        V3ColumnMetadata(
+            name="date_id_order",
+            type="int",
+            semantic_name="common.date.date_id[order_date]",
+            semantic_type="dimension",
+        ),
+    ]
+
+    with pytest.raises(DJInvalidInputException, match="ambiguous"):
+        _resolve_cube_partition_output_column(
+            columns,
+            "common.date.date_id",
+            allow_role_fallback=True,
+        )
 
 
 async def make_a_test_cube(
