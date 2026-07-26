@@ -1,6 +1,9 @@
 """Tests for RBAC authorization logic."""
 
+import logging
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+from typing import cast
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +15,7 @@ from datajunction_server.internal.access.authorization import (
     AccessChecker,
     AccessDenialMode,
     AuthContext,
+    AuthorizationService,
     PassthroughAuthorizationService,
     RBACAuthorizationService,
     get_authorization_service,
@@ -19,6 +23,7 @@ from datajunction_server.internal.access.authorization import (
 from datajunction_server.errors import DJAuthorizationException
 from datajunction_server.internal.access.authentication.basic import get_user
 from datajunction_server.models.access import (
+    AccessDecision,
     Resource,
     ResourceAction,
     ResourceRequest,
@@ -27,6 +32,15 @@ from datajunction_server.models.access import (
 from datajunction_server.internal.access.group_membership import (
     GroupMembershipService,
 )
+
+
+class PermissiveFallbackAuthorizationService(AuthorizationService):
+    """Test provider with a permissive normal authorization path."""
+
+    name = "test_permissive_fallback"
+
+    def authorize(self, auth_context, requests):
+        return [AccessDecision(request=request, approved=True) for request in requests]
 
 
 class TestResourceMatching:
@@ -146,6 +160,212 @@ class TestResourceMatching:
 
         # It would only match if resource literally starts with "finance.*.revenue."
         # which is unlikely in practice
+
+
+class TestScopeContainment:
+    """Tests for delegated scope containment."""
+
+    @pytest.mark.parametrize(
+        "granted_type,granted_value,delegated_type,delegated_value,expected",
+        [
+            (ResourceType.NAMESPACE, "*", ResourceType.NAMESPACE, "*", True),
+            (ResourceType.NAMESPACE, "", ResourceType.NAMESPACE, "finance", True),
+            (ResourceType.NAMESPACE, "finance.*", ResourceType.NAMESPACE, "*", False),
+            (ResourceType.NODE, "*", ResourceType.NODE, "*", True),
+            (ResourceType.NODE, "finance.*", ResourceType.NODE, "*", False),
+            (
+                ResourceType.NAMESPACE,
+                "finance.*",
+                ResourceType.NAMESPACE,
+                "finance.revenue.*",
+                True,
+            ),
+            (
+                ResourceType.NAMESPACE,
+                "finance.revenue.*",
+                ResourceType.NAMESPACE,
+                "finance.*",
+                False,
+            ),
+            (
+                ResourceType.NAMESPACE,
+                "finance.*",
+                ResourceType.NODE,
+                "finance.revenue",
+                True,
+            ),
+            # A global namespace grant contains node scopes: managing every
+            # namespace implies managing every node within them.
+            (ResourceType.NAMESPACE, "*", ResourceType.NODE, "*", True),
+            (ResourceType.NAMESPACE, "*", ResourceType.NODE, "finance.revenue", True),
+            # A subtree namespace grant still cannot delegate all nodes.
+            (ResourceType.NAMESPACE, "finance.*", ResourceType.NODE, "*", False),
+            # Node grants never contain namespace scopes, so managing all nodes
+            # cannot be escalated into managing namespaces, groups, or roles.
+            (ResourceType.NODE, "*", ResourceType.NAMESPACE, "*", False),
+            (ResourceType.NODE, "*", ResourceType.NAMESPACE, "finance.*", False),
+        ],
+    )
+    def test_scope_contains_scope(
+        self,
+        granted_type,
+        granted_value,
+        delegated_type,
+        delegated_value,
+        expected,
+    ) -> None:
+        assert (
+            RBACAuthorizationService.scope_contains_scope(
+                granted_type,
+                granted_value,
+                delegated_type,
+                delegated_value,
+            )
+            is expected
+        )
+
+    @pytest.mark.parametrize(
+        "pattern",
+        ["finance*", ".*", "**", "finance.*.revenue", "finance..*"],
+    )
+    def test_global_manage_rejects_malformed_scope(self, pattern: str) -> None:
+        assert not RBACAuthorizationService.scope_contains_scope(
+            ResourceType.NAMESPACE,
+            "*",
+            ResourceType.NAMESPACE,
+            pattern,
+        )
+
+
+@pytest.mark.parametrize("scope_type", [ResourceType.NODE, ResourceType.NAMESPACE])
+def test_explicit_authorization_ignores_permissive_fallback(
+    scope_type: ResourceType,
+    mocker,
+) -> None:
+    mock_settings = mocker.patch(
+        "datajunction_server.internal.access.authorization.service.settings",
+    )
+    mock_settings.default_access_policy = "permissive"
+    context = AuthContext(1, "no-grants", "basic", [])
+    request = ResourceRequest(
+        ResourceAction.MANAGE,
+        Resource(name="*", resource_type=scope_type),
+        scope_target=True,
+    )
+    service = RBACAuthorizationService()
+
+    assert service.authorize(context, [request])[0].approved is True
+    assert service.authorize_explicit_grants(context, [request])[0].approved is False
+
+
+def test_explicit_authorization_uses_scope_containment() -> None:
+    assignment = SimpleNamespace(
+        expires_at=None,
+        role=SimpleNamespace(
+            scopes=[
+                SimpleNamespace(
+                    action=ResourceAction.MANAGE,
+                    scope_type=ResourceType.NAMESPACE,
+                    scope_value="finance.*",
+                ),
+            ],
+        ),
+    )
+    context = AuthContext(
+        1,
+        "finance-owner",
+        "basic",
+        [cast(RoleAssignment, assignment)],
+    )
+    request = ResourceRequest(
+        ResourceAction.MANAGE,
+        Resource("finance.revenue.*", ResourceType.NAMESPACE),
+        scope_target=True,
+    )
+
+    decision = RBACAuthorizationService().authorize_explicit_grants(
+        context,
+        [request],
+    )[0]
+    assert decision.approved is True
+    assert decision.reason == "explicit_grant"
+
+
+def test_custom_provider_must_opt_in_to_control_plane_authorization() -> None:
+    context = AuthContext(1, "custom-provider-user", "basic", [])
+    request = ResourceRequest(
+        ResourceAction.MANAGE,
+        Resource("*", ResourceType.NAMESPACE),
+        scope_target=True,
+    )
+    service = PermissiveFallbackAuthorizationService()
+
+    assert service.authorize(context, [request])[0].approved is True
+    assert service.authorize_explicit_grants(context, [request])[0].approved is False
+
+
+def test_admin_authorizes_explicit_grants_via_bypass() -> None:
+    context = AuthContext(1, "root", "basic", [], is_admin=True)
+    request = ResourceRequest(
+        ResourceAction.MANAGE,
+        Resource("*", ResourceType.NAMESPACE),
+        scope_target=True,
+    )
+
+    decision = RBACAuthorizationService().authorize_explicit_grants(
+        context,
+        [request],
+    )[0]
+
+    assert decision.approved is True
+    assert decision.reason == "admin_bypass"
+
+
+def _scope(action, scope_type, scope_value):
+    return SimpleNamespace(
+        action=action,
+        scope_type=scope_type,
+        scope_value=scope_value,
+    )
+
+
+def _assignment(scopes, expires_at=None):
+    return cast(
+        RoleAssignment,
+        SimpleNamespace(expires_at=expires_at, role=SimpleNamespace(scopes=scopes)),
+    )
+
+
+def test_has_scope_permission_allows_exact_grant() -> None:
+    assignments = [
+        _assignment(
+            [_scope(ResourceAction.MANAGE, ResourceType.NAMESPACE, "finance")],
+        ),
+    ]
+
+    assert RBACAuthorizationService.has_scope_permission(
+        assignments=assignments,
+        action=ResourceAction.MANAGE,
+        scope_type=ResourceType.NAMESPACE,
+        scope_value="finance",
+    )
+
+
+def test_has_scope_permission_skips_expired_and_mismatched_scopes() -> None:
+    expired = _assignment(
+        [_scope(ResourceAction.MANAGE, ResourceType.NAMESPACE, "finance.*")],
+        expires_at=datetime.now(timezone.utc) - timedelta(hours=1),
+    )
+    wrong_action = _assignment(
+        [_scope(ResourceAction.READ, ResourceType.NAMESPACE, "finance.*")],
+    )
+
+    assert not RBACAuthorizationService.has_scope_permission(
+        assignments=[expired, wrong_action],
+        action=ResourceAction.MANAGE,
+        scope_type=ResourceType.NAMESPACE,
+        scope_value="finance.revenue",
+    )
 
 
 @pytest.mark.asyncio
@@ -490,6 +710,9 @@ class TestAuthorizationService:
 
         assert len(result) == 2
         assert all(req.approved for req in result)
+        assert all(
+            req.approved for req in service.authorize_explicit_grants(user, requests)
+        )
 
     async def test_rbac_service_with_permissions(
         self,
@@ -588,7 +811,7 @@ class TestAuthorizationService:
 class TestAdminBypass:
     """Tests for the admin break-glass bypass in RBACAuthorizationService."""
 
-    async def test_admin_bypasses_restrictive_policy(self, mocker):
+    async def test_admin_bypasses_restrictive_policy(self, mocker, caplog):
         """An admin is approved for everything, even under restrictive policy."""
         mock_settings = mocker.patch(
             "datajunction_server.internal.access.authorization.service.settings",
@@ -619,9 +842,18 @@ class TestAdminBypass:
                 ),
             ),
         ]
-        decisions = service.authorize(auth_context, requests)
+        with caplog.at_level(
+            logging.WARNING,
+            logger="datajunction.audit.rbac",
+        ):
+            decisions = service.authorize(auth_context, requests)
+
         assert all(decision.approved for decision in decisions)
-        assert all(decision.reason == "admin" for decision in decisions)
+        assert all(decision.reason == "admin_bypass" for decision in decisions)
+        assert len(caplog.messages) == 1
+        assert caplog.messages[0].startswith(
+            "event=rbac_admin_bypass reason=admin_bypass actor=root actor_id=1",
+        )
 
     async def test_non_admin_denied_under_restrictive(self, mocker):
         """A non-admin with no grants is denied under restrictive policy."""
@@ -671,6 +903,243 @@ class TestAdminBypass:
 
         non_admin_context = await AuthContext.from_user(session, default_user)
         assert non_admin_context.is_admin is False
+
+
+@pytest.mark.asyncio
+class TestDefaultAccessRole:
+    """Tests for the configurable default-access role fallback."""
+
+    CONTEXT_SETTINGS = (
+        "datajunction_server.internal.access.authorization.context.settings"
+    )
+    SERVICE_SETTINGS = (
+        "datajunction_server.internal.access.authorization.service.settings"
+    )
+
+    async def _make_role(self, session, default_user, name, action, scope_value):
+        role = Role(name=name, created_by_id=default_user.id)
+        session.add(role)
+        await session.flush()
+        session.add(
+            RoleScope(
+                role_id=role.id,
+                action=action,
+                scope_type=ResourceType.NAMESPACE,
+                scope_value=scope_value,
+            ),
+        )
+        await session.commit()
+        return role
+
+    async def test_default_role_grants_fallback_access(
+        self,
+        default_user: User,
+        session: AsyncSession,
+        mocker,
+    ):
+        """Default role scopes grant access when there is no explicit grant."""
+        await self._make_role(
+            session,
+            default_user,
+            "global-viewer",
+            ResourceAction.READ,
+            "*",
+        )
+
+        ctx_settings = mocker.patch(self.CONTEXT_SETTINGS)
+        ctx_settings.default_access_role = "global-viewer"
+        svc_settings = mocker.patch(self.SERVICE_SETTINGS)
+        svc_settings.authorization_provider = "rbac"
+        svc_settings.default_access_policy = "restrictive"
+
+        user = await get_user(username=default_user.username, session=session)
+        access_checker = AccessChecker(
+            auth_context=await AuthContext.from_user(user=user, session=session),
+        )
+        access_checker.add_requests(
+            [
+                ResourceRequest(
+                    verb=ResourceAction.READ,
+                    access_object=Resource(
+                        name="finance.revenue",
+                        resource_type=ResourceType.NAMESPACE,
+                    ),
+                ),
+                ResourceRequest(
+                    verb=ResourceAction.WRITE,
+                    access_object=Resource(
+                        name="finance.revenue",
+                        resource_type=ResourceType.NAMESPACE,
+                    ),
+                ),
+            ],
+        )
+        results = await access_checker.check(on_denied=AccessDenialMode.RETURN)
+        assert results[0].approved is True  # read granted by default role
+        assert results[1].approved is False  # write not in default role, restrictive
+
+    async def test_no_default_role_restrictive_denies(
+        self,
+        default_user: User,
+        session: AsyncSession,
+        mocker,
+    ):
+        """With no default role and restrictive policy, ungranted access is denied."""
+        ctx_settings = mocker.patch(self.CONTEXT_SETTINGS)
+        ctx_settings.default_access_role = None
+        svc_settings = mocker.patch(self.SERVICE_SETTINGS)
+        svc_settings.authorization_provider = "rbac"
+        svc_settings.default_access_policy = "restrictive"
+
+        user = await get_user(username=default_user.username, session=session)
+        access_checker = AccessChecker(
+            auth_context=await AuthContext.from_user(user=user, session=session),
+        )
+        access_checker.add_request(
+            ResourceRequest(
+                verb=ResourceAction.READ,
+                access_object=Resource(
+                    name="finance.revenue",
+                    resource_type=ResourceType.NAMESPACE,
+                ),
+            ),
+        )
+        results = await access_checker.check(on_denied=AccessDenialMode.RETURN)
+        assert results[0].approved is False
+
+    async def test_default_role_unions_with_explicit_grants(
+        self,
+        default_user: User,
+        session: AsyncSession,
+        mocker,
+    ):
+        """Explicit grants and default-role scopes both apply."""
+        # Default role: read on everything
+        await self._make_role(
+            session,
+            default_user,
+            "viewer",
+            ResourceAction.READ,
+            "*",
+        )
+        # Explicit grant: write on finance.*
+        write_role = await self._make_role(
+            session,
+            default_user,
+            "finance-writer",
+            ResourceAction.WRITE,
+            "finance.*",
+        )
+        session.add(
+            RoleAssignment(
+                principal_id=default_user.id,
+                role_id=write_role.id,
+                granted_by_id=default_user.id,
+            ),
+        )
+        await session.commit()
+
+        ctx_settings = mocker.patch(self.CONTEXT_SETTINGS)
+        ctx_settings.default_access_role = "viewer"
+        svc_settings = mocker.patch(self.SERVICE_SETTINGS)
+        svc_settings.authorization_provider = "rbac"
+        svc_settings.default_access_policy = "restrictive"
+
+        user = await get_user(username=default_user.username, session=session)
+        access_checker = AccessChecker(
+            auth_context=await AuthContext.from_user(user=user, session=session),
+        )
+        access_checker.add_requests(
+            [
+                ResourceRequest(
+                    verb=ResourceAction.WRITE,
+                    access_object=Resource(
+                        name="finance.revenue",
+                        resource_type=ResourceType.NAMESPACE,
+                    ),
+                ),
+                ResourceRequest(
+                    verb=ResourceAction.WRITE,
+                    access_object=Resource(
+                        name="growth.signups",
+                        resource_type=ResourceType.NAMESPACE,
+                    ),
+                ),
+                ResourceRequest(
+                    verb=ResourceAction.READ,
+                    access_object=Resource(
+                        name="growth.signups",
+                        resource_type=ResourceType.NAMESPACE,
+                    ),
+                ),
+            ],
+        )
+        results = await access_checker.check(on_denied=AccessDenialMode.RETURN)
+        assert results[0].approved is True  # explicit write on finance.*
+        assert results[1].approved is False  # no write on growth.*
+        assert results[2].approved is True  # read via default role
+
+    async def test_missing_default_role_falls_through(
+        self,
+        default_user: User,
+        session: AsyncSession,
+        mocker,
+    ):
+        """A configured-but-nonexistent default role loads no scopes."""
+        ctx_settings = mocker.patch(self.CONTEXT_SETTINGS)
+        ctx_settings.default_access_role = "does-not-exist"
+
+        scopes = await AuthContext.get_default_scopes(session=session)
+        assert scopes == []
+
+    async def test_expired_assignment_excluded_from_candidate_scopes(
+        self,
+        default_user: User,
+        session: AsyncSession,
+        mocker,
+    ):
+        """An expired assignment contributes no scopes to the candidate set."""
+        role = await self._make_role(
+            session,
+            default_user,
+            "temp-writer",
+            ResourceAction.WRITE,
+            "finance.*",
+        )
+        session.add(
+            RoleAssignment(
+                principal_id=default_user.id,
+                role_id=role.id,
+                granted_by_id=default_user.id,
+                expires_at=datetime.now(timezone.utc) - timedelta(hours=1),
+            ),
+        )
+        await session.commit()
+
+        ctx_settings = mocker.patch(self.CONTEXT_SETTINGS)
+        ctx_settings.default_access_role = None
+        svc_settings = mocker.patch(self.SERVICE_SETTINGS)
+        svc_settings.authorization_provider = "rbac"
+        svc_settings.default_access_policy = "restrictive"
+
+        user = await get_user(username=default_user.username, session=session)
+        auth_context = await AuthContext.from_user(user=user, session=session)
+
+        # The expired assignment is skipped, so no scopes are collected.
+        assert RBACAuthorizationService.candidate_scopes(auth_context) == []
+
+        access_checker = AccessChecker(auth_context=auth_context)
+        access_checker.add_request(
+            ResourceRequest(
+                verb=ResourceAction.WRITE,
+                access_object=Resource(
+                    name="finance.revenue",
+                    resource_type=ResourceType.NAMESPACE,
+                ),
+            ),
+        )
+        results = await access_checker.check(on_denied=AccessDenialMode.RETURN)
+        assert results[0].approved is False
 
 
 @pytest.mark.asyncio

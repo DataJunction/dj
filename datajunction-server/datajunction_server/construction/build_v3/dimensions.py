@@ -283,18 +283,8 @@ def _resolve_filter_only_dim(
     parent_cols = {col.name for col in parent_node.current.columns}
     target_fqn = f"{dim_ref.node_name}{SEPARATOR}{dim_ref.column_name}"
 
-    # Cheap parent-side check: column annotation pointing at this dim col.
-    # In practice the simple-dimension-link API also creates a dim link, so
-    # `find_join_path` resolves first and this branch only fires when the
-    # annotation exists without a corresponding link (e.g., partial state
-    # from a non-API deserialize).
-    for col in parent_node.current.columns:
-        if col.dimension is None or col.dimension.name != dim_ref.node_name:
-            continue
-        if (
-            col.dimension_column or col.name
-        ) == dim_ref.column_name:  # pragma: no cover
-            return col.name
+    # (Reference/denormalized dimensions are resolved earlier in resolve_dimensions
+    # via _local_reference_dimension_column, so they never reach this function.)
 
     # BFS up parent_map in sorted order so resolution is deterministic across
     # processes (never set/hash order). Passthrough is only valid for DIRECT
@@ -556,6 +546,39 @@ def _rewrite_filter_col_refs(
     return rewritten
 
 
+def _local_reference_dimension_column(
+    ctx: BuildContext,
+    parent_node: Node,
+    dim_ref: DimensionRef,
+) -> Optional[str]:
+    """
+    Return the parent column that supplies dim_ref via a column-level dimension
+    annotation (a reference / denormalized dimension), or None.
+
+    A column tagged with a dimension node carries that dimension's attribute
+    directly on the parent, so it needs no join. This mirrors the column-to-dimension
+    edge that commonDimensions traverses, so discovery and the builder agree.
+    Resolution uses the reliably-loaded dimension_id / dimension_column scalars plus
+    the ctx id-to-name map, since the Column.dimension relationship doesn't reliably
+    eager-load in this build.
+    """
+    from datajunction_server.construction.build_v3.cte import strip_role_suffix
+
+    if not parent_node.current or not parent_node.current.columns:  # pragma: no cover
+        return None
+    for col in parent_node.current.columns:
+        if col.dimension_id is None:
+            continue
+        if ctx.reference_dimension_names.get(col.dimension_id) != dim_ref.node_name:
+            continue
+        # dimension_column may carry a "[role]" suffix; fall back to the column's
+        # own name when unset.
+        target = strip_role_suffix(col.dimension_column or col.name)
+        if target == dim_ref.column_name:
+            return col.name
+    return None
+
+
 def resolve_dimensions(
     ctx: BuildContext,
     parent_node: Node,
@@ -629,6 +652,24 @@ def resolve_dimensions(
 
             # Validate that we found a join path
             if not join_path:
+                # Reference (denormalized) dimension: the parent may carry the
+                # attribute directly on a column tagged with the dimension node, so
+                # no join is needed. commonDimensions advertises these, so the
+                # builder must serve them too.
+                ref_col = _local_reference_dimension_column(ctx, parent_node, dim_ref)
+                if ref_col is not None:
+                    resolved.append(
+                        ResolvedDimension(
+                            original_ref=dim,
+                            node_name=parent_node.name,
+                            column_name=ref_col,
+                            role=dim_ref.role,
+                            join_path=None,
+                            is_local=True,
+                        ),
+                    )
+                    continue
+
                 # Upstream filter-only resolution: the fact may not link to
                 # this dim, but an upstream of the fact might — and if the
                 # upstream's FK is preserved on the parent's projection, the

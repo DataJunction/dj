@@ -628,3 +628,21 @@ def test_deployment_spec_preserves_explicit_preagg_namespace():
     )
     assert spec.preaggregations[0].namespace == "explicit"
     assert spec.preaggregations[1].namespace == "ns"
+
+
+def test_preagg_spec_renders_dimension_columns():
+    """dimension_columns keys are prefix-rendered against the namespace, like
+    measure_columns; values (physical columns) are left as-is."""
+    spec = PreAggSpec(
+        name="p",
+        namespace="ns",
+        metrics=["${prefix}count"],
+        dimensions=["${prefix}d.attr"],
+        catalog="c",
+        schema="s",
+        table="t",
+        measure_columns={"${prefix}count": "cnt"},
+        dimension_columns={"${prefix}d.attr": "phys_attr"},
+    )
+    assert spec.rendered_dimension_columns == {"ns.d.attr": "phys_attr"}
+    assert spec.rendered_measure_columns == {"ns.count": "cnt"}

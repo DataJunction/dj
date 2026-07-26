@@ -415,6 +415,7 @@ async def _execute_metrics_query(
         metrics=metrics,
         dimensions=dimensions or [],
         use_materialized=True,
+        filters=filters or None,
     )
 
     generated_sql = await build_metrics_sql(

@@ -536,6 +536,7 @@ async def build_metrics_sql(
                     metrics,
                     dimensions,
                     require_availability=True,
+                    filters=filters,
                 )
             )
             if probe_cube:
@@ -585,6 +586,7 @@ async def build_metrics_sql(
                 metrics,
                 dimensions,
                 require_availability=True,
+                filters=filters,
             )
         )
     else:

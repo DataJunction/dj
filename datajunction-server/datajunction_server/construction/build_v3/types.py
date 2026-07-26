@@ -73,6 +73,12 @@ class BuildContext:
     # needing to eager-load the parents relationship
     parent_map: dict[str, list[str]] = field(default_factory=dict)
 
+    # Reference (denormalized) dimensions: column.dimension_id -> dimension node
+    # name. Populated by load_nodes() so resolve_dimensions can serve a column
+    # tagged with a dimension node from the local column, without depending on the
+    # Column.dimension relationship (which doesn't reliably eager-load here).
+    reference_dimension_names: dict[int, str] = field(default_factory=dict)
+
     # Table alias counter for generating unique aliases
     _table_alias_counter: int = field(default=0)
 

@@ -34,24 +34,23 @@ from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.decompose import MetricComponentExtractor
 
 
-def assert_measure_column_compatible(
+def assert_column_type_compatible(
     *,
-    measure_name: str,
+    subject: str,
     physical_column: str,
     expected_type: Optional[str],
     actual_type: object,
     table: ExternalPreAggTable,
 ) -> None:
     """
-    Reject a ``measure_columns`` mapping whose physical column type is
-    incompatible with the measure's expected type (e.g. a SUM measure bound to
-    a string column).
+    Reject a mapping whose physical column type is incompatible with the element
+    it backs (e.g. a SUM measure, or numeric dimension, bound to a string
+    column). subject names the element in the error message.
 
-    Conservative by design: both types are re-parsed into concrete
-    ``ColumnType`` subclasses (the query service wraps physical types as a bare
-    ``ColumnType`` string, which ``is_compatible`` cannot reason about), and the
-    check is skipped whenever a type is unknown or unparseable. Only clear
-    cross-family mismatches are rejected, so int-vs-bigint never false-fails.
+    Conservative: both types are re-parsed to concrete ColumnType subclasses (the
+    query service returns a bare type string is_compatible can't reason about),
+    and the check is skipped on unknown/unparseable types, so int-vs-bigint never
+    false-fails.
     """
     from datajunction_server.sql.parsing.backends.antlr4 import parse_rule
     from datajunction_server.sql.parsing.types import ColumnType
@@ -68,8 +67,7 @@ def assert_measure_column_compatible(
             message=(
                 f"Column '{physical_column}' (type {actual}) in table "
                 f"{table.catalog}.{table.schema_}.{table.table} is not "
-                f"type-compatible with measure '{measure_name}' "
-                f"(expected {expected})."
+                f"type-compatible with {subject} (expected {expected})."
             ),
         )
 
@@ -84,6 +82,7 @@ async def register_external_preaggregations(
     dimensions: list[str],
     table: ExternalPreAggTable,
     measure_columns: dict[str, str],
+    dimension_columns: dict[str, str] | None = None,
 ) -> list[PreAggregation]:
     """
     Core logic for adopting an externally-built pre-aggregation table.
@@ -146,17 +145,27 @@ async def register_external_preaggregations(
         request_headers,
         catalog.engines[0] if catalog.engines else None,
     )
+    dimension_columns = dimension_columns or {}
+    unknown_dims = sorted(set(dimension_columns) - set(dimensions))
+    if unknown_dims:
+        raise DJInvalidInputException(
+            message=(
+                f"dimension_columns references {unknown_dims}, which are not in "
+                f"the pre-aggregation's dimensions {sorted(dimensions)}."
+            ),
+        )
     table_columns_by_name = {col.name: col.type for col in table_columns}
     missing_columns = sorted(
         column
-        for column in measure_hash_to_column.values()
+        for column in (*measure_columns.values(), *dimension_columns.values())
         if column not in table_columns_by_name
     )
     if missing_columns:
         raise DJInvalidInputException(
             message=(
-                f"Columns {missing_columns} declared in measure_columns were not "
-                f"found in table {table.catalog}.{table.schema_}.{table.table}."
+                f"Columns {missing_columns} declared in measure_columns/"
+                f"dimension_columns were not found in table "
+                f"{table.catalog}.{table.schema_}.{table.table}."
             ),
         )
 
@@ -194,8 +203,8 @@ async def register_external_preaggregations(
                 component.name,
                 component.name,
             )
-            assert_measure_column_compatible(
-                measure_name=component.name,
+            assert_column_type_compatible(
+                subject=f"measure '{component.name}'",
                 physical_column=physical_column,
                 expected_type=measure_types.get(measure_name)
                 or measure_types.get(component.name),
@@ -213,15 +222,30 @@ async def register_external_preaggregations(
                 ),
             )
 
-        columns = [
-            V3ColumnMetadata(
-                name=col.name,
-                type=col.type,
-                semantic_type=col.semantic_type,
-                semantic_name=col.semantic_name,
+        # Bind dimension columns to physical columns via dimension_columns, keyed
+        # by dimension reference. Measures carry their binding on PreAggMeasure.
+        columns = []
+        for col in grain_group.columns:
+            source_column = None
+            if col.semantic_type == "dimension":
+                source_column = dimension_columns.get(col.semantic_name)
+                if source_column is not None:
+                    assert_column_type_compatible(
+                        subject=f"dimension '{col.semantic_name}'",
+                        physical_column=source_column,
+                        expected_type=col.type,
+                        actual_type=table_columns_by_name[source_column],
+                        table=table,
+                    )
+            columns.append(
+                V3ColumnMetadata(
+                    name=col.name,
+                    type=col.type,
+                    semantic_type=col.semantic_type,
+                    semantic_name=col.semantic_name,
+                    source_column=source_column,
+                ),
             )
-            for col in grain_group.columns
-        ]
         grain_group_hash = compute_grain_group_hash(node_revision_id, grain_columns)
         existing = await PreAggregation.find_matching(
             session=session,

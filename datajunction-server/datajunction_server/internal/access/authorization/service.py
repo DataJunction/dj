@@ -6,7 +6,10 @@ import logging
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from functools import lru_cache
-from typing import List
+from typing import List, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from datajunction_server.database.rbac import RoleScope
 
 
 from datajunction_server.models.access import (
@@ -14,6 +17,7 @@ from datajunction_server.models.access import (
     ResourceAction,
     ResourceRequest,
     ResourceType,
+    parse_scope_pattern,
 )
 from datajunction_server.internal.access.authorization.context import (
     AuthContext,
@@ -24,6 +28,7 @@ from datajunction_server.utils import (
 )
 
 logger = logging.getLogger(__name__)
+audit_logger = logging.getLogger("datajunction.audit.rbac")
 
 settings = get_settings()
 
@@ -63,6 +68,21 @@ class AuthorizationService(ABC):
         Returns:
             The same list of requests with approved=True/False set on each
         """
+
+    def authorize_explicit_grants(
+        self,
+        auth_context: AuthContext,
+        requests: list[ResourceRequest],
+    ) -> list[AccessDecision]:
+        """Deny control-plane access until a provider explicitly supports it."""
+        return [
+            AccessDecision(
+                request=request,
+                approved=False,
+                reason="explicit_grant_provider_required",
+            )
+            for request in requests
+        ]
 
 
 class RBACAuthorizationService(AuthorizationService):
@@ -124,41 +144,114 @@ class RBACAuthorizationService(AuthorizationService):
         Returns:
             Same list of requests with approved=True/False set
         """
-        # Break-glass: admins bypass all RBAC checks. Kept as a single explicit
-        # check (and logged for audit) so the bypass is easy to find and, if
-        # ever needed, to scope down to "admin bypasses grants but still
-        # respects X".
         if auth_context.is_admin:
-            logger.info(
-                "Admin access bypass: user=%s (id=%s) approved %d request(s): %s",
+            logged_requests = requests[:20]
+            audit_logger.warning(
+                "event=rbac_admin_bypass reason=admin_bypass actor=%s actor_id=%s "
+                "request_count=%d requests=%s truncated=%s",
                 auth_context.username,
                 auth_context.user_id,
                 len(requests),
-                ", ".join(str(request) for request in requests),
+                ",".join(str(request) for request in logged_requests),
+                len(requests) > len(logged_requests),
             )
             return [
-                AccessDecision(request=request, approved=True, reason="admin")
+                AccessDecision(
+                    request=request,
+                    approved=True,
+                    reason="admin_bypass",
+                )
                 for request in requests
             ]
-        return [self._make_decision(auth_context, request) for request in requests]
+        candidate_scopes = self.candidate_scopes(auth_context)
+        return [self._make_decision(request, candidate_scopes) for request in requests]
+
+    @classmethod
+    def candidate_scopes(cls, auth_context: AuthContext) -> List["RoleScope"]:
+        """
+        Collect every scope that could grant a request for this context.
+
+        This is the union of the principal's own (non-expired) role scopes and
+        the configured default-access role's scopes. Collecting all candidates
+        up front (rather than short-circuiting source by source) keeps the
+        decision a single resolve step, leaving room for future deny/precedence
+        rules without restructuring.
+        """
+        scopes: List["RoleScope"] = []
+        now = datetime.now(timezone.utc)
+        for assignment in auth_context.role_assignments:
+            if assignment.expires_at and assignment.expires_at < now:
+                continue
+            scopes.extend(assignment.role.scopes)
+        scopes.extend(auth_context.default_scopes)
+        return scopes
+
+    def authorize_explicit_grants(
+        self,
+        auth_context: AuthContext,
+        requests: list[ResourceRequest],
+    ) -> list[AccessDecision]:
+        """Authorize from assigned roles without policy fallback."""
+        if auth_context.is_admin:
+            return self.authorize(auth_context, requests)
+        return [
+            self._make_explicit_grant_decision(auth_context, request)
+            for request in requests
+        ]
 
     def _make_decision(
+        self,
+        request: ResourceRequest,
+        candidate_scopes: List["RoleScope"],
+    ) -> AccessDecision:
+        """
+        Convert ResourceRequest to AccessDecision.
+
+        Evaluates the candidate scopes (explicit grants + default-access role)
+        collected once per authorize() call and approves if any grants the
+        request. Otherwise falls back to the configured default_access_policy.
+        """
+        granted = any(
+            self._scope_grants_permission(
+                scope,
+                request.verb,
+                request.access_object.resource_type,
+                request.access_object.name,
+            )
+            for scope in candidate_scopes
+        )
+        if granted:
+            return AccessDecision(request=request, approved=True)
+        return AccessDecision(
+            request=request,
+            approved=(settings.default_access_policy == "permissive"),
+        )
+
+    def _make_explicit_grant_decision(
         self,
         auth_context: AuthContext,
         request: ResourceRequest,
     ) -> AccessDecision:
-        """
-        Convert ResourceRequest to AccessDecision.
-        """
-        has_grant = self.has_permission(
-            assignments=auth_context.role_assignments,
-            action=request.verb,
-            resource_type=request.access_object.resource_type,
-            resource_name=request.access_object.name,
+        """Resolve a request from assigned roles only."""
+        has_grant = (
+            self.has_scope_permission(
+                assignments=auth_context.role_assignments,
+                action=request.verb,
+                scope_type=request.access_object.resource_type,
+                scope_value=request.access_object.name,
+            )
+            if request.scope_target
+            else self.has_permission(
+                assignments=auth_context.role_assignments,
+                action=request.verb,
+                resource_type=request.access_object.resource_type,
+                resource_name=request.access_object.name,
+            )
         )
         return AccessDecision(
             request=request,
-            approved=(has_grant or settings.default_access_policy == "permissive"),
+            approved=has_grant,
+            reason="explicit_grant" if has_grant else "explicit_grant_required",
         )
 
     @classmethod
@@ -236,6 +329,68 @@ class RBACAuthorizationService(AuthorizationService):
         return False
 
     @classmethod
+    def has_scope_permission(
+        cls,
+        assignments: List,
+        action: ResourceAction,
+        scope_type: ResourceType,
+        scope_value: str,
+    ) -> bool:
+        """Return whether an assigned scope contains the requested scope."""
+        for assignment in assignments:
+            if assignment.expires_at and assignment.expires_at < datetime.now(
+                timezone.utc,
+            ):
+                continue
+            for granted_scope in assignment.role.scopes:
+                granted_actions = cls.PERMISSION_HIERARCHY.get(
+                    granted_scope.action,
+                    {granted_scope.action},
+                )
+                if action in granted_actions and cls.scope_contains_scope(
+                    granted_scope.scope_type,
+                    granted_scope.scope_value,
+                    scope_type,
+                    scope_value,
+                ):
+                    return True
+        return False
+
+    @classmethod
+    def scope_contains_scope(
+        cls,
+        granted_type: ResourceType,
+        granted_value: str,
+        delegated_type: ResourceType,
+        delegated_value: str,
+    ) -> bool:
+        """Return whether one supported scope pattern contains another."""
+        granted_pattern = parse_scope_pattern(granted_value)
+        delegated_pattern = parse_scope_pattern(delegated_value)
+        if granted_pattern is None or delegated_pattern is None:
+            return False
+
+        if granted_type != delegated_type and not (
+            granted_type == ResourceType.NAMESPACE
+            and delegated_type == ResourceType.NODE
+        ):
+            return False
+
+        granted_kind, granted_prefix = granted_pattern
+        delegated_kind, delegated_prefix = delegated_pattern
+        if granted_kind == "global":
+            return True
+        if delegated_kind == "global":
+            return False
+        if granted_kind == "exact":
+            return delegated_kind == "exact" and granted_prefix == delegated_prefix
+        if delegated_kind == "exact":
+            return delegated_prefix.startswith(granted_prefix + SEPARATOR)
+        return delegated_prefix == granted_prefix or delegated_prefix.startswith(
+            granted_prefix + SEPARATOR,
+        )
+
+    @classmethod
     def _scope_grants_permission(
         cls,
         scope,
@@ -292,6 +447,14 @@ class PassthroughAuthorizationService(AuthorizationService):
     ) -> list[AccessDecision]:
         """Approve all requests without checks (sync)."""
         return [AccessDecision(request=request, approved=True) for request in requests]
+
+    def authorize_explicit_grants(
+        self,
+        auth_context: AuthContext,
+        requests: list[ResourceRequest],
+    ) -> list[AccessDecision]:
+        """Approve control-plane checks when authorization is disabled."""
+        return self.authorize(auth_context, requests)
 
 
 @lru_cache(maxsize=None)

@@ -36,6 +36,7 @@ from datajunction_server.models.node import (
     NodeMode,
     NodeType,
 )
+from tests.construction.build_v3 import assert_sql_equal
 import pytest
 
 
@@ -1800,6 +1801,170 @@ class TestDeployments:
             assert data["status"] == "success", data["results"]
             listing = await client.get("/preaggs/", params={"node_name": fact_node})
             assert listing.json()["items"] == []
+        finally:
+            del client.app.dependency_overrides[get_query_service_client]
+
+    @pytest.mark.asyncio
+    async def test_deploy_preagg_applies_dimension_columns(
+        self,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        A pre-agg declared in a deployment spec with ``dimension_columns`` binds
+        each grain dimension to its physical column, and the generated measures
+        SQL reads that physical column (aliased back to the DJ name) instead of
+        the DJ dimension name.
+
+        Regression: the ``dimension_columns`` feature was only covered through the
+        POST /preaggs/register API path; the deployment/orchestrator path (what
+        ``dj push`` uses) had no coverage. This exercises the two shapes that path
+        must get right: a joined dimension's *key* satisfied by a differently
+        named parent foreign-key column (``dim.state_short`` via ``fact.state``),
+        and a *local* fact column (``fact.hard_hat_id``).
+        """
+        fact = TransformSpec(
+            name="default.dimcol_facts",
+            node_type=NodeType.TRANSFORM,
+            query="SELECT hard_hat_id, state FROM ${prefix}default.hard_hats",
+            dimension_links=[
+                DimensionJoinLinkSpec(
+                    dimension_node="${prefix}default.us_state",
+                    join_type="inner",
+                    join_on=(
+                        "${prefix}default.dimcol_facts.state = "
+                        "${prefix}default.us_state.state_short"
+                    ),
+                ),
+            ],
+            primary_key=["hard_hat_id"],
+            owners=["dj"],
+        )
+        metric = MetricSpec(
+            name="default.dimcol_count",
+            node_type=NodeType.METRIC,
+            query="SELECT COUNT(*) FROM ${prefix}default.dimcol_facts",
+            owners=["dj"],
+        )
+
+        async def _fake_columns(*args, **kwargs):
+            return [
+                SimpleNamespace(name="cnt", type="bigint"),
+                SimpleNamespace(name="st_code", type="string"),
+                SimpleNamespace(name="hh_id_col", type="int"),
+            ]
+
+        mock_qs = MagicMock()
+        mock_qs.get_columns_for_table = _fake_columns
+        client.app.dependency_overrides[get_query_service_client] = lambda: mock_qs
+        try:
+            preagg = PreAggSpec(
+                name="dimcol_agg",
+                metrics=["${prefix}default.dimcol_count"],
+                dimensions=[
+                    "${prefix}default.us_state.state_short",
+                    "${prefix}default.dimcol_facts.hard_hat_id",
+                ],
+                catalog="default",
+                schema="analytics",
+                table="dimcol_agg_tbl",
+                valid_through_ts=1700000000,
+                measure_columns={"${prefix}default.dimcol_count": "cnt"},
+                dimension_columns={
+                    "${prefix}default.us_state.state_short": "st_code",
+                    "${prefix}default.dimcol_facts.hard_hat_id": "hh_id_col",
+                },
+            )
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(
+                    namespace="preagg_dimcol",
+                    nodes=[
+                        default_hard_hats,
+                        default_us_states,
+                        default_us_state,
+                        fact,
+                        metric,
+                    ],
+                    preaggregations=[preagg],
+                ),
+            )
+            assert data["status"] == "success", data["results"]
+
+            # The registered dimensions carry their physical source_column binding.
+            listing = await client.get(
+                "/preaggs/",
+                params={"node_name": "preagg_dimcol.default.dimcol_facts"},
+            )
+            preagg_row = listing.json()["items"][0]
+            source_cols = {
+                col["source_column"]
+                for col in preagg_row["columns"]
+                if col.get("semantic_type") == "dimension"
+            }
+            assert source_cols == {"st_code", "hh_id_col"}, preagg_row["columns"]
+
+            # The measures SQL reads the physical columns from the agg table and
+            # re-aggregates over them -- no join back to the dimension node.
+            response = await client.get(
+                "/sql/measures/v3/",
+                params={
+                    "metrics": ["preagg_dimcol.default.dimcol_count"],
+                    "dimensions": [
+                        "preagg_dimcol.default.us_state.state_short",
+                        "preagg_dimcol.default.dimcol_facts.hard_hat_id",
+                    ],
+                },
+            )
+            assert response.status_code == 200, response.text
+            grain_sql = response.json()["grain_groups"][0]["sql"]
+            # Reads the mapped physical columns (st_code, hh_id_col) from the agg
+            # table, aliased to the DJ dimension aliases (state_short,
+            # hard_hat_id) the metrics layer references; groups by the physical
+            # columns; no join back to the dimension node.
+            assert_sql_equal(
+                grain_sql,
+                """
+                SELECT st_code state_short,
+                       hh_id_col hard_hat_id,
+                       SUM(cnt) cnt
+                FROM default.analytics.dimcol_agg_tbl
+                GROUP BY st_code, hh_id_col
+                """,
+            )
+
+            # The outer metrics query references the SAME aliases the CTE exposes
+            # (state_short, hard_hat_id), so inner/outer aliasing is consistent.
+            metrics_response = await client.get(
+                "/sql/metrics/v3/",
+                params={
+                    "metrics": ["preagg_dimcol.default.dimcol_count"],
+                    "dimensions": [
+                        "preagg_dimcol.default.us_state.state_short",
+                        "preagg_dimcol.default.dimcol_facts.hard_hat_id",
+                    ],
+                },
+            )
+            assert metrics_response.status_code == 200, metrics_response.text
+            assert_sql_equal(
+                metrics_response.json()["sql"],
+                """
+                WITH dimcol_facts_0 AS (
+                    SELECT st_code state_short,
+                           hh_id_col hard_hat_id,
+                           SUM(cnt) cnt
+                    FROM default.analytics.dimcol_agg_tbl
+                    GROUP BY st_code, hh_id_col
+                )
+                SELECT dimcol_facts_0.state_short AS state_short,
+                       dimcol_facts_0.hard_hat_id AS hard_hat_id,
+                       SUM(dimcol_facts_0.cnt) AS dimcol_count
+                FROM dimcol_facts_0
+                GROUP BY dimcol_facts_0.state_short, dimcol_facts_0.hard_hat_id
+                """,
+            )
         finally:
             del client.app.dependency_overrides[get_query_service_client]
 
@@ -5498,7 +5663,7 @@ def _clear_query_service(client):
     client.app.dependency_overrides.pop(get_query_service_client, None)
 
 
-def _preagg_spec(name, table, measure_columns, dimensions=None):
+def _preagg_spec(name, table, measure_columns, dimensions=None, dimension_columns=None):
     return PreAggSpec(
         name=name,
         metrics=["${prefix}default.count_hard_hats"],
@@ -5508,6 +5673,7 @@ def _preagg_spec(name, table, measure_columns, dimensions=None):
         table=table,
         valid_through_ts=1700000000,
         measure_columns=measure_columns,
+        dimension_columns=dimension_columns or {},
     )
 
 
@@ -5840,3 +6006,197 @@ class TestExternalPreAggDeploy:
             assert listing.json()["items"] == []
         finally:
             _clear_query_service(client)
+
+    @pytest.mark.asyncio
+    async def test_deploy_preagg_with_dimension_columns(
+        self,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """dimension_columns on a deployed pre-agg flows through reconcile so the
+        renamed physical dimension column is read at query time."""
+        _override_query_service(
+            client,
+            {"hh_state": "string", "hard_hat_count": "bigint"},
+        )
+        try:
+            nodes = _hard_hat_deploy_nodes(
+                default_hard_hats,
+                default_us_states,
+                default_us_state,
+            )
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(
+                    namespace="preagg_dimcol",
+                    nodes=nodes,
+                    preaggregations=[
+                        _preagg_spec(
+                            "hh_by_state",
+                            "hh_by_state_agg",
+                            {"${prefix}default.count_hard_hats": "hard_hat_count"},
+                            dimension_columns={
+                                "${prefix}default.us_state.state_name": "hh_state",
+                            },
+                        ),
+                    ],
+                ),
+            )
+            assert data["status"] == "success", data["results"]
+            # The registered pre-agg reads the renamed physical dimension column.
+            response = await client.get(
+                "/sql/measures/v3/",
+                params={
+                    "metrics": ["preagg_dimcol.default.count_hard_hats"],
+                    "dimensions": ["preagg_dimcol.default.us_state.state_name"],
+                },
+            )
+            assert response.status_code == 200
+            sql = response.json()["grain_groups"][0]["sql"]
+            assert "default.analytics.hh_by_state_agg" in sql
+            assert "hh_state" in sql
+        finally:
+            _clear_query_service(client)
+
+
+@pytest.mark.xdist_group(name="deployments")
+class TestCrossParentRatioDeployment:
+    """Cross-parent ratio metric (numerator on a transform, denominator on a
+    DIMENSION node) whose base metrics share a dimension ONLY via dimension
+    links created in the same deployment.
+
+    Regression for the deploy-time false negative: dimension links are deployed
+    after nodes (_deploy_nodes runs before _deploy_links), so at validation time
+    get_dimensions sees only each base metric's parent-local columns and the
+    shared-dimension intersection is empty. The cross-fact check must not reject
+    the derived metric mid-deploy when the pending links establish a common
+    dimension. Mirrors the minimal fact ÷ dimension-node repro.
+    """
+
+    def _nodes(self):
+        return [
+            SourceSpec(
+                name="fd_fact_raw",
+                description="Raw fact rows",
+                catalog="default",
+                schema="roads",
+                table="fd_fact_raw",
+                columns=[
+                    ColumnSpec(name="account_id", type="bigint"),
+                    ColumnSpec(name="dateint", type="int"),
+                    ColumnSpec(name="visited", type="int"),
+                ],
+                dimension_links=[],
+                owners=["dj"],
+            ),
+            SourceSpec(
+                name="fd_dim_raw",
+                description="Raw dimension rows",
+                catalog="default",
+                schema="roads",
+                table="fd_dim_raw",
+                columns=[
+                    ColumnSpec(name="account_id", type="bigint"),
+                    ColumnSpec(name="dateint", type="int"),
+                    ColumnSpec(name="can_stream", type="int"),
+                ],
+                dimension_links=[],
+                owners=["dj"],
+            ),
+            SourceSpec(
+                name="dt_date_raw",
+                description="Raw dates",
+                catalog="default",
+                schema="roads",
+                table="dt_date_raw",
+                columns=[ColumnSpec(name="dateint", type="int")],
+                dimension_links=[],
+                owners=["dj"],
+            ),
+            DimensionSpec(
+                name="dt_date_d_v2",
+                description="Conformed date dimension",
+                query="SELECT dateint FROM ${prefix}dt_date_raw",
+                primary_key=["dateint"],
+                dimension_links=[],
+                owners=["dj"],
+            ),
+            # Numerator parent: a TRANSFORM, linked to the shared date dim.
+            TransformSpec(
+                name="fd_fact",
+                description="Fact transform",
+                query="SELECT account_id, dateint, visited FROM ${prefix}fd_fact_raw",
+                dimension_links=[
+                    DimensionJoinLinkSpec(
+                        dimension_node="${prefix}dt_date_d_v2",
+                        join_type="left",
+                        join_on="${prefix}fd_fact.dateint = ${prefix}dt_date_d_v2.dateint",
+                    ),
+                ],
+                owners=["dj"],
+            ),
+            # Denominator parent: a DIMENSION node, linked to the same date dim.
+            DimensionSpec(
+                name="fd_dim",
+                description="Dimension node holding the denominator",
+                query="SELECT account_id, dateint, can_stream FROM ${prefix}fd_dim_raw",
+                primary_key=["account_id", "dateint"],
+                dimension_links=[
+                    DimensionJoinLinkSpec(
+                        dimension_node="${prefix}dt_date_d_v2",
+                        join_type="left",
+                        join_on="${prefix}fd_dim.dateint = ${prefix}dt_date_d_v2.dateint",
+                    ),
+                ],
+                owners=["dj"],
+            ),
+            MetricSpec(
+                name="fd_num",
+                description="Numerator (parent = transform)",
+                query="SELECT SUM(visited) FROM ${prefix}fd_fact",
+                dimension_links=[],
+                owners=["dj"],
+            ),
+            MetricSpec(
+                name="fd_den",
+                description="Denominator (parent = dimension node)",
+                query="SELECT SUM(can_stream) FROM ${prefix}fd_dim",
+                dimension_links=[],
+                owners=["dj"],
+            ),
+            # Cross-parent ratio: numerator (transform) ÷ denominator (dim node),
+            # sharing dt_date_d_v2 only through links deployed in this same batch.
+            MetricSpec(
+                name="fd_ratio_cross",
+                description="fd_num / fd_den",
+                query=("SELECT CAST(${prefix}fd_num AS DOUBLE) / ${prefix}fd_den"),
+                dimension_links=[],
+                owners=["dj"],
+            ),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_cross_parent_ratio_shared_dim_via_pending_links_is_valid(
+        self,
+        client,
+    ):
+        namespace = "cross_parent_ratio"
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=self._nodes()),
+        )
+        ratio_result = next(
+            r for r in data["results"] if r["name"] == f"{namespace}.fd_ratio_cross"
+        )
+        # Before the fix this deployed with node status INVALID and the message
+        # "[invalid] ... no shared dimensions"; the result status is the deploy
+        # outcome ("success"), the node validity is asserted via GET below.
+        assert ratio_result["status"] == "success", ratio_result
+        assert "invalid" not in ratio_result["message"], ratio_result
+
+        # Deploy-time status must match what a fresh read/revalidation computes.
+        response = await client.get(f"/nodes/{namespace}.fd_ratio_cross/")
+        assert response.status_code == 200, response.json()
+        assert response.json()["status"] == "valid"
