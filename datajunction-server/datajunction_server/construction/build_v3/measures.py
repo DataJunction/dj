@@ -19,6 +19,7 @@ from datajunction_server.construction.build_v3.cte import (
     _fk_key_column_names,
     collect_node_ctes,
     extract_dimension_node,
+    get_column_full_name,
     inject_filter_into_select,
     strip_role_suffix,
 )
@@ -30,6 +31,8 @@ from datajunction_server.construction.build_v3.dimensions import (
 )
 from datajunction_server.construction.build_v3.filters import (
     parse_and_resolve_filters,
+    parse_filter,
+    resolve_filter_references,
 )
 from datajunction_server.construction.build_v3.utils import (
     extract_columns_from_expression,
@@ -1741,6 +1744,32 @@ def find_upstream_temporal_source_node(
     return None
 
 
+def _references_filter_only_dimension(
+    filter_ast: ast.Expression,
+    filter_dimensions: set[str],
+) -> bool:
+    """
+    True if a filter references a "filter-only" dimension -- one the outer metrics
+    query skips (expecting the grain group CTE to have applied it). Mirrors the
+    skip logic in the metrics builder, including role-suffixed refs which parse as
+    ``Subscript(Column("dim.col"), Column("role"))``.
+    """
+    for subscript in filter_ast.find_all(ast.Subscript):
+        if not isinstance(subscript.expr, ast.Column):
+            continue  # pragma: no cover
+        base_ref = get_column_full_name(subscript.expr)
+        if base_ref and any(
+            (fd.split("[")[0] if "[" in fd else fd) == base_ref
+            for fd in filter_dimensions
+        ):
+            return True
+    for col in filter_ast.find_all(ast.Column):
+        full_name = get_column_full_name(col)
+        if full_name and full_name in filter_dimensions:
+            return True
+    return False
+
+
 def build_grain_group_from_preagg(
     ctx: BuildContext,
     grain_group: GrainGroup,
@@ -1791,6 +1820,9 @@ def build_grain_group_from_preagg(
     # pre-agg remaps a dimension's column).
     grain_col_names: list[str] = []
     group_by_cols: list[str] = []
+    # Dimension ref -> physical column in the pre-agg table, used to push
+    # filter-only dimension filters into the CTE below.
+    ref_to_physical: dict[str, str] = {}
     for dim in resolved_dimensions:
         # Output name the rest of the query references this grain column by. It
         # must match the alias the source-built path would emit (role-qualified,
@@ -1812,6 +1844,7 @@ def build_grain_group_from_preagg(
             dim.column_name,
         )
         group_by_cols.append(physical_col)
+        ref_to_physical[dim.original_ref] = physical_col
 
         if physical_col == output_alias:
             select_items.append(ast.Column(name=ast.Name(output_alias)))
@@ -1902,6 +1935,20 @@ def build_grain_group_from_preagg(
         from_=from_clause,
         group_by=group_by,
     )
+
+    # Push filter-only dimension filters into the pre-agg scan. The metrics layer
+    # applies filters on projected (output) dimensions at the outer query, but
+    # deliberately skips "filter-only" dimensions -- ones in the pre-agg grain
+    # that are rolled away -- expecting each grain group to have applied them.
+    # For a pre-agg-backed grain group we must do that here, mapping each filtered
+    # dimension to its physical column and filtering before the roll-up; otherwise
+    # the predicate lands nowhere and the result silently over-counts.
+    for filter_str in ctx.dimension_filters or []:
+        filter_ast = parse_filter(filter_str)
+        if not _references_filter_only_dimension(filter_ast, ctx.filter_dimensions):
+            continue  # a projected-dimension filter -> the outer query applies it
+        resolve_filter_references(filter_ast, ref_to_physical, cte_alias=None)
+        inject_filter_into_select(select, filter_ast)
 
     # Build the query
     query = ast.Query(select=select)

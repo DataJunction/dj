@@ -660,6 +660,75 @@ class TestExternalPreAggRouting:
         )
 
     @pytest.mark.asyncio
+    async def test_external_preagg_filter_on_rolled_up_dimension(
+        self,
+        client_with_build_v3,
+    ):
+        """A filter on a dimension that is in the pre-agg grain but rolled away
+        from the requested output must be pushed into the pre-agg scan, on the
+        physical (mapped) column, before the roll-up. Previously the predicate was
+        silently dropped and the result over-counted. Here ``category`` is mapped
+        to physical ``cat`` and is in the agg grain, but the query groups by
+        ``status`` only, so ``category`` is filter-only."""
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.order_details.status", "v3.product.category"],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "rev_by_status_cat",
+                "valid_through_ts": 20250101,
+            },
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            dimension_columns={"v3.product.category": "cat"},
+            table_columns={"status": "string", "cat": "string", "rev_sum": "double"},
+        )
+        params = {
+            "metrics": ["v3.total_revenue"],
+            "dimensions": ["v3.order_details.status"],
+            "filters": ["v3.product.category = 'Electronics'"],
+        }
+        # Measures SQL: the filter is injected on the physical column `cat`,
+        # inside the CTE, before the GROUP BY roll-up.
+        measures_response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params=params,
+        )
+        assert measures_response.status_code == 200
+        assert_sql_equal(
+            get_first_grain_group(measures_response.json())["sql"],
+            """
+            SELECT status, cat category, SUM(rev_sum) rev_sum
+            FROM default.analytics.rev_by_status_cat
+            WHERE cat = 'Electronics'
+            GROUP BY status, cat
+            """,
+        )
+        # Metrics SQL: the outer query does not re-apply the (filter-only) cat
+        # predicate; it is applied once, inside the CTE.
+        metrics_response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params=params,
+        )
+        assert metrics_response.status_code == 200
+        assert_sql_equal(
+            metrics_response.json()["sql"],
+            """
+            WITH order_details_0 AS (
+                SELECT status, cat category, SUM(rev_sum) rev_sum
+                FROM default.analytics.rev_by_status_cat
+                WHERE cat = 'Electronics'
+                GROUP BY status, cat
+            )
+            SELECT order_details_0.status AS status,
+                   SUM(order_details_0.rev_sum) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.status
+            """,
+        )
+
+    @pytest.mark.asyncio
     async def test_external_preagg_cross_fact_partial_substitution(
         self,
         client_with_build_v3,
