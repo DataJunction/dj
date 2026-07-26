@@ -20,7 +20,6 @@ import ast
 import inspect
 import textwrap
 
-import pytest
 from fastapi.routing import APIRoute
 
 from datajunction_server.api.main import app
@@ -80,134 +79,94 @@ def _mutating_routes():
                 yield method, _normalize(route.path), route.endpoint
 
 
-# PENDING_COVERAGE: mutating routes that are in #2234 step-0 scope but don't yet
-# reach check(). This is a TEMPORARY backlog: each entry is removed in the same PR
-# that adds its check(), and the set MUST be empty once step 0 is complete
-# (asserted by test_step0_backlog_reaches_empty). Do not add non-step-0 routes here.
-# Empty: all step-0 route coverage has landed (namespace, dimension link,
-# materialization, cube, and the user-facing preaggregation writes). The remaining
-# step-0 work (action/resource correctness, and internal/deployment/background
-# mutation paths) is not route-coverage and is tracked separately.
-PENDING_COVERAGE: dict[tuple[str, str], str] = {}
+def flatten(buckets: dict[str, list[tuple[str, str]]]) -> set[tuple[str, str]]:
+    """All routes across reason buckets, for membership checks."""
+    return {route for routes in buckets.values() for route in routes}
 
-# INTENTIONAL_EXCLUSIONS: mutating routes deliberately not node-RBAC-governed.
-INTENTIONAL_EXCLUSIONS: dict[tuple[str, str], str] = {
-    # Not among #2234 step-0 coverage fixes (namespace, dimension link,
-    # materialization, preagg, cube). Left uncovered for a later effort.
-    ("POST", "/catalogs"): "not in #2234 step-0 coverage fixes; follow-up",
-    (
-        "POST",
-        "/catalogs/{name}/engines",
-    ): "not in #2234 step-0 coverage fixes; follow-up",
-    ("POST", "/engines"): "not in #2234 step-0 coverage fixes; follow-up",
-    ("POST", "/tags"): "not in #2234 step-0 coverage fixes; follow-up",
-    ("PATCH", "/tags/{name}"): "not in #2234 step-0 coverage fixes; follow-up",
-    # Query-service callback (reports materialization completion), not a user
-    # action. Governing it with user WRITE would break callbacks; it needs a
-    # service-identity model, tracked with the internal-path work.
-    (
-        "POST",
-        "/preaggs/{preagg_id}/availability",
-    ): "query-service callback; govern via service identity (follow-up)",
-    # Read-only / enforced elsewhere (not a write-governance target).
-    ("POST", "/nodes/validate"): "read-only validation, mutates nothing",
-    ("POST", "/graphql"): "GraphQL; access enforced within resolvers, not the route",
-    # Semantic-layer views: POST carries a query body but the handlers only read
-    # (list views, describe a view, generate query SQL); they mutate nothing.
-    ("POST", "/semantic/views/list"): "read-only: lists semantic views",
-    ("POST", "/semantic/views/{view_name}"): "read-only: describes a semantic view",
-    ("POST", "/semantic/views/{view_name}/sql"): "read-only: generates query SQL",
-    # Auth / identity endpoints (not node governance).
-    ("POST", "/basic/login"): "authentication endpoint",
-    ("POST", "/basic/user"): "authentication endpoint",
-    ("POST", "/logout"): "authentication endpoint",
-    ("POST", "/service-accounts"): "service-account management; not node governance",
-    (
-        "POST",
-        "/service-accounts/token",
-    ): "service-account management; not node governance",
-    (
-        "DELETE",
-        "/service-accounts/{client_id}",
-    ): "service-account management; not node governance",
-    # User-scoped, not node governance.
-    ("POST", "/notifications/mark-read"): "user-scoped notification prefs",
-    ("POST", "/notifications/subscribe"): "user-scoped notification prefs",
-    ("DELETE", "/notifications/unsubscribe"): "user-scoped notification prefs",
-    ("DELETE", "/collections/{name}"): "user-scoped collections; not node governance",
-    ("POST", "/collections"): "user-scoped collections; not node governance",
-    (
-        "POST",
-        "/collections/{name}/nodes",
-    ): "user-scoped collections; not node governance",
-    (
-        "POST",
-        "/collections/{name}/remove",
-    ): "user-scoped collections; not node governance",
-    # Other semantic-object writes: governance out of #2234 step-0 scope.
-    ("POST", "/attributes"): "not in #2234 step-0 scope; follow-up",
-    ("POST", "/measures"): "not in #2234 step-0 scope; follow-up",
-    ("PATCH", "/measures/{measure_name}"): "not in #2234 step-0 scope; follow-up",
-    ("POST", "/hierarchies"): "not in #2234 step-0 scope; follow-up",
-    ("DELETE", "/hierarchies/{name}"): "not in #2234 step-0 scope; follow-up",
-    ("PUT", "/hierarchies/{name}"): "not in #2234 step-0 scope; follow-up",
+
+# Mutating routes deliberately left un-governed, keyed by why. Grouping by reason
+# keeps the justification stated once and related routes together.
+INTENTIONAL_EXCLUSIONS: dict[str, list[tuple[str, str]]] = {
+    "not in #2234 step-0 scope; follow-up": [
+        ("POST", "/catalogs"),
+        ("POST", "/catalogs/{name}/engines"),
+        ("POST", "/engines"),
+        ("POST", "/tags"),
+        ("PATCH", "/tags/{name}"),
+        ("POST", "/attributes"),
+        ("POST", "/measures"),
+        ("PATCH", "/measures/{measure_name}"),
+        ("POST", "/hierarchies"),
+        ("DELETE", "/hierarchies/{name}"),
+        ("PUT", "/hierarchies/{name}"),
+    ],
+    # Reports materialization completion, so it is a system call rather than a user
+    # action: governing it with user WRITE would break the callback.
+    "query-service callback; govern via service identity (follow-up)": [
+        ("POST", "/preaggs/{preagg_id}/availability"),
+    ],
+    # These take a POST body to describe what to read, but mutate nothing.
+    "read-only; mutates nothing": [
+        ("POST", "/nodes/validate"),
+        ("POST", "/semantic/views/list"),
+        ("POST", "/semantic/views/{view_name}"),
+        ("POST", "/semantic/views/{view_name}/sql"),
+    ],
+    "GraphQL; access enforced within resolvers, not the route": [
+        ("POST", "/graphql"),
+    ],
+    "authentication endpoint; not node governance": [
+        ("POST", "/basic/login"),
+        ("POST", "/basic/user"),
+        ("POST", "/logout"),
+    ],
+    "service-account management; not node governance": [
+        ("POST", "/service-accounts"),
+        ("POST", "/service-accounts/token"),
+        ("DELETE", "/service-accounts/{client_id}"),
+    ],
+    "user-scoped preferences and collections; not node governance": [
+        ("POST", "/notifications/mark-read"),
+        ("POST", "/notifications/subscribe"),
+        ("DELETE", "/notifications/unsubscribe"),
+        ("POST", "/collections"),
+        ("DELETE", "/collections/{name}"),
+        ("POST", "/collections/{name}/nodes"),
+        ("POST", "/collections/{name}/remove"),
+    ],
 }
 
-# A route may appear in at most one bucket; together they form the full allowlist.
-ALLOWLIST: dict[tuple[str, str], str] = {**PENDING_COVERAGE, **INTENTIONAL_EXCLUSIONS}
+EXCLUDED_ROUTES = flatten(INTENTIONAL_EXCLUSIONS)
 
 
 def test_all_mutating_routes_reach_access_check():
-    """Every mutating route must reach check() or be explicitly allowlisted."""
+    """Every mutating route must reach check() or be explicitly excluded."""
     unlisted = sorted(
         {
             (method, path)
             for method, path, endpoint in _mutating_routes()
-            if not _reaches_check(endpoint) and (method, path) not in ALLOWLIST
+            if not _reaches_check(endpoint) and (method, path) not in EXCLUDED_ROUTES
         },
     )
     assert not unlisted, (
         "These mutating routes never reach AccessChecker.check() and are not "
-        "allowlisted (add a check() call, or allowlist with a reason):\n"
+        "excluded (add a check() call, or add an exclusion with a reason):\n"
         + "\n".join(f"  {method} {path}" for method, path in unlisted)
     )
 
 
-def test_allowlist_has_no_stale_entries():
-    """An allowlisted route must still exist and still be uncovered."""
+def test_exclusions_have_no_stale_entries():
+    """An excluded route must still exist and still be uncovered."""
     routes = list(_mutating_routes())
     current = {(method, path) for method, path, _ in routes}
     covered = {(method, path) for method, path, ep in routes if _reaches_check(ep)}
 
     stale = []
-    for key in ALLOWLIST:
-        if key not in current:
-            stale.append(f"  {key[0]} {key[1]}: route no longer exists")
-        elif key in covered:
+    for method, path in sorted(EXCLUDED_ROUTES):
+        if (method, path) not in current:
+            stale.append(f"  {method} {path}: route no longer exists")
+        elif (method, path) in covered:
             stale.append(
-                f"  {key[0]} {key[1]}: now reaches check(); remove from ALLOWLIST",
+                f"  {method} {path}: now reaches check(); remove the exclusion",
             )
-    assert not stale, "Stale ALLOWLIST entries:\n" + "\n".join(stale)
-
-
-def test_allowlist_buckets_are_disjoint():
-    """A route belongs to exactly one bucket, so counts and intent stay unambiguous."""
-    overlap = sorted(set(PENDING_COVERAGE) & set(INTENTIONAL_EXCLUSIONS))
-    assert not overlap, "Routes in both buckets:\n" + "\n".join(
-        f"  {method} {path}" for method, path in overlap
-    )
-
-
-def test_step0_backlog_reaches_empty():
-    """
-    Progress marker for #2234 step 0: PENDING_COVERAGE must be empty when step 0
-    is done. Until then this xfails, so the day the last coverage PR lands it flips
-    to a passing signal (xpass) that the backlog is cleared -- and any *new*
-    step-0 route parked here keeps it xfailing rather than silently lingering.
-    """
-    if PENDING_COVERAGE:
-        pytest.xfail(
-            f"{len(PENDING_COVERAGE)} step-0 route(s) still pending coverage: "
-            + ", ".join(f"{m} {p}" for m, p in sorted(PENDING_COVERAGE)),
-        )
-    assert PENDING_COVERAGE == {}
+    assert not stale, "Stale exclusions:\n" + "\n".join(stale)

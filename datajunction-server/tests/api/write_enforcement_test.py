@@ -22,9 +22,10 @@ from httpx import AsyncClient
 from datajunction_server.models.access import ResourceAction
 from tests.authz import VALIDATOR_AUTH_SERVICE, deny
 from tests.test_route_coverage import (
-    INTENTIONAL_EXCLUSIONS,
+    EXCLUDED_ROUTES,
     _mutating_routes,
     _normalize,
+    flatten,
 )
 
 # Stand-in for every path parameter. The resource does not exist, which is the
@@ -174,7 +175,7 @@ PENDING_DENIAL_TESTS: dict[str, list[tuple[str, str]]] = {
 
 def _pending_routes() -> set[tuple[str, str]]:
     """Every route in the backlog, flattened out of its reason buckets."""
-    return {route for routes in PENDING_DENIAL_TESTS.values() for route in routes}
+    return flatten(PENDING_DENIAL_TESTS)
 
 
 def _tested_routes() -> set[tuple[str, str]]:
@@ -230,7 +231,7 @@ def test_every_mutating_route_has_a_denial_test():
     cube's metrics while writing to the node, and the guard stayed green. This test
     is what closes that gap, so a new mutating route cannot land unnoticed.
     """
-    accounted = _tested_routes() | set(INTENTIONAL_EXCLUSIONS) | _pending_routes()
+    accounted = _tested_routes() | EXCLUDED_ROUTES | _pending_routes()
     missing = sorted(
         {(method, path) for method, path, _ in _mutating_routes()} - accounted,
     )

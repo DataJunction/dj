@@ -91,6 +91,24 @@ _logger = logging.getLogger(__name__)
 router = SecureAPIRouter(tags=["preaggregations"])
 
 
+async def _authorize_preagg_write(
+    access_checker: AccessChecker,
+    preagg: PreAggregation,
+) -> None:
+    """
+    Require WRITE on the node a pre-agg is based on, which is what governs it.
+
+    The node is not in the URL, so (unlike node and cube endpoints, which check
+    before loading) callers load the pre-agg first: a denied caller sees 404
+    before 403 on a bad id.
+    """
+    access_checker.add_request_by_node_name(
+        preagg.node_revision.name,
+        ResourceAction.WRITE,
+    )
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
+
 def _compute_output_table(node_name: str, preagg_hash: str) -> str:
     """
     Compute the output table name for a pre-aggregation.
@@ -830,12 +848,7 @@ async def materialize_preaggregation(
     if not preagg:
         raise DJDoesNotExistException(f"Pre-aggregation with ID {preagg_id} not found")
 
-    # A pre-agg is governed by the node it is based on.
-    access_checker.add_request_by_node_name(
-        preagg.node_revision.name,
-        ResourceAction.WRITE,
-    )
-    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+    await _authorize_preagg_write(access_checker, preagg)
 
     if preagg.strategy == MaterializationStrategy.EXTERNAL:
         raise DJInvalidInputException(
@@ -1056,12 +1069,7 @@ async def update_preaggregation_config(
     if not preagg:
         raise DJDoesNotExistException(f"Pre-aggregation with ID {preagg_id} not found")
 
-    # A pre-agg is governed by the node it is based on.
-    access_checker.add_request_by_node_name(
-        preagg.node_revision.name,
-        ResourceAction.WRITE,
-    )
-    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+    await _authorize_preagg_write(access_checker, preagg)
 
     # Update only the fields that are provided
     if data.strategy is not None:
@@ -1124,12 +1132,7 @@ async def delete_preagg_workflow(
     if not preagg:
         raise DJDoesNotExistException(f"Pre-aggregation with ID {preagg_id} not found")
 
-    # A pre-agg is governed by the node it is based on.
-    access_checker.add_request_by_node_name(
-        preagg.node_revision.name,
-        ResourceAction.WRITE,
-    )
-    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+    await _authorize_preagg_write(access_checker, preagg)
 
     if not preagg.workflow_urls:
         return WorkflowResponse(
@@ -1370,12 +1373,7 @@ async def run_preagg_backfill(
     if not preagg:
         raise DJDoesNotExistException(f"Pre-aggregation with ID {preagg_id} not found")
 
-    # A pre-agg is governed by the node it is based on.
-    access_checker.add_request_by_node_name(
-        preagg.node_revision.name,
-        ResourceAction.WRITE,
-    )
-    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+    await _authorize_preagg_write(access_checker, preagg)
 
     if preagg.strategy == MaterializationStrategy.EXTERNAL:
         raise DJInvalidInputException(
