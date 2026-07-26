@@ -780,6 +780,7 @@ class TestOrchestrationFlow:
             mock_plan.is_empty.return_value = False
             mock_plan.to_deploy = []
             mock_plan.to_delete = []
+            mock_plan.to_delete_namespaces = []
             mock_create_plan.return_value = (mock_plan, [])
 
             # Execute
@@ -806,6 +807,7 @@ class TestOrchestrationFlow:
             mock_plan.is_empty.return_value = True
             mock_plan.to_deploy = []
             mock_plan.to_delete = []
+            mock_plan.to_delete_namespaces = []
             mock_create_plan.return_value = (mock_plan, [])
 
             mock_handle_no_changes.return_value = []
