@@ -104,11 +104,11 @@ class MetricComponent(BaseModel):
         """
         Phase-1 aggregation function, normalized for identity comparison.
 
-        A measure's identity is (expression, aggregation), not expression alone:
-        pre-aggregated partials are only reusable by a metric that aggregates the
-        same way -- a SUM partial cannot serve MAX or MIN. Everything that matches
-        or binds measures compares this, so normalization lives here rather than
-        being re-derived per call site.
+        A measure is identified by (expression, aggregation), not by expression
+        alone -- a stored partial is only reusable by a metric that accumulates
+        the same way. Pre-agg matching, column binding and registration all
+        compare this, so the normalization lives with the model rather than being
+        re-derived at each call site.
         """
         return (self.aggregation or "").strip().upper()
 

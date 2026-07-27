@@ -34,13 +34,24 @@ def get_required_measure_identities(
     Identity of each measure a grain group needs: (expression hash, Phase-1
     aggregation function).
 
-    The aggregation is part of the identity because a pre-aggregation stores
-    partials produced by a specific Phase-1 function, and the expression hash
-    covers only the inner expression -- not the function. Two metrics that share
-    an inner expression but aggregate it differently (e.g. SUM(x) vs MAX(x))
-    would otherwise collide, letting a MAX metric bind to a SUM pre-agg column
-    and compute MAX(sum) instead of MAX(row). A SUM partial cannot serve a MAX
-    (or MIN) metric, so the aggregation must match for the pre-agg to be usable.
+    Measure matching is intentionally name-independent -- a pre-agg should be
+    reusable even when its component names differ -- so ``expr_hash`` stands in
+    for the measure's identity. But ``expr_hash`` covers the inner expression
+    alone: ``SUM(x)`` and ``MAX(x)`` are distinct measures (distinct components,
+    distinct ``aggregation``) that hash identically. Keying on the hash alone is
+    therefore coarser than the real identity, and lets a MAX metric match a
+    SUM-built pre-agg and compute MAX(sum) rather than MAX(row).
+
+    Pairing the hash with the aggregation restores the distinction while keeping
+    matching name-independent. It is sound because a stored partial is only
+    reusable by a metric that accumulates the same way: SUM->SUM, MAX->MAX,
+    MIN->MIN and COUNT->COUNT are valid, while a SUM partial can serve neither
+    MAX nor MIN.
+
+    The discriminator is the Phase-1 ``aggregation``, not ``merge``, because
+    merge is not unique: COUNT accumulates with COUNT but merges with SUM, so
+    ``SUM(x)`` and ``COUNT(x)`` share both an expression hash and a merge
+    function.
     """
     return {
         (
