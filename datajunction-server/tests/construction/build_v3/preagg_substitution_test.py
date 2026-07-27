@@ -358,6 +358,76 @@ class TestExternalPreAggRouting:
         )
 
     @pytest.mark.asyncio
+    async def test_separate_preaggs_same_grain_different_aggregation_coexist(
+        self,
+        client_with_build_v3,
+    ):
+        """Two independently-registered pre-aggs over the same expression and grain,
+        differing only in aggregation, are distinct rows -- and each metric routes
+        to its own table.
+
+        Registration deduped by expression hash alone, so the SUM-backed and
+        MAX-backed pre-aggs looked like one row: registering the second silently
+        overwrote the first (its measures, columns and table pointer), and the
+        first metric lost its pre-agg. Row identity is the measure identity token,
+        which includes the aggregation -- and so is the unique preagg_hash, so the
+        second row can be stored alongside the first.
+        """
+        for metric, table, column in (
+            ("v3.total_unit_price", "unit_price_sum_tbl", "up_sum"),
+            ("v3.max_unit_price", "unit_price_max_tbl", "up_max"),
+        ):
+            await _register_external_preagg(
+                client_with_build_v3,
+                metrics=[metric],
+                dimensions=["v3.order_details.status"],
+                table_ref={
+                    "catalog": "default",
+                    "schema": "analytics",
+                    "table": table,
+                    "valid_through_ts": 20250101,
+                },
+                measure_columns={metric: column},
+                table_columns={"status": "string", column: "double"},
+            )
+
+        listing = await client_with_build_v3.get(
+            "/preaggs/",
+            params={"node_name": "v3.order_details"},
+        )
+        assert listing.status_code == 200
+        rows = listing.json()["items"]
+        assert {
+            (measure["aggregation"], measure["source_column"])
+            for row in rows
+            for measure in row["measures"]
+        } == {("SUM", "up_sum"), ("MAX", "up_max")}
+        # Distinct rows, and distinct preagg_hash (the column is UNIQUE).
+        assert len({row["preagg_hash"] for row in rows}) == len(rows) == 2
+
+        # Each metric reads its own table.
+        for metric, table, column, agg in (
+            ("v3.total_unit_price", "unit_price_sum_tbl", "up_sum", "SUM"),
+            ("v3.max_unit_price", "unit_price_max_tbl", "up_max", "MAX"),
+        ):
+            response = await client_with_build_v3.get(
+                "/sql/measures/v3/",
+                params={
+                    "metrics": [metric],
+                    "dimensions": ["v3.order_details.status"],
+                },
+            )
+            assert response.status_code == 200
+            assert_sql_equal(
+                get_first_grain_group(response.json())["sql"],
+                f"""
+                SELECT status, {agg}({column}) {column}
+                FROM default.analytics.{table}
+                GROUP BY status
+                """,
+            )
+
+    @pytest.mark.asyncio
     async def test_external_preagg_pending_not_used(self, client_with_build_v3):
         """A registered pre-agg with no availability (no valid_through_ts) is not
         used to answer queries."""

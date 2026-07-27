@@ -22,6 +22,7 @@ from datajunction_server.database.preaggregation import (
     compute_expression_hash,
     compute_grain_group_hash,
     compute_preagg_hash,
+    get_measure_identities,
 )
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.decompose import PreAggMeasure
@@ -261,7 +262,7 @@ async def register_external_preaggregations(
             session=session,
             node_revision_id=node_revision_id,
             grain_columns=grain_columns,
-            measure_expr_hashes={m.expr_hash for m in grain_measures if m.expr_hash},
+            measure_identities=get_measure_identities(grain_measures),
         )
         if existing:
             existing.measures = grain_measures
