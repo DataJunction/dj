@@ -82,13 +82,12 @@ def compute_grain_group_hash(
 
 def measure_identity_token(expr_hash: str, aggregation: str | None) -> str:
     """
-    Canonical token identifying one measure: its expression hash plus the Phase-1
-    aggregation that produced it.
+    Canonical token identifying one measure: expression hash plus Phase-1
+    aggregation.
 
-    The expression hash alone is not a measure's identity -- ``SUM(x)`` and
-    ``MAX(x)`` hash identically -- and a stored partial is only reusable by a
-    metric that accumulates the same way. Everything that compares or hashes
-    measures uses this token so the distinction cannot be lost at one site.
+    The hash alone is not an identity -- ``SUM(x)`` and ``MAX(x)`` hash alike --
+    and a partial is reusable only by a metric that accumulates the same way.
+    Everything comparing or hashing measures goes through this.
     """
     return f"{expr_hash}:{(aggregation or '').strip().upper()}"
 
@@ -124,12 +123,10 @@ def compute_preagg_hash_from_hashes(
     - measure_identities: Identity tokens for the measures (expression hash plus
       Phase-1 aggregation -- see ``measure_identity_token``)
 
-    The aggregation belongs here because the hash carries a UNIQUE constraint:
-    without it, a SUM-backed and a MAX-backed pre-agg over the same expression at
-    the same grain collide, and the second cannot be stored alongside the first.
-
-    Only computed when a row is created; existing rows keep the value they were
-    stored with (and so keep their materialization table names).
+    The aggregation matters here because this hash is UNIQUE-constrained: without
+    it, SUM- and MAX-backed pre-aggs over the same expression and grain collide.
+    Computed only at insert -- existing rows keep their stored value, and so keep
+    their materialization table names.
 
     Args:
         node_revision_id: The ID of the node revision
@@ -447,11 +444,10 @@ class PreAggregation(Base):
         """
         Find an existing pre-agg that covers the requested measures.
 
-        Looks up by grain_group_hash, then checks if any candidate has a superset
-        of the required measures, compared by identity token (expression hash plus
-        Phase-1 aggregation) rather than expression hash alone. Comparing hashes
-        alone made a SUM-backed and a MAX-backed pre-agg over the same expression
-        look like the same row, so registering one silently overwrote the other.
+        Looks up by grain_group_hash, then finds a candidate whose measures are a
+        superset of those required, compared by identity token. Comparing bare
+        expression hashes made SUM- and MAX-backed pre-aggs look like one row, so
+        registering either silently overwrote the other.
 
         Returns:
             Matching PreAggregation if found, None otherwise

@@ -32,26 +32,16 @@ def get_required_measure_identities(
 ) -> set[tuple[str, str]]:
     """
     Identity of each measure a grain group needs: (expression hash, Phase-1
-    aggregation function).
+    aggregation).
 
-    Measure matching is intentionally name-independent -- a pre-agg should be
-    reusable even when its component names differ -- so ``expr_hash`` stands in
-    for the measure's identity. But ``expr_hash`` covers the inner expression
-    alone: ``SUM(x)`` and ``MAX(x)`` are distinct measures (distinct components,
-    distinct ``aggregation``) that hash identically. Keying on the hash alone is
-    therefore coarser than the real identity, and lets a MAX metric match a
-    SUM-built pre-agg and compute MAX(sum) rather than MAX(row).
+    Matching is name-independent, so ``expr_hash`` stands in for identity -- but
+    it covers the expression alone, making ``SUM(x)`` and ``MAX(x)`` hash alike
+    and letting a MAX metric read a SUM column. Pairing it with the aggregation
+    restores the distinction: a partial is reusable only by a metric that
+    accumulates the same way.
 
-    Pairing the hash with the aggregation restores the distinction while keeping
-    matching name-independent. It is sound because a stored partial is only
-    reusable by a metric that accumulates the same way: SUM->SUM, MAX->MAX,
-    MIN->MIN and COUNT->COUNT are valid, while a SUM partial can serve neither
-    MAX nor MIN.
-
-    The discriminator is the Phase-1 ``aggregation``, not ``merge``, because
-    merge is not unique: COUNT accumulates with COUNT but merges with SUM, so
-    ``SUM(x)`` and ``COUNT(x)`` share both an expression hash and a merge
-    function.
+    Phase-1 ``aggregation`` rather than ``merge``, because merge is not unique --
+    COUNT accumulates with COUNT but merges with SUM.
     """
     return {
         (
@@ -181,11 +171,10 @@ def get_preagg_measure_column(
     """
     Find the column name in the pre-agg that corresponds to a metric component.
 
-    Matches on the full measure identity -- expression hash AND Phase-1
-    aggregation -- so we get the right column even if names differ. The
-    aggregation matters because one pre-agg can hold several measures over the
-    same expression (e.g. SUM(x) and MAX(x)); matching on the hash alone would
-    return whichever came first and could read the wrong column.
+    Matches on the full identity -- expression hash and Phase-1 aggregation -- so
+    the right column is found even when names differ. One pre-agg can hold several
+    measures over the same expression (SUM(x) and MAX(x)), where matching on the
+    hash alone would return whichever came first.
 
     Args:
         preagg: The pre-aggregation to search

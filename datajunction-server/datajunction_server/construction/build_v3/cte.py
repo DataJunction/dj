@@ -152,18 +152,16 @@ def references_filter_only_dimension(
     filter_dimensions: set[str],
 ) -> bool:
     """
-    Whether a filter references a "filter-only" dimension -- one that is part of a
-    grain group but not projected into the final output.
+    Whether a filter references a "filter-only" dimension -- in a grain group but
+    not projected into the output.
 
-    This encodes one half of a contract shared by two layers: the metrics builder
-    skips these filters at the outer query precisely because each grain group is
-    expected to have applied them at its own CTE. Both sides must agree on which
-    filters those are, so both call this.
+    Shared by the metrics builder (which skips these at the outer query) and the
+    grain-group builders (which must apply them at their CTE); both sides have to
+    agree, so both call this.
 
-    Role-qualified refs (``dim.col[role]``) parse as
-    ``Subscript(Column("dim.col"), Column("role"))``, so ``find_all(ast.Column)``
-    sees only the base column; they are matched separately against role-stripped
-    dimension names.
+    Role-qualified refs parse as ``Subscript(Column("dim.col"), Column("role"))``,
+    so ``find_all(ast.Column)`` sees only the base column -- hence the separate
+    pass against role-stripped names.
     """
     base_refs = {strip_role_suffix(ref) for ref in filter_dimensions}
     if any(

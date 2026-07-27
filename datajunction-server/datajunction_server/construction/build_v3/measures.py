@@ -1794,24 +1794,20 @@ def build_grain_group_from_preagg(
     # pre-agg remaps a dimension's column).
     grain_col_names: list[str] = []
     group_by_cols: list[str] = []
-    # Dimension ref -> physical column in the pre-agg table, used to push
-    # filter-only dimension filters into the CTE below.
+    # Dimension ref -> physical column, for the filter pushdown below.
     ref_to_physical: dict[str, str] = {}
     for dim in resolved_dimensions:
-        # Output name the rest of the query references this grain column by. It
-        # must match the alias the source-built path would emit (role-qualified,
-        # via the alias registry) -- the combiner/metrics layer references grain
-        # columns by that alias, not by the parent's physical column name. Using
-        # dim.column_name here breaks whenever it differs from the alias, e.g. a
-        # joined dimension's key satisfied by a differently-named parent FK
-        # column (order_details.order_date = date.date_id[order]): the CTE would
-        # expose ``order_date`` while the outer query selects ``date_id_order``.
+        # Output name, via the alias registry so it matches what the source-built
+        # path emits -- the metrics layer references grain columns by that alias.
+        # dim.column_name is wrong whenever the two differ, e.g. a joined key
+        # satisfied by a differently-named FK (order_details.order_date =
+        # date.date_id[order]): the CTE would expose order_date while the outer
+        # query selects date_id_order.
         output_alias = ctx.alias_registry.register(dim.original_ref)
         grain_col_names.append(output_alias)
 
-        # Physical column actually read from the pre-agg table. It may be remapped
-        # via dimension_columns; otherwise it defaults to the parent's grain
-        # column name. This is independent of the output alias above.
+        # Physical column read from the table, remapped via dimension_columns if
+        # present. Independent of the output alias above.
         physical_col = get_preagg_dimension_column(
             preagg,
             dim.original_ref,
@@ -1910,15 +1906,12 @@ def build_grain_group_from_preagg(
         group_by=group_by,
     )
 
-    # Push filter-only dimension filters into the pre-agg scan, on the physical
-    # column and before the roll-up. The outer metrics query skips these filters
-    # (see references_filter_only_dimension) because each grain group is expected
-    # to apply them itself; without this the predicate lands nowhere and the
-    # result silently over-counts. Filters on projected dimensions are left to the
-    # outer query, matching the pre-agg read the non-filtered case produces.
-    #
-    # Guarded on ctx.filter_dimensions: when there are none -- the common case --
-    # no filter can qualify, and parsing here would be wasted (ANTLR).
+    # Push filter-only dimension filters into the scan, on the physical column and
+    # before the roll-up. The outer query skips these (the grain group is expected
+    # to apply them), so without this the predicate lands nowhere and the result
+    # over-counts. Projected-dimension filters are left to the outer query.
+    # Guarded on filter_dimensions: when empty -- the common case -- nothing can
+    # qualify and the ANTLR parse below would be wasted.
     if ctx.filter_dimensions:
         for filter_str in ctx.dimension_filters or []:
             filter_ast = parse_filter(filter_str)

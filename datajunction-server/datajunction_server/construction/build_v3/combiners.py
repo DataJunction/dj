@@ -594,11 +594,9 @@ async def build_combiner_sql_from_preaggs(
             grain_group_hash,
         )
 
-        # Find a pre-agg that covers the required measures. Measures are compared
-        # by identity token (expression hash + Phase-1 aggregation), not by
-        # expression hash alone, so a SUM-backed pre-agg is not mistaken for a
-        # MAX-backed one over the same expression.
-        # MetricComponent doesn't have expr_hash, so compute it from expression.
+        # Find a pre-agg covering the required measures, compared by identity
+        # token so a SUM-backed pre-agg isn't mistaken for a MAX-backed one.
+        # MetricComponent has no expr_hash, so compute it from the expression.
         required_measure_identities = [
             measure_identity_token(
                 compute_expression_hash(m.expression),

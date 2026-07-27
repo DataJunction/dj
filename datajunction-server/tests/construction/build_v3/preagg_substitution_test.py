@@ -227,13 +227,11 @@ class TestExternalPreAggRouting:
         self,
         client_with_build_v3,
     ):
-        """A pre-agg built with SUM must not satisfy a metric that needs MAX of
-        the same column. ``total_unit_price = SUM(unit_price)`` and
-        ``max_unit_price = MAX(unit_price)`` share the inner expression
-        ``unit_price``; matching on the expression hash alone routed the MAX
-        metric to the SUM pre-agg and computed MAX(sum) instead of MAX(row). The
-        matcher must also require the Phase-1 aggregation to match: the SUM metric
-        keeps using the agg, the MAX metric falls back to the base fact.
+        """A SUM-built pre-agg must not satisfy a metric that needs MAX.
+
+        Both metrics decompose to the expression ``unit_price``, so matching on
+        the hash alone routed MAX to the SUM pre-agg and computed MAX(sum) rather
+        than MAX(row). SUM keeps the agg; MAX falls back to the base fact.
         """
         await _register_external_preagg(
             client_with_build_v3,
@@ -295,14 +293,11 @@ class TestExternalPreAggRouting:
         client_with_build_v3,
     ):
         """One pre-agg can carry several aggregations over the same expression,
-        each bound to its own physical column, and each metric reads its own.
+        each bound to its own column.
 
-        ``total_unit_price`` (SUM) and ``max_unit_price`` (MAX) both decompose to
-        the expression ``unit_price``, so a measure identity of expression-hash
-        alone collapses them: registration kept only the last-declared column and
-        both metrics read it -- the SUM metric summing the MAX column. Identity is
-        (expression hash, Phase-1 aggregation) at registration and at lookup, so
-        both mappings survive and each metric binds the right column.
+        Hash-only identity collapsed them: registration kept only the
+        last-declared column and both metrics read it, so the SUM metric summed
+        the MAX column.
         """
         await _register_external_preagg(
             client_with_build_v3,
@@ -362,16 +357,12 @@ class TestExternalPreAggRouting:
         self,
         client_with_build_v3,
     ):
-        """Two independently-registered pre-aggs over the same expression and grain,
-        differing only in aggregation, are distinct rows -- and each metric routes
-        to its own table.
+        """Two pre-aggs over the same expression and grain, differing only in
+        aggregation, are distinct rows and each metric routes to its own table.
 
-        Registration deduped by expression hash alone, so the SUM-backed and
-        MAX-backed pre-aggs looked like one row: registering the second silently
-        overwrote the first (its measures, columns and table pointer), and the
-        first metric lost its pre-agg. Row identity is the measure identity token,
-        which includes the aggregation -- and so is the unique preagg_hash, so the
-        second row can be stored alongside the first.
+        Hash-only dedup made them look like one row, so registering the second
+        silently overwrote the first. Both row identity and the UNIQUE
+        preagg_hash now include the aggregation.
         """
         for metric, table, column in (
             ("v3.total_unit_price", "unit_price_sum_tbl", "up_sum"),
@@ -802,12 +793,9 @@ class TestExternalPreAggRouting:
         self,
         client_with_build_v3,
     ):
-        """A filter on a dimension that is in the pre-agg grain but rolled away
-        from the requested output must be pushed into the pre-agg scan, on the
-        physical (mapped) column, before the roll-up. Previously the predicate was
-        silently dropped and the result over-counted. Here ``category`` is mapped
-        to physical ``cat`` and is in the agg grain, but the query groups by
-        ``status`` only, so ``category`` is filter-only."""
+        """A filter on a dimension in the pre-agg grain but rolled away from the
+        output is pushed into the scan, on the mapped column, before the roll-up.
+        Previously the predicate was dropped and the result over-counted."""
         await _register_external_preagg(
             client_with_build_v3,
             metrics=["v3.total_revenue"],
@@ -1043,20 +1031,12 @@ class TestExternalPreAggRouting:
         self,
         client_with_build_v3,
     ):
-        """A joined dimension's *key* requested through a differently-named parent
-        foreign-key column reads the mapped physical column and aliases it to the
-        dimension's DJ alias -- the name the outer metrics query references -- not
-        the parent FK column name.
+        """A joined dimension's key, requested through a differently-named parent
+        FK column, is aliased to the DJ alias the outer query references.
 
-        Regression: the pre-agg grain group aliased the grain column to
-        ``dim.column_name`` (the parent FK column, e.g. ``order_date``) instead of
-        the alias-registry alias (``date_id_order``) used by the source-built
-        path. The metrics query then selected ``date_id_order`` from a CTE that
-        only exposed ``order_date``, producing SQL that could not execute.
-        ``order_details.order_date = date.date_id[order]`` exercises this: the
-        requested key ``date.date_id[order]`` is satisfied by the FK
-        ``order_date``, whose name differs from both the DJ alias and the mapped
-        physical column.
+        The grain group used ``dim.column_name`` (the FK, ``order_date``) instead
+        of the alias-registry alias (``date_id_order``), so the metrics query
+        selected a column the CTE never exposed -- SQL that could not execute.
         """
         await _register_external_preagg(
             client_with_build_v3,

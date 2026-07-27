@@ -95,10 +95,9 @@ async def register_external_preaggregations(
     commits its whole plan). Callers must ensure ``query_service_client`` is
     configured. Returns the created/updated pre-aggregations.
     """
-    # 1. Validate each mapped metric is a measure, and map its single component's
+    # 1. Validate each mapped metric is a measure, and map its component's
     #    identity -- (expression hash, Phase-1 aggregation) -- to the declared
-    #    physical column. Keying on the hash alone would collapse measures that
-    #    share an inner expression but aggregate it differently (SUM(x) vs MAX(x)),
+    #    column. Keying on the hash alone would collapse SUM(x) and MAX(x),
     #    silently discarding one metric's declared column.
     measure_identity_to_column: dict[tuple[str, str], str] = {}
     for metric_name, physical_column in measure_columns.items():

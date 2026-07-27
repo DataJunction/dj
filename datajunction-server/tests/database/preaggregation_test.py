@@ -602,14 +602,12 @@ class TestPreAggregationDBMethods:
         session,
         minimal_node_revision,
     ):
-        """A pre-agg stored before measure identity included the aggregation is
-        still matched, and keeps its original preagg_hash.
+        """A pre-agg stored before the identity change is still matched, and
+        keeps its original preagg_hash.
 
-        Rows written by an older server hold a hash computed from expression
-        hashes alone, and that hash names their materialization table. Matching
-        does not consult preagg_hash -- it compares measure identities derived
-        from the stored measures -- so such rows keep matching, keep being updated
-        in place, and keep their table name. No backfill is required.
+        Older rows hold a hash built from expression hashes alone, and that hash
+        names their materialization table. Matching compares identities, not the
+        hash, so such rows keep matching and keep their table name -- no backfill.
         """
         grain_columns = ["test.dim.col"]
         measures = [make_measure("sum_price", "price")]
