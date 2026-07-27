@@ -102,7 +102,9 @@ async def python_client_code_for_setting_column_attributes(
                 ),
             ),
         ],
+        raise_if_not_exists=True,
     )
+    assert node is not None  # raise_if_not_exists=True ensures this
 
     template = jinja_env.get_template("set_column_attributes.j2")
     snippets = [

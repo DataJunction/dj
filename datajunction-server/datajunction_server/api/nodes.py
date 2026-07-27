@@ -1554,7 +1554,9 @@ async def set_column_display_name(
         session,
         node_name,
         options=[joinedload(Node.current)],
+        raise_if_not_exists=True,
     )
+    assert node is not None  # raise_if_not_exists=True ensures this
     column = await get_column(session, node.current, column_name)  # type: ignore
     column.display_name = display_name
     session.add(column)
@@ -1604,7 +1606,9 @@ async def set_column_description(
         session,
         node_name,
         options=[joinedload(Node.current)],
+        raise_if_not_exists=True,
     )
+    assert node is not None  # raise_if_not_exists=True ensures this
     column = await get_column(session, node.current, column_name)  # type: ignore
     column.description = description
     session.add(column)
@@ -1660,7 +1664,9 @@ async def set_column_partition(
                 joinedload(NodeRevision.cube_elements),
             ),
         ],
+        raise_if_not_exists=True,
     )
+    assert node is not None  # raise_if_not_exists=True ensures this
     column = get_node_column(node, column_name)  # type: ignore
     column_identifier = (
         column.cube_element_name if node.type == NodeType.CUBE else column.name
@@ -1737,7 +1743,9 @@ async def remove_column_partition(
                 joinedload(NodeRevision.cube_elements),
             ),
         ],
+        raise_if_not_exists=True,
     )
+    assert node is not None  # raise_if_not_exists=True ensures this
     column = get_node_column(node, column_name)  # type: ignore
     column_identifier = (
         column.cube_element_name if node.type == NodeType.CUBE else column.name
