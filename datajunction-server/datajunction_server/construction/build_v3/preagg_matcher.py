@@ -27,11 +27,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _normalize_aggregation(aggregation: str | None) -> str:
-    """Normalize a Phase-1 aggregation function name for identity comparison."""
-    return (aggregation or "").strip().upper()
-
-
 def get_required_measure_identities(
     grain_group: "GrainGroup",
 ) -> set[tuple[str, str]]:
@@ -50,7 +45,7 @@ def get_required_measure_identities(
     return {
         (
             compute_expression_hash(component.expression),
-            _normalize_aggregation(component.aggregation),
+            component.normalized_aggregation,
         )
         for _, component in grain_group.components
     }
@@ -138,7 +133,7 @@ def find_matching_preagg(
         # Coverage check on (expression hash, Phase-1 aggregation) -- see
         # get_required_measure_identities for why the aggregation is part of it.
         preagg_measures = {
-            (measure.expr_hash, _normalize_aggregation(measure.aggregation))
+            (measure.expr_hash, measure.normalized_aggregation)
             for measure in preagg.measures
             if measure.expr_hash
         }
@@ -175,8 +170,11 @@ def get_preagg_measure_column(
     """
     Find the column name in the pre-agg that corresponds to a metric component.
 
-    Matches by expression hash to ensure we're getting the right column
-    even if names differ.
+    Matches on the full measure identity -- expression hash AND Phase-1
+    aggregation -- so we get the right column even if names differ. The
+    aggregation matters because one pre-agg can hold several measures over the
+    same expression (e.g. SUM(x) and MAX(x)); matching on the hash alone would
+    return whichever came first and could read the wrong column.
 
     Args:
         preagg: The pre-aggregation to search
@@ -185,10 +183,13 @@ def get_preagg_measure_column(
     Returns:
         Column name in the pre-agg, or None if not found
     """
-    target_hash = compute_expression_hash(component.expression)
+    target = (
+        compute_expression_hash(component.expression),
+        component.normalized_aggregation,
+    )
 
     for measure in preagg.measures:
-        if measure.expr_hash == target_hash:
+        if (measure.expr_hash, measure.normalized_aggregation) == target:
             # Externally-registered pre-aggs bind the measure to a physical
             # column name that may differ from the DJ component name.
             return measure.source_column or measure.name

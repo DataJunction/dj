@@ -290,6 +290,74 @@ class TestExternalPreAggRouting:
         )
 
     @pytest.mark.asyncio
+    async def test_external_preagg_same_expression_two_aggregations(
+        self,
+        client_with_build_v3,
+    ):
+        """One pre-agg can carry several aggregations over the same expression,
+        each bound to its own physical column, and each metric reads its own.
+
+        ``total_unit_price`` (SUM) and ``max_unit_price`` (MAX) both decompose to
+        the expression ``unit_price``, so a measure identity of expression-hash
+        alone collapses them: registration kept only the last-declared column and
+        both metrics read it -- the SUM metric summing the MAX column. Identity is
+        (expression hash, Phase-1 aggregation) at registration and at lookup, so
+        both mappings survive and each metric binds the right column.
+        """
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_unit_price", "v3.max_unit_price"],
+            dimensions=["v3.order_details.status"],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "unit_price_both",
+                "valid_through_ts": 20250101,
+            },
+            measure_columns={
+                "v3.total_unit_price": "unit_price_sum",
+                "v3.max_unit_price": "unit_price_max",
+            },
+            table_columns={
+                "status": "string",
+                "unit_price_sum": "double",
+                "unit_price_max": "double",
+            },
+        )
+        sum_response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_unit_price"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+        assert sum_response.status_code == 200
+        assert_sql_equal(
+            get_first_grain_group(sum_response.json())["sql"],
+            """
+            SELECT status, SUM(unit_price_sum) unit_price_sum
+            FROM default.analytics.unit_price_both
+            GROUP BY status
+            """,
+        )
+        max_response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.max_unit_price"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+        assert max_response.status_code == 200
+        assert_sql_equal(
+            get_first_grain_group(max_response.json())["sql"],
+            """
+            SELECT status, MAX(unit_price_max) unit_price_max
+            FROM default.analytics.unit_price_both
+            GROUP BY status
+            """,
+        )
+
+    @pytest.mark.asyncio
     async def test_external_preagg_pending_not_used(self, client_with_build_v3):
         """A registered pre-agg with no availability (no valid_through_ts) is not
         used to answer queries."""
