@@ -27,22 +27,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def get_required_measure_hashes(grain_group: "GrainGroup") -> set[str]:
-    """
-    Get the set of expression hashes for all measures required by a grain group.
-
-    Args:
-        grain_group: The grain group to analyze
-
-    Returns:
-        Set of expression hashes (MD5 hashes of normalized expressions)
-    """
-    return {
-        compute_expression_hash(component.expression)
-        for _, component in grain_group.components
-    }
-
-
 def _normalize_aggregation(aggregation: str | None) -> str:
     """Normalize a Phase-1 aggregation function name for identity comparison."""
     return (aggregation or "").strip().upper()
@@ -109,7 +93,6 @@ def find_matching_preagg(
     if not available:
         return None
 
-    # Get required measure identities (expression hash + Phase-1 aggregation)
     required_measures = get_required_measure_identities(grain_group)
     if not required_measures:
         return None
@@ -152,10 +135,8 @@ def find_matching_preagg(
             )
             continue
 
-        # Check measure coverage: every required measure identity (expression hash
-        # + Phase-1 aggregation) must be present in the pre-agg. Matching on the
-        # aggregation too prevents a MAX/MIN metric from binding to a SUM-built
-        # column (or vice versa) just because they share an inner expression.
+        # Coverage check on (expression hash, Phase-1 aggregation) -- see
+        # get_required_measure_identities for why the aggregation is part of it.
         preagg_measures = {
             (measure.expr_hash, _normalize_aggregation(measure.aggregation))
             for measure in preagg.measures
