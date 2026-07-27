@@ -867,6 +867,76 @@ class TestExternalPreAggRouting:
         )
 
     @pytest.mark.asyncio
+    async def test_external_preagg_projected_and_rolled_up_filters(
+        self,
+        client_with_build_v3,
+    ):
+        """Filters of both kinds in one query land in different places: the
+        rolled-up (filter-only) dimension is pushed into the pre-agg scan, while
+        the projected dimension's filter stays at the outer query -- applied once
+        each, and not swapped.
+        """
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.order_details.status", "v3.product.category"],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "rev_status_cat_both",
+                "valid_through_ts": 20250101,
+            },
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            dimension_columns={"v3.product.category": "cat"},
+            table_columns={"status": "string", "cat": "string", "rev_sum": "double"},
+        )
+        params = {
+            "metrics": ["v3.total_revenue"],
+            "dimensions": ["v3.order_details.status"],
+            "filters": [
+                "v3.order_details.status = 'completed'",
+                "v3.product.category = 'Electronics'",
+            ],
+        }
+        measures_response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params=params,
+        )
+        assert measures_response.status_code == 200
+        # Only the rolled-up `category` predicate is inlined into the scan.
+        assert_sql_equal(
+            get_first_grain_group(measures_response.json())["sql"],
+            """
+            SELECT status, cat category, SUM(rev_sum) rev_sum
+            FROM default.analytics.rev_status_cat_both
+            WHERE cat = 'Electronics'
+            GROUP BY status, cat
+            """,
+        )
+        metrics_response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params=params,
+        )
+        assert metrics_response.status_code == 200
+        # `status` is projected, so its filter is applied over the CTE instead.
+        assert_sql_equal(
+            metrics_response.json()["sql"],
+            """
+            WITH order_details_0 AS (
+                SELECT status, cat category, SUM(rev_sum) rev_sum
+                FROM default.analytics.rev_status_cat_both
+                WHERE cat = 'Electronics'
+                GROUP BY status, cat
+            )
+            SELECT order_details_0.status AS status,
+                   SUM(order_details_0.rev_sum) AS total_revenue
+            FROM order_details_0
+            WHERE order_details_0.status = 'completed'
+            GROUP BY order_details_0.status
+            """,
+        )
+
+    @pytest.mark.asyncio
     async def test_external_preagg_cross_fact_partial_substitution(
         self,
         client_with_build_v3,
