@@ -52,6 +52,55 @@ def test_cube_partition_output_prefers_exact_unqualified_match():
     assert result is exact_column
 
 
+def test_cube_partition_output_rejects_duplicate_exact_matches():
+    """Multiple exact semantic matches cannot be resolved deterministically."""
+    columns = [
+        V3ColumnMetadata(
+            name="date_id_two",
+            type="int",
+            semantic_name="common.date.date_id",
+            semantic_type="dimension",
+        ),
+        V3ColumnMetadata(
+            name="date_id_one",
+            type="int",
+            semantic_name="common.date.date_id",
+            semantic_type="dimension",
+        ),
+    ]
+
+    with pytest.raises(
+        DJInvalidInputException,
+        match=(
+            "matches multiple combined query output columns: "
+            r"\['date_id_one', 'date_id_two'\]"
+        ),
+    ):
+        _resolve_cube_partition_output_column(
+            columns,
+            "common.date.date_id",
+            allow_role_fallback=True,
+        )
+
+
+def test_cube_partition_output_disallows_fallback_for_role_qualified_partition():
+    """A role-qualified partition cannot fall back to a different role."""
+    order_date_column = V3ColumnMetadata(
+        name="date_id_order",
+        type="int",
+        semantic_name="common.date.date_id[order_date]",
+        semantic_type="dimension",
+    )
+
+    result = _resolve_cube_partition_output_column(
+        [order_date_column],
+        "common.date.date_id[ship_date]",
+        allow_role_fallback=False,
+    )
+
+    assert result is None
+
+
 def test_cube_partition_output_allows_unique_role_fallback():
     """A single role match remains valid for legacy bare partitions."""
     role_column = V3ColumnMetadata(
