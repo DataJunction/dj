@@ -925,6 +925,230 @@ class TestExternalPreAggRouting:
         )
 
     @pytest.mark.asyncio
+    async def test_external_preagg_coarsest_covering_agg_wins(
+        self,
+        client_with_build_v3,
+    ):
+        """With two pre-aggs registered on one node at different grains, a query
+        covered by both reads the coarser one, and a query needing a dimension
+        only the finer one carries reads the finer one -- each through its own
+        column mapping.
+        """
+        for table, dimensions, dimension_columns, table_columns in (
+            (
+                "rev_by_status_cat",
+                ["v3.order_details.status", "v3.product.category"],
+                {"v3.product.category": "cat"},
+                {"status": "string", "cat": "string", "rev_sum": "double"},
+            ),
+            (
+                "rev_by_status_cat_day",
+                [
+                    "v3.order_details.status",
+                    "v3.product.category",
+                    "v3.date.date_id[order]",
+                ],
+                {
+                    "v3.product.category": "cat",
+                    "v3.date.date_id[order]": "day_key",
+                },
+                {
+                    "status": "string",
+                    "cat": "string",
+                    "day_key": "int",
+                    "rev_sum": "double",
+                },
+            ),
+        ):
+            await _register_external_preagg(
+                client_with_build_v3,
+                metrics=["v3.total_revenue"],
+                dimensions=dimensions,
+                table_ref={
+                    "catalog": "default",
+                    "schema": "analytics",
+                    "table": table,
+                    "valid_through_ts": 20250101,
+                },
+                measure_columns={"v3.total_revenue": "rev_sum"},
+                dimension_columns=dimension_columns,
+                table_columns=table_columns,
+            )
+
+        # Both cover {status}; the 2-column grain is chosen over the 3-column one.
+        both_response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+        assert both_response.status_code == 200
+        assert_sql_equal(
+            get_first_grain_group(both_response.json())["sql"],
+            """
+            SELECT status, SUM(rev_sum) rev_sum
+            FROM default.analytics.rev_by_status_cat
+            GROUP BY status
+            """,
+        )
+
+        # Only the finer grain carries the order date, so it wins despite being
+        # the larger grain -- and reads its own mapped column.
+        params = {
+            "metrics": ["v3.total_revenue"],
+            "dimensions": ["v3.order_details.status", "v3.date.date_id[order]"],
+        }
+        finer_response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params=params,
+        )
+        assert finer_response.status_code == 200
+        assert_sql_equal(
+            get_first_grain_group(finer_response.json())["sql"],
+            """
+            SELECT status, day_key date_id_order, SUM(rev_sum) rev_sum
+            FROM default.analytics.rev_by_status_cat_day
+            GROUP BY status, day_key
+            """,
+        )
+        metrics_response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params=params,
+        )
+        assert metrics_response.status_code == 200
+        assert_sql_equal(
+            metrics_response.json()["sql"],
+            """
+            WITH order_details_0 AS (
+                SELECT status, day_key date_id_order, SUM(rev_sum) rev_sum
+                FROM default.analytics.rev_by_status_cat_day
+                GROUP BY status, day_key
+            )
+            SELECT order_details_0.status AS status,
+                   order_details_0.date_id_order AS date_id_order,
+                   SUM(order_details_0.rev_sum) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.status, order_details_0.date_id_order
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_external_preagg_two_roles_of_one_dimension(
+        self,
+        client_with_build_v3,
+    ):
+        """Two roles of the same dimension in one pre-agg grain get distinct
+        aliases and bind their own physical columns.
+
+        ``country[from]`` and ``country[to]`` both resolve to the column
+        ``country``, so they must be disambiguated to ``country_from`` /
+        ``country_to``; mapping only the ``to`` role checks the two are bound
+        independently rather than sharing one column.
+        """
+        dimensions = ["v3.location.country[from]", "v3.location.country[to]"]
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=dimensions,
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "rev_by_route",
+                "valid_through_ts": 20250101,
+            },
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            dimension_columns={"v3.location.country[to]": "dest_country"},
+            table_columns={
+                "country_from": "string",
+                "dest_country": "string",
+                "rev_sum": "double",
+            },
+        )
+        params = {"metrics": ["v3.total_revenue"], "dimensions": dimensions}
+        measures_response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params=params,
+        )
+        assert measures_response.status_code == 200
+        assert_sql_equal(
+            get_first_grain_group(measures_response.json())["sql"],
+            """
+            SELECT country_from, dest_country country_to, SUM(rev_sum) rev_sum
+            FROM default.analytics.rev_by_route
+            GROUP BY country_from, dest_country
+            """,
+        )
+        metrics_response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params=params,
+        )
+        assert metrics_response.status_code == 200
+        assert_sql_equal(
+            metrics_response.json()["sql"],
+            """
+            WITH order_details_0 AS (
+                SELECT country_from, dest_country country_to, SUM(rev_sum) rev_sum
+                FROM default.analytics.rev_by_route
+                GROUP BY country_from, dest_country
+            )
+            SELECT order_details_0.country_from AS country_from,
+                   order_details_0.country_to AS country_to,
+                   SUM(order_details_0.rev_sum) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.country_from, order_details_0.country_to
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_external_preagg_order_by_mapped_dimension(
+        self,
+        client_with_build_v3,
+    ):
+        """ORDER BY on a column-mapped dimension sorts on the DJ alias the outer
+        query projects, not the pre-agg's physical column (which is out of scope
+        there).
+        """
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.date.date_id[order]"],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "rev_by_day",
+                "valid_through_ts": 20250101,
+            },
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            dimension_columns={"v3.date.date_id[order]": "day_key"},
+            table_columns={"day_key": "int", "rev_sum": "double"},
+        )
+        metrics_response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.date.date_id[order]"],
+                "orderby": ["v3.date.date_id[order] DESC"],
+            },
+        )
+        assert metrics_response.status_code == 200
+        assert_sql_equal(
+            metrics_response.json()["sql"],
+            """
+            WITH order_details_0 AS (
+                SELECT day_key date_id_order, SUM(rev_sum) rev_sum
+                FROM default.analytics.rev_by_day
+                GROUP BY day_key
+            )
+            SELECT order_details_0.date_id_order AS date_id_order,
+                   SUM(order_details_0.rev_sum) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.date_id_order
+            ORDER BY date_id_order DESC
+            """,
+        )
+
+    @pytest.mark.asyncio
     async def test_external_preagg_cross_fact_partial_substitution(
         self,
         client_with_build_v3,
