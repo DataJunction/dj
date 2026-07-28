@@ -98,10 +98,6 @@ class QueryState(StrEnum):
     FAILED = "FAILED"
 
 
-# sqloxide type hints
-# Reference: https://github.com/sqlparser-rs/sqlparser-rs/blob/main/src/ast/query.rs
-
-
 class Value(TypedDict, total=False):
     Number: Tuple[str, bool]
     SingleQuotedString: str
@@ -322,5 +318,4 @@ class Statement(TypedDict):
     Query: Query
 
 
-# A parse tree, result of ``sqloxide.parse_sql``.
 ParseTree = List[Statement]  # type: ignore

@@ -78,9 +78,6 @@ class QueryState(StrEnum):
 
 END_JOB_STATES = [QueryState.FINISHED, QueryState.CANCELED, QueryState.FAILED]
 
-# sqloxide type hints
-# Reference: https://github.com/sqlparser-rs/sqlparser-rs/blob/main/src/ast/query.rs
-
 
 class Value(TypedDict, total=False):
     Number: Tuple[str, bool]
@@ -302,7 +299,6 @@ class Statement(TypedDict):
     Query: Query
 
 
-# A parse tree, result of ``sqloxide.parse_sql``.
 ParseTree = List[Statement]  # type: ignore
 
 
