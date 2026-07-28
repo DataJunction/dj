@@ -38,6 +38,7 @@ from datajunction_server.database.preaggregation import (
     compute_grain_group_hash,
     compute_expression_hash,
     compute_preagg_hash,
+    get_measure_identities,
 )
 from datajunction_server.errors import (
     DJConfigurationException,
@@ -648,7 +649,7 @@ async def plan_preaggregations(
             session=session,
             node_revision_id=node_revision_id,
             grain_columns=grain_columns,
-            measure_expr_hashes={m.expr_hash for m in measures if m.expr_hash},
+            measure_identities=get_measure_identities(measures),
         )
 
         if existing:

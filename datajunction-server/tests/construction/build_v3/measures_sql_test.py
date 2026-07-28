@@ -4160,7 +4160,7 @@ class TestCombinedMeasuresSQLEndpoint:
         # Source tables should be pre-agg table references
         assert len(data["source_tables"]) >= 1
         assert data["source_tables"] == [
-            "default.dj_preaggs.v3_order_details_preagg_d344b4e3",
+            "default.dj_preaggs.v3_order_details_preagg_0bad539a",
         ]
 
         # Extract the preagg table name for SQL comparison
@@ -4169,7 +4169,7 @@ class TestCombinedMeasuresSQLEndpoint:
             data["sql"],
             """
             SELECT status, SUM(line_total_sum_e1f61696) line_total_sum_e1f61696
-            FROM default.dj_preaggs.v3_order_details_preagg_d344b4e3
+            FROM default.dj_preaggs.v3_order_details_preagg_0bad539a
             GROUP BY status
             """,
         )
@@ -4200,7 +4200,7 @@ class TestCombinedMeasuresSQLEndpoint:
 
         expected_table = (
             f"{settings.preagg_catalog}.{settings.preagg_schema}"
-            f".v3_order_details_preagg_d344b4e3"
+            f".v3_order_details_preagg_0bad539a"
         )
 
         # Source tables should include the configured catalog.schema prefix

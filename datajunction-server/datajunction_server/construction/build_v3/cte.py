@@ -147,6 +147,35 @@ def strip_role_suffix(ref: str) -> str:
     return ref
 
 
+def references_filter_only_dimension(
+    filter_ast: ast.Expression,
+    filter_dimensions: set[str],
+) -> bool:
+    """
+    Whether a filter references a "filter-only" dimension -- in a grain group but
+    not projected into the output.
+
+    Shared by the metrics builder (which skips these at the outer query) and the
+    grain-group builders (which must apply them at their CTE); both sides have to
+    agree, so both call this.
+
+    Role-qualified refs parse as ``Subscript(Column("dim.col"), Column("role"))``,
+    so ``find_all(ast.Column)`` sees only the base column -- hence the separate
+    pass against role-stripped names.
+    """
+    base_refs = {strip_role_suffix(ref) for ref in filter_dimensions}
+    if any(
+        isinstance(subscript.expr, ast.Column)
+        and get_column_full_name(subscript.expr) in base_refs
+        for subscript in filter_ast.find_all(ast.Subscript)
+    ):
+        return True
+    return any(
+        get_column_full_name(col) in filter_dimensions
+        for col in filter_ast.find_all(ast.Column)
+    )
+
+
 def extract_dim_info_from_grain_groups(
     grain_groups: list[GrainGroupSQL],
 ) -> list[tuple[str, str]]:
