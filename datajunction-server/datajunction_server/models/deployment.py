@@ -20,6 +20,7 @@ from datajunction_server.errors import (
 )
 from datajunction_server.models.base import labelize
 from datajunction_server.models.dimensionlink import (
+    JoinCardinality,
     JoinType,
     LinkType,
     SparkJoinStrategy,
@@ -338,6 +339,7 @@ class DimensionJoinLinkSpec(DimensionLinkSpec):
 
     node_column: str | None = None
     join_type: JoinType = JoinType.LEFT
+    join_cardinality: JoinCardinality = JoinCardinality.MANY_TO_ONE
     join_on: str | None = None
     default_value: str | None = None
     spark_hints: SparkJoinStrategy | None = None
@@ -365,6 +367,7 @@ class DimensionJoinLinkSpec(DimensionLinkSpec):
                 self.role,
                 self.rendered_dimension_node,
                 self.join_type,
+                self.join_cardinality,
                 self.rendered_join_on,
                 self.node_column,
                 self.default_value,
@@ -378,6 +381,7 @@ class DimensionJoinLinkSpec(DimensionLinkSpec):
             super().__eq__(other)
             and self.rendered_dimension_node == other.rendered_dimension_node
             and self.join_type == other.join_type
+            and self.join_cardinality == other.join_cardinality
             and self.rendered_join_on == other.rendered_join_on
             and self.node_column == other.node_column
             and self.default_value == other.default_value

@@ -2144,6 +2144,7 @@ class DeploymentOrchestrator:
             link_input = JoinLinkInput(
                 dimension_node=join_link.rendered_dimension_node,
                 join_type=join_link.join_type,
+                join_cardinality=join_link.join_cardinality,
                 join_on=join_link.rendered_join_on,
                 role=join_link.role,
                 default_value=join_link.default_value,
@@ -2188,6 +2189,9 @@ class DeploymentOrchestrator:
             if link_spec.type == LinkType.JOIN:
                 join_link = cast(DimensionJoinLinkSpec, link_spec)
                 link_details["join_type"] = join_link.join_type
+                # Cardinality drives fan-out warnings at query time, so a change to
+                # it has to be visible in history alongside the join it describes.
+                link_details["join_cardinality"] = join_link.join_cardinality
                 link_details["join_on"] = join_link.rendered_join_on
 
             self.session.add(
