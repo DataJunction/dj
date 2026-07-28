@@ -40,6 +40,11 @@ from datajunction_server.errors import (
     DJWarning,
     ErrorCode,
 )
+from datajunction_server.internal.access.authorization import (
+    AccessChecker,
+    AccessDenialMode,
+)
+from datajunction_server.internal.access.authorization.context import AuthContext
 from datajunction_server.internal.deployment.utils import (
     classify_parents,
     extract_node_graph,
@@ -60,6 +65,7 @@ from datajunction_server.sql.dag import get_metric_parents_map
 from datajunction_server.internal.nodes import (
     derive_frozen_measures_bulk,
 )
+from datajunction_server.models.access import ResourceAction
 from datajunction_server.models.base import labelize
 from datajunction_server.models.deployment import (
     ColumnSpec,
@@ -436,12 +442,8 @@ class DeploymentOrchestrator:
 
         self._guard_against_accidental_wipe(deployment_plan)
 
-        # Fail-closed authorization in the internal mutation path. The HTTP
-        # entrypoint only checked WRITE on the deployment's root namespace, but
-        # the orchestrator runs detached and bulk-mutates nodes/namespaces;
-        # #2234 step 0 requires every mutation path to authorize with the
-        # correct action. A denial raises inside the SAVEPOINT, rolling back
-        # setup-phase writes.
+        # Authorize before any of the plan is applied; a denial raises inside the
+        # SAVEPOINT, so setup-phase writes roll back too.
         await self._authorize_deployment_plan(deployment_plan)
 
         if deployment_plan.is_empty() and not self.deployment_spec.hierarchies:
@@ -481,15 +483,6 @@ class DeploymentOrchestrator:
         removed. Names are the rendered (fully-qualified) names, since that is
         what the deploy actually mutates and what RBAC scopes match against.
         """
-        from datajunction_server.internal.access.authorization import (
-            AccessChecker,
-            AccessDenialMode,
-        )
-        from datajunction_server.internal.access.authorization.context import (
-            AuthContext,
-        )
-        from datajunction_server.models.access import ResourceAction
-
         auth_context = await AuthContext.from_user(
             self.session,
             self.context.current_user,
