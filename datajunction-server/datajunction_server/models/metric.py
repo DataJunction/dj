@@ -8,6 +8,7 @@ from pydantic.main import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.node import Node
+from datajunction_server.errors import DJWarning
 from datajunction_server.models.cube_materialization import MetricComponent
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.node import (
@@ -124,6 +125,8 @@ class TranslatedSQL(TranspiledSQL):
     dialect: Dialect | None = None
     upstream_tables: list[str] | None = None
     scan_estimate: ScanEstimate | None = None
+    # Populated on the v3 build path only; the v2 builder raises no warnings.
+    warnings: list[DJWarning] = []
 
     @classmethod
     def create(cls, *, dialect: Dialect | None = None, **kwargs):
@@ -153,3 +156,5 @@ class V3TranslatedSQL(BaseModel):
 
     # Scan estimate (aggregated from all grain groups)
     scan_estimate: ScanEstimate | None = None
+
+    warnings: list[DJWarning] = []

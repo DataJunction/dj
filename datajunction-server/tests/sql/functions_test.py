@@ -343,6 +343,12 @@ async def test_array_agg(session: AsyncSession):
     assert not exc.errors
     assert query.select.projection[0].type == ct.ListType(element_type=ct.StringType())  # type: ignore
 
+    # ARRAY_AGG is the ANSI spelling of COLLECT_LIST and aggregates like it.
+    # Anything keying off is_aggregation (metric validation, the fan-out guard)
+    # silently mishandles it otherwise.
+    assert query.select.projection[0].function().is_aggregation is True  # type: ignore
+    assert query.select.projection[0].is_aggregation() is True  # type: ignore
+
 
 @pytest.mark.asyncio
 async def test_array_append(session: AsyncSession):

@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, computed_field, field_validator
 
-from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.errors import DJInvalidInputException, DJWarning
 from datajunction_server.models.column import SemanticType
 from datajunction_server.models.decompose import (
     Aggregability,
@@ -607,6 +607,8 @@ class CubeMaterializeResponse(BaseModel):
 
     # Status
     message: str
+
+    warnings: list[DJWarning] = []
 
 
 class CubeMaterializationV2Input(BaseModel):

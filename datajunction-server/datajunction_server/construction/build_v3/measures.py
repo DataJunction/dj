@@ -31,6 +31,8 @@ from datajunction_server.construction.build_v3.decomposition import (
 )
 from datajunction_server.construction.build_v3.dimensions import (
     build_join_clause,
+    check_fanout_safety,
+    find_unsafe_cardinality_links,
     parse_dimension_ref,
     resolve_dimensions,
     resolve_metric_expression_dimensions,
@@ -2355,6 +2357,16 @@ def build_grain_group_sql(
     )
     effective_resolved_dimensions = resolved_dimensions + extra_dimensions
 
+    # Judge fan-out risk over the dimensions actually emitted — including join-only
+    # dims pulled in by metric expressions, which aren't in the requested set.
+    ctx.add_warning(
+        check_fanout_safety(
+            ctx,
+            grain_group,
+            find_unsafe_cardinality_links(effective_resolved_dimensions),
+        ),
+    )
+
     # Build AST
     # For non-decomposable metrics (NONE aggregability with no components),
     # we pass through raw rows without aggregation
@@ -2578,7 +2590,8 @@ def process_metric_group(
     # Resolve dimensions (find join paths) - shared across grain groups
     resolved_dimensions = resolve_dimensions(ctx, parent_node)
 
-    # Build SQL for each grain group
+    # Build SQL for each grain group. Fan-out risk is flagged inside
+    # build_grain_group_sql, where the full set of emitted join paths is known.
     grain_group_sqls: list[GrainGroupSQL] = []
     for grain_group in grain_groups:
         # Reset alias registry for each grain group to avoid conflicts

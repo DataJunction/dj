@@ -645,6 +645,88 @@ def get_decomposition(func_class: type) -> AggDecomposition | None:
     return decomp_class()
 
 
+def merge_inflates(merge: str | None) -> bool:
+    """
+    Whether re-applying this merge over duplicated rows inflates the result.
+
+    Only a SUM merge re-adds the duplicates; MIN/MAX/hll_union_agg are idempotent,
+    and a DISTINCT component has no merge at all. Callers holding an extracted
+    MetricComponent use this; callers holding the original call use
+    is_duplication_invariant.
+    """
+    return merge == "SUM"
+
+
+# Aggregations that duplicate rows cannot inflate, but that have no decomposition to
+# read a merge from. The bar is "extra copies of a row cannot change the answer", not
+# "the answer is deterministic": a pick-one-row aggregation qualifies even though which
+# row it picks is arbitrary, matching the verdict ANY_VALUE already gets from its
+# ANY_VALUE merge. Anything sensitive to how many times a row appears -- ARRAY_AGG,
+# COLLECT_LIST, MEDIAN, PERCENTILE, COUNT_MIN_SKETCH, the moment-based stats -- stays
+# off the list and is treated as sensitive by default.
+DUPLICATION_INVARIANT_AGGREGATIONS = frozenset(
+    {
+        # Picks a single row. dj_functions.Last is deliberately absent: LAST is a
+        # grammar keyword (ORDER BY ... NULLS LAST), so LAST(x) doesn't parse and
+        # can never reach a metric query.
+        dj_functions.MaxBy,
+        dj_functions.MinBy,
+        dj_functions.First,
+        dj_functions.FirstValue,
+        dj_functions.LastValue,
+        # Reads a set of distinct values
+        dj_functions.CollectSet,
+        dj_functions.ApproxCountDistinctDsHll,
+        dj_functions.ApproxCountDistinctDsTheta,
+        dj_functions.HllSketchAgg,
+        dj_functions.HllUnionAgg,
+        # Sketch merges: row-wise in Spark/Druid rather than true aggregates, but
+        # idempotent either way, so duplication can't move them.
+        dj_functions.HllUnion,
+        dj_functions.HllSketchUnion,
+        # Idempotent boolean AND
+        dj_functions.Every,
+    },
+)
+
+
+def is_duplication_invariant(func: ast.Function) -> bool:
+    """
+    Whether row duplication (e.g. from a fan-out join) leaves this aggregation call's
+    result unchanged.
+
+    DISTINCT reads a set, so it's invariant whatever the function. Otherwise the merge
+    decides, for the aggregations that decompose. The rest have no merge to read, so
+    the ones known to survive duplication are listed in
+    DUPLICATION_INVARIANT_AGGREGATIONS and the remainder are assumed sensitive
+    (fail closed).
+    """
+    if func.quantifier == ast.SetQuantifier.Distinct:
+        return True
+    func_class = func.function()
+    if func_class in DUPLICATION_INVARIANT_AGGREGATIONS:
+        return True
+    decomposition = get_decomposition(func_class)
+    if decomposition is None:
+        return False
+    return not any(
+        merge_inflates(component.merge) for component in decomposition.components
+    )
+
+
+def is_metric_duplication_sensitive(query_ast: ast.Query) -> bool:
+    """
+    Whether row duplication (e.g. from a fan-out join) changes this metric's result:
+    true if any aggregation it applies inflates under duplication.
+    """
+    for func in query_ast.find_all(ast.Function):
+        if not func.function().is_aggregation:
+            continue
+        if not is_duplication_invariant(func):
+            return True
+    return False
+
+
 # =============================================================================
 # Decomposition Result
 # =============================================================================
