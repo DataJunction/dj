@@ -22,6 +22,7 @@ from datajunction_server.database.preaggregation import (
     compute_expression_hash,
     compute_grain_group_hash,
     compute_preagg_hash,
+    get_measure_identities,
 )
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.decompose import PreAggMeasure
@@ -94,9 +95,11 @@ async def register_external_preaggregations(
     commits its whole plan). Callers must ensure ``query_service_client`` is
     configured. Returns the created/updated pre-aggregations.
     """
-    # 1. Validate each mapped metric is a measure, and map its single component's
-    #    expression hash to the declared physical column.
-    measure_hash_to_column: dict[str, str] = {}
+    # 1. Validate each mapped metric is a measure, and map its component's
+    #    identity -- (expression hash, Phase-1 aggregation) -- to the declared
+    #    column. Keying on the hash alone would collapse SUM(x) and MAX(x),
+    #    silently discarding one metric's declared column.
+    measure_identity_to_column: dict[tuple[str, str], str] = {}
     for metric_name, physical_column in measure_columns.items():
         node = await Node.get_by_name(
             session,
@@ -123,9 +126,13 @@ async def register_external_preaggregations(
             )
         components, _ = await MetricComponentExtractor(node.current.id).extract(session)
         # is_measure guarantees exactly one component.
-        measure_hash_to_column[compute_expression_hash(components[0].expression)] = (
-            physical_column
-        )
+        component = components[0]
+        measure_identity_to_column[
+            (
+                compute_expression_hash(component.expression),
+                component.normalized_aggregation,
+            )
+        ] = physical_column
 
     # 2. Decompose the requested metrics into grain groups (no SQL is executed).
     measures_result = await build_measures_sql(
@@ -190,15 +197,18 @@ async def register_external_preaggregations(
         grain_measures: list[PreAggMeasure] = []
         for component in grain_group.components:
             expr_hash = compute_expression_hash(component.expression)
-            if expr_hash not in measure_hash_to_column:
+            identity = (expr_hash, component.normalized_aggregation)
+            if identity not in measure_identity_to_column:
                 raise DJInvalidInputException(
                     message=(
-                        f"Measure '{component.name}' required by the requested "
+                        f"Measure '{component.name}' "
+                        f"({component.normalized_aggregation} over "
+                        f"'{component.expression}') required by the requested "
                         f"metrics is not covered by measure_columns. Add the "
                         f"is_measure metric it corresponds to."
                     ),
                 )
-            physical_column = measure_hash_to_column[expr_hash]
+            physical_column = measure_identity_to_column[identity]
             measure_name = grain_group.component_aliases.get(
                 component.name,
                 component.name,
@@ -251,7 +261,7 @@ async def register_external_preaggregations(
             session=session,
             node_revision_id=node_revision_id,
             grain_columns=grain_columns,
-            measure_expr_hashes={m.expr_hash for m in grain_measures if m.expr_hash},
+            measure_identities=get_measure_identities(grain_measures),
         )
         if existing:
             existing.measures = grain_measures

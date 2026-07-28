@@ -80,36 +80,58 @@ def compute_grain_group_hash(
     return hashlib.md5(content.encode()).hexdigest()
 
 
-def get_measure_expr_hashes(measures: List[PreAggMeasure]) -> Set[str]:
+def measure_identity_token(expr_hash: str, aggregation: str | None) -> str:
     """
-    Extract expression hashes from a list of measures.
+    Canonical token identifying one measure: expression hash plus Phase-1
+    aggregation.
+
+    The hash alone is not an identity -- ``SUM(x)`` and ``MAX(x)`` hash alike --
+    and a partial is reusable only by a metric that accumulates the same way.
+    Everything comparing or hashing measures goes through this.
+    """
+    return f"{expr_hash}:{(aggregation or '').strip().upper()}"
+
+
+def get_measure_identities(measures: List[PreAggMeasure]) -> Set[str]:
+    """
+    Identity tokens for a list of measures (see ``measure_identity_token``).
 
     Args:
         measures: List of PreAggMeasure objects
 
     Returns:
-        Set of expression hashes
+        Set of identity tokens
     """
-    return {m.expr_hash for m in measures if m.expr_hash}
+    return {
+        measure_identity_token(m.expr_hash, m.aggregation)
+        for m in measures
+        if m.expr_hash
+    }
 
 
 def compute_preagg_hash_from_hashes(
     node_revision_id: int,
     grain_columns: List[str],
-    measure_hashes: List[str],
+    measure_identities: List[str],
 ) -> str:
     """
-    Compute a unique hash for a pre-aggregation from expression hashes.
+    Compute a unique hash for a pre-aggregation from measure identity tokens.
 
     This hash uniquely identifies a pre-aggregation by combining:
     - node_revision_id: Which node version
     - grain_columns: What dimensions we're grouping by
-    - measure_hashes: Expression hashes for the measures
+    - measure_identities: Identity tokens for the measures (expression hash plus
+      Phase-1 aggregation -- see ``measure_identity_token``)
+
+    The aggregation matters here because this hash is UNIQUE-constrained: without
+    it, SUM- and MAX-backed pre-aggs over the same expression and grain collide.
+    Computed only at insert -- existing rows keep their stored value, and so keep
+    their materialization table names.
 
     Args:
         node_revision_id: The ID of the node revision
         grain_columns: Fully qualified dimension/column references
-        measure_hashes: List of expression hashes
+        measure_identities: List of measure identity tokens
 
     Returns:
         MD5 hash string (8 chars) uniquely identifying this pre-agg
@@ -117,7 +139,7 @@ def compute_preagg_hash_from_hashes(
     content = (
         f"{node_revision_id}:"
         f"{json.dumps(sorted(grain_columns))}:"
-        f"{json.dumps(sorted(measure_hashes))}"
+        f"{json.dumps(sorted(measure_identities))}"
     )
     return hashlib.md5(content.encode()).hexdigest()[:8]
 
@@ -133,7 +155,7 @@ def compute_preagg_hash(
     This hash uniquely identifies a pre-aggregation by combining:
     - node_revision_id: Which node version
     - grain_columns: What dimensions we're grouping by
-    - measure expr_hashes: What aggregations we're computing
+    - measure identities: What we're computing, and how we aggregate it
 
     Args:
         node_revision_id: The ID of the node revision
@@ -143,11 +165,10 @@ def compute_preagg_hash(
     Returns:
         MD5 hash string (8 chars) uniquely identifying this pre-agg
     """
-    measure_hashes = [m.expr_hash for m in measures if m.expr_hash]
     return compute_preagg_hash_from_hashes(
         node_revision_id,
         grain_columns,
-        measure_hashes,
+        sorted(get_measure_identities(measures)),
     )
 
 
@@ -418,13 +439,15 @@ class PreAggregation(Base):
         session: AsyncSession,
         node_revision_id: int,
         grain_columns: List[str],
-        measure_expr_hashes: Set[str],
+        measure_identities: Set[str],
     ) -> Optional["PreAggregation"]:
         """
         Find an existing pre-agg that covers the requested measures.
 
-        Looks up by grain_group_hash, then checks if any candidate
-        has a superset of the required measures (by expr_hash).
+        Looks up by grain_group_hash, then finds a candidate whose measures are a
+        superset of those required, compared by identity token. Comparing bare
+        expression hashes made SUM- and MAX-backed pre-aggs look like one row, so
+        registering either silently overwrote the other.
 
         Returns:
             Matching PreAggregation if found, None otherwise
@@ -433,8 +456,7 @@ class PreAggregation(Base):
         candidates = await cls.get_by_grain_group_hash(session, grain_group_hash)
 
         for candidate in candidates:
-            existing_hashes = get_measure_expr_hashes(candidate.measures)
-            if measure_expr_hashes <= existing_hashes:
+            if measure_identities <= get_measure_identities(candidate.measures):
                 return candidate
 
         return None

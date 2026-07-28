@@ -99,6 +99,17 @@ class MetricComponent(BaseModel):
     # valid and consistent with what decompose.py computed.
     grain_alias: str | None = None
 
+    @property
+    def normalized_aggregation(self) -> str:
+        """
+        Phase-1 aggregation function, normalized for identity comparison.
+
+        A measure is identified by (expression, aggregation), not expression
+        alone. Matching, column binding and registration all compare this, so
+        normalization lives with the model rather than at each call site.
+        """
+        return (self.aggregation or "").strip().upper()
+
 
 class PreAggMeasure(MetricComponent):
     """
