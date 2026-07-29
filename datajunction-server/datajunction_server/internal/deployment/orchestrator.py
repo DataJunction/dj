@@ -1850,10 +1850,14 @@ class DeploymentOrchestrator:
 
         # Load all dependencies once upfront (not per-level).
         # The registry is checked first, so only external deps hit the DB.
+        # Loads from the ordering graph, not plan.node_graph, so a dimension node
+        # reached only through required_dimensions is loaded even when this deploy
+        # doesn't touch it — otherwise the metric's required dims resolve to nothing.
+        # These stay ordering-only: parent classification still uses plan.node_graph.
         t = time.perf_counter()
         is_copy = all(s._skip_validation for s in plan.to_deploy)
         dependency_nodes = await self.get_dependencies(
-            plan.node_graph,
+            ordering_graph,
             skip_type_reparsing=is_copy,
         )
         timer.record(
@@ -4173,11 +4177,23 @@ class DeploymentOrchestrator:
                     if parent.current
                     for col in parent.current.columns
                 ]
-                _, matched_columns = _resolve_required_dimensions(
+                unresolved, matched_columns = _resolve_required_dimensions(
                     metric_spec.rendered_required_dimensions,
                     parent_columns,
                     dependency_nodes,
                 )
+                if unresolved:
+                    # Validation rejects unresolvable required dims before we get here,
+                    # so this means the two disagree — or validation was skipped (branch
+                    # copies). Say so: dropping them silently loses the constraint with
+                    # no trace, and the metric then aggregates over the dimension.
+                    logger.warning(
+                        "Metric %s: required dimensions %s did not resolve to a column "
+                        "and were dropped. Bound: %s",
+                        metric_spec.rendered_name,
+                        sorted(unresolved),
+                        [col.full_name() for col in matched_columns],
+                    )
                 new_revision.required_dimensions = matched_columns
         return new_revision
 

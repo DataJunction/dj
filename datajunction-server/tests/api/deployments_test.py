@@ -1427,6 +1427,66 @@ class TestDeployments:
         assert link_result["status"] == "failed"
 
     @pytest.mark.asyncio
+    async def test_required_dimensions_kept_when_dim_node_not_redeployed(
+        self,
+        client,
+        default_hard_hats,
+    ):
+        """
+        A metric's required_dimensions must survive a redeploy where the dimension node
+        it points at is unchanged.
+
+        The dimension node is reachable only through required_dimensions — it is not a
+        query parent of the metric — so it drops out of the deployment's node graph on
+        any run that doesn't also deploy it. It must still be bound to the metric.
+        """
+        namespace = "required_dims_redeploy"
+        metric_name = f"{namespace}.default.num_hard_hats"
+
+        dim_spec = DimensionSpec(
+            name="default.hard_hat",
+            description="Hard hat dimension",
+            query=(
+                "SELECT hard_hat_id, last_name, first_name "
+                "FROM ${prefix}default.hard_hats"
+            ),
+            primary_key=["hard_hat_id"],
+            owners=["dj"],
+        )
+        metric_spec = MetricSpec(
+            name="default.num_hard_hats",
+            description="Number of hard hats",
+            query="SELECT COUNT(*) FROM ${prefix}default.hard_hats",
+            owners=["dj"],
+            required_dimensions=["${prefix}default.hard_hat.hard_hat_id"],
+        )
+        nodes_list = [default_hard_hats, dim_spec, metric_spec]
+
+        # First deploy: the dimension node is part of this deployment.
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+        response = await client.get(f"/metrics/{metric_name}")
+        assert response.json()["required_dimensions"] == ["hard_hat_id"]
+
+        # Redeploy with only the metric changed, so the dimension node is left alone.
+        metric_spec.description = "Total number of hard hats"
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+        response = await client.get(f"/metrics/{metric_name}")
+        assert response.json()["required_dimensions"] == ["hard_hat_id"]
+
+        # Both surfaces report the binding — /nodes used to omit the field entirely,
+        # which is what made the empty value easy to miss.
+        response = await client.get(f"/nodes/{metric_name}")
+        assert response.json()["required_dimensions"] == ["hard_hat_id"]
+
+    @pytest.mark.asyncio
     async def test_deploy_failed_with_bad_node_spec_pk(
         self,
         client,

@@ -1067,6 +1067,7 @@ class NodeOutput(GenericNodeOutputModel):
     materializations: list[MaterializationConfigOutput]
     parents: list[NodeNameOutput]
     metric_metadata: MetricMetadataOutput | None = None
+    required_dimensions: List[str] = []
     dimension_links: list[LinkDimensionOutput] = Field(default_factory=list)
     created_at: UTCDatetime
     created_by: UserNameOnly | None = None
@@ -1078,6 +1079,19 @@ class NodeOutput(GenericNodeOutputModel):
     cube_filters: list[str] | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("required_dimensions", mode="before")
+    def convert_required_dimensions(cls, required_dimensions):
+        """
+        Validator for required_dimensions
+
+        Renders the bound columns as their column names, so a metric reports the
+        same required dimensions here as it does from `GET /metrics/{name}`.
+        """
+        return [
+            dimension.name if hasattr(dimension, "name") else dimension
+            for dimension in required_dimensions or []
+        ]
 
     @classmethod
     def load_options(cls):
