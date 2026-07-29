@@ -1345,8 +1345,18 @@ def build_select_ast(
     #
     # Skip adding to projection if the column was already projected as a dimension
     # (e.g., order_id requested as both a dimension and a COUNT DISTINCT level).
+    # Two dedup sets: the projection emits a grain column bare, so it collides on
+    # output aliases, while GROUP BY groups dimensions by their source column.
+    # Using source names for the projection drops the grain column whenever its
+    # dimension is aliased differently (e.g. a role-qualified ref to the same
+    # column), leaving a LIMITED wrapper referencing a column the CTE never emitted.
     projected_dim_col_names = {
         rd.column_name
+        for rd in resolved_dimensions
+        if rd.original_ref not in ctx.filter_dimensions
+    }
+    projected_dim_aliases = {
+        ctx.alias_registry.register(rd.original_ref)
         for rd in resolved_dimensions
         if rd.original_ref not in ctx.filter_dimensions
     }
@@ -1356,7 +1366,7 @@ def build_select_ast(
             col_name = gc_expr.name.name
             col_ref = make_column_ref(col_name, main_alias)
             grain_col_refs.append(col_ref)
-            if col_name not in projected_dim_col_names:
+            if col_name not in projected_dim_aliases:
                 projection.append(col_ref)
         else:
             _rewrite_col_refs(gc_expr, main_alias)
@@ -2232,8 +2242,9 @@ def build_grain_group_sql(
     # Skip plain grain columns that are already represented as a requested dimension
     # to avoid duplicate entries (e.g., order_id requested as both a dimension and
     # the COUNT DISTINCT level column).
-    projected_dim_col_names_meta = {
-        rd.column_name
+    # Compare output names, matching the projection's dedup.
+    projected_dim_aliases_meta = {
+        ctx.alias_registry.register(rd.original_ref)
         for rd in resolved_dimensions
         if rd.original_ref not in ctx.filter_dimensions
     }
@@ -2243,7 +2254,7 @@ def build_grain_group_sql(
     ]
 
     for gc, gc_alias in zip(effective_grain_columns, effective_grain_aliases):
-        if gc in projected_dim_col_names_meta:
+        if gc_alias in projected_dim_aliases_meta:
             continue
         col_type = get_column_type(parent_node, gc_alias)
         columns_metadata.append(

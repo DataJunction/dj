@@ -1163,7 +1163,7 @@ class TestExternalPreAggRouting:
         await _register_external_preagg(
             client_with_build_v3,
             metrics=["v3.total_revenue"],
-            dimensions=["v3.customer.customer_id"],
+            dimensions=["v3.customer.customer_id[customer]"],
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
@@ -1177,7 +1177,7 @@ class TestExternalPreAggRouting:
             "/sql/metrics/v3/",
             params={
                 "metrics": ["v3.revenue_per_visitor"],
-                "dimensions": ["v3.customer.customer_id"],
+                "dimensions": ["v3.customer.customer_id[customer]"],
             },
         )
         assert metrics_response.status_code == 200
@@ -1190,23 +1190,31 @@ class TestExternalPreAggRouting:
                 FROM default.v3.page_views
             ),
             order_details_0 AS (
-                SELECT customer_id, SUM(revenue_sum) revenue_sum
+                SELECT customer_id_customer, SUM(revenue_sum) revenue_sum
                 FROM default.analytics.revenue_by_customer
-                GROUP BY customer_id
+                GROUP BY customer_id_customer
             ),
             page_views_enriched_0 AS (
-                SELECT t1.customer_id
+                SELECT t1.customer_id customer_id_customer, t1.customer_id
                 FROM v3_page_views_enriched t1
                 GROUP BY t1.customer_id
+            ),
+            page_views_enriched_0_agg AS (
+                SELECT customer_id_customer,
+                       COUNT(DISTINCT customer_id) customer_id
+                FROM page_views_enriched_0
+                GROUP BY customer_id_customer
             )
-            SELECT COALESCE(order_details_0.customer_id,
-                            page_views_enriched_0.customer_id) AS customer_id,
+            SELECT COALESCE(order_details_0.customer_id_customer,
+                            page_views_enriched_0_agg.customer_id_customer)
+                       AS customer_id_customer,
                    SUM(order_details_0.revenue_sum)
-                   / NULLIF(COUNT(DISTINCT page_views_enriched_0.customer_id), 0)
+                   / NULLIF(MAX(page_views_enriched_0_agg.customer_id), 0)
                    AS revenue_per_visitor
             FROM order_details_0
-            FULL OUTER JOIN page_views_enriched_0
-                ON order_details_0.customer_id = page_views_enriched_0.customer_id
+            FULL OUTER JOIN page_views_enriched_0_agg
+                ON order_details_0.customer_id_customer
+                   = page_views_enriched_0_agg.customer_id_customer
             GROUP BY 1
             """,
         )
@@ -1319,6 +1327,74 @@ class TestExternalPreAggRouting:
             GROUP BY order_details_0.date_id_order
             """,
         )
+
+    @pytest.mark.asyncio
+    async def test_external_preagg_rejects_unqualified_role_dimension(
+        self,
+        client_with_build_v3,
+    ):
+        """An unqualified reference to a role-linked dimension is rejected.
+
+        Grain matching compares reference strings, so registering the bare name
+        would build a grain no query can ask for -- the catalog only advertises
+        the role-qualified form -- and queries would silently fall back to source.
+        Locally-owned columns and role-free links are unaffected.
+        """
+        rejected = await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.location.country"],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "revenue_by_country",
+            },
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            table_columns={"country": "string", "rev_sum": "double"},
+            expected_status=422,
+        )
+        message = rejected.json()["message"]
+        assert "must be role-qualified" in message
+        assert "v3.location.country[from]" in message
+        assert "v3.location.country[to]" in message
+
+        # References that are legal stay legal: a role-qualified dimension, a
+        # locally-owned column, the FK column behind a join, and a role-free link.
+        for dimension, table, columns in (
+            (
+                "v3.location.country[from]",
+                "revenue_by_from_country",
+                {"country_from": "string", "rev_sum": "double"},
+            ),
+            (
+                "v3.order_details.status",
+                "revenue_by_status_local",
+                {"status": "string", "rev_sum": "double"},
+            ),
+            (
+                "v3.order_details.order_date",
+                "revenue_by_order_date",
+                {"order_date": "int", "rev_sum": "double"},
+            ),
+            (
+                "v3.product.category",
+                "revenue_by_category_plain",
+                {"category": "string", "rev_sum": "double"},
+            ),
+        ):
+            await _register_external_preagg(
+                client_with_build_v3,
+                metrics=["v3.total_revenue"],
+                dimensions=[dimension],
+                table_ref={
+                    "catalog": "default",
+                    "schema": "analytics",
+                    "table": table,
+                    "valid_through_ts": 20250101,
+                },
+                measure_columns={"v3.total_revenue": "rev_sum"},
+                table_columns=columns,
+            )
 
     @pytest.mark.asyncio
     async def test_external_preagg_dimension_column_must_exist(

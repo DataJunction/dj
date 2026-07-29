@@ -32,6 +32,7 @@ from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.preaggregation import ExternalPreAggTable
 from datajunction_server.models.query import V3ColumnMetadata
 from datajunction_server.service_clients import QueryServiceClient
+from datajunction_server.sql.dag import get_dimensions
 from datajunction_server.sql.decompose import MetricComponentExtractor
 
 
@@ -71,6 +72,54 @@ def assert_column_type_compatible(
                 f"type-compatible with {subject} (expected {expected})."
             ),
         )
+
+
+async def assert_dimension_refs_are_role_qualified(
+    session: AsyncSession,
+    measures_result,
+    dimensions: list[str],
+) -> None:
+    """
+    Reject an unqualified dimension reference whose dimension node is only
+    reachable through role-carrying links.
+
+    Grain matching compares dimension reference strings, so a registration only
+    serves queries that spell each dimension the same way. Where a link declares a
+    role, the role is part of the canonical reference and the only form the catalog
+    advertises -- registering the bare name would build a grain nothing can ask
+    for, and queries would silently fall back to the source.
+
+    Only refs with a role-qualified counterpart are rejected. A locally-owned
+    column has no dimension node and no role, so it is left alone.
+    """
+    unqualified = [ref for ref in dimensions if "[" not in ref]
+    if not unqualified:
+        return
+
+    advertised: set[str] = set()
+    for parent_name in {gg.parent_name for gg in measures_result.grain_groups}:
+        parent_node = measures_result.ctx.nodes.get(parent_name)
+        if not parent_node:  # pragma: no cover - defensive
+            continue
+        advertised.update(
+            dim.name for dim in await get_dimensions(session, parent_node)
+        )
+
+    for ref in unqualified:
+        if ref in advertised:
+            continue
+        roles = sorted(
+            candidate for candidate in advertised if candidate.startswith(f"{ref}[")
+        )
+        if roles:
+            raise DJInvalidInputException(
+                message=(
+                    f"Dimension '{ref}' must be role-qualified. The link to this "
+                    f"dimension declares a role, so '{ref}' is not a reference "
+                    f"queries can use and a pre-aggregation registered with it "
+                    f"would never match. Use one of: {', '.join(roles)}."
+                ),
+            )
 
 
 async def register_external_preaggregations(
@@ -141,6 +190,11 @@ async def register_external_preaggregations(
         dimensions=dimensions,
         dialect=Dialect.SPARK,
         use_materialized=False,
+    )
+    await assert_dimension_refs_are_role_qualified(
+        session,
+        measures_result,
+        dimensions,
     )
 
     # 3. Introspect the external table and confirm the declared columns exist.
