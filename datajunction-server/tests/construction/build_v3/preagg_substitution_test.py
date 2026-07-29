@@ -419,6 +419,176 @@ class TestExternalPreAggRouting:
             )
 
     @pytest.mark.asyncio
+    async def test_external_preagg_stranded_by_node_revision(
+        self,
+        client_with_build_v3,
+    ):
+        """A pre-agg stops being used once the parent node gains a new revision.
+
+        Pre-aggs are keyed by node_revision_id (via grain_group_hash), so any edit
+        that creates a revision -- including a description-only change -- silently
+        strands them until they are re-registered. ``dj push`` re-registers in the
+        same deploy, but out-of-band registrations go stale with no warning.
+        """
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.order_details.status"],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "revenue_by_status",
+                "valid_through_ts": 20250101,
+            },
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            table_columns={"status": "string", "rev_sum": "double"},
+        )
+        params = {
+            "metrics": ["v3.total_revenue"],
+            "dimensions": ["v3.order_details.status"],
+        }
+        before = await client_with_build_v3.get("/sql/measures/v3/", params=params)
+        assert before.status_code == 200
+        assert_sql_equal(
+            get_first_grain_group(before.json())["sql"],
+            """
+            SELECT status, SUM(rev_sum) rev_sum
+            FROM default.analytics.revenue_by_status
+            GROUP BY status
+            """,
+        )
+
+        # A description-only edit still produces a new node revision.
+        patched = await client_with_build_v3.patch(
+            "/nodes/v3.order_details/",
+            json={"description": "Order line items (edited)"},
+        )
+        assert patched.status_code == 200
+
+        # The pre-agg is pinned to the previous revision, so the query now builds
+        # from source instead.
+        after = await client_with_build_v3.get("/sql/measures/v3/", params=params)
+        assert after.status_code == 200
+        assert_sql_equal(
+            get_first_grain_group(after.json())["sql"],
+            """
+            WITH v3_order_details AS (
+                SELECT o.status, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            GROUP BY t1.status
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_external_preagg_same_grain_tie_is_first_registered(
+        self,
+        client_with_build_v3,
+    ):
+        """When two pre-aggs at the same grain both cover the requested measures,
+        the first-registered one wins.
+
+        The matcher prefers the smallest grain (``<``), so equal grain sizes never
+        displace an earlier candidate. Pinning this makes the tie-break explicit
+        rather than incidental.
+        """
+        for table, metrics, measure_columns, table_columns in (
+            (
+                "revenue_only",
+                ["v3.total_revenue"],
+                {"v3.total_revenue": "rev_sum"},
+                {"status": "string", "rev_sum": "double"},
+            ),
+            (
+                "revenue_and_quantity",
+                ["v3.total_revenue", "v3.total_quantity"],
+                {"v3.total_revenue": "rev_sum", "v3.total_quantity": "qty_sum"},
+                {"status": "string", "rev_sum": "double", "qty_sum": "double"},
+            ),
+        ):
+            await _register_external_preagg(
+                client_with_build_v3,
+                metrics=metrics,
+                dimensions=["v3.order_details.status"],
+                table_ref={
+                    "catalog": "default",
+                    "schema": "analytics",
+                    "table": table,
+                    "valid_through_ts": 20250101,
+                },
+                measure_columns=measure_columns,
+                table_columns=table_columns,
+            )
+
+        # Distinct rows: same grain, different measure sets.
+        listing = await client_with_build_v3.get(
+            "/preaggs/",
+            params={"node_name": "v3.order_details"},
+        )
+        assert len(listing.json()["items"]) == 2
+
+        # Both cover total_revenue; the earlier registration is used.
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+        assert response.status_code == 200
+        assert_sql_equal(
+            get_first_grain_group(response.json())["sql"],
+            """
+            SELECT status, SUM(rev_sum) rev_sum
+            FROM default.analytics.revenue_only
+            GROUP BY status
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_external_preagg_multi_hop_role_dimension(
+        self,
+        client_with_build_v3,
+    ):
+        """A multi-hop role reference resolves like any other: the mapped physical
+        column is read and aliased to the hop-qualified alias.
+
+        ``v3.location.country[customer->home]`` reaches location via customer, so
+        the alias is ``country_home``.
+        """
+        dimension = "v3.location.country[customer->home]"
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=[dimension],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "revenue_by_home_country",
+                "valid_through_ts": 20250101,
+            },
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            dimension_columns={dimension: "home_country"},
+            table_columns={"home_country": "string", "rev_sum": "double"},
+        )
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={"metrics": ["v3.total_revenue"], "dimensions": [dimension]},
+        )
+        assert response.status_code == 200
+        assert_sql_equal(
+            get_first_grain_group(response.json())["sql"],
+            """
+            SELECT home_country country_home, SUM(rev_sum) rev_sum
+            FROM default.analytics.revenue_by_home_country
+            GROUP BY home_country
+            """,
+        )
+
+    @pytest.mark.asyncio
     async def test_external_preagg_pending_not_used(self, client_with_build_v3):
         """A registered pre-agg with no availability (no valid_through_ts) is not
         used to answer queries."""
