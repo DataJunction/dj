@@ -287,11 +287,11 @@ async def create_new_materialization(
                 access_checker,
                 current_user=current_user,
             )
-    materialization_name = (
-        f"{upsert.job.name.lower()}__{upsert.strategy.name.lower()}"  # type: ignore
-        + (f"__{temporal_partition[0].name}" if temporal_partition else "")
-        + ("__" if categorical_partitions else "")
-        + ("__".join([partition.name for partition in categorical_partitions]))
+    materialization_name = _materialization_name(
+        upsert,
+        current_revision,
+        temporal_partition,
+        categorical_partitions,
     )
     return Materialization(
         name=materialization_name,
@@ -300,6 +300,27 @@ async def create_new_materialization(
         schedule=upsert.schedule or "@daily",
         strategy=upsert.strategy,
         job=upsert.job.value.job_class,  # type: ignore
+    )
+
+
+def _materialization_name(
+    upsert: UpsertCubeMaterialization | UpsertMaterialization,
+    current_revision: NodeRevision,
+    temporal_partitions: list,
+    categorical_partitions: list,
+) -> str:
+    """Build a materialization identity that preserves cube partition roles."""
+    partition_names = [
+        partition.cube_element_name
+        if current_revision.type == NodeType.CUBE
+        else partition.name
+        for partition in temporal_partitions + categorical_partitions
+    ]
+    return (
+        f"{upsert.job.name.lower()}__{upsert.strategy.name.lower()}"  # type: ignore
+        + (f"__{partition_names[0]}" if temporal_partitions else "")
+        + ("__" if categorical_partitions else "")
+        + ("__".join(partition_names[len(temporal_partitions) :]))
     )
 
 

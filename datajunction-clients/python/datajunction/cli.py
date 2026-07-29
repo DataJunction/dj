@@ -143,7 +143,16 @@ class DJCLI:
                     "display_name": getattr(node, "display_name", None),
                     "query": getattr(node, "query", None),
                     "columns": [
-                        {"name": col.name, "type": col.type} for col in node.columns
+                        {
+                            "name": col.name
+                            + (
+                                (col.dimension_column or "")
+                                if node.type == "cube"
+                                else ""
+                            ),
+                            "type": col.type,
+                        }
+                        for col in node.columns
                     ]
                     if hasattr(node, "columns") and node.columns
                     else [],

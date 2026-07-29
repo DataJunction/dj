@@ -458,10 +458,14 @@ def collect_cte_nodes_and_needed_columns(
         for partition_col_ref in ctx.temporal_partition_columns:
             dimension_ref = parse_dimension_ref(partition_col_ref)
 
-            # Check if this parent has a dimension link to the partition column's node
+            # Match the exact dimension link. The same parent can reach one
+            # dimension node through multiple roles.
             if parent_node.current.dimension_links:  # pragma: no branch
                 for link in parent_node.current.dimension_links:  # pragma: no branch
-                    if link.dimension.name == dimension_ref.node_name:
+                    if (
+                        link.dimension.name == dimension_ref.node_name
+                        and (link.role or None) == dimension_ref.role
+                    ):
                         parent_needed_cols.add(dimension_ref.column_name)
                         break
 
@@ -1640,12 +1644,17 @@ def build_temporal_filter(
         # Parse "v3.date.date_id" -> dimension node and column
         parsed = parse_dimension_ref(partition_col_ref)
 
-        # Check if this parent has a dimension link to the partition column's node
+        # Check if this parent has the exact dimension link named by the
+        # partition reference. A bare ref matches only a bare link; a
+        # role-qualified ref matches only that role.
         if not parent_node.current.dimension_links:
             continue  # pragma: no cover
 
         for link in parent_node.current.dimension_links:  # pragma: no branch
-            if link.dimension.name == parsed.node_name:
+            if (
+                link.dimension.name == parsed.node_name
+                and (link.role or None) == parsed.role
+            ):
                 # Found a dimension link to the temporal partition dimension
                 # Find the column on the dimension (cube already declared this as temporal)
                 temporal_col = None

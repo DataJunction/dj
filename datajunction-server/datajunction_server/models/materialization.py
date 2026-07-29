@@ -200,6 +200,11 @@ class GenericMaterializationConfig(GenericMaterializationConfigInput):
         if not user_defined_temporal_columns:
             return []
         user_defined_temporal_column = user_defined_temporal_columns[0]
+        partition_ref = (
+            user_defined_temporal_column.cube_element_name
+            if node_revision.type == NodeType.CUBE
+            else user_defined_temporal_column.name
+        )
         return [
             PartitionColumnOutput(
                 name=col.name,
@@ -210,7 +215,7 @@ class GenericMaterializationConfig(GenericMaterializationConfigInput):
                 ),
             )
             for col in self.columns  # type: ignore
-            if user_defined_temporal_column.name in (col.semantic_entity, col.name)
+            if partition_ref in (col.semantic_entity, col.name)
         ]
 
     def categorical_partitions(
@@ -221,7 +226,8 @@ class GenericMaterializationConfig(GenericMaterializationConfigInput):
         The categorical partition column names on the intermediate measures table
         """
         user_defined_categorical_columns = {
-            col.name for col in node_revision.categorical_partition_columns()
+            col.cube_element_name if node_revision.type == NodeType.CUBE else col.name
+            for col in node_revision.categorical_partition_columns()
         }
         return [
             PartitionColumnOutput(
@@ -348,9 +354,7 @@ class DruidMeasuresCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
         # The cube column stores the role separately in ``dimension_column`` as
         # ``[role]``. Reconstruct the role-qualified form to match the v3
         # measures-query ``semantic_entity`` (e.g. ``node.col[role]``).
-        partition_ref = user_defined_temporal_partition.name + (
-            user_defined_temporal_partition.dimension_column or ""
-        )
+        partition_ref = user_defined_temporal_partition.cube_element_name
         timestamp_column = [
             col.name
             for col in self.columns  # type: ignore

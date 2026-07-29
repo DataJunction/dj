@@ -48,6 +48,7 @@ from datajunction_server.models.deployment import (
     DimensionReferenceLinkSpec,
 )
 from datajunction_server.models.node import MetricUnit, NodeStatus
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.database.tag import Tag
@@ -2637,6 +2638,58 @@ class TestGenerateChangelog:
 
         assert changed_fields == []
         assert changelog == ["└─ Updated dimension_links"]
+
+    @pytest.mark.asyncio
+    async def test_cube_column_change_uses_role_qualified_identity(
+        self,
+        session,
+        mock_deployment_context,
+    ):
+        """A property change on one role must compare with that same role."""
+        cube_spec = CubeSpec(
+            name="role_cube",
+            namespace="default",
+            metrics=["default.metric"],
+            dimensions=["default.date.date_id[ship]"],
+            columns=[
+                ColumnSpec(
+                    name="default.date.date_id[ship]",
+                    description="new description",
+                ),
+            ],
+        )
+        existing_column = Column(
+            name="default.date.date_id",
+            dimension_column="[ship]",
+            description="old description",
+        )
+        existing_revision = MagicMock(
+            type=NodeType.CUBE,
+            columns=[existing_column],
+        )
+        existing = MagicMock(current=existing_revision)
+        existing.to_spec = AsyncMock(return_value=cube_spec)
+
+        orchestrator = DeploymentOrchestrator(
+            deployment_spec=DeploymentSpec(namespace="default", nodes=[]),
+            deployment_id="role-changelog-test",
+            session=session,
+            context=mock_deployment_context,
+            dry_run=True,
+        )
+        orchestrator.registry.nodes["default.role_cube"] = existing
+        result = NodeValidationResult(
+            spec=cube_spec,
+            status=NodeStatus.VALID,
+            inferred_columns=cube_spec.rendered_columns,
+            errors=[],
+            dependencies=[],
+        )
+
+        changelog, changed_fields = await orchestrator._generate_changelog(result)
+
+        assert changed_fields == []
+        assert changelog == ["└─ Set properties for 1 columns"]
 
 
 @pytest.mark.asyncio

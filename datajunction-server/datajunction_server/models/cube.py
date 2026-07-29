@@ -7,7 +7,7 @@ from typing import List, Optional
 from pydantic import Field, model_validator, ConfigDict
 from pydantic.main import BaseModel
 
-from datajunction_server.naming import SEPARATOR, from_amenable_name, amenable_name
+from datajunction_server.naming import SEPARATOR, amenable_name
 from datajunction_server.models.materialization import MaterializationConfigOutput
 from datajunction_server.models.measure import (
     FrozenMeasureKey,
@@ -125,38 +125,32 @@ class CubeRevisionMetadata(BaseModel):
         """
         Converts a cube node revision into a cube revision metadata object
         """
-        # Preserve the ordering of elements
-        element_ordering = {col.name: col.order for col in cube.columns}
-        cube.cube_elements = sorted(
-            cube.cube_elements,
-            key=lambda elem: element_ordering.get(from_amenable_name(elem.name), 0),
-        )
-
         # Parse the database object into a pydantic object
         cube_metadata = cls.model_validate(cube)
 
-        # node_columns are the role-aware source of truth (one per role); the
-        # cube_elements many-to-many holds each referenced column only once. Expand
-        # each dimension element into one entry per role so both survive on load.
-        metric_names = {metric.name for metric in cube.cube_metrics()}
-        roles_by_full_name: dict[str, List[Optional[str]]] = {}
-        for col in sorted(cube.columns, key=lambda c: c.order):
-            if col.name in metric_names:
-                continue
-            role = col.dimension_column.strip("[]") if col.dimension_column else None
-            roles_by_full_name.setdefault(col.name, []).append(role)
-
+        # Cube columns are the ordered, role-aware source of truth. The
+        # cube_elements many-to-many intentionally stores each referenced DB
+        # column once, so reconstruct one metadata entry per cube column.
+        elements_by_column_name = {
+            (
+                element.node_name
+                if element.type == "metric"
+                else f"{element.node_name}{SEPARATOR}{element.name}"
+            ): element
+            for element in cube_metadata.cube_elements
+        }
         expanded_elements: List[CubeElementMetadata] = []
-        for elem_meta in cube_metadata.cube_elements:
-            if elem_meta.type == "metric":
-                expanded_elements.append(elem_meta)
+        for column in cube.columns:
+            element = elements_by_column_name.get(column.name)
+            if element is None:  # pragma: no cover - database invariant
                 continue
-            full_name = f"{elem_meta.node_name}{SEPARATOR}{elem_meta.name}"
-            roles = roles_by_full_name.get(full_name, [None])
-            for position, role in enumerate(roles):
-                element = elem_meta if position == 0 else elem_meta.model_copy()
-                element.role = role
+            if element.type == "metric":
                 expanded_elements.append(element)
+                continue
+            role = (
+                column.dimension_column.strip("[]") if column.dimension_column else None
+            )
+            expanded_elements.append(element.model_copy(update={"role": role}))
         cube_metadata.cube_elements = expanded_elements
 
         # Populate metric measures

@@ -5,6 +5,7 @@ import os
 import re
 import sys
 from io import StringIO
+from types import SimpleNamespace
 from typing import Callable
 from unittest import mock
 from unittest.mock import patch
@@ -292,6 +293,43 @@ def test_json_output_commands(
     )
     data = json.loads(output)
     assert isinstance(data, (dict, list))
+
+
+def test_describe_cube_json_preserves_column_roles():
+    """Role-played cube columns must remain distinct in CLI JSON output."""
+    builder_client = mock.MagicMock()
+    builder_client.node.return_value = SimpleNamespace(
+        name="v3.role_cube",
+        type="cube",
+        description="Role-playing cube",
+        display_name="Role Cube",
+        query=None,
+        columns=[
+            SimpleNamespace(
+                name="v3.date.date_id",
+                dimension_column="[order]",
+                type="int",
+            ),
+            SimpleNamespace(
+                name="v3.date.date_id",
+                dimension_column="[ship]",
+                type="int",
+            ),
+        ],
+        status="valid",
+        mode="published",
+        version="v1.0",
+    )
+
+    output = run_cli_command(
+        builder_client,
+        ["dj", "describe", "v3.role_cube", "--format", "json"],
+    )
+
+    assert [column["name"] for column in json.loads(output)["columns"]] == [
+        "v3.date.date_id[order]",
+        "v3.date.date_id[ship]",
+    ]
 
 
 @pytest.mark.parametrize(

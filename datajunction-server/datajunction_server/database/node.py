@@ -561,7 +561,10 @@ class Node(Base):
             NodeType.METRIC,
             NodeType.CUBE,
         ):
-            cols = [col.to_spec() for col in sorted_columns]
+            cols = [
+                col.to_spec(include_cube_role=self.type == NodeType.CUBE)
+                for col in sorted_columns
+            ]
             extra_kwargs.update(
                 columns=cols,
             )
@@ -1927,7 +1930,11 @@ class NodeRevision(
         Column ordering
         """
         return {
-            col.name.replace("_DOT_", SEPARATOR): (col.order or idx)
+            (
+                col.cube_element_name
+                if self.type == NodeType.CUBE
+                else col.name.replace("_DOT_", SEPARATOR)
+            ): (col.order or idx)
             for idx, col in enumerate(self.columns)
         }
 
@@ -1951,7 +1958,7 @@ class NodeRevision(
         if self.type != NodeType.CUBE:
             return []  # pragma: no cover
         ordering = {
-            col.name.replace("_DOT_", SEPARATOR): (col.order or idx)
+            col.cube_element_name: (col.order or idx)
             for idx, col in enumerate(self.columns)
         }
         return sorted(
@@ -1979,7 +1986,7 @@ class NodeRevision(
             if node and node.type == NodeType.METRIC  # type: ignore
         }
         res = [
-            element.name + (element.dimension_column or "")
+            element.cube_element_name
             for element in self.columns
             if not cube_metrics.get(element.name)
         ]
