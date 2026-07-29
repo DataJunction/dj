@@ -436,6 +436,38 @@ def test_dimension_join_link_spec_with_default_value():
     assert hash(link_spec) != hash(different_default)
 
 
+def test_dimension_join_link_spec_with_join_cardinality():
+    """Test DimensionJoinLinkSpec join_cardinality default, equality, and hashing."""
+    from datajunction_server.models.dimensionlink import JoinCardinality
+
+    # Default cardinality is many_to_one (a fact row joins at most one dim row).
+    default_link = DimensionJoinLinkSpec(
+        dimension_node="some.dimension.users",
+        join_type="left",
+        join_on="events.user_id = some.dimension.users.id",
+    )
+    assert default_link.join_cardinality == JoinCardinality.MANY_TO_ONE
+
+    fanout_link = DimensionJoinLinkSpec(
+        dimension_node="some.dimension.users",
+        join_type="left",
+        join_on="events.user_id = some.dimension.users.id",
+        join_cardinality=JoinCardinality.ONE_TO_MANY,
+    )
+    assert fanout_link.join_cardinality == JoinCardinality.ONE_TO_MANY
+
+    # Equality and hashing must take join_cardinality into account.
+    same_default = DimensionJoinLinkSpec(
+        dimension_node="some.dimension.users",
+        join_type="left",
+        join_on="events.user_id = some.dimension.users.id",
+    )
+    assert default_link == same_default
+    assert hash(default_link) == hash(same_default)
+    assert default_link != fanout_link
+    assert hash(default_link) != hash(fanout_link)
+
+
 def test_source_spec_with_dimension_link_default_value():
     """Test SourceSpec with dimension_links including default_value."""
     source_spec = SourceSpec(

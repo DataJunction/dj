@@ -786,6 +786,7 @@ async def materialize_cube(
         metric_combiners=combined_result.metric_combiners,
         workflow_urls=workflow_urls,
         message=message,
+        warnings=combined_result.warnings,
     )
 
 

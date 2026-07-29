@@ -17,6 +17,7 @@ from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql import functions as dj_functions
 from datajunction_server.sql.decompose import (
     MetricComponentExtractor,
+    is_duplication_invariant,
     safe_denominator,
     wrap_divisions_in_nullif,
 )
@@ -2301,6 +2302,26 @@ class TestFunctionAggregationClassification:
             assert cls.is_aggregation is True, (
                 f"{cls.__name__} is a real aggregation but is_aggregation is False"
             )
+
+
+def test_is_duplication_invariant():
+    """
+    Duplication-invariance is derived from the merge function where decomposable
+    (SUM merge inflates, everything else is invariant), stated for MAX_BY/MIN_BY,
+    and assumed False for other non-decomposable (holistic) aggregations.
+    """
+    # Derived from a non-SUM merge -> invariant.
+    assert is_duplication_invariant(dj_functions.Max) is True
+    assert is_duplication_invariant(dj_functions.Min) is True
+    assert is_duplication_invariant(dj_functions.ApproxCountDistinct) is True
+    # Derived from a SUM merge -> inflates.
+    assert is_duplication_invariant(dj_functions.Sum) is False
+    assert is_duplication_invariant(dj_functions.Count) is False
+    assert is_duplication_invariant(dj_functions.Avg) is False
+    # Non-decomposable: stated invariant for argmax/argmin, sensitive otherwise.
+    assert is_duplication_invariant(dj_functions.MaxBy) is True
+    assert is_duplication_invariant(dj_functions.MinBy) is True
+    assert is_duplication_invariant(dj_functions.Median) is False
 
 
 @pytest.mark.asyncio

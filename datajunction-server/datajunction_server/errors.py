@@ -36,6 +36,7 @@ class ErrorCode(IntEnum):
     INVALID_COLUMN = 206
     QUERY_SERVICE_ERROR = 207
     INVALID_ORDER_BY = 208
+    FANOUT_RISK = 209
 
     # SQL Build Error
     COMPOUND_BUILD_EXCEPTION = 300
@@ -130,7 +131,10 @@ class DJWarningType(TypedDict):
     Type for serialized warnings.
     """
 
-    code: Optional[int]
+    # Serialized as the symbolic ErrorCode name (e.g. "FANOUT_RISK"), matching
+    # DJWarning.serialize_code and DJErrorType.code. Optional because a warning's
+    # code may be unset.
+    code: Optional[str]
     message: str
     debug: Optional[DebugType]
 
@@ -143,6 +147,12 @@ class DJWarning(BaseModel):
     code: Optional[ErrorCode] = None
     message: str
     debug: Optional[Dict[str, Any]] = None
+
+    @field_serializer("code")
+    def serialize_code(self, code: Optional[ErrorCode]) -> Optional[str]:
+        # Mirror DJError: serialize the symbolic name (e.g. "FANOUT_RISK") rather
+        # than the integer value, so UI/CLI consumers get a stable string.
+        return code.name if code is not None else None
 
 
 DBAPIExceptions = Literal[

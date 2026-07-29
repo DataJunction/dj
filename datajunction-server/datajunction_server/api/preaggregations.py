@@ -685,6 +685,7 @@ async def plan_preaggregations(
 
     return PlanPreAggregationsResponse(
         preaggs=[await _preagg_to_info(p, session) for p in loaded_preaggs],
+        warnings=measures_result.warnings,
     )
 
 

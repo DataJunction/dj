@@ -622,6 +622,10 @@ async def build_metrics_sql(
     # restriction in the outer query so seed rows don't leak into the result.
     apply_output_restriction(result.query, window_plan)
 
+    # Surface build warnings (e.g. fan-out risk) from the single ctx sink. Empty
+    # on the materialized-cube branch above (no source build ran).
+    result.warnings = ctx.warnings
+
     substitute_query_params(result.query, query_parameters or {})
 
     return result

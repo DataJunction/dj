@@ -9,7 +9,11 @@ import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 
-from datajunction_server.errors import DJQueryServiceClientException
+from datajunction_server.errors import (
+    DJQueryServiceClientException,
+    DJWarning,
+    ErrorCode,
+)
 from datajunction_server.construction.build_v3.combiners import (
     PreAggSourceInfo,
     TemporalPartitionInfo,
@@ -4298,6 +4302,7 @@ def _create_mock_combined_result(
     mock_result.measure_components = measure_components or []
     mock_result.component_aliases = component_aliases or {}
     mock_result.metric_combiners = metric_combiners or {}
+    mock_result.warnings = []
     return mock_result
 
 
@@ -4397,6 +4402,101 @@ class TestCubeMaterializeV2SuccessPaths:
         assert data["schedule"] == "0 0 * * *"
         assert "workflow_urls" in data
         assert len(data["workflow_urls"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_materialize_cube_surfaces_fanout_warning(
+        self,
+        client_with_repairs_cube: AsyncClient,
+        mocker,
+    ):
+        """
+        A fan-out risk detected while building the combined SQL from pre-agg
+        tables must be surfaced on the materialize response — this is when the
+        inflation gets baked into the cube, so it is the right moment to flag it.
+        """
+        cube_name = "default.test_materialize_fanout_cube"
+        await make_a_test_cube(
+            client_with_repairs_cube,
+            cube_name,
+            with_materialization=False,
+        )
+
+        mock_columns = [
+            V3ColumnMetadata(
+                name="state",
+                type="string",
+                semantic_name="default.hard_hat.state",
+                semantic_type="dimension",
+            ),
+            V3ColumnMetadata(
+                name="date_id",
+                type="int",
+                semantic_name="default.hard_hat.hire_date",
+                semantic_type="dimension",
+            ),
+            V3ColumnMetadata(
+                name="total_repair_cost",
+                type="double",
+                semantic_name="default.total_repair_cost",
+                semantic_type="measure",
+            ),
+        ]
+        mock_combined_result = _create_mock_combined_result(
+            mocker,
+            columns=mock_columns,
+            shared_dimensions=["default.hard_hat.state", "default.hard_hat.hire_date"],
+            sql_string="SELECT state, date_id, SUM(cost) AS total_repair_cost FROM preagg GROUP BY state, date_id",
+        )
+        # The combined build detected a fan-out risk.
+        mock_combined_result.warnings = [
+            DJWarning(
+                code=ErrorCode.FANOUT_RISK,
+                message="Possible fan-out: metric(s) default.total_repair_cost ...",
+                debug={"metrics": ["default.total_repair_cost"]},
+            ),
+        ]
+
+        mock_temporal_info = TemporalPartitionInfo(
+            column_name="date_id",
+            format="yyyyMMdd",
+            granularity="day",
+        )
+        mocker.patch(
+            "datajunction_server.api.cubes.build_combiner_sql_from_preaggs",
+            return_value=(
+                mock_combined_result,
+                [
+                    PreAggSourceInfo(
+                        table_ref="catalog.schema.preagg_table1",
+                        parent_name="default.repair_orders",
+                        strategy=None,
+                    ),
+                ],
+                mock_temporal_info,
+            ),
+        )
+        mocker.patch(
+            "datajunction_server.api.cubes._reorder_partition_column_last",
+            side_effect=lambda result, _col: result,
+        )
+        qs_client = client_with_repairs_cube.app.dependency_overrides[
+            get_query_service_client
+        ]()
+        mocker.patch.object(
+            qs_client,
+            "materialize_cube_v2",
+            return_value=mocker.MagicMock(urls=["http://workflow/cube-workflow"]),
+        )
+
+        response = await client_with_repairs_cube.post(
+            f"/cubes/{cube_name}/materialize",
+            json={"strategy": "full", "schedule": "0 0 * * *"},
+        )
+
+        assert response.status_code == 200, response.json()
+        warnings = response.json()["warnings"]
+        assert len(warnings) == 1
+        assert warnings[0]["code"] == "FANOUT_RISK"
 
     @pytest.mark.asyncio
     async def test_materialize_cube_full_uses_cube_partition_with_role(

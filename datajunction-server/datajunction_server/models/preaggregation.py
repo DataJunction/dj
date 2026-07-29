@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field, field_validator
 
 from datajunction_server.enum import StrEnum
+from datajunction_server.errors import DJWarning
 from datajunction_server.models.materialization import MaterializationStrategy
 from datajunction_server.models.node import PartitionAvailability
 from datajunction_server.models.node_type import NodeNameVersion
@@ -83,6 +84,7 @@ class PlanPreAggregationsResponse(BaseModel):
     """Response model for /preaggs/plan endpoint."""
 
     preaggs: List["PreAggregationInfo"]
+    warnings: List[DJWarning] = []
 
 
 class ExternalPreAggTable(BaseModel):

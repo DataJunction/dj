@@ -577,6 +577,13 @@ async def get_query_plan(
         "",
     ]
 
+    if result.warnings:
+        lines += ["⚠ Warnings", "-" * 60]
+        for warning in result.warnings:
+            code = warning.code.name if warning.code else "WARNING"
+            lines.append(f"  [{code}] {warning.message}")
+        lines.append("")
+
     lines += ["Metric Formulas", "-" * 60]
     for metric_name, decomposed in result.decomposed_metrics.items():
         derived_tag = (

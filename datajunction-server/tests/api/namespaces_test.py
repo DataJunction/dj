@@ -1054,12 +1054,14 @@ async def test_export_namespaces_deployment(client_with_roads: AsyncClient):
             "join_on": "${prefix}repair_orders_fact.municipality_id = "
             "${prefix}municipality_dim.municipality_id",
             "join_type": "inner",
+            "join_cardinality": "many_to_one",
             "type": "join",
         },
         {
             "dimension_node": "${prefix}hard_hat",
             "join_on": "${prefix}repair_orders_fact.hard_hat_id = ${prefix}hard_hat.hard_hat_id",
             "join_type": "inner",
+            "join_cardinality": "many_to_one",
             "type": "join",
         },
         {
@@ -1067,12 +1069,14 @@ async def test_export_namespaces_deployment(client_with_roads: AsyncClient):
             "join_on": "${prefix}repair_orders_fact.hard_hat_id = "
             "${prefix}hard_hat_to_delete.hard_hat_id",
             "join_type": "left",
+            "join_cardinality": "many_to_one",
             "type": "join",
         },
         {
             "dimension_node": "${prefix}dispatcher",
             "join_on": "${prefix}repair_orders_fact.dispatcher_id = ${prefix}dispatcher.dispatcher_id",
             "join_type": "inner",
+            "join_cardinality": "many_to_one",
             "type": "join",
         },
     ]

@@ -277,6 +277,8 @@ async def generate_metrics_sql(
     provider = get_metrics_provider()
     provider.timer("dj.sql.build_latency_ms", elapsed_ms, _tags)
     provider.counter("dj.sql.requests", tags=_tags)
+    if result.warnings:
+        provider.counter("dj.sql.fanout_warnings", tags=_tags)
     logger.info(
         "[SQL] endpoint=%s metrics=%s dimensions=%s filters=%s elapsed_ms=%.1f",
         endpoint,

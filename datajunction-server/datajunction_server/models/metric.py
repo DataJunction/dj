@@ -8,6 +8,7 @@ from pydantic.main import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.node import Node
+from datajunction_server.errors import DJWarning
 from datajunction_server.models.cube_materialization import MetricComponent
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.node import (
@@ -153,3 +154,5 @@ class V3TranslatedSQL(BaseModel):
 
     # Scan estimate (aggregated from all grain groups)
     scan_estimate: Optional["ScanEstimate"] = None
+
+    warnings: List[DJWarning] = []

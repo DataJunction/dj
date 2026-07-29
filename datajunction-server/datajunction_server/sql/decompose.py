@@ -646,6 +646,25 @@ def get_decomposition(func_class: type) -> AggDecomposition | None:
     return decomp_class()
 
 
+def is_duplication_invariant(func_class: type) -> bool:
+    """
+    Whether row duplication (e.g. from a fan-out join) leaves this aggregation's
+    result unchanged.
+
+    Derived from the merge function for decomposable aggregations: a SUM merge sums
+    duplicated rows and inflates, so anything without a SUM merge is invariant.
+    Argmax-style MAX_BY/MIN_BY are invariant too (they read a single extreme row)
+    but are non-decomposable, so they're named explicitly. Everything else
+    non-decomposable is assumed sensitive (fail closed).
+    """
+    if func_class in (dj_functions.MaxBy, dj_functions.MinBy):
+        return True
+    decomposition = get_decomposition(func_class)
+    if decomposition is None:
+        return False
+    return all(component.merge != "SUM" for component in decomposition.components)
+
+
 # =============================================================================
 # Decomposition Result
 # =============================================================================

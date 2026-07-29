@@ -38,6 +38,7 @@ from datajunction_server.construction.build_v3.cte import (
 )
 from datajunction_server.construction.build_v3.types import GrainGroupSQL
 from datajunction_server.construction.build_v3.utils import build_join_from_clause
+from datajunction_server.errors import DJWarning
 from datajunction_server.models.column import SemanticType
 from datajunction_server.models.query import V3ColumnMetadata
 from datajunction_server.sql.parsing import ast
@@ -76,6 +77,9 @@ class CombinedGrainGroupResult:
     metric_combiners: dict[str, str] = field(default_factory=dict)
     # Dialect for rendering SQL (used for dialect-specific function names)
     dialect: Dialect = Dialect.SPARK
+    # Build warnings (e.g. fan-out risk), set from the ctx sink so the pre-agg/cube
+    # endpoints (which hold only this result, not the ctx) can surface them.
+    warnings: list[DJWarning] = field(default_factory=list)
 
     @property
     def sql(self) -> str:
@@ -715,6 +719,10 @@ async def build_combiner_sql_from_preaggs(
             temporal_partition_info.column_name,
         )
 
+    # Copy warnings from the ctx sink onto the combined result for the pre-agg/cube
+    # endpoints. Set last so they survive the reorder above.
+    combined_result.warnings = result.warnings
+
     return combined_result, preagg_sources, temporal_partition_info
 
 
@@ -814,6 +822,7 @@ def _reorder_partition_column_last(
             component_aliases=result.component_aliases,
             metric_combiners=result.metric_combiners,
             dialect=result.dialect,
+            warnings=result.warnings,
         )
 
     return result

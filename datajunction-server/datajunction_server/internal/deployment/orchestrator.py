@@ -2090,6 +2090,7 @@ class DeploymentOrchestrator:
             link_input = JoinLinkInput(
                 dimension_node=join_link.rendered_dimension_node,
                 join_type=join_link.join_type,
+                join_cardinality=join_link.join_cardinality,
                 join_on=join_link.rendered_join_on,
                 role=join_link.role,
                 default_value=join_link.default_value,
