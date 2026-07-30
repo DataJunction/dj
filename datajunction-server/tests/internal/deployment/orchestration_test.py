@@ -25,6 +25,7 @@ from datajunction_server.internal.deployment.orchestrator import (
     DeploymentPlan,
     ResourceRegistry,
     column_changed,
+    tag_needs_update,
 )
 from datajunction_server.internal.deployment.validation import (
     NodeValidationResult,
@@ -490,6 +491,114 @@ class TestDeploymentPlanning:
         result_tags = await orchestrator._setup_tags()
         assert result_tags.keys() == {"new_tag"}
         assert len(orchestrator.errors) == 0
+
+    @pytest.mark.asyncio
+    async def test_setup_tags_metadata_is_declarative(
+        self,
+        session,
+        current_user,
+    ):
+        """
+        tag_metadata declared in the deployment spec must be written on the
+        create path and on the update path. A deployment is declarative: the
+        spec is the source of truth, so the declared bag replaces whatever is
+        stored — keys dropped from the spec (or written out-of-band by someone
+        else) are removed, and an omitted bag clears the metadata entirely.
+        """
+        context = MagicMock(autospec=DeploymentContext)
+        context.current_user = current_user
+        context.save_history = AsyncMock()
+
+        def make_orchestrator(tag_metadata):
+            return DeploymentOrchestrator(
+                deployment_spec=DeploymentSpec(
+                    namespace="some.namespace",
+                    nodes=[],
+                    tags=[
+                        TagSpec(
+                            name="inventory",
+                            display_name="Inventory",
+                            description="Inventory tag",
+                            tag_type="group",
+                            tag_metadata=tag_metadata,
+                        ),
+                    ],
+                ),
+                deployment_id="test-deployment",
+                session=session,
+                context=context,
+            )
+
+        # Create path
+        result_tags = await make_orchestrator(
+            {"order": 1, "display": {"color": "blue"}},
+        )._setup_tags()
+        assert result_tags["inventory"].tag_metadata == {
+            "order": 1,
+            "display": {"color": "blue"},
+        }
+
+        # A key is added out-of-band (e.g. via PATCH /tags), so the stored bag
+        # no longer matches the spec
+        result_tags["inventory"].tag_metadata = {
+            "order": 1,
+            "display": {"color": "blue"},
+            "added_out_of_band": {"foo": "bar"},
+        }
+        session.add(result_tags["inventory"])
+        await session.commit()
+
+        # Update path: the spec replaces the stored bag wholesale, so the
+        # out-of-band key is dropped and nested contents are replaced, not merged
+        orchestrator = make_orchestrator({"order": 2, "display": {"icon": "box"}})
+        assert (
+            tag_needs_update(
+                result_tags["inventory"],
+                orchestrator.deployment_spec.tags[0],
+            )
+            is True
+        )
+        result_tags = await orchestrator._setup_tags()
+        assert result_tags["inventory"].tag_metadata == {
+            "order": 2,
+            "display": {"icon": "box"},
+        }
+
+        # Redeploying the same metadata is not a change
+        assert (
+            tag_needs_update(
+                result_tags["inventory"],
+                make_orchestrator(
+                    {"order": 2, "display": {"icon": "box"}},
+                ).deployment_spec.tags[0],
+            )
+            is False
+        )
+
+        # Dropping a key from the spec removes it from the server
+        result_tags = await make_orchestrator({"order": 3})._setup_tags()
+        assert result_tags["inventory"].tag_metadata == {"order": 3}
+
+        # A spec without tag_metadata clears the bag
+        orchestrator = make_orchestrator(None)
+        assert (
+            tag_needs_update(
+                result_tags["inventory"],
+                orchestrator.deployment_spec.tags[0],
+            )
+            is True
+        )
+        result_tags = await orchestrator._setup_tags()
+        assert result_tags["inventory"].tag_metadata == {}
+
+        # ...and an already-empty bag with an omitted spec value is not a change
+        assert (
+            tag_needs_update(
+                result_tags["inventory"],
+                make_orchestrator(None).deployment_spec.tags[0],
+            )
+            is False
+        )
 
     @pytest.mark.asyncio
     async def test_setup_owners_missing(self, session, current_user):

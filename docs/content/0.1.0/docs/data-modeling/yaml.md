@@ -62,7 +62,30 @@ primary_key:
 | Field | Required? | Description |
 | ---- | ---- | ---- |
 | `namespace` | Yes | The DJ namespace for this YAML project |
-| `tags` | No | Used to define any tags that are used by nodes in the project |
+| `tags` | No | Used to define any tags that are used by nodes in the project. See [details](#tag-yaml). |
+
+##### Tag YAML
+| Field | Required? | Description |
+| ---- | ---- | ---- |
+| `name` | Yes | The tag name |
+| `display_name` | No | The display name of the tag, derived from the name if not provided |
+| `description` | No | Description of the tag |
+| `tag_type` | No | The type of the tag (e.g. `Maintenance`, `group`) |
+| `tag_metadata` | No | A free-form object for any extra information you want to attach to the tag. DJ does not interpret its contents. Also accepted as `metadata` or `custom_metadata`. Deployments are declarative, so this replaces the stored metadata: removing a key from the YAML removes it on the server, and omitting the field clears the metadata |
+
+Example:
+```
+namespace: projects.roads
+tags:
+  - name: deprecated
+    display_name: Deprecated
+    description: This node is deprecated
+    tag_type: Maintenance
+    tag_metadata:
+      order: 1
+      display:
+        color: red
+```
 
 
 #### Node YAML Fields Overview
