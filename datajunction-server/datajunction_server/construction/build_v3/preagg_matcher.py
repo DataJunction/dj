@@ -9,7 +9,7 @@ tables are available.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from datajunction_server.database.preaggregation import (
     PreAggregation,
@@ -50,6 +50,35 @@ def get_required_measure_identities(
         )
         for _, component in grain_group.components
     }
+
+
+def canonical_dimension_ref(
+    ctx: "BuildContext",
+    parent_node: "Node",
+    ref: str,
+) -> str:
+    """
+    Canonical form of a dimension reference for grain comparison.
+
+    A bare reference to a dimension reached by exactly one role means that role,
+    so it is qualified here -- otherwise a pre-agg registered with one spelling
+    would not match a query using the other, and the query would silently fall
+    back to the source. Ambiguous bare refs (several roles) and already-qualified
+    refs are returned unchanged.
+    """
+    if "[" in ref or not parent_node.current:
+        return ref
+    try:
+        dim_ref = parse_dimension_ref(ref)
+    except Exception:  # pragma: no cover - defensive
+        return ref
+    node_rev_id = parent_node.current.id
+    roles = {
+        stored_role
+        for (src_id, dim_name, stored_role) in ctx.join_paths
+        if src_id == node_rev_id and dim_name == dim_ref.node_name and stored_role
+    }
+    return f"{ref}[{roles.pop()}]" if len(roles) == 1 else ref
 
 
 def find_matching_preagg(
@@ -93,8 +122,11 @@ def find_matching_preagg(
     if not required_measures:
         return None
 
-    # Normalize requested grain to a set for comparison
-    requested_grain_set = set(requested_grain)
+    # Compare canonical refs so a bare and a role-qualified spelling of the same
+    # single-role dimension match each other.
+    requested_grain_set = {
+        canonical_dimension_ref(ctx, parent_node, ref) for ref in requested_grain
+    }
 
     # Non-additive measures (e.g. COUNT(DISTINCT ...), raw AVG components) cannot
     # be rolled up to a coarser grain without producing wrong results. When any
@@ -111,7 +143,10 @@ def find_matching_preagg(
     best_grain_size = float("inf")
 
     for preagg in available:
-        preagg_grain_set = set(preagg.grain_columns or [])
+        preagg_grain_set = {
+            canonical_dimension_ref(ctx, parent_node, ref)
+            for ref in (preagg.grain_columns or [])
+        }
 
         # Check grain compatibility. For additive measures the pre-agg may be at
         # the same or a finer grain (roll-up allowed → subset match). For
@@ -201,6 +236,7 @@ def get_preagg_dimension_column(
     preagg: PreAggregation,
     dimension_ref: str,
     default_column: str,
+    canonicalize: Callable[[str], str] | None = None,
 ) -> str:
     """
     Physical column in the pre-agg backing a resolved grain dimension.
@@ -209,8 +245,10 @@ def get_preagg_dimension_column(
     source_column). Matched by dimension reference (semantic_name == original_ref,
     so role-safe), falling back to the DJ column name.
     """
+    canon = canonicalize or (lambda ref: ref)
+    target = canon(dimension_ref)
     for col in preagg.columns or []:
-        if col.semantic_type == "dimension" and col.semantic_name == dimension_ref:
+        if col.semantic_type == "dimension" and canon(col.semantic_name) == target:
             return col.source_column or col.name
     return default_column
 

@@ -1333,12 +1333,9 @@ class TestExternalPreAggRouting:
         self,
         client_with_build_v3,
     ):
-        """An unqualified reference to a role-linked dimension is rejected.
-
-        Grain matching compares reference strings, so registering the bare name
-        would build a grain no query can ask for -- the catalog only advertises
-        the role-qualified form -- and queries would silently fall back to source.
-        Locally-owned columns and role-free links are unaffected.
+        """A bare reference is rejected only when several roles reach the
+        dimension, since it then names none of them. Single-role dimensions,
+        locally-owned columns and role-free links stay legal.
         """
         rejected = await _register_external_preagg(
             client_with_build_v3,
@@ -1354,7 +1351,7 @@ class TestExternalPreAggRouting:
             expected_status=422,
         )
         message = rejected.json()["message"]
-        assert "must be role-qualified" in message
+        assert "ambiguous across roles" in message
         assert "v3.location.country[from]" in message
         assert "v3.location.country[to]" in message
 
@@ -1381,6 +1378,11 @@ class TestExternalPreAggRouting:
                 "revenue_by_category_plain",
                 {"category": "string", "rev_sum": "double"},
             ),
+            (
+                "v3.customer.customer_id",
+                "revenue_by_customer_bare",
+                {"customer_id": "int", "rev_sum": "double"},
+            ),
         ):
             await _register_external_preagg(
                 client_with_build_v3,
@@ -1394,6 +1396,49 @@ class TestExternalPreAggRouting:
                 },
                 measure_columns={"v3.total_revenue": "rev_sum"},
                 table_columns=columns,
+            )
+
+    @pytest.mark.asyncio
+    async def test_external_preagg_bare_and_role_qualified_refs_interoperate(
+        self,
+        client_with_build_v3,
+    ):
+        """When one role reaches a dimension, a bare and a role-qualified
+        reference name the same thing, so either spelling matches a pre-agg
+        registered with the other -- including its column mapping.
+        """
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.customer.customer_id"],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "revenue_by_customer_key",
+                "valid_through_ts": 20250101,
+            },
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            dimension_columns={"v3.customer.customer_id": "cust_key"},
+            table_columns={"cust_key": "int", "rev_sum": "double"},
+        )
+        # The output alias follows the spelling that was requested; only matching
+        # is canonicalized.
+        for dimension, alias in (
+            ("v3.customer.customer_id", "customer_id"),
+            ("v3.customer.customer_id[customer]", "customer_id_customer"),
+        ):
+            response = await client_with_build_v3.get(
+                "/sql/measures/v3/",
+                params={"metrics": ["v3.total_revenue"], "dimensions": [dimension]},
+            )
+            assert response.status_code == 200
+            assert_sql_equal(
+                get_first_grain_group(response.json())["sql"],
+                f"""
+                SELECT cust_key {alias}, SUM(rev_sum) rev_sum
+                FROM default.analytics.revenue_by_customer_key
+                GROUP BY cust_key
+                """,
             )
 
     @pytest.mark.asyncio

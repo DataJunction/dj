@@ -75,6 +75,7 @@ from datajunction_server.construction.build_v3.dimensions import (
 )
 from datajunction_server.construction.build_v3.preagg_matcher import (
     find_matching_preagg,
+    canonical_dimension_ref,
     get_preagg_dimension_column,
     get_preagg_measure_column,
 )
@@ -1831,6 +1832,7 @@ def build_grain_group_from_preagg(
             preagg,
             dim.original_ref,
             dim.column_name,
+            canonicalize=lambda ref: canonical_dimension_ref(ctx, parent_node, ref),
         )
         group_by_cols.append(physical_col)
         ref_to_physical[dim.original_ref] = physical_col

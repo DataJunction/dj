@@ -80,17 +80,13 @@ async def assert_dimension_refs_are_role_qualified(
     dimensions: list[str],
 ) -> None:
     """
-    Reject an unqualified dimension reference whose dimension node is only
-    reachable through role-carrying links.
+    Reject a bare dimension reference that reaches its dimension by more than one
+    role, since it does not identify which one is meant.
 
-    Grain matching compares dimension reference strings, so a registration only
-    serves queries that spell each dimension the same way. Where a link declares a
-    role, the role is part of the canonical reference and the only form the catalog
-    advertises -- registering the bare name would build a grain nothing can ask
-    for, and queries would silently fall back to the source.
-
-    Only refs with a role-qualified counterpart are rejected. A locally-owned
-    column has no dimension node and no role, so it is left alone.
+    Mirrors the resolution order used elsewhere for role-played columns: a bare
+    name is fine when unambiguous, but when several roles reach the dimension it
+    must be qualified rather than resolved to whichever path happens to sort
+    first. Locally-owned columns and single-role dimensions are left alone.
     """
     unqualified = [ref for ref in dimensions if "[" not in ref]
     if not unqualified:
@@ -111,13 +107,11 @@ async def assert_dimension_refs_are_role_qualified(
         roles = sorted(
             candidate for candidate in advertised if candidate.startswith(f"{ref}[")
         )
-        if roles:
+        if len(roles) > 1:
             raise DJInvalidInputException(
                 message=(
-                    f"Dimension '{ref}' must be role-qualified. The link to this "
-                    f"dimension declares a role, so '{ref}' is not a reference "
-                    f"queries can use and a pre-aggregation registered with it "
-                    f"would never match. Use one of: {', '.join(roles)}."
+                    f"Dimension '{ref}' is ambiguous across roles and must be "
+                    f"role-qualified. Use one of: {', '.join(roles)}."
                 ),
             )
 
