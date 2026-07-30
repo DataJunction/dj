@@ -87,6 +87,15 @@ same expression aggregated the same way share a pre-aggregation, while `SUM(x)` 
 measures that can't stand in for each other. As with cubes, when several pre-aggregations qualify, DJ
 chooses the **smallest grain** that covers the request.
 
+Dimension references are compared **canonically**, so a bare name and a role-qualified spelling of the
+same dimension match each other — a pre-aggregation registered with one spelling still serves queries
+written with the other, including its `dimension_columns` column mapping. A bare name is only rejected
+when the dimension is reachable by more than one role, since then it identifies none of them: a fact
+that links a location dimension as both `[from]` and `[to]` has to be registered under one of the
+role-qualified references, which registration lists for you in the error. Output column aliases are
+unaffected — they still follow the spelling the caller used (`country` versus `country_from`), since
+canonicalization applies to matching only.
+
 Filters are applied wherever they're still correct. A filter on a dimension the query also groups by is
 applied over the pre-aggregated rows; a filter on a dimension that's in the pre-aggregation's grain but
 *not* in the requested output is pushed into the scan and applied **before** the roll-up, so the
