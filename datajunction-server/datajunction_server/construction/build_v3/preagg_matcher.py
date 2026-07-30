@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.database.preaggregation import (
     PreAggregation,
     compute_expression_hash,
@@ -18,7 +19,10 @@ from datajunction_server.database.preaggregation import (
 from datajunction_server.models.decompose import Aggregability, MetricComponent
 from datajunction_server.models.preaggregation import TemporalPartitionColumn
 from datajunction_server.naming import SEPARATOR
-from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
+from datajunction_server.construction.build_v3.dimensions import (
+    parse_dimension_ref,
+    roles_reaching_dimension,
+)
 
 if TYPE_CHECKING:
     from datajunction_server.construction.build_v3.types import BuildContext, GrainGroup
@@ -50,6 +54,33 @@ def get_required_measure_identities(
         )
         for _, component in grain_group.components
     }
+
+
+def canonical_dimension_ref(
+    ctx: "BuildContext",
+    node_rev_id: int,
+    ref: str,
+) -> str:
+    """
+    Canonical form of a dimension reference, so that a pre-agg registered with one
+    spelling still matches a query written with the other.
+
+    A bare reference is qualified only when exactly one named role reaches the
+    dimension and no role-free link does -- mirroring how the reference resolves,
+    which prefers the role-free link. Anything else is returned unchanged.
+    """
+    try:
+        dim_ref = parse_dimension_ref(ref)
+    except DJInvalidInputException:
+        # Not a node.column reference, so there is no dimension node to look up
+        # roles for. Compared as-is rather than failing the whole build.
+        return ref
+    if dim_ref.role:
+        return ref
+    roles = roles_reaching_dimension(ctx, node_rev_id, dim_ref.node_name)
+    if "" in roles or len(roles) != 1:
+        return ref
+    return f"{ref}[{roles.pop()}]"
 
 
 def find_matching_preagg(
@@ -93,8 +124,9 @@ def find_matching_preagg(
     if not required_measures:
         return None
 
-    # Normalize requested grain to a set for comparison
-    requested_grain_set = set(requested_grain)
+    requested_grain_set = {
+        canonical_dimension_ref(ctx, node_rev_id, ref) for ref in requested_grain
+    }
 
     # Non-additive measures (e.g. COUNT(DISTINCT ...), raw AVG components) cannot
     # be rolled up to a coarser grain without producing wrong results. When any
@@ -111,7 +143,10 @@ def find_matching_preagg(
     best_grain_size = float("inf")
 
     for preagg in available:
-        preagg_grain_set = set(preagg.grain_columns or [])
+        preagg_grain_set = {
+            canonical_dimension_ref(ctx, node_rev_id, ref)
+            for ref in (preagg.grain_columns or [])
+        }
 
         # Check grain compatibility. For additive measures the pre-agg may be at
         # the same or a finer grain (roll-up allowed → subset match). For
@@ -198,6 +233,8 @@ def get_preagg_measure_column(
 
 
 def get_preagg_dimension_column(
+    ctx: "BuildContext",
+    node_rev_id: int,
     preagg: PreAggregation,
     dimension_ref: str,
     default_column: str,
@@ -206,11 +243,17 @@ def get_preagg_dimension_column(
     Physical column in the pre-agg backing a resolved grain dimension.
 
     External pre-aggs may store a dimension under a different column name (kept as
-    source_column). Matched by dimension reference (semantic_name == original_ref,
-    so role-safe), falling back to the DJ column name.
+    source_column). Matched by canonical dimension reference, so a bare and a
+    role-qualified spelling of the same dimension still match, falling back to the
+    DJ column name.
     """
+    target = canonical_dimension_ref(ctx, node_rev_id, dimension_ref)
     for col in preagg.columns or []:
-        if col.semantic_type == "dimension" and col.semantic_name == dimension_ref:
+        if col.semantic_type == "dimension" and target == canonical_dimension_ref(
+            ctx,
+            node_rev_id,
+            col.semantic_name,
+        ):
             return col.source_column or col.name
     return default_column
 

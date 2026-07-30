@@ -146,4 +146,47 @@ describe('<EditColumnDescriptionPopover />', () => {
     const descriptionTextarea = within(dialog).getByRole('textbox');
     expect(descriptionTextarea.value).toBe('');
   });
+
+  it('submits a role-qualified cube column', async () => {
+    const column = {
+      name: 'v3.date.date_id',
+      dimension_column: '[ship]',
+      description: '',
+    };
+    const node = {
+      name: 'v3.role_cube',
+      type: 'cube',
+    };
+    mockDjClient.DataJunctionAPI.setColumnDescription.mockReturnValue({
+      status: 200,
+      json: { message: 'Description updated successfully' },
+    });
+
+    render(
+      <DJClientContext.Provider value={mockDjClient}>
+        <EditColumnDescriptionPopover
+          column={column}
+          node={node}
+          onSubmit={vi.fn()}
+        />
+      </DJClientContext.Provider>,
+    );
+
+    fireEvent.click(screen.getByLabelText('EditColumnDescription'));
+    const dialog = screen.getByRole('dialog', { name: /edit-description/i });
+    fireEvent.change(within(dialog).getByRole('textbox'), {
+      target: { value: 'Ship date' },
+    });
+    fireEvent.click(screen.getByText('Save'));
+
+    await waitFor(() => {
+      expect(
+        mockDjClient.DataJunctionAPI.setColumnDescription,
+      ).toHaveBeenCalledWith(
+        'v3.role_cube',
+        'v3.date.date_id[ship]',
+        'Ship date',
+      );
+    });
+  });
 });

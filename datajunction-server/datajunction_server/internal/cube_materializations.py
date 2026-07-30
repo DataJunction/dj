@@ -50,7 +50,7 @@ def generate_partition_filter_sql(
     if temporal_partition.partition.granularity == Granularity.DAY and (
         lookback_window == "1 DAY" or not lookback_window
     ):
-        return f"{temporal_partition.name} = {partition_sql}"
+        return f"{temporal_partition.cube_element_name} = {partition_sql}"
     lookback_timestamp = (
         f"{logical_ts} - INTERVAL {lookback_window}"  # pragma: no cover
     )
@@ -59,7 +59,8 @@ def generate_partition_filter_sql(
         str(temporal_partition.type),
     )
     return (  # pragma: no cover
-        f"{temporal_partition.name} BETWEEN {partition_start} AND {partition_sql}"
+        f"{temporal_partition.cube_element_name} "
+        f"BETWEEN {partition_start} AND {partition_sql}"
     )
 
 

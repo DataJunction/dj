@@ -16,6 +16,7 @@ from datajunction_server.models.deployment import (
     PreAggSpec,
     Granularity,
     PartitionType,
+    TagSpec,
     eq_columns,
     eq_or_fallback,
 )
@@ -646,3 +647,39 @@ def test_preagg_spec_renders_dimension_columns():
     )
     assert spec.rendered_dimension_columns == {"ns.d.attr": "phys_attr"}
     assert spec.rendered_measure_columns == {"ns.count": "cnt"}
+
+
+def test_tag_spec_metadata_aliases():
+    """
+    A tag's metadata bag may be authored as `tag_metadata`, `metadata` or
+    `custom_metadata`; all three land on `tag_metadata`. `display_name` is
+    optional (the deployment labelizes the name when it is absent).
+    """
+    metadata = {"order": 1, "display": {"color": "blue"}}
+    for key in ("tag_metadata", "metadata", "custom_metadata"):
+        tag_spec = TagSpec.model_validate(
+            {
+                "name": "inventory",
+                "description": "Inventory tag",
+                "tag_type": "group",
+                key: metadata,
+            },
+        )
+        assert tag_spec.model_dump() == {
+            "name": "inventory",
+            "display_name": None,
+            "description": "Inventory tag",
+            "tag_type": "group",
+            "tag_metadata": metadata,
+        }
+
+    # Legacy tag entries with neither display_name nor metadata still validate
+    assert TagSpec.model_validate(
+        {"name": "deprecated", "description": "d", "tag_type": "Maintenance"},
+    ).model_dump() == {
+        "name": "deprecated",
+        "display_name": None,
+        "description": "d",
+        "tag_type": "Maintenance",
+        "tag_metadata": None,
+    }

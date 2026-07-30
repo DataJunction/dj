@@ -19,7 +19,6 @@ from datajunction_server.naming import amenable_name, from_amenable_name
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.sql.parsing.types import IntegerType
-from datajunction_server.utils import SEPARATOR
 
 
 async def build_dimensions_from_cube_query(
@@ -109,9 +108,11 @@ async def build_dimensions_from_cube_query(
         query_ast.select.from_.relations.append(  # type: ignore
             ast.Relation(primary=measures_query_ast),
         )
+    # Cube columns, unlike the deduplicated cube_elements relationship, retain
+    # one entry per role. Keying types from cube_elements makes a projection
+    # such as ``date.date_id[ship]`` miss its type entirely.
     types_lookup = {
-        amenable_name(elem.node_revision.name + SEPARATOR + elem.name): elem.type  # type: ignore
-        for elem in cube.cube_elements
+        amenable_name(column.cube_element_name): column.type for column in cube.columns
     }
     return TranslatedSQL.create(
         sql=str(query_ast),

@@ -80,6 +80,7 @@ from datajunction_server.models.deployment import (
     NodeSpec,
     SourceSpec,
     TagSpec,
+    eq_or_fallback,
     render_prefixes,
 )
 from datajunction_server.models.dimensionlink import (
@@ -895,6 +896,7 @@ class DeploymentOrchestrator:
                             Tag.tag_type,
                             Tag.description,
                             Tag.display_name,
+                            Tag.tag_metadata,
                             Tag.created_by_id,
                         ),
                         noload(Tag.created_by),
@@ -929,6 +931,7 @@ class DeploymentOrchestrator:
                     tag.tag_type = tag_spec.tag_type
                     tag.description = tag_spec.description
                     tag.display_name = tag_spec.display_name or labelize(tag_name)
+                    tag.tag_metadata = tag_spec.tag_metadata or {}
                     self.session.add(tag)
                     tags_modified = True
             else:
@@ -937,6 +940,7 @@ class DeploymentOrchestrator:
                     tag_type=tag_spec.tag_type,
                     description=tag_spec.description,
                     display_name=tag_spec.display_name or labelize(tag_name),
+                    tag_metadata=tag_spec.tag_metadata or {},
                     created_by_id=self.context.current_user.id,
                 )
                 self.session.add(tag)
@@ -2969,7 +2973,7 @@ class DeploymentOrchestrator:
             # identity DJ uses for cube elements — so a partition declared on a
             # role-played column (e.g. "...dateint[epoch_date]") lands on the right
             # role instead of being silently dropped.
-            element_key = full_element_name + (node_column.dimension_column or "")
+            element_key = node_column.cube_element_name
             if element_key in column_spec_map:
                 col_spec = column_spec_map[element_key]
                 if col_spec.partition:  # pragma: no branch
@@ -3853,7 +3857,12 @@ class DeploymentOrchestrator:
         # Track changes to node columns
         old_revision = existing.current if existing else None
         existing_columns_map = {
-            col.name: col for col in (old_revision.columns if old_revision else [])
+            (
+                col.cube_element_name
+                if old_revision and old_revision.type == NodeType.CUBE
+                else col.name
+            ): col
+            for col in (old_revision.columns if old_revision else [])
         }
         changed_count = [
             column_changed(new_col, existing_columns_map.get(new_col.name))
@@ -4376,6 +4385,10 @@ def tag_needs_update(existing_tag: Tag, tag_spec: TagSpec) -> bool:
         or existing_tag.description != tag_spec.description
         or existing_tag.display_name
         != (tag_spec.display_name or labelize(tag_spec.name))
+        # A deployment is declarative, so the spec's metadata bag replaces the
+        # stored one; an omitted bag is equivalent to an empty one, matching how
+        # node-level custom_metadata is compared.
+        or not eq_or_fallback(tag_spec.tag_metadata, existing_tag.tag_metadata, {})
     )
 
 

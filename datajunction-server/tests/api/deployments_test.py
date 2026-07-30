@@ -20,6 +20,7 @@ from datajunction_server.models.deployment import (
     GitDeploymentSource,
     LocalDeploymentSource,
     PreAggSpec,
+    TagSpec,
 )
 from datajunction_server.utils import get_query_service_client
 from datajunction_server.internal.git.github_service import GitHubServiceError
@@ -2999,6 +3000,95 @@ class TestDeployments:
         }
         node = await Node.get_by_name(session, f"{namespace}.default.us_state")
         assert [tag.name for tag in node.tags] == ["tag1"]
+
+    @pytest.mark.asyncio
+    async def test_deploy_tag_metadata(
+        self,
+        client,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        Test that tag_metadata declared on a tag in the deployment spec is
+        persisted, both when the tag is created and when it is later updated.
+
+        The deployment spec is the source of truth: the declared bag replaces
+        the stored one, so keys added out-of-band or dropped from the spec do
+        not linger on the server.
+        """
+        namespace = "tag_metadata_deploy"
+        default_us_state.tags = ["inventory"]
+
+        def spec(tag_metadata):
+            return DeploymentSpec(
+                namespace=namespace,
+                nodes=[default_us_states, default_us_state],
+                tags=[
+                    TagSpec(
+                        name="inventory",
+                        display_name="Inventory",
+                        description="Inventory tag",
+                        tag_type="group",
+                        tag_metadata=tag_metadata,
+                    ),
+                ],
+            )
+
+        # Create path
+        data = await deploy_and_wait(
+            client,
+            spec({"order": 1, "display": {"color": "blue"}}),
+        )
+        assert data["status"] == "success"
+        response = await client.get("/tags/inventory/")
+        assert response.json() == {
+            "name": "inventory",
+            "display_name": "Inventory",
+            "description": "Inventory tag",
+            "tag_type": "group",
+            "tag_metadata": {"order": 1, "display": {"color": "blue"}},
+        }
+
+        # A key is added out-of-band, outside the deployment
+        response = await client.patch(
+            "/tags/inventory/",
+            json={
+                "tag_metadata": {
+                    "order": 1,
+                    "display": {"color": "blue"},
+                    "added_out_of_band": {"foo": "bar"},
+                },
+            },
+        )
+        assert response.status_code == 200
+
+        # Update path: the spec replaces the stored bag, dropping the
+        # out-of-band key and replacing nested contents rather than merging
+        data = await deploy_and_wait(
+            client,
+            spec({"order": 2, "display": {"icon": "box"}}),
+        )
+        assert data["status"] == "success"
+        response = await client.get("/tags/inventory/")
+        assert response.json() == {
+            "name": "inventory",
+            "display_name": "Inventory",
+            "description": "Inventory tag",
+            "tag_type": "group",
+            "tag_metadata": {"order": 2, "display": {"icon": "box"}},
+        }
+
+        # Removing tag_metadata from the spec clears it on the server
+        data = await deploy_and_wait(client, spec(None))
+        assert data["status"] == "success"
+        response = await client.get("/tags/inventory/")
+        assert response.json() == {
+            "name": "inventory",
+            "display_name": "Inventory",
+            "description": "Inventory tag",
+            "tag_type": "group",
+            "tag_metadata": {},
+        }
 
     @pytest.mark.asyncio
     async def test_deploy_column_properties(

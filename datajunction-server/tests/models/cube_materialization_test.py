@@ -5,6 +5,8 @@ from unittest.mock import Mock
 
 import pytest
 
+from datajunction_server.database.column import Column
+from datajunction_server.database.partition import Partition
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.materialization.jobs.cube_materialization import (
     DruidCubeMaterializationJob,
@@ -21,13 +23,23 @@ from datajunction_server.models.cube_materialization import (
 from datajunction_server.models.materialization import MaterializationStrategy
 from datajunction_server.utils import get_settings
 from datajunction_server.models.node_type import NodeNameVersion
-from datajunction_server.models.partition import Granularity
+from datajunction_server.models.partition import Granularity, PartitionType
 from datajunction_server.models.decompose import (
     AggregationRule,
     Aggregability,
     MetricComponent,
 )
 from datajunction_server.models.query import ColumnMetadata
+
+
+def _temporal_partition(name: str, dimension_column: str | None) -> Column:
+    column = Column(name=name, dimension_column=dimension_column)
+    column.partition = Partition(
+        type_=PartitionType.TEMPORAL,
+        format="yyyyMMdd",
+        granularity=Granularity.DAY,
+    )
+    return column
 
 
 def test_druid_cube_materialization_job_passes_lookback_window():
@@ -299,12 +311,9 @@ class TestFromMeasuresQueryRoleResolution:
     def test_role_qualified_partition_resolves(self, measures_query):
         """Cube column with ``dimension_column='[reporting_date]'`` must
         match the role-qualified ``semantic_entity`` in the measures query."""
-        # Mimics a database Column for a role-qualified temporal partition.
-        # Cube columns store the role separately in ``dimension_column``.
-        temporal_partition = SimpleNamespace(
-            name="default.date.dateint",
-            dimension_column="[reporting_date]",
-            partition=SimpleNamespace(format="yyyyMMdd", granularity=Granularity.DAY),
+        temporal_partition = _temporal_partition(
+            "default.date.dateint",
+            "[reporting_date]",
         )
 
         result = MeasuresMaterialization.from_measures_query(
@@ -319,11 +328,7 @@ class TestFromMeasuresQueryRoleResolution:
     def test_unqualified_partition_still_resolves(self, measures_query):
         """A cube without a role on its temporal partition must still match."""
         measures_query.columns[0].semantic_entity = "default.date.dateint"
-        temporal_partition = SimpleNamespace(
-            name="default.date.dateint",
-            dimension_column=None,
-            partition=SimpleNamespace(format="yyyyMMdd", granularity=Granularity.DAY),
-        )
+        temporal_partition = _temporal_partition("default.date.dateint", None)
 
         result = MeasuresMaterialization.from_measures_query(
             measures_query,
@@ -335,11 +340,7 @@ class TestFromMeasuresQueryRoleResolution:
     def test_missing_partition_raises_clear_error(self, measures_query):
         """If no measures column matches the partition, raise a clear error
         instead of an opaque ``IndexError``."""
-        temporal_partition = SimpleNamespace(
-            name="default.unrelated.column",
-            dimension_column=None,
-            partition=SimpleNamespace(format="yyyyMMdd", granularity=Granularity.DAY),
-        )
+        temporal_partition = _temporal_partition("default.unrelated.column", None)
 
         with pytest.raises(DJInvalidInputException, match="Could not find timestamp"):
             MeasuresMaterialization.from_measures_query(

@@ -1564,7 +1564,9 @@ async def set_column_display_name(
         session,
         node_name,
         options=[joinedload(Node.current)],
+        raise_if_not_exists=True,
     )
+    assert node is not None  # raise_if_not_exists=True ensures this
     column = await get_column(session, node.current, column_name)  # type: ignore
     column.display_name = display_name
     session.add(column)
@@ -1575,7 +1577,11 @@ async def set_column_display_name(
             node=node.name,  # type: ignore
             activity_type=ActivityType.UPDATE,
             details={
-                "column": column.name,
+                "column": (
+                    column.cube_element_name
+                    if node.type == NodeType.CUBE
+                    else column.name
+                ),
                 "display_name": display_name,
             },
             user=current_user.username,
@@ -1610,7 +1616,9 @@ async def set_column_description(
         session,
         node_name,
         options=[joinedload(Node.current)],
+        raise_if_not_exists=True,
     )
+    assert node is not None  # raise_if_not_exists=True ensures this
     column = await get_column(session, node.current, column_name)  # type: ignore
     column.description = description
     session.add(column)
@@ -1621,7 +1629,11 @@ async def set_column_description(
             node=node.name,  # type: ignore
             activity_type=ActivityType.UPDATE,
             details={
-                "column": column.name,
+                "column": (
+                    column.cube_element_name
+                    if node.type == NodeType.CUBE
+                    else column.name
+                ),
                 "description": description,
             },
             user=current_user.username,
@@ -1662,14 +1674,19 @@ async def set_column_partition(
                 joinedload(NodeRevision.cube_elements),
             ),
         ],
+        raise_if_not_exists=True,
     )
+    assert node is not None  # raise_if_not_exists=True ensures this
     column = get_node_column(node, column_name)  # type: ignore
+    column_identifier = (
+        column.cube_element_name if node.type == NodeType.CUBE else column.name
+    )
     upsert_partition_event = History(
         entity_type=EntityType.PARTITION,
         node=node_name,
         activity_type=ActivityType.CREATE,
         details={
-            "column": column_name,
+            "column": column_identifier,
             "partition": input_partition.model_dump(),
         },
         user=current_user.username,
@@ -1736,8 +1753,13 @@ async def remove_column_partition(
                 joinedload(NodeRevision.cube_elements),
             ),
         ],
+        raise_if_not_exists=True,
     )
+    assert node is not None  # raise_if_not_exists=True ensures this
     column = get_node_column(node, column_name)  # type: ignore
+    column_identifier = (
+        column.cube_element_name if node.type == NodeType.CUBE else column.name
+    )
     if column.partition:
         await session.delete(column.partition)
         column.partition = None
@@ -1747,7 +1769,7 @@ async def remove_column_partition(
                 entity_type=EntityType.PARTITION,
                 node=node_name,
                 activity_type=ActivityType.DELETE,
-                details={"column": column_name},
+                details={"column": column_identifier},
                 user=current_user.username,
             ),
             session=session,

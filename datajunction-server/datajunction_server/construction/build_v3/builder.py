@@ -146,7 +146,7 @@ async def extract_temporal_partition_columns(
     temporal_partition_columns = {}
     for column in matching_cube.columns:
         if column.partition and column.partition.type_ == PartitionType.TEMPORAL:
-            temporal_partition_columns[column.name] = column.partition
+            temporal_partition_columns[column.cube_element_name] = column.partition
 
     return temporal_partition_columns if temporal_partition_columns else None
 

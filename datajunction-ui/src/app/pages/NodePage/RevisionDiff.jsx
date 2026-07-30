@@ -11,6 +11,7 @@ import DiffIcon from '../../icons/DiffIcon';
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import foundation from 'react-syntax-highlighter/dist/esm/styles/hljs/foundation';
 import sql from 'react-syntax-highlighter/dist/cjs/languages/hljs/sql';
+import { getColumnIdentifier } from '../../utils/column';
 
 SyntaxHighlighter.registerLanguage('sql', sql);
 foundation.hljs['padding'] = '2rem';
@@ -63,12 +64,16 @@ export default function RevisionDiff() {
             diffLines(
               older
                 ? key === 'columns'
-                  ? older[key].map(col => col.name).join('\n')
+                  ? older[key]
+                      .map(col => getColumnIdentifier(older, col))
+                      .join('\n')
                   : older[key].toString()
                 : '',
               newer
                 ? key === 'columns'
-                  ? newer[key].map(col => col.name).join('\n')
+                  ? newer[key]
+                      .map(col => getColumnIdentifier(newer, col))
+                      .join('\n')
                   : newer[key].toString()
                 : '',
             ),
@@ -185,10 +190,12 @@ export default function RevisionDiff() {
                       ) : field === 'columns' ? (
                         <div>
                           {prevRevision[0][field].map(col => (
-                            <>
-                              {col.name}
+                            <React.Fragment
+                              key={getColumnIdentifier(prevRevision[0], col)}
+                            >
+                              {getColumnIdentifier(prevRevision[0], col)}
                               <br />
-                            </>
+                            </React.Fragment>
                           ))}
                         </div>
                       ) : (

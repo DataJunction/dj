@@ -208,7 +208,11 @@ async def get_node_details(name: str) -> str:
     if node.current:
         node_dict["current"]["query"] = node.current.query
         node_dict["current"]["columns"] = [
-            {"name": c.name, "type": str(c.type)} for c in (node.current.columns or [])
+            {
+                "name": (c.cube_element_name if node.type == NodeType.CUBE else c.name),
+                "type": str(c.type),
+            }
+            for c in (node.current.columns or [])
         ]
         node_dict["current"]["parents"] = [
             {

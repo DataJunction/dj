@@ -189,9 +189,7 @@ class MeasuresMaterialization(BaseModel):
         # The cube column stores the role separately in ``dimension_column``
         # as ``[role]``. Reconstruct the role-qualified form to match the v3
         # measures-query ``semantic_entity`` (e.g. ``node.col[role]``).
-        partition_ref = (
-            f"{temporal_partition.name}{temporal_partition.dimension_column or ''}"
-        )
+        partition_ref = temporal_partition.cube_element_name
         partition_matches = [
             col.name
             for col in measures_query.columns

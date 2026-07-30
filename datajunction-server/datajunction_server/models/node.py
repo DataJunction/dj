@@ -804,6 +804,11 @@ class ColumnOutput(BaseModel):
 
     model_config = ConfigDict(from_attributes=True, validate_assignment=True)
 
+    @property
+    def cube_element_name(self) -> str:
+        """Role-qualified identity for this column when it belongs to a cube."""
+        return self.name + (self.dimension_column or "")
+
     @field_validator("type", mode="before")
     def extract_type(cls, raw):
         return str(raw)

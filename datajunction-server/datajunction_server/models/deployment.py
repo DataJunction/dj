@@ -1,5 +1,6 @@
 from enum import Enum
 from pydantic import (
+    AliasChoices,
     BaseModel,
     Field,
     PrivateAttr,
@@ -56,10 +57,19 @@ class TagSpec(BaseModel):
     """
 
     name: str
-    display_name: str
+    # Optional: the deployment falls back to a labelized version of the name.
+    display_name: str | None = None
     description: str = ""
     tag_type: str = ""
-    tag_metadata: dict | None = None
+    # The metadata bag on a tag. Node specs call their bag `custom_metadata`, so
+    # both that and a bare `metadata:` are accepted as aliases to avoid forcing
+    # users to rewrite existing YAML.
+    tag_metadata: dict | None = Field(
+        default=None,
+        validation_alias=AliasChoices("tag_metadata", "metadata", "custom_metadata"),
+    )
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class HierarchyLevelSpec(BaseModel):
