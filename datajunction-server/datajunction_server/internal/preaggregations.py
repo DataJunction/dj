@@ -16,6 +16,7 @@ from sqlalchemy.orm import selectinload
 from datajunction_server.api.helpers import get_catalog_by_name
 from datajunction_server.construction.build_v3.builder import build_measures_sql
 from datajunction_server.construction.build_v3.dimensions import (
+    parse_dimension_ref,
     roles_reaching_dimension,
 )
 from datajunction_server.construction.build_v3.types import GeneratedMeasuresSQL
@@ -30,7 +31,6 @@ from datajunction_server.database.preaggregation import (
 )
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.decompose import PreAggMeasure
-from datajunction_server.naming import SEPARATOR
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.materialization import MaterializationStrategy
 from datajunction_server.models.node_type import NodeType
@@ -91,9 +91,9 @@ def assert_dimension_refs_are_role_qualified(
     resolved to whichever path happens to sort first.
     """
     for ref in dimensions:
-        if "[" in ref:
+        dim_ref = parse_dimension_ref(ref)
+        if dim_ref.role:
             continue
-        dim_node_name = ref.rsplit(SEPARATOR, 1)[0]
         roles: set[str] = set()
         for grain_group in measures_result.grain_groups:
             parent_node = measures_result.ctx.nodes.get(grain_group.parent_name)
@@ -102,7 +102,7 @@ def assert_dimension_refs_are_role_qualified(
             roles |= roles_reaching_dimension(
                 measures_result.ctx,
                 parent_node.current.id,
-                dim_node_name,
+                dim_ref.node_name,
             )
         named = sorted(role for role in roles if role)
         if "" not in roles and len(named) > 1:

@@ -84,18 +84,34 @@ def test_get_preagg_dimension_column():
             ),
         ],
     )
+    ctx = BuildContext(session=None, metrics=[], dimensions=[])
     # Mapped dimension -> its physical source column.
     assert (
-        get_preagg_dimension_column(preagg, "v3.order_details.status", "status")
+        get_preagg_dimension_column(
+            ctx,
+            1,
+            preagg,
+            "v3.order_details.status",
+            "status",
+        )
         == "order_status"
     )
     # A dimension not in the pre-agg's columns falls back to the DJ column name.
     assert (
-        get_preagg_dimension_column(preagg, "v3.order_details.other", "other")
+        get_preagg_dimension_column(ctx, 1, preagg, "v3.order_details.other", "other")
         == "other"
     )
     # No columns at all also falls back.
-    assert get_preagg_dimension_column(PreAggregation(columns=None), "x", "y") == "y"
+    assert (
+        get_preagg_dimension_column(
+            ctx,
+            1,
+            PreAggregation(columns=None),
+            "v3.order_details.status",
+            "status",
+        )
+        == "status"
+    )
 
 
 @pytest_asyncio.fixture

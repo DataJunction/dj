@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.database.preaggregation import (
     PreAggregation,
     compute_expression_hash,
@@ -68,9 +69,15 @@ def canonical_dimension_ref(
     dimension and no role-free link does -- mirroring how the reference resolves,
     which prefers the role-free link. Anything else is returned unchanged.
     """
-    if "[" in ref:
+    try:
+        dim_ref = parse_dimension_ref(ref)
+    except DJInvalidInputException:
+        # Not a node.column reference, so there is no dimension node to look up
+        # roles for. Compared as-is rather than failing the whole build.
         return ref
-    roles = roles_reaching_dimension(ctx, node_rev_id, ref.rsplit(SEPARATOR, 1)[0])
+    if dim_ref.role:
+        return ref
+    roles = roles_reaching_dimension(ctx, node_rev_id, dim_ref.node_name)
     if "" in roles or len(roles) != 1:
         return ref
     return f"{ref}[{roles.pop()}]"
@@ -226,29 +233,27 @@ def get_preagg_measure_column(
 
 
 def get_preagg_dimension_column(
+    ctx: "BuildContext",
+    node_rev_id: int,
     preagg: PreAggregation,
     dimension_ref: str,
     default_column: str,
-    ctx: BuildContext | None = None,
-    node_rev_id: int | None = None,
 ) -> str:
     """
     Physical column in the pre-agg backing a resolved grain dimension.
 
     External pre-aggs may store a dimension under a different column name (kept as
-    source_column). Matched by dimension reference, canonicalized so a bare and a
+    source_column). Matched by canonical dimension reference, so a bare and a
     role-qualified spelling of the same dimension still match, falling back to the
     DJ column name.
     """
-
-    def canon(ref: str) -> str:
-        if ctx is None or node_rev_id is None:
-            return ref
-        return canonical_dimension_ref(ctx, node_rev_id, ref)
-
-    target = canon(dimension_ref)
+    target = canonical_dimension_ref(ctx, node_rev_id, dimension_ref)
     for col in preagg.columns or []:
-        if col.semantic_type == "dimension" and canon(col.semantic_name) == target:
+        if col.semantic_type == "dimension" and target == canonical_dimension_ref(
+            ctx,
+            node_rev_id,
+            col.semantic_name,
+        ):
             return col.source_column or col.name
     return default_column
 

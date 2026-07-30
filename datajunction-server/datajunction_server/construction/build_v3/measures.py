@@ -1824,11 +1824,11 @@ def build_grain_group_from_preagg(
         # Physical column read from the table, remapped via dimension_columns if
         # present. Independent of the output alias above.
         physical_col = get_preagg_dimension_column(
+            ctx,
+            preagg.node_revision_id,
             preagg,
             dim.original_ref,
             dim.column_name,
-            ctx=ctx,
-            node_rev_id=preagg.node_revision_id,
         )
         group_by_cols.append(physical_col)
         ref_to_physical[dim.original_ref] = physical_col
