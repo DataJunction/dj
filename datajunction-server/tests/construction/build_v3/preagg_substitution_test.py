@@ -1163,7 +1163,7 @@ class TestExternalPreAggRouting:
         await _register_external_preagg(
             client_with_build_v3,
             metrics=["v3.total_revenue"],
-            dimensions=["v3.customer.customer_id"],
+            dimensions=["v3.customer.customer_id[customer]"],
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
@@ -1177,7 +1177,7 @@ class TestExternalPreAggRouting:
             "/sql/metrics/v3/",
             params={
                 "metrics": ["v3.revenue_per_visitor"],
-                "dimensions": ["v3.customer.customer_id"],
+                "dimensions": ["v3.customer.customer_id[customer]"],
             },
         )
         assert metrics_response.status_code == 200
@@ -1190,23 +1190,31 @@ class TestExternalPreAggRouting:
                 FROM default.v3.page_views
             ),
             order_details_0 AS (
-                SELECT customer_id, SUM(revenue_sum) revenue_sum
+                SELECT customer_id_customer, SUM(revenue_sum) revenue_sum
                 FROM default.analytics.revenue_by_customer
-                GROUP BY customer_id
+                GROUP BY customer_id_customer
             ),
             page_views_enriched_0 AS (
-                SELECT t1.customer_id
+                SELECT t1.customer_id customer_id_customer, t1.customer_id
                 FROM v3_page_views_enriched t1
                 GROUP BY t1.customer_id
+            ),
+            page_views_enriched_0_agg AS (
+                SELECT customer_id_customer,
+                       COUNT(DISTINCT customer_id) customer_id
+                FROM page_views_enriched_0
+                GROUP BY customer_id_customer
             )
-            SELECT COALESCE(order_details_0.customer_id,
-                            page_views_enriched_0.customer_id) AS customer_id,
+            SELECT COALESCE(order_details_0.customer_id_customer,
+                            page_views_enriched_0_agg.customer_id_customer)
+                       AS customer_id_customer,
                    SUM(order_details_0.revenue_sum)
-                   / NULLIF(COUNT(DISTINCT page_views_enriched_0.customer_id), 0)
+                   / NULLIF(MAX(page_views_enriched_0_agg.customer_id), 0)
                    AS revenue_per_visitor
             FROM order_details_0
-            FULL OUTER JOIN page_views_enriched_0
-                ON order_details_0.customer_id = page_views_enriched_0.customer_id
+            FULL OUTER JOIN page_views_enriched_0_agg
+                ON order_details_0.customer_id_customer
+                   = page_views_enriched_0_agg.customer_id_customer
             GROUP BY 1
             """,
         )
@@ -1319,6 +1327,120 @@ class TestExternalPreAggRouting:
             GROUP BY order_details_0.date_id_order
             """,
         )
+
+    @pytest.mark.asyncio
+    async def test_external_preagg_rejects_unqualified_role_dimension(
+        self,
+        client_with_build_v3,
+    ):
+        """A bare reference is rejected only when several roles reach the
+        dimension, since it then names none of them. Single-role dimensions,
+        locally-owned columns and role-free links stay legal.
+        """
+        rejected = await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.location.country"],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "revenue_by_country",
+            },
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            table_columns={"country": "string", "rev_sum": "double"},
+            expected_status=422,
+        )
+        assert rejected.json()["message"] == (
+            "Dimension `v3.location.country` is ambiguous across roles. "
+            "Use one of: `v3.location.country[customer->home]`, "
+            "`v3.location.country[from]`, `v3.location.country[to]`"
+        )
+
+        # References that are legal stay legal: a role-qualified dimension, a
+        # locally-owned column, the FK column behind a join, and a role-free link.
+        for dimension, table, columns in (
+            (
+                "v3.location.country[from]",
+                "revenue_by_from_country",
+                {"country_from": "string", "rev_sum": "double"},
+            ),
+            (
+                "v3.order_details.status",
+                "revenue_by_status_local",
+                {"status": "string", "rev_sum": "double"},
+            ),
+            (
+                "v3.order_details.order_date",
+                "revenue_by_order_date",
+                {"order_date": "int", "rev_sum": "double"},
+            ),
+            (
+                "v3.product.category",
+                "revenue_by_category_plain",
+                {"category": "string", "rev_sum": "double"},
+            ),
+            (
+                "v3.customer.customer_id",
+                "revenue_by_customer_bare",
+                {"customer_id": "int", "rev_sum": "double"},
+            ),
+        ):
+            await _register_external_preagg(
+                client_with_build_v3,
+                metrics=["v3.total_revenue"],
+                dimensions=[dimension],
+                table_ref={
+                    "catalog": "default",
+                    "schema": "analytics",
+                    "table": table,
+                    "valid_through_ts": 20250101,
+                },
+                measure_columns={"v3.total_revenue": "rev_sum"},
+                table_columns=columns,
+            )
+
+    @pytest.mark.asyncio
+    async def test_external_preagg_bare_and_role_qualified_refs_interoperate(
+        self,
+        client_with_build_v3,
+    ):
+        """When one role reaches a dimension, a bare and a role-qualified
+        reference name the same thing, so either spelling matches a pre-agg
+        registered with the other -- including its column mapping.
+        """
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.customer.customer_id"],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "revenue_by_customer_key",
+                "valid_through_ts": 20250101,
+            },
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            dimension_columns={"v3.customer.customer_id": "cust_key"},
+            table_columns={"cust_key": "int", "rev_sum": "double"},
+        )
+        # The output alias follows the spelling that was requested; only matching
+        # is canonicalized.
+        for dimension, alias in (
+            ("v3.customer.customer_id", "customer_id"),
+            ("v3.customer.customer_id[customer]", "customer_id_customer"),
+        ):
+            response = await client_with_build_v3.get(
+                "/sql/measures/v3/",
+                params={"metrics": ["v3.total_revenue"], "dimensions": [dimension]},
+            )
+            assert response.status_code == 200
+            assert_sql_equal(
+                get_first_grain_group(response.json())["sql"],
+                f"""
+                SELECT cust_key {alias}, SUM(rev_sum) rev_sum
+                FROM default.analytics.revenue_by_customer_key
+                GROUP BY cust_key
+                """,
+            )
 
     @pytest.mark.asyncio
     async def test_external_preagg_dimension_column_must_exist(
