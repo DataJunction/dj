@@ -134,8 +134,8 @@ awareness by materializing at the **right grain**:
 - Smaller-grain materializations are preferred and can serve any coarser request by rolling up, so a
   few well-chosen grains can cover many queries. Materializing at an unnecessarily fine grain costs
   storage and build time; too coarse and common queries miss it.
-- Measures shared across metrics (same decomposed expression) are matched by hash, so one
-  pre-aggregation can back several metrics.
+- Measures shared across metrics (same expression, aggregated the same way) are matched by identity,
+  so one pre-aggregation can back several metrics.
 
 For how metrics are broken into the additive measures that pre-aggregations store, see
 [Metric Decomposition](../metric-decomposition/); for how materializations are configured, see
