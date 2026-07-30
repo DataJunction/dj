@@ -15,6 +15,10 @@ from sqlalchemy.orm import selectinload
 
 from datajunction_server.api.helpers import get_catalog_by_name
 from datajunction_server.construction.build_v3.builder import build_measures_sql
+from datajunction_server.construction.build_v3.dimensions import (
+    roles_reaching_dimension,
+)
+from datajunction_server.construction.build_v3.types import GeneratedMeasuresSQL
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.preaggregation import (
@@ -26,13 +30,13 @@ from datajunction_server.database.preaggregation import (
 )
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.decompose import PreAggMeasure
+from datajunction_server.naming import SEPARATOR
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.materialization import MaterializationStrategy
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.preaggregation import ExternalPreAggTable
 from datajunction_server.models.query import V3ColumnMetadata
 from datajunction_server.service_clients import QueryServiceClient
-from datajunction_server.sql.dag import get_dimensions
 from datajunction_server.sql.decompose import MetricComponentExtractor
 
 
@@ -74,44 +78,39 @@ def assert_column_type_compatible(
         )
 
 
-async def assert_dimension_refs_are_role_qualified(
-    session: AsyncSession,
-    measures_result,
+def assert_dimension_refs_are_role_qualified(
+    measures_result: GeneratedMeasuresSQL,
     dimensions: list[str],
 ) -> None:
     """
     Reject a bare dimension reference that reaches its dimension by more than one
-    role, since it does not identify which one is meant.
+    role, since it names none of them.
 
-    Mirrors the resolution order used elsewhere for role-played columns: a bare
-    name is fine when unambiguous, but when several roles reach the dimension it
-    must be qualified rather than resolved to whichever path happens to sort
-    first. Locally-owned columns and single-role dimensions are left alone.
+    Mirrors how such a reference resolves: a role-free link wins, a single named
+    role is unambiguous, and anything else has to be qualified rather than
+    resolved to whichever path happens to sort first.
     """
-    unqualified = [ref for ref in dimensions if "[" not in ref]
-    if not unqualified:
-        return
-
-    advertised: set[str] = set()
-    for parent_name in {gg.parent_name for gg in measures_result.grain_groups}:
-        parent_node = measures_result.ctx.nodes.get(parent_name)
-        if not parent_node:  # pragma: no cover - defensive
+    for ref in dimensions:
+        if "[" in ref:
             continue
-        advertised.update(
-            dim.name for dim in await get_dimensions(session, parent_node)
-        )
-
-    for ref in unqualified:
-        if ref in advertised:
-            continue
-        roles = sorted(
-            candidate for candidate in advertised if candidate.startswith(f"{ref}[")
-        )
-        if len(roles) > 1:
+        dim_node_name = ref.rsplit(SEPARATOR, 1)[0]
+        roles: set[str] = set()
+        for grain_group in measures_result.grain_groups:
+            parent_node = measures_result.ctx.nodes.get(grain_group.parent_name)
+            if not parent_node or not parent_node.current:  # pragma: no cover
+                continue
+            roles |= roles_reaching_dimension(
+                measures_result.ctx,
+                parent_node.current.id,
+                dim_node_name,
+            )
+        named = sorted(role for role in roles if role)
+        if "" not in roles and len(named) > 1:
+            options = ", ".join(f"`{ref}[{role}]`" for role in named)
             raise DJInvalidInputException(
                 message=(
-                    f"Dimension '{ref}' is ambiguous across roles and must be "
-                    f"role-qualified. Use one of: {', '.join(roles)}."
+                    f"Dimension `{ref}` is ambiguous across roles. "
+                    f"Use one of: {options}"
                 ),
             )
 
@@ -185,11 +184,7 @@ async def register_external_preaggregations(
         dialect=Dialect.SPARK,
         use_materialized=False,
     )
-    await assert_dimension_refs_are_role_qualified(
-        session,
-        measures_result,
-        dimensions,
-    )
+    assert_dimension_refs_are_role_qualified(measures_result, dimensions)
 
     # 3. Introspect the external table and confirm the declared columns exist.
     catalog = await get_catalog_by_name(session=session, name=table.catalog)

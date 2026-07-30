@@ -1350,10 +1350,11 @@ class TestExternalPreAggRouting:
             table_columns={"country": "string", "rev_sum": "double"},
             expected_status=422,
         )
-        message = rejected.json()["message"]
-        assert "ambiguous across roles" in message
-        assert "v3.location.country[from]" in message
-        assert "v3.location.country[to]" in message
+        assert rejected.json()["message"] == (
+            "Dimension `v3.location.country` is ambiguous across roles. "
+            "Use one of: `v3.location.country[customer->home]`, "
+            "`v3.location.country[from]`, `v3.location.country[to]`"
+        )
 
         # References that are legal stay legal: a role-qualified dimension, a
         # locally-owned column, the FK column behind a join, and a role-free link.

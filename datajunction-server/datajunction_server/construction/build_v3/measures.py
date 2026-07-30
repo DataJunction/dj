@@ -75,7 +75,6 @@ from datajunction_server.construction.build_v3.dimensions import (
 )
 from datajunction_server.construction.build_v3.preagg_matcher import (
     find_matching_preagg,
-    canonical_dimension_ref,
     get_preagg_dimension_column,
     get_preagg_measure_column,
 )
@@ -1351,16 +1350,12 @@ def build_select_ast(
     # Using source names for the projection drops the grain column whenever its
     # dimension is aliased differently (e.g. a role-qualified ref to the same
     # column), leaving a LIMITED wrapper referencing a column the CTE never emitted.
-    projected_dim_col_names = {
-        rd.column_name
-        for rd in resolved_dimensions
-        if rd.original_ref not in ctx.filter_dimensions
-    }
-    projected_dim_aliases = {
-        ctx.alias_registry.register(rd.original_ref)
-        for rd in resolved_dimensions
-        if rd.original_ref not in ctx.filter_dimensions
-    }
+    projected_dim_col_names: set[str] = set()
+    projected_dim_aliases: set[str] = set()
+    for rd in resolved_dimensions:
+        if rd.original_ref not in ctx.filter_dimensions:
+            projected_dim_col_names.add(rd.column_name)
+            projected_dim_aliases.add(ctx.alias_registry.register(rd.original_ref))
     grain_col_refs: list[ast.Column] = []
     for gc_expr, gc_alias in grain_col_specs:
         if isinstance(gc_expr, ast.Column):
@@ -1832,7 +1827,8 @@ def build_grain_group_from_preagg(
             preagg,
             dim.original_ref,
             dim.column_name,
-            canonicalize=lambda ref: canonical_dimension_ref(ctx, parent_node, ref),
+            ctx=ctx,
+            node_rev_id=preagg.node_revision_id,
         )
         group_by_cols.append(physical_col)
         ref_to_physical[dim.original_ref] = physical_col

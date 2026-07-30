@@ -9,7 +9,7 @@ tables are available.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 from datajunction_server.database.preaggregation import (
     PreAggregation,
@@ -18,7 +18,10 @@ from datajunction_server.database.preaggregation import (
 from datajunction_server.models.decompose import Aggregability, MetricComponent
 from datajunction_server.models.preaggregation import TemporalPartitionColumn
 from datajunction_server.naming import SEPARATOR
-from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
+from datajunction_server.construction.build_v3.dimensions import (
+    parse_dimension_ref,
+    roles_reaching_dimension,
+)
 
 if TYPE_CHECKING:
     from datajunction_server.construction.build_v3.types import BuildContext, GrainGroup
@@ -54,31 +57,23 @@ def get_required_measure_identities(
 
 def canonical_dimension_ref(
     ctx: "BuildContext",
-    parent_node: "Node",
+    node_rev_id: int,
     ref: str,
 ) -> str:
     """
-    Canonical form of a dimension reference for grain comparison.
+    Canonical form of a dimension reference, so that a pre-agg registered with one
+    spelling still matches a query written with the other.
 
-    A bare reference to a dimension reached by exactly one role means that role,
-    so it is qualified here -- otherwise a pre-agg registered with one spelling
-    would not match a query using the other, and the query would silently fall
-    back to the source. Ambiguous bare refs (several roles) and already-qualified
-    refs are returned unchanged.
+    A bare reference is qualified only when exactly one named role reaches the
+    dimension and no role-free link does -- mirroring how the reference resolves,
+    which prefers the role-free link. Anything else is returned unchanged.
     """
-    if "[" in ref or not parent_node.current:
+    if "[" in ref:
         return ref
-    try:
-        dim_ref = parse_dimension_ref(ref)
-    except Exception:  # pragma: no cover - defensive
+    roles = roles_reaching_dimension(ctx, node_rev_id, ref.rsplit(SEPARATOR, 1)[0])
+    if "" in roles or len(roles) != 1:
         return ref
-    node_rev_id = parent_node.current.id
-    roles = {
-        stored_role
-        for (src_id, dim_name, stored_role) in ctx.join_paths
-        if src_id == node_rev_id and dim_name == dim_ref.node_name and stored_role
-    }
-    return f"{ref}[{roles.pop()}]" if len(roles) == 1 else ref
+    return f"{ref}[{roles.pop()}]"
 
 
 def find_matching_preagg(
@@ -122,10 +117,8 @@ def find_matching_preagg(
     if not required_measures:
         return None
 
-    # Compare canonical refs so a bare and a role-qualified spelling of the same
-    # single-role dimension match each other.
     requested_grain_set = {
-        canonical_dimension_ref(ctx, parent_node, ref) for ref in requested_grain
+        canonical_dimension_ref(ctx, node_rev_id, ref) for ref in requested_grain
     }
 
     # Non-additive measures (e.g. COUNT(DISTINCT ...), raw AVG components) cannot
@@ -144,7 +137,7 @@ def find_matching_preagg(
 
     for preagg in available:
         preagg_grain_set = {
-            canonical_dimension_ref(ctx, parent_node, ref)
+            canonical_dimension_ref(ctx, node_rev_id, ref)
             for ref in (preagg.grain_columns or [])
         }
 
@@ -236,16 +229,23 @@ def get_preagg_dimension_column(
     preagg: PreAggregation,
     dimension_ref: str,
     default_column: str,
-    canonicalize: Callable[[str], str] | None = None,
+    ctx: BuildContext | None = None,
+    node_rev_id: int | None = None,
 ) -> str:
     """
     Physical column in the pre-agg backing a resolved grain dimension.
 
     External pre-aggs may store a dimension under a different column name (kept as
-    source_column). Matched by dimension reference (semantic_name == original_ref,
-    so role-safe), falling back to the DJ column name.
+    source_column). Matched by dimension reference, canonicalized so a bare and a
+    role-qualified spelling of the same dimension still match, falling back to the
+    DJ column name.
     """
-    canon = canonicalize or (lambda ref: ref)
+
+    def canon(ref: str) -> str:
+        if ctx is None or node_rev_id is None:
+            return ref
+        return canonical_dimension_ref(ctx, node_rev_id, ref)
+
     target = canon(dimension_ref)
     for col in preagg.columns or []:
         if col.semantic_type == "dimension" and canon(col.semantic_name) == target:
