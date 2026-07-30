@@ -221,6 +221,37 @@ def get_parent_namespaces(namespace: str):
     return [SEPARATOR.join(parts[0:i]) for i in range(len(parts)) if parts[0:i]]
 
 
+async def namespaces_to_create(
+    session: AsyncSession,
+    namespace: str,
+    include_parents: bool,
+) -> list[str]:
+    """
+    The namespaces a create request would actually add rows for.
+
+    Ancestors that already exist are excluded, since they are not mutated. That
+    matters for authorization: requiring an existing ancestor would reject a
+    caller whose grant is scoped below it (``finance.*`` does not match
+    ``finance``), even though the request only creates namespaces under it.
+    """
+    candidates = [namespace]
+    if include_parents:
+        candidates = get_parent_namespaces(namespace) + candidates
+
+    existing = set(
+        (
+            await session.execute(
+                select(NodeNamespace.namespace).where(
+                    NodeNamespace.namespace.in_(candidates),
+                ),
+            )
+        )
+        .scalars()
+        .all(),
+    )
+    return [candidate for candidate in candidates if candidate not in existing]
+
+
 def resolve_git_info_from_map(
     namespace: str,
     ns_map: dict,

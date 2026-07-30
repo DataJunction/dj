@@ -17,6 +17,8 @@ from datajunction_server.internal.namespaces import (
     _node_spec_to_yaml_dict,
     node_spec_to_yaml,
 )
+from datajunction_server.models.access import ResourceAction
+from tests.authz import VALIDATOR_AUTH_SERVICE, scoped
 from datajunction_server.models.deployment import (
     BulkNamespaceSourcesRequest,
     BulkNamespaceSourcesResponse,
@@ -3574,3 +3576,32 @@ async def test_hard_delete_namespace_with_sibling_parent_ref(
     )
     assert config_response.status_code == 200
     assert config_response.json()["parent_namespace"] is None
+
+
+async def test_create_namespace_under_wildcard_scope(client_with_roads, mocker):
+    """
+    A grant scoped to ``finance.*`` must allow creating namespaces beneath it.
+
+    Authorization targets the namespace being created, not its parent: ``finance.*``
+    does not match ``finance``, so checking the parent would reject a caller whose
+    grant only covers what is under it. include_parents skips ancestors that already
+    exist, for the same reason.
+    """
+    await client_with_roads.post("/namespaces/finance/")
+    mocker.patch(
+        VALIDATOR_AUTH_SERVICE,
+        scoped(ResourceAction.WRITE, "finance.*"),
+    )
+
+    created = await client_with_roads.post("/namespaces/finance.sub/")
+    assert created.status_code == 201, created.text
+
+    # `finance` already exists, so it is not created and not authorized against.
+    nested = await client_with_roads.post(
+        "/namespaces/finance.a.b/?include_parents=true",
+    )
+    assert nested.status_code == 201, nested.text
+
+    # A namespace outside the scope stays denied.
+    denied = await client_with_roads.post("/namespaces/marketing.sub/")
+    assert denied.status_code == 403, denied.text

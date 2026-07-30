@@ -751,15 +751,18 @@ async def register_preaggregations(
             ),
         )
 
-    # A pre-agg is governed by the node it is based on. Authorize up front, before
+    # A pre-agg is governed by the node it is based on. Resolve the grain groups
+    # once, up front, and authorize their parent nodes before
     # register_external_preaggregations does its work (query-service column
-    # inference and row creation): resolve the requested metrics' parent nodes
-    # read-only and require WRITE, so an unauthorized caller is rejected without
-    # doing the work.
+    # inference and row creation). The same result is handed to the registration
+    # below: resolving it twice can pick different parents, which would authorize
+    # one set of nodes and write another.
     measures_result = await build_measures_sql(
         session=session,
         metrics=data.metrics,
         dimensions=data.dimensions,
+        dialect=Dialect.SPARK,
+        use_materialized=False,
     )
     for parent_name in {gg.parent_name for gg in measures_result.grain_groups}:
         access_checker.add_request_by_node_name(parent_name, ResourceAction.WRITE)
@@ -775,6 +778,7 @@ async def register_preaggregations(
         table=data.table,
         measure_columns=data.measure_columns,
         dimension_columns=data.dimension_columns,
+        measures_result=measures_result,
     )
 
     await session.commit()

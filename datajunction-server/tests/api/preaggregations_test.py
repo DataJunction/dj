@@ -16,6 +16,7 @@ from datajunction_server.database.partition import Partition
 from datajunction_server.models.materialization import MaterializationStrategy
 from datajunction_server.models.partition import Granularity, PartitionType
 from datajunction_server.utils import get_query_service_client
+from datajunction_server.construction.build_v3.builder import build_measures_sql
 from datajunction_server.models.access import ResourceAction
 from tests.authz import VALIDATOR_AUTH_SERVICE, deny
 
@@ -2768,6 +2769,61 @@ class TestRegisterPreAggregations:
             )
             assert response.status_code == 422
             assert "externally-registered" in response.text
+        finally:
+            del client_with_build_v3.app.dependency_overrides[get_query_service_client]
+
+
+@pytest.mark.xdist_group(name="preaggregations")
+class TestRegisterAuthorizesWhatItWrites:
+    """
+    Registration must authorize the same parent nodes it writes to.
+
+    The grain groups are resolved by build_measures_sql, and its result depends on
+    use_materialized: building twice with different arguments can authorize one set
+    of parents and write another. So the route must build once and reuse it.
+    """
+
+    @pytest.mark.asyncio
+    async def test_measures_are_built_once(
+        self,
+        client_with_build_v3: AsyncClient,
+        mocker,
+    ):
+        """POST /preaggs/register resolves grain groups exactly once."""
+        _mock_query_service(client_with_build_v3, ["revenue_total", "order_cnt"])
+        # Both modules imported the builder by name, so count calls through each.
+        spies = [
+            mocker.patch(
+                f"datajunction_server.{module}.preaggregations.build_measures_sql",
+                wraps=build_measures_sql,
+            )
+            for module in ("api", "internal")
+        ]
+        try:
+            response = await client_with_build_v3.post(
+                "/preaggs/register",
+                json={
+                    "metrics": ["v3.avg_order_value"],
+                    "dimensions": ["v3.product.category"],
+                    "table": {
+                        "catalog": "default",
+                        "schema": "analytics",
+                        "table": "built_once",
+                        "valid_through_ts": 1700000000,
+                    },
+                    "measure_columns": {
+                        "v3.total_revenue": "revenue_total",
+                        "v3.order_count": "order_cnt",
+                    },
+                },
+            )
+            assert response.status_code == 201, response.text
+            calls = [call for spy in spies for call in spy.call_args_list]
+            assert len(calls) == 1, (
+                f"grain groups resolved {len(calls)} times; the authorization build "
+                "and the registration build can disagree"
+            )
+            assert calls[0].kwargs["use_materialized"] is False
         finally:
             del client_with_build_v3.app.dependency_overrides[get_query_service_client]
 

@@ -15,6 +15,7 @@ from sqlalchemy.orm import selectinload
 
 from datajunction_server.api.helpers import get_catalog_by_name
 from datajunction_server.construction.build_v3.builder import build_measures_sql
+from datajunction_server.construction.build_v3.types import GeneratedMeasuresSQL
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.preaggregation import (
@@ -83,6 +84,7 @@ async def register_external_preaggregations(
     table: ExternalPreAggTable,
     measure_columns: dict[str, str],
     dimension_columns: dict[str, str] | None = None,
+    measures_result: GeneratedMeasuresSQL | None = None,
 ) -> list[PreAggregation]:
     """
     Core logic for adopting an externally-built pre-aggregation table.
@@ -93,6 +95,11 @@ async def register_external_preaggregations(
     caller owns the transaction (the endpoint commits; the deploy orchestrator
     commits its whole plan). Callers must ensure ``query_service_client`` is
     configured. Returns the created/updated pre-aggregations.
+
+    ``measures_result`` lets a caller that already resolved the grain groups pass
+    them in. A caller that authorizes against the parent nodes must do this:
+    resolving twice can yield different parents (the result depends on
+    ``use_materialized``), which would authorize one set and write another.
     """
     # 1. Validate each mapped metric is a measure, and map its single component's
     #    expression hash to the declared physical column.
@@ -128,13 +135,14 @@ async def register_external_preaggregations(
         )
 
     # 2. Decompose the requested metrics into grain groups (no SQL is executed).
-    measures_result = await build_measures_sql(
-        session=session,
-        metrics=metrics,
-        dimensions=dimensions,
-        dialect=Dialect.SPARK,
-        use_materialized=False,
-    )
+    if measures_result is None:
+        measures_result = await build_measures_sql(
+            session=session,
+            metrics=metrics,
+            dimensions=dimensions,
+            dialect=Dialect.SPARK,
+            use_materialized=False,
+        )
 
     # 3. Introspect the external table and confirm the declared columns exist.
     catalog = await get_catalog_by_name(session=session, name=table.catalog)
