@@ -10,7 +10,7 @@ from datajunction_server.construction.build_v3.preagg_matcher import (
     find_matching_preagg,
     get_preagg_dimension_column,
     get_preagg_measure_column,
-    get_required_measure_hashes,
+    get_required_measure_identities,
     get_temporal_partitions,
 )
 from datajunction_server.models.query import V3ColumnMetadata
@@ -183,28 +183,29 @@ def make_grain_group(
     )
 
 
-class TestGetRequiredMeasureHashes:
-    """Tests for get_required_measure_hashes function."""
+class TestGetRequiredMeasureIdentities:
+    """Tests for get_required_measure_identities function."""
 
     @pytest.mark.asyncio
-    async def test_returns_hashes_for_all_components(
+    async def test_returns_identities_for_all_components(
         self,
         session: AsyncSession,
         parent_node: Node,
         metric_node: Node,
     ):
-        """Should return a hash for each component in the grain group."""
+        """Should return an (expression hash, aggregation) pair per component."""
         components = [
             (metric_node, make_component("sum_revenue", "price * quantity")),
             (metric_node, make_component("sum_quantity", "quantity")),
         ]
         grain_group = make_grain_group(parent_node, components)
 
-        hashes = get_required_measure_hashes(grain_group)
+        identities = get_required_measure_identities(grain_group)
 
-        assert len(hashes) == 2
-        assert compute_expression_hash("price * quantity") in hashes
-        assert compute_expression_hash("quantity") in hashes
+        assert identities == {
+            (compute_expression_hash("price * quantity"), "SUM"),
+            (compute_expression_hash("quantity"), "SUM"),
+        }
 
     @pytest.mark.asyncio
     async def test_empty_components_returns_empty_set(
@@ -215,18 +216,18 @@ class TestGetRequiredMeasureHashes:
         """Should return empty set when grain group has no components."""
         grain_group = make_grain_group(parent_node, [])
 
-        hashes = get_required_measure_hashes(grain_group)
+        identities = get_required_measure_identities(grain_group)
 
-        assert hashes == set()
+        assert identities == set()
 
     @pytest.mark.asyncio
-    async def test_deduplicates_same_expression(
+    async def test_deduplicates_same_expression_and_aggregation(
         self,
         session: AsyncSession,
         parent_node: Node,
         metric_node: Node,
     ):
-        """Components with same expression should result in single hash."""
+        """Components with same expression AND aggregation collapse to one."""
         # Same expression, different component names
         components = [
             (metric_node, make_component("sum_rev_1", "price * quantity")),
@@ -234,9 +235,41 @@ class TestGetRequiredMeasureHashes:
         ]
         grain_group = make_grain_group(parent_node, components)
 
-        hashes = get_required_measure_hashes(grain_group)
+        identities = get_required_measure_identities(grain_group)
 
-        assert len(hashes) == 1
+        assert identities == {(compute_expression_hash("price * quantity"), "SUM")}
+
+    @pytest.mark.asyncio
+    async def test_same_expression_different_aggregation_are_distinct(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+        metric_node: Node,
+    ):
+        """The aggregation is part of the identity: SUM(x) and MAX(x) differ.
+
+        This is what stops a MAX metric from binding a SUM-built pre-agg column.
+        """
+        components = [
+            (metric_node, make_component("sum_price", "unit_price")),
+            (
+                metric_node,
+                make_component(
+                    "max_price",
+                    "unit_price",
+                    aggregation="MAX",
+                    merge="MAX",
+                ),
+            ),
+        ]
+        grain_group = make_grain_group(parent_node, components)
+
+        identities = get_required_measure_identities(grain_group)
+
+        assert identities == {
+            (compute_expression_hash("unit_price"), "SUM"),
+            (compute_expression_hash("unit_price"), "MAX"),
+        }
 
 
 class TestFindMatchingPreagg:

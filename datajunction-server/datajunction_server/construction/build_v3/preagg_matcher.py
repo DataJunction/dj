@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING
 
 from datajunction_server.database.preaggregation import (
     PreAggregation,
-    get_measure_expr_hashes,
     compute_expression_hash,
 )
 from datajunction_server.models.decompose import Aggregability, MetricComponent
@@ -28,21 +27,29 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def get_required_measure_hashes(grain_group: "GrainGroup") -> set[str]:
+def get_required_measure_identities(
+    grain_group: "GrainGroup",
+) -> set[tuple[str, str]]:
     """
-    Get the set of expression hashes for all measures required by a grain group.
+    Identity of each measure a grain group needs: (expression hash, Phase-1
+    aggregation).
 
-    Args:
-        grain_group: The grain group to analyze
+    Matching is name-independent, so ``expr_hash`` stands in for identity -- but
+    it covers the expression alone, making ``SUM(x)`` and ``MAX(x)`` hash alike
+    and letting a MAX metric read a SUM column. Pairing it with the aggregation
+    restores the distinction: a partial is reusable only by a metric that
+    accumulates the same way.
 
-    Returns:
-        Set of expression hashes (MD5 hashes of normalized expressions)
+    Phase-1 ``aggregation`` rather than ``merge``, because merge is not unique --
+    COUNT accumulates with COUNT but merges with SUM.
     """
-    hashes = set()
-    for _, component in grain_group.components:
-        expr_hash = compute_expression_hash(component.expression)
-        hashes.add(expr_hash)
-    return hashes
+    return {
+        (
+            compute_expression_hash(component.expression),
+            component.normalized_aggregation,
+        )
+        for _, component in grain_group.components
+    }
 
 
 def find_matching_preagg(
@@ -82,8 +89,7 @@ def find_matching_preagg(
     if not available:
         return None
 
-    # Get required measure hashes
-    required_measures = get_required_measure_hashes(grain_group)
+    required_measures = get_required_measure_identities(grain_group)
     if not required_measures:
         return None
 
@@ -125,11 +131,16 @@ def find_matching_preagg(
             )
             continue
 
-        # Check measure coverage: required measures must be subset of pre-agg measures
-        preagg_measure_hashes = get_measure_expr_hashes(preagg.measures)
-        if not required_measures.issubset(preagg_measure_hashes):
+        # Coverage check on (expression hash, Phase-1 aggregation) -- see
+        # get_required_measure_identities for why the aggregation is part of it.
+        preagg_measures = {
+            (measure.expr_hash, measure.normalized_aggregation)
+            for measure in preagg.measures
+            if measure.expr_hash
+        }
+        if not required_measures.issubset(preagg_measures):
             logger.debug(
-                f"[BuildV3] Pre-agg {preagg.id} measures {preagg_measure_hashes} "
+                f"[BuildV3] Pre-agg {preagg.id} measures {preagg_measures} "
                 f"don't cover required measures {required_measures}",
             )
             continue
@@ -141,7 +152,7 @@ def find_matching_preagg(
             best_grain_size = len(preagg_grain_set)
             logger.debug(
                 f"[BuildV3] Found matching pre-agg {preagg.id} "
-                f"(grain={preagg_grain_set}, measures={len(preagg_measure_hashes)})",
+                f"(grain={preagg_grain_set}, measures={len(preagg_measures)})",
             )
 
     if best_match:
@@ -160,8 +171,10 @@ def get_preagg_measure_column(
     """
     Find the column name in the pre-agg that corresponds to a metric component.
 
-    Matches by expression hash to ensure we're getting the right column
-    even if names differ.
+    Matches on the full identity -- expression hash and Phase-1 aggregation -- so
+    the right column is found even when names differ. One pre-agg can hold several
+    measures over the same expression (SUM(x) and MAX(x)), where matching on the
+    hash alone would return whichever came first.
 
     Args:
         preagg: The pre-aggregation to search
@@ -170,10 +183,13 @@ def get_preagg_measure_column(
     Returns:
         Column name in the pre-agg, or None if not found
     """
-    target_hash = compute_expression_hash(component.expression)
+    target = (
+        compute_expression_hash(component.expression),
+        component.normalized_aggregation,
+    )
 
     for measure in preagg.measures:
-        if measure.expr_hash == target_hash:
+        if (measure.expr_hash, measure.normalized_aggregation) == target:
             # Externally-registered pre-aggs bind the measure to a physical
             # column name that may differ from the DJ component name.
             return measure.source_column or measure.name
