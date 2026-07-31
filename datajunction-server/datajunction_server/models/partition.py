@@ -1,5 +1,7 @@
 """Partition-related models."""
 
+import re
+from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 
 from pydantic.main import BaseModel
@@ -103,3 +105,43 @@ class BackfillOutput(BaseModel):
     urls: Optional[List[str]] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# Java-style temporal format tokens, most to least significant. A format built
+# only from these, in this order, renders to an integer whose ordering is
+# chronological -- which is what makes comparing two such values meaningful.
+PARTITION_FORMAT_TOKENS = {
+    "yyyy": "%Y",
+    "MM": "%m",
+    "dd": "%d",
+    "HH": "%H",
+    "mm": "%M",
+    "ss": "%S",
+}
+_TOKEN_PATTERN = re.compile("|".join(PARTITION_FORMAT_TOKENS))
+
+
+def render_partition_value(moment: datetime, format_: str | None) -> Optional[int]:
+    """
+    Render a point in time as an integer in a partition format.
+
+    Only a format built purely from tokens in descending order of significance
+    renders: anything with separators (``yyyy-MM-dd``) can't produce an integer,
+    and anything out of order (``ddMMyyyy``) produces one whose ordering isn't
+    chronological. Both yield None so the caller declines to judge.
+    """
+    if not format_:
+        return None
+    tokens = _TOKEN_PATTERN.findall(format_)
+    if _TOKEN_PATTERN.sub("", format_) != "":
+        return None
+    order = list(PARTITION_FORMAT_TOKENS)
+    if [order.index(token) for token in tokens] != sorted(
+        order.index(token) for token in tokens
+    ):
+        return None
+    return int(
+        moment.strftime(
+            _TOKEN_PATTERN.sub(lambda m: PARTITION_FORMAT_TOKENS[m.group()], format_),
+        ),
+    )

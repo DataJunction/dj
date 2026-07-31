@@ -17,10 +17,7 @@ from datajunction_server.database.preaggregation import PreAggregation
 from datajunction_server.models.node_type import NodeType
 
 from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
-from datajunction_server.construction.build_v3.preagg_freshness import (
-    freshness_gating_enabled,
-    preagg_is_fresh,
-)
+from datajunction_server.construction.build_v3.preagg_freshness import preagg_is_fresh
 from datajunction_server.construction.build_v3.types import BuildContext
 from datajunction_server.construction.build_v3.utils import (
     collect_required_dimensions,
@@ -646,22 +643,9 @@ async def load_available_preaggs(ctx: BuildContext) -> None:
         return
 
     # Query for available pre-aggs with their availability state
-    options = [joinedload(PreAggregation.availability)]
-    if freshness_gating_enabled():
-        # Freshness gating reads the parent's temporal partition columns and the
-        # dimension links they feed, so eager-load them — but only when the gate
-        # is on, to keep the common path's query as cheap as it is today.
-        options.append(
-            joinedload(PreAggregation.node_revision).options(
-                selectinload(NodeRevision.columns).joinedload(Column.partition),
-                selectinload(NodeRevision.dimension_links).joinedload(
-                    DimensionLink.dimension,
-                ),
-            ),
-        )
     stmt = (
         select(PreAggregation)
-        .options(*options)
+        .options(joinedload(PreAggregation.availability))
         .where(
             PreAggregation.node_revision_id.in_(parent_revision_ids),
             PreAggregation.availability_id.isnot(None),  # Has availability

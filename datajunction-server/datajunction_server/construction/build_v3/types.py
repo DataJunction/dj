@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -87,6 +88,16 @@ class BuildContext:
 
     # AST cache: node_name -> parsed query AST (avoids re-parsing same query)
     _parsed_query_cache: dict[str, ast.Query] = field(default_factory=dict)
+
+    # Tightest upper bound per dimension ref, per node revision. Derived from the
+    # filters once per build rather than per candidate pre-aggregation.
+    _upper_bound_cache: dict[int, dict[str, int]] = field(default_factory=dict)
+
+    # One instant for the whole build, so every staleness judgement in a request
+    # is made against the same "now".
+    build_timestamp: datetime = field(
+        default_factory=lambda: datetime.now(timezone.utc),
+    )
 
     # Pre-aggregation cache: maps node_revision_id to list of available PreAggregation records
     # Populated by load_available_preaggs() when use_materialized=True

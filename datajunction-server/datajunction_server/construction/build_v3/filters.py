@@ -18,6 +18,7 @@ from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.utils import SEPARATOR
 
 if TYPE_CHECKING:
+    from datajunction_server.construction.build_v3.types import BuildContext
     from datajunction_server.database.node import Node
 
 
@@ -390,3 +391,113 @@ def get_filter_column_references(filter_str: str) -> list[str]:
             references.append(full_ref)
 
     return references
+
+
+# Comparisons that put a ceiling on the column they name.
+_UPPER_BOUND_OPS = {
+    ast.BinaryOpKind.Lt,
+    ast.BinaryOpKind.LtEq,
+    ast.BinaryOpKind.Eq,
+}
+# Mirror image, for filters written with the literal on the left.
+_REVERSED_UPPER_BOUND_OPS = {
+    ast.BinaryOpKind.Gt,
+    ast.BinaryOpKind.GtEq,
+    ast.BinaryOpKind.Eq,
+}
+# A disjunction can widen the requested range beyond any bound read off one of
+# its sides, so filters containing one are skipped rather than trusted.
+_DISJUNCTION_OPS = {ast.BinaryOpKind.Or, ast.BinaryOpKind.LogicalOr}
+
+
+def dimension_ref_of_expression(expression: ast.Expression) -> str | None:
+    """
+    Dimension reference an expression names, if it names one directly.
+
+    ``v3.date.date_id`` and ``v3.date.date_id[order]`` both resolve; anything
+    wrapped in a function or arithmetic does not.
+    """
+    from datajunction_server.construction.build_v3.cte import get_column_full_name
+
+    if isinstance(expression, ast.Subscript):
+        role = extract_subscript_role(expression)
+        if not isinstance(expression.expr, ast.Column) or not role:
+            return None
+        return f"{get_column_full_name(expression.expr)}[{role}]"
+    if isinstance(expression, ast.Column):
+        return get_column_full_name(expression)
+    return None
+
+
+def _int_literal(expression: ast.Expression) -> int | None:
+    """The integer a literal expression holds, or None if it isn't one."""
+    if isinstance(expression, ast.Number) and isinstance(expression.value, int):
+        return expression.value
+    return None
+
+
+def upper_bounds_by_ref(
+    ctx: "BuildContext",
+    node_rev_id: int,
+) -> dict[str, int]:
+    """
+    Tightest upper bound each dimension reference carries, over all the query's
+    filters, keyed by canonical reference.
+
+    Reads ``<``, ``<=``, ``=`` and ``BETWEEN`` against an integer literal, in
+    either operand order, which is the shape a partition-format temporal filter
+    takes. A strict ``<`` is lowered by one: exact for a contiguous partition
+    ordinal, merely conservative otherwise. Filters are ANDed, so the tightest
+    ceiling wins. A reference absent from the result carries no readable bound,
+    which callers must treat as an open-ended request rather than as permission.
+
+    Computed once per build per node revision -- parsing every filter for every
+    candidate pre-aggregation would re-parse the same strings N times.
+    """
+    from datajunction_server.construction.build_v3.preagg_matcher import (
+        canonical_dimension_ref,
+    )
+
+    cached = ctx._upper_bound_cache.get(node_rev_id)
+    if cached is not None:
+        return cached
+
+    bounds: dict[str, int] = {}
+
+    def offer(ref: str | None, value: int | None) -> None:
+        if ref is None or value is None:
+            return
+        canonical = canonical_dimension_ref(ctx, node_rev_id, ref)
+        bounds[canonical] = min(bounds.get(canonical, value), value)
+
+    for filter_str in ctx.dimension_filters:
+        filter_ast = parse_filter(filter_str)
+        comparisons = list(filter_ast.find_all(ast.BinaryOp))
+        if any(comparison.op in _DISJUNCTION_OPS for comparison in comparisons):
+            continue
+        for comparison in comparisons:
+            if comparison.op in _UPPER_BOUND_OPS:
+                value = _int_literal(comparison.right)
+                offer(
+                    dimension_ref_of_expression(comparison.left),
+                    None
+                    if value is None
+                    else value - (comparison.op == ast.BinaryOpKind.Lt),
+                )
+            if comparison.op in _REVERSED_UPPER_BOUND_OPS:
+                value = _int_literal(comparison.left)
+                offer(
+                    dimension_ref_of_expression(comparison.right),
+                    None
+                    if value is None
+                    else value - (comparison.op == ast.BinaryOpKind.Gt),
+                )
+        for between in filter_ast.find_all(ast.Between):
+            if not between.negated:
+                offer(
+                    dimension_ref_of_expression(between.expr),
+                    _int_literal(between.high),
+                )
+
+    ctx._upper_bound_cache[node_rev_id] = bounds
+    return bounds
