@@ -5,7 +5,7 @@ import logging
 import os
 import platform
 from dataclasses import asdict, dataclass
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, TypedDict, Union
+from typing import TYPE_CHECKING, Any, TypedDict, Union
 from urllib.parse import urljoin
 
 import pandas as pd
@@ -49,8 +49,8 @@ class Results(TypedDict):
     Results in a completed DJ Query
     """
 
-    columns: Tuple[str]
-    data: Tuple[Tuple]
+    columns: tuple[str]
+    data: tuple[tuple]
 
 
 class RequestsSessionWithEndpoint(requests.Session):  # pragma: no cover
@@ -59,7 +59,7 @@ class RequestsSessionWithEndpoint(requests.Session):  # pragma: no cover
     subsequent requests will use as a prefix.
     """
 
-    def __init__(self, endpoint: Optional[str] = None, show_traceback: bool = False):
+    def __init__(self, endpoint: str | None = None, show_traceback: bool = False):
         super().__init__()
         self.endpoint = endpoint
         self.mount("http://", HTTPAdapter())
@@ -137,9 +137,9 @@ class DJClient:
     def __init__(  # pylint: disable=too-many-arguments
         self,
         uri: str = "http://localhost:8000",
-        engine_name: Optional[str] = None,
-        engine_version: Optional[str] = None,
-        requests_session: Optional[RequestsSessionWithEndpoint] = None,
+        engine_name: str | None = None,
+        engine_version: str | None = None,
+        requests_session: RequestsSessionWithEndpoint | None = None,
         target_namespace: str = DEFAULT_NAMESPACE,
         timeout: int = 2 * 60,
         debug: bool = False,
@@ -174,8 +174,8 @@ class DJClient:
 
     def basic_login(
         self,
-        username: Optional[str] = None,
-        password: Optional[str] = None,
+        username: str | None = None,
+        password: str | None = None,
     ):
         """
         Login with basic authentication.
@@ -189,7 +189,7 @@ class DJClient:
         )
         return response
 
-    def deploy(self, deployment_spec: Dict[str, Any]):
+    def deploy(self, deployment_spec: dict[str, Any]):
         """
         Deploy a deployment spec to the target namespace.
         """
@@ -215,7 +215,7 @@ class DJClient:
         namespace: str,
         git_branch: str | None = None,
         parent_namespace: str | None = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Set git metadata (branch, parent namespace) on a namespace.
         Creates the namespace if it does not exist yet.
@@ -232,7 +232,7 @@ class DJClient:
         )
         return response.json()
 
-    def get_deployment_impact(self, deployment_spec: Dict[str, Any]):
+    def get_deployment_impact(self, deployment_spec: dict[str, Any]):
         """
         Get impact analysis for a deployment spec without deploying.
         """
@@ -244,7 +244,7 @@ class DJClient:
         return response.json()
 
     @staticmethod
-    def _primary_key_from_columns(columns) -> List[str]:
+    def _primary_key_from_columns(columns) -> list[str]:
         """
         Extracts the primary key from the columns
         """
@@ -292,7 +292,7 @@ class DJClient:
     def _get_nodes_in_namespace(
         self,
         namespace: str,
-        type_: Optional[models.NodeType] = None,
+        type_: models.NodeType | None = None,
     ):
         """
         Retrieves all nodes in given namespace.
@@ -308,7 +308,7 @@ class DJClient:
 
     def _get_all_nodes(
         self,
-        type_: Optional[models.NodeType] = None,
+        type_: models.NodeType | None = None,
     ):
         """
         Retrieve all nodes of a given type.
@@ -321,8 +321,8 @@ class DJClient:
     def _verify_node_exists(
         self,
         node_name: str,
-        type_: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        type_: str | None = None,
+    ) -> dict[str, Any]:
         """
         Retrieves a node and verifies that it exists and has the expected node type.
         """
@@ -351,7 +351,7 @@ class DJClient:
     def _create_node(
         self,
         node: "Node",
-        mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
+        mode: models.NodeMode | None = models.NodeMode.PUBLISHED,
     ):
         """
         Helper function to create a node.
@@ -439,7 +439,7 @@ class DJClient:
         node_name: str,
         column_name: str,
         dimension_name: str,
-        dimension_column: Optional[str],
+        dimension_column: str | None,
     ):
         """
         Helper function to link a dimension to the node.
@@ -460,7 +460,7 @@ class DJClient:
         node_column: str,
         dimension_node: str,
         dimension_column: str,
-        role: Optional[str] = None,
+        role: str | None = None,
     ):
         """
         Helper function to link a dimension to the node.
@@ -481,12 +481,12 @@ class DJClient:
         self,
         node_name: str,
         dimension_node: str,
-        join_type: Optional[str] = None,
+        join_type: str | None = None,
         *,
         join_on: str,
-        join_cardinality: Optional[str] = None,
-        role: Optional[str] = None,
-        spark_hints: Optional[str] = None,
+        join_cardinality: str | None = None,
+        role: str | None = None,
+        spark_hints: str | None = None,
     ):
         """
         Helper function to link a complex dimension to the node.
@@ -511,7 +511,7 @@ class DJClient:
         node_name: str,
         column_name: str,
         dimension_name: str,
-        dimension_column: Optional[str] = None,
+        dimension_column: str | None = None,
     ):
         """
         Helper function to un-link a dimension to the node.
@@ -527,7 +527,7 @@ class DJClient:
         self,
         node_name: str,
         dimension_node: str,
-        role: Optional[str] = None,
+        role: str | None = None,
     ):
         """
         Helper function to remove a complex dimension link.
@@ -605,7 +605,7 @@ class DJClient:
         self,
         node_name,
         column_name,
-        attributes: List[models.ColumnAttribute],
+        attributes: list[models.ColumnAttribute],
     ):
         """
         Sets attributes for columns on the node
@@ -669,7 +669,7 @@ class DJClient:
     def _export_namespace_yaml_zip(
         self,
         namespace: str,
-        existing_zip_bytes: Optional[bytes] = None,
+        existing_zip_bytes: bytes | None = None,
     ) -> bytes:
         """
         Export a namespace as a ZIP of YAML files.
@@ -698,7 +698,7 @@ class DJClient:
         """
         return self._session.patch(f"/tags/{tag_name}/", json=asdict(update_input))
 
-    def _update_node_tags(self, node_name: str, tags: Optional[List[str]]):
+    def _update_node_tags(self, node_name: str, tags: list[str] | None):
         """
         Update tags on a node
         """
@@ -738,7 +738,7 @@ class DJClient:
     def _list_nodes_with_tag(
         self,
         tag_name: str,
-        node_type: Optional[models.NodeType] = None,
+        node_type: models.NodeType | None = None,
     ):
         """
         Retrieves all nodes with a given tag.

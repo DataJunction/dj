@@ -474,22 +474,20 @@ class TestGetDimensionDagIndegree:
         """
         Test getting downstream nodes using the BFS approach.
         """
-        expected_nodes = set(
-            [
-                "default.regional_level_agg",
-                "default.repair_orders_fact",
-                "default.repair_order",
-                "default.discounted_orders_rate",
-                "default.total_repair_order_discounts",
-                "default.avg_repair_order_discounts",
-                "default.avg_time_to_dispatch",
-                "default.regional_repair_efficiency",
-                "default.num_repair_orders",
-                "default.num_unique_hard_hats_approx",
-                "default.avg_repair_price",
-                "default.total_repair_cost",
-            ],
-        )
+        expected_nodes = {
+            "default.regional_level_agg",
+            "default.repair_orders_fact",
+            "default.repair_order",
+            "default.discounted_orders_rate",
+            "default.total_repair_order_discounts",
+            "default.avg_repair_order_discounts",
+            "default.avg_time_to_dispatch",
+            "default.regional_repair_efficiency",
+            "default.num_repair_orders",
+            "default.num_unique_hard_hats_approx",
+            "default.avg_repair_price",
+            "default.total_repair_cost",
+        }
 
         downstreams = await get_downstream_nodes(
             module__session,

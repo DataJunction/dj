@@ -3,7 +3,7 @@
 
 import time
 import warnings
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any
 from urllib.parse import urlencode
 
 from alive_progress import alive_bar
@@ -22,7 +22,7 @@ class DJClient(_internal.DJClient):
     #
     # List basic objects: namespaces, dimensions, metrics, cubes
     #
-    def list_namespaces(self, prefix: Optional[str] = None) -> List[str]:
+    def list_namespaces(self, prefix: str | None = None) -> list[str]:
         """
         List namespaces starting with a given prefix.
         """
@@ -32,7 +32,7 @@ class DJClient(_internal.DJClient):
             namespace_list = [n for n in namespace_list if n.startswith(prefix)]
         return namespace_list
 
-    def list_dimensions(self, namespace: Optional[str] = None) -> List[str]:
+    def list_dimensions(self, namespace: str | None = None) -> list[str]:
         """
         List dimension nodes for a given namespace or all.
         """
@@ -43,7 +43,7 @@ class DJClient(_internal.DJClient):
             )
         return self._get_all_nodes(type_=models.NodeType.DIMENSION)
 
-    def list_metrics(self, namespace: Optional[str] = None) -> List[str]:
+    def list_metrics(self, namespace: str | None = None) -> list[str]:
         """
         List metric nodes for a given namespace or all.
         """
@@ -54,7 +54,7 @@ class DJClient(_internal.DJClient):
             )
         return self._get_all_nodes(type_=models.NodeType.METRIC)
 
-    def list_cubes(self, namespace: Optional[str] = None) -> List[str]:
+    def list_cubes(self, namespace: str | None = None) -> list[str]:
         """
         List cube nodes for a given namespace or all.
         """
@@ -68,7 +68,7 @@ class DJClient(_internal.DJClient):
     #
     # List other nodes: sources, transforms, all.
     #
-    def list_sources(self, namespace: Optional[str] = None) -> List[str]:
+    def list_sources(self, namespace: str | None = None) -> list[str]:
         """
         List source nodes for a given namespace or all.
         """
@@ -79,7 +79,7 @@ class DJClient(_internal.DJClient):
             )
         return self._get_all_nodes(type_=models.NodeType.SOURCE)
 
-    def list_transforms(self, namespace: Optional[str] = None) -> List[str]:
+    def list_transforms(self, namespace: str | None = None) -> list[str]:
         """
         List transform nodes for a given namespace or all.
         """
@@ -92,9 +92,9 @@ class DJClient(_internal.DJClient):
 
     def list_nodes(
         self,
-        type_: Optional[models.NodeType] = None,
-        namespace: Optional[str] = None,
-    ) -> List[str]:
+        type_: models.NodeType | None = None,
+        namespace: str | None = None,
+    ) -> list[str]:
         """
         List any nodes for a given node type and/or namespace.
         """
@@ -110,9 +110,9 @@ class DJClient(_internal.DJClient):
     #
     def common_dimensions(
         self,
-        metrics: List[str],
+        metrics: list[str],
         name_only: bool = False,
-    ) -> List[Union[str, dict]]:  # pragma: no cover # Tested in integration tests
+    ) -> list[str | dict]:  # pragma: no cover # Tested in integration tests
         """
         Return common dimensions for a set of metrics.
         """
@@ -128,9 +128,9 @@ class DJClient(_internal.DJClient):
 
     def common_metrics(
         self,
-        dimensions: List[str],
+        dimensions: list[str],
         name_only: bool = False,
-    ) -> List[Union[str, dict]]:  # pragma: no cover # Tested in integration tests
+    ) -> list[str | dict]:  # pragma: no cover # Tested in integration tests
         """
         Return common metrics for a set of dimensions.
         """
@@ -158,12 +158,12 @@ class DJClient(_internal.DJClient):
     #
     def sql(  # pylint: disable=too-many-arguments
         self,
-        metrics: List[str],
-        dimensions: Optional[List[str]] = None,
-        filters: Optional[List[str]] = None,
-        orderby: Optional[List[str]] = None,
-        limit: Optional[int] = None,
-        dialect: Optional[str] = None,
+        metrics: list[str],
+        dimensions: list[str] | None = None,
+        filters: list[str] | None = None,
+        orderby: list[str] | None = None,
+        limit: int | None = None,
+        dialect: str | None = None,
         use_materialized: bool = True,
     ):
         """
@@ -198,14 +198,14 @@ class DJClient(_internal.DJClient):
 
     def plan(
         self,
-        metrics: List[str],
-        dimensions: Optional[List[str]] = None,
-        filters: Optional[List[str]] = None,
-        cube: Optional[str] = None,
-        dialect: Optional[str] = None,
+        metrics: list[str],
+        dimensions: list[str] | None = None,
+        filters: list[str] | None = None,
+        cube: str | None = None,
+        dialect: str | None = None,
         use_materialized: bool = True,
         include_temporal_filters: bool = False,
-        lookback_window: Optional[str] = None,
+        lookback_window: str | None = None,
     ):
         """
         Returns a query execution plan for the given metrics and dimensions.
@@ -257,16 +257,16 @@ class DJClient(_internal.DJClient):
     def node_sql(  # pylint: disable=too-many-arguments
         self,
         node_name: str,
-        dimensions: Optional[List[str]] = None,
-        filters: Optional[List[str]] = None,
-        engine_name: Optional[str] = None,
-        engine_version: Optional[str] = None,
+        dimensions: list[str] | None = None,
+        filters: list[str] | None = None,
+        engine_name: str | None = None,
+        engine_version: str | None = None,
         use_materialized: bool = True,
     ):
         """
         Builds SQL for a node with the provided dimensions and filters.
         """
-        params: Dict[str, Any] = {
+        params: dict[str, Any] = {
             "dimensions": dimensions or [],
             "filters": filters or [],
             "engine_name": engine_name or self.engine_name,
@@ -286,13 +286,13 @@ class DJClient(_internal.DJClient):
     #
     def data(  # pylint: disable=too-many-arguments,too-many-locals
         self,
-        metrics: List[str],
-        dimensions: Optional[List[str]] = None,
-        filters: Optional[List[str]] = None,
-        engine_name: Optional[str] = None,
-        engine_version: Optional[str] = None,
-        async_: Optional[bool] = None,
-        limit: Optional[int] = None,
+        metrics: list[str],
+        dimensions: list[str] | None = None,
+        filters: list[str] | None = None,
+        engine_name: str | None = None,
+        engine_version: str | None = None,
+        async_: bool | None = None,
+        limit: int | None = None,
     ):
         """
         Retrieves the data for one or more metrics with the provided dimensions and filters.
@@ -316,12 +316,12 @@ class DJClient(_internal.DJClient):
     def node_data(  # pylint: disable=too-many-arguments,too-many-locals
         self,
         node_name: str,
-        dimensions: Optional[List[str]] = None,
-        filters: Optional[List[str]] = None,
-        engine_name: Optional[str] = None,
-        engine_version: Optional[str] = None,
-        async_: Optional[bool] = None,
-        limit: Optional[int] = None,
+        dimensions: list[str] | None = None,
+        filters: list[str] | None = None,
+        engine_name: str | None = None,
+        engine_version: str | None = None,
+        async_: bool | None = None,
+        limit: int | None = None,
     ):
         """
         Retrieves the data for the node with the provided dimensions and filters.
@@ -344,13 +344,13 @@ class DJClient(_internal.DJClient):
 
     def _data(  # pylint: disable=too-many-arguments,too-many-locals
         self,
-        node_name: Optional[str] = None,
-        metrics: Optional[List[str]] = None,
-        dimensions: Optional[List[str]] = None,
-        filters: Optional[List[str]] = None,
-        engine_name: Optional[str] = None,
-        engine_version: Optional[str] = None,
-        limit: Optional[int] = None,
+        node_name: str | None = None,
+        metrics: list[str] | None = None,
+        dimensions: list[str] | None = None,
+        filters: list[str] | None = None,
+        engine_name: str | None = None,
+        engine_version: str | None = None,
+        limit: int | None = None,
     ):
         """
         Fetch data for a node or a set of metrics with dimensions and filters.
@@ -367,7 +367,7 @@ class DJClient(_internal.DJClient):
             job_state = models.QueryState.UNKNOWN
             results = None
             path = "/data/"
-            params: Dict[str, Any] = {
+            params: dict[str, Any] = {
                 "dimensions": dimensions or [],
                 "filters": filters or [],
                 "engine_name": engine_name or self.engine_name,
@@ -448,14 +448,14 @@ class DJClient(_internal.DJClient):
     #
     # Data Catalog and Engines
     #
-    def list_catalogs(self) -> List[str]:
+    def list_catalogs(self) -> list[str]:
         """
         List all catalogs.
         """
         json_response = self._session.get("/catalogs/", timeout=self._timeout).json()
         return [catalog["name"] for catalog in json_response]
 
-    def list_engines(self) -> List[dict]:
+    def list_engines(self) -> list[dict]:
         """
         List all engines.
         """
@@ -561,14 +561,14 @@ class DJClient(_internal.DJClient):
     #
     def list_nodes_with_tags(
         self,
-        tag_names: List[str],
-        node_type: Optional[models.NodeType] = None,
+        tag_names: list[str],
+        node_type: models.NodeType | None = None,
         skip_missing: bool = False,
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Find all nodes with given tags. The nodes must have all the tags.
         """
-        node_names: Set[str] = set()
+        node_names: set[str] = set()
         for tag_name in tag_names:
             try:
                 node_names_with_tag = self._list_nodes_with_tag(

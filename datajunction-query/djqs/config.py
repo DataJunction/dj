@@ -141,13 +141,13 @@ class Settings:  # pylint: disable=too-many-instance-attributes
 
         if config_file:
             if config_file.endswith(".yaml") or config_file.endswith(".yml"):
-                with open(config_file, "r", encoding="utf-8") as file:
+                with open(config_file, encoding="utf-8") as file:
                     config = yaml.safe_load(file)
             elif config_file.endswith(".toml"):
-                with open(config_file, "r", encoding="utf-8") as file:
+                with open(config_file, encoding="utf-8") as file:
                     config = toml.load(file)
             elif config_file.endswith(".json"):
-                with open(config_file, "r", encoding="utf-8") as file:
+                with open(config_file, encoding="utf-8") as file:
                     config = json.load(file)
             else:
                 raise ValueError(

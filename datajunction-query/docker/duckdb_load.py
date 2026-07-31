@@ -2,7 +2,7 @@ import duckdb
 
 con = duckdb.connect("default.duckdb")
 
-with open("duckdb.sql", "r") as f:
+with open("duckdb.sql") as f:
     queries = f.read().split(";")
 
 for q in queries:

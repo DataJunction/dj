@@ -2200,7 +2200,7 @@ async def create_new_revision_from_existing(
                     ),
                 )
             ).scalar_one()
-            if set(data.primary_key) - set(col.name for col in new_revision.columns):
+            if set(data.primary_key) - {col.name for col in new_revision.columns}:
                 raise DJInvalidInputException(  # pragma: no cover
                     f"Primary key {data.primary_key} does not exist on {new_revision.name}",
                 )

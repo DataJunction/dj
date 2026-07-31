@@ -5,9 +5,7 @@ from types import UnionType
 from typing import (
     TYPE_CHECKING,
     Any,
-    Dict,
     Optional,
-    Type,
     TypeVar,
     Union,
     cast,
@@ -29,7 +27,7 @@ class SerializableMixin:  # pylint: disable=too-few-public-methods
 
     @staticmethod
     def _serialize_nested(
-        field_type: Type,
+        field_type: type,
         field_value: Any,
         dj_client: Optional["DJClient"],
     ):
@@ -37,7 +35,7 @@ class SerializableMixin:  # pylint: disable=too-few-public-methods
         Handle nested field serialization
         """
         if is_dataclass(field_type) and isinstance(field_value, dict):
-            return cast(Type[SerializableMixin], field_type).from_dict(
+            return cast(type[SerializableMixin], field_type).from_dict(
                 dj_client,
                 field_value,
             )
@@ -45,7 +43,7 @@ class SerializableMixin:  # pylint: disable=too-few-public-methods
 
     @staticmethod
     def _serialize_list(
-        field_type: Type,
+        field_type: type,
         field_value: Any,
         dj_client: Optional["DJClient"],
     ):
@@ -78,9 +76,9 @@ class SerializableMixin:  # pylint: disable=too-few-public-methods
 
     @classmethod
     def from_dict(
-        cls: Type[T],
+        cls: type[T],
         dj_client: Optional["DJClient"],
-        data: Dict[str, Any],
+        data: dict[str, Any],
     ) -> T:
         """
         Create an instance of the given dataclass `cls` from a dictionary `data`.
@@ -95,7 +93,7 @@ class SerializableMixin:  # pylint: disable=too-few-public-methods
                 continue
 
             # Resolve optional types to their inner type
-            field_type = cast(Type, field.type)
+            field_type = cast(type, field.type)
             origin = get_origin(field_type)
             if origin in (Union, UnionType):
                 field_type = next(  # pragma: no cover

@@ -3901,7 +3901,7 @@ class DeploymentOrchestrator:
                 for owner_name in node_spec.owners
                 if owner_name in self.registry.owners
             ]
-        if set(node_spec.tags) != set([tag.name for tag in new_node.tags]):
+        if set(node_spec.tags) != {tag.name for tag in new_node.tags}:
             tags = [self.registry.tags.get(tag) for tag in node_spec.tags]
             new_node.tags = tags  # type: ignore
         return new_node

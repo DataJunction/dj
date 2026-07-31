@@ -1650,13 +1650,12 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             client.list_nodes_with_tags(tag_names=["does-not-exist"], skip_missing=True)
             == []
         )
-        assert set(nodes_with_foo) == set(
-            [
-                "default.repair_order",
-                "default.repair_orders",
-                "default.num_repair_orders",
-            ],
-        )
-        assert set(nodes_with_foo_and_bar) == set(
-            ["default.repair_orders", "default.repair_order"],
-        )
+        assert set(nodes_with_foo) == {
+            "default.repair_order",
+            "default.repair_orders",
+            "default.num_repair_orders",
+        }
+        assert set(nodes_with_foo_and_bar) == {
+            "default.repair_orders",
+            "default.repair_order",
+        }

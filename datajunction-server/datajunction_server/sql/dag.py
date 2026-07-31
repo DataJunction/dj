@@ -915,9 +915,9 @@ async def get_dimensions(
         return all_dimensions[0]
 
     # Find intersection by dimension name
-    common_names = set(d.name for d in all_dimensions[0])
+    common_names = {d.name for d in all_dimensions[0]}
     for dims in all_dimensions[1:]:
-        common_names &= set(d.name for d in dims)
+        common_names &= {d.name for d in dims}
 
     # Return dimensions from first parent that are in the intersection
     return sorted(

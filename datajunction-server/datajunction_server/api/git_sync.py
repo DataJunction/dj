@@ -235,7 +235,7 @@ async def _fetch_deployment_spec_from_git(
             if yaml_file.name == "dj.yaml":
                 continue
             try:
-                with open(yaml_file, "r", encoding="utf-8") as f:
+                with open(yaml_file, encoding="utf-8") as f:
                     spec = yaml.safe_load(f)
                 if not isinstance(spec, dict) or "name" not in spec:
                     continue

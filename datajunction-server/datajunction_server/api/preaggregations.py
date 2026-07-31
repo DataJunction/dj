@@ -352,7 +352,7 @@ async def list_preaggregations(
 
     # Post-filter by grain columns (compare full dimension names, case-insensitive)
     if grain_cols:
-        requested_grain = set(g.lower() for g in grain_cols)
+        requested_grain = {g.lower() for g in grain_cols}
         _logger.info(
             "list_preaggs: filtering by grain=%s, mode=%s",
             requested_grain,
@@ -364,7 +364,7 @@ async def list_preaggregations(
             # Exact match: pre-agg grain must match exactly
             filtered = []
             for p in preaggs:
-                preagg_grain = set(col.lower() for col in p.grain_columns)
+                preagg_grain = {col.lower() for col in p.grain_columns}
                 matches = preagg_grain == requested_grain
                 _logger.info(
                     "  preagg %s: grain=%s, matches=%s",
@@ -380,7 +380,7 @@ async def list_preaggregations(
             # (pre-agg can have more columns = finer grain)
             filtered = []
             for p in preaggs:
-                preagg_grain = set(col.lower() for col in p.grain_columns)
+                preagg_grain = {col.lower() for col in p.grain_columns}
                 # Check if requested_grain is subset of preagg_grain
                 matches = requested_grain <= preagg_grain
                 missing = requested_grain - preagg_grain

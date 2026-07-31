@@ -5,7 +5,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any
 
 from rich import box
 from rich.console import Console, Group
@@ -198,7 +198,7 @@ class DJCLI:
     def list_objects(
         self,
         object_type: str,
-        namespace: Optional[str] = None,
+        namespace: str | None = None,
         format: str = "text",
     ):
         """
@@ -246,15 +246,15 @@ class DJCLI:
 
     def get_sql(
         self,
-        node_name: Optional[str] = None,
-        metrics: Optional[list[str]] = None,
-        dimensions: Optional[list[str]] = None,
-        filters: Optional[list[str]] = None,
-        orderby: Optional[list[str]] = None,
-        limit: Optional[int] = None,
-        dialect: Optional[str] = None,
-        engine_name: Optional[str] = None,
-        engine_version: Optional[str] = None,
+        node_name: str | None = None,
+        metrics: list[str] | None = None,
+        dimensions: list[str] | None = None,
+        filters: list[str] | None = None,
+        orderby: list[str] | None = None,
+        limit: int | None = None,
+        dialect: str | None = None,
+        engine_name: str | None = None,
+        engine_version: str | None = None,
     ):
         """
         Generate SQL for a node or metrics.
@@ -306,9 +306,9 @@ class DJCLI:
     def show_plan(
         self,
         metrics: list[str],
-        dimensions: Optional[list[str]] = None,
-        filters: Optional[list[str]] = None,
-        dialect: Optional[str] = None,
+        dimensions: list[str] | None = None,
+        filters: list[str] | None = None,
+        dialect: str | None = None,
         format: str = "text",
     ):
         """
@@ -478,8 +478,8 @@ class DJCLI:
         try:
             node = self.builder_client.node(node_name)
 
-            upstreams: List[Any] = []
-            downstreams: List[Any] = []
+            upstreams: list[Any] = []
+            downstreams: list[Any] = []
 
             if direction in ["upstream", "both"]:
                 upstreams = node.get_upstreams() if node.type != "source" else []
@@ -561,13 +561,13 @@ class DJCLI:
 
     def get_data(
         self,
-        node_name: Optional[str] = None,
-        metrics: Optional[list[str]] = None,
-        dimensions: Optional[list[str]] = None,
-        filters: Optional[list[str]] = None,
-        engine_name: Optional[str] = None,
-        engine_version: Optional[str] = None,
-        limit: Optional[int] = None,
+        node_name: str | None = None,
+        metrics: list[str] | None = None,
+        dimensions: list[str] | None = None,
+        filters: list[str] | None = None,
+        engine_name: str | None = None,
+        engine_version: str | None = None,
+        limit: int | None = None,
         format: str = "table",
     ):
         """
@@ -659,7 +659,7 @@ class DJCLI:
         namespace: str,
         repo: str,
         default_branch: str,
-        git_path: Optional[str] = None,
+        git_path: str | None = None,
         git_only: bool = False,
     ):
         """Initialize git configuration on a namespace."""
@@ -1800,7 +1800,7 @@ model: inherit
         # Load existing config or create new one
         if config_path.exists():
             try:
-                with open(config_path, "r") as f:
+                with open(config_path) as f:
                     config = json.load(f)
             except json.JSONDecodeError:
                 console.print(

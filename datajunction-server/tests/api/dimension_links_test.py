@@ -996,16 +996,14 @@ async def test_measures_sql_with_reference_dimension_links(
         "/nodes/default.elapsed_secs/dimensions",
     )
     dimensions_data = response.json()
-    assert set([dim["name"] for dim in dimensions_data]) == set(
-        [
-            "default.users.account_type",
-            "default.users.registration_country",
-            "default.users.registration_country",
-            "default.users.residence_country",
-            "default.users.snapshot_date",
-            "default.users.user_id",
-        ],
-    )
+    assert {dim["name"] for dim in dimensions_data} == {
+        "default.users.account_type",
+        "default.users.registration_country",
+        "default.users.registration_country",
+        "default.users.residence_country",
+        "default.users.snapshot_date",
+        "default.users.user_id",
+    }
 
     sql_params = {
         "metrics": ["default.elapsed_secs"],
