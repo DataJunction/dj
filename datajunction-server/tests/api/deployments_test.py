@@ -20,6 +20,7 @@ from datajunction_server.models.deployment import (
     GitDeploymentSource,
     LocalDeploymentSource,
     PreAggSpec,
+    TagSpec,
 )
 from datajunction_server.utils import get_query_service_client
 from datajunction_server.internal.git.github_service import GitHubServiceError
@@ -36,8 +37,39 @@ from datajunction_server.models.node import (
     NodeMode,
     NodeType,
 )
+from datajunction_server.internal.access.authorization import AuthorizationService
+from datajunction_server.models import access
 from tests.construction.build_v3 import assert_sql_equal
 import pytest
+
+
+# Patch target: the name as imported into the validator module, where
+# AccessChecker.check() looks the authorization service up.
+_VALIDATOR_AUTH_SERVICE = (
+    "datajunction_server.internal.access.authorization."
+    "validator.get_authorization_service"
+)
+
+
+class _DenyDeleteAuthorizationService(AuthorizationService):
+    """
+    Approves everything except DELETE -- a caller with WRITE but not DELETE.
+
+    The deployment HTTP entrypoint only checks WRITE on the root namespace, so
+    such a caller passes the entrypoint; this isolates the orchestrator's own
+    DELETE authorization on nodes/namespaces it removes.
+    """
+
+    name = "test_deny_delete_deploy"
+
+    def authorize(self, auth_context, requests):
+        return [
+            access.AccessDecision(
+                request=request,
+                approved=request.verb != access.ResourceAction.DELETE,
+            )
+            for request in requests
+        ]
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -1284,6 +1316,50 @@ async def deploy_and_wait(client, deployment_spec: DeploymentSpec):
         response = await client.get(f"/deployments/{deployment_uuid}")
         data = response.json()
     return data
+
+
+@pytest.mark.xdist_group(name="deployments")
+class TestDeploymentAuthorization:
+    @pytest.mark.asyncio
+    async def test_deploy_delete_denied_without_delete_is_fail_closed(
+        self,
+        client,
+        default_hard_hats,
+        mocker,
+    ):
+        """
+        A deploy runs detached and can DELETE nodes/namespaces, but the HTTP
+        entrypoint only checks WRITE on the root namespace -- and WRITE does not
+        imply DELETE. So a WRITE-but-not-DELETE caller passes the entrypoint yet
+        must be denied by the orchestrator's internal DELETE authorization; the
+        deletion fails and the node survives (fail-closed).
+        """
+        namespace = "deploy_delete_denied"
+
+        # First deploy (default passthrough auth) creates the node.
+        created = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=[default_hard_hats]),
+        )
+        assert created["status"] == "success", created
+
+        # Now deny DELETE (WRITE still allowed, so the HTTP entrypoint passes) and
+        # try to delete everything via an empty spec.
+        mocker.patch(
+            _VALIDATOR_AUTH_SERVICE,
+            lambda: _DenyDeleteAuthorizationService(),
+        )
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=[], allow_empty=True),
+        )
+
+        assert data["status"] == DeploymentStatus.FAILED.value, data
+        assert "Access denied" in json.dumps(data["results"])
+
+        # Fail-closed: the node was not deleted.
+        node_check = await client.get(f"/nodes/{namespace}.default.hard_hats/")
+        assert node_check.status_code == 200
 
 
 @pytest.mark.xdist_group(name="deployments")
@@ -2924,6 +3000,95 @@ class TestDeployments:
         }
         node = await Node.get_by_name(session, f"{namespace}.default.us_state")
         assert [tag.name for tag in node.tags] == ["tag1"]
+
+    @pytest.mark.asyncio
+    async def test_deploy_tag_metadata(
+        self,
+        client,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        Test that tag_metadata declared on a tag in the deployment spec is
+        persisted, both when the tag is created and when it is later updated.
+
+        The deployment spec is the source of truth: the declared bag replaces
+        the stored one, so keys added out-of-band or dropped from the spec do
+        not linger on the server.
+        """
+        namespace = "tag_metadata_deploy"
+        default_us_state.tags = ["inventory"]
+
+        def spec(tag_metadata):
+            return DeploymentSpec(
+                namespace=namespace,
+                nodes=[default_us_states, default_us_state],
+                tags=[
+                    TagSpec(
+                        name="inventory",
+                        display_name="Inventory",
+                        description="Inventory tag",
+                        tag_type="group",
+                        tag_metadata=tag_metadata,
+                    ),
+                ],
+            )
+
+        # Create path
+        data = await deploy_and_wait(
+            client,
+            spec({"order": 1, "display": {"color": "blue"}}),
+        )
+        assert data["status"] == "success"
+        response = await client.get("/tags/inventory/")
+        assert response.json() == {
+            "name": "inventory",
+            "display_name": "Inventory",
+            "description": "Inventory tag",
+            "tag_type": "group",
+            "tag_metadata": {"order": 1, "display": {"color": "blue"}},
+        }
+
+        # A key is added out-of-band, outside the deployment
+        response = await client.patch(
+            "/tags/inventory/",
+            json={
+                "tag_metadata": {
+                    "order": 1,
+                    "display": {"color": "blue"},
+                    "added_out_of_band": {"foo": "bar"},
+                },
+            },
+        )
+        assert response.status_code == 200
+
+        # Update path: the spec replaces the stored bag, dropping the
+        # out-of-band key and replacing nested contents rather than merging
+        data = await deploy_and_wait(
+            client,
+            spec({"order": 2, "display": {"icon": "box"}}),
+        )
+        assert data["status"] == "success"
+        response = await client.get("/tags/inventory/")
+        assert response.json() == {
+            "name": "inventory",
+            "display_name": "Inventory",
+            "description": "Inventory tag",
+            "tag_type": "group",
+            "tag_metadata": {"order": 2, "display": {"icon": "box"}},
+        }
+
+        # Removing tag_metadata from the spec clears it on the server
+        data = await deploy_and_wait(client, spec(None))
+        assert data["status"] == "success"
+        response = await client.get("/tags/inventory/")
+        assert response.json() == {
+            "name": "inventory",
+            "display_name": "Inventory",
+            "description": "Inventory tag",
+            "tag_type": "group",
+            "tag_metadata": {},
+        }
 
     @pytest.mark.asyncio
     async def test_deploy_column_properties(

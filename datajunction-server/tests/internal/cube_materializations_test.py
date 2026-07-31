@@ -9,8 +9,64 @@ from datajunction_server.construction.build_v3.types import BuildContext, GrainG
 from datajunction_server.internal.cube_materializations import (
     _v3_col_to_model_column,
     _v3_grain_group_to_measures_query,
+    generate_partition_filter_sql,
+)
+from datajunction_server.database.column import Column
+from datajunction_server.database.partition import Partition
+from datajunction_server.internal.materializations import _materialization_name
+from datajunction_server.models.materialization import (
+    MaterializationJobTypeEnum,
+    MaterializationStrategy,
 )
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.partition import Granularity
+from datajunction_server.sql.parsing.types import StringType
+
+
+def test_generate_partition_filter_sql_preserves_cube_role():
+    """Incremental cube filters must target the partitioned role."""
+    temporal_partition = SimpleNamespace(
+        cube_element_name="v3.date.date_id[ship]",
+        type="int",
+        partition=SimpleNamespace(granularity=Granularity.DAY),
+    )
+
+    result = generate_partition_filter_sql(temporal_partition, "1 DAY")
+
+    assert result.startswith("v3.date.date_id[ship] = ")
+
+
+def test_materialization_name_preserves_cube_partition_role():
+    """Materializations on two roles must not receive the same name."""
+    temporal_partition = Column(
+        name="v3.date.date_id",
+        dimension_column="[ship]",
+        type="int",
+    )
+    revision = MagicMock(
+        type=NodeType.CUBE,
+    )
+    upsert = SimpleNamespace(
+        job=MaterializationJobTypeEnum.DRUID_CUBE,
+        strategy=MaterializationStrategy.FULL,
+        schedule="@daily",
+    )
+
+    result = _materialization_name(upsert, revision, [temporal_partition], [])
+
+    assert result.endswith("__v3.date.date_id[ship]")
+
+
+def test_categorical_partition_expression_preserves_cube_role():
+    """The runtime partition variable must use the role-qualified identity."""
+    partition = Partition()
+    partition.column = Column(name="v3.date.date_id", type=StringType())
+
+    expression = partition.categorical_expression("v3.date.date_id[ship]")
+
+    assert str(expression) == (
+        "CAST(${v3_DOT_date_DOT_date_id_LBRACK_ship_RBRACK} AS STRING)"
+    )
 
 
 def _make_col(semantic_name, semantic_type="dimension", name="col", type_="str"):

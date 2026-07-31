@@ -14,7 +14,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
-from datajunction_server.api.helpers import get_save_history, get_materialization_info
+from datajunction_server.api.helpers import (
+    get_materialization_info,
+    get_save_history,
+    resolve_column,
+)
 from datajunction_server.database import Node, NodeRevision
 from datajunction_server.database.backfill import Backfill
 from datajunction_server.database.column import Column, ColumnAttribute
@@ -473,20 +477,23 @@ async def run_materialization_backfill(
         )
 
     materialization = materializations[0]
-    temporal_partitions = {
-        col.name: col for col in node_revision.temporal_partition_columns()
-    }
-    categorical_partitions = {
-        col.name: col for col in node_revision.categorical_partition_columns()
-    }
+    partition_columns = (
+        node_revision.temporal_partition_columns()
+        + node_revision.categorical_partition_columns()
+    )
     for backfill_spec in backfill_partitions:
-        if backfill_spec.column_name not in set(temporal_partitions).union(
-            set(categorical_partitions),
-        ):
-            raise DJDoesNotExistException(  # pragma: no cover
-                f"Partition with name {backfill_spec.column_name} does not exist on node",
-            )
-        backfill_spec.column_name = amenable_name(backfill_spec.column_name)
+        partition_column = resolve_column(
+            partition_columns,
+            backfill_spec.column_name,
+            node_revision.name,
+            node_revision.type,
+        )
+        partition_name = (
+            partition_column.cube_element_name
+            if node_revision.type == NodeType.CUBE
+            else partition_column.name
+        )
+        backfill_spec.column_name = amenable_name(partition_name)
     materialization_jobs = {
         cls.__name__: cls for cls in MaterializationJob.__subclasses__()
     }

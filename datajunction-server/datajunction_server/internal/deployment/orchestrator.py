@@ -40,6 +40,11 @@ from datajunction_server.errors import (
     DJWarning,
     ErrorCode,
 )
+from datajunction_server.internal.access.authorization import (
+    AccessChecker,
+    AccessDenialMode,
+)
+from datajunction_server.internal.access.authorization.context import AuthContext
 from datajunction_server.internal.deployment.utils import (
     classify_parents,
     extract_node_graph,
@@ -60,6 +65,7 @@ from datajunction_server.sql.dag import get_metric_parents_map
 from datajunction_server.internal.nodes import (
     derive_frozen_measures_bulk,
 )
+from datajunction_server.models.access import ResourceAction
 from datajunction_server.models.base import labelize
 from datajunction_server.models.deployment import (
     ColumnSpec,
@@ -74,6 +80,7 @@ from datajunction_server.models.deployment import (
     NodeSpec,
     SourceSpec,
     TagSpec,
+    eq_or_fallback,
     render_prefixes,
 )
 from datajunction_server.models.dimensionlink import (
@@ -436,6 +443,10 @@ class DeploymentOrchestrator:
 
         self._guard_against_accidental_wipe(deployment_plan)
 
+        # Authorize before any of the plan is applied; a denial raises inside the
+        # SAVEPOINT, so setup-phase writes roll back too.
+        await self._authorize_deployment_plan(deployment_plan)
+
         if deployment_plan.is_empty() and not self.deployment_spec.hierarchies:
             # Pre-aggregations still need reconciling on an otherwise-empty
             # deploy: to register specs, or to delete external pre-aggs that were
@@ -461,6 +472,41 @@ class DeploymentOrchestrator:
             results=self.deployed_results,
             downstream_impacts=downstream,
         )
+
+    async def _authorize_deployment_plan(self, plan: DeploymentPlan) -> None:
+        """
+        Fail-closed authorization for the mutations this deploy will perform.
+
+        Deploys run in a detached background task and bulk-create/update/delete
+        nodes and namespaces, so re-authorize here against the deploying user,
+        matching how the HTTP endpoints govern each resource: WRITE on the
+        namespace a node is written into, DELETE on nodes and namespaces being
+        removed. Names are the rendered (fully-qualified) names, since that is
+        what the deploy actually mutates and what RBAC scopes match against.
+        """
+        auth_context = await AuthContext.from_user(
+            self.session,
+            self.context.current_user,
+        )
+        access_checker = AccessChecker(auth_context)
+
+        # WRITE: the deployment root plus the namespace each deployed node lands in.
+        namespaces_to_write = {self.deployment_spec.namespace}
+        for node_spec in plan.to_deploy:
+            namespaces_to_write.add(get_namespace_from_name(node_spec.rendered_name))
+        for namespace in sorted(namespaces_to_write):
+            access_checker.add_namespace(namespace, ResourceAction.WRITE)
+
+        # DELETE: nodes and namespaces removed by this deploy.
+        for node_spec in plan.to_delete:
+            access_checker.add_request_by_node_name(
+                node_spec.rendered_name,
+                ResourceAction.DELETE,
+            )
+        for namespace in plan.to_delete_namespaces:
+            access_checker.add_namespace(namespace, ResourceAction.DELETE)
+
+        await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     async def _update_deployment_status(self):
         """
@@ -850,6 +896,7 @@ class DeploymentOrchestrator:
                             Tag.tag_type,
                             Tag.description,
                             Tag.display_name,
+                            Tag.tag_metadata,
                             Tag.created_by_id,
                         ),
                         noload(Tag.created_by),
@@ -884,6 +931,7 @@ class DeploymentOrchestrator:
                     tag.tag_type = tag_spec.tag_type
                     tag.description = tag_spec.description
                     tag.display_name = tag_spec.display_name or labelize(tag_name)
+                    tag.tag_metadata = tag_spec.tag_metadata or {}
                     self.session.add(tag)
                     tags_modified = True
             else:
@@ -892,6 +940,7 @@ class DeploymentOrchestrator:
                     tag_type=tag_spec.tag_type,
                     description=tag_spec.description,
                     display_name=tag_spec.display_name or labelize(tag_name),
+                    tag_metadata=tag_spec.tag_metadata or {},
                     created_by_id=self.context.current_user.id,
                 )
                 self.session.add(tag)
@@ -2924,7 +2973,7 @@ class DeploymentOrchestrator:
             # identity DJ uses for cube elements — so a partition declared on a
             # role-played column (e.g. "...dateint[epoch_date]") lands on the right
             # role instead of being silently dropped.
-            element_key = full_element_name + (node_column.dimension_column or "")
+            element_key = node_column.cube_element_name
             if element_key in column_spec_map:
                 col_spec = column_spec_map[element_key]
                 if col_spec.partition:  # pragma: no branch
@@ -3808,7 +3857,12 @@ class DeploymentOrchestrator:
         # Track changes to node columns
         old_revision = existing.current if existing else None
         existing_columns_map = {
-            col.name: col for col in (old_revision.columns if old_revision else [])
+            (
+                col.cube_element_name
+                if old_revision and old_revision.type == NodeType.CUBE
+                else col.name
+            ): col
+            for col in (old_revision.columns if old_revision else [])
         }
         changed_count = [
             column_changed(new_col, existing_columns_map.get(new_col.name))
@@ -4331,6 +4385,10 @@ def tag_needs_update(existing_tag: Tag, tag_spec: TagSpec) -> bool:
         or existing_tag.description != tag_spec.description
         or existing_tag.display_name
         != (tag_spec.display_name or labelize(tag_spec.name))
+        # A deployment is declarative, so the spec's metadata bag replaces the
+        # stored one; an omitted bag is equivalent to an empty one, matching how
+        # node-level custom_metadata is compared.
+        or not eq_or_fallback(tag_spec.tag_metadata, existing_tag.tag_metadata, {})
     )
 
 

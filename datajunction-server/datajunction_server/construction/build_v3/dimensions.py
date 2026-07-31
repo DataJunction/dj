@@ -151,6 +151,22 @@ def find_join_path(
     return None  # pragma: no cover
 
 
+def roles_reaching_dimension(
+    ctx: "BuildContext",
+    node_rev_id: int,
+    dim_node_name: str,
+) -> set[str]:
+    """
+    Role paths from a node revision to a dimension node, ``""`` for a role-free
+    link. Read from the join paths preloaded for this build.
+    """
+    return {
+        stored_role
+        for (src_id, dim_name, stored_role) in ctx.join_paths
+        if src_id == node_rev_id and dim_name == dim_node_name
+    }
+
+
 def can_skip_join_for_dimension(
     dim_ref: DimensionRef,
     join_path: Optional[JoinPath],

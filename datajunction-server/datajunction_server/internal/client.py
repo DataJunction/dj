@@ -102,13 +102,17 @@ async def python_client_code_for_setting_column_attributes(
                 ),
             ),
         ],
+        raise_if_not_exists=True,
     )
+    assert node is not None  # raise_if_not_exists=True ensures this
 
     template = jinja_env.get_template("set_column_attributes.j2")
     snippets = [
         template.render(
             node_short_name=node_short_name,
-            column_name=col.name,
+            column_name=(
+                col.cube_element_name if node.type == NodeType.CUBE else col.name
+            ),
             attributes=[
                 attr.attribute_type
                 for attr in col.attributes

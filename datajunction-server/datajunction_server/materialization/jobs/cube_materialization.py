@@ -190,7 +190,8 @@ def build_materialization_query(
         temporal_partition_col = [
             col
             for col in cube_materialization_query_ast.select.projection
-            if col.alias_or_name.name == amenable_name(temporal_partitions[0].name)  # type: ignore
+            if col.alias_or_name.name  # type: ignore
+            == amenable_name(temporal_partitions[0].cube_element_name)
         ]
         temporal_op = (
             ast.BinaryOp(
@@ -220,13 +221,15 @@ def build_materialization_query(
                 col
                 for col in cube_materialization_query_ast.select.projection
                 if col.alias_or_name.name  # type: ignore
-                == amenable_name(categorical_partitions[0].name)  # type: ignore
+                == amenable_name(categorical_partitions[0].cube_element_name)
             ]
             categorical_op = ast.BinaryOp(
                 left=ast.Column(
                     name=ast.Name(categorical_partition_col[0].alias_or_name.name),  # type: ignore
                 ),
-                right=categorical_partitions[0].partition.categorical_expression(),
+                right=categorical_partitions[0].partition.categorical_expression(
+                    categorical_partitions[0].cube_element_name,
+                ),
                 op=ast.BinaryOpKind.Eq,
             )
             final_query.select.where = ast.BinaryOp(

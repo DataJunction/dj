@@ -15,6 +15,11 @@ from sqlalchemy.orm import selectinload
 
 from datajunction_server.api.helpers import get_catalog_by_name
 from datajunction_server.construction.build_v3.builder import build_measures_sql
+from datajunction_server.construction.build_v3.dimensions import (
+    parse_dimension_ref,
+    roles_reaching_dimension,
+)
+from datajunction_server.construction.build_v3.types import GeneratedMeasuresSQL
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.preaggregation import (
@@ -71,6 +76,43 @@ def assert_column_type_compatible(
                 f"type-compatible with {subject} (expected {expected})."
             ),
         )
+
+
+def assert_dimension_refs_are_role_qualified(
+    measures_result: GeneratedMeasuresSQL,
+    dimensions: list[str],
+) -> None:
+    """
+    Reject a bare dimension reference that reaches its dimension by more than one
+    role, since it names none of them.
+
+    Mirrors how such a reference resolves: a role-free link wins, a single named
+    role is unambiguous, and anything else has to be qualified rather than
+    resolved to whichever path happens to sort first.
+    """
+    for ref in dimensions:
+        dim_ref = parse_dimension_ref(ref)
+        if dim_ref.role:
+            continue
+        roles: set[str] = set()
+        for grain_group in measures_result.grain_groups:
+            parent_node = measures_result.ctx.nodes.get(grain_group.parent_name)
+            if not parent_node or not parent_node.current:  # pragma: no cover
+                continue
+            roles |= roles_reaching_dimension(
+                measures_result.ctx,
+                parent_node.current.id,
+                dim_ref.node_name,
+            )
+        named = sorted(role for role in roles if role)
+        if "" not in roles and len(named) > 1:
+            options = ", ".join(f"`{ref}[{role}]`" for role in named)
+            raise DJInvalidInputException(
+                message=(
+                    f"Dimension `{ref}` is ambiguous across roles. "
+                    f"Use one of: {options}"
+                ),
+            )
 
 
 async def register_external_preaggregations(
@@ -142,6 +184,7 @@ async def register_external_preaggregations(
         dialect=Dialect.SPARK,
         use_materialized=False,
     )
+    assert_dimension_refs_are_role_qualified(measures_result, dimensions)
 
     # 3. Introspect the external table and confirm the declared columns exist.
     catalog = await get_catalog_by_name(session=session, name=table.catalog)

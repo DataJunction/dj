@@ -206,19 +206,53 @@ async def get_column(
     """
     Get a column from a node revision
     """
-    requested_column = None
     await session.refresh(node, ["columns"])
-    for node_column in node.columns:
-        if node_column.name == column_name:
-            requested_column = node_column
-            break
+    return resolve_column(
+        node.columns,
+        column_name,
+        node.name,
+        node.type,
+        missing_message=f"Column {column_name} does not exist on node {node.name}",
+    )
 
-    if not requested_column:
-        raise DJDoesNotExistException(
-            message=f"Column {column_name} does not exist on node {node.name}",
-            http_status_code=404,
+
+def resolve_column(
+    columns: List[Column],
+    column_name: str,
+    node_name: str,
+    node_type: NodeType,
+    missing_message: Optional[str] = None,
+) -> Column:
+    """Resolve a node column, including role-qualified cube identities."""
+    if node_type == NodeType.CUBE:
+        role_qualified = {column.cube_element_name: column for column in columns}
+        if column_name in role_qualified:
+            return role_qualified[column_name]
+
+        same_name = [column for column in columns if column.name == column_name]
+        if len(same_name) > 1:
+            options = sorted(column.cube_element_name for column in same_name)
+            raise DJInvalidInputException(
+                message=(
+                    f"Column `{column_name}` on node `{node_name}` is ambiguous across "
+                    f"roles. Use one of: {', '.join(options)}"
+                ),
+            )
+        if same_name:
+            return same_name[0]
+    else:
+        requested_column = next(
+            (column for column in columns if column.name == column_name),
+            None,
         )
-    return requested_column
+        if requested_column:
+            return requested_column
+
+    raise DJDoesNotExistException(
+        message=missing_message
+        or f"Column `{column_name}` does not exist on node `{node_name}`!",
+        http_status_code=404,
+    )
 
 
 async def get_attribute_type(
@@ -704,6 +738,7 @@ async def find_existing_cube(
     session: AsyncSession,
     metric_columns: List[Column],
     dimension_columns: List[Column],
+    dimension_roles: Optional[List[Optional[str]]] = None,
     materialized: bool = True,
 ) -> Optional[NodeRevision]:
     """
@@ -711,27 +746,44 @@ async def find_existing_cube(
     If `materialized` is set, it will only look for materialized cubes.
     """
     element_names = [col.name for col in (metric_columns + dimension_columns)]
-    statement = select(Node).join(
-        NodeRevision,
-        onclause=(
-            and_(
-                (Node.id == NodeRevision.node_id),
-                (Node.current_version == NodeRevision.version),
-            )
-        ),
+    required_dimension_refs = (
+        {
+            col.full_name() + (role or "")
+            for col, role in zip(dimension_columns, dimension_roles)
+        }
+        if dimension_roles is not None
+        else set()
+    )
+    statement = (
+        select(Node)
+        .join(
+            NodeRevision,
+            onclause=(
+                and_(
+                    (Node.id == NodeRevision.node_id),
+                    (Node.current_version == NodeRevision.version),
+                )
+            ),
+        )
+        .options(
+            joinedload(Node.current).options(
+                joinedload(NodeRevision.materializations),
+                joinedload(NodeRevision.availability),
+                selectinload(NodeRevision.columns),
+            ),
+        )
     )
     for name in element_names:
         statement = statement.filter(
             NodeRevision.cube_elements.any(Column.name == name),  # type: ignore
-        ).options(
-            joinedload(Node.current).options(
-                joinedload(NodeRevision.materializations),
-                joinedload(NodeRevision.availability),
-            ),
         )
 
     existing_cubes = (await session.execute(statement)).unique().scalars().all()
     for cube in existing_cubes:
+        if required_dimension_refs:
+            cube_element_refs = {col.cube_element_name for col in cube.current.columns}
+            if not required_dimension_refs.issubset(cube_element_refs):
+                continue
         if not materialized or (  # pragma: no cover
             materialized and cube.current.materializations and cube.current.availability
         ):

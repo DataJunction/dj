@@ -230,11 +230,28 @@ async def _fetch_deployment_spec_from_git(
                 message=f"Path '{git_path}' not found in repository at ref '{ref}'",
             )
 
-        # Parse all YAML files, routing by type: hierarchy vs nodes
+        # Parse all YAML files, routing by type: project config vs hierarchy vs nodes
         nodes: List[dict] = []
         hierarchies: List[dict] = []
+        # Tags are declared in the project config file, keyed by name so a
+        # later dj.yaml wins over an earlier one.
+        tags: dict[str, dict] = {}
         for yaml_file in files_dir.rglob("*.yaml"):
             if yaml_file.name == "dj.yaml":
+                try:
+                    with open(yaml_file, "r", encoding="utf-8") as f:
+                        project_config = yaml.safe_load(f)
+                except Exception as exc:  # pragma: no cover
+                    _logger.warning(
+                        "Skipping invalid project config %s: %s",
+                        yaml_file,
+                        exc,
+                    )
+                    continue
+                if isinstance(project_config, dict):
+                    for tag in project_config.get("tags") or []:
+                        if isinstance(tag, dict) and tag.get("name"):
+                            tags[tag["name"]] = tag
                 continue
             try:
                 with open(yaml_file, "r", encoding="utf-8") as f:
@@ -252,9 +269,10 @@ async def _fetch_deployment_spec_from_git(
                 continue
 
     _logger.info(
-        "Fetched %d node specs and %d hierarchy specs from git: %s @ %s",
+        "Fetched %d node specs, %d hierarchy specs and %d tag specs from git: %s @ %s",
         len(nodes),
         len(hierarchies),
+        len(tags),
         repo_path,
         ref[:12] if len(ref) > 12 else ref,
     )
@@ -262,7 +280,7 @@ async def _fetch_deployment_spec_from_git(
     return {
         "namespace": namespace,
         "nodes": nodes,
-        "tags": [],
+        "tags": list(tags.values()),
         "hierarchies": hierarchies,
     }
 

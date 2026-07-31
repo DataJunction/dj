@@ -28,6 +28,7 @@ from datajunction_server.api.helpers import (
     get_node_by_name,
     get_node_namespace,
     raise_if_node_exists,
+    resolve_column,
     resolve_downstream_references,
     validate_cube,
 )
@@ -380,31 +381,12 @@ def get_node_column(node: Node, column_name: str) -> Column:
       3. Bare name that maps to multiple role-played columns -> raise, listing the
          role-qualified options, instead of silently binding the last one.
     """
-    columns = node.current.columns
-
-    # 1. exact role-qualified match: name + dimension_column (e.g. "...dateint[epoch_date]")
-    by_role_qualified = {
-        col.name + (col.dimension_column or ""): col for col in columns
-    }
-    if column_name in by_role_qualified:
-        return by_role_qualified[column_name]
-
-    # 2/3. bare-name resolution
-    same_name = [col for col in columns if col.name == column_name]
-    if not same_name:
-        raise DJDoesNotExistException(
-            message=f"Column `{column_name}` does not exist on node `{node.name}`!",
-        )
-    if len(same_name) > 1:
-        options = sorted(col.name + (col.dimension_column or "") for col in same_name)
-        raise DJInvalidInputException(
-            message=(
-                f"Column `{column_name}` on node `{node.name}` is ambiguous across "
-                f"multiple role-played dimensions. Specify the role-qualified column, "
-                f"one of: {options}"
-            ),
-        )
-    return same_name[0]
+    return resolve_column(
+        node.current.columns,
+        column_name,
+        node.name,
+        node.type,
+    )
 
 
 async def validate_and_build_attribute(
@@ -454,8 +436,6 @@ async def set_node_column_attributes(
     Sets the column attributes on the node if allowed.
     """
     column = get_node_column(node, column_name)
-    all_columns_map = {column.name: column for column in node.current.columns}
-
     existing_attributes = column.attributes
     existing_attributes_map = {
         attr.attribute_type.name: attr for attr in existing_attributes
@@ -473,7 +453,7 @@ async def set_node_column_attributes(
     # Validate column attributes by building mapping between
     # attribute scope and columns
     attributes_columns_map = defaultdict(set)
-    all_columns = all_columns_map.values()
+    all_columns = node.current.columns
 
     for _col in all_columns:
         for attribute in _col.attributes:
@@ -489,7 +469,9 @@ async def set_node_column_attributes(
                         for item in attribute.attribute_type.uniqueness_scope
                     ),
                 )
-            ].add(_col.name)
+            ].add(
+                _col.cube_element_name if node.type == NodeType.CUBE else _col.name,
+            )
 
     for (attribute, _), columns in attributes_columns_map.items():
         if len(columns) > 1 and attribute.uniqueness_scope:
@@ -508,7 +490,11 @@ async def set_node_column_attributes(
             node=node.name,
             activity_type=ActivityType.SET_ATTRIBUTE,
             details={
-                "column": column.name,
+                "column": (
+                    column.cube_element_name
+                    if node.type == NodeType.CUBE
+                    else column.name
+                ),
                 "attributes": [attr.model_dump() for attr in attributes],
             },
             user=current_user.username,
@@ -1630,9 +1616,11 @@ async def update_cube_node(
         )
 
         # Bring over existing partition columns, if any
-        new_columns_mapping = {col.name: col for col in new_cube_revision.columns}
+        new_columns_mapping = {
+            col.cube_element_name: col for col in new_cube_revision.columns
+        }
         for col in node_revision.columns:
-            new_col = new_columns_mapping.get(col.name)
+            new_col = new_columns_mapping.get(col.cube_element_name)
             if col.partition and new_col:
                 new_col.partition = Partition(
                     column=new_col,

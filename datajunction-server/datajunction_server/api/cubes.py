@@ -85,6 +85,58 @@ settings = get_settings()
 router = SecureAPIRouter(tags=["cubes"])
 
 
+def _resolve_cube_partition_output_column(
+    columns: list,
+    cube_partition_ref: str,
+    allow_role_fallback: bool,
+):
+    """Resolve a cube partition to one combined-query output column.
+
+    Exact semantic identity always wins. Unqualified cube partitions may fall
+    back to a role-qualified output for compatibility, but only when that
+    fallback is unique.
+    """
+    exact_matches = [
+        column for column in columns if column.semantic_name == cube_partition_ref
+    ]
+    if len(exact_matches) == 1:
+        return exact_matches[0]
+    if len(exact_matches) > 1:
+        output_names = sorted(column.name for column in exact_matches)
+        raise DJInvalidInputException(
+            message=(
+                f"Cube partition column '{cube_partition_ref}' matches multiple "
+                f"combined query output columns: {output_names}"
+            ),
+            http_status_code=HTTPStatus.BAD_REQUEST,
+        )
+
+    if not allow_role_fallback:
+        return None
+
+    fallback_matches = [
+        column
+        for column in columns
+        if column.semantic_name
+        and strip_role_suffix(column.semantic_name) == cube_partition_ref
+    ]
+    if len(fallback_matches) == 1:
+        return fallback_matches[0]
+    if len(fallback_matches) > 1:
+        choices = sorted(
+            f"{column.semantic_name} ({column.name})" for column in fallback_matches
+        )
+        raise DJInvalidInputException(
+            message=(
+                f"Cube partition column '{cube_partition_ref}' is ambiguous across "
+                f"role-qualified combined query outputs. Use a role-qualified cube "
+                f"partition. Matches: {choices}"
+            ),
+            http_status_code=HTTPStatus.BAD_REQUEST,
+        )
+    return None
+
+
 def _build_metrics_spec(
     measure_columns,
     measure_components,
@@ -542,16 +594,14 @@ async def materialize_cube(
     # value when the cube hasn't declared one.
     if cube_tps:
         cube_tp = cube_tps[0]
-        cube_partition_ref = cube_tp.name
-        # Look up the actual output column name by semantic identity
-        output_col = next(
-            (
-                c
-                for c in combined_result.columns
-                if c.semantic_name
-                and strip_role_suffix(c.semantic_name) == cube_partition_ref
-            ),
-            None,
+        cube_partition_ref = cube_tp.cube_element_name
+        # Look up the actual output column name by semantic identity. A bare
+        # partition may use a role-qualified output only when that fallback is
+        # unique; otherwise selecting the first match would be order-dependent.
+        output_col = _resolve_cube_partition_output_column(
+            combined_result.columns,
+            cube_partition_ref,
+            allow_role_fallback=not bool(cube_tp.dimension_column),
         )
         if output_col is None:
             output_names = sorted(c.name for c in combined_result.columns)
