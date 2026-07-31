@@ -82,9 +82,28 @@ a finer-grained fallback when no whole cube fits. A pre-aggregation is eligible 
 3. It contains **all the measures** the requested metrics decompose into, and
 4. It has data available.
 
-Measures are matched by the **expression hash** of the decomposed measure, not by name — two metrics
-that decompose to the same underlying measure expression share a pre-aggregation. As with cubes, when
-several pre-aggregations qualify, DJ chooses the **smallest grain** that covers the request.
+Measures are matched by **expression and aggregation**, not by name — two metrics that decompose to the
+same expression aggregated the same way share a pre-aggregation, while `SUM(x)` and `MAX(x)` are distinct
+measures that can't stand in for each other. As with cubes, when several pre-aggregations qualify, DJ
+chooses the **smallest grain** that covers the request.
+
+Dimension references are compared **canonically**, so when exactly one role reaches a dimension, a bare
+name and its role-qualified spelling match each other — a pre-aggregation registered with one spelling
+still serves queries written with the other, including its `dimension_columns` column mapping. If the
+dimension is also reachable by a role-free link, the bare name means that link and the two spellings
+stay distinct, since that's how the reference resolves everywhere else. A bare name is only rejected
+when the dimension is reachable by more than one role, since then it identifies none of them: a fact
+that links a location dimension as both `[from]` and `[to]` has to be registered under one of the
+role-qualified references, which registration lists for you in the error. Output column aliases are
+unaffected — they still follow the spelling the caller used (`country` versus `country_from`), since
+canonicalization applies to matching only.
+
+Filters are applied wherever they're still correct. A filter on a dimension the query also groups by is
+applied over the pre-aggregated rows; a filter on a dimension that's in the pre-aggregation's grain but
+*not* in the requested output is pushed into the scan and applied **before** the roll-up, so the
+predicate still selects rows rather than being lost when that dimension is aggregated away. A filter on a
+dimension the pre-aggregation doesn't carry at all makes it ineligible — that predicate can only be
+evaluated against rows the pre-aggregation has already collapsed.
 
 ## Materialized vs. live routing
 
@@ -117,8 +136,8 @@ awareness by materializing at the **right grain**:
 - Smaller-grain materializations are preferred and can serve any coarser request by rolling up, so a
   few well-chosen grains can cover many queries. Materializing at an unnecessarily fine grain costs
   storage and build time; too coarse and common queries miss it.
-- Measures shared across metrics (same decomposed expression) are matched by hash, so one
-  pre-aggregation can back several metrics.
+- Measures shared across metrics (same expression, aggregated the same way) are matched by identity,
+  so one pre-aggregation can back several metrics.
 
 For how metrics are broken into the additive measures that pre-aggregations store, see
 [Metric Decomposition](../metric-decomposition/); for how materializations are configured, see
@@ -146,6 +165,32 @@ metrics**, rather than trying to register them directly. A derived metric doesn'
 mapping, because it's covered automatically once its component measures are covered. This is the same
 "every aggregate is its own named metric" principle that underlies decomposition generally — you're
 just applying it at registration time instead of at materialization time.
+
+### A measure is its expression *and* its aggregation
+
+A measure is identified by the pair (expression, aggregation), not by the expression alone. `SUM(price)`
+and `MAX(price)` are two different measures that happen to share an inner expression, and a stored
+partial is only reusable by a metric that accumulates the same way — you can re-aggregate summed
+partials with `SUM` and maxima with `MAX`, but you can't recover a maximum from a column of sums.
+
+Two consequences when you register a table:
+
+- **One table can back several aggregations of the same column**, each with its own mapping. If your
+  table stores both a total and a peak, map them separately and both bindings are kept:
+
+  ```yaml
+  measure_columns:
+    ${prefix}total_price: price_sum
+    ${prefix}peak_price: price_max
+  ```
+
+- **A metric will not bind a column registered for a different aggregation.** If your table only stores
+  `price_sum`, a `MAX(price)` metric won't read it — that query builds from the source instead. This is
+  what stops a maximum from being silently computed over pre-summed values.
+
+So map each metric to the column that was built with *that metric's* aggregation. Mapping `MAX(price)`
+to a column holding sums is a modeling error DJ can't detect: the aggregation functions are compared,
+but the column's data isn't.
 
 ### Registering a table
 
@@ -311,14 +356,33 @@ knowing about:
   first, then map the column.
 - **Non-additive measures have a narrower routing window.** A column backing `COUNT(DISTINCT x)` can
   only serve queries at the exact grain it was built at, since distinct counts can't be rolled up to a
-  coarser grain from a pre-aggregated table without the underlying row-level values.
+  coarser grain from a pre-aggregated table without the underlying row-level values. Note also that such
+  a column has to hold the *raw values being counted* — one row per distinct value at that grain — not a
+  pre-computed count. DJ re-applies `COUNT(DISTINCT ...)` to it.
 - **The table has to fully cover what you register.** Every component measure that your registered
-  metrics decompose into needs a column, and that column's values need to actually correspond to the
-  expression in the metric's definition — DJ doesn't verify that a column's *data* matches its claimed
-  aggregation, only that the column exists.
+  metrics decompose into needs a column. DJ checks that the column exists, that its type is compatible,
+  and that the aggregation you're binding matches the metric's — but it can't check the column's
+  *data*, so a column of sums mapped to a `MAX` metric will be used as if it held maxima.
 - **Filtered or partial tables aren't supported yet.** A table that only covers a subset of rows (e.g.
   a single region or a filtered cohort) can't be registered as a general-purpose pre-aggregation for the
   unfiltered metric.
 - **Cross-fact metrics aren't supported for registration yet.** Registration assumes all the metrics and
   measures you're binding trace back to a single parent node, the same restriction pre-aggregation
   matching has generally.
+- **Dimension tables aren't joined onto an aggregate.** An aggregate's grain is a closed set of
+  dimensions: DJ won't join a dimension node onto a key the aggregate retained. So a daily aggregate that
+  keeps a date key still can't answer a weekly rollup, and one that keeps an account key can't answer a
+  query sliced by an account *attribute* — both fall back to the source. Slice by the retained key
+  itself to stay on the aggregate.
+- **A single uncovered metric affects the whole grain group.** Metrics are matched per grain group, so
+  asking for one metric no aggregate covers alongside several that are covered reverts all of them to the
+  source. This is intentional rather than a missed optimization: the source scan is needed for the
+  uncovered metric regardless, and computing the rest from that same scan is cheaper than a second scan
+  plus a join.
+- **Registrations are pinned to a node revision.** Any edit that creates a new revision of the parent
+  node — including changes that don't affect its query — strands existing registrations, and queries
+  quietly go back to the source. A YAML deployment re-registers in the same push, so it self-heals;
+  registrations made directly through `POST /preaggs/register` need to be repeated.
+- **Freshness doesn't gate routing yet.** DJ stores the `valid_through_ts` an external pipeline reports,
+  but it doesn't currently use it to decide whether an aggregate may answer a query. A query that routes
+  to an aggregate and the same query built from the source can therefore disagree for recent periods.
