@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 from datajunction_server.construction.build_v3.cte import (
     build_alias_to_dimension_node,
@@ -30,11 +30,6 @@ from datajunction_server.construction.build_v3.filters import (
     parse_and_resolve_filters,
     parse_filter,
 )
-from datajunction_server.construction.build_v3.utils import (
-    build_join_from_clause,
-    get_short_name,
-    make_column_ref,
-)
 from datajunction_server.construction.build_v3.types import (
     BaseMetricsResult,
     BuildContext,
@@ -47,6 +42,11 @@ from datajunction_server.construction.build_v3.types import (
     GeneratedSQL,
     GrainGroupSQL,
     MetricExprInfo,
+)
+from datajunction_server.construction.build_v3.utils import (
+    build_join_from_clause,
+    get_short_name,
+    make_column_ref,
 )
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.decompose import Aggregability
@@ -1252,7 +1252,7 @@ def build_window_agg_cte_from_grain_group(
     def get_metric_aggregation_expr(
         metric_name: str,
         visited: set[str],
-    ) -> Optional[ast.Expression]:
+    ) -> ast.Expression | None:
         """
         Build aggregation expression for a metric that can be computed from
         component columns in the source CTE.
@@ -1968,7 +1968,7 @@ def generate_metrics_sql(
             # Find the base grain group CTE alias for this window grain group
             # For single-fact: use the matching base grain group CTE
             # For cross-fact: use base_metrics CTE
-            base_grain_group: Optional[GrainGroupSQL] = None
+            base_grain_group: GrainGroupSQL | None = None
             if is_cross_fact:
                 # Cross-fact: use base_metrics CTE (already has FULL OUTER JOIN)
                 source_cte_alias = window_metrics_cte_alias  # pragma: no cover
@@ -2104,7 +2104,7 @@ def generate_metrics_sql(
 
     # Build WHERE clause from dimension filters
     # Skip filters that reference filter-only dimensions (not available in final SELECT)
-    where_clause: Optional[ast.Expression] = None
+    where_clause: ast.Expression | None = None
     if dimension_filters_raw:
         # Use base_metrics CTE for window function queries, otherwise first grain group CTE
         filter_cte = (
@@ -2137,7 +2137,7 @@ def generate_metrics_sql(
     # ``add_dimensions_from_filters`` + ``resolve_dimensions`` — by the time
     # we reach this block, every Column is either a known metric (replaced
     # below) or a known dimension (passes through to engine-side resolution).
-    having_clause: Optional[ast.Expression] = None
+    having_clause: ast.Expression | None = None
     if metric_filters_raw:
         parsed_metric_filters = []
         for f in metric_filters_raw:

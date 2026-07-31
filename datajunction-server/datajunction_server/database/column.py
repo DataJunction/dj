@@ -1,6 +1,6 @@
 """Column database schema."""
 
-from typing import TYPE_CHECKING, List, Optional, Tuple
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import BigInteger, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -37,31 +37,31 @@ class Column(Base):  # type: ignore
         BigInteger().with_variant(Integer, "sqlite"),
         primary_key=True,
     )
-    order: Mapped[Optional[int]]
+    order: Mapped[int | None]
     name: Mapped[str] = mapped_column()
-    display_name: Mapped[Optional[str]] = mapped_column(
+    display_name: Mapped[str | None] = mapped_column(
         String,
         insert_default=lambda context: labelize(context.current_parameters.get("name")),
     )
-    type: Mapped[Optional[ColumnType]] = mapped_column(ColumnTypeDecorator)
-    description: Mapped[Optional[str]] = mapped_column()
+    type: Mapped[ColumnType | None] = mapped_column(ColumnTypeDecorator)
+    description: Mapped[str | None] = mapped_column()
 
     # Structured unit metadata. The TypeDecorator validates JSONB into a
     # typed `Unit` (AtomicUnit | CompoundUnit) on read and canonicalizes
     # Unit-or-dict input back to JSONB on write.
-    unit: Mapped[Optional[Unit]] = mapped_column(
+    unit: Mapped[Unit | None] = mapped_column(
         UnitTypeDecorator,
         nullable=True,
     )
 
-    dimension_id: Mapped[Optional[int]] = mapped_column(
+    dimension_id: Mapped[int | None] = mapped_column(
         ForeignKey("node.id", ondelete="SET NULL", name="fk_column_dimension_id_node"),
     )
     dimension: Mapped[Optional["Node"]] = relationship(
         "Node",
         lazy="joined",
     )
-    dimension_column: Mapped[Optional[str]] = mapped_column()
+    dimension_column: Mapped[str | None] = mapped_column()
 
     node_revision_id: Mapped[int] = mapped_column(
         ForeignKey(
@@ -79,12 +79,12 @@ class Column(Base):  # type: ignore
         back_populates="columns",
     )
 
-    attributes: Mapped[List["ColumnAttribute"]] = relationship(
+    attributes: Mapped[list["ColumnAttribute"]] = relationship(
         back_populates="column",
         lazy="selectin",
         cascade="all,delete",
     )
-    measure_id: Mapped[Optional[int]] = mapped_column(
+    measure_id: Mapped[int | None] = mapped_column(
         ForeignKey(
             "measures.id",
             name="fk_column_measure_id_measures",
@@ -93,7 +93,7 @@ class Column(Base):  # type: ignore
     )
     measure: Mapped["Measure"] = relationship(back_populates="columns")
 
-    partition_id: Mapped[Optional[int]] = mapped_column(
+    partition_id: Mapped[int | None] = mapped_column(
         ForeignKey(
             "partition.id",
             name="fk_column_partition_id_partition",
@@ -121,7 +121,7 @@ class Column(Base):  # type: ignore
             unit=self.unit,
         )
 
-    def identifier(self) -> Tuple[str, ColumnType]:
+    def identifier(self) -> tuple[str, ColumnType]:
         """
         Unique identifier for this column.
         """

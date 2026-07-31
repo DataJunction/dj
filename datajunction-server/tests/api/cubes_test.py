@@ -2,26 +2,27 @@
 Tests for the cubes API.
 """
 
-from typing import Dict, Iterator
+from collections.abc import Iterator
+from datetime import UTC
 from unittest import mock
 
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 
-from datajunction_server.errors import DJQueryServiceClientException
 from datajunction_server.construction.build_v3.combiners import (
     PreAggSourceInfo,
     TemporalPartitionInfo,
 )
+from datajunction_server.errors import DJQueryServiceClientException
 from datajunction_server.models.cube import CubeElementMetadata
 from datajunction_server.models.node import ColumnOutput
 from datajunction_server.models.query import ColumnMetadata, V3ColumnMetadata
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.utils import get_query_service_client
-from tests.sql.utils import compare_query_strings
 from tests.construction.build_v3 import assert_sql_equal
+from tests.sql.utils import compare_query_strings
 
 
 async def make_a_test_cube(
@@ -332,7 +333,7 @@ async def client_with_repairs_cube(
 
 
 @pytest.fixture
-def repair_orders_cube_measures() -> Dict:
+def repair_orders_cube_measures() -> dict:
     """
     Fixture for repair orders cube metrics to measures mapping.
     """
@@ -5006,8 +5007,8 @@ class TestCubeMaterializeV2SuccessPaths:
         mock_qs_client.materialize_cube_v2.return_value = mocker.MagicMock(
             urls=["http://workflow/test-cube"],
         )
-        client.app.dependency_overrides[get_query_service_client] = (
-            lambda: mock_qs_client
+        client.app.dependency_overrides[get_query_service_client] = lambda: (
+            mock_qs_client
         )
 
         try:
@@ -5430,8 +5431,8 @@ class TestCubeDeactivateWithStoredWorkflowNames:
             urls=["http://workflow/cube-workflow"],
             workflow_names=["cube_wf_name_1"],
         )
-        client.app.dependency_overrides[get_query_service_client] = (
-            lambda: mock_qs_client
+        client.app.dependency_overrides[get_query_service_client] = lambda: (
+            mock_qs_client
         )
 
         try:
@@ -5748,7 +5749,7 @@ class TestCubeRefreshMaterialization:
 
         # Add a deactivated materialization to the node revision so the
         # re-activation logic gets exercised
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         from sqlalchemy import select
 
@@ -5766,7 +5767,7 @@ class TestCubeRefreshMaterialization:
             schedule="",
             config={"cube": {"version": initial_version}},
             job="DruidCubeMaterializationJob",
-            deactivated_at=datetime.now(timezone.utc),
+            deactivated_at=datetime.now(UTC),
         )
         module__session.add(deactivated_mat)
         await module__session.commit()

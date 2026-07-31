@@ -4,41 +4,40 @@ Validation logic for node specifications during deployment
 
 import logging
 import re
-from dataclasses import dataclass, field
 import time
-from typing import Dict, List, Optional
+from dataclasses import dataclass, field
 
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from datajunction_server.api.helpers import _resolve_required_dimensions
 from datajunction_server.database.dimensionlink import DimensionLink
-from datajunction_server.internal.deployment.type_inference import validate_node_query
-from datajunction_server.internal.validation import validate_metric_query
-from datajunction_server.sql.dag import get_dimensions
 from datajunction_server.database.node import Node, NodeRevision
-from datajunction_server.models.node import NodeStatus, NodeType
-from datajunction_server.models.deployment import (
-    DimensionJoinLinkSpec,
-    DimensionReferenceLinkSpec,
-    LinkableNodeSpec,
-    NodeSpec,
-    ColumnSpec,
-)
 from datajunction_server.errors import (
     DJError,
     ErrorCode,
 )
-from datajunction_server.sql.parsing.backends.antlr4 import ast, parse_rule
+from datajunction_server.internal.deployment.type_inference import validate_node_query
+from datajunction_server.internal.validation import validate_metric_query
+from datajunction_server.models.deployment import (
+    ColumnSpec,
+    DimensionJoinLinkSpec,
+    DimensionReferenceLinkSpec,
+    LinkableNodeSpec,
+    NodeSpec,
+)
+from datajunction_server.models.node import NodeStatus, NodeType
+from datajunction_server.sql.dag import get_dimensions
 from datajunction_server.sql.parsing.ast import fast_parse_mode
+from datajunction_server.sql.parsing.backends.antlr4 import ast, parse_rule
 from datajunction_server.sql.parsing.types import ListType, MapType, StructType
 from datajunction_server.utils import SEPARATOR
 
 logger = logging.getLogger(__name__)
 
 
-def _reparse_column_types(dependency_nodes: Dict[str, Node]) -> None:
+def _reparse_column_types(dependency_nodes: dict[str, Node]) -> None:
     """
     Re-parse column types for dependency nodes to ensure map/list/struct types are
     fully parsed before type inference. Mutates column types in place.
@@ -63,14 +62,14 @@ class ValidationContext:
     """Shared context for validation operations"""
 
     session: AsyncSession
-    node_graph: Dict[str, List[str]]
-    dependency_nodes: Dict[str, Node]
-    deployment_namespace: Optional[str] = None
+    node_graph: dict[str, list[str]]
+    dependency_nodes: dict[str, Node]
+    deployment_namespace: str | None = None
     # Source node name -> dimension nodes it links to, across the whole
     # deployment (rendered names). Links deploy after all node levels, so the
     # cross-fact check uses this to see dimensions the committed graph can't yet.
     # Empty for single-node validation.
-    deployment_link_targets: Dict[str, set] = field(default_factory=dict)
+    deployment_link_targets: dict[str, set] = field(default_factory=dict)
 
 
 @dataclass
@@ -81,7 +80,7 @@ class CubeValidationData:
     metric_nodes: list
     dimension_nodes: list
     dimension_columns: list
-    catalog: Optional[object]
+    catalog: object | None
     # Role suffix ("[role]" or None) for each entry in dimension_columns, kept
     # strictly 1:1 with it. The role must travel WITH its resolved column: a cube
     # can reference the same dimension column under two FK roles (e.g.
@@ -107,7 +106,7 @@ class NodeValidationResult:
     dependencies: list[str]
 
     # Internal use only
-    _cube_validation_data: Optional[CubeValidationData] = None
+    _cube_validation_data: CubeValidationData | None = None
 
 
 class NodeSpecBulkValidator:
@@ -118,23 +117,23 @@ class NodeSpecBulkValidator:
         # Populated by _prefetch_required_dimension_nodes before per-node validation.
         # Keys: node name; values: Node objects (union of dependency_nodes + any
         # extra dimension nodes fetched from DB for required_dimensions resolution).
-        self._all_dim_nodes: Dict[str, Node] = {}
+        self._all_dim_nodes: dict[str, Node] = {}
         # Populated by _prefetch_metric_dimensions before per-node validation.
         # Keys: base metric node name; values: set of dimension attribute names
         # available on that metric (via get_dimensions).  Only populated for
         # metric nodes that appear as parents of a cross-fact derived metric.
-        self._metric_dimensions: Dict[str, set] = {}
+        self._metric_dimensions: dict[str, set] = {}
         # Populated by _prefetch_dimension_link_nodes before per-node validation.
         # Keys: dimension node name; values: Node objects for nodes referenced as
         # dimension link targets. Only includes nodes that are actually referenced,
         # not all dependency_nodes.
-        self._dim_link_nodes: Dict[str, Node] = {}
+        self._dim_link_nodes: dict[str, Node] = {}
         # Pre-computed column name sets for dimension link target nodes.
         # Computed during _prefetch_dimension_link_nodes (async context) so that
         # the sync _validate_*_link methods never trigger ORM lazy loads.
-        self._dim_link_col_names: Dict[str, set] = {}
+        self._dim_link_col_names: dict[str, set] = {}
 
-    async def validate(self, node_specs: list[NodeSpec]) -> List[NodeValidationResult]:
+    async def validate(self, node_specs: list[NodeSpec]) -> list[NodeValidationResult]:
         """
         Validate a list of node specifications.
 
@@ -164,7 +163,7 @@ class NodeSpecBulkValidator:
 
         # Build results in original order.  Each spec's query_ast is lazily
         # parsed and cached (pre-populated by extract_node_graph).
-        results: List[NodeValidationResult] = [None] * len(node_specs)  # type: ignore
+        results: list[NodeValidationResult] = [None] * len(node_specs)  # type: ignore
         for idx, spec in zip(spec_indices, specs_needing_parse):
             results[idx] = self.process_validation(spec)
 
@@ -182,7 +181,7 @@ class NodeSpecBulkValidator:
 
     def _validate_dimension_link_specs(
         self,
-        results: List["NodeValidationResult"],
+        results: list["NodeValidationResult"],
     ) -> None:
         """Validate dimension links for all node results."""
         for result in results:
@@ -524,7 +523,7 @@ class NodeSpecBulkValidator:
     def _to_column_specs(
         output_columns: list,
         spec: NodeSpec,
-    ) -> List[ColumnSpec]:
+    ) -> list[ColumnSpec]:
         """Convert validate_node_query output to ColumnSpec list.
 
         Merges inferred types with existing spec column metadata
@@ -558,7 +557,7 @@ class NodeSpecBulkValidator:
                 result.append(ColumnSpec(name=name, type=str(col_type)))
         return result
 
-    def _check_inferred_columns(self, columns: List[ColumnSpec]) -> DJError | None:
+    def _check_inferred_columns(self, columns: list[ColumnSpec]) -> DJError | None:
         """Check that inferred columns are not empty"""
         if not columns:
             return DJError(  # pragma: no cover
@@ -569,7 +568,7 @@ class NodeSpecBulkValidator:
 
     def _check_primary_key(
         self,
-        inferred_columns: List[ColumnSpec],
+        inferred_columns: list[ColumnSpec],
         spec: LinkableNodeSpec,
     ) -> DJError | None:
         columns_map = {col.name: col for col in inferred_columns}
@@ -948,13 +947,13 @@ class NodeSpecBulkValidator:
 
 
 async def bulk_validate_node_data(
-    node_specs: List[NodeSpec],
-    node_graph: Dict[str, List[str]],
+    node_specs: list[NodeSpec],
+    node_graph: dict[str, list[str]],
     session: AsyncSession,
-    dependency_nodes: Dict[str, Node],
-    deployment_namespace: Optional[str] = None,
-    deployment_link_targets: Optional[Dict[str, set]] = None,
-) -> List[NodeValidationResult]:
+    dependency_nodes: dict[str, Node],
+    deployment_namespace: str | None = None,
+    deployment_link_targets: dict[str, set] | None = None,
+) -> list[NodeValidationResult]:
     """
     Bulk validate node specifications.
 

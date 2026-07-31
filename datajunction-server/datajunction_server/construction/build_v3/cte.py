@@ -5,7 +5,7 @@ CTE building and AST transformation utilities
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Optional, cast
+from typing import cast
 
 from datajunction_server.construction.build_v3.filters import (
     extract_subscript_role,
@@ -476,7 +476,7 @@ def get_grain_level_window_info(expr_ast: ast.Node) -> list[tuple[str, set[str]]
 
 
 def detect_window_metrics_requiring_grain_groups(
-    ctx: "BuildContext",
+    ctx: BuildContext,
     decomposed_metrics: dict,
     base_grain_group_metrics: set[str],
 ) -> dict[str, set[str]]:
@@ -718,7 +718,7 @@ def rewrite_table_references(
     query_ast: ast.Query,
     ctx: BuildContext,
     cte_names: dict[str, str],
-    inner_cte_renames: Optional[dict[str, str]] = None,
+    inner_cte_renames: dict[str, str] | None = None,
 ) -> ast.Query:
     """
     Rewrite table references in a query AST.
@@ -939,7 +939,7 @@ _OUTER_JOIN_KINDS_RIGHT = {"RIGHT", "RIGHT OUTER"}
 _OUTER_JOIN_KINDS_FULL = {"FULL", "FULL OUTER", "OUTER"}
 
 
-def _get_relation_side_id(expr: ast.Expression) -> Optional[str]:
+def _get_relation_side_id(expr: ast.Expression) -> str | None:
     """Extract the alias or unqualified name used to qualify column refs to a side.
 
     Returns ``None`` when the expression has no extractable identifier (e.g.
@@ -966,7 +966,7 @@ def _filter_namespaces(filter_ast: ast.Expression) -> set[str]:
 def _classify_outer_join_target(
     relation: ast.Relation,
     filter_namespaces: set[str],
-) -> Optional[ast.Expression]:
+) -> ast.Expression | None:
     """
     Return the relation-side expression that should host a filter as a wrapped
     subquery, or ``None`` when WHERE injection is safe.
@@ -1137,7 +1137,7 @@ def _inject_filter_into_where(
     inject_filter_into_select(cast(ast.Select, query_ast.select), filter_expr)
 
 
-def _fk_key_column_names(node: "Node") -> set[str]:
+def _fk_key_column_names(node: Node) -> set[str]:
     """Short names of the foreign-key *value* columns on ``node``'s dim links.
 
     Each link's ``foreign_keys_reversed`` maps a dimension PK column to the raw
@@ -1158,13 +1158,13 @@ def _fk_key_column_names(node: "Node") -> set[str]:
 
 
 def _resolve_pushdown_filters_for_cte(
-    node: "Node",
+    node: Node,
     cte_query: ast.Query,
     pushdown_filters: list[str],
     filter_column_aliases: dict[str, str],
-    ctx: Optional["BuildContext"] = None,
-    outer_only_refs: Optional[set[str]] = None,
-    fk_collision_cols: Optional[set[str]] = None,
+    ctx: BuildContext | None = None,
+    outer_only_refs: set[str] | None = None,
+    fk_collision_cols: set[str] | None = None,
 ) -> tuple[list[tuple[ast.Select, ast.Expression]], set[str]]:
     """Determine which user filters can be pushed into this CTE.
 
@@ -1310,7 +1310,7 @@ def _resolve_pushdown_filters_for_cte(
         inner = query_node.select
         if not isinstance(inner, ast.Select) or inner.set_op is None:
             continue
-        cursor: Optional[ast.Select] = inner
+        cursor: ast.Select | None = inner
         while cursor is not None:  # pragma: no branch
             wrapped_setop_arms.add(id(cursor))
             if cursor.set_op is None or not isinstance(
@@ -1460,7 +1460,7 @@ def _find_table_refs(
         if tbl_name != physical_table_name:
             continue
         alias_tag = tbl.alias.name if tbl.alias else tbl_name.split(SEPARATOR)[-1]
-        enclosing: Optional[ast.Select] = None
+        enclosing: ast.Select | None = None
         cur = getattr(tbl, "parent", None)
         while cur is not None:  # pragma: no branch
             if isinstance(cur, ast.Select):
@@ -1472,7 +1472,7 @@ def _find_table_refs(
     return results
 
 
-def _build_local_dim_aliases(node: "Node") -> dict[str, str]:
+def _build_local_dim_aliases(node: Node) -> dict[str, str]:
     """Build a ``{dim_ref → local_column_name}`` map from a node's own
     authored ``dimension_links``.
 
@@ -1525,7 +1525,7 @@ def _build_local_dim_aliases(node: "Node") -> dict[str, str]:
 
 def _build_all_scope_column_alias_maps(
     cte_query: ast.Query,
-    ctx: "BuildContext",
+    ctx: BuildContext,
 ) -> dict[ast.Select, dict[str, tuple[str, str]]]:
     """For every distinct ``ast.Select`` scope reachable through the
     target Select's FROM subtree (subqueries inside JOINs, nested
@@ -1574,7 +1574,7 @@ def _build_all_scope_column_alias_maps(
     # ``prodhive.dj.common__dimensions__xp__observation_window__v5_0``
     # for the obs_window dim) instead of by node name or CTE form.
     # Safely skips nodes whose materialization parts can't be derived.
-    physical_to_node: dict[str, "Node"] = {}
+    physical_to_node: dict[str, Node] = {}
     for n in ctx.nodes.values():
         try:
             parts, _ = get_table_reference_parts_with_materialization(ctx, n)
@@ -1620,9 +1620,9 @@ def _build_all_scope_column_alias_maps(
 def _populate_scope_column_aliases(
     expr: object,
     col_alias: dict[str, tuple[str, str]],
-    ctx: "BuildContext",
-    cte_name_to_node: dict[str, "Node"],
-    physical_to_node: dict[str, "Node"],
+    ctx: BuildContext,
+    cte_name_to_node: dict[str, Node],
+    physical_to_node: dict[str, Node],
 ) -> None:
     """Helper: add this FROM-side expression's columns to a scope's
     resolver map.
@@ -1714,7 +1714,7 @@ def _populate_scope_column_aliases(
                 col_alias[output_name] = (alias_name, output_name)
 
 
-def _projection_output_name(proj: object) -> Optional[str]:
+def _projection_output_name(proj: object) -> str | None:
     """Extract the output column name of a projection element."""
     alias = getattr(proj, "alias", None)
     if alias is not None and hasattr(alias, "name"):
@@ -1728,8 +1728,8 @@ def _rewrite_filter_for_scope(
     filter_str: str,
     filter_column_aliases: dict[str, str],
     column_to_alias: dict[str, tuple[str, str]],
-    blocked_refs: Optional[set[str]] = None,
-) -> Optional[ast.Expression]:
+    blocked_refs: set[str] | None = None,
+) -> ast.Expression | None:
     """Parse a filter fresh and qualify each dim-ref column using the
     scope's resolver map.
 
@@ -2074,9 +2074,9 @@ def _build_select_projection_map(
 def collect_node_ctes(
     ctx: BuildContext,
     nodes_to_include: list[Node],
-    needed_columns_by_node: Optional[dict[str, set[str]]] = None,
-    injected_filters: Optional[dict[str, ast.Expression]] = None,
-    pushdown: Optional[PushdownFilters] = None,
+    needed_columns_by_node: dict[str, set[str]] | None = None,
+    injected_filters: dict[str, ast.Expression] | None = None,
+    pushdown: PushdownFilters | None = None,
 ) -> tuple[list[tuple[str, ast.Query]], list[str], dict[str, set[str]]]:
     """
     Collect CTEs for all non-source nodes, recursively expanding table references.

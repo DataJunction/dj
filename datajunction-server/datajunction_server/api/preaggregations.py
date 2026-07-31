@@ -16,27 +16,29 @@ Flow B (User-managed):
 """
 
 import logging
-from http import HTTPStatus
-from typing import List, Optional
 from datetime import date as date_type
+from http import HTTPStatus
 
 from fastapi import Depends, Query, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, load_only, selectinload
 
 from datajunction_server.construction.build_v3.builder import build_measures_sql
-from datajunction_server.database.node import Node, NodeRevision
-from datajunction_server.database.column import Column
+from datajunction_server.construction.build_v3.preagg_matcher import (
+    get_temporal_partitions,
+)
 from datajunction_server.database.availabilitystate import AvailabilityState
+from datajunction_server.database.column import Column
 from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.measure import FrozenMeasure
+from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.preaggregation import (
-    PreAggregation,
     VALID_PREAGG_STRATEGIES,
-    compute_grain_group_hash,
+    PreAggregation,
     compute_expression_hash,
+    compute_grain_group_hash,
     compute_preagg_hash,
     get_measure_identities,
 )
@@ -50,33 +52,29 @@ from datajunction_server.internal.access.authentication.http import SecureAPIRou
 from datajunction_server.internal.preaggregations import (
     register_external_preaggregations,
 )
-from datajunction_server.models.node_type import NodeNameVersion, NodeType
+from datajunction_server.models.decompose import MetricRef, PreAggMeasure
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.materialization import MaterializationStrategy
+from datajunction_server.models.node_type import NodeNameVersion, NodeType
 from datajunction_server.models.preaggregation import (
-    BackfillRequest,
+    DEFAULT_SCHEDULE,
     BackfillInput,
+    BackfillRequest,
     BackfillResponse,
     BulkDeactivateWorkflowsResponse,
     DeactivatedWorkflowInfo,
     GrainMode,
-    DEFAULT_SCHEDULE,
     PlanPreAggregationsRequest,
     PlanPreAggregationsResponse,
+    PreAggMaterializationInput,
     PreAggregationInfo,
     PreAggregationListResponse,
-    PreAggMaterializationInput,
     RegisterPreAggregationsRequest,
     UpdatePreAggregationAvailabilityRequest,
     WorkflowResponse,
     WorkflowStatus,
     WorkflowUrl,
 )
-from datajunction_server.construction.build_v3.preagg_matcher import (
-    get_temporal_partitions,
-)
-from datajunction_server.models.decompose import MetricRef, PreAggMeasure
-from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import ColumnMetadata, V3ColumnMetadata
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import get_upstream_nodes
@@ -107,7 +105,7 @@ def _compute_output_table(node_name: str, preagg_hash: str) -> str:
 async def _get_upstream_source_tables(
     session: AsyncSession,
     node_name: str,
-) -> List[str]:
+) -> list[str]:
     """
     Get upstream source table names for a node using DJ's lineage graph.
 
@@ -230,15 +228,15 @@ async def _preagg_to_info(
     name="List Pre-aggregations",
 )
 async def list_preaggregations(
-    node_name: Optional[str] = Query(
+    node_name: str | None = Query(
         default=None,
         description="Filter by node name",
     ),
-    node_version: Optional[str] = Query(
+    node_version: str | None = Query(
         default=None,
         description="Filter by node version (requires node_name)",
     ),
-    grain: Optional[str] = Query(
+    grain: str | None = Query(
         default=None,
         description="Comma-separated grain columns to match",
     ),
@@ -246,15 +244,15 @@ async def list_preaggregations(
         default=GrainMode.EXACT,
         description="Grain matching mode: 'exact' (default) or 'superset' (pre-agg contains all requested + maybe more)",
     ),
-    grain_group_hash: Optional[str] = Query(
+    grain_group_hash: str | None = Query(
         default=None,
         description="Filter by grain group hash",
     ),
-    measures: Optional[str] = Query(
+    measures: str | None = Query(
         default=None,
         description="Comma-separated measures (pre-agg must contain ALL)",
     ),
-    status: Optional[str] = Query(
+    status: str | None = Query(
         default=None,
         description="Filter by status: 'pending' or 'active'",
     ),
@@ -330,7 +328,7 @@ async def list_preaggregations(
         stmt = stmt.where(PreAggregation.grain_group_hash == grain_group_hash)
 
     # Parse grain columns for filtering
-    grain_cols: Optional[List[str]] = None
+    grain_cols: list[str] | None = None
     if grain:
         grain_cols = [g.strip().lower() for g in grain.split(",")]
 
@@ -973,15 +971,15 @@ async def materialize_preaggregation(
 class UpdatePreAggregationConfigRequest(BaseModel):
     """Request model for updating a pre-aggregation's materialization config."""
 
-    strategy: Optional[MaterializationStrategy] = Field(
+    strategy: MaterializationStrategy | None = Field(
         default=None,
         description="Materialization strategy (FULL or INCREMENTAL_TIME)",
     )
-    schedule: Optional[str] = Field(
+    schedule: str | None = Field(
         default=None,
         description="Cron expression for scheduled materialization",
     )
-    lookback_window: Optional[str] = Field(
+    lookback_window: str | None = Field(
         default=None,
         description="Lookback window for incremental materialization (e.g., '3 days')",
     )

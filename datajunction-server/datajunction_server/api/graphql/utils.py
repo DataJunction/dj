@@ -1,8 +1,9 @@
 """Utils for handling GraphQL queries."""
 
 import re
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator, Dict, TypeVar
+from typing import Any, TypeVar
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from strawberry.types import Info
@@ -65,7 +66,7 @@ def convert_camel_case(name):
     return name
 
 
-def _merge_fields(dst: Dict[str, Any], src: Dict[str, Any]) -> None:
+def _merge_fields(dst: dict[str, Any], src: dict[str, Any]) -> None:
     """
     Merge ``src`` into ``dst`` in place, matching GraphQL's field-merging
     semantics: repeated selections of the same field at the same level combine
@@ -85,14 +86,14 @@ def _merge_fields(dst: Dict[str, Any], src: Dict[str, Any]) -> None:
             _merge_fields(dst[name], sub)
 
 
-def _walk_selections(selections) -> Dict[str, Any]:
+def _walk_selections(selections) -> dict[str, Any]:
     """
     Flatten a list of GraphQL selections into a {field_name: subfields_or_None}
     dict. Fragment spreads (``...Frag``) and inline fragments (``... on Type``)
     are transparent: their selections are merged into the parent level, which
     matches how the GraphQL runtime executes them.
     """
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     for sel in selections:
         if sel.directives and (
             sel.directives.get("include", {}).get("if") is False
@@ -108,7 +109,7 @@ def _walk_selections(selections) -> Dict[str, Any]:
     return out
 
 
-def extract_fields(query_fields) -> Dict[str, Any]:
+def extract_fields(query_fields) -> dict[str, Any]:
     """
     Extract fields from GraphQL query input into a dictionary.
 
@@ -117,7 +118,7 @@ def extract_fields(query_fields) -> Dict[str, Any]:
     those fields inline. Repeated field selections are merged per GraphQL
     semantics.
     """
-    fields: Dict[str, Any] = {}
+    fields: dict[str, Any] = {}
     for query_field in query_fields.selected_fields:
         _merge_fields(fields, _walk_selections(query_field.selections))
     return fields

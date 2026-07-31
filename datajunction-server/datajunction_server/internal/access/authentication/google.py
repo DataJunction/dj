@@ -5,7 +5,6 @@ Google OAuth helper functions
 import logging
 import secrets
 from http import HTTPStatus
-from typing import Optional
 from urllib.parse import urljoin
 
 import google_auth_oauthlib.flow
@@ -38,11 +37,13 @@ flow = (
 
 
 def get_authorize_url(
-    state: Optional[str] = None,
+    state: str | None = None,
 ) -> google_auth_oauthlib.flow.Flow:
     """
     Get the authorize url for a Google OAuth app
     """
+    if flow is None:
+        raise DJAuthenticationException("Google OAuth is not configured")
     authorization_url, _ = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
@@ -58,6 +59,8 @@ def get_google_access_token(
     """
     Exchange an authorization token for an access token
     """
+    if flow is None:
+        raise DJAuthenticationException("Google OAuth is not configured")
     flow.fetch_token(authorization_response=authorization_response_url)
     return flow.credentials
 

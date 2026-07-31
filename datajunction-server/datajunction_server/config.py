@@ -6,7 +6,7 @@ Configuration for the datajunction server.
 import urllib.parse
 from datetime import timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import Any
 
 from cachelib.base import BaseCache
 from cachelib.file import FileSystemCache
@@ -14,9 +14,6 @@ from cachelib.redis import RedisCache
 from celery import Celery
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
-
-if TYPE_CHECKING:
-    pass
 
 
 class DatabaseConfig(BaseModel):
@@ -79,7 +76,7 @@ class QueryClientConfig(BaseModel):
     type: str = "http"
 
     # Connection parameters (varies by client type)
-    connection: Dict[str, Any] = Field(default_factory=dict)
+    connection: dict[str, Any] = Field(default_factory=dict)
 
     # Number of retries for failed requests (mainly for HTTP client)
     retries: int = 0
@@ -117,7 +114,7 @@ class Settings(BaseSettings):  # pragma: no cover
     url: str = "http://localhost:8000/"
 
     # A list of hostnames that are allowed to make cross-site HTTP requests
-    cors_origin_whitelist: List[str] = ["http://localhost:3000"]
+    cors_origin_whitelist: list[str] = ["http://localhost:3000"]
 
     # Config for the metadata database, with support for writer and reader clusters
     # `writer_db` is the primary database used for write operations
@@ -136,32 +133,32 @@ class Settings(BaseSettings):  # pragma: no cover
     results_backend: BaseCache = FileSystemCache("/tmp/dj", default_timeout=0)
 
     # Cache for paginating results and potentially other things.
-    redis_cache: Optional[str] = None
+    redis_cache: str | None = None
     paginating_timeout: timedelta = timedelta(minutes=5)
 
     # Configure Celery for async requests. If not configured async queries will be
     # executed using FastAPI's ``BackgroundTasks``.
-    celery_broker: Optional[str] = None
+    celery_broker: str | None = None
 
     # How long to wait when pinging databases to find out the fastest online database.
     do_ping_timeout: timedelta = timedelta(seconds=5)
 
     # Query service url (only used with "http" query client config)
     # TODO: once the `QueryClientConfig` is proven out, this can be removed.
-    query_service: Optional[str] = None
+    query_service: str | None = None
 
     # Query client configuration
     query_client: QueryClientConfig = Field(default_factory=QueryClientConfig)
 
     # The namespace where source nodes for registered tables should exist
-    source_node_namespace: Optional[str] = "source"
+    source_node_namespace: str | None = "source"
 
     # This specifies what the DJ_LOGICAL_TIMESTAMP() macro should be replaced with.
     # This defaults to an Airflow compatible value, but other examples include:
     #   ${dj_logical_timestamp}
     #   {{ dj_logical_timestamp }}
     #   $dj_logical_timestamp
-    dj_logical_timestamp_format: Optional[str] = "${dj_logical_timestamp}"
+    dj_logical_timestamp_format: str | None = "${dj_logical_timestamp}"
 
     # Prefix applied to Druid datasource names built by ``build_druid_spec``.
     # All DJ envs share a single Druid cluster; the prefix env-tags datasources
@@ -170,28 +167,28 @@ class Settings(BaseSettings):  # pragma: no cover
     druid_datasource_prefix: str = "dj__"
 
     # DJ UI host, used for OAuth redirection
-    frontend_host: Optional[str] = "http://localhost:3000"
+    frontend_host: str | None = "http://localhost:3000"
 
     # Enabled transpilation plugin names
-    transpilation_plugins: List[str] = ["default", "sqlglot"]
+    transpilation_plugins: list[str] = ["default", "sqlglot"]
 
     # 128 bit DJ secret, used to encrypt passwords and JSON web tokens
     secret: str = "a-fake-secretkey"
 
     # GitHub OAuth application client ID
-    github_oauth_client_id: Optional[str] = None
+    github_oauth_client_id: str | None = None
 
     # GitHub OAuth application client secret
-    github_oauth_client_secret: Optional[str] = None
+    github_oauth_client_secret: str | None = None
 
     # Google OAuth application client ID
-    google_oauth_client_id: Optional[str] = None
+    google_oauth_client_id: str | None = None
 
     # Google OAuth application client secret
-    google_oauth_client_secret: Optional[str] = None
+    google_oauth_client_secret: str | None = None
 
     # Google OAuth application client secret file
-    google_oauth_client_secret_file: Optional[str] = None
+    google_oauth_client_secret_file: str | None = None
 
     # Interval in seconds for which to expire service account tokens
     service_account_token_expire: int = 3600 * 24 * 30
@@ -217,13 +214,13 @@ class Settings(BaseSettings):  # pragma: no cover
     # explicit grant matches. Lets a deployment express graceful defaults such
     # as "everyone gets read on *" without flipping the whole policy to
     # permissive. Applied before the default_access_policy fallback.
-    default_access_role: Optional[str] = None
+    default_access_role: str | None = None
 
     # Require configured break-glass admins before serving requests.
     # Restrictive default access also enables this check automatically.
     # RBAC_ADMIN_USERS uses JSON list syntax, for example ["admin-user"].
     rbac_require_admin: bool = False
-    rbac_admin_users: List[str] = Field(default_factory=list)
+    rbac_admin_users: list[str] = Field(default_factory=list)
 
     # Interval in seconds with which to expire caching of any indexes
     index_cache_expire: int = 60
@@ -254,13 +251,13 @@ class Settings(BaseSettings):  # pragma: no cover
 
     # Option 1: Simple PAT auth (recommended for OSS)
     # Set GITHUB_SERVICE_TOKEN to a Personal Access Token or fine-grained token
-    github_service_token: Optional[str] = None
+    github_service_token: str | None = None
 
     # Option 2: GitHub App auth (for internal/enterprise deployments)
     # Set all three to use GitHub App authentication instead of a PAT
-    github_app_id: Optional[str] = None
-    github_app_private_key: Optional[str] = None  # PEM-encoded private key
-    github_app_installation_id: Optional[str] = None
+    github_app_id: str | None = None
+    github_app_private_key: str | None = None  # PEM-encoded private key
+    github_app_installation_id: str | None = None
 
     @property
     def celery(self) -> Celery:
@@ -270,7 +267,7 @@ class Settings(BaseSettings):  # pragma: no cover
         return Celery(__name__, broker=self.celery_broker)
 
     @property
-    def cache(self) -> Optional[BaseCache]:
+    def cache(self) -> BaseCache | None:
         """
         Configure the Redis cache.
         """

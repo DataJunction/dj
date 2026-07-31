@@ -3,7 +3,6 @@ Engine related APIs.
 """
 
 from http import HTTPStatus
-from typing import List
 
 from fastapi import Depends, HTTPException
 from sqlalchemy import select
@@ -12,8 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.database.engine import Engine
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.engines import get_engine
+from datajunction_server.models.dialect import DialectInfo, DialectRegistry
 from datajunction_server.models.engine import EngineInfo
-from datajunction_server.models.dialect import DialectRegistry, DialectInfo
 from datajunction_server.utils import get_session, get_settings
 
 settings = get_settings()
@@ -34,11 +33,11 @@ async def list_dialects():
     ]
 
 
-@router.get("/engines/", response_model=List[EngineInfo])
+@router.get("/engines/", response_model=list[EngineInfo])
 async def list_engines(
     *,
     session: AsyncSession = Depends(get_session),
-) -> List[EngineInfo]:
+) -> list[EngineInfo]:
     """
     List all available engines
     """

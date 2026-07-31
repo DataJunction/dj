@@ -2,7 +2,7 @@
 
 import os
 import urllib
-from typing import List, Optional, cast
+from typing import cast
 
 from jinja2 import Environment, FileSystemLoader
 from nbformat.v4 import new_code_cell, new_markdown_cell, new_notebook
@@ -40,7 +40,7 @@ def python_client_initialize(request_url: str):
 def python_client_code_for_linking_complex_dimension(
     node_name: str,
     dimension_link: DimensionLink,
-    replace_namespace: Optional[str] = None,
+    replace_namespace: str | None = None,
 ):
     """
     Returns the python client code to create a complex dimension link.
@@ -124,7 +124,7 @@ async def python_client_code_for_setting_column_attributes(
 async def python_client_create_node(
     session: AsyncSession,
     node_name: str,
-    replace_namespace: Optional[str] = None,
+    replace_namespace: str | None = None,
 ):
     """
     Returns the python client code for creating this node
@@ -227,7 +227,7 @@ async def python_client_create_node(
 
 async def build_export_notebook(
     session: AsyncSession,
-    nodes: List[Node],
+    nodes: list[Node],
     introduction: str,
     request_url: str,
 ):
@@ -261,7 +261,7 @@ def move_node_references_namespace(namespace: str, query: str, replacement: str)
     return str(query_ast)
 
 
-async def export_nodes_notebook_cells(session: AsyncSession, nodes: List[Node]):
+async def export_nodes_notebook_cells(session: AsyncSession, nodes: list[Node]):
     """
     Returns notebook cells used for exporting the list of nodes.
     A node export means the following:

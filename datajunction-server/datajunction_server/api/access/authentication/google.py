@@ -6,7 +6,6 @@ import logging
 import secrets
 from datetime import timedelta
 from http import HTTPStatus
-from typing import Optional
 from urllib.parse import urljoin, urlparse
 
 import google.auth.transport.requests
@@ -36,7 +35,7 @@ settings = get_settings()
 
 
 @router.get("/google/login/", status_code=HTTPStatus.FOUND)
-def login(target: Optional[str] = None):
+def login(target: str | None = None):
     """
     Login using Google OAuth
     """
@@ -49,8 +48,8 @@ def login(target: Optional[str] = None):
 @router.get("/google/token/")
 async def get_access_token(
     request: Request,
-    state: Optional[str] = None,
-    error: Optional[str] = None,
+    state: str | None = None,
+    error: str | None = None,
     session: AsyncSession = Depends(get_session),
     setting: Settings = Depends(get_settings),
 ):
@@ -63,6 +62,8 @@ async def get_access_token(
         raise DJAuthenticationException(
             f"Ran into an error during Google auth: {error}",
         )
+    if flow is None:
+        raise DJAuthenticationException("Google OAuth is not configured")
     hostname = urlparse(settings.url).hostname
     url = str(request.url)
     flow.fetch_token(authorization_response=url)

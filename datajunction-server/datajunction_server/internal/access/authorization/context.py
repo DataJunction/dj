@@ -2,21 +2,18 @@
 Authorization context for a user, pre-loaded with all roles.
 """
 
-from fastapi import Depends
 from dataclasses import dataclass, field
-from typing import List, Optional
 
+from fastapi import Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-
+from datajunction_server.database.rbac import Role, RoleAssignment, RoleScope
+from datajunction_server.database.user import User
 from datajunction_server.internal.access.group_membership import (
     get_group_membership_service,
 )
-from datajunction_server.database.rbac import RoleAssignment, Role, RoleScope
-from datajunction_server.database.user import User
-
 from datajunction_server.utils import (
     get_current_user,
     get_session,
@@ -44,12 +41,12 @@ class AuthContext:
 
     user_id: int
     username: str
-    oauth_provider: Optional[str]
-    role_assignments: List[RoleAssignment]  # Direct + groups, flattened
+    oauth_provider: str | None
+    role_assignments: list[RoleAssignment]  # Direct + groups, flattened
     is_admin: bool = False
     # Scopes from the configured default-access role, evaluated as a fallback
     # alongside the user's own grants.
-    default_scopes: List[RoleScope] = field(default_factory=list)
+    default_scopes: list[RoleScope] = field(default_factory=list)
 
     @classmethod
     async def from_user(
@@ -89,7 +86,7 @@ class AuthContext:
     async def get_default_scopes(
         cls,
         session: AsyncSession,
-    ) -> List[RoleScope]:
+    ) -> list[RoleScope]:
         """
         Load the scopes of the configured default-access role, if any.
 
@@ -108,7 +105,7 @@ class AuthContext:
         cls,
         session: AsyncSession,
         user: User,
-    ) -> List[RoleAssignment]:
+    ) -> list[RoleAssignment]:
         """
         Get all effective role assignments for a user (direct + group-based).
 

@@ -2,9 +2,9 @@
 
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import partial
-from typing import List, Optional, Set
+from typing import Optional
 
 import sqlalchemy as sa
 from sqlalchemy import (
@@ -27,7 +27,6 @@ from datajunction_server.models.materialization import MaterializationStrategy
 from datajunction_server.models.preaggregation import WorkflowUrl
 from datajunction_server.models.query import V3ColumnMetadata
 from datajunction_server.typing import UTCDatetime
-
 
 # Valid materialization strategies for pre-aggregations
 # (subset of MaterializationStrategy)
@@ -57,7 +56,7 @@ def compute_expression_hash(expression: str) -> str:
 
 def compute_grain_group_hash(
     node_revision_id: int,
-    grain_columns: List[str],
+    grain_columns: list[str],
 ) -> str:
     """
     Compute the grain group hash for a pre-aggregation.
@@ -92,7 +91,7 @@ def measure_identity_token(expr_hash: str, aggregation: str | None) -> str:
     return f"{expr_hash}:{(aggregation or '').strip().upper()}"
 
 
-def get_measure_identities(measures: List[PreAggMeasure]) -> Set[str]:
+def get_measure_identities(measures: list[PreAggMeasure]) -> set[str]:
     """
     Identity tokens for a list of measures (see ``measure_identity_token``).
 
@@ -111,8 +110,8 @@ def get_measure_identities(measures: List[PreAggMeasure]) -> Set[str]:
 
 def compute_preagg_hash_from_hashes(
     node_revision_id: int,
-    grain_columns: List[str],
-    measure_identities: List[str],
+    grain_columns: list[str],
+    measure_identities: list[str],
 ) -> str:
     """
     Compute a unique hash for a pre-aggregation from measure identity tokens.
@@ -146,8 +145,8 @@ def compute_preagg_hash_from_hashes(
 
 def compute_preagg_hash(
     node_revision_id: int,
-    grain_columns: List[str],
-    measures: List[PreAggMeasure],
+    grain_columns: list[str],
+    measures: list[PreAggMeasure],
 ) -> str:
     """
     Compute a unique hash for a pre-aggregation.
@@ -226,11 +225,11 @@ class PreAggregation(Base):
     # Grain columns are fully qualified dimension/column references:
     # - Linked dimensions: "namespace.dim_node.column" (e.g., "default.date_dim.date_id")
     # - Direct columns on node: "namespace.node.column" (e.g., "default.orders.order_status")
-    grain_columns: Mapped[List[str]] = mapped_column(JSON, nullable=False)
+    grain_columns: Mapped[list[str]] = mapped_column(JSON, nullable=False)
 
     # Measures with full MetricComponent info for matching and re-aggregation
     # Stored as PreAggMeasure which extends MetricComponent with expr_hash
-    measures: Mapped[List[PreAggMeasure]] = mapped_column(
+    measures: Mapped[list[PreAggMeasure]] = mapped_column(
         PydanticListType(PreAggMeasure),
         nullable=False,
     )
@@ -239,7 +238,7 @@ class PreAggregation(Base):
     # This stores the schema of the materialized table for:
     # - Table creation with correct types
     # - Validation of materialized data
-    columns: Mapped[Optional[List[V3ColumnMetadata]]] = mapped_column(
+    columns: Mapped[list[V3ColumnMetadata] | None] = mapped_column(
         PydanticListType(V3ColumnMetadata),
         nullable=True,
     )
@@ -266,40 +265,40 @@ class PreAggregation(Base):
 
     # Optional stable, human-supplied handle for externally-registered pre-aggs.
     # Used by YAML deploy reconciliation and availability-by-name callbacks.
-    name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    name: Mapped[str | None] = mapped_column(String, nullable=True)
 
     # === Materialization Config ===
-    strategy: Mapped[Optional[MaterializationStrategy]] = mapped_column(
+    strategy: Mapped[MaterializationStrategy | None] = mapped_column(
         Enum(MaterializationStrategy),
         nullable=True,
     )
 
     # Cron expression for scheduled materialization
-    schedule: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    schedule: Mapped[str | None] = mapped_column(String, nullable=True)
 
     # Lookback window for incremental materialization (e.g., "3 days")
-    lookback_window: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    lookback_window: Mapped[str | None] = mapped_column(String, nullable=True)
 
     # === Workflow State ===
     # Labeled workflow URLs: [WorkflowUrl(label="scheduled", url="..."), ...]
     # Scheduler-agnostic: DJ Server stores what Query Service returns
-    workflow_urls: Mapped[Optional[List[WorkflowUrl]]] = mapped_column(
+    workflow_urls: Mapped[list[WorkflowUrl] | None] = mapped_column(
         PydanticListType(WorkflowUrl),
         nullable=True,
     )
 
     # Workflow status: "active" | "paused" | None (no workflow)
-    workflow_status: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    workflow_status: Mapped[str | None] = mapped_column(String, nullable=True)
 
     # Workflow names returned by the query service (used for deactivation)
-    workflow_names: Mapped[Optional[List[str]]] = mapped_column(
+    workflow_names: Mapped[list[str] | None] = mapped_column(
         JSON,
         nullable=True,
         default=None,
     )
 
     # === Availability ===
-    availability_id: Mapped[Optional[int]] = mapped_column(
+    availability_id: Mapped[int | None] = mapped_column(
         ForeignKey(
             "availabilitystate.id",
             name="fk_pre_aggregation_availability_id_availabilitystate",
@@ -310,12 +309,12 @@ class PreAggregation(Base):
     # === Metadata ===
     created_at: Mapped[UTCDatetime] = mapped_column(
         DateTime(timezone=True),
-        default=partial(datetime.now, timezone.utc),
+        default=partial(datetime.now, UTC),
         nullable=False,
     )
-    updated_at: Mapped[Optional[UTCDatetime]] = mapped_column(
+    updated_at: Mapped[UTCDatetime | None] = mapped_column(
         DateTime(timezone=True),
-        onupdate=partial(datetime.now, timezone.utc),
+        onupdate=partial(datetime.now, UTC),
         nullable=True,
     )
 
@@ -329,7 +328,7 @@ class PreAggregation(Base):
     )
 
     @property
-    def materialized_table_ref(self) -> Optional[str]:
+    def materialized_table_ref(self) -> str | None:
         """Full table reference for SQL substitution. Derived from availability."""
         if not self.availability:
             return None
@@ -352,7 +351,7 @@ class PreAggregation(Base):
         return "active"
 
     @property
-    def max_partition(self) -> Optional[List[str]]:
+    def max_partition(self) -> list[str] | None:
         """High-water mark - data is available up to this partition."""
         if not self.availability:
             return None
@@ -363,7 +362,7 @@ class PreAggregation(Base):
         cls,
         session: AsyncSession,
         grain_group_hash: str,
-    ) -> List["PreAggregation"]:
+    ) -> list["PreAggregation"]:
         """
         Get all pre-aggregations with the given grain group hash.
         """
@@ -403,7 +402,7 @@ class PreAggregation(Base):
         cls,
         session: AsyncSession,
         namespace: str,
-    ) -> List["PreAggregation"]:
+    ) -> list["PreAggregation"]:
         """
         Get all EXTERNAL-strategy pre-aggregations whose node lives in the given
         namespace. Used by deploy-time reconciliation to diff against the spec.
@@ -438,8 +437,8 @@ class PreAggregation(Base):
         cls,
         session: AsyncSession,
         node_revision_id: int,
-        grain_columns: List[str],
-        measure_identities: Set[str],
+        grain_columns: list[str],
+        measure_identities: set[str],
     ) -> Optional["PreAggregation"]:
         """
         Find an existing pre-agg that covers the requested measures.

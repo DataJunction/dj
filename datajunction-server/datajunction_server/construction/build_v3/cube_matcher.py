@@ -9,14 +9,12 @@ from scratch.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, selectinload, noload, load_only
+from sqlalchemy.orm import joinedload, load_only, noload, selectinload
 
 from datajunction_server.construction.build_v3.decomposition import is_derived_metric
-from datajunction_server.models.dialect import Dialect
 from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
 from datajunction_server.construction.build_v3.filters import (
     parse_and_resolve_filters,
@@ -24,31 +22,29 @@ from datajunction_server.construction.build_v3.filters import (
 from datajunction_server.construction.build_v3.metrics import (
     generate_metrics_sql,
 )
-from datajunction_server.construction.build_v3.utils import (
-    extract_filter_dimension_refs,
-)
 from datajunction_server.construction.build_v3.types import (
     BuildContext,
     ColumnMetadata,
+    DecomposedMetricInfo,
     GeneratedMeasuresSQL,
     GeneratedSQL,
     GrainGroupSQL,
-    DecomposedMetricInfo,
     ResolvedExecutionContext,
+)
+from datajunction_server.construction.build_v3.utils import (
+    extract_filter_dimension_refs,
 )
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRevision
-from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.database.partition import Partition
+from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.instrumentation.provider import timed
 from datajunction_server.models.decompose import Aggregability
+from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.naming import amenable_name
 from datajunction_server.sql.parsing import ast
-from datajunction_server.instrumentation.provider import timed
-
-if TYPE_CHECKING:
-    pass
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +105,7 @@ async def find_matching_cube(
     dimensions: list[str],
     require_availability: bool = True,
     filters: list[str] | None = None,
-) -> Optional[NodeRevision]:
+) -> NodeRevision | None:
     """
     Find a cube that covers all requested metrics and dimensions.
 
@@ -196,7 +192,7 @@ async def find_matching_cube(
     candidate_cubes = result.unique().scalars().all()
 
     # Find the best matching cube (smallest grain that covers all dimensions)
-    best_match: Optional[NodeRevision] = None
+    best_match: NodeRevision | None = None
     best_grain_size = float("inf")
 
     for cube_node in candidate_cubes:
@@ -288,11 +284,11 @@ async def resolve_dialect_and_engine_for_metrics(
     metrics: list[str],
     dimensions: list[str],
     use_materialized: bool = True,
-    engine_name: Optional[str] = None,
-    engine_version: Optional[str] = None,
-    dialect_override: Optional[Dialect] = None,
-    matched_cube: Optional[NodeRevision] = None,
-    filters: Optional[list[str]] = None,
+    engine_name: str | None = None,
+    engine_version: str | None = None,
+    dialect_override: Dialect | None = None,
+    matched_cube: NodeRevision | None = None,
+    filters: list[str] | None = None,
 ) -> ResolvedExecutionContext:
     """
     Resolve dialect and engine for a metrics query in a single lookup.
@@ -333,7 +329,7 @@ async def resolve_dialect_and_engine_for_metrics(
     """
     from datajunction_server.api.helpers import resolve_engine
 
-    cube: Optional[NodeRevision] = None
+    cube: NodeRevision | None = None
 
     # Try to find a matching cube with availability, unless the caller is explicitly
     # requesting a non-Druid dialect (in which case we skip cube matching and run
@@ -418,7 +414,7 @@ async def resolve_dialect_and_engine_for_metrics(
     if not dialect_override and not engine_name:
         catalog_engines = node.current.catalog.engines
         trino_engines = [e for e in catalog_engines if e.dialect == Dialect.TRINO]
-        preferred_dialect: Optional[Dialect] = Dialect.TRINO if trino_engines else None
+        preferred_dialect: Dialect | None = Dialect.TRINO if trino_engines else None
     else:
         preferred_dialect = dialect_override
 
@@ -721,7 +717,7 @@ def build_synthetic_grain_group(
     # by the derived metrics loop in generate_metrics_sql, which handles PARTITION BY
     # injection for window functions
     base_metrics = []
-    for metric_name in decomposed_metrics.keys():
+    for metric_name in decomposed_metrics:
         metric_node = ctx.nodes.get(metric_name)
         if metric_node and not is_derived_metric(ctx, metric_node):
             base_metrics.append(metric_name)

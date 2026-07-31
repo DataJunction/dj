@@ -7,11 +7,10 @@ in isolation by stubbing ``tools`` and asserting the forwarded call shape
 plus the wrapped TextContent response.
 """
 
-from typing import List
 from unittest.mock import AsyncMock
 
-import mcp.types as types
 import pytest
+from mcp import types
 
 from datajunction_server.mcp import server, tools
 
@@ -257,7 +256,7 @@ async def test_read_resource_returns_not_found() -> None:
 async def test_list_tools_returns_full_surface() -> None:
     """The tool surface is the contract every MCP client codes against —
     lock the names so any change is intentional."""
-    result: List[types.Tool] = await server.list_tools()
+    result: list[types.Tool] = await server.list_tools()
     assert {t.name for t in result} == {
         "list_namespaces",
         "search_nodes",

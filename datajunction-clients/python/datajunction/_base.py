@@ -10,6 +10,7 @@ from typing import (
     Type,
     TypeVar,
     Union,
+    cast,
     get_args,
     get_origin,
 )
@@ -36,7 +37,10 @@ class SerializableMixin:  # pylint: disable=too-few-public-methods
         Handle nested field serialization
         """
         if is_dataclass(field_type) and isinstance(field_value, dict):
-            return field_type.from_dict(dj_client, field_value)
+            return cast(Type[SerializableMixin], field_type).from_dict(
+                dj_client,
+                field_value,
+            )
         return field_value
 
     @staticmethod
@@ -91,7 +95,7 @@ class SerializableMixin:  # pylint: disable=too-few-public-methods
                 continue
 
             # Resolve optional types to their inner type
-            field_type = field.type
+            field_type = cast(Type, field.type)
             origin = get_origin(field_type)
             if origin in (Union, UnionType):
                 field_type = next(  # pragma: no cover

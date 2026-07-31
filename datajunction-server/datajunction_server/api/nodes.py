@@ -4,8 +4,9 @@ Node related APIs.
 
 import logging
 import os
+from collections.abc import Callable
 from http import HTTPStatus
-from typing import Callable, List, Optional, cast
+from typing import cast
 
 from fastapi import BackgroundTasks, Depends, Query, Response
 from fastapi.responses import JSONResponse
@@ -16,15 +17,14 @@ from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.sql.operators import is_
 from starlette.requests import Request
 
-
 from datajunction_server.api.helpers import (
     check_namespace_not_git_only,
     get_catalog_by_name,
     get_column,
     get_node_by_name,
     get_node_namespace,
-    raise_if_node_exists,
     get_save_history,
+    raise_if_node_exists,
 )
 from datajunction_server.api.namespaces import create_node_namespace
 from datajunction_server.api.tags import get_tags_by_name
@@ -34,8 +34,6 @@ from datajunction_server.database.history import History
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.partition import Partition
 from datajunction_server.database.user import User
-from datajunction_server.internal.caching.cachelib_cache import get_cache
-from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.errors import (
     DJAlreadyExistsException,
     DJConfigurationException,
@@ -45,20 +43,19 @@ from datajunction_server.errors import (
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
     AccessChecker,
-    get_access_checker,
     AccessDenialMode,
+    get_access_checker,
 )
-from datajunction_server.models.access import ResourceAction
+from datajunction_server.internal.caching.cachelib_cache import get_cache
+from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.namespaces import get_git_info_for_namespace
 from datajunction_server.internal.nodes import (
     activate_node,
-    create_a_cube,
-    create_a_source_node,
-    upsert_reference_dimension_link,
-    upsert_simple_dimension_link,
     copy_to_new_node,
+    create_a_cube,
     create_a_node,
+    create_a_source_node,
     deactivate_node,
     get_column_level_lineage,
     get_node_column,
@@ -69,10 +66,13 @@ from datajunction_server.internal.nodes import (
     set_node_column_attributes,
     update_any_node,
     upsert_complex_dimension_link,
+    upsert_reference_dimension_link,
+    upsert_simple_dimension_link,
 )
 from datajunction_server.internal.validation import validate_node_data
 from datajunction_server.internal.views import create_cube_views
 from datajunction_server.models import access
+from datajunction_server.models.access import ResourceAction
 from datajunction_server.models.attribute import (
     AttributeTypeIdentifier,
 )
@@ -115,10 +115,10 @@ from datajunction_server.models.query import QueryCreate
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import (
     _node_output_options,
-    get_dimensions,
     get_dimension_attributes,
     get_dimension_inbound_bfs,
     get_dimension_outbound_bfs,
+    get_dimensions,
     get_downstream_nodes,
     get_filter_only_dimensions,
     get_upstream_nodes,
@@ -233,19 +233,19 @@ async def revalidate(
 
 @router.post(
     "/nodes/{node_name}/columns/{column_name}/attributes/",
-    response_model=List[ColumnOutput],
+    response_model=list[ColumnOutput],
     status_code=201,
 )
 async def set_column_attributes(
     node_name: str,
     column_name: str,
-    attributes: List[AttributeTypeIdentifier],
+    attributes: list[AttributeTypeIdentifier],
     *,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> List[ColumnOutput]:
+) -> list[ColumnOutput]:
     """
     Set column attributes for the node.
     """
@@ -270,14 +270,14 @@ async def set_column_attributes(
     return columns  # type: ignore
 
 
-@router.get("/nodes/", response_model=List[str])
+@router.get("/nodes/", response_model=list[str])
 async def list_nodes(
-    node_type: Optional[NodeType] = None,
-    prefix: Optional[str] = None,
+    node_type: NodeType | None = None,
+    prefix: str | None = None,
     *,
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> List[str]:
+) -> list[str]:
     """
     List the available nodes.
     """
@@ -286,14 +286,14 @@ async def list_nodes(
     return await access_checker.approved_resource_names()
 
 
-@router.get("/nodes/details/", response_model=List[NodeIndexItem])
+@router.get("/nodes/details/", response_model=list[NodeIndexItem])
 @cache(expire=settings.index_cache_expire)
 async def list_all_nodes_with_details(
-    node_type: Optional[NodeType] = None,
+    node_type: NodeType | None = None,
     *,
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> List[NodeIndexItem]:
+) -> list[NodeIndexItem]:
     """
     List the available nodes.
     """
@@ -461,13 +461,13 @@ async def restore_node(
     )
 
 
-@router.get("/nodes/{name}/revisions/", response_model=List[NodeRevisionOutput])
+@router.get("/nodes/{name}/revisions/", response_model=list[NodeRevisionOutput])
 async def list_node_revisions(
     name: str,
     *,
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> List[NodeRevisionOutput]:
+) -> list[NodeRevisionOutput]:
     """
     List all revisions for the node.
     """
@@ -811,7 +811,7 @@ async def link_dimension(
     name: str,
     column: str,
     dimension: str,
-    dimension_column: Optional[str] = None,
+    dimension_column: str | None = None,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
@@ -858,7 +858,7 @@ async def add_reference_dimension_link(
     node_column: str,
     dimension_node: str,
     dimension_column: str,
-    role: Optional[str] = None,
+    role: str | None = None,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
@@ -1020,7 +1020,7 @@ async def delete_dimension_link(
     name: str,
     column: str,
     dimension: str,
-    dimension_column: Optional[str] = None,
+    dimension_column: str | None = None,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
@@ -1050,7 +1050,7 @@ async def delete_dimension_link(
 )
 async def tags_node(
     name: str,
-    tag_names: Optional[List[str]] = Query(default=None),
+    tag_names: list[str] | None = Query(default=None),
     *,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
@@ -1244,17 +1244,17 @@ async def calculate_node_similarity(
 
 @router.get(
     "/nodes/{name}/downstream/",
-    response_model=List[DAGNodeOutput],
+    response_model=list[DAGNodeOutput],
     name="List Downstream Nodes For A Node",
 )
 async def list_downstream_nodes(
     name: str,
     *,
-    node_type: NodeType = None,
+    node_type: NodeType | None = None,
     depth: int = -1,
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> List[DAGNodeOutput]:
+) -> list[DAGNodeOutput]:
     """
     List all nodes that are downstream from the given node, filterable by type and max depth.
     Setting a max depth of -1 will include all downstream nodes.
@@ -1278,18 +1278,18 @@ async def list_downstream_nodes(
 
 @router.get(
     "/nodes/{name}/upstream/",
-    response_model=List[DAGNodeOutput],
+    response_model=list[DAGNodeOutput],
     name="List Upstream Nodes For A Node",
 )
 async def list_upstream_nodes(
     name: str,
     *,
-    node_type: NodeType = None,
+    node_type: NodeType | None = None,
     cache: Cache = Depends(get_cache),
     background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> List[DAGNodeOutput]:
+) -> list[DAGNodeOutput]:
     """
     List all nodes that are upstream from the given node, filterable by type.
     """
@@ -1323,7 +1323,7 @@ async def list_node_dag(
     *,
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> List[DAGNodeOutput]:
+) -> list[DAGNodeOutput]:
     """
     List all nodes that are part of the DAG of the given node. This means getting all upstreams,
     downstreams, and linked dimension nodes.
@@ -1358,7 +1358,7 @@ async def list_node_dag(
 
 @router.get(
     "/nodes/{name}/dimensions/",
-    response_model=List[DimensionAttributeOutput],
+    response_model=list[DimensionAttributeOutput],
     name="List All Dimension Attributes",
 )
 async def list_all_dimension_attributes(
@@ -1494,7 +1494,7 @@ async def get_dimension_dag(
 
 @router.get(
     "/nodes/{name}/lineage/",
-    response_model=List[LineageColumn],
+    response_model=list[LineageColumn],
     name="List column level lineage of node",
 )
 async def column_lineage(
@@ -1502,7 +1502,7 @@ async def column_lineage(
     *,
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> List[LineageColumn]:
+) -> list[LineageColumn]:
     """
     List column-level lineage of a node in a graph
     """

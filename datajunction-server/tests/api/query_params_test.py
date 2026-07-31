@@ -1,6 +1,7 @@
 import pytest
-from httpx import AsyncClient
 import pytest_asyncio
+from httpx import AsyncClient
+
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from tests.construction.build_v3 import assert_sql_equal
 

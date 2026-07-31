@@ -1,8 +1,8 @@
 """RBAC database schema."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import partial
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import (
     BigInteger,
@@ -18,9 +18,9 @@ from sqlalchemy import (
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship, selectinload
 
-from datajunction_server.errors import DJDoesNotExistException
-from datajunction_server.models.access import ResourceType, ResourceAction
 from datajunction_server.database.base import Base
+from datajunction_server.errors import DJDoesNotExistException
+from datajunction_server.models.access import ResourceAction, ResourceType
 from datajunction_server.typing import UTCDatetime
 
 if TYPE_CHECKING:
@@ -47,7 +47,7 @@ class Role(Base):
         primary_key=True,
     )
     name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_by_id: Mapped[int] = mapped_column(
         ForeignKey("users.id"),
@@ -55,11 +55,11 @@ class Role(Base):
     )
     created_at: Mapped[UTCDatetime] = mapped_column(
         DateTime(timezone=True),
-        insert_default=partial(datetime.now, timezone.utc),
+        insert_default=partial(datetime.now, UTC),
     )
 
     # Soft delete for audit trail (who deleted is in History table)
-    deleted_at: Mapped[Optional[UTCDatetime]] = mapped_column(
+    deleted_at: Mapped[UTCDatetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
@@ -93,7 +93,7 @@ class Role(Base):
         session: AsyncSession,
         name: str,
         include_deleted: bool = False,
-        options: Optional[List] = None,
+        options: list | None = None,
     ) -> Optional["Role"]:
         """
         Get a role by name.
@@ -129,7 +129,7 @@ class Role(Base):
         session: AsyncSession,
         name: str,
         include_deleted: bool = False,
-        options: Optional[List] = None,
+        options: list | None = None,
     ) -> "Role":
         """
         Get a role by name, raising an exception if not found.
@@ -158,10 +158,10 @@ class Role(Base):
         cls,
         session: AsyncSession,
         include_deleted: bool = False,
-        created_by_id: Optional[int] = None,
+        created_by_id: int | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List["Role"]:
+    ) -> list["Role"]:
         """
         Find roles with optional filters.
 
@@ -289,9 +289,9 @@ class RoleAssignment(Base):
     )
     granted_at: Mapped[UTCDatetime] = mapped_column(
         DateTime(timezone=True),
-        insert_default=partial(datetime.now, timezone.utc),
+        insert_default=partial(datetime.now, UTC),
     )
-    expires_at: Mapped[Optional[UTCDatetime]] = mapped_column(
+    expires_at: Mapped[UTCDatetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
@@ -329,11 +329,11 @@ class RoleAssignment(Base):
     async def find(
         cls,
         session: AsyncSession,
-        principal_id: Optional[int] = None,
-        role_id: Optional[int] = None,
+        principal_id: int | None = None,
+        role_id: int | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List["RoleAssignment"]:
+    ) -> list["RoleAssignment"]:
         """
         Find role assignments with optional filters.
 

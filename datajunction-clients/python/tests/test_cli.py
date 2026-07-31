@@ -751,7 +751,7 @@ def test_data_with_raw_dict_response(builder_client: DJBuilder, capsys):
     """
     import pandas as pd
 
-    raw_response = {"results": [{"columns": [], "rows": []}], "errors": []}
+    raw_response: dict = {"results": [{"columns": [], "rows": []}], "errors": []}
     mock_df = pd.DataFrame()
     with patch.object(builder_client, "data", return_value=raw_response):
         with mock.patch(
@@ -2795,9 +2795,11 @@ class TestGenerateCodeowners:
         output = tmp_path / "CODEOWNERS"
         with patch(
             "datajunction.deployment.DeploymentService.read_yaml_file",
-            side_effect=lambda p: (_ for _ in ()).throw(OSError("unreadable"))
-            if "bad" in str(p)
-            else {"name": "good", "owners": ["alice@example.com"]},
+            side_effect=lambda p: (
+                (_ for _ in ()).throw(OSError("unreadable"))
+                if "bad" in str(p)
+                else {"name": "good", "owners": ["alice@example.com"]}
+            ),
         ):
             count = DeploymentService.build_codeowners(tmp_path, output=output)
 

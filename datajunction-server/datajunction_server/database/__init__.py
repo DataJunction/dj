@@ -2,15 +2,16 @@
 
 __all__ = [
     "AttributeType",
-    "ColumnAttribute",
     "Catalog",
     "Collection",
+    "ColumnAttribute",
     "Database",
     "Deployment",
     "DimensionLink",
     "Engine",
     "GroupMember",
     "History",
+    "Measure",
     "Node",
     "NodeNamespace",
     "NodeRevision",
@@ -24,7 +25,6 @@ __all__ = [
     "Table",
     "Tag",
     "User",
-    "Measure",
 ]
 
 from datajunction_server.database.attributetype import AttributeType, ColumnAttribute

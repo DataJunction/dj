@@ -2,16 +2,14 @@
 Dimensions-related query building
 """
 
-from typing import List, Optional
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import get_catalog_by_name
-from datajunction_server.internal.sql import get_measures_query
 from datajunction_server.database.node import NodeRevision
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.internal.access.authorization import AccessChecker
+from datajunction_server.internal.sql import get_measures_query
 from datajunction_server.models.column import SemanticType
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.query import ColumnMetadata
@@ -25,11 +23,11 @@ from datajunction_server.utils import SEPARATOR
 async def build_dimensions_from_cube_query(
     session: AsyncSession,
     cube: NodeRevision,
-    dimensions: List[str],
+    dimensions: list[str],
     current_user: User,
     access_checker: AccessChecker,
-    filters: Optional[str] = None,
-    limit: Optional[int] = 50000,
+    filters: str | None = None,
+    limit: int | None = 50000,
     include_counts: bool = False,
 ) -> TranslatedSQL:
     """

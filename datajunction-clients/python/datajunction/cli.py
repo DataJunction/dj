@@ -5,7 +5,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Any, List, Optional
 
 from rich import box
 from rich.console import Console, Group
@@ -478,8 +478,8 @@ class DJCLI:
         try:
             node = self.builder_client.node(node_name)
 
-            upstreams = []
-            downstreams = []
+            upstreams: List[Any] = []
+            downstreams: List[Any] = []
 
             if direction in ["upstream", "both"]:
                 upstreams = node.get_upstreams() if node.type != "source" else []

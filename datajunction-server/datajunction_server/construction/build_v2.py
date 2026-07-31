@@ -7,21 +7,13 @@ from dataclasses import dataclass
 from functools import cached_property
 from typing import (
     Any,
-    DefaultDict,
-    Optional,
-    Tuple,
-    Union,
     cast,
 )
 
-from sqlalchemy import text, bindparam, select
+from sqlalchemy import bindparam, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, selectinload, noload
+from sqlalchemy.orm import joinedload, noload, selectinload
 
-from datajunction_server.internal.access.authorization import (
-    AccessChecker,
-    AccessDenialMode,
-)
 from datajunction_server.construction.utils import to_namespaced_name
 from datajunction_server.database import Engine
 from datajunction_server.database.attributetype import ColumnAttribute
@@ -33,6 +25,10 @@ from datajunction_server.errors import (
     DJQueryBuildError,
     DJQueryBuildException,
     ErrorCode,
+)
+from datajunction_server.internal.access.authorization import (
+    AccessChecker,
+    AccessDenialMode,
 )
 from datajunction_server.models import access
 from datajunction_server.models.column import SemanticType
@@ -82,7 +78,7 @@ class FullColumnName:
         return self.full_column_name
 
     @cached_property
-    def role(self) -> Optional[str]:
+    def role(self) -> str | None:
         """
         Gets the role.
         """
@@ -117,8 +113,8 @@ class DimensionJoin:
 
     join_path: list[DimensionLink]
     requested_dimensions: list[str]
-    node_query: Optional[ast.Query] = None
-    right_alias: Optional[ast.Name] = None
+    node_query: ast.Query | None = None
+    right_alias: ast.Name | None = None
 
     def add_requested_dimension(self, dimension: str):
         """
@@ -276,9 +272,9 @@ class QueryBuilder:
         ]
         self._dimensions: list[str] = []
         self._orderby: list[str] = []
-        self._limit: Optional[int] = None
-        self._build_criteria: Optional[BuildCriteria] = self.get_default_criteria()
-        self._access_checker: Optional[AccessChecker] = None
+        self._limit: int | None = None
+        self._build_criteria: BuildCriteria | None = self.get_default_criteria()
+        self._access_checker: AccessChecker | None = None
         self._ignore_errors: bool = False
 
         # The following attributes will be modified as the query gets built.
@@ -288,7 +284,7 @@ class QueryBuilder:
         # Keep a list of build errors
         self.errors: list[DJQueryBuildError] = []
         # The final built query AST
-        self.final_ast: Optional[ast.Query] = None
+        self.final_ast: ast.Query | None = None
         # Shared cache for DJ node lookups - reused across all compile calls
         # This avoids redundant DB queries for the same node
         self.dependencies_cache: dict[str, Node] = {}
@@ -330,7 +326,7 @@ class QueryBuilder:
             self._filters.append(filter_)
         return self
 
-    def add_filters(self, filters: Optional[list[str]] = None):
+    def add_filters(self, filters: list[str] | None = None):
         """Add filters to the query builder."""
         for filter_ in filters or []:
             self.filter_by(filter_)
@@ -357,13 +353,13 @@ class QueryBuilder:
             self._dimensions.append(dimension)
         return self
 
-    def add_dimensions(self, dimensions: Optional[list[str]] = None):
+    def add_dimensions(self, dimensions: list[str] | None = None):
         """Add dimensions to the query builder."""
         for dimension in dimensions or []:
             self.add_dimension(dimension)
         return self
 
-    def order_by(self, orderby: Optional[Union[str, list[str]]] = None):
+    def order_by(self, orderby: str | list[str] | None = None):
         """Set order by for the query builder."""
         if isinstance(orderby, str):
             if orderby not in self._orderby:
@@ -374,13 +370,13 @@ class QueryBuilder:
                     self._orderby.append(order)
         return self
 
-    def limit(self, limit: Optional[int] = None):
+    def limit(self, limit: int | None = None):
         """Set limit for the query builder."""
         if limit:  # pragma: no cover
             self._limit = limit
         return self
 
-    def with_build_criteria(self, build_criteria: Optional[BuildCriteria] = None):
+    def with_build_criteria(self, build_criteria: BuildCriteria | None = None):
         """Set build criteria for the query builder."""
         if build_criteria:  # pragma: no cover
             self._build_criteria = build_criteria
@@ -431,7 +427,7 @@ class QueryBuilder:
         return self.node_revision.type == NodeType.METRIC
 
     @cached_property
-    def physical_table(self) -> Optional[ast.Table]:
+    def physical_table(self) -> ast.Table | None:
         """
         A physical table for the node, if one exists
         """
@@ -617,7 +613,7 @@ class QueryBuilder:
 
     def get_default_criteria(
         self,
-        engine: Optional[Engine] = None,
+        engine: Engine | None = None,
     ) -> BuildCriteria:
         """
         Get the default build criteria for a node.
@@ -1182,7 +1178,7 @@ class CubeQueryBuilder:
         ]
         self._dimensions: list[str] = []
         self._orderby: list[str] = []
-        self._limit: Optional[int] = None
+        self._limit: int | None = None
         self._parameters: dict[str, ast.Value] = {}
         self._build_criteria: BuildCriteria | None = self.get_default_criteria()
         self._access_checker: AccessChecker | None = None
@@ -1195,13 +1191,13 @@ class CubeQueryBuilder:
         # Keep a list of build errors
         self.errors: list[DJQueryBuildError] = []
         # The final built query AST
-        self.final_ast: Optional[ast.Query] = None
+        self.final_ast: ast.Query | None = None
         # Cache for DJ node dependencies to avoid repeated lookups
         self.dependencies_cache: dict[str, Node] = {}
 
     def get_default_criteria(
         self,
-        engine: Optional[Engine] = None,
+        engine: Engine | None = None,
     ) -> BuildCriteria:
         """
         Get the default build criteria for a node.
@@ -1245,7 +1241,7 @@ class CubeQueryBuilder:
             self._filters.append(filter_)
         return self
 
-    def add_filters(self, filters: Optional[list[str]] = None):
+    def add_filters(self, filters: list[str] | None = None):
         """Add filters to the query builder."""
         for filter_ in filters or []:
             self.filter_by(filter_)
@@ -1260,7 +1256,7 @@ class CubeQueryBuilder:
             self._dimensions.append(dimension)
         return self
 
-    def add_dimensions(self, dimensions: Optional[list[str]] = None):
+    def add_dimensions(self, dimensions: list[str] | None = None):
         """Add dimensions to the query builder."""
         for dimension in dimensions or []:
             self.add_dimension(dimension)
@@ -1275,7 +1271,7 @@ class CubeQueryBuilder:
             )
         return self
 
-    def order_by(self, orderby: Optional[Union[str, list[str]]] = None):
+    def order_by(self, orderby: str | list[str] | None = None):
         """Set order by for the query builder."""
         if isinstance(orderby, str):
             if orderby not in self._orderby:  # pragma: no cover
@@ -1286,13 +1282,13 @@ class CubeQueryBuilder:
                     self._orderby.append(order)
         return self
 
-    def limit(self, limit: Optional[int] = None):
+    def limit(self, limit: int | None = None):
         """Set limit for the query builder."""
         if limit:  # pragma: no cover
             self._limit = limit
         return self
 
-    def with_build_criteria(self, build_criteria: Optional[BuildCriteria] = None):
+    def with_build_criteria(self, build_criteria: BuildCriteria | None = None):
         """Set build criteria for the query builder."""
         if build_criteria:  # pragma: no cover
             self._build_criteria = build_criteria
@@ -1544,7 +1540,7 @@ class CubeQueryBuilder:
                 )
         return metric_query.ctes[-1].select.projection
 
-    def extract_ctes(self, measures_queries) -> Tuple[list[ast.Query], list[ast.Query]]:
+    def extract_ctes(self, measures_queries) -> tuple[list[ast.Query], list[ast.Query]]:
         """
         Extracts the parent CTEs and the metric CTEs from the queries
         """
@@ -1604,7 +1600,7 @@ class CubeQueryBuilder:
 def get_column_from_canonical_dimension(
     dimension_name: str,
     node: NodeRevision,
-) -> Optional[str]:
+) -> str | None:
     """
     Gets a column based on a dimension request on a node.
     """
@@ -1632,7 +1628,7 @@ def get_column_from_canonical_dimension(
     return column_name
 
 
-def to_filter_asts(filters: Optional[list[str]] = None):
+def to_filter_asts(filters: list[str] | None = None):
     """
     Converts a list of filter expresisons to ASTs
     """
@@ -1655,8 +1651,8 @@ async def dimension_join_path(
     session: AsyncSession,
     node: NodeRevision,
     dimension: str,
-    dependencies_cache: Optional[dict] = None,
-) -> Optional[list[DimensionLink]]:
+    dependencies_cache: dict | None = None,
+) -> list[DimensionLink] | None:
     """
     Find a join path between this node and the dimension attribute.
     * If there is no possible join path, returns None
@@ -1757,12 +1753,12 @@ async def dimension_join_path(
 
 async def build_dimension_node_query(
     session: AsyncSession,
-    build_criteria: Optional[BuildCriteria],
+    build_criteria: BuildCriteria | None,
     link: DimensionLink,
     filters: list[str],
     cte_mapping: dict[str, ast.Query],
     use_materialized: bool = True,
-    dependencies_cache: Optional[dict] = None,
+    dependencies_cache: dict | None = None,
 ):
     """
     Builds a dimension node query with the requested filters
@@ -1834,7 +1830,7 @@ def build_requested_dimensions_columns(
     requested_dimensions: list[str],
     link: DimensionLink,
     dimension_node_joins: dict[str, DimensionJoin],
-) -> Tuple[list[Union[ast.Column, ast.Alias, ast.Function]], list[DJQueryBuildError]]:
+) -> tuple[list[ast.Column | ast.Alias | ast.Function], list[DJQueryBuildError]]:
     """
     Builds the requested dimension columns for the final select layer.
     """
@@ -1862,7 +1858,7 @@ def build_requested_dimensions_columns(
 async def compile_node_ast(
     session,
     node_revision: NodeRevision,
-    dependencies_cache: Optional[dict] = None,
+    dependencies_cache: dict | None = None,
 ) -> ast.Query:
     """
     Parses the node's query into an AST and compiles it.
@@ -1889,8 +1885,8 @@ def build_dimension_attribute(
     full_column_name: str,
     dimension_node_joins: dict[str, DimensionJoin],
     link: DimensionLink,
-    alias: Optional[str] = None,
-) -> Optional[Union[ast.Column, ast.Alias, ast.Function]]:
+    alias: str | None = None,
+) -> ast.Column | ast.Alias | ast.Function | None:
     """
     Turn the canonical dimension attribute into a column on the query AST.
 
@@ -1969,7 +1965,7 @@ async def needs_dimension_join(
 def combine_filter_conditions(
     existing_condition,
     *new_conditions,
-) -> Optional[Union[ast.BinaryOp, ast.Expression]]:
+) -> ast.BinaryOp | ast.Expression | None:
     """
     Combines the existing where clause with new filter conditions.
     """
@@ -2053,12 +2049,12 @@ async def build_ast(
     session: AsyncSession,
     node: NodeRevision,
     query: ast.Query,
-    filters: Optional[list[str]],
-    build_criteria: Optional[BuildCriteria] = None,
+    filters: list[str] | None,
+    build_criteria: BuildCriteria | None = None,
     access_control=None,
-    ctes_mapping: dict[str, ast.Query] = None,
+    ctes_mapping: dict[str, ast.Query] | None = None,
     use_materialized: bool = True,
-    dependencies_cache: Optional[dict] = None,
+    dependencies_cache: dict | None = None,
 ) -> ast.Query:
     """
     Recursively replaces DJ node references with query ASTs. These are replaced with
@@ -2092,7 +2088,7 @@ async def build_ast(
             if use_materialized:
                 logger.debug("Checking for physical node: %s", referenced_node.name)
                 physical_table = cast(
-                    Optional[ast.Table],
+                    ast.Table | None,
                     get_table_for_node(
                         referenced_node,
                         build_criteria=build_criteria,
@@ -2251,13 +2247,15 @@ def apply_filters_to_node(
 
 def get_dj_node_references_from_select(
     select: ast.SelectExpression,
-) -> DefaultDict[NodeRevision, list[ast.Table]]:
+) -> collections.defaultdict[NodeRevision, list[ast.Table]]:
     """
     Extract all DJ node references (source, transform, dimensions) from the select
     expression. DJ node references are represented in the AST as table expressions
     and have an attached DJ node.
     """
-    tables: DefaultDict[NodeRevision, list[ast.Table]] = collections.defaultdict(list)
+    tables: collections.defaultdict[NodeRevision, list[ast.Table]] = (
+        collections.defaultdict(list)
+    )
 
     for table in select.find_all(ast.Table):
         if node := table.dj_node:  # pragma: no cover
@@ -2267,8 +2265,8 @@ def get_dj_node_references_from_select(
 
 def get_table_for_node(
     node: NodeRevision,
-    build_criteria: Optional[BuildCriteria] = None,
-) -> Optional[ast.Table]:
+    build_criteria: BuildCriteria | None = None,
+) -> ast.Table | None:
     """
     If a node has a materialized table available, return the materialized table.
     Source nodes should always have an associated table, whereas for all other nodes

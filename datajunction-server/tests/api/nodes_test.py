@@ -4,7 +4,7 @@ Tests for the nodes API.
 
 import asyncio
 import re
-from typing import Any, Dict
+from typing import Any
 from unittest import mock
 from uuid import uuid4
 
@@ -364,7 +364,7 @@ class TestNodeCRUD:
     """
 
     @pytest.fixture
-    def create_dimension_node_payload(self) -> Dict[str, Any]:
+    def create_dimension_node_payload(self) -> dict[str, Any]:
         """
         Payload for creating a dimension node.
         NOTE: Uses unique name to avoid conflicts with template database.
@@ -380,7 +380,7 @@ class TestNodeCRUD:
         }
 
     @pytest.fixture
-    def create_invalid_transform_node_payload(self) -> Dict[str, Any]:
+    def create_invalid_transform_node_payload(self) -> dict[str, Any]:
         """
         Payload for creating a transform node.
         """
@@ -397,7 +397,7 @@ class TestNodeCRUD:
         }
 
     @pytest.fixture
-    def create_transform_node_payload(self) -> Dict[str, Any]:
+    def create_transform_node_payload(self) -> dict[str, Any]:
         """
         Payload for creating a transform node.
         """
@@ -2616,7 +2616,7 @@ class TestNodeCRUD:
         catalog: Catalog,
         source_node: Node,
         client: AsyncClient,
-        create_invalid_transform_node_payload: Dict[str, Any],
+        create_invalid_transform_node_payload: dict[str, Any],
     ) -> None:
         """
         Test creating an invalid transform node in draft and published modes.
@@ -2683,7 +2683,7 @@ class TestNodeCRUD:
         catalog: Catalog,
         source_node: Node,
         client: AsyncClient,
-        create_transform_node_payload: Dict[str, Any],
+        create_transform_node_payload: dict[str, Any],
     ) -> None:
         """
         Test creating and updating a transform node that references an existing source.
@@ -3063,7 +3063,7 @@ class TestNodeCRUD:
         catalog: Catalog,
         source_node: Node,
         client: AsyncClient,
-        create_dimension_node_payload: Dict[str, Any],
+        create_dimension_node_payload: dict[str, Any],
     ) -> None:
         """
         Test creating and updating a dimension node that references an existing source.
@@ -3264,7 +3264,7 @@ class TestNodeCRUD:
         catalog: Catalog,
         source_node: Node,
         client: AsyncClient,
-        create_dimension_node_payload: Dict[str, Any],
+        create_dimension_node_payload: dict[str, Any],
     ) -> None:
         """
         Test creating an invalid node in draft mode
@@ -3941,7 +3941,7 @@ class TestNodeColumnsAttributes:
     """
 
     @pytest.fixture
-    def create_source_node_payload(self) -> Dict[str, Any]:
+    def create_source_node_payload(self) -> dict[str, Any]:
         """
         Payload for creating a source node.
         """

@@ -2,8 +2,6 @@
 Table related APIs.
 """
 
-from typing import Optional
-
 from fastapi import APIRouter, Path, Query
 
 from djqs.api.helpers import get_columns
@@ -17,8 +15,8 @@ router = APIRouter(tags=["Table Reflection"])
 @router.get("/table/{table}/columns/", response_model=TableInfo)
 def table_columns(
     table: str = Path(..., example="tpch.sf1.customer"),
-    engine: Optional[str] = Query(None, example="trino"),
-    engine_version: Optional[str] = Query(None, example="451"),
+    engine: str | None = Query(None, example="trino"),
+    engine_version: str | None = Query(None, example="451"),
 ) -> TableInfo:
     """
     Get column information for a table

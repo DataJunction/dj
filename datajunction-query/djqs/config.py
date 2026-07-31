@@ -7,7 +7,6 @@ import logging
 import os
 from datetime import timedelta
 from enum import Enum
-from typing import Dict, List, Optional
 
 import toml
 import yaml
@@ -42,7 +41,7 @@ class EngineInfo:  # pylint: disable=too-few-public-methods
         version: str,
         type: str,  # pylint: disable=redefined-builtin
         uri: str,
-        extra_params: Optional[Dict[str, str]] = None,
+        extra_params: dict[str, str] | None = None,
     ):
         self.name = name
         self.version = str(version)
@@ -56,7 +55,7 @@ class CatalogInfo:  # pylint: disable=too-few-public-methods
     Information about a catalog
     """
 
-    def __init__(self, name: str, engines: List[str]):
+    def __init__(self, name: str, engines: list[str]):
         self.name = name
         self.engines = engines
 
@@ -68,21 +67,21 @@ class Settings:  # pylint: disable=too-many-instance-attributes
 
     def __init__(  # pylint: disable=too-many-arguments,too-many-locals,dangerous-default-value
         self,
-        name: Optional[str] = "DJQS",
-        description: Optional[str] = "A DataJunction Query Service",
-        url: Optional[str] = "http://localhost:8001/",
-        index: Optional[str] = "postgresql://dj:dj@postgres_metadata:5432/djqs",
-        default_catalog: Optional[str] = "",
-        default_engine: Optional[str] = "",
-        default_engine_version: Optional[str] = "",
-        results_backend: Optional[BaseCache] = None,
-        results_backend_path: Optional[str] = "/tmp/djqs",
-        results_backend_timeout: Optional[str] = "0",
-        paginating_timeout_minutes: Optional[str] = "5",
-        do_ping_timeout_seconds: Optional[str] = "5",
-        configuration_file: Optional[str] = None,
-        engines: Optional[List[EngineInfo]] = None,
-        catalogs: Optional[List[CatalogInfo]] = None,
+        name: str | None = "DJQS",
+        description: str | None = "A DataJunction Query Service",
+        url: str | None = "http://localhost:8001/",
+        index: str | None = "postgresql://dj:dj@postgres_metadata:5432/djqs",
+        default_catalog: str | None = "",
+        default_engine: str | None = "",
+        default_engine_version: str | None = "",
+        results_backend: BaseCache | None = None,
+        results_backend_path: str | None = "/tmp/djqs",
+        results_backend_timeout: str | None = "0",
+        paginating_timeout_minutes: str | None = "5",
+        do_ping_timeout_seconds: str | None = "5",
+        configuration_file: str | None = None,
+        engines: list[EngineInfo] | None = None,
+        catalogs: list[CatalogInfo] | None = None,
     ):
         self.name: str = os.getenv("NAME", name or "")
         self.description: str = os.getenv("DESCRIPTION", description or "")
@@ -128,12 +127,12 @@ class Settings:  # pylint: disable=too-many-instance-attributes
         )
 
         # Configuration file for catalogs and engines
-        self.configuration_file: Optional[str] = (
+        self.configuration_file: str | None = (
             os.getenv("CONFIGURATION_FILE") or configuration_file
         )
 
-        self.engines: List[EngineInfo] = engines or []
-        self.catalogs: List[CatalogInfo] = catalogs or []
+        self.engines: list[EngineInfo] = engines or []
+        self.catalogs: list[CatalogInfo] = catalogs or []
 
         self._load_configuration()
 

@@ -3,7 +3,6 @@ Cube materialization jobs
 """
 
 import logging
-from typing import Dict, Optional
 
 from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.node import NodeRevision
@@ -59,7 +58,7 @@ class DruidMaterializationJob(MaterializationJob):
         self,
         materialization: Materialization,
         query_service_client: QueryServiceClient,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> MaterializationInfo:
         """
         Use the query service to kick off the materialization setup.
@@ -133,7 +132,7 @@ class DruidCubeMaterializationJob(DruidMaterializationJob, MaterializationJob):
         self,
         materialization: Materialization,
         query_service_client: QueryServiceClient,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> MaterializationInfo:
         """
         Use the query service to kick off the materialization setup.

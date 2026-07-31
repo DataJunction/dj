@@ -2,8 +2,8 @@
 
 import pytest
 
-from datajunction_server.query_clients.base import BaseQueryServiceClient
 from datajunction_server.models.query import QueryCreate
+from datajunction_server.query_clients.base import BaseQueryServiceClient
 
 
 class MockQueryServiceClient(BaseQueryServiceClient):
@@ -22,8 +22,6 @@ class MockQueryServiceClient(BaseQueryServiceClient):
 
 class AbstractOnlyClient(BaseQueryServiceClient):
     """Implementation that doesn't override get_columns_for_table to test abstract method."""
-
-    pass
 
 
 @pytest.mark.asyncio

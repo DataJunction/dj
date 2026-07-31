@@ -9,32 +9,29 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from . import assert_sql_equal
-
 from datajunction_server.construction.build_v3.combiners import (
+    CombinedGrainGroupResult,
     _build_grain_group_from_preagg_table,
     _compute_preagg_table_name,
     _reorder_partition_column_last,
     build_combiner_sql,
     build_combiner_sql_from_preaggs,
     validate_grain_groups_compatible,
-    CombinedGrainGroupResult,
+)
+from datajunction_server.construction.build_v3.types import (
+    ColumnMetadata,
+    GrainGroupSQL,
 )
 from datajunction_server.construction.build_v3.utils import (
     _build_join_criteria,
 )
-from datajunction_server.construction.build_v3.types import (
-    GrainGroupSQL,
-    ColumnMetadata,
-)
-from datajunction_server.models.query import V3ColumnMetadata
 from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.partition import Partition
 from datajunction_server.database.preaggregation import (
     PreAggregation,
-    compute_grain_group_hash,
     compute_expression_hash,
+    compute_grain_group_hash,
     compute_preagg_hash,
 )
 from datajunction_server.models.decompose import (
@@ -43,9 +40,12 @@ from datajunction_server.models.decompose import (
     MetricComponent,
     PreAggMeasure,
 )
-from datajunction_server.models.partition import PartitionType, Granularity
+from datajunction_server.models.partition import Granularity, PartitionType
+from datajunction_server.models.query import V3ColumnMetadata
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse as parse_sql
+
+from . import assert_sql_equal
 
 
 def _create_grain_group(

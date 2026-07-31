@@ -1,7 +1,8 @@
 import pytest
-from . import assert_sql_equal, get_first_grain_group
+
 from datajunction_server.construction.build_v3.builder import build_measures_sql
 
+from . import assert_sql_equal, get_first_grain_group
 
 # All base metrics from order_details
 ORDER_DETAILS_BASE_METRICS = [

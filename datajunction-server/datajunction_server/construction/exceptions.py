@@ -2,7 +2,7 @@
 Exceptions used in construction
 """
 
-from typing import List, Optional
+from typing import Optional
 
 from datajunction_server.errors import DJError, DJQueryBuildException
 
@@ -12,13 +12,13 @@ class CompoundBuildException:
     Exception singleton to optionally build up exceptions or raise
     """
 
-    errors: List[DJError]
+    errors: list[DJError]
     _instance: Optional["CompoundBuildException"] = None
     _raise: bool = True
 
     def __new__(cls, *args, **kwargs):
         if not cls._instance:
-            cls._instance = super(CompoundBuildException, cls).__new__(
+            cls._instance = super().__new__(
                 cls,
                 *args,
                 **kwargs,
@@ -39,7 +39,7 @@ class CompoundBuildException:
         """
         self._raise = raise_
 
-    def append(self, error: DJError, message: Optional[str] = None):
+    def append(self, error: DJError, message: str | None = None):
         """
         Accumulate DJ exceptions
         """

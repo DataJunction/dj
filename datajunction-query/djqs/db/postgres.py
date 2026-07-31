@@ -4,7 +4,6 @@ Dependency for getting the postgres pool and running backend DB queries
 
 # pylint: disable=too-many-arguments
 from datetime import datetime
-from typing import List
 from uuid import UUID
 
 from fastapi import Request
@@ -31,8 +30,8 @@ class DBQuery:
         self._reset()
 
     def _reset(self):
-        self.selects: List = []
-        self.inserts: List = []
+        self.selects: list = []
+        self.inserts: list = []
 
     def get_query(self, query_id: UUID):
         """
@@ -60,10 +59,10 @@ class DBQuery:
         async_: bool = False,
         state: str = "",
         progress: float = 0.0,
-        executed_query: str = None,
-        scheduled: datetime = None,
-        started: datetime = None,
-        finished: datetime = None,
+        executed_query: str | None = None,
+        scheduled: datetime | None = None,
+        started: datetime | None = None,
+        finished: datetime | None = None,
     ):
         """
         Save metadata about a query
@@ -129,7 +128,7 @@ class DBQuery:
                     raise DJDatabaseError(
                         "Insert statement resulted in no records being inserted",
                     )
-                results.append((await cur.fetchone()))
+                results.append(await cur.fetchone())
             if self.selects:
                 for statement in self.selects:
                     await cur.execute(statement)

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Iterator, NamedTuple
+from collections.abc import Iterator
+from typing import TYPE_CHECKING, NamedTuple
 
 from datajunction_server.construction.build_v3.filters import (
     extract_subscript_role,
@@ -244,7 +245,7 @@ def collect_required_dimensions(
 
 def _try_add_dim_to_ctx(
     full_name: str,
-    ctx: "BuildContext",
+    ctx: BuildContext,
     existing_dims: set[str],
     log_source: str,
 ) -> None:
@@ -274,8 +275,8 @@ def _try_add_dim_to_ctx(
 
 
 def add_dimensions_from_metric_expressions(
-    ctx: "BuildContext",
-    decomposed_metrics: dict[str, "DecomposedMetricInfo"],
+    ctx: BuildContext,
+    decomposed_metrics: dict[str, DecomposedMetricInfo],
 ) -> None:
     """
     Scan combiner ASTs for dimension references and add them to ctx.dimensions.
@@ -423,7 +424,7 @@ def extract_filter_dimension_refs(
     return refs
 
 
-def add_dimensions_from_filters(ctx: "BuildContext") -> None:
+def add_dimensions_from_filters(ctx: BuildContext) -> None:
     """
     Scan filter expressions for dimension references and add them to ctx.dimensions.
 
@@ -551,5 +552,5 @@ def _build_join_criteria(
         return conditions[0]
 
     combined = ast.BinaryOp.And(*conditions)
-    assert combined is not None  # noqa: S101  # conditions is non-empty here
+    assert combined is not None  # conditions is non-empty here
     return combined

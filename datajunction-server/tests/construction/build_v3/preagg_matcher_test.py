@@ -13,7 +13,6 @@ from datajunction_server.construction.build_v3.preagg_matcher import (
     get_required_measure_identities,
     get_temporal_partitions,
 )
-from datajunction_server.models.query import V3ColumnMetadata
 from datajunction_server.construction.build_v3.types import BuildContext, GrainGroup
 from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.column import Column
@@ -34,6 +33,7 @@ from datajunction_server.models.decompose import (
 from datajunction_server.models.dimensionlink import JoinType
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import Granularity, PartitionType
+from datajunction_server.models.query import V3ColumnMetadata
 from datajunction_server.models.user import OAuthProvider
 from datajunction_server.sql.parsing.types import IntegerType, StringType
 

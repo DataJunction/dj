@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,7 +10,7 @@ from datajunction_server.construction.build_v3.alias_registry import AliasRegist
 from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.node import Node
 from datajunction_server.errors import DJInvalidInputException
-from datajunction_server.models.decompose import MetricComponent, Aggregability
+from datajunction_server.models.decompose import Aggregability, MetricComponent
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.parsing import ast
@@ -56,7 +56,7 @@ class BuildContext:
     # Temporal filter settings for incremental materialization
     # Dict mapping column refs to partition objects from cube (e.g., {"v3.date.date_id": partition_obj})
     # When provided, temporal filters are pushed down to parent nodes via dimension links
-    temporal_partition_columns: dict[str, "Partition"] = field(default_factory=dict)
+    temporal_partition_columns: dict[str, Partition] = field(default_factory=dict)
     lookback_window: str | None = None
 
     # Loaded data (populated by load_nodes)
@@ -90,11 +90,11 @@ class BuildContext:
 
     # Pre-aggregation cache: maps node_revision_id to list of available PreAggregation records
     # Populated by load_available_preaggs() when use_materialized=True
-    available_preaggs: dict[int, list["PreAggregation"]] = field(default_factory=dict)
+    available_preaggs: dict[int, list[PreAggregation]] = field(default_factory=dict)
 
     # Populated by setup_build_context() after decomposition
-    metric_groups: list["MetricGroup"] = field(default_factory=list)
-    decomposed_metrics: dict[str, "DecomposedMetricInfo"] = field(default_factory=dict)
+    metric_groups: list[MetricGroup] = field(default_factory=list)
+    decomposed_metrics: dict[str, DecomposedMetricInfo] = field(default_factory=dict)
 
     # Dimensions needed only for filters (not included in output projection)
     # Populated by add_dimensions_from_filters() in setup_build_context
@@ -109,7 +109,7 @@ class BuildContext:
     # Filters to inject into specific upstream CTEs to support v2's filter_only
     # behavior for dim refs whose only link lives on an upstream of the fact.
     # Keyed by node name; multiple filters per node are ANDed at injection time.
-    upstream_pushdown_filters: dict[str, list["ast.Expression"]] = field(
+    upstream_pushdown_filters: dict[str, list[ast.Expression]] = field(
         default_factory=dict,
     )
 
@@ -239,9 +239,9 @@ class ResolvedExecutionContext:
     """
 
     dialect: Dialect
-    engine: "Engine"  # Forward reference to avoid circular import
+    engine: Engine  # Forward reference to avoid circular import
     catalog_name: str
-    cube: Optional["NodeRevision"] = None  # The matched cube, if any
+    cube: NodeRevision | None = None  # The matched cube, if any
 
 
 @dataclass
@@ -296,7 +296,7 @@ class GrainGroupSQL:
     window_metrics_served: list[str] = field(default_factory=list)
 
     # For window grain groups: the ORDER BY dimension ref (e.g., "v3.date.week")
-    window_order_by_dim: Optional[str] = None
+    window_order_by_dim: str | None = None
 
     # For window grain groups: True if window metrics reference base metrics from
     # multiple facts (cross-fact). This requires using base_metrics CTE as source
@@ -315,7 +315,7 @@ class GrainGroupSQL:
 
     # Scan estimate calculated from scanned_sources by looking up availability states
     # Populated by calculate_scan_estimate in sql.py endpoint
-    scan_estimate: Optional["ScanEstimate"] = None
+    scan_estimate: ScanEstimate | None = None
 
     @property
     def sql(self) -> str:
@@ -343,8 +343,8 @@ class GeneratedMeasuresSQL:
 
     # Internal: passed to build_metrics_sql to avoid redundant work
     # These are not serialized in API responses
-    ctx: "BuildContext"
-    decomposed_metrics: dict[str, "DecomposedMetricInfo"] = field(default_factory=dict)
+    ctx: BuildContext
+    decomposed_metrics: dict[str, DecomposedMetricInfo] = field(default_factory=dict)
 
     # Window metrics that require grain-level grain groups
     # Maps metric_name -> set of ORDER BY column refs (e.g., {"v3.date.week"})
@@ -369,10 +369,10 @@ class GeneratedSQL:
 
     # If a cube was used to generate this SQL, contains the cube name
     # This is used by the /data/ endpoint to select the correct engine (e.g., Druid)
-    cube_name: Optional[str] = None
+    cube_name: str | None = None
 
     # Scan estimate aggregated from all grain groups
-    scan_estimate: Optional["ScanEstimate"] = None
+    scan_estimate: ScanEstimate | None = None
 
     @property
     def sql(self) -> str:
@@ -388,7 +388,7 @@ class JoinPath:
 
     links: list[DimensionLink]  # Ordered list of links to traverse
     target_dimension: Node  # The final dimension node
-    role: Optional[str] = (
+    role: str | None = (
         None  # Role qualifier if specified (e.g., "from", "to", "customer->home")
     )
 
@@ -406,10 +406,8 @@ class ResolvedDimension:
     original_ref: str  # Original reference (e.g., "v3.customer.name[order]")
     node_name: str  # Dimension node name (e.g., "v3.customer")
     column_name: str  # Column name (e.g., "name")
-    role: Optional[str]  # Role if specified (e.g., "order")
-    join_path: Optional[
-        JoinPath
-    ]  # Join path from fact to this dimension (None if local)
+    role: str | None  # Role if specified (e.g., "order")
+    join_path: JoinPath | None  # Join path from fact to this dimension (None if local)
     is_local: bool  # True if dimension is on the fact table itself
     # The full original join path before any full-skip optimization.  Used by
     # the projection layer to find intermediate joined dims whose columns are
@@ -417,7 +415,7 @@ class ResolvedDimension:
     # in so the projected value survives OUTER joins that null-fill the FK
     # side.  ``None`` when no skipping occurred (the regular ``join_path`` is
     # authoritative).
-    pre_skip_join_path: Optional[JoinPath] = None
+    pre_skip_join_path: JoinPath | None = None
 
 
 @dataclass
@@ -426,7 +424,7 @@ class DimensionRef:
 
     node_name: str
     column_name: str
-    role: Optional[str] = None
+    role: str | None = None
 
 
 class ColumnType:
@@ -461,10 +459,10 @@ class ColumnResolver:
     @classmethod
     def from_base_metrics(
         cls,
-        base_metrics_result: "BaseMetricsResult",
+        base_metrics_result: BaseMetricsResult,
         dimension_aliases: dict[str, str],
         dim_cte_alias: str,
-    ) -> "ColumnResolver":
+    ) -> ColumnResolver:
         """
         Create a ColumnResolver from base metrics processing results.
 
@@ -550,7 +548,7 @@ class MetricExprInfo:
     the metric comes from.
     """
 
-    expr_ast: "ast.Expression"
+    expr_ast: ast.Expression
     short_name: str
     cte_alias: str
 
@@ -695,7 +693,7 @@ class GrainGroup:
 
     # Non-decomposable metrics that couldn't be broken into components
     # These need their raw metric expression applied in the final SELECT
-    non_decomposable_metrics: list["DecomposedMetricInfo"] = field(default_factory=list)
+    non_decomposable_metrics: list[DecomposedMetricInfo] = field(default_factory=list)
 
     @property
     def grain_key(self) -> tuple[str, Aggregability, tuple[str, ...]]:

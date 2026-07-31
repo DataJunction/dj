@@ -6,15 +6,16 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import cast
 
-from sqlalchemy import func, or_, select, text, inspect as sa_inspect
+from sqlalchemy import func, or_, select, text
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, selectinload, defer, load_only, noload
+from sqlalchemy.orm import defer, joinedload, load_only, noload, selectinload
 
 from datajunction_server.api.helpers import (
-    get_node_namespace,
     COLUMN_NAME_REGEX,
     _resolve_required_dimensions,
     dedupe_cube_elements,
+    get_node_namespace,
 )
 from datajunction_server.construction.build_v2 import FullColumnName
 from datajunction_server.database import Node, NodeRevision
@@ -22,16 +23,14 @@ from datajunction_server.database.attributetype import AttributeType
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.column import Column, ColumnAttribute
 from datajunction_server.database.dimensionlink import DimensionLink, JoinType
+from datajunction_server.database.hierarchy import Hierarchy, HierarchyLevel
 from datajunction_server.database.history import History
 from datajunction_server.database.metricmetadata import MetricMetadata
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import MissingParent, NodeRelationship
 from datajunction_server.database.partition import Partition
-from datajunction_server.database.hierarchy import Hierarchy, HierarchyLevel
-from datajunction_server.models.hierarchy import HierarchyLevelInput
 from datajunction_server.database.tag import Tag
-from datajunction_server.database.user import User, OAuthProvider
-from datajunction_server.instrumentation.provider import get_metrics_provider
+from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.errors import (
     DJError,
     DJException,
@@ -40,23 +39,23 @@ from datajunction_server.errors import (
     DJWarning,
     ErrorCode,
 )
-from datajunction_server.internal.deployment.utils import (
-    classify_parents,
-    extract_node_graph,
-    topological_levels,
-    DeploymentContext,
-)
-from datajunction_server.internal.impact import propagate_impact
+from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.internal.deployment.dimension_reachability import (
     DimensionReachability,
 )
+from datajunction_server.internal.deployment.utils import (
+    DeploymentContext,
+    classify_parents,
+    extract_node_graph,
+    topological_levels,
+)
 from datajunction_server.internal.deployment.validation import (
-    NodeValidationResult,
     CubeValidationData,
+    NodeValidationResult,
     bulk_validate_node_data,
 )
 from datajunction_server.internal.history import EntityType
-from datajunction_server.sql.dag import get_metric_parents_map
+from datajunction_server.internal.impact import propagate_impact
 from datajunction_server.internal.nodes import (
     derive_frozen_measures_bulk,
 )
@@ -80,6 +79,7 @@ from datajunction_server.models.dimensionlink import (
     JoinLinkInput,
     LinkType,
 )
+from datajunction_server.models.hierarchy import HierarchyLevelInput
 from datajunction_server.models.history import ActivityType
 from datajunction_server.models.node import (
     DEFAULT_DRAFT_VERSION,
@@ -96,13 +96,13 @@ from datajunction_server.models.unit import (
     legacy_unit_to_structured,
     structured_to_legacy_unit,
 )
+from datajunction_server.sql.dag import get_metric_parents_map
 from datajunction_server.utils import (
     SEPARATOR,
     Version,
     get_namespace_from_name,
     get_settings,
 )
-
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +119,7 @@ def _extract_dimension_refs_from_filters(
     Returns a list of (node_name, column_name) tuples.  Dimension node
     names are identified by having at least one SEPARATOR in the namespace.
     """
-    from datajunction_server.sql.parsing.backends.antlr4 import parse, ast
+    from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 
     if not filters:
         return []
@@ -695,7 +695,7 @@ class DeploymentOrchestrator:
                     DJError(
                         code=ErrorCode.UNKNOWN_ERROR,
                         message=(
-                            f"Failed to auto-register source `{missing_node_name}`: {str(exc)}"
+                            f"Failed to auto-register source `{missing_node_name}`: {exc!s}"
                         ),
                     ),
                 )
@@ -1040,10 +1040,10 @@ class DeploymentOrchestrator:
         exist. Skipped during dry runs (registration introspects the external
         table and mutates state). Reuses the same core as POST /preaggs/register.
         """
+        from datajunction_server.database.preaggregation import PreAggregation
         from datajunction_server.internal.preaggregations import (
             register_external_preaggregations,
         )
-        from datajunction_server.database.preaggregation import PreAggregation
         from datajunction_server.models.preaggregation import ExternalPreAggTable
 
         specs = self.deployment_spec.preaggregations

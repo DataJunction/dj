@@ -1,40 +1,40 @@
 """Generate SQL-related GraphQL queries."""
 
-from typing import Annotated, Optional
+from typing import Annotated
 
 import strawberry
-from strawberry.types import Info
 from strawberry.scalars import JSON
+from strawberry.types import Info
+
+from datajunction_server.api.graphql.resolvers.nodes import (
+    find_nodes_by,
+    get_metrics,
+    resolve_metrics_and_dimensions,
+)
+from datajunction_server.api.graphql.scalars.sql import (
+    CubeDefinition,
+    EngineSettings,
+    GeneratedSQL,
+    MaterializationPlan,
+    MaterializationUnit,
+    MetricComponent,
+    VersionedRef,
+)
+from datajunction_server.api.graphql.utils import resolver_session
+from datajunction_server.construction.build import group_metrics_by_parent
+from datajunction_server.database.queryrequest import QueryBuildType
 from datajunction_server.internal.caching.query_cache_manager import (
     QueryCacheManager,
     QueryRequestParams,
 )
-from datajunction_server.database.queryrequest import QueryBuildType
-
-from datajunction_server.api.graphql.resolvers.nodes import (
-    get_metrics,
-    resolve_metrics_and_dimensions,
-    find_nodes_by,
-)
-from datajunction_server.api.graphql.utils import resolver_session
-from datajunction_server.utils import SEPARATOR
-from datajunction_server.sql.parsing.backends.antlr4 import parse, ast
 from datajunction_server.models.cube_materialization import Aggregability
-from datajunction_server.api.graphql.scalars.sql import (
-    GeneratedSQL,
-    CubeDefinition,
-    EngineSettings,
-    MaterializationPlan,
-    MaterializationUnit,
-    VersionedRef,
-    MetricComponent,
-)
-from datajunction_server.construction.build import group_metrics_by_parent
+from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
+from datajunction_server.utils import SEPARATOR
 
 
 async def measures_sql(
     cube: CubeDefinition,
-    engine: Optional[EngineSettings] = None,
+    engine: EngineSettings | None = None,
     use_materialized: Annotated[
         bool,
         strawberry.argument(
@@ -79,7 +79,7 @@ async def measures_sql(
             QueryRequestParams(
                 nodes=metrics,
                 dimensions=dimensions,
-                filters=cube.filters,
+                filters=cube.filters or [],
                 engine_name=engine.name if engine else None,
                 engine_version=engine.version if engine else None,
                 orderby=cube.orderby,

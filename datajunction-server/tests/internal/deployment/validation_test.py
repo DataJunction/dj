@@ -2,11 +2,17 @@
 Tests for validate_query_node exception handling with real objects
 """
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
-from unittest.mock import MagicMock, patch
 
+from datajunction_server.database.catalog import Catalog
+from datajunction_server.database.column import Column
+from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.user import OAuthProvider, User
+from datajunction_server.errors import ErrorCode
 from datajunction_server.internal.deployment.validation import (
     NodeSpecBulkValidator,
     NodeValidationResult,
@@ -24,16 +30,11 @@ from datajunction_server.models.deployment import (
 )
 from datajunction_server.models.node import (
     DimensionAttributeOutput,
-    NodeType,
     NodeStatus,
+    NodeType,
 )
-from datajunction_server.database.node import Node, NodeRevision
-from datajunction_server.database.user import User, OAuthProvider
-from datajunction_server.database.catalog import Catalog
-from datajunction_server.database.column import Column
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.sql.parsing.types import IntegerType, MapType, StringType
-from datajunction_server.errors import ErrorCode
 
 
 @pytest_asyncio.fixture

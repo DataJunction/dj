@@ -59,7 +59,7 @@ class RequestsSessionWithEndpoint(requests.Session):  # pragma: no cover
     subsequent requests will use as a prefix.
     """
 
-    def __init__(self, endpoint: str = None, show_traceback: bool = False):
+    def __init__(self, endpoint: Optional[str] = None, show_traceback: bool = False):
         super().__init__()
         self.endpoint = endpoint
         self.mount("http://", HTTPAdapter())
@@ -137,9 +137,9 @@ class DJClient:
     def __init__(  # pylint: disable=too-many-arguments
         self,
         uri: str = "http://localhost:8000",
-        engine_name: str = None,
-        engine_version: str = None,
-        requests_session: RequestsSessionWithEndpoint = None,
+        engine_name: Optional[str] = None,
+        engine_version: Optional[str] = None,
+        requests_session: Optional[RequestsSessionWithEndpoint] = None,
         target_namespace: str = DEFAULT_NAMESPACE,
         timeout: int = 2 * 60,
         debug: bool = False,

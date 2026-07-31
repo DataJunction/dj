@@ -7,7 +7,7 @@ import logging
 import os
 import tempfile
 from datetime import datetime
-from typing import Dict, Optional, cast
+from typing import cast
 
 from fastapi import BackgroundTasks, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,7 +39,7 @@ async def client_code_for_creating_node(
     *,
     include_client_setup: bool = True,
     session: AsyncSession = Depends(get_session),
-    replace_namespace: Optional[str] = None,
+    replace_namespace: str | None = None,
     request: Request,
 ) -> str:
     """
@@ -61,7 +61,7 @@ async def client_code_for_dimension_links_on_node(
     *,
     include_client_setup: bool = True,
     session: AsyncSession = Depends(get_session),
-    replace_namespace: Optional[str] = None,
+    replace_namespace: str | None = None,
     request: Request,
 ) -> str:
     """
@@ -151,8 +151,8 @@ materialization = MaterializationConfig(
 )
 async def notebook_for_exporting_nodes(
     *,
-    namespace: Optional[str] = None,
-    cube: Optional[str] = None,
+    namespace: str | None = None,
+    cube: str | None = None,
     include_dimensions: bool = False,
     include_sources: bool = False,
     session: AsyncSession = Depends(get_session),
@@ -197,7 +197,7 @@ async def notebook_for_exporting_nodes(
     return notebook_file_response(notebook, background_tasks)
 
 
-def notebook_file_response(notebook: Dict, background_tasks: BackgroundTasks):
+def notebook_file_response(notebook: dict, background_tasks: BackgroundTasks):
     """
     Write the notebook contents to a temporary file and prepare a file response
     with appropriate headers so that the API returns a downloadable .ipynb file.

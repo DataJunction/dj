@@ -2,9 +2,10 @@
 
 import logging
 from collections import defaultdict
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from http import HTTPStatus
-from typing import Callable, Dict, List, Optional, Union, cast
+from typing import cast
 
 from fastapi import BackgroundTasks, Request
 from fastapi.responses import JSONResponse
@@ -13,13 +14,6 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
-
-from datajunction_server.internal.access.authorization import (
-    AccessChecker,
-)
-from datajunction_server.internal.caching.interface import Cache
-from datajunction_server.models.deployment import DeploymentResult
-from datajunction_server.models.query import QueryCreate
 from datajunction_server.api.helpers import (
     dedupe_cube_elements,
     get_attribute_type,
@@ -33,10 +27,11 @@ from datajunction_server.api.helpers import (
 )
 from datajunction_server.construction.build_v2 import compile_node_ast
 from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
-from datajunction_server.database.column import Column
 from datajunction_server.database.catalog import Catalog
+from datajunction_server.database.column import Column
 from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.history import History
+from datajunction_server.database.measure import FrozenMeasure
 from datajunction_server.database.metricmetadata import MetricMetadata
 from datajunction_server.database.node import (
     MissingParent,
@@ -47,8 +42,6 @@ from datajunction_server.database.node import (
 )
 from datajunction_server.database.partition import Partition
 from datajunction_server.database.user import User
-from datajunction_server.database.measure import FrozenMeasure
-from datajunction_server.sql.decompose import MetricComponentExtractor
 from datajunction_server.errors import (
     DJDoesNotExistException,
     DJError,
@@ -57,11 +50,15 @@ from datajunction_server.errors import (
     DJNodeNotFound,
     ErrorCode,
 )
+from datajunction_server.internal.access.authorization import (
+    AccessChecker,
+)
+from datajunction_server.internal.caching.interface import Cache
+from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.materializations import (
     create_new_materialization,
     schedule_materialization_jobs_bg,
 )
-from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.validation import (
     NodeValidator,
     validate_node_data,
@@ -74,6 +71,8 @@ from datajunction_server.models.attribute import (
 )
 from datajunction_server.models.base import labelize
 from datajunction_server.models.cube import CubeRevisionMetadata
+from datajunction_server.models.cube_materialization import UpsertCubeMaterialization
+from datajunction_server.models.deployment import DeploymentResult
 from datajunction_server.models.dimensionlink import (
     JoinLinkInput,
     JoinType,
@@ -84,7 +83,6 @@ from datajunction_server.models.materialization import (
     MaterializationJobTypeEnum,
     UpsertMaterialization,
 )
-from datajunction_server.models.cube_materialization import UpsertCubeMaterialization
 from datajunction_server.models.node import (
     DEFAULT_DRAFT_VERSION,
     DEFAULT_PUBLISHED_VERSION,
@@ -105,6 +103,7 @@ from datajunction_server.sql.dag import (
     get_nodes_with_common_dimensions,
     topological_sort,
 )
+from datajunction_server.sql.decompose import MetricComponentExtractor
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import parse, parse_rule
@@ -446,10 +445,10 @@ async def set_node_column_attributes(
     session: AsyncSession,
     node: Node,
     column_name: str,
-    attributes: List[AttributeTypeIdentifier],
+    attributes: list[AttributeTypeIdentifier],
     current_user: User,
     save_history: Callable,
-) -> List[Column]:
+) -> list[Column]:
     """
     Sets the column attributes on the node if allowed.
     """
@@ -1104,7 +1103,7 @@ async def copy_nodes_to_namespace(
     source_namespace: str,
     target_namespace: str,
     current_user: User,
-) -> List[DeploymentResult]:
+) -> list[DeploymentResult]:
     """
     Copies all nodes from source namespace to target namespace.
 
@@ -1181,12 +1180,12 @@ async def update_any_node(
     name: str,
     data: UpdateNode,
     session: AsyncSession,
-    request_headers: Dict[str, str],
+    request_headers: dict[str, str],
     query_service_client: QueryServiceClient,
     current_user: User,
     save_history: Callable,
     background_tasks: BackgroundTasks = None,
-    access_checker: AccessChecker = None,
+    access_checker: AccessChecker | None = None,
     refresh_materialization: bool = False,
     cache: Cache | None = None,
 ) -> Node:
@@ -1220,7 +1219,7 @@ async def update_any_node(
         session.add(node)
 
     if node.type == NodeType.CUBE:  # type: ignore
-        node = await Node.get_cube_by_name(session, name)
+        node = cast(Node, await Node.get_cube_by_name(session, name))
         node_revision = await update_cube_node(
             session,
             node.current,  # type: ignore
@@ -1253,13 +1252,13 @@ async def update_node_with_query(
     data: UpdateNode,
     session: AsyncSession,
     *,
-    request_headers: Dict[str, str],
+    request_headers: dict[str, str],
     query_service_client: QueryServiceClient,
     current_user: User,
     background_tasks: BackgroundTasks,
     access_checker: AccessChecker,
     save_history: Callable,
-    cache: Cache,
+    cache: Cache | None = None,
 ) -> Node:
     """
     Update the named node with the changes defined in the UpdateNode object.
@@ -1503,14 +1502,14 @@ async def update_cube_node(
     node_revision: NodeRevision,
     data: UpdateNode,
     *,
-    request_headers: Dict[str, str],
+    request_headers: dict[str, str],
     query_service_client: QueryServiceClient,
     current_user: User,
     background_tasks: BackgroundTasks = None,
     access_checker: AccessChecker,
     save_history: Callable,
     refresh_materialization: bool = False,
-) -> Optional[NodeRevision]:
+) -> NodeRevision | None:
     """
     Update cube node based on changes
     """
@@ -1856,17 +1855,17 @@ def copy_existing_node_revision(old_revision: NodeRevision, current_user: User):
 
 async def create_node_from_inactive(
     new_node_type: NodeType,
-    data: Union[CreateSourceNode, CreateNode, CreateCubeNode],
+    data: CreateSourceNode | CreateNode | CreateCubeNode,
     session: AsyncSession,
     *,
     current_user: User,
-    request_headers: Dict[str, str],
+    request_headers: dict[str, str],
     query_service_client: QueryServiceClient,
     save_history: Callable,
     background_tasks: BackgroundTasks = None,
-    access_checker: AccessChecker = None,
+    access_checker: AccessChecker | None = None,
     cache: Cache | None = None,
-) -> Optional[Node]:
+) -> Node | None:
     """
     If the node existed and is inactive the re-creation takes different steps than
     creating it from scratch.
@@ -2001,8 +2000,8 @@ async def create_new_revision_from_existing(
     node: Node,
     current_user: User,
     data: UpdateNode = None,
-    version_upgrade: VersionUpgrade = None,
-) -> Optional[NodeRevision]:
+    version_upgrade: VersionUpgrade | None = None,
+) -> NodeRevision | None:
     """
     Creates a new revision from an existing node revision.
     """
@@ -2308,7 +2307,7 @@ async def save_query_ast(  # pragma: no cover
 async def get_column_level_lineage(
     session: AsyncSession,
     node_revision: NodeRevision,
-) -> List[LineageColumn]:
+) -> list[LineageColumn]:
     """
     Gets the column-level lineage for the node
     """
@@ -3029,7 +3028,7 @@ async def create_new_revision_for_dimension_link_update(
 
 async def propagate_valid_status(
     session: AsyncSession,
-    valid_nodes: List[NodeRevision],
+    valid_nodes: list[NodeRevision],
     catalog_id: int,
     current_user: User,
     save_history: Callable,
@@ -3107,11 +3106,11 @@ async def delete_orphaned_missing_parents(session: AsyncSession) -> None:
 async def mark_node_as_missing_parent(
     session: AsyncSession,
     node_name: str,
-    node: Optional[Node],
+    node: Node | None,
     invalidate_downstreams: bool = True,
     remove_parent_relationships: bool = False,
-    current_user: Optional[User] = None,
-    save_history: Optional[Callable] = None,
+    current_user: User | None = None,
+    save_history: Callable | None = None,
 ) -> tuple[MissingParent, list[Node]]:
     """
     Get or create a MissingParent entry for a node and update downstream nodes.
@@ -3194,8 +3193,8 @@ async def deactivate_node(
     save_history: Callable,
     query_service_client: QueryServiceClient,
     background_tasks: BackgroundTasks,
-    request_headers: Dict[str, str] = None,
-    message: str = None,
+    request_headers: dict[str, str] | None = None,
+    message: str | None = None,
 ):
     """
     Deactivates a node and propagates to all downstreams.
@@ -3225,7 +3224,7 @@ async def deactivate_node(
             request_headers=request_headers,
         )
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     node.deactivated_at = UTCDatetime(  # type: ignore
         year=now.year,
         month=now.month,
@@ -3259,7 +3258,7 @@ async def activate_node(
     name: str,
     current_user: User,
     save_history: Callable,
-    message: str = None,
+    message: str | None = None,
 ):
     """Restores node and revalidate all downstreams."""
     node = await get_node_by_name(
@@ -3695,6 +3694,7 @@ async def hard_delete_node(
         include_inactive=True,
         raise_if_not_exists=True,
     )
+    node = cast(Node, node)
 
     # Mark node as missing parent and update downstream nodes (without invalidating)
     # For hard delete, we remove parent relationships since the node is being permanently deleted

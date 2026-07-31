@@ -3,7 +3,6 @@ Attributes related APIs.
 """
 
 import logging
-from typing import List
 
 from fastapi import Depends
 from sqlalchemy import select
@@ -26,11 +25,11 @@ settings = get_settings()
 router = SecureAPIRouter(tags=["attributes"])
 
 
-@router.get("/attributes/", response_model=List[AttributeTypeBase])
+@router.get("/attributes/", response_model=list[AttributeTypeBase])
 async def list_attributes(
     *,
     session: AsyncSession = Depends(get_session),
-) -> List[AttributeTypeBase]:
+) -> list[AttributeTypeBase]:
     """
     List all available attribute types.
     """

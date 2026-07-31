@@ -388,9 +388,11 @@ class Node(ABC):
         if nodes_only:
             child_generator = iter(
                 filter(
-                    lambda child: isinstance(child, Node)
-                    if not named
-                    else isinstance(child[1], Node),
+                    lambda child: (
+                        isinstance(child, Node)
+                        if not named
+                        else isinstance(child[1], Node)
+                    ),
                     child_generator,
                 ),
             )
@@ -398,9 +400,9 @@ class Node(ABC):
         if not nones:
             child_generator = iter(
                 filter(
-                    lambda child: (child is not None)
-                    if not named
-                    else (child[1] is not None),
+                    lambda child: (
+                        (child is not None) if not named else (child[1] is not None)
+                    ),
                     child_generator,
                 ),
             )
@@ -3443,8 +3445,11 @@ class Query(TableExpression, UnNamed):
         for cte in self.ctes:
             tables = list(
                 self.filter(
-                    lambda node: isinstance(node, Table)
-                    and node.identifier(False) == cte.alias_or_name.identifier(False),
+                    lambda node: (
+                        isinstance(node, Table)
+                        and node.identifier(False)
+                        == cte.alias_or_name.identifier(False)
+                    ),
                 ),
             )
             for i, tbl in enumerate(tables):

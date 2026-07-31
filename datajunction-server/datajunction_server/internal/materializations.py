@@ -2,25 +2,26 @@
 
 import logging
 import zlib
-from typing import Dict, List, Optional, Tuple, Union
 
 from pydantic import ValidationError
 from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from datajunction_server.internal.sql import build_sql_for_multiple_metrics
 from datajunction_server.construction.build import get_default_criteria
 from datajunction_server.construction.build_v2 import QueryBuilder
-from datajunction_server.internal.sql import get_measures_query
 from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.node import NodeRevision
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJException, DJInvalidInputException
+from datajunction_server.internal.access.authorization import AccessChecker
 from datajunction_server.internal.cube_materializations import (
     build_cube_materialization,
 )
+from datajunction_server.internal.sql import (
+    build_sql_for_multiple_metrics,
+    get_measures_query,
+)
 from datajunction_server.materialization.jobs import MaterializationJob
-from datajunction_server.internal.access.authorization import AccessChecker
 from datajunction_server.models.column import SemanticType
 from datajunction_server.models.cube_materialization import UpsertCubeMaterialization
 from datajunction_server.models.materialization import (
@@ -51,7 +52,7 @@ async def rewrite_metrics_expressions(
     session: AsyncSession,
     current_revision: NodeRevision,
     measures_query: TranslatedSQL,
-) -> Dict[str, MetricMeasures]:
+) -> dict[str, MetricMeasures]:
     """
     Map each metric to a rewritten version of the metric expression with the measures from
     the materialized measures table.
@@ -306,10 +307,10 @@ async def create_new_materialization(
 async def schedule_materialization_jobs(
     session: AsyncSession,
     node_revision_id: int,
-    materialization_names: List[str],
+    materialization_names: list[str],
     query_service_client: QueryServiceClient,
-    request_headers: Optional[Dict[str, str]] = None,
-) -> Dict[str, MaterializationInfo]:
+    request_headers: dict[str, str] | None = None,
+) -> dict[str, MaterializationInfo]:
     """
     Schedule recurring materialization jobs
     """
@@ -338,9 +339,9 @@ async def schedule_materialization_jobs(
 
 async def schedule_materialization_jobs_bg(
     node_revision_id: int,
-    materialization_names: List[str],
+    materialization_names: list[str],
     query_service_client: QueryServiceClient,
-    request_headers: Optional[Dict[str, str]] = None,
+    request_headers: dict[str, str] | None = None,
 ) -> None:
     """
     Schedule a materialization job in the background.
@@ -379,8 +380,8 @@ def _get_readable_name(expr):
 
 
 def decompose_expression(
-    expr: Union[ast.Aliasable, ast.Expression],
-) -> Tuple[ast.Expression, List[ast.Alias]]:
+    expr: ast.Aliasable | ast.Expression,
+) -> tuple[ast.Expression, list[ast.Alias]]:
     """
     Takes a metric expression and (a) determines the measures needed to evaluate
     the metric and (b) includes the query expression needed to recombine these

@@ -266,15 +266,16 @@ class DJClient(_internal.DJClient):
         """
         Builds SQL for a node with the provided dimensions and filters.
         """
+        params: Dict[str, Any] = {
+            "dimensions": dimensions or [],
+            "filters": filters or [],
+            "engine_name": engine_name or self.engine_name,
+            "engine_version": engine_version or self.engine_version,
+            "use_materialized": use_materialized,
+        }
         response = self._session.get(
             f"/sql/{node_name}",
-            params={
-                "dimensions": dimensions or [],
-                "filters": filters or [],
-                "engine_name": engine_name or self.engine_name,
-                "engine_version": engine_version or self.engine_version,
-                "use_materialized": use_materialized,
-            },
+            params=params,
         )
         if response.status_code == 200:
             return response.json()["sql"]

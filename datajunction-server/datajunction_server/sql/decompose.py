@@ -9,17 +9,16 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from datajunction_server.database.node import Node, NodeRevision, NodeRelationship
-from datajunction_server.models.node_type import NodeType
+from datajunction_server.database.node import Node, NodeRelationship, NodeRevision
 from datajunction_server.models.decompose import (
     Aggregability,
     AggregationRule,
     MetricComponent,
 )
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.naming import amenable_col_names
 from datajunction_server.sql import functions as dj_functions
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
-
 
 # =============================================================================
 # AST Builder Helpers

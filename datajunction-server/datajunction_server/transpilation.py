@@ -1,12 +1,11 @@
 """SQL transpilation plugins manager."""
 
-from typing import Optional
 import logging
 
 import sqlglot
 
-from datajunction_server.models.engine import Dialect
 from datajunction_server.models.dialect import DialectRegistry, dialect_plugin
+from datajunction_server.models.engine import Dialect
 from datajunction_server.utils import get_settings
 
 settings = get_settings()
@@ -25,14 +24,14 @@ class SQLTranspilationPlugin:
     (see ``register_dialect_plugin``).
     """
 
-    package_name: Optional[str] = "default"
+    package_name: str | None = "default"
 
     def transpile_sql(
         self,
         query: str,
         *,
-        input_dialect: Optional[Dialect] = None,
-        output_dialect: Optional[Dialect] = None,
+        input_dialect: Dialect | None = None,
+        output_dialect: Dialect | None = None,
     ) -> str:
         """Transpile a given SQL query using the specific library."""
         return query
@@ -59,8 +58,8 @@ class SQLGlotTranspilationPlugin(SQLTranspilationPlugin):
         self,
         query: str,
         *,
-        input_dialect: Optional[Dialect] = None,
-        output_dialect: Optional[Dialect] = None,
+        input_dialect: Dialect | None = None,
+        output_dialect: Dialect | None = None,
     ) -> str:
         """
         Transpile a given SQL query using the specific library.

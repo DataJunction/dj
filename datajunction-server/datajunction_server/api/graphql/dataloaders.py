@@ -4,22 +4,24 @@ DataLoaders for batching and caching GraphQL queries.
 
 import json
 import logging
-from typing import Any, Optional, Tuple
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload, load_only, noload, selectinload
-from strawberry.dataloader import DataLoader
 from starlette.requests import Request
+from strawberry.dataloader import DataLoader
 
 from datajunction_server.api.graphql.resolvers.nodes import load_node_options
-from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.construction.build_v3.loaders import find_upstream_node_names
 from datajunction_server.database.collection import Collection as DBCollection
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import (
     Node as DBNode,
+)
+from datajunction_server.database.node import (
     NodeRevision as DBNodeRevision,
 )
+from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.internal.namespaces import (
     get_parent_namespaces,
     resolve_git_info_from_map,
@@ -240,7 +242,7 @@ def create_collection_nodes_loader(
 async def batch_load_git_info(
     namespaces: list[str],
     request: Request,
-) -> list[Optional[dict]]:
+) -> list[dict | None]:
     """
     Batch load git info for multiple namespaces in a single query.
 
@@ -289,7 +291,7 @@ async def batch_load_git_info(
 
 def create_git_info_loader(
     request: Request,
-) -> DataLoader[str, Optional[dict]]:
+) -> DataLoader[str, dict | None]:
     """
     Create a DataLoader that batches git info lookups by namespace.
 
@@ -306,7 +308,7 @@ def create_git_info_loader(
 async def batch_load_extracted_measures(
     node_revision_ids: list[int],
     request: Request,
-) -> list[Optional[Tuple[list[MetricComponent], "ast.Query"]]]:
+) -> list[tuple[list[MetricComponent], "ast.Query"] | None]:
     """
     Batch-extract metric components for multiple metric node revisions.
 
@@ -386,7 +388,7 @@ async def batch_load_extracted_measures(
         # 4) Per nr_id: invoke extract() with the cache trio so the extractor
         # takes the zero-DB-query path through _build_metric_data_from_cache,
         # including its recursion.
-        results: list[Optional[Tuple[list[MetricComponent], "ast.Query"]]] = []
+        results: list[tuple[list[MetricComponent], ast.Query] | None] = []
         for nr_id in node_revision_ids:
             name = nr_to_name.get(nr_id)
             metric_node = nodes_cache.get(name) if name else None
@@ -414,7 +416,7 @@ async def batch_load_extracted_measures(
 
 def create_extracted_measures_loader(
     request: Request,
-) -> DataLoader[int, Optional[Tuple[list[MetricComponent], "ast.Query"]]]:
+) -> DataLoader[int, tuple[list[MetricComponent], "ast.Query"] | None]:
     """
     Create a DataLoader that batches MetricComponentExtractor.extract() calls
     across a GraphQL request. Keys are NodeRevision ids.

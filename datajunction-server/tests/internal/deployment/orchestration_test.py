@@ -2,63 +2,55 @@
 Unit tests for DeploymentOrchestrator
 """
 
-import pytest
+from datetime import UTC
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
+import pytest
 from sqlalchemy import select
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
-from datajunction_server.internal.deployment.orchestrator import (
-    DeploymentOrchestrator,
-)
-from datajunction_server.internal.deployment.utils import DeploymentContext
-from datajunction_server.internal.deployment.validation import (
-    CubeValidationData,
-)
 from datajunction_server.database.catalog import Catalog
-from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.column import Column
-from datajunction_server.models.partition import Granularity
-
-from datajunction_server.internal.deployment.utils import DeploymentContext
+from datajunction_server.database.dimensionlink import (
+    JoinCardinality,
+    JoinType,
+)
+from datajunction_server.database.namespace import NodeNamespace
+from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.tag import Tag
+from datajunction_server.database.user import OAuthProvider, User
+from datajunction_server.errors import DJError, DJInvalidDeploymentConfig, ErrorCode
 from datajunction_server.internal.deployment.orchestrator import (
     DeploymentOrchestrator,
     DeploymentPlan,
     ResourceRegistry,
     column_changed,
 )
+from datajunction_server.internal.deployment.utils import DeploymentContext
 from datajunction_server.internal.deployment.validation import (
+    CubeValidationData,
     NodeValidationResult,
 )
 from datajunction_server.models.deployment import (
     ColumnSpec,
-    DeploymentSpec,
-    HierarchySpec,
-    HierarchyLevelSpec,
-    PartitionType,
-    PartitionSpec,
-    TagSpec,
-)
-from datajunction_server.models.deployment import (
-    SourceSpec,
-    TransformSpec,
-    MetricSpec,
     CubeSpec,
     DeploymentResult,
+    DeploymentSpec,
     DimensionJoinLinkSpec,
     DimensionReferenceLinkSpec,
-)
-from datajunction_server.models.node import MetricUnit, NodeStatus
-from datajunction_server.database.namespace import NodeNamespace
-from datajunction_server.database.user import OAuthProvider, User
-from datajunction_server.database.tag import Tag
-from datajunction_server.database.catalog import Catalog
-from datajunction_server.database.dimensionlink import (
-    JoinCardinality,
-    JoinType,
+    HierarchyLevelSpec,
+    HierarchySpec,
+    MetricSpec,
+    PartitionSpec,
+    PartitionType,
+    SourceSpec,
+    TagSpec,
+    TransformSpec,
 )
 from datajunction_server.models.dimensionlink import JoinLinkInput
 from datajunction_server.models.history import ActivityType
-from datajunction_server.errors import DJError, DJInvalidDeploymentConfig, ErrorCode
+from datajunction_server.models.node import MetricUnit, NodeStatus
+from datajunction_server.models.partition import Granularity
 
 
 @pytest.fixture
@@ -2236,7 +2228,7 @@ async def test_create_deployment_plan_reactivates_deactivated_auto_source(
     so the deploy tried to INSERT a row that already existed and Postgres
     rejected with a UniqueViolation.
     """
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     session.add(NodeNamespace(namespace="test"))
     catalog = Catalog(name="ext_cat2")
@@ -2249,7 +2241,7 @@ async def test_create_deployment_plan_reactivates_deactivated_auto_source(
         type="source",
         current_version="v1.0",
         created_by_id=current_user.id,
-        deactivated_at=datetime.now(timezone.utc),
+        deactivated_at=datetime.now(UTC),
     )
     session.add(deactivated_source)
     deactivated_rev = NodeRevision(
@@ -2364,14 +2356,16 @@ async def test_create_deployment_plan_acquires_advisory_lock_for_autoreg(
             lock_calls.append(params["key"])
         return await real_execute(stmt, params, *args, **kwargs)
 
-    with patch.object(session, "execute", side_effect=spy_execute):
-        with patch.object(
+    with (
+        patch.object(session, "execute", side_effect=spy_execute),
+        patch.object(
             orchestrator,
             "check_external_deps",
             # Pass sources in NON-sorted order to verify they get sorted.
             side_effect=[(set(), [src_b, src_a], []), (set(), [], [])],
-        ):
-            await orchestrator._create_deployment_plan()
+        ),
+    ):
+        await orchestrator._create_deployment_plan()
 
     # Both source names had their lock acquired, in sorted order.
     assert lock_calls == [
@@ -2388,7 +2382,7 @@ async def test_node_get_by_names_include_inactive(
     """Node.get_by_names returns deactivated nodes only when include_inactive=True.
     Guards the (previously uncovered) inactive filter so a future regression
     in this contract would surface immediately."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     session.add(NodeNamespace(namespace="test_inactive"))
     catalog = Catalog(name="inactive_test_cat")
@@ -2400,7 +2394,7 @@ async def test_node_get_by_names_include_inactive(
         type="source",
         current_version="v1.0",
         created_by_id=current_user.id,
-        deactivated_at=datetime.now(timezone.utc),
+        deactivated_at=datetime.now(UTC),
     )
     session.add(node)
     await session.commit()
@@ -3029,6 +3023,7 @@ class TestSqlalchemyHelpers:
     def test_sqlalchemy_to_dj_type_known_types(self):
         """Each SQLAlchemy type maps to the expected DJ type string."""
         from sqlalchemy import (
+            JSON,
             BigInteger,
             Boolean,
             Date,
@@ -3036,14 +3031,13 @@ class TestSqlalchemyHelpers:
             Float,
             Integer,
             Interval,
-            JSON,
             Numeric,
             SmallInteger,
             String,
             Text,
             Time,
         )
-        from sqlalchemy.dialects.postgresql import JSONB, UUID, ARRAY
+        from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 
         from datajunction_server.internal.deployment.orchestrator import (
             _sqlalchemy_to_dj_type,

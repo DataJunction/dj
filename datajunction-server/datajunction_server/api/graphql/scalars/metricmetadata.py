@@ -1,7 +1,5 @@
 """Metric metadata scalars"""
 
-from typing import Optional
-
 import strawberry
 
 from datajunction_server.models.cube_materialization import (
@@ -11,10 +9,10 @@ from datajunction_server.models.cube_materialization import (
     AggregationRule as AggregationRule_,
 )
 from datajunction_server.models.cube_materialization import (
-    MetricComponent as MetricComponent_,
+    DecomposedMetric as DecomposedMetric_,
 )
 from datajunction_server.models.cube_materialization import (
-    DecomposedMetric as DecomposedMetric_,
+    MetricComponent as MetricComponent_,
 )
 from datajunction_server.models.node import MetricDirection as MetricDirection_
 
@@ -29,9 +27,9 @@ class Unit:
     """
 
     name: str
-    label: Optional[str]
-    category: Optional[str]
-    abbreviation: Optional[str]
+    label: str | None
+    category: str | None
+    abbreviation: str | None
 
 
 @strawberry.experimental.pydantic.type(model=AggregationRule_, all_fields=True)

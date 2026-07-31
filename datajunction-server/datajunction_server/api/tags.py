@@ -2,7 +2,7 @@
 Tag related APIs.
 """
 
-from typing import Callable, List, Optional
+from collections.abc import Callable
 
 from fastapi import Depends
 from sqlalchemy import select
@@ -32,8 +32,8 @@ router = SecureAPIRouter(tags=["tags"])
 
 async def get_tags_by_name(
     session: AsyncSession,
-    names: List[str],
-) -> List[Tag]:
+    names: list[str],
+) -> list[Tag]:
     """
     Retrieves a list of tags by name
     """
@@ -70,12 +70,12 @@ async def get_tag_by_name(
     return tag
 
 
-@router.get("/tags/", response_model=List[TagOutput])
+@router.get("/tags/", response_model=list[TagOutput])
 async def list_tags(
-    tag_type: Optional[str] = None,
+    tag_type: str | None = None,
     *,
     session: AsyncSession = Depends(get_session),
-) -> List[TagOutput]:
+) -> list[TagOutput]:
     """
     List all available tags.
     """
@@ -193,13 +193,13 @@ async def update_a_tag(
     return tag
 
 
-@router.get("/tags/{name}/nodes/", response_model=List[NodeMinimumDetail])
+@router.get("/tags/{name}/nodes/", response_model=list[NodeMinimumDetail])
 async def list_nodes_for_a_tag(
     name: str,
-    node_type: Optional[NodeType] = None,
+    node_type: NodeType | None = None,
     *,
     session: AsyncSession = Depends(get_session),
-) -> List[NodeMinimumDetail]:
+) -> list[NodeMinimumDetail]:
     """
     Find nodes tagged with the tag, filterable by node type.
     """

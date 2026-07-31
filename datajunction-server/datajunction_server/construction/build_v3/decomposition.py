@@ -22,8 +22,8 @@ from datajunction_server.construction.build_v3.types import (
 from datajunction_server.database.node import Node
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.decompose import Aggregability, MetricComponent
-from datajunction_server.sql.decompose import MetricComponentExtractor
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.sql.decompose import MetricComponentExtractor
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 

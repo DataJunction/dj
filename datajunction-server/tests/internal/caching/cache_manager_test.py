@@ -2,11 +2,12 @@
 Tests for cache manager
 """
 
-from fastapi import BackgroundTasks
 import pytest
-from datajunction_server.internal.caching.cachelib_cache import CachelibCache
-from datajunction_server.internal.caching.cache_manager import RefreshAheadCacheManager
+from fastapi import BackgroundTasks
 from starlette.datastructures import Headers
+
+from datajunction_server.internal.caching.cache_manager import RefreshAheadCacheManager
+from datajunction_server.internal.caching.cachelib_cache import CachelibCache
 
 
 class ExampleCacheManager(RefreshAheadCacheManager):

@@ -3,29 +3,27 @@ exclude: (^datajunction-query/docker/)
 
 repos:
 - repo: https://github.com/pre-commit/pre-commit-hooks
-  rev: v5.0.0
+  rev: v6.0.0
   hooks:
   - id: trailing-whitespace
   - id: check-ast
-    exclude: ^templates/
+    exclude: templates/
   - id: check-merge-conflict
   - id: debug-statements
-    exclude: ^templates/
-  - id: requirements-txt-fixer
-    exclude: ^templates/
+    exclude: templates/
 
 - repo: https://github.com/astral-sh/ruff-pre-commit
-  rev: v0.11.10
+  rev: v0.15.22
   hooks:
-    - id: ruff
+    - id: ruff-check
       args: [ --fix ]
     - id: ruff-format
 
 - repo: https://github.com/pre-commit/mirrors-mypy
-  rev: 'v0.981'  # Use the sha / tag you want to point at
+  rev: 'v2.3.0'  # Use the sha / tag you want to point at
   hooks:
   - id: mypy
-    exclude: ^templates/
+    exclude: templates/
     additional_dependencies:
     - types-requests
     - types-freezegun
@@ -36,20 +34,6 @@ repos:
     - types-toml
 
 - repo: https://github.com/asottile/add-trailing-comma
-  rev: v3.1.0
+  rev: v4.0.0
   hooks:
   - id: add-trailing-comma
-
-- repo: https://github.com/kynan/nbstripout
-  rev: 0.6.1
-  hooks:
-    - id: nbstripout
-- repo: https://github.com/tomcatling/black-nb
-  rev: "0.7"
-  hooks:
-    - id: black-nb
-      files: '\.ipynb$'
-- repo: https://github.com/pdm-project/pdm
-  rev: 2.6.1
-  hooks:
-    - id: pdm-lock-check
