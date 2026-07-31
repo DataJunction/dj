@@ -3123,3 +3123,173 @@ class TestBuildGrainGroupFromPreaggErrorPaths:
         )
         # Only one component should appear in output despite two in input
         assert len(result.components) == 1
+
+
+class TestPreAggFreshnessGating:
+    """
+    Routing decisions made against a pre-agg's reported ``valid_through_ts``.
+
+    The pre-agg below is valid through 2025-01-01 on a date grain, which is stale
+    in wall-clock terms but perfectly good for a query bounded before it.
+    """
+
+    PREAGG_SQL = """
+    WITH order_details_0 AS (
+        SELECT date_id_order, SUM(revenue_sum) revenue_sum
+        FROM default.analytics.revenue_by_date
+        GROUP BY date_id_order
+    )
+    SELECT order_details_0.date_id_order AS date_id_order,
+           SUM(order_details_0.revenue_sum) AS total_revenue
+    FROM order_details_0
+    WHERE order_details_0.date_id_order <= {bound}
+    GROUP BY order_details_0.date_id_order
+    """
+
+    SOURCE_SQL = """
+    WITH v3_order_details AS (
+        SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
+        FROM default.v3.orders o
+        JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+        WHERE o.order_date <= 20260101
+    ),
+    order_details_0 AS (
+        SELECT t1.order_date date_id_order,
+               SUM(t1.line_total) line_total_sum_e1f61696
+        FROM v3_order_details t1
+        GROUP BY t1.order_date
+    )
+    SELECT order_details_0.date_id_order AS date_id_order,
+           SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+    FROM order_details_0
+    WHERE order_details_0.date_id_order <= 20260101
+    GROUP BY order_details_0.date_id_order
+    """
+
+    UNFILTERED_SOURCE_SQL = """
+    WITH v3_order_details AS (
+        SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
+        FROM default.v3.orders o
+        JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+    ),
+    order_details_0 AS (
+        SELECT t1.order_date date_id_order,
+               SUM(t1.line_total) line_total_sum_e1f61696
+        FROM v3_order_details t1
+        GROUP BY t1.order_date
+    )
+    SELECT order_details_0.date_id_order AS date_id_order,
+           SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+    FROM order_details_0
+    GROUP BY order_details_0.date_id_order
+    """
+
+    async def _register(self, client):
+        """Partition the fact on order_date, then adopt a date-grain pre-agg."""
+        partition_response = await client.post(
+            "/nodes/v3.order_details/columns/order_date/partition",
+            json={"type_": "temporal", "format": "yyyyMMdd", "granularity": "day"},
+        )
+        assert partition_response.status_code == 201
+        await _register_external_preagg(
+            client,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.date.date_id[order]"],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "revenue_by_date",
+                "valid_through_ts": 20250101,
+            },
+            measure_columns={"v3.total_revenue": "revenue_sum"},
+            table_columns={"date_id_order": "int", "revenue_sum": "double"},
+        )
+
+    def _configure(self, mocker, *, gating: bool, max_staleness: int | None = None):
+        mocker.patch(
+            "datajunction_server.construction.build_v3.preagg_freshness.get_settings",
+            return_value=SimpleNamespace(
+                preagg_freshness_gating=gating,
+                preagg_max_staleness_seconds=max_staleness,
+            ),
+        )
+
+    async def _metrics_sql(self, client, filters: list[str]) -> str:
+        response = await client.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.date.date_id[order]"],
+                "filters": filters,
+            },
+        )
+        assert response.status_code == 200
+        return response.json()["sql"]
+
+    @pytest.mark.asyncio
+    async def test_historical_query_uses_a_stale_preagg(
+        self,
+        client_with_build_v3,
+        mocker,
+    ):
+        """A query bounded inside the watermark is served, however old the table."""
+        await self._register(client_with_build_v3)
+        self._configure(mocker, gating=True)
+        assert_sql_equal(
+            await self._metrics_sql(
+                client_with_build_v3,
+                ["v3.date.date_id[order] <= 20240101"],
+            ),
+            self.PREAGG_SQL.format(bound=20240101),
+        )
+
+    @pytest.mark.asyncio
+    async def test_query_past_the_watermark_falls_back_to_source(
+        self,
+        client_with_build_v3,
+        mocker,
+    ):
+        """A query reaching past the watermark computes from source instead."""
+        await self._register(client_with_build_v3)
+        self._configure(mocker, gating=True)
+        assert_sql_equal(
+            await self._metrics_sql(
+                client_with_build_v3,
+                ["v3.date.date_id[order] <= 20260101"],
+            ),
+            self.SOURCE_SQL,
+        )
+
+    @pytest.mark.asyncio
+    async def test_gating_off_serves_the_same_query_from_the_preagg(
+        self,
+        client_with_build_v3,
+        mocker,
+    ):
+        """Default configuration routes exactly as it did before the gate."""
+        await self._register(client_with_build_v3)
+        self._configure(mocker, gating=False)
+        assert_sql_equal(
+            await self._metrics_sql(
+                client_with_build_v3,
+                ["v3.date.date_id[order] <= 20260101"],
+            ),
+            self.PREAGG_SQL.format(bound=20260101),
+        )
+
+    @pytest.mark.asyncio
+    async def test_open_ended_query_falls_back_under_a_staleness_budget(
+        self,
+        client_with_build_v3,
+        mocker,
+    ):
+        """
+        An unfiltered query implicitly asks for data through now, so a configured
+        staleness budget rejects a watermark that far behind.
+        """
+        await self._register(client_with_build_v3)
+        self._configure(mocker, gating=True, max_staleness=86400)
+        assert_sql_equal(
+            await self._metrics_sql(client_with_build_v3, []),
+            self.UNFILTERED_SOURCE_SQL,
+        )

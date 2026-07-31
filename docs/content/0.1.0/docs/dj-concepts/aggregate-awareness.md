@@ -336,6 +336,29 @@ Until this call has been made at least once, the pre-aggregation exists but has 
 routing won't send queries to it — the same rule that applies to any DJ-materialized pre-aggregation
 that hasn't finished its first build.
 
+### Freshness gating
+
+By default, DJ treats a pre-aggregation with any availability at all as eligible: once you've reported
+`valid_through_ts` once, routing keeps sending queries there even if the pipeline behind it later stops
+running. Setting `PREAGG_FRESHNESS_GATING=true` makes DJ consult the watermark on every query instead.
+
+What it compares against is the time range the query itself asks for, not wall clock. A query with an
+upper bound on the pre-aggregation's temporal partition — `date_id <= 20250101`, or the high side of a
+`BETWEEN` — is served whenever that bound falls within `valid_through_ts`, so a report for last March
+keeps reading the aggregate even if the table hasn't been rebuilt since. A query whose bound reaches
+past the watermark falls back to computing from source, since the aggregate would silently return
+truncated numbers.
+
+A query with no discoverable upper bound implicitly asks for data through the present, and no watermark
+comparison can make that safe. Those queries are allowed through unless you also set
+`PREAGG_MAX_STALENESS_SECONDS`, which gives them a wall-clock budget: DJ renders `now - budget` into the
+partition's format and requires `valid_through_ts` to be at least that recent.
+
+Gating only applies to pre-aggregations whose grain includes a temporal partition column — that's the
+axis `valid_through_ts` describes. A pre-aggregation with no temporal dimension is never rejected for
+staleness, because there's nothing to compare it against. Rejection is silent: the query falls back to
+source and returns correct (if slower) results, the same as any other non-match.
+
 ### External pre-aggregations are read-only to DJ
 
 Registering a table this way sets its materialization strategy to `external`. DJ will refuse to
