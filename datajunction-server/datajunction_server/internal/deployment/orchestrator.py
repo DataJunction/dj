@@ -2290,7 +2290,7 @@ class DeploymentOrchestrator:
                     all_parent_rev_ids.add(p.current.id)
                     local_names[p.current.id] = p.name
         all_dim_node_names = {
-            dim.rsplit(SEPARATOR, 1)[0]
+            FullColumnName(dim).node_name
             for cube in cube_specs
             for dim in (cube.rendered_dimensions or [])
         }
@@ -2547,30 +2547,31 @@ class DeploymentOrchestrator:
         # INVALID is rejected here at deploy.
         dim_compat_errors: list[DJError] = []
         if cube_spec.rendered_dimensions:  # pragma: no branch
-            requested_dim_roles = {
-                (fcn.node_name, fcn.role)
-                for dim in cube_spec.rendered_dimensions
-                for fcn in (FullColumnName(dim),)
-            }
+            requested_dim_roles = {}
+            for dim in cube_spec.rendered_dimensions:
+                fcn = FullColumnName(dim)
+                requested_dim_roles.setdefault((fcn.node_name, fcn.role), []).append(
+                    fcn.name,
+                )
             unreachable = reachability.unreachable_dimension_roles(
                 cube_parent_rev_ids,
-                requested_dim_roles,
+                set(requested_dim_roles),
             )
             for (dim_name, role), missing_from_ids in unreachable.items():
                 parent_names = sorted(
                     rev_id_to_parent.get(rid, str(rid)) for rid in missing_from_ids
                 )
-                dim_label = dim_name + (f"[{role}]" if role else "")
-                dim_compat_errors.append(
-                    DJError(
-                        code=ErrorCode.INVALID_DIMENSION,
-                        message=(
-                            f"The dimension attribute `{dim_label}` is not "
-                            f"reachable from parent node(s): {', '.join(parent_names)}. "
-                            f"Add a dimension link to make it available."
+                for dim_label in requested_dim_roles[(dim_name, role)]:
+                    dim_compat_errors.append(
+                        DJError(
+                            code=ErrorCode.INVALID_DIMENSION,
+                            message=(
+                                f"The dimension attribute `{dim_label}` is not "
+                                f"reachable from parent node(s): {', '.join(parent_names)}. "
+                                f"Add a dimension link to make it available."
+                            ),
                         ),
-                    ),
-                )
+                    )
 
         # Validate that dimensions referenced in filters are reachable
         # and that the specific columns exist on those dimension nodes.

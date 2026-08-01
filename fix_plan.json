@@ -1,21 +1,23 @@
 {
-  "root_cause": "`inline` and `inline_outer` are implemented only as scalar `Function` subclasses, but `FunctionTable._type` resolves functions used in table position through `table_function_registry`, which is populated from `TableFunction.__subclasses__()`. Because no `TableFunction` variants exist for these names, `LATERAL VIEW inline(...)` and `LATERAL VIEW inline_outer(...)` are absent from the table-function registry and compile to a `DJNotImplementedException` even though scalar `Inline` classes exist.",
+  "root_cause": "The deployment cube path validates that referenced metric nodes and dimension attributes exist, but the per-cube validation does not fail a cube when one of its declared dimensions is absent from the dimension-link graph of a metric's ultimate non-metric parent. As a result, `dj push` can create or update a syntactically valid cube whose metric parent transforms cannot join to every declared dimension, leaving the failure to surface later during SQL generation.",
   "target_files": [
-    "datajunction-server/datajunction_server/sql/functions.py",
-    "datajunction-server/tests/sql/functions_test.py"
+    "datajunction-server/datajunction_server/internal/deployment/orchestrator.py",
+    "datajunction-server/datajunction_server/internal/deployment/dimension_reachability.py",
+    "datajunction-server/tests/internal/deployment/orchestration_test.py",
+    "datajunction-server/tests/internal/deployment/test_dimension_reachability.py"
   ],
   "target_functions": [
-    "Inline",
-    "InlineOuter",
-    "test_inline_func",
-    "test_inline_registered_as_table_function"
+    "DeploymentOrchestrator._bulk_validate_cubes",
+    "DeploymentOrchestrator._validate_single_cube",
+    "DimensionReachability.build",
+    "DimensionReachability.unreachable_dimension_roles"
   ],
-  "approach": "Add `TableFunction` subclasses for `Inline` and `InlineOuter` near the existing `Explode` and `Unnest` table functions, with `infer_type(ct.ListType)` returning the fields from the list element struct as separate `NestedField` outputs. Keep the existing scalar definitions for registry parity, but adjust expectations where parsing now resolves `inline` names as table functions. Add a focused regression test that asserts both names are registered in `table_function_registry` and infer one output column per struct field, plus compile coverage for a `LATERAL VIEW inline(...)`/`inline_outer(...)` query.",
+  "approach": "In bulk cube validation, resolve each metric to its unique ultimate non-metric parent revisions, then build one batched dimension reachability map for all cube parent revisions and declared cube dimension node names. In per-cube validation, check each declared dimension attribute, including role-qualified references, against every parent revision used by the cube metrics and append INVALID_DIMENSION errors for missing paths before creating the cube revision. Keep the existing existence/status validation and cube metadata construction unchanged.",
   "tests_to_add": [
-    "Update or replace `test_inline_func` to compile a LATERAL VIEW query using `inline` and `inline_outer` over an array of structs",
-    "Add `test_inline_registered_as_table_function` verifying registry entries and inferred field output types"
+    "Unit test DimensionReachability role-aware unreachable checks, including bare references that should not match role-only paths",
+    "Deployment orchestrator regression test where a cube references an existing dimension attribute that is not reachable from one metric parent and is marked INVALID with an actionable error"
   ],
-  "expected_loc": 60,
-  "risk_notes": "Once registered as table functions, `Function.__new__` will resolve unqualified `inline(...)` calls to `FunctionTable`; existing scalar-position assumptions for inline may need test updates.",
-  "out_of_scope_observations": "No parser, API, client, dependency, or formatting changes are needed for this issue."
+  "expected_loc": 180,
+  "risk_notes": "Role-qualified dimension links and local dimensions need exact matching so valid self-dimensions and role-specific joins are not rejected; derived metrics with multiple parents should require reachability from every resolved parent.",
+  "out_of_scope_observations": "Direct REST cube creation already calls shared-dimension validation; this plan is limited to the `dj push` deployment validation path."
 }

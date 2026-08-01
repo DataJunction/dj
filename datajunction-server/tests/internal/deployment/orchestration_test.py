@@ -2574,6 +2574,55 @@ async def test_validate_single_cube_with_invalid_metric(
 
 
 @pytest.mark.asyncio
+async def test_validate_single_cube_rejects_unreachable_dimension(
+    orchestrator,
+):
+    """A cube dimension must be reachable from every metric parent."""
+    metric_column = SimpleNamespace(name="revenue")
+    metric = MagicMock()
+    metric.name = "test.revenue"
+    metric.current.status = NodeStatus.VALID
+    metric.current.columns = [metric_column]
+    metric.current.catalog = object()
+
+    parent = SimpleNamespace(
+        name="test.orders_transform",
+        current=SimpleNamespace(id=101),
+    )
+    dimension = MagicMock()
+    dimension.name = "test.customer"
+    dimension.current.status = NodeStatus.VALID
+    dimension.current.columns = [SimpleNamespace(name="country")]
+
+    cube_spec = CubeSpec(
+        name="sales_cube",
+        namespace="test",
+        metrics=["${prefix}revenue"],
+        dimensions=["${prefix}customer.country"],
+    )
+
+    from datajunction_server.internal.deployment.dimension_reachability import (
+        DimensionReachability,
+    )
+
+    result = orchestrator._validate_single_cube(
+        cube_spec=cube_spec,
+        metric_nodes_map={"test.revenue": metric},
+        missing_metrics=set(),
+        missing_dimensions=set(),
+        dimension_mapping={"test.customer.country": dimension},
+        reachability=DimensionReachability({}),
+        metric_to_parents={"test.revenue": [parent]},
+    )
+
+    assert result.status == NodeStatus.INVALID
+    assert len(result.errors) == 1
+    assert result.errors[0].code == ErrorCode.INVALID_DIMENSION
+    assert "test.customer.country" in result.errors[0].message
+    assert "test.orders_transform" in result.errors[0].message
+
+
+@pytest.mark.asyncio
 async def test_deploy_reference_link_on_invalid_node(
     session,
     current_user,
