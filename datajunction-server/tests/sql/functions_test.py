@@ -2236,6 +2236,8 @@ def test_inline_registered_as_table_function():
     """
     assert "INLINE" in F.table_function_registry
     assert "INLINE_OUTER" in F.table_function_registry
+    assert issubclass(F.table_function_registry["INLINE"], F.TableFunction)
+    assert issubclass(F.table_function_registry["INLINE_OUTER"], F.TableFunction)
 
     array_of_struct = ct.ListType(
         element_type=ct.StructType(
