@@ -193,8 +193,9 @@ def resolve_filter_references(
         if not base_col_ref:
             continue  # pragma: no cover
 
-        role = extract_subscript_role(subscript)
-        if not role:
+        # The base ref is kept for the fallback lookup below.
+        dim_ref_with_role = dimension_ref_of_expression(subscript)
+        if dim_ref_with_role is None:
             continue  # pragma: no cover
 
         # Mark every Column under the index as a role marker so it isn't
@@ -206,7 +207,6 @@ def resolve_filter_references(
                 role_marker_ids.add(id(inner_col))
 
         # Look up with role first, then fall back to base ref without role
-        dim_ref_with_role = f"{base_col_ref}[{role}]"
         alias_to_use = column_aliases.get(dim_ref_with_role) or column_aliases.get(
             base_col_ref,
         )

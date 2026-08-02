@@ -4,7 +4,7 @@ import logging
 from typing import TYPE_CHECKING, Iterator, NamedTuple
 
 from datajunction_server.construction.build_v3.filters import (
-    extract_subscript_role,
+    dimension_ref_of_expression,
     parse_filter,
 )
 from datajunction_server.database.node import Node
@@ -384,11 +384,8 @@ def extract_filter_dimension_refs(
             if not base_col_ref or SEPARATOR not in base_col_ref:
                 continue  # pragma: no cover
 
-            role = extract_subscript_role(subscript)
-            if role:
-                full_name = f"{base_col_ref}[{role}]"
-            else:  # pragma: no cover
-                full_name = base_col_ref
+            # The base ref is still needed below to mark this subscript handled.
+            full_name = dimension_ref_of_expression(subscript) or base_col_ref
 
             # Mark this base ref as handled so the Column pass skips it
             subscript_handled_refs.add(base_col_ref)

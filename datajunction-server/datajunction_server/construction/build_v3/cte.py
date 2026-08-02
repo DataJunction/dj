@@ -8,7 +8,7 @@ from copy import deepcopy
 from typing import Optional, cast
 
 from datajunction_server.construction.build_v3.filters import (
-    extract_subscript_role,
+    dimension_ref_of_expression,
     parse_filter,
 )
 from datajunction_server.construction.build_v3.materialization import (
@@ -298,12 +298,9 @@ def replace_dimension_refs_in_ast(
         if not base_col_name:  # pragma: no cover
             continue
 
-        role = extract_subscript_role(subscript)
-        if not role:  # pragma: no cover
+        dim_ref_with_role = dimension_ref_of_expression(subscript)
+        if dim_ref_with_role is None:  # pragma: no cover
             continue
-
-        # Build the full dimension ref with role: "v3.date.week[order]"
-        dim_ref_with_role = f"{base_col_name}[{role}]"
 
         # Look up in dimension_refs
         ref_tuple = None
@@ -1945,10 +1942,9 @@ def _rewrite_filter_for_select(
             continue  # pragma: no cover
         # Reconstruct the original role-qualified form: base = "v3.date.date_id", role = "order"
         base = get_column_full_name(subscript.expr)
-        role = extract_subscript_role(subscript)
-        if not role:
+        full_name = dimension_ref_of_expression(subscript)
+        if full_name is None:
             continue  # pragma: no cover
-        full_name = f"{base}[{role}]"
 
         # Look up in the filter alias map. Prefers the role-specific key over the fallback.
         output_col = filter_column_aliases.get(
