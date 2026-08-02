@@ -208,6 +208,31 @@ class TestUpperBounds:
     def test_upper_bound(self, filters, expected):
         assert upper_bound_for(filters) == expected
 
+    @pytest.mark.parametrize(
+        "filters",
+        [
+            # A negated comparison asserts the opposite of what it reads as.
+            ["NOT v3.date.date_id <= 20200101"],
+            ["NOT (v3.date.date_id <= 20200101)"],
+            # A comparison inside CASE is not asserted by the query at all.
+            ["CASE WHEN v3.date.date_id < 20200101 THEN 0 ELSE 1 END = 1"],
+            # Either side of a disjunction can widen the range.
+            ["v3.date.date_id <= 20200101 OR v3.date.date_id <= 20990101"],
+        ],
+    )
+    def test_bounds_are_only_read_from_asserted_predicates(self, filters):
+        """Reading a bound out of a negation would invert its meaning."""
+        ctx = make_context(filters)
+        assert upper_bounds_by_ref(ctx, 1) == {}
+        assert lower_bounds_by_ref(ctx, 1) == {}
+
+    def test_conjuncts_beside_a_disjunction_still_count(self):
+        """An AND-ed bound holds regardless of what the other conjunct says."""
+        ctx = make_context(
+            ["v3.date.date_id <= 20250101 AND (status = 'a' OR status = 'b')"],
+        )
+        assert upper_bounds_by_ref(ctx, 1) == {"v3.date.date_id": 20250101}
+
     def test_role_qualified_reference(self):
         assert (
             upper_bound_for(

@@ -9,10 +9,13 @@ never been backfilled past 2026, or whose pipeline had stopped running, kept
 serving silently truncated results.
 
 The gate is a two-sided range check: a pre-agg is rejected when the query asks
-for data outside what the table holds, below the covered range as readily as
-above it. Both ends matter -- a backfill gap at the low end is at least as common
-as a dead pipeline at the high end -- and both are compared against the range the
-query's own filters describe, not against wall clock. A query bounded at last
+for data outside what the table holds, below the covered range as well as above
+it. Only a side the query actually states is checked, though -- a query with no
+lower bound formally asks for all history, and rejecting every retention-limited
+pre-agg for an unfiltered query would be worse than serving one. Both ends
+matter -- a backfill gap at the low end is at least as common as a dead pipeline
+at the high end -- and both are compared against the range the query's own
+filters describe, not against wall clock. A query bounded at last
 March is served correctly by a table that stopped updating yesterday, and
 rejecting it would be wrong.
 
@@ -132,7 +135,9 @@ def _axis_value(
     names = availability.temporal_partitions or []
     if names and len(names) != len(values):
         return None
-    if len(values) == 1:
+    # A lone value is the axis's only when nothing says otherwise -- if the names
+    # are reported and name a different column, this value isn't for our axis.
+    if len(values) == 1 and (not names or names == [axis.output_name]):
         return _as_int(values[0])
     if axis.output_name in names:
         return _as_int(values[names.index(axis.output_name)])

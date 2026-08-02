@@ -405,9 +405,24 @@ _FLOOR_OPS = {
     ast.BinaryOpKind.GtEq,
     ast.BinaryOpKind.Eq,
 }
-# A disjunction can widen the requested range beyond any bound read off one of
-# its sides, so filters containing one are skipped rather than trusted.
-_DISJUNCTION_OPS = {ast.BinaryOpKind.Or, ast.BinaryOpKind.LogicalOr}
+# Only these join predicates the query definitely asserts. Anything else -- a
+# disjunction, a negation, a comparison buried in a CASE -- is not asserted by
+# being present, so no bound may be read from inside it.
+_CONJUNCTION_OPS = {ast.BinaryOpKind.And, ast.BinaryOpKind.LogicalAnd}
+
+
+def _conjuncts(expression: ast.Expression) -> list[ast.Expression]:
+    """
+    The predicates a filter asserts unconditionally: its top-level AND spine.
+
+    A comparison is only a bound if the query actually asserts it. Walking every
+    ``BinaryOp`` in the tree would read one out of ``NOT (x <= 1)`` or
+    ``CASE WHEN x < 1 ...`` and invert its meaning, so descent stops at anything
+    that is not an AND.
+    """
+    if isinstance(expression, ast.BinaryOp) and expression.op in _CONJUNCTION_OPS:
+        return _conjuncts(expression.left) + _conjuncts(expression.right)
+    return [expression]
 
 
 def dimension_ref_of_expression(expression: ast.Expression) -> str | None:
@@ -489,10 +504,9 @@ def _bounds_by_ref(
         bounds[canonical] = tighter(bounds.get(canonical, value), value)
 
     for filter_str in ctx.dimension_filters:
-        filter_ast = parse_filter(filter_str)
-        comparisons = list(filter_ast.find_all(ast.BinaryOp))
-        if any(comparison.op in _DISJUNCTION_OPS for comparison in comparisons):
-            continue
+        conjuncts = _conjuncts(parse_filter(filter_str))
+        comparisons = [c for c in conjuncts if isinstance(c, ast.BinaryOp)]
+        betweens = [c for c in conjuncts if isinstance(c, ast.Between)]
         for comparison in comparisons:
             if comparison.op in left_ops:
                 value = _int_literal(comparison.right)
@@ -510,7 +524,7 @@ def _bounds_by_ref(
                     if value is None
                     else value + step * (comparison.op == strict_right),
                 )
-        for between in filter_ast.find_all(ast.Between):
+        for between in betweens:
             if not between.negated:
                 offer(
                     dimension_ref_of_expression(between.expr),
