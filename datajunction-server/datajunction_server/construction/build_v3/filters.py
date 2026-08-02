@@ -417,6 +417,10 @@ def dimension_ref_of_expression(expression: ast.Expression) -> str | None:
     ``v3.date.date_id`` and ``v3.date.date_id[order]`` both resolve; anything
     wrapped in a function or arithmetic does not.
     """
+    # Local import: ``cte`` imports from this module, so importing it at module
+    # top would cycle. ``get_column_full_name`` is the package's public helper
+    # for this and is a pure AST function -- it would sit more naturally here,
+    # but moving it means updating its callers in ``cte``/``utils``/``metrics``.
     from datajunction_server.construction.build_v3.cte import get_column_full_name
 
     if isinstance(expression, ast.Subscript):
@@ -457,6 +461,8 @@ def _bounds_by_ref(
     Computed once per build per node revision per side -- parsing every filter
     for every candidate pre-aggregation would re-parse the same strings N times.
     """
+    # Local import: ``preagg_matcher`` -> ``dimensions`` -> ``utils`` -> ``filters``
+    # is an existing chain, so importing it at module top would cycle.
     from datajunction_server.construction.build_v3.preagg_matcher import (
         canonical_dimension_ref,
     )
