@@ -243,6 +243,20 @@ class Settings(BaseSettings):  # pragma: no cover
     preagg_catalog: str = "default"
     preagg_schema: str = "dj_preaggs"
 
+    # Freshness gating for pre-aggregations. When enabled, a pre-aggregation is
+    # only allowed to answer a query if the temporal range its table covers
+    # (`min_temporal_partition`/`max_temporal_partition`, falling back to
+    # `valid_through_ts`) contains the range the query asks for. Off by default:
+    # enabling it can route queries away from pre-aggs that serve them today.
+    preagg_freshness_gating: bool = False
+
+    # Wall-clock staleness budget, in seconds, applied only when a query has no
+    # discoverable upper bound on the pre-agg's temporal partition (such a query
+    # implicitly asks for data through the present). When None, unbounded
+    # queries are never rejected for staleness. Ignored unless
+    # `preagg_freshness_gating` is on.
+    preagg_max_staleness_seconds: Optional[int] = None
+
     # Cube view output location
     # Used when generating CREATE OR REPLACE VIEW DDL for cube views
     view_catalog: str = "default"

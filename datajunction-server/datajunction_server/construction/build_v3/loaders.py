@@ -17,6 +17,7 @@ from datajunction_server.database.preaggregation import PreAggregation
 from datajunction_server.models.node_type import NodeType
 
 from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
+from datajunction_server.construction.build_v3.preagg_freshness import preagg_is_fresh
 from datajunction_server.construction.build_v3.types import BuildContext
 from datajunction_server.construction.build_v3.utils import (
     collect_required_dimensions,
@@ -655,7 +656,11 @@ async def load_available_preaggs(ctx: BuildContext) -> None:
 
     # Index by node_revision_id for fast lookup
     for preagg in preaggs:
-        if preagg.availability and preagg.availability.is_available():
+        if (
+            preagg.availability
+            and preagg.availability.is_available()
+            and preagg_is_fresh(ctx, preagg)
+        ):
             if preagg.node_revision_id not in ctx.available_preaggs:
                 ctx.available_preaggs[preagg.node_revision_id] = []
             ctx.available_preaggs[preagg.node_revision_id].append(preagg)

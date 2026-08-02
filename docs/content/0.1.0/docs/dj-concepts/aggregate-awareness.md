@@ -336,6 +336,44 @@ Until this call has been made at least once, the pre-aggregation exists but has 
 routing won't send queries to it — the same rule that applies to any DJ-materialized pre-aggregation
 that hasn't finished its first build.
 
+### Freshness gating
+
+By default, DJ treats a pre-aggregation with any availability at all as eligible: once you've reported
+availability once, routing keeps sending queries there even if the table only ever got a partial
+backfill, or the pipeline behind it later stops running. Setting `PREAGG_FRESHNESS_GATING=true` makes
+DJ check, on every query, that the range the table actually covers contains the range the query asks
+for.
+
+The coverage DJ trusts is `min_temporal_partition` and `max_temporal_partition` — the lowest and
+highest partition values you report alongside `valid_through_ts`. The check is two-sided, and both
+sides matter. A query reaching above the covered range gets silently truncated numbers; a query
+reaching below it gets numbers missing everything before the first backfilled partition, which is the
+more common failure of the two. Either one falls back to computing from source instead.
+
+What DJ compares against is the time range the query itself asks for, not wall clock. Bounds are read
+off the query's filters on the pre-aggregation's temporal partition — `date_id >= 20240101`,
+`date_id <= 20250101`, an `=`, or either side of a `BETWEEN`. A query bounded inside the covered range
+is served however old the table is, so a report from last March keeps reading the aggregate. A side
+the query leaves open places no constraint, so a table holding only the last two years still answers a
+query with no lower bound.
+
+If you report no `max_temporal_partition`, DJ falls back to `valid_through_ts` for the upper side.
+That's the usual case for a table registered through `/preaggs/register`, which takes only the scalar.
+Since `valid_through_ts` is written in a few different encodings in practice, DJ compares it only when
+its magnitude is consistent with the bound it's being compared against, and logs a warning rather than
+guessing when it isn't.
+
+A query with no upper bound at all implicitly asks for data through the present, and no partition
+comparison can settle that on its own. Those queries are allowed through unless you also set
+`PREAGG_MAX_STALENESS_SECONDS`, which gives them a wall-clock budget: DJ renders `now - budget` into
+the partition's format and requires the covered range to reach it.
+
+Gating only applies to pre-aggregations whose grain includes exactly one temporal partition column —
+that's the axis the covered range describes. A pre-aggregation with no temporal dimension, or with two
+of them, is never rejected, because there's nothing unambiguous to compare against. Rejection is
+silent: the query falls back to source and returns correct (if slower) results, the same as any other
+non-match.
+
 ### External pre-aggregations are read-only to DJ
 
 Registering a table this way sets its materialization strategy to `external`. DJ will refuse to

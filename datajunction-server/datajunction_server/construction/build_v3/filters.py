@@ -18,6 +18,7 @@ from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.utils import SEPARATOR
 
 if TYPE_CHECKING:
+    from datajunction_server.construction.build_v3.types import BuildContext
     from datajunction_server.database.node import Node
 
 
@@ -192,8 +193,9 @@ def resolve_filter_references(
         if not base_col_ref:
             continue  # pragma: no cover
 
-        role = extract_subscript_role(subscript)
-        if not role:
+        # The base ref is kept for the fallback lookup below.
+        dim_ref_with_role = dimension_ref_of_expression(subscript)
+        if dim_ref_with_role is None:
             continue  # pragma: no cover
 
         # Mark every Column under the index as a role marker so it isn't
@@ -205,7 +207,6 @@ def resolve_filter_references(
                 role_marker_ids.add(id(inner_col))
 
         # Look up with role first, then fall back to base ref without role
-        dim_ref_with_role = f"{base_col_ref}[{role}]"
         alias_to_use = column_aliases.get(dim_ref_with_role) or column_aliases.get(
             base_col_ref,
         )
@@ -390,3 +391,161 @@ def get_filter_column_references(filter_str: str) -> list[str]:
             references.append(full_ref)
 
     return references
+
+
+# Comparisons under which the left operand is bounded above by the right.
+_CEILING_OPS = {
+    ast.BinaryOpKind.Lt,
+    ast.BinaryOpKind.LtEq,
+    ast.BinaryOpKind.Eq,
+}
+# Mirror image: the left operand is bounded below by the right.
+_FLOOR_OPS = {
+    ast.BinaryOpKind.Gt,
+    ast.BinaryOpKind.GtEq,
+    ast.BinaryOpKind.Eq,
+}
+# Only these join predicates the query definitely asserts. Anything else -- a
+# disjunction, a negation, a comparison buried in a CASE -- is not asserted by
+# being present, so no bound may be read from inside it.
+_CONJUNCTION_OPS = {ast.BinaryOpKind.And, ast.BinaryOpKind.LogicalAnd}
+
+
+def _conjuncts(expression: ast.Expression) -> list[ast.Expression]:
+    """
+    The predicates a filter asserts unconditionally: its top-level AND spine.
+
+    A comparison is only a bound if the query actually asserts it. Walking every
+    ``BinaryOp`` in the tree would read one out of ``NOT (x <= 1)`` or
+    ``CASE WHEN x < 1 ...`` and invert its meaning, so descent stops at anything
+    that is not an AND.
+    """
+    if isinstance(expression, ast.BinaryOp) and expression.op in _CONJUNCTION_OPS:
+        return _conjuncts(expression.left) + _conjuncts(expression.right)
+    return [expression]
+
+
+def dimension_ref_of_expression(expression: ast.Expression) -> str | None:
+    """
+    Dimension reference an expression names, if it names one directly.
+
+    ``v3.date.date_id`` and ``v3.date.date_id[order]`` both resolve; anything
+    wrapped in a function or arithmetic does not.
+    """
+    # Local import: ``cte`` imports from this module, so importing it at module
+    # top would cycle. ``get_column_full_name`` is the package's public helper
+    # for this and is a pure AST function -- it would sit more naturally here,
+    # but moving it means updating its callers in ``cte``/``utils``/``metrics``.
+    from datajunction_server.construction.build_v3.cte import get_column_full_name
+
+    if isinstance(expression, ast.Subscript):
+        role = extract_subscript_role(expression)
+        if not isinstance(expression.expr, ast.Column) or not role:
+            return None
+        return f"{get_column_full_name(expression.expr)}[{role}]"
+    if isinstance(expression, ast.Column):
+        return get_column_full_name(expression)
+    return None
+
+
+def _int_literal(expression: ast.Expression) -> int | None:
+    """The integer a literal expression holds, or None if it isn't one."""
+    if isinstance(expression, ast.Number) and isinstance(expression.value, int):
+        return expression.value
+    return None
+
+
+def _bounds_by_ref(
+    ctx: "BuildContext",
+    node_rev_id: int,
+    *,
+    upper: bool,
+) -> dict[str, int]:
+    """
+    Tightest bound on one side that each dimension reference carries, over all
+    the query's filters, keyed by canonical reference.
+
+    Reads ``<``, ``<=``, ``>``, ``>=``, ``=`` and ``BETWEEN`` against an integer
+    literal, in either operand order, which is the shape a partition-format
+    temporal filter takes. A strict inequality moves the bound one step inward:
+    exact for a contiguous partition ordinal, merely conservative otherwise.
+    Filters are ANDed, so the tightest bound wins. A reference absent from the
+    result carries no readable bound on this side, which callers must treat as
+    an open-ended request rather than as permission.
+
+    Computed once per build per node revision per side -- parsing every filter
+    for every candidate pre-aggregation would re-parse the same strings N times.
+    """
+    # Local import: ``preagg_matcher`` -> ``dimensions`` -> ``utils`` -> ``filters``
+    # is an existing chain, so importing it at module top would cycle.
+    from datajunction_server.construction.build_v3.preagg_matcher import (
+        canonical_dimension_ref,
+    )
+
+    cached = ctx._filter_bound_cache.get((node_rev_id, upper))
+    if cached is not None:
+        return cached
+
+    # The ref sits on the left of a ceiling comparison, or on the right of a
+    # floor one, to be bounded above; the two sets swap for a lower bound.
+    left_ops = _CEILING_OPS if upper else _FLOOR_OPS
+    right_ops = _FLOOR_OPS if upper else _CEILING_OPS
+    strict_left = ast.BinaryOpKind.Lt if upper else ast.BinaryOpKind.Gt
+    strict_right = ast.BinaryOpKind.Gt if upper else ast.BinaryOpKind.Lt
+    step = -1 if upper else 1
+    tighter = min if upper else max
+
+    bounds: dict[str, int] = {}
+
+    def offer(ref: str | None, value: int | None) -> None:
+        if ref is None or value is None:
+            return
+        canonical = canonical_dimension_ref(ctx, node_rev_id, ref)
+        bounds[canonical] = tighter(bounds.get(canonical, value), value)
+
+    for filter_str in ctx.dimension_filters:
+        conjuncts = _conjuncts(parse_filter(filter_str))
+        comparisons = [c for c in conjuncts if isinstance(c, ast.BinaryOp)]
+        betweens = [c for c in conjuncts if isinstance(c, ast.Between)]
+        for comparison in comparisons:
+            if comparison.op in left_ops:
+                value = _int_literal(comparison.right)
+                offer(
+                    dimension_ref_of_expression(comparison.left),
+                    None
+                    if value is None
+                    else value + step * (comparison.op == strict_left),
+                )
+            if comparison.op in right_ops:
+                value = _int_literal(comparison.left)
+                offer(
+                    dimension_ref_of_expression(comparison.right),
+                    None
+                    if value is None
+                    else value + step * (comparison.op == strict_right),
+                )
+        for between in betweens:
+            if not between.negated:
+                offer(
+                    dimension_ref_of_expression(between.expr),
+                    _int_literal(between.high if upper else between.low),
+                )
+
+    ctx._filter_bound_cache[(node_rev_id, upper)] = bounds
+    return bounds
+
+
+def upper_bounds_by_ref(ctx: "BuildContext", node_rev_id: int) -> dict[str, int]:
+    """
+    Tightest ceiling each dimension reference carries, over all the query's
+    filters. See :func:`_bounds_by_ref`.
+    """
+    return _bounds_by_ref(ctx, node_rev_id, upper=True)
+
+
+def lower_bounds_by_ref(ctx: "BuildContext", node_rev_id: int) -> dict[str, int]:
+    """
+    Tightest floor each dimension reference carries, over all the query's
+    filters. See :func:`_bounds_by_ref`.
+    """
+    return _bounds_by_ref(ctx, node_rev_id, upper=False)
