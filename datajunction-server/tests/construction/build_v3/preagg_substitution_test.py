@@ -17,6 +17,7 @@ Key scenarios:
 
 import pytest
 
+from datajunction_server.config import Settings
 from datajunction_server.construction.build_v3.measures import (
     build_grain_group_from_preagg,
 )
@@ -3127,10 +3128,10 @@ class TestBuildGrainGroupFromPreaggErrorPaths:
 
 class TestPreAggFreshnessGating:
     """
-    Routing decisions made against a pre-agg's reported ``valid_through_ts``.
+    Routing decisions made against the temporal range a pre-agg's table covers.
 
-    The pre-agg below is valid through 2025-01-01 on a date grain, which is stale
-    in wall-clock terms but perfectly good for a query bounded before it.
+    The pre-agg below sits on a date grain and is stale in wall-clock terms, but
+    perfectly good for a query bounded inside the range it holds.
     """
 
     PREAGG_SQL = """
@@ -3142,7 +3143,7 @@ class TestPreAggFreshnessGating:
     SELECT order_details_0.date_id_order AS date_id_order,
            SUM(order_details_0.revenue_sum) AS total_revenue
     FROM order_details_0
-    WHERE order_details_0.date_id_order <= {bound}
+    WHERE order_details_0.date_id_order {predicate}
     GROUP BY order_details_0.date_id_order
     """
 
@@ -3151,7 +3152,7 @@ class TestPreAggFreshnessGating:
         SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
         FROM default.v3.orders o
         JOIN default.v3.order_items oi ON o.order_id = oi.order_id
-        WHERE o.order_date <= 20260101
+        WHERE o.order_date {predicate}
     ),
     order_details_0 AS (
         SELECT t1.order_date date_id_order,
@@ -3162,7 +3163,7 @@ class TestPreAggFreshnessGating:
     SELECT order_details_0.date_id_order AS date_id_order,
            SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
     FROM order_details_0
-    WHERE order_details_0.date_id_order <= 20260101
+    WHERE order_details_0.date_id_order {predicate}
     GROUP BY order_details_0.date_id_order
     """
 
@@ -3184,31 +3185,47 @@ class TestPreAggFreshnessGating:
     GROUP BY order_details_0.date_id_order
     """
 
-    async def _register(self, client):
+    TABLE_REF = {
+        "catalog": "default",
+        "schema": "analytics",
+        "table": "revenue_by_date",
+    }
+
+    async def _register(self, client) -> int:
         """Partition the fact on order_date, then adopt a date-grain pre-agg."""
         partition_response = await client.post(
             "/nodes/v3.order_details/columns/order_date/partition",
             json={"type_": "temporal", "format": "yyyyMMdd", "granularity": "day"},
         )
         assert partition_response.status_code == 201
-        await _register_external_preagg(
+        response = await _register_external_preagg(
             client,
             metrics=["v3.total_revenue"],
             dimensions=["v3.date.date_id[order]"],
-            table_ref={
-                "catalog": "default",
-                "schema": "analytics",
-                "table": "revenue_by_date",
-                "valid_through_ts": 20250101,
-            },
+            table_ref={**self.TABLE_REF, "valid_through_ts": 20250101},
             measure_columns={"v3.total_revenue": "revenue_sum"},
             table_columns={"date_id_order": "int", "revenue_sum": "double"},
         )
+        return response.json()["preaggs"][0]["id"]
+
+    async def _report_range(self, client, preagg_id: int, min_: str, max_: str):
+        """Report the actual partition range the external table holds."""
+        response = await client.post(
+            f"/preaggs/{preagg_id}/availability/",
+            json={
+                **self.TABLE_REF,
+                "valid_through_ts": 20250101,
+                "min_temporal_partition": [min_],
+                "max_temporal_partition": [max_],
+            },
+        )
+        assert response.status_code == 200, response.text
 
     def _configure(self, mocker, *, gating: bool, max_staleness: int | None = None):
+        # A real Settings instance, so renaming a setting fails here loudly.
         mocker.patch(
             "datajunction_server.construction.build_v3.preagg_freshness.get_settings",
-            return_value=SimpleNamespace(
+            return_value=Settings(
                 preagg_freshness_gating=gating,
                 preagg_max_staleness_seconds=max_staleness,
             ),
@@ -3240,7 +3257,7 @@ class TestPreAggFreshnessGating:
                 client_with_build_v3,
                 ["v3.date.date_id[order] <= 20240101"],
             ),
-            self.PREAGG_SQL.format(bound=20240101),
+            self.PREAGG_SQL.format(predicate="<= 20240101"),
         )
 
     @pytest.mark.asyncio
@@ -3249,7 +3266,10 @@ class TestPreAggFreshnessGating:
         client_with_build_v3,
         mocker,
     ):
-        """A query reaching past the watermark computes from source instead."""
+        """
+        A query reaching past the watermark computes from source instead. Nothing
+        but ``valid_through_ts`` has been reported, so that is what it's judged on.
+        """
         await self._register(client_with_build_v3)
         self._configure(mocker, gating=True)
         assert_sql_equal(
@@ -3257,7 +3277,79 @@ class TestPreAggFreshnessGating:
                 client_with_build_v3,
                 ["v3.date.date_id[order] <= 20260101"],
             ),
-            self.SOURCE_SQL,
+            self.SOURCE_SQL.format(predicate="<= 20260101"),
+        )
+
+    @pytest.mark.asyncio
+    async def test_query_below_the_covered_range_falls_back_to_source(
+        self,
+        client_with_build_v3,
+        mocker,
+    ):
+        """The table starts in 2024, so it cannot answer a query reaching to 2020."""
+        preagg_id = await self._register(client_with_build_v3)
+        await self._report_range(
+            client_with_build_v3,
+            preagg_id,
+            "20240101",
+            "20260601",
+        )
+        self._configure(mocker, gating=True)
+        assert_sql_equal(
+            await self._metrics_sql(
+                client_with_build_v3,
+                ["v3.date.date_id[order] >= 20200101"],
+            ),
+            self.SOURCE_SQL.format(predicate=">= 20200101"),
+        )
+
+    @pytest.mark.asyncio
+    async def test_query_inside_the_covered_range_uses_the_preagg(
+        self,
+        client_with_build_v3,
+        mocker,
+    ):
+        """The same table answers a query that starts after its first partition."""
+        preagg_id = await self._register(client_with_build_v3)
+        await self._report_range(
+            client_with_build_v3,
+            preagg_id,
+            "20240101",
+            "20260601",
+        )
+        self._configure(mocker, gating=True)
+        assert_sql_equal(
+            await self._metrics_sql(
+                client_with_build_v3,
+                ["v3.date.date_id[order] >= 20240201"],
+            ),
+            self.PREAGG_SQL.format(predicate=">= 20240201"),
+        )
+
+    @pytest.mark.asyncio
+    async def test_reported_max_supersedes_the_watermark(
+        self,
+        client_with_build_v3,
+        mocker,
+    ):
+        """
+        A query past ``valid_through_ts`` but inside the reported partition range
+        is served: the range the table actually holds is the stronger signal.
+        """
+        preagg_id = await self._register(client_with_build_v3)
+        await self._report_range(
+            client_with_build_v3,
+            preagg_id,
+            "20240101",
+            "20260601",
+        )
+        self._configure(mocker, gating=True)
+        assert_sql_equal(
+            await self._metrics_sql(
+                client_with_build_v3,
+                ["v3.date.date_id[order] <= 20260101"],
+            ),
+            self.PREAGG_SQL.format(predicate="<= 20260101"),
         )
 
     @pytest.mark.asyncio
@@ -3274,7 +3366,7 @@ class TestPreAggFreshnessGating:
                 client_with_build_v3,
                 ["v3.date.date_id[order] <= 20260101"],
             ),
-            self.PREAGG_SQL.format(bound=20260101),
+            self.PREAGG_SQL.format(predicate="<= 20260101"),
         )
 
     @pytest.mark.asyncio
@@ -3285,9 +3377,15 @@ class TestPreAggFreshnessGating:
     ):
         """
         An unfiltered query implicitly asks for data through now, so a configured
-        staleness budget rejects a watermark that far behind.
+        staleness budget rejects a covered range that far behind.
         """
-        await self._register(client_with_build_v3)
+        preagg_id = await self._register(client_with_build_v3)
+        await self._report_range(
+            client_with_build_v3,
+            preagg_id,
+            "20240101",
+            "20250101",
+        )
         self._configure(mocker, gating=True, max_staleness=86400)
         assert_sql_equal(
             await self._metrics_sql(client_with_build_v3, []),

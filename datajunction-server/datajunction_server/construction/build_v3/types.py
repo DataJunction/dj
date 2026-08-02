@@ -89,9 +89,11 @@ class BuildContext:
     # AST cache: node_name -> parsed query AST (avoids re-parsing same query)
     _parsed_query_cache: dict[str, ast.Query] = field(default_factory=dict)
 
-    # Tightest upper bound per dimension ref, per node revision. Derived from the
-    # filters once per build rather than per candidate pre-aggregation.
-    _upper_bound_cache: dict[int, dict[str, int]] = field(default_factory=dict)
+    # Tightest bound per dimension ref, keyed by (node revision, is-upper-bound).
+    # Derived from the filters once per build rather than per candidate pre-agg.
+    _filter_bound_cache: dict[tuple[int, bool], dict[str, int]] = field(
+        default_factory=dict,
+    )
 
     # One instant for the whole build, so every staleness judgement in a request
     # is made against the same "now".

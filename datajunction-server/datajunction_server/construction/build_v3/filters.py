@@ -393,14 +393,14 @@ def get_filter_column_references(filter_str: str) -> list[str]:
     return references
 
 
-# Comparisons that put a ceiling on the column they name.
-_UPPER_BOUND_OPS = {
+# Comparisons under which the left operand is bounded above by the right.
+_CEILING_OPS = {
     ast.BinaryOpKind.Lt,
     ast.BinaryOpKind.LtEq,
     ast.BinaryOpKind.Eq,
 }
-# Mirror image, for filters written with the literal on the left.
-_REVERSED_UPPER_BOUND_OPS = {
+# Mirror image: the left operand is bounded below by the right.
+_FLOOR_OPS = {
     ast.BinaryOpKind.Gt,
     ast.BinaryOpKind.GtEq,
     ast.BinaryOpKind.Eq,
@@ -436,31 +436,43 @@ def _int_literal(expression: ast.Expression) -> int | None:
     return None
 
 
-def upper_bounds_by_ref(
+def _bounds_by_ref(
     ctx: "BuildContext",
     node_rev_id: int,
+    *,
+    upper: bool,
 ) -> dict[str, int]:
     """
-    Tightest upper bound each dimension reference carries, over all the query's
-    filters, keyed by canonical reference.
+    Tightest bound on one side that each dimension reference carries, over all
+    the query's filters, keyed by canonical reference.
 
-    Reads ``<``, ``<=``, ``=`` and ``BETWEEN`` against an integer literal, in
-    either operand order, which is the shape a partition-format temporal filter
-    takes. A strict ``<`` is lowered by one: exact for a contiguous partition
-    ordinal, merely conservative otherwise. Filters are ANDed, so the tightest
-    ceiling wins. A reference absent from the result carries no readable bound,
-    which callers must treat as an open-ended request rather than as permission.
+    Reads ``<``, ``<=``, ``>``, ``>=``, ``=`` and ``BETWEEN`` against an integer
+    literal, in either operand order, which is the shape a partition-format
+    temporal filter takes. A strict inequality moves the bound one step inward:
+    exact for a contiguous partition ordinal, merely conservative otherwise.
+    Filters are ANDed, so the tightest bound wins. A reference absent from the
+    result carries no readable bound on this side, which callers must treat as
+    an open-ended request rather than as permission.
 
-    Computed once per build per node revision -- parsing every filter for every
-    candidate pre-aggregation would re-parse the same strings N times.
+    Computed once per build per node revision per side -- parsing every filter
+    for every candidate pre-aggregation would re-parse the same strings N times.
     """
     from datajunction_server.construction.build_v3.preagg_matcher import (
         canonical_dimension_ref,
     )
 
-    cached = ctx._upper_bound_cache.get(node_rev_id)
+    cached = ctx._filter_bound_cache.get((node_rev_id, upper))
     if cached is not None:
         return cached
+
+    # The ref sits on the left of a ceiling comparison, or on the right of a
+    # floor one, to be bounded above; the two sets swap for a lower bound.
+    left_ops = _CEILING_OPS if upper else _FLOOR_OPS
+    right_ops = _FLOOR_OPS if upper else _CEILING_OPS
+    strict_left = ast.BinaryOpKind.Lt if upper else ast.BinaryOpKind.Gt
+    strict_right = ast.BinaryOpKind.Gt if upper else ast.BinaryOpKind.Lt
+    step = -1 if upper else 1
+    tighter = min if upper else max
 
     bounds: dict[str, int] = {}
 
@@ -468,7 +480,7 @@ def upper_bounds_by_ref(
         if ref is None or value is None:
             return
         canonical = canonical_dimension_ref(ctx, node_rev_id, ref)
-        bounds[canonical] = min(bounds.get(canonical, value), value)
+        bounds[canonical] = tighter(bounds.get(canonical, value), value)
 
     for filter_str in ctx.dimension_filters:
         filter_ast = parse_filter(filter_str)
@@ -476,28 +488,44 @@ def upper_bounds_by_ref(
         if any(comparison.op in _DISJUNCTION_OPS for comparison in comparisons):
             continue
         for comparison in comparisons:
-            if comparison.op in _UPPER_BOUND_OPS:
+            if comparison.op in left_ops:
                 value = _int_literal(comparison.right)
                 offer(
                     dimension_ref_of_expression(comparison.left),
                     None
                     if value is None
-                    else value - (comparison.op == ast.BinaryOpKind.Lt),
+                    else value + step * (comparison.op == strict_left),
                 )
-            if comparison.op in _REVERSED_UPPER_BOUND_OPS:
+            if comparison.op in right_ops:
                 value = _int_literal(comparison.left)
                 offer(
                     dimension_ref_of_expression(comparison.right),
                     None
                     if value is None
-                    else value - (comparison.op == ast.BinaryOpKind.Gt),
+                    else value + step * (comparison.op == strict_right),
                 )
         for between in filter_ast.find_all(ast.Between):
             if not between.negated:
                 offer(
                     dimension_ref_of_expression(between.expr),
-                    _int_literal(between.high),
+                    _int_literal(between.high if upper else between.low),
                 )
 
-    ctx._upper_bound_cache[node_rev_id] = bounds
+    ctx._filter_bound_cache[(node_rev_id, upper)] = bounds
     return bounds
+
+
+def upper_bounds_by_ref(ctx: "BuildContext", node_rev_id: int) -> dict[str, int]:
+    """
+    Tightest ceiling each dimension reference carries, over all the query's
+    filters. See :func:`_bounds_by_ref`.
+    """
+    return _bounds_by_ref(ctx, node_rev_id, upper=True)
+
+
+def lower_bounds_by_ref(ctx: "BuildContext", node_rev_id: int) -> dict[str, int]:
+    """
+    Tightest floor each dimension reference carries, over all the query's
+    filters. See :func:`_bounds_by_ref`.
+    """
+    return _bounds_by_ref(ctx, node_rev_id, upper=False)

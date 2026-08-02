@@ -244,9 +244,10 @@ class Settings(BaseSettings):  # pragma: no cover
     preagg_schema: str = "dj_preaggs"
 
     # Freshness gating for pre-aggregations. When enabled, a pre-aggregation is
-    # only allowed to answer a query if its reported `valid_through_ts` covers
-    # the time range the query asks for. Off by default: enabling it can route
-    # queries away from pre-aggs that serve them today.
+    # only allowed to answer a query if the temporal range its table covers
+    # (`min_temporal_partition`/`max_temporal_partition`, falling back to
+    # `valid_through_ts`) contains the range the query asks for. Off by default:
+    # enabling it can route queries away from pre-aggs that serve them today.
     preagg_freshness_gating: bool = False
 
     # Wall-clock staleness budget, in seconds, applied only when a query has no
