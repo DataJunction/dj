@@ -4663,6 +4663,91 @@ class TestDeploymentColumnOrdering:
 
 
 @pytest.mark.xdist_group(name="deployments")
+class TestDeploymentDimensionLinkOrdering:
+    @pytest.mark.asyncio
+    async def test_dimension_update_visible_to_dependent_join_link_in_same_deployment(
+        self,
+        client,
+    ):
+        namespace = "dimension_link_ordering"
+        dim_raw = SourceSpec(
+            name="dim_raw",
+            catalog="default",
+            schema="roads",
+            table="dim_raw",
+            columns=[
+                ColumnSpec(name="id", type="int"),
+                ColumnSpec(name="k", type="int"),
+            ],
+            dimension_links=[],
+            owners=["dj"],
+        )
+        dim_without_k = DimensionSpec(
+            name="dim_x",
+            query="SELECT id FROM ${prefix}dim_raw",
+            primary_key=["id"],
+            dimension_links=[],
+            owners=["dj"],
+        )
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=[dim_raw, dim_without_k]),
+        )
+        assert data["status"] == DeploymentStatus.SUCCESS.value, data["results"]
+
+        fact_raw = SourceSpec(
+            name="fact_raw",
+            catalog="default",
+            schema="roads",
+            table="fact_raw",
+            columns=[ColumnSpec(name="f", type="int")],
+            dimension_links=[],
+            owners=["dj"],
+        )
+        dim_with_k = DimensionSpec(
+            name="dim_x",
+            query="SELECT id, k FROM ${prefix}dim_raw",
+            primary_key=["id"],
+            dimension_links=[],
+            owners=["dj"],
+        )
+        fact_y = TransformSpec(
+            name="fact_y",
+            query="SELECT f FROM ${prefix}fact_raw",
+            dimension_links=[
+                DimensionJoinLinkSpec(
+                    dimension_node="${prefix}dim_x",
+                    join_type="left",
+                    join_on="${prefix}fact_y.f = ${prefix}dim_x.k",
+                ),
+            ],
+            owners=["dj"],
+        )
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[dim_raw, dim_with_k, fact_raw, fact_y],
+            ),
+        )
+        assert data["status"] == DeploymentStatus.SUCCESS.value, data["results"]
+
+        node_results = {
+            result["name"]: result
+            for result in data["results"]
+            if result["deploy_type"] == "node"
+        }
+        assert node_results[f"{namespace}.dim_x"]["status"] == "success"
+        assert node_results[f"{namespace}.fact_y"]["status"] == "success"
+
+        response = await client.get(f"/nodes/{namespace}.fact_y/")
+        assert response.status_code == 200
+        assert response.json()["status"] == "valid"
+
+
+@pytest.mark.xdist_group(name="deployments")
 class TestGitOnlyNamespaceDeployments:
     """Tests for git_only namespace deployment verification."""
 

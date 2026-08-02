@@ -1844,6 +1844,17 @@ class DeploymentOrchestrator:
                     deps = ordering_graph.setdefault(node_spec.rendered_name, [])
                     if dim_node not in deps:
                         deps.append(dim_node)
+            if isinstance(node_spec, LinkableNodeSpec) and node_spec.dimension_links:
+                for link in node_spec.dimension_links:
+                    dim_node = link.rendered_dimension_node
+                    if (
+                        dim_node == node_spec.rendered_name
+                        or dim_node not in ordering_graph
+                    ):
+                        continue
+                    deps = ordering_graph.setdefault(node_spec.rendered_name, [])
+                    if dim_node not in deps:
+                        deps.append(dim_node)
 
         # Order nodes topologically based on dependencies
         levels = topological_levels(ordering_graph, ascending=False)
