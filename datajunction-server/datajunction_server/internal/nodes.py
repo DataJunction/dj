@@ -47,6 +47,7 @@ from datajunction_server.database.node import (
     NodeRevision,
 )
 from datajunction_server.database.partition import Partition
+from datajunction_server.database.preaggregation import compute_expression_hash
 from datajunction_server.database.user import User
 from datajunction_server.database.measure import FrozenMeasure
 from datajunction_server.sql.decompose import MetricComponentExtractor
@@ -1484,6 +1485,82 @@ def node_update_history_event(new_revision: NodeRevision, current_user: User):
     )
 
 
+async def _cube_materialization_invalidation_signature(
+    session: AsyncSession,
+    node_revision: NodeRevision,
+) -> tuple[set[tuple[str, str, str, str]], set[str], tuple[str, ...]]:
+    """
+    Signature of cube fields that make old materializations unsafe when changed.
+    """
+    metric_components = set()
+    for metric_revision in node_revision.metric_node_revisions():
+        extractor = MetricComponentExtractor(metric_revision.id)
+        components, _ = await extractor.extract(session)
+        for component in components:
+            metric_components.add(
+                (
+                    metric_revision.name,
+                    component.name,
+                    compute_expression_hash(component.expression),
+                    component.normalized_aggregation,
+                ),
+            )
+    return (
+        metric_components,
+        set(node_revision.cube_dimensions()),
+        tuple(sorted(node_revision.cube_filters or [])),
+    )
+
+
+async def _deactivate_old_cube_materializations(
+    node_revision: NodeRevision,
+    active_materializations: list,
+    query_service_client: QueryServiceClient,
+    request_headers: Dict[str, str],
+) -> None:
+    """
+    Best-effort stop of workflows for a superseded cube revision.
+    """
+    deactivated_at = datetime.now(timezone.utc)
+    for materialization in active_materializations:
+        mat_config = (
+            materialization.config if isinstance(materialization.config, dict) else {}
+        )
+        workflow_names = mat_config.get("workflow_names", [])
+        try:
+            if workflow_names:
+                query_service_client.deactivate_workflows(
+                    workflow_names=workflow_names,
+                    request_headers=request_headers,
+                )
+                _logger.info(
+                    "Deactivated workflows for cube=%s revision=%s: %s",
+                    node_revision.name,
+                    node_revision.version,
+                    workflow_names,
+                )
+            else:
+                query_service_client.deactivate_cube_workflow(
+                    node_revision.name,
+                    version=node_revision.version,
+                    request_headers=request_headers,
+                )
+                _logger.info(
+                    "Deactivated workflow for cube=%s revision=%s",
+                    node_revision.name,
+                    node_revision.version,
+                )
+        except Exception as exc:  # pragma: no cover
+            _logger.warning(
+                "Failed to deactivate workflow for cube=%s revision=%s: %s "
+                "(continuing with cube update)",
+                node_revision.name,
+                node_revision.version,
+                str(exc),
+            )
+        materialization.deactivated_at = deactivated_at
+
+
 async def update_cube_node(
     session: AsyncSession,
     node_revision: NodeRevision,
@@ -1573,6 +1650,11 @@ async def update_cube_node(
             )
         return None
 
+    await session.refresh(node_revision, ["materializations"])
+    active_materializations = [
+        mat for mat in node_revision.materializations if not mat.deactivated_at
+    ]
+
     # Disable autoflush to prevent partial state from being persisted if an error
     # occurs during revision creation. This ensures that node.current_version and
     # the new NodeRevision are committed atomically - either both succeed or both
@@ -1633,13 +1715,25 @@ async def update_cube_node(
         # Users should explicitly set up materializations for the new cube version
         # after updating the cube definition.
 
+        if active_materializations and (
+            await _cube_materialization_invalidation_signature(session, node_revision)
+            != await _cube_materialization_invalidation_signature(
+                session,
+                new_cube_revision,
+            )
+        ):
+            await _deactivate_old_cube_materializations(
+                node_revision,
+                active_materializations,
+                query_service_client,
+                request_headers,
+            )
+
         # Notify if the old revision had active materializations that won't be migrated
-        active_materializations = [
-            mat
-            for mat in node_revision.materializations
-            if not mat.deactivated_at and mat.name != "default"
+        non_default_active_materializations = [
+            mat for mat in active_materializations if mat.name != "default"
         ]
-        if active_materializations:
+        if non_default_active_materializations:
             await save_history(
                 event=History(
                     entity_type=EntityType.MATERIALIZATION,
@@ -1656,7 +1750,7 @@ async def update_cube_node(
                         "previous_version": node_revision.version,
                         "new_version": new_cube_revision.version,
                         "invalidated_materializations": [
-                            mat.name for mat in active_materializations
+                            mat.name for mat in non_default_active_materializations
                         ],
                     },
                     user=current_user.username,

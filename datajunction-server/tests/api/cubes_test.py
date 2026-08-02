@@ -2628,6 +2628,211 @@ async def test_updating_cube_with_existing_cube_materialization(
 
 
 @pytest.mark.asyncio
+async def test_updating_materialized_cube_dimensions_deactivates_old_workflow(
+    client_with_repairs_cube: AsyncClient,
+    module__session,
+    module__query_service_client: QueryServiceClient,
+    mocker,
+):
+    """
+    Dimension changes make the old cube revision's materialization unsafe.
+    """
+    from sqlalchemy import select
+
+    from datajunction_server.database.materialization import Materialization
+    from datajunction_server.database.node import NodeRevision
+
+    cube_name = "default.repairs_cube_dimension_workflow_deactivation"
+    await make_a_test_cube(
+        client_with_repairs_cube,
+        cube_name,
+        with_materialization=False,
+    )
+
+    result = await module__session.execute(
+        select(NodeRevision).where(NodeRevision.name == cube_name),
+    )
+    old_revision = result.scalars().one()
+    old_materialization = Materialization(
+        node_revision_id=old_revision.id,
+        name="druid_cube_v3",
+        strategy=None,
+        schedule="0 0 * * *",
+        config={"workflow_names": ["cube-update-wf"]},
+        job="DruidCubeMaterializationJob",
+    )
+    module__session.add(old_materialization)
+    await module__session.commit()
+
+    deactivate_workflows = mocker.patch.object(
+        module__query_service_client,
+        "deactivate_workflows",
+        return_value={"status": "deactivated"},
+    )
+    deactivate_cube_workflow = mocker.patch.object(
+        module__query_service_client,
+        "deactivate_cube_workflow",
+        return_value={"status": "deactivated"},
+    )
+
+    response = await client_with_repairs_cube.patch(
+        f"/nodes/{cube_name}",
+        json={
+            "dimensions": [
+                "default.hard_hat.city",
+                "default.hard_hat.hire_date",
+            ],
+        },
+    )
+    assert response.status_code == 200, response.json()
+    assert response.json()["version"] == "v2.0"
+
+    deactivate_workflows.assert_called_once_with(
+        workflow_names=["cube-update-wf"],
+        request_headers=mocker.ANY,
+    )
+    deactivate_cube_workflow.assert_not_called()
+    await module__session.refresh(old_materialization)
+    assert old_materialization.deactivated_at is not None
+
+    result = await module__session.execute(
+        select(NodeRevision).where(
+            NodeRevision.name == cube_name,
+            NodeRevision.version == "v2.0",
+        ),
+    )
+    new_revision = result.scalars().one()
+    await module__session.refresh(new_revision, ["materializations"])
+    assert new_revision.materializations == []
+
+
+@pytest.mark.asyncio
+async def test_updating_materialized_cube_filters_deactivates_old_workflow(
+    client_with_repairs_cube: AsyncClient,
+    module__session,
+    module__query_service_client: QueryServiceClient,
+    mocker,
+):
+    """
+    Filter changes are non-trivial for materializations, even with minor versions.
+    """
+    from sqlalchemy import select
+
+    from datajunction_server.database.materialization import Materialization
+    from datajunction_server.database.node import NodeRevision
+
+    cube_name = "default.repairs_cube_filter_workflow_deactivation"
+    await make_a_test_cube(
+        client_with_repairs_cube,
+        cube_name,
+        with_materialization=False,
+    )
+
+    result = await module__session.execute(
+        select(NodeRevision).where(NodeRevision.name == cube_name),
+    )
+    old_revision = result.scalars().one()
+    old_materialization = Materialization(
+        node_revision_id=old_revision.id,
+        name="druid_cube_v3",
+        strategy=None,
+        schedule="0 0 * * *",
+        config={},
+        job="DruidCubeMaterializationJob",
+    )
+    module__session.add(old_materialization)
+    await module__session.commit()
+
+    deactivate_workflows = mocker.patch.object(
+        module__query_service_client,
+        "deactivate_workflows",
+        return_value={"status": "deactivated"},
+    )
+    deactivate_cube_workflow = mocker.patch.object(
+        module__query_service_client,
+        "deactivate_cube_workflow",
+        return_value={"status": "deactivated"},
+    )
+
+    response = await client_with_repairs_cube.patch(
+        f"/nodes/{cube_name}",
+        json={"filters": ["default.hard_hat.state='CA'"]},
+    )
+    assert response.status_code == 200, response.json()
+    assert response.json()["version"] == "v1.1"
+
+    deactivate_cube_workflow.assert_called_once_with(
+        cube_name,
+        version="v1.0",
+        request_headers=mocker.ANY,
+    )
+    deactivate_workflows.assert_not_called()
+    await module__session.refresh(old_materialization)
+    assert old_materialization.deactivated_at is not None
+
+
+@pytest.mark.asyncio
+async def test_updating_materialized_cube_metadata_keeps_old_workflow(
+    client_with_repairs_cube: AsyncClient,
+    module__session,
+    module__query_service_client: QueryServiceClient,
+    mocker,
+):
+    """
+    Metadata-only cube updates should not stop the old revision's workflow.
+    """
+    from sqlalchemy import select
+
+    from datajunction_server.database.materialization import Materialization
+    from datajunction_server.database.node import NodeRevision
+
+    cube_name = "default.repairs_cube_metadata_no_workflow_deactivation"
+    await make_a_test_cube(
+        client_with_repairs_cube,
+        cube_name,
+        with_materialization=False,
+    )
+
+    result = await module__session.execute(
+        select(NodeRevision).where(NodeRevision.name == cube_name),
+    )
+    old_revision = result.scalars().one()
+    old_materialization = Materialization(
+        node_revision_id=old_revision.id,
+        name="druid_cube_v3",
+        strategy=None,
+        schedule="0 0 * * *",
+        config={"workflow_names": ["metadata-wf"]},
+        job="DruidCubeMaterializationJob",
+    )
+    module__session.add(old_materialization)
+    await module__session.commit()
+
+    deactivate_workflows = mocker.patch.object(
+        module__query_service_client,
+        "deactivate_workflows",
+        return_value={"status": "deactivated"},
+    )
+    deactivate_cube_workflow = mocker.patch.object(
+        module__query_service_client,
+        "deactivate_cube_workflow",
+        return_value={"status": "deactivated"},
+    )
+
+    response = await client_with_repairs_cube.patch(
+        f"/nodes/{cube_name}",
+        json={"description": "Updated cube description only"},
+    )
+    assert response.status_code == 200, response.json()
+    assert response.json()["version"] == "v1.1"
+
+    deactivate_workflows.assert_not_called()
+    deactivate_cube_workflow.assert_not_called()
+    await module__session.refresh(old_materialization)
+    assert old_materialization.deactivated_at is None
+
+
+@pytest.mark.asyncio
 async def test_updating_cube_with_existing_materialization(
     client_with_repairs_cube: AsyncClient,
     module__query_service_client: QueryServiceClient,
