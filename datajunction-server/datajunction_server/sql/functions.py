@@ -20,6 +20,7 @@ import inspect
 import re
 from collections.abc import Callable
 from itertools import zip_longest
+from types import UnionType
 from typing import (
     TYPE_CHECKING,
     ClassVar,
@@ -107,7 +108,7 @@ class Dispatch(metaclass=DispatchMeta):
                     "All arguments must have a type annotation.",
                 )
             inner_types = [type_]
-            if get_origin(type_) == Union:
+            if get_origin(type_) in (Union, UnionType):
                 inner_types = type_.__args__
                 for _ in inner_types:
                     spread_types += spread_types[:]

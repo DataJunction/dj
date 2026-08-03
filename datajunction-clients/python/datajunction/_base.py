@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from dataclasses import MISSING, fields, is_dataclass
 from types import UnionType
 from typing import (
@@ -94,8 +95,22 @@ class SerializableMixin:  # pylint: disable=too-few-public-methods
             if field.name == "dj_client":
                 continue
 
-            # Resolve optional types to their inner type
-            field_type = cast(type, field.type)
+            # `from __future__ import annotations` makes `field.type` a string;
+            # evaluate it in the defining module's namespace to get the real
+            # type. Forward refs only importable under TYPE_CHECKING (e.g. a
+            # "DJBuilder" used solely for static typing) can't be resolved
+            # here, so fall back to the raw string and skip nested conversion.
+            field_type = field.type
+            if isinstance(field_type, str):
+                try:
+                    field_type = eval(  # pylint: disable=eval-used
+                        field_type,
+                        vars(sys.modules[cls.__module__]),
+                        None,
+                    )
+                except NameError:  # pragma: no cover
+                    pass
+
             origin = get_origin(field_type)
             if origin in (Union, UnionType):
                 field_type = next(  # pragma: no cover

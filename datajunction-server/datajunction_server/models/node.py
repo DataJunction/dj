@@ -5,7 +5,8 @@ Model for nodes.
 import enum
 import sys
 from dataclasses import dataclass
-from typing import Any, Union, cast
+from types import UnionType
+from typing import Any, Union, cast, get_origin
 
 from pydantic import (
     BaseModel,
@@ -926,10 +927,7 @@ def build_update_node_fields():
         for field_name, field_info in parent_class.model_fields.items():
             # Make the field optional by adding None to the union type
             original_type = field_info.annotation
-            if (
-                hasattr(original_type, "__origin__")
-                and original_type.__origin__ is Union
-            ):
+            if get_origin(original_type) in (Union, UnionType):
                 # Already a union type, add None if not present
                 if type(None) not in original_type.__args__:
                     optional_type = original_type | None  # pragma: no cover

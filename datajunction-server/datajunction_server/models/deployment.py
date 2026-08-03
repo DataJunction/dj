@@ -228,7 +228,7 @@ class DimensionLinkSpec(BaseModel):
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, DimensionLinkSpec):
-            return False
+            return False  # pragma: no cover
         return self.type == other.type and self.role == other.role
 
 
@@ -484,7 +484,7 @@ class LinkableNodeSpec(NodeSpec):
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, LinkableNodeSpec):
-            return False
+            return False  # pragma: no cover
         dimension_links_equal = sorted(
             self.dimension_links or [],
             key=lambda link: (link.rendered_dimension_node, link.role or ""),
@@ -518,7 +518,7 @@ class SourceSpec(LinkableNodeSpec):
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, SourceSpec):
-            return False
+            return False  # pragma: no cover
         return super().__eq__(other) and (
             self.catalog == other.catalog
             and self.schema_ == other.schema_
@@ -550,7 +550,7 @@ class DimensionSpec(LinkableNodeSpec):
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, DimensionSpec):
-            return False
+            return False  # pragma: no cover
         return super().__eq__(other) and self.query_ast.compare(other.query_ast)
 
 
