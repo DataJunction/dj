@@ -1,8 +1,10 @@
 """BigQuery query client using google-cloud-bigquery."""
 
+from __future__ import annotations
+
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from datajunction_server.database.column import Column
 from datajunction_server.errors import (
@@ -102,7 +104,7 @@ class BigQueryClient(BaseQueryServiceClient):
 
     def _get_project_from_engine(
         self,
-        engine: Optional["Engine"],
+        engine: Engine | None,
         fallback_catalog: str,
     ) -> str:
         """
@@ -151,7 +153,7 @@ class BigQueryClient(BaseQueryServiceClient):
         schema: str,
         table: str,
         request_headers: dict[str, str] | None = None,
-        engine: Optional["Engine"] = None,
+        engine: Engine | None = None,
     ) -> list[Column]:
         """
         Retrieve columns for a BigQuery table via INFORMATION_SCHEMA.

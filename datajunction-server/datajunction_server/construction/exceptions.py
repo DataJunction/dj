@@ -2,7 +2,7 @@
 Exceptions used in construction
 """
 
-from typing import Optional
+from __future__ import annotations
 
 from datajunction_server.errors import DJError, DJQueryBuildException
 
@@ -13,7 +13,7 @@ class CompoundBuildException:
     """
 
     errors: list[DJError]
-    _instance: Optional["CompoundBuildException"] = None
+    _instance: CompoundBuildException | None = None
     _raise: bool = True
 
     def __new__(cls, *args, **kwargs):

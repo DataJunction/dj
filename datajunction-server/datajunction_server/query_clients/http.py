@@ -1,6 +1,8 @@
 """HTTP query service client - wrapper around the original QueryServiceClient."""
 
-from typing import TYPE_CHECKING, Any, Optional
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
 
 from datajunction_server.database.column import Column
 from datajunction_server.models.cube_materialization import (
@@ -52,7 +54,7 @@ class HttpQueryServiceClient(BaseQueryServiceClient):
         schema: str,
         table: str,
         request_headers: dict[str, str] | None = None,
-        engine: Optional["Engine"] = None,
+        engine: Engine | None = None,
     ) -> list[Column]:
         """Retrieves columns for a table via HTTP query service."""
         return await self._client.get_columns_for_table(
@@ -67,7 +69,7 @@ class HttpQueryServiceClient(BaseQueryServiceClient):
         self,
         tables: list[tuple[str, str, str]],
         request_headers: dict[str, str] | None = None,
-        engine: Optional["Engine"] = None,
+        engine: Engine | None = None,
     ) -> dict[tuple[str, str, str], list[Column]]:
         """Retrieves columns for multiple tables in a single batch request via HTTP query service."""
         return await self._client.get_columns_for_tables_batch(
@@ -192,7 +194,7 @@ class HttpQueryServiceClient(BaseQueryServiceClient):
 
     def run_preagg_backfill(
         self,
-        backfill_input: "BackfillInput",
+        backfill_input: BackfillInput,
         request_headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """Run a backfill for a pre-aggregation via HTTP query service."""
@@ -203,7 +205,7 @@ class HttpQueryServiceClient(BaseQueryServiceClient):
 
     def run_cube_backfill(
         self,
-        backfill_input: "CubeBackfillInput",
+        backfill_input: CubeBackfillInput,
         request_headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """Run a backfill for a cube via HTTP query service."""

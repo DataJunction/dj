@@ -1,6 +1,8 @@
 """Column database schema."""
 
-from typing import TYPE_CHECKING, Optional
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from sqlalchemy import BigInteger, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -57,7 +59,7 @@ class Column(Base):  # type: ignore
     dimension_id: Mapped[int | None] = mapped_column(
         ForeignKey("node.id", ondelete="SET NULL", name="fk_column_dimension_id_node"),
     )
-    dimension: Mapped[Optional["Node"]] = relationship(
+    dimension: Mapped[Node | None] = relationship(
         "Node",
         lazy="joined",
     )
@@ -73,13 +75,13 @@ class Column(Base):  # type: ignore
         index=True,
     )
 
-    node_revision: Mapped["NodeRevision"] = relationship(
+    node_revision: Mapped[NodeRevision] = relationship(
         "NodeRevision",
         foreign_keys=[node_revision_id],
         back_populates="columns",
     )
 
-    attributes: Mapped[list["ColumnAttribute"]] = relationship(
+    attributes: Mapped[list[ColumnAttribute]] = relationship(
         back_populates="column",
         lazy="selectin",
         cascade="all,delete",
@@ -91,7 +93,7 @@ class Column(Base):  # type: ignore
             ondelete="SET NULL",
         ),
     )
-    measure: Mapped["Measure"] = relationship(back_populates="columns")
+    measure: Mapped[Measure] = relationship(back_populates="columns")
 
     partition_id: Mapped[int | None] = mapped_column(
         ForeignKey(
@@ -100,7 +102,7 @@ class Column(Base):  # type: ignore
             ondelete="SET NULL",
         ),
     )
-    partition: Mapped["Partition"] = relationship(
+    partition: Mapped[Partition] = relationship(
         lazy="joined",
         primaryjoin="Column.id==Partition.column_id",
         uselist=False,
@@ -194,7 +196,7 @@ class Column(Base):  # type: ignore
         """
         return f"{self.node_revision.name}.{self.name}"  # type: ignore
 
-    def copy(self) -> "Column":
+    def copy(self) -> Column:
         """
         Returns a full copy of the column
         """

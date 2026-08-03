@@ -1,8 +1,10 @@
 """Base abstract class for query service clients."""
 
+from __future__ import annotations
+
 import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from datajunction_server.database.column import Column
 from datajunction_server.models.cube_materialization import (
@@ -43,7 +45,7 @@ class BaseQueryServiceClient(ABC):
         schema: str,
         table: str,
         request_headers: dict[str, str] | None = None,
-        engine: Optional["Engine"] = None,
+        engine: Engine | None = None,
     ) -> list[Column]:
         """Retrieves columns for a table."""
 
@@ -51,7 +53,7 @@ class BaseQueryServiceClient(ABC):
         self,
         tables: list[tuple[str, str, str]],  # [(catalog, schema, table), ...]
         request_headers: dict[str, str] | None = None,
-        engine: Optional["Engine"] = None,
+        engine: Engine | None = None,
     ) -> dict[tuple[str, str, str], list[Column]]:
         """
         Retrieves columns for multiple tables in a single batch request.
@@ -192,7 +194,7 @@ class BaseQueryServiceClient(ABC):
 
     def run_preagg_backfill(
         self,
-        backfill_input: "BackfillInput",
+        backfill_input: BackfillInput,
         request_headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """Run a backfill for a pre-aggregation."""
@@ -202,7 +204,7 @@ class BaseQueryServiceClient(ABC):
 
     def run_cube_backfill(
         self,
-        backfill_input: "CubeBackfillInput",
+        backfill_input: CubeBackfillInput,
         request_headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """Run a backfill for a cube."""

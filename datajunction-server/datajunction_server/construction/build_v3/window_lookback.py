@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, cast
 
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.node import NodeType
@@ -32,7 +34,7 @@ class WindowLookbackPlan:
     # Named scalar CTEs (one per order column) to prepend to result.ctes so
     # the ranked offset subquery is evaluated once, shared by both the fact scan
     # and the densify spine.
-    offset_ctes: list["ast.Query"]
+    offset_ctes: list[ast.Query]
 
 
 def read_window_lookback(expr: ast.Function) -> WindowLookback | None:
@@ -61,7 +63,7 @@ def read_window_lookback(expr: ast.Function) -> WindowLookback | None:
     )
 
 
-def validate_window_lookback(wl: "WindowLookback", order_is_sequence_dim: bool) -> None:
+def validate_window_lookback(wl: WindowLookback, order_is_sequence_dim: bool) -> None:
     """Raise DJInvalidInputException if this window metric is unsupported in v1."""
     if not order_is_sequence_dim:
         raise DJInvalidInputException(
@@ -91,7 +93,7 @@ def build_densify_join(
     )
 
 
-def _agg_copy(select: ast.Select, alias: str) -> "ast.Query":
+def _agg_copy(select: ast.Select, alias: str) -> ast.Query:
     """
     A fresh parenthesized subquery over a DEEP COPY of the aggregation select,
     used as the FROM of a cohort's DISTINCT-domain query. Copying avoids sharing
@@ -165,7 +167,7 @@ def _build_offset_cte(
     order_col_name: str,
     lower_expr: ast.Expression,
     extent: int,
-) -> tuple["ast.Query", ast.Expression]:
+) -> tuple[ast.Query, ast.Expression]:
     """
     Build a named scalar CTE ``__wl_low_<col>`` that computes the offset once,
     and a scalar subquery reference to read it back.
@@ -194,7 +196,7 @@ def _build_offset_cte(
 
 def _read_lookback_role_aware(
     func: ast.Function,
-) -> tuple["WindowLookback", str | None] | None:
+) -> tuple[WindowLookback, str | None] | None:
     """
     Wrap :func:`read_window_lookback` so a role-qualified order column
     (``ORDER BY v3.date.date_id[order]``, parsed as a ``Subscript`` over a
@@ -319,7 +321,7 @@ def _tighter_bound(
 
 
 def _dimension_physical_table(
-    ctx: "BuildContext",
+    ctx: BuildContext,
     dim_node,
 ) -> str | None:
     """
@@ -358,7 +360,7 @@ def _dimension_physical_table(
     return None  # pragma: no cover
 
 
-def apply_live_window_lookback(ctx: "BuildContext") -> Optional["WindowLookbackPlan"]:
+def apply_live_window_lookback(ctx: BuildContext) -> WindowLookbackPlan | None:
     """
     Live frame-aware lookback adapter (mirror of the cube-side
     :func:`build_temporal_filter`).
@@ -620,8 +622,8 @@ def apply_live_window_lookback(ctx: "BuildContext") -> Optional["WindowLookbackP
 
 
 def densify_window_base_metrics(
-    result: "ast.Query",
-    plan: Optional["WindowLookbackPlan"],
+    result: ast.Query,
+    plan: WindowLookbackPlan | None,
 ) -> None:
     """
     Rewrite the ``base_metrics`` CTE (the per-date grain relation the live
@@ -875,8 +877,8 @@ def densify_window_base_metrics(
 
 
 def apply_output_restriction(
-    result: "ast.Query",
-    plan: Optional["WindowLookbackPlan"],
+    result: ast.Query,
+    plan: WindowLookbackPlan | None,
 ) -> None:
     """
     Move the windowed SELECT into a ``__windowed`` CTE and replace the main

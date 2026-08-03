@@ -1,8 +1,10 @@
 """Hierarchy database schema."""
 
+from __future__ import annotations
+
 from datetime import UTC, datetime
 from functools import partial
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     JSON,
@@ -70,13 +72,13 @@ class Hierarchy(Base):  # type: ignore
     )
 
     # Relationships
-    levels: Mapped[list["HierarchyLevel"]] = relationship(
+    levels: Mapped[list[HierarchyLevel]] = relationship(
         back_populates="hierarchy",
         cascade="all, delete-orphan",
         order_by="HierarchyLevel.level_order",
     )
 
-    history: Mapped[list["History"]] = relationship(
+    history: Mapped[list[History]] = relationship(
         primaryjoin="History.entity_name==Hierarchy.name",
         order_by="History.created_at",
         foreign_keys="History.entity_name",
@@ -91,7 +93,7 @@ class Hierarchy(Base):  # type: ignore
         cls,
         session: AsyncSession,
         name: str,
-    ) -> Optional["Hierarchy"]:
+    ) -> Hierarchy | None:
         """Get a hierarchy by name with its levels loaded."""
         result = await session.execute(
             select(Hierarchy)
@@ -110,7 +112,7 @@ class Hierarchy(Base):  # type: ignore
         cls,
         session: AsyncSession,
         hierarchy_id: int,
-    ) -> Optional["Hierarchy"]:
+    ) -> Hierarchy | None:
         """Get a hierarchy by ID with its levels loaded."""
         result = await session.execute(
             select(Hierarchy)
@@ -130,7 +132,7 @@ class Hierarchy(Base):  # type: ignore
         session: AsyncSession,
         limit: int = 100,
         offset: int = 0,
-    ) -> list["Hierarchy"]:
+    ) -> list[Hierarchy]:
         """List all hierarchies with their levels and created_by info loaded."""
         result = await session.execute(
             select(cls)
@@ -148,7 +150,7 @@ class Hierarchy(Base):  # type: ignore
         cls,
         session: AsyncSession,
         namespace: str,
-    ) -> list["Hierarchy"]:
+    ) -> list[Hierarchy]:
         """Fetch all hierarchies owned by a namespace (name starts with 'namespace.')."""
         result = await session.execute(
             select(cls)
@@ -165,7 +167,7 @@ class Hierarchy(Base):  # type: ignore
         cls,
         session: AsyncSession,
         dimension_node_id: int,
-    ) -> list["Hierarchy"]:
+    ) -> list[Hierarchy]:
         """Get all hierarchies that use a specific dimension node."""
         result = await session.execute(
             select(cls)
@@ -233,7 +235,7 @@ class Hierarchy(Base):  # type: ignore
             child_node = existing_nodes.get(next_level.dimension_node)
             # Check if there's a valid dimension link from child to parent
             if child_node and parent_node:
-                valid_link, link_errors = await cls.has_valid_hierarchy_link_to(
+                _valid_link, link_errors = await cls.has_valid_hierarchy_link_to(
                     session,
                     child_node=child_node,
                     parent_node=parent_node,
@@ -329,7 +331,7 @@ class HierarchyLevel(Base):  # type: ignore
         ForeignKey("hierarchies.id"),
         nullable=False,
     )
-    hierarchy: Mapped["Hierarchy"] = relationship(back_populates="levels")
+    hierarchy: Mapped[Hierarchy] = relationship(back_populates="levels")
 
     name: Mapped[str] = mapped_column(String, nullable=False)
 
@@ -338,7 +340,7 @@ class HierarchyLevel(Base):  # type: ignore
         ForeignKey("node.id"),
         nullable=False,
     )
-    dimension_node: Mapped["Node"] = relationship("Node")
+    dimension_node: Mapped[Node] = relationship("Node")
 
     level_order: Mapped[int] = mapped_column(Integer, nullable=False)
 

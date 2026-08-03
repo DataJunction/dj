@@ -1,8 +1,10 @@
 """Node-related scalars."""
 
+from __future__ import annotations
+
 import datetime
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 import strawberry
 from sqlalchemy.orm.attributes import InstrumentedAttribute, set_committed_value
@@ -224,10 +226,10 @@ class DimensionAttribute:
     properties: list[str]
     type: str
 
-    _dimension_node: Optional["Node"] = None
+    _dimension_node: Node | None = None
 
     @strawberry.field(description="The dimension node this attribute belongs to")
-    async def dimension_node(self, info: Info) -> Optional["Node"]:
+    async def dimension_node(self, info: Info) -> Node | None:
         """
         Lazy load the dimension node when queried.
         """
@@ -261,7 +263,7 @@ class NodeRevision:
     custom_metadata: JSON | None = None
 
     @strawberry.field
-    def catalog(self, root: "DBNodeRevision") -> Catalog | None:
+    def catalog(self, root: DBNodeRevision) -> Catalog | None:
         """
         Catalog for the node
         """
@@ -272,7 +274,7 @@ class NodeRevision:
     @strawberry.field
     def columns(
         self,
-        root: "DBNodeRevision",
+        root: DBNodeRevision,
         attributes: list[str] | None = None,
     ) -> list[Column]:
         """
@@ -335,7 +337,7 @@ class NodeRevision:
 
     # Materialization-related outputs
     @strawberry.field
-    def availability(self, root: "DBNodeRevision") -> AvailabilityState | None:
+    def availability(self, root: DBNodeRevision) -> AvailabilityState | None:
         """
         The availability state of materialized data for this node
         """
@@ -367,7 +369,7 @@ class NodeRevision:
     @strawberry.field
     def materializations(
         self,
-        root: "DBNodeRevision",
+        root: DBNodeRevision,
     ) -> list[MaterializationConfig] | None:
         """
         The materialization configurations for this node
@@ -409,7 +411,7 @@ class NodeRevision:
     required_dimensions: list[Column] | None = None
 
     @strawberry.field
-    def primary_key(self, root: "DBNodeRevision") -> list[str]:
+    def primary_key(self, root: DBNodeRevision) -> list[str]:
         """
         The primary key of the node
         """
@@ -418,7 +420,7 @@ class NodeRevision:
     @strawberry.field
     def metric_metadata(
         self,
-        root: "DBNodeRevision",
+        root: DBNodeRevision,
         info: Info,
     ) -> MetricMetadata | None:
         """
@@ -464,7 +466,7 @@ class NodeRevision:
         )
 
     @strawberry.field
-    def is_derived_metric(self, root: "DBNodeRevision") -> bool:
+    def is_derived_metric(self, root: DBNodeRevision) -> bool:
         """
         Returns True if this metric references other metrics (making it a derived metric).
         A derived metric is a metric whose parent(s) include other metric nodes.
@@ -474,7 +476,7 @@ class NodeRevision:
         return root.is_derived_metric
 
     @strawberry.field
-    def is_measure(self, root: "DBNodeRevision") -> bool:
+    def is_measure(self, root: DBNodeRevision) -> bool:
         """
         Returns True if this metric is a "measure": a single top-level aggregation
         call (e.g. SUM(x), COUNT(x), AVG(x)) with no cross-measure arithmetic that
@@ -488,7 +490,7 @@ class NodeRevision:
     @strawberry.field
     async def extracted_measures(
         self,
-        root: "DBNodeRevision",
+        root: DBNodeRevision,
         info: Info,
     ) -> DecomposedMetric | None:
         """
@@ -539,7 +541,7 @@ class NodeRevision:
 
     # Only cubes will have these fields
     @strawberry.field
-    def cube_metrics(self, root: "DBNodeRevision", info: Info) -> list["NodeRevision"]:  # type: ignore[return-value]
+    def cube_metrics(self, root: DBNodeRevision, info: Info) -> list[NodeRevision]:  # type: ignore[return-value]
         """
         Metrics for a cube node
         """
@@ -578,7 +580,7 @@ class NodeRevision:
         )
 
     @strawberry.field
-    def cube_filters(self, root: "DBNodeRevision") -> list[str]:
+    def cube_filters(self, root: DBNodeRevision) -> list[str]:
         """
         Filters for a cube node
         """
@@ -589,7 +591,7 @@ class NodeRevision:
     @strawberry.field
     def cube_dimensions(
         self,
-        root: "DBNodeRevision",
+        root: DBNodeRevision,
         info: Info,
     ) -> list[DimensionAttribute]:
         """
@@ -687,14 +689,14 @@ class Node:
     owners: list[User]
 
     @strawberry.field
-    def edited_by(self, root: "DBNode") -> list[str]:
+    def edited_by(self, root: DBNode) -> list[str]:
         """
         The users who edited this node
         """
         return root.edited_by
 
     @strawberry.field
-    def git_info(self, root: "DBNode") -> GitRepositoryInfo | None:
+    def git_info(self, root: DBNode) -> GitRepositoryInfo | None:
         """
         Git repository information for this node's namespace.
 

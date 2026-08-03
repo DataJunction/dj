@@ -1,6 +1,6 @@
 """Measure database schema."""
 
-from typing import Optional
+from __future__ import annotations
 
 from sqlalchemy import (
     JSON,
@@ -49,7 +49,7 @@ class Measure(Base):  # type: ignore
         insert_default=lambda context: labelize(context.current_parameters.get("name")),
     )
     description: Mapped[str | None]
-    columns: Mapped[list["Column"]] = relationship(
+    columns: Mapped[list[Column]] = relationship(
         back_populates="measure",
         lazy="joined",
     )
@@ -108,7 +108,7 @@ class FrozenMeasure(Base):
             ondelete="CASCADE",
         ),
     )
-    upstream_revision: Mapped["NodeRevision"] = relationship(
+    upstream_revision: Mapped[NodeRevision] = relationship(
         "NodeRevision",
         lazy="selectin",
     )
@@ -124,7 +124,7 @@ class FrozenMeasure(Base):
     rule: Mapped[MeasureAggregationRule] = mapped_column(MeasureAggregationRuleType)
 
     # Associated node revisions that use this measure
-    used_by_node_revisions: Mapped[list["NodeRevision"]] = relationship(
+    used_by_node_revisions: Mapped[list[NodeRevision]] = relationship(
         secondary="node_revision_frozen_measures",
         back_populates="frozen_measures",
         lazy="selectin",
@@ -143,7 +143,7 @@ class FrozenMeasure(Base):
         cls,
         session: AsyncSession,
         name: str,
-    ) -> Optional["FrozenMeasure"]:
+    ) -> FrozenMeasure | None:
         """
         Get a measure by name
         """
@@ -162,7 +162,7 @@ class FrozenMeasure(Base):
         cls,
         session: AsyncSession,
         names: list[str],
-    ) -> list["FrozenMeasure"]:
+    ) -> list[FrozenMeasure]:
         """
         Get multiple measures by names in a single query.
         """
@@ -186,7 +186,7 @@ class FrozenMeasure(Base):
         aggregation: str | None = None,
         upstream_name: str | None = None,
         upstream_version: str | None = None,
-    ) -> list["FrozenMeasure"]:
+    ) -> list[FrozenMeasure]:
         """
         Find frozen measure by search params
         """

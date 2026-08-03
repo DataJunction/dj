@@ -1,6 +1,8 @@
 """Attribute type database schema."""
 
-from typing import TYPE_CHECKING, Optional
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
 from sqlalchemy import UniqueConstraint, select
@@ -49,7 +51,7 @@ class AttributeType(Base):
         cls,
         session: AsyncSession,
         name: str,
-    ) -> Optional["AttributeType"]:
+    ) -> AttributeType | None:
         """
         Get an AttributeType by name.
         """
@@ -62,7 +64,7 @@ class AttributeType(Base):
         cls,
         session: AsyncSession,
         new_obj: MutableAttributeTypeFields,
-    ) -> Optional["AttributeType"]:
+    ) -> AttributeType | None:
         """
         Get an AttributeType by name.
         """
@@ -116,7 +118,7 @@ class ColumnAttribute(Base):
             ondelete="CASCADE",
         ),
     )
-    column: Mapped[Optional["Column"]] = relationship(
+    column: Mapped[Column | None] = relationship(
         back_populates="attributes",
         foreign_keys=[column_id],
     )

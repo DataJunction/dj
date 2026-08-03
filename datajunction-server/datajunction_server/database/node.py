@@ -1,11 +1,13 @@
 """Node database schema."""
 
+from __future__ import annotations
+
 import logging
 import pickle
 import zlib
 from datetime import UTC, datetime
 from functools import partial
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 import sqlalchemy as sa
 from pydantic import ConfigDict
@@ -192,9 +194,9 @@ def _build_search_score(
 
 
 def _resolve_metric_unit_for_spec(
-    col_unit: "AtomicUnit | CompoundUnit | dict | None",
-    legacy_from_md: "MetricUnit | None",
-) -> "tuple[MetricUnit | None, AtomicUnit | CompoundUnit | None]":
+    col_unit: AtomicUnit | CompoundUnit | dict | None,
+    legacy_from_md: MetricUnit | None,
+) -> tuple[MetricUnit | None, AtomicUnit | CompoundUnit | None]:
     """
     Decide which of (legacy enum, structured Unit) to populate on a MetricSpec
     when round-tripping a metric back from the DB.
@@ -438,14 +440,14 @@ class Node(Base):
         overlaps="owner_associations",
     )
 
-    revisions: Mapped[list["NodeRevision"]] = relationship(
+    revisions: Mapped[list[NodeRevision]] = relationship(
         "NodeRevision",
         back_populates="node",
         primaryjoin="Node.id==NodeRevision.node_id",
         cascade="all,delete",
         order_by="NodeRevision.updated_at",
     )
-    current: Mapped["NodeRevision"] = relationship(
+    current: Mapped[NodeRevision] = relationship(
         "NodeRevision",
         primaryjoin=(
             "and_(Node.id==NodeRevision.node_id, "
@@ -455,7 +457,7 @@ class Node(Base):
         uselist=False,
     )
 
-    children: Mapped[list["NodeRevision"]] = relationship(
+    children: Mapped[list[NodeRevision]] = relationship(
         back_populates="parents",
         secondary="noderelationship",
         primaryjoin="Node.id==NodeRelationship.parent_id",
@@ -463,7 +465,7 @@ class Node(Base):
         order_by="NodeRevision.id",
     )
 
-    tags: Mapped[list["Tag"]] = relationship(
+    tags: Mapped[list[Tag]] = relationship(
         back_populates="nodes",
         secondary="tagnoderelationship",
         primaryjoin="TagNodeRelationship.node_id==Node.id",
@@ -471,7 +473,7 @@ class Node(Base):
         lazy="selectin",
     )
 
-    namespace_obj: Mapped[Optional["NodeNamespace"]] = relationship(
+    namespace_obj: Mapped[NodeNamespace | None] = relationship(
         "NodeNamespace",
         foreign_keys=[namespace],
         primaryjoin="Node.namespace == foreign(NodeNamespace.namespace)",
@@ -537,16 +539,16 @@ class Node(Base):
         )
 
         # Base kwargs common to all node types
-        base_kwargs = dict(
-            name=self.name,
-            node_type=self.type,
-            owners=[owner.username for owner in self.owners],
-            display_name=self.current.display_name,
-            description=self.current.description,
-            tags=[tag.name for tag in self.tags],
-            mode=self.current.mode,
-            custom_metadata=self.current.custom_metadata,
-        )
+        base_kwargs = {
+            "name": self.name,
+            "node_type": self.type,
+            "owners": [owner.username for owner in self.owners],
+            "display_name": self.current.display_name,
+            "description": self.current.description,
+            "tags": [tag.name for tag in self.tags],
+            "mode": self.current.mode,
+            "custom_metadata": self.current.custom_metadata,
+        }
 
         # Type-specific extra arguments
         extra_kwargs: dict[str, Any] = {}
@@ -697,7 +699,7 @@ class Node(Base):
         raise_if_not_exists: bool = False,
         include_inactive: bool = False,
         for_update: bool = False,
-    ) -> Optional["Node"]:
+    ) -> Node | None:
         """
         Get a node by name
         """
@@ -730,7 +732,7 @@ class Node(Base):
         names: list[str],
         options: list[ExecutableOption] | None = None,
         include_inactive: bool = False,
-    ) -> list["Node"]:
+    ) -> list[Node]:
         """
         Get nodes by names
         """
@@ -762,7 +764,7 @@ class Node(Base):
         name: str,
         for_measures_sql: bool = False,
         with_metric_current: bool = False,
-    ) -> Optional["Node"]:
+    ) -> Node | None:
         """
         Get a cube by name.
 
@@ -863,7 +865,7 @@ class Node(Base):
         prefix: str | None = None,
         node_type: NodeType | None = None,
         *options: ExecutableOption,
-    ) -> list["Node"]:
+    ) -> list[Node]:
         """
         Finds a list of nodes by prefix
         """
@@ -1166,7 +1168,7 @@ class Node(Base):
         has_materialization: bool = False,
         orphaned_dimension: bool = False,
         search: str | None = None,
-    ) -> list["Node"]:
+    ) -> list[Node]:
         """
         Finds a list of nodes by prefix
         """
@@ -1531,7 +1533,7 @@ class NodeRevision(
 
     # A list of columns from the metric's parent that
     # are required for grouping when using the metric
-    required_dimensions: Mapped[list["Column"]] = relationship(
+    required_dimensions: Mapped[list[Column]] = relationship(
         secondary="metric_required_dimensions",
         primaryjoin="NodeRevision.id==BoundDimensionsRelationship.metric_id",
         secondaryjoin="Column.id==BoundDimensionsRelationship.bound_dimension_id",
@@ -1557,7 +1559,7 @@ class NodeRevision(
     )
 
     # A list of metric columns and dimension columns, only used by cube nodes
-    cube_elements: Mapped[list["Column"]] = relationship(
+    cube_elements: Mapped[list[Column]] = relationship(
         secondary="cube",
         primaryjoin="NodeRevision.id==CubeRelationship.cube_id",
         secondaryjoin="Column.id==CubeRelationship.cube_element_id",
@@ -1574,7 +1576,7 @@ class NodeRevision(
         insert_default=partial(datetime.now, UTC),
     )
 
-    parents: Mapped[list["Node"]] = relationship(
+    parents: Mapped[list[Node]] = relationship(
         back_populates="children",
         secondary="noderelationship",
         primaryjoin="NodeRevision.id==NodeRelationship.child_id",
@@ -1589,14 +1591,14 @@ class NodeRevision(
         # Only delete the association (join table entry) when NodeRevision is deleted
     )
 
-    columns: Mapped[list["Column"]] = relationship(
+    columns: Mapped[list[Column]] = relationship(
         "Column",
         back_populates="node_revision",
         cascade="all, delete-orphan",
         order_by="Column.order",
     )
 
-    dimension_links: Mapped[list["DimensionLink"]] = relationship(
+    dimension_links: Mapped[list[DimensionLink]] = relationship(
         back_populates="node_revision",
         cascade="all, delete",
         order_by="DimensionLink.id",
@@ -1615,7 +1617,7 @@ class NodeRevision(
 
     # Nodes of type SOURCE will not have this property as their materialization
     # is not managed as a part of this service
-    materializations: Mapped[list["Materialization"]] = relationship(
+    materializations: Mapped[list[Materialization]] = relationship(
         back_populates="node_revision",
         cascade="all, delete-orphan",
     )
@@ -1636,7 +1638,7 @@ class NodeRevision(
     )
 
     # Measures
-    frozen_measures: Mapped[list["FrozenMeasure"]] = relationship(
+    frozen_measures: Mapped[list[FrozenMeasure]] = relationship(
         secondary="node_revision_frozen_measures",
         back_populates="used_by_node_revisions",
         passive_deletes=True,
@@ -1789,7 +1791,7 @@ class NodeRevision(
         session: AsyncSession,
         node_revision_id: int,
         options: list[ExecutableOption] | None = None,
-    ) -> Optional["NodeRevision"]:
+    ) -> NodeRevision | None:
         """
         Get a node revision by id
         """
@@ -1866,14 +1868,14 @@ class NodeRevision(
         return decomposition is not None and len(decomposition.components) == 1
 
     @property
-    def metric_parents(self) -> list["Node"]:
+    def metric_parents(self) -> list[Node]:
         """
         Get the list of parent nodes that are metrics.
         """
         return [parent for parent in self.parents if parent.type == NodeType.METRIC]
 
     @property
-    def non_metric_parents(self) -> list["Node"]:
+    def non_metric_parents(self) -> list[Node]:
         """
         Get the list of parent nodes that are not metrics.
         """
@@ -1898,13 +1900,12 @@ class NodeRevision(
         if self.type == NodeType.METRIC:
             self.check_metric()
 
-        if self.type == NodeType.CUBE:
-            if not self.cube_elements:
-                raise DJInvalidInputException(
-                    f"Node {self.name} of type cube node needs cube elements",
-                )
+        if self.type == NodeType.CUBE and not self.cube_elements:
+            raise DJInvalidInputException(
+                f"Node {self.name} of type cube node needs cube elements",
+            )
 
-    def copy_dimension_links_from_revision(self, old_revision: "NodeRevision"):
+    def copy_dimension_links_from_revision(self, old_revision: NodeRevision):
         """
         Copy dimension links and attributes from another node revision if the column names match
         """
@@ -1941,13 +1942,13 @@ class NodeRevision(
             for idx, col in enumerate(self.columns)
         }
 
-    def cube_elements_with_nodes(self) -> list[tuple[Column, Optional["NodeRevision"]]]:
+    def cube_elements_with_nodes(self) -> list[tuple[Column, NodeRevision | None]]:
         """
         Cube elements along with their nodes
         """
         return [(element, element.node_revision) for element in self.cube_elements]
 
-    def metric_node_revisions(self) -> list[Optional["NodeRevision"]]:
+    def metric_node_revisions(self) -> list[NodeRevision | None]:
         """
         Cube elements along with their nodes
         """
@@ -2110,7 +2111,7 @@ class NodeRevision(
         session: AsyncSession,
         name: str,
         version: str | None = None,
-    ) -> Optional["NodeRevision"]:
+    ) -> NodeRevision | None:
         """
         Get a cube by name
         """
@@ -2125,7 +2126,7 @@ class NodeRevision(
         catalog: str | None = None,
         page: int = 1,
         page_size: int = 10,
-    ) -> list["NodeRevision"]:
+    ) -> list[NodeRevision]:
         """
         Returns cube revision metadata for the latest version of all cubes, with pagination.
         Optionally filters by the catalog in which the cube is available.

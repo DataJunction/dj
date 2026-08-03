@@ -1,10 +1,11 @@
 """Pre-aggregation database schema."""
 
+from __future__ import annotations
+
 import hashlib
 import json
 from datetime import UTC, datetime
 from functools import partial
-from typing import Optional
 
 import sqlalchemy as sa
 from sqlalchemy import (
@@ -319,11 +320,11 @@ class PreAggregation(Base):
     )
 
     # === Relationships ===
-    node_revision: Mapped["NodeRevision"] = relationship(
+    node_revision: Mapped[NodeRevision] = relationship(
         "NodeRevision",
         passive_deletes=True,
     )
-    availability: Mapped[Optional["AvailabilityState"]] = relationship(
+    availability: Mapped[AvailabilityState | None] = relationship(
         "AvailabilityState",
     )
 
@@ -362,7 +363,7 @@ class PreAggregation(Base):
         cls,
         session: AsyncSession,
         grain_group_hash: str,
-    ) -> list["PreAggregation"]:
+    ) -> list[PreAggregation]:
         """
         Get all pre-aggregations with the given grain group hash.
         """
@@ -391,7 +392,7 @@ class PreAggregation(Base):
         cls,
         session: AsyncSession,
         pre_agg_id: int,
-    ) -> Optional["PreAggregation"]:
+    ) -> PreAggregation | None:
         """Get a pre-aggregation by ID."""
         statement = select(cls).where(cls.id == pre_agg_id)
         result = await session.execute(statement)
@@ -402,7 +403,7 @@ class PreAggregation(Base):
         cls,
         session: AsyncSession,
         namespace: str,
-    ) -> list["PreAggregation"]:
+    ) -> list[PreAggregation]:
         """
         Get all EXTERNAL-strategy pre-aggregations whose node lives in the given
         namespace. Used by deploy-time reconciliation to diff against the spec.
@@ -439,7 +440,7 @@ class PreAggregation(Base):
         node_revision_id: int,
         grain_columns: list[str],
         measure_identities: set[str],
-    ) -> Optional["PreAggregation"]:
+    ) -> PreAggregation | None:
         """
         Find an existing pre-agg that covers the requested measures.
 

@@ -12,7 +12,6 @@ import tarfile
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Optional
 
 import yaml
 from fastapi import BackgroundTasks, Depends, Request
@@ -636,7 +635,7 @@ async def sync_namespace_to_git(
 
 @router.get(
     "/namespaces/{namespace}/pull-request",
-    response_model=Optional[PRResult],
+    response_model=PRResult | None,
     name="Get existing pull request",
 )
 async def get_pull_request(

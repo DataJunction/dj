@@ -1,11 +1,13 @@
 """Base client dataclasses."""
 
+from __future__ import annotations
+
 from dataclasses import MISSING, fields, is_dataclass
 from types import UnionType
 from typing import (
     TYPE_CHECKING,
     Any,
-    Optional,
+    Self,
     TypeVar,
     Union,
     cast,
@@ -29,7 +31,7 @@ class SerializableMixin:  # pylint: disable=too-few-public-methods
     def _serialize_nested(
         field_type: type,
         field_value: Any,
-        dj_client: Optional["DJClient"],
+        dj_client: DJClient | None,
     ):
         """
         Handle nested field serialization
@@ -45,7 +47,7 @@ class SerializableMixin:  # pylint: disable=too-few-public-methods
     def _serialize_list(
         field_type: type,
         field_value: Any,
-        dj_client: Optional["DJClient"],
+        dj_client: DJClient | None,
     ):
         """
         Handle serialization of lists of both primitive and dataclass object types
@@ -76,10 +78,10 @@ class SerializableMixin:  # pylint: disable=too-few-public-methods
 
     @classmethod
     def from_dict(
-        cls: type[T],
-        dj_client: Optional["DJClient"],
+        cls,
+        dj_client: DJClient | None,
         data: dict[str, Any],
-    ) -> T:
+    ) -> Self:
         """
         Create an instance of the given dataclass `cls` from a dictionary `data`.
         This will handle nested dataclasses and optional types.
@@ -99,7 +101,7 @@ class SerializableMixin:  # pylint: disable=too-few-public-methods
                 field_type = next(  # pragma: no cover
                     typ
                     for typ in get_args(field_type)
-                    if typ is not type(None)  # noqa
+                    if typ is not type(None)
                 )
 
             # Serialize field value
@@ -120,6 +122,6 @@ class SerializableMixin:  # pylint: disable=too-few-public-methods
                 field.name not in field_values or field_values[field.name] is None
             ) and field.default is not MISSING:
                 field_values[field.name] = field.default
-        if is_dataclass(cls) and "dj_client" in cls.__dataclass_fields__.keys():  # type: ignore
+        if is_dataclass(cls) and "dj_client" in cls.__dataclass_fields__:  # type: ignore
             return cls(dj_client=dj_client, **field_values)  # type: ignore
         return cls(**field_values)

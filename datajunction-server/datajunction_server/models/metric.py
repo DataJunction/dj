@@ -2,7 +2,7 @@
 Models for metrics.
 """
 
-from typing import Optional
+from __future__ import annotations
 
 from pydantic.main import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -69,7 +69,7 @@ class Metric(BaseModel):
         node: Node,
         dims: list[DimensionAttributeOutput],
         session: AsyncSession,
-    ) -> "Metric":
+    ) -> Metric:
         """
         Parses a node into a metric.
         """
@@ -152,4 +152,4 @@ class V3TranslatedSQL(BaseModel):
     cube_name: str | None = None
 
     # Scan estimate (aggregated from all grain groups)
-    scan_estimate: Optional["ScanEstimate"] = None
+    scan_estimate: ScanEstimate | None = None

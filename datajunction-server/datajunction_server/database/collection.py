@@ -1,8 +1,9 @@
 """Collection database schema."""
 
+from __future__ import annotations
+
 from datetime import UTC, datetime
 from functools import partial
-from typing import Optional
 
 from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, String, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -57,7 +58,7 @@ class Collection(Base):
         session: AsyncSession,
         name: str,
         raise_if_not_exists: bool = False,
-    ) -> Optional["Collection"]:
+    ) -> Collection | None:
         """
         Get a collection by name
         """

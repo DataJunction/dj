@@ -1,8 +1,10 @@
 """Models used by the DJ client."""
 
+from __future__ import annotations
+
 import enum
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from datajunction._base import SerializableMixin
 
@@ -77,9 +79,9 @@ class MetricMetadata(SerializableMixin):
     @classmethod
     def from_dict(
         cls,
-        dj_client: Optional["DJClient"],
+        dj_client: DJClient | None,
         data: dict[str, Any],
-    ) -> "MetricMetadata":
+    ) -> MetricMetadata:
         """
         Create an instance of the given dataclass `cls` from a dictionary `data`.
         This will handle nested dataclasses and optional types.
@@ -178,9 +180,9 @@ class ColumnAttribute(SerializableMixin):
     @classmethod
     def from_dict(
         cls,
-        dj_client: Optional["DJClient"],
+        dj_client: DJClient | None,
         data: dict[str, Any],
-    ) -> "ColumnAttribute":
+    ) -> ColumnAttribute:
         """
         Create an instance of the given dataclass `cls` from a dictionary `data`.
         This will handle nested dataclasses and optional types.
@@ -263,7 +265,7 @@ class QueryState(str, enum.Enum):
         """
         List of available query states as strings
         """
-        return list(map(lambda c: c.value, cls))  # type: ignore
+        return [c.value for c in cls]  # type: ignore
 
 
 @dataclass
@@ -305,9 +307,9 @@ class GitConfig(SerializableMixin):
     @classmethod
     def from_dict(
         cls,
-        dj_client: Optional["DJClient"],
+        dj_client: DJClient | None,
         data: dict[str, Any],
-    ) -> "GitConfig":
+    ) -> GitConfig:
         """Create a GitConfig from a dictionary."""
         return cls(
             github_repo_path=data.get("github_repo_path"),
@@ -335,9 +337,9 @@ class BranchInfo(SerializableMixin):
     @classmethod
     def from_dict(
         cls,
-        dj_client: Optional["DJClient"],
+        dj_client: DJClient | None,
         data: dict[str, Any],
-    ) -> "BranchInfo":
+    ) -> BranchInfo:
         """Create a BranchInfo from a dictionary."""
         return cls(
             namespace=data["namespace"],
@@ -370,7 +372,7 @@ class DeploymentResult:
     changed_fields: list[str] = field(default_factory=list)
 
     @classmethod
-    def from_dict(cls, d: dict) -> "DeploymentResult":
+    def from_dict(cls, d: dict) -> DeploymentResult:
         return cls(
             name=d.get("name", ""),
             operation=d.get("operation", ""),
@@ -392,7 +394,7 @@ class DownstreamImpact:
     impact_type: str = ""
 
     @classmethod
-    def from_dict(cls, d: dict) -> "DownstreamImpact":
+    def from_dict(cls, d: dict) -> DownstreamImpact:
         return cls(
             name=d.get("name", ""),
             node_type=d.get("node_type", ""),
@@ -414,7 +416,7 @@ class DeploymentInfo:
     downstream_impacts: list[DownstreamImpact] = field(default_factory=list)
 
     @classmethod
-    def from_dict(cls, d: dict) -> "DeploymentInfo":
+    def from_dict(cls, d: dict) -> DeploymentInfo:
         return cls(
             uuid=d.get("uuid", ""),
             namespace=d.get("namespace", ""),

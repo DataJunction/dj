@@ -1,8 +1,10 @@
 """RBAC database schema."""
 
+from __future__ import annotations
+
 from datetime import UTC, datetime
 from functools import partial
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     BigInteger,
@@ -65,17 +67,17 @@ class Role(Base):
     )
 
     # Relationships
-    created_by: Mapped["User"] = relationship(
+    created_by: Mapped[User] = relationship(
         "User",
         foreign_keys=[created_by_id],
         lazy="selectin",
     )
-    scopes: Mapped[list["RoleScope"]] = relationship(
+    scopes: Mapped[list[RoleScope]] = relationship(
         "RoleScope",
         back_populates="role",
         cascade="all, delete-orphan",
     )
-    assignments: Mapped[list["RoleAssignment"]] = relationship(
+    assignments: Mapped[list[RoleAssignment]] = relationship(
         "RoleAssignment",
         back_populates="role",
         cascade="all, delete-orphan",
@@ -94,7 +96,7 @@ class Role(Base):
         name: str,
         include_deleted: bool = False,
         options: list | None = None,
-    ) -> Optional["Role"]:
+    ) -> Role | None:
         """
         Get a role by name.
 
@@ -130,7 +132,7 @@ class Role(Base):
         name: str,
         include_deleted: bool = False,
         options: list | None = None,
-    ) -> "Role":
+    ) -> Role:
         """
         Get a role by name, raising an exception if not found.
 
@@ -161,7 +163,7 @@ class Role(Base):
         created_by_id: int | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> list["Role"]:
+    ) -> list[Role]:
         """
         Find roles with optional filters.
 
@@ -297,7 +299,7 @@ class RoleAssignment(Base):
     )
 
     # Relationships
-    principal: Mapped["User"] = relationship(
+    principal: Mapped[User] = relationship(
         "User",
         foreign_keys=[principal_id],
         lazy="selectin",
@@ -307,7 +309,7 @@ class RoleAssignment(Base):
         back_populates="assignments",
         lazy="selectin",
     )
-    granted_by: Mapped["User"] = relationship(
+    granted_by: Mapped[User] = relationship(
         "User",
         foreign_keys=[granted_by_id],
         lazy="selectin",
@@ -333,7 +335,7 @@ class RoleAssignment(Base):
         role_id: int | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> list["RoleAssignment"]:
+    ) -> list[RoleAssignment]:
         """
         Find role assignments with optional filters.
 

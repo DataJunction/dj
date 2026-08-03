@@ -1,8 +1,10 @@
 """Snowflake query client using direct snowflake-connector-python."""
 
+from __future__ import annotations
+
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from datajunction_server.database.column import Column
 from datajunction_server.errors import (
@@ -149,7 +151,7 @@ class SnowflakeClient(BaseQueryServiceClient):
         schema: str,
         table: str,
         request_headers: dict[str, str] | None = None,
-        engine: Optional["Engine"] = None,
+        engine: Engine | None = None,
     ) -> list[Column]:
         """
         Retrieves columns for a table from Snowflake information schema.

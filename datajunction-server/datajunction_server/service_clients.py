@@ -1,10 +1,12 @@
 """Clients for various configurable services."""
 
+from __future__ import annotations
+
 import asyncio
 import logging
 from enum import Enum
 from http import HTTPStatus
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urljoin
 
 import httpx
@@ -109,8 +111,8 @@ class QueryServiceClient:
         retries: int = 0,
         *,
         default_headers: dict[str, str] | None = None,
-        auth: Optional["httpx.Auth"] = None,
-        transport: Optional["httpx.AsyncBaseTransport"] = None,
+        auth: httpx.Auth | None = None,
+        transport: httpx.AsyncBaseTransport | None = None,
     ):
         """
         Initialize a query service client.
@@ -210,7 +212,7 @@ class QueryServiceClient:
         schema: str,
         table: str,
         request_headers: dict[str, str] | None = None,
-        engine: Optional["Engine"] = None,
+        engine: Engine | None = None,
     ) -> list[Column]:
         """Retrieves columns for a table."""
         params = (
@@ -250,7 +252,7 @@ class QueryServiceClient:
         self,
         tables: list[tuple[str, str, str]],
         request_headers: dict[str, str] | None = None,
-        engine: Optional["Engine"] = None,
+        engine: Engine | None = None,
     ) -> dict[tuple[str, str, str], list[Column]]:
         """Retrieves columns for multiple tables in a single batch request."""
         table_names = [
@@ -373,7 +375,6 @@ class QueryServiceClient:
                 "[DJQS] Failed to get query_id=%s with `GET %s`",
                 query_id,
                 get_query_endpoint,
-                exc_info=True,
             )
             raise DJQueryServiceClientEntityNotFound(  # pragma: no cover
                 message=f"Error response from query service: {response.text}",
@@ -409,7 +410,6 @@ class QueryServiceClient:
                 "[DJQS] Failed to materialize node=%s with `POST /materialization/`: %s",
                 materialization_input.node_name,
                 materialization_input.model_dump(),
-                exc_info=True,
             )
             return MaterializationInfo(urls=[], output_tables=[])
         result = response.json()
@@ -441,7 +441,6 @@ class QueryServiceClient:
                 " node=%s with `POST /cubes/materialize`: %s",
                 materialization_input.cube,
                 response.text,
-                exc_info=True,
             )
             return MaterializationInfo(urls=[], output_tables=[])  # pragma: no cover
         result = response.json()  # pragma: no cover
@@ -501,7 +500,7 @@ class QueryServiceClient:
 
     def materialize_preagg(
         self,
-        materialization_input: "PreAggMaterializationInput",
+        materialization_input: PreAggMaterializationInput,
         request_headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """
@@ -574,7 +573,6 @@ class QueryServiceClient:
                 "[DJQS] Failed to deactivate preagg workflow for output_table=%s: %s",
                 output_table,
                 response.text,
-                exc_info=True,
             )
             raise Exception(f"Query service error: {response.text}")
         result = response.json() if response.text else {}
@@ -660,7 +658,7 @@ class QueryServiceClient:
 
     def run_preagg_backfill(
         self,
-        backfill_input: "BackfillInput",
+        backfill_input: BackfillInput,
         request_headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """
@@ -680,7 +678,6 @@ class QueryServiceClient:
                 "[DJQS] Failed to run backfill for preagg_id=%s: %s",
                 backfill_input.preagg_id,
                 response.text,
-                exc_info=True,
             )
             raise Exception(f"Query service error: {response.text}")
         result = response.json()
@@ -693,7 +690,7 @@ class QueryServiceClient:
 
     def run_cube_backfill(
         self,
-        backfill_input: "CubeBackfillInput",
+        backfill_input: CubeBackfillInput,
         request_headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """
@@ -713,7 +710,6 @@ class QueryServiceClient:
                 "[DJQS] Failed to run backfill for cube=%s: %s",
                 backfill_input.cube_name,
                 response.text,
-                exc_info=True,
             )
             raise Exception(f"Query service error: {response.text}")
         result = response.json()
@@ -746,7 +742,6 @@ class QueryServiceClient:
                 node_name,
                 node_version,
                 deactivate_endpoint,
-                exc_info=True,
             )
             return MaterializationInfo(urls=[], output_tables=[])
         result = response.json()
@@ -814,7 +809,6 @@ class QueryServiceClient:
                 cube_name,
                 refresh_endpoint,
                 response.text,
-                exc_info=True,
             )
             return MaterializationInfo(urls=[], output_tables=[])
 
@@ -851,7 +845,6 @@ class QueryServiceClient:
                 "[DJQS] Failed to get materialization info for node=%s with `GET %s`",
                 node_name,
                 info_endpoint,
-                exc_info=True,
             )
             return MaterializationInfo(output_tables=[], urls=[])
 
@@ -887,7 +880,6 @@ class QueryServiceClient:
                 "[DJQS] Failed to run backfill for node=%s with `POST %s`",
                 node_name,
                 backfill_endpoint,
-                exc_info=True,
             )
             return MaterializationInfo(output_tables=[], urls=[])  # pragma: no cover
 

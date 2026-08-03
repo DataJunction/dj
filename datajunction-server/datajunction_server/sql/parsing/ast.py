@@ -1,4 +1,7 @@
 # mypy: ignore-errors
+
+from __future__ import annotations
+
 import asyncio
 import collections
 import decimal
@@ -93,19 +96,19 @@ logger = logging.getLogger(__name__)
 # When set, Function.__str__ will use dialect-specific function names.
 # Default is None (use canonical/Spark names).
 
-_render_dialect: ContextVar[Optional["Dialect"]] = ContextVar(
+_render_dialect: ContextVar[Dialect | None] = ContextVar(
     "_render_dialect",
     default=None,
 )
 
 
-def get_render_dialect() -> Optional["Dialect"]:
+def get_render_dialect() -> Dialect | None:
     """Get the current render dialect from context."""
     return _render_dialect.get()
 
 
 @contextmanager
-def render_for_dialect(dialect: "Dialect"):
+def render_for_dialect(dialect: Dialect):
     """
     Context manager to render AST for a specific dialect.
 
@@ -120,7 +123,7 @@ def render_for_dialect(dialect: "Dialect"):
         _render_dialect.reset(token)
 
 
-def to_sql(query: "Query", dialect: Optional["Dialect"] = None) -> str:
+def to_sql(query: Query, dialect: Dialect | None = None) -> str:
     """
     Render a query AST to SQL for a specific dialect.
 
@@ -217,7 +220,7 @@ class Node(ABC):
 
     """
 
-    parent: Optional["Node"] = None
+    parent: Node | None = None
     parent_key: str | None = None
 
     _is_compiled: bool = False
@@ -239,7 +242,7 @@ class Node(ABC):
         self.parent = None
         return self
 
-    def set_parent(self: TNode, parent: "Node", parent_key: str) -> TNode:
+    def set_parent(self: TNode, parent: Node, parent_key: str) -> TNode:
         """
         Add parent to the node
         """
@@ -274,7 +277,7 @@ class Node(ABC):
             if isinstance(child, Node) and not key.startswith("_"):
                 child.set_parent(self, key)
 
-    def swap(self: TNode, other: "Node") -> TNode:
+    def swap(self: TNode, other: Node) -> TNode:
         """
         Swap the Node for another
         """
@@ -306,7 +309,7 @@ class Node(ABC):
         return deepcopy(self)
 
     def get_nearest_parent_of_type(
-        self: "Node",
+        self: Node,
         node_type: type[TNode],
     ) -> TNode | None:
         """
@@ -319,7 +322,7 @@ class Node(ABC):
         return self.parent.get_nearest_parent_of_type(node_type)
 
     def get_furthest_parent(
-        self: "Node",
+        self: Node,
     ) -> TNode | None:
         """
         Traverse up the tree until you find a node of `node_type` or hit the root
@@ -332,7 +335,7 @@ class Node(ABC):
                 return curr_parent
             curr_parent = curr_parent.parent
 
-    def flatten(self) -> Iterator["Node"]:
+    def flatten(self) -> Iterator[Node]:
         """
         Flatten the sub-ast of the node as an iterator
         """
@@ -409,7 +412,7 @@ class Node(ABC):
         return child_generator
 
     @property
-    def children(self) -> Iterator["Node"]:
+    def children(self) -> Iterator[Node]:
         """
         Returns an iterator of all nodes that are one
         step from the current node down including through iterables
@@ -424,8 +427,8 @@ class Node(ABC):
 
     def replace(
         self,
-        from_: "Node",
-        to: "Node",
+        from_: Node,
+        to: Node,
         compare: Callable[[Any, Any], bool] | None = None,
         times: int = -1,
         copy: bool = True,
@@ -448,7 +451,7 @@ class Node(ABC):
             if replacements == times:
                 return
 
-    def filter(self, func: Callable[["Node"], bool]) -> Iterator["Node"]:
+    def filter(self, func: Callable[[Node], bool]) -> Iterator[Node]:
         """
         Find all nodes that `func` returns `True` for
         """
@@ -457,20 +460,20 @@ class Node(ABC):
 
         yield from chain(*[child.filter(func) for child in self.children])
 
-    def contains(self, other: "Node") -> bool:
+    def contains(self, other: Node) -> bool:
         """
         Checks if the subtree of `self` contains the node.
         Optimized to walk up parent pointers instead of traversing the entire subtree.
         """
         # Walk up from `other` to see if we reach `self`
-        current: Optional["Node"] = other
+        current: Node | None = other
         while current is not None:
             if current is self:
                 return True
             current = current.parent
         return False
 
-    def has_ancestor(self, other: Optional["Node"]) -> bool:
+    def has_ancestor(self, other: Node | None) -> bool:
         """
         Checks if `other` is an ancestor of `self` (i.e., `self` is in `other`'s subtree).
         """
@@ -482,7 +485,7 @@ class Node(ABC):
         """
         return self.filter(lambda n: isinstance(n, node_type))  # type: ignore
 
-    def apply(self, func: Callable[["Node"], None]):
+    def apply(self, func: Callable[[Node], None]):
         """
         Traverse ast and apply func to each Node
         """
@@ -492,7 +495,7 @@ class Node(ABC):
 
     def compare(
         self,
-        other: "Node",
+        other: Node,
     ) -> bool:
         """
         Compare two ASTs for deep equality
@@ -503,23 +506,23 @@ class Node(ABC):
             return True
         return hash(self) == hash(other)
 
-    def diff(self, other: "Node") -> list[tuple["Node", "Node"]]:
+    def diff(self, other: Node) -> list[tuple[Node, Node]]:
         """
         Compare two ASTs for differences and return the pairs of differences
         """
 
-        def _diff(self, other: "Node"):
+        def _diff(self, other: Node):
             if self != other:
                 diffs.append((self, other))
             else:
                 for child, other_child in zip_longest(self.children, other.children):
                     _diff(child, other_child)
 
-        diffs: list[tuple["Node", "Node"]] = []
+        diffs: list[tuple[Node, Node]] = []
         _diff(self, other)
         return diffs
 
-    def similarity_score(self, other: "Node") -> float:
+    def similarity_score(self, other: Node) -> float:
         """
         Determine how similar two nodes are with a float score
         """
@@ -614,12 +617,12 @@ class Aliasable(Node):
     A mixin for Nodes that are aliasable
     """
 
-    alias: Optional["Name"] = None
+    alias: Name | None = None
     as_: bool | None = None
     semantic_entity: str | None = None
     semantic_type: SemanticType | None = None
 
-    def set_alias(self: TNode, alias: Optional["Name"]) -> TNode:
+    def set_alias(self: TNode, alias: Name | None) -> TNode:
         self.alias = alias
         return self
 
@@ -643,7 +646,7 @@ class Aliasable(Node):
         return [self]
 
     @property
-    def alias_or_name(self) -> "Name":
+    def alias_or_name(self) -> Name:
         if self.alias is not None:
             return self.alias
         elif isinstance(self, Named):
@@ -715,7 +718,7 @@ class Expression(Node):
             for child in self.children
         )
 
-    def set_alias(self: TExpression, alias: "Name") -> Alias[TExpression]:
+    def set_alias(self: TExpression, alias: Name) -> Alias[TExpression]:
         return Alias(child=self).set_alias(alias)
 
     def without_aliases(self) -> TExpression:
@@ -736,7 +739,7 @@ class Name(Node):
 
     name: str
     quote_style: str = ""
-    namespace: Optional["Name"] = None
+    namespace: Name | None = None
 
     def __post_init__(self):
         if isinstance(self.name, Name):
@@ -748,7 +751,7 @@ class Name(Node):
         return self.identifier(True)
 
     @property
-    def names(self) -> list["Name"]:
+    def names(self) -> list[Name]:
         namespace = [self]
         name = self
         while name.namespace:
@@ -815,7 +818,7 @@ class Named(Node):
         )
 
     @property
-    def alias_or_name(self) -> "Name":
+    def alias_or_name(self) -> Name:
         return self.name
 
 
@@ -838,13 +841,13 @@ class Column(Aliasable, Named, Expression):
     Column used in statements
     """
 
-    _table: Union[Aliasable, "TableExpression"] | None = field(
+    _table: Aliasable | TableExpression | None = field(
         repr=False,
         default=None,
     )
     _is_struct_ref: bool = False
     _struct_col_name: str | None = field(repr=False, default=None)
-    _type: Optional["ColumnType"] = field(repr=False, default=None)
+    _type: ColumnType | None = field(repr=False, default=None)
     _expression: Expression | None = field(repr=False, default=None)
     _is_compiled: bool = False
     _struct_hint: str | None = field(repr=False, default=None)
@@ -865,7 +868,7 @@ class Column(Aliasable, Named, Expression):
         parent_expr = f"in {self.parent}" if self.parent else "that has no parent"
         raise DJParseException(f"Cannot resolve type of column `{self}` {parent_expr}")
 
-    def add_type(self, type_: ColumnType) -> "Column":
+    def add_type(self, type_: ColumnType) -> Column:
         """
         Add a referenced type
         """
@@ -898,7 +901,7 @@ class Column(Aliasable, Named, Expression):
             self._table.parent = self
             self._table.parent_key = "_table"
 
-    def add_expression(self, expression: "Expression") -> "Column":
+    def add_expression(self, expression: Expression) -> Column:
         """
         Add a referenced expression where the column came from
         """
@@ -919,11 +922,11 @@ class Column(Aliasable, Named, Expression):
         if struct_col_name is not None:
             self._struct_col_name = struct_col_name
 
-    def add_table(self, table: "TableExpression"):
+    def add_table(self, table: TableExpression):
         self._table = table
 
     @property
-    def table(self) -> Optional["TableExpression"]:
+    def table(self) -> TableExpression | None:
         """
         Return the table the column was referenced from
         """
@@ -942,14 +945,14 @@ class Column(Aliasable, Named, Expression):
         """
         return self._api_column
 
-    def set_api_column(self, api_column: bool = False) -> "Column":
+    def set_api_column(self, api_column: bool = False) -> Column:
         """
         Set the api column flag
         """
         self._api_column = api_column
         return self
 
-    def use_alias_as_name(self) -> "Column":
+    def use_alias_as_name(self) -> Column:
         """Use the column's alias as its name"""
         self.name = self.alias
         self.alias = None
@@ -977,8 +980,8 @@ class Column(Aliasable, Named, Expression):
     @classmethod
     def from_existing(
         cls,
-        col: Union[Aliasable, Expression, "Column"],
-        table: "TableExpression",
+        col: Aliasable | Expression | Column,
+        table: TableExpression,
     ):
         """
         Build a selectable column from an existing one
@@ -994,7 +997,7 @@ class Column(Aliasable, Named, Expression):
     async def find_table_sources(
         self,
         ctx: CompileContext,
-    ) -> list["TableExpression"]:
+    ) -> list[TableExpression]:
         # flake8: noqa
         """
         Find all tables that this column could have originated from.
@@ -1202,7 +1205,7 @@ class Column(Aliasable, Named, Expression):
                             to_process.append((new_table, path + [link]))
         return found
 
-    def _get_parent_query(self) -> Optional["Query"]:
+    def _get_parent_query(self) -> Query | None:
         """Find the parent Query node for this column."""
         node = self.parent
         while node is not None:
@@ -1391,16 +1394,16 @@ class Wildcard(Named, Expression):
     """
 
     name: Name = field(init=False, repr=False, default_factory=lambda: Name("*"))
-    _table: Optional["Table"] = field(repr=False, default=None)
+    _table: Table | None = field(repr=False, default=None)
 
     @property
-    def table(self) -> Optional["Table"]:
+    def table(self) -> Table | None:
         """
         Return the table the column was referenced from if there's one
         """
         return self._table
 
-    def add_table(self, table: "Table") -> "Wildcard":
+    def add_table(self, table: Table) -> Wildcard:
         """
         Add a referenced table
         """
@@ -1462,14 +1465,14 @@ class TableExpression(Aliasable, Expression):
 
     @staticmethod
     def _resolve_struct_field_path(
-        struct_type: "StructType",
+        struct_type: StructType,
         field_path: list[str],
-    ) -> Optional["ColumnType"]:
+    ) -> ColumnType | None:
         """
         Walk a sequence of field names through nested StructTypes.
         Returns the leaf ColumnType, or None if the path doesn't resolve.
         """
-        current: "ColumnType" = struct_type
+        current: ColumnType = struct_type
         for field_name in field_path:
             if not isinstance(current, StructType):
                 return None
@@ -1713,7 +1716,7 @@ class Table(TableExpression, Named):
 
     _dj_node: DJNode | None = field(repr=False, default=None)
     dimension_link: DimensionLink | None = field(repr=False, default=None)
-    path: list["Table"] | None = field(repr=False, default=None)
+    path: list[Table] | None = field(repr=False, default=None)
 
     @property
     def dj_node(self) -> DJNode | None:
@@ -1722,7 +1725,7 @@ class Table(TableExpression, Named):
         """
         return self._dj_node
 
-    def set_dj_node(self, dj_node: DJNode) -> "Table":
+    def set_dj_node(self, dj_node: DJNode) -> Table:
         """
         Set dj_node referenced by this table
         """
@@ -1739,7 +1742,7 @@ class Table(TableExpression, Named):
     def is_compiled(self) -> bool:
         return super().is_compiled() and (self.dj_node is not None)
 
-    def set_alias(self: TNode, alias: "Name") -> TNode:
+    def set_alias(self: TNode, alias: Name) -> TNode:
         self.alias = alias
         for col in self._columns:
             if col.table:
@@ -1948,7 +1951,7 @@ class BinaryOp(Operation):
         left: Expression | None = None,
         right: Expression | None = None,
         *rest: Expression,
-    ) -> Union["BinaryOp", Expression] | None:
+    ) -> BinaryOp | Expression | None:
         """
         Create a BinaryOp of kind BinaryOpKind.And rolling up all expressions.
         Tolerates 0/1 args so that callers may safely `.And(*conditions)` an empty list.
@@ -1972,7 +1975,7 @@ class BinaryOp(Operation):
         left: Expression,
         right: Expression | None,
         use_alias_as_name: bool | None = False,
-    ) -> Union["BinaryOp", Expression]:
+    ) -> BinaryOp | Expression:
         """
         Create a BinaryOp of kind BinaryOpKind.Eq
         """
@@ -2139,7 +2142,7 @@ class Over(Expression):
     """
 
     partition_by: list[Expression] = field(default_factory=list)
-    order_by: list["SortItem"] = field(default_factory=list)
+    order_by: list[SortItem] = field(default_factory=list)
     window_frame: Frame | None = None
 
     def __str__(self) -> str:
@@ -2514,7 +2517,7 @@ class In(Predicate):
     """
 
     expr: Expression = field(default_factory=Expression)
-    source: Union[list[Expression], "Select"] = field(default_factory=Expression)
+    source: list[Expression] | Select = field(default_factory=Expression)
 
     def __str__(self) -> str:
         not_ = "NOT " if self.negated else ""
@@ -2944,7 +2947,7 @@ class SetOp(Node):
     """
 
     kind: str = ""  # Union, intersect, ...
-    right: Optional["SelectExpression"] = None
+    right: SelectExpression | None = None
 
     def __str__(self) -> str:
         return f"\n{self.kind}\n{self.right}"
@@ -3092,14 +3095,14 @@ class SelectExpression(Aliasable, Expression):
         return filters
 
     @property
-    def column_mapping(self) -> dict[str, "Column"]:
+    def column_mapping(self) -> dict[str, Column]:
         """
         Returns a dictionary with the output column names mapped to the columns
         """
         return {col.alias_or_name.name: col for col in self.projection}
 
     @property
-    def semantic_column_mapping(self) -> dict[str, "Column"]:
+    def semantic_column_mapping(self) -> dict[str, Column]:
         """
         Returns a dictionary with the semantic entity names mapped to the output columns
         """
@@ -3115,7 +3118,7 @@ class QueryParameter(Expression):
     name: str
     prefix: str = ":"
     quote_style: str = ""
-    _type: Optional["ColumnType"] = field(repr=False, default=None)
+    _type: ColumnType | None = field(repr=False, default=None)
 
     def __str__(self) -> str:
         return self.identifier(quotes=True)
@@ -3207,14 +3210,14 @@ class Query(TableExpression, UnNamed):
     """
 
     select: SelectExpression = field(default_factory=SelectExpression)
-    ctes: list["Query"] = field(default_factory=list)
+    ctes: list[Query] = field(default_factory=list)
     # Cache for find_all(TableExpression) to avoid repeated traversals
-    _table_expr_cache: list["TableExpression"] | None = field(
+    _table_expr_cache: list[TableExpression] | None = field(
         default=None,
         repr=False,
     )
 
-    def get_table_expressions(self) -> list["TableExpression"]:
+    def get_table_expressions(self) -> list[TableExpression]:
         """
         Get all TableExpression nodes in this query's subtree.
         Results are cached for performance.
@@ -3432,7 +3435,7 @@ class Query(TableExpression, UnNamed):
             self._columns += expr.columns
         self._is_compiled = True
 
-    def bake_ctes(self) -> "Query":
+    def bake_ctes(self) -> Query:
         """
         Add ctes into the select and return the select
 
@@ -3464,7 +3467,7 @@ class Query(TableExpression, UnNamed):
         self.ctes = []
         return self
 
-    def to_cte(self, cte_name: Name, parent_ast: Optional["Query"] = None) -> "Query":
+    def to_cte(self, cte_name: Name, parent_ast: Query | None = None) -> Query:
         """
         Prepares the query to be a CTE
         """
@@ -3495,7 +3498,7 @@ class Query(TableExpression, UnNamed):
                 query = f"{query}{as_}{self.alias}"
         return query
 
-    def set_alias(self: TNode, alias: "Name") -> TNode:
+    def set_alias(self: TNode, alias: Name) -> TNode:
         self.alias = alias
         for col in self._columns:
             if isinstance(col, Column) and col.table is not None:

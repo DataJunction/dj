@@ -1,7 +1,8 @@
 """Namespace database schema."""
 
+from __future__ import annotations
+
 from datetime import datetime
-from typing import Optional
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, String, case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -73,7 +74,7 @@ class NodeNamespace(Base):
         default=None,
     )  # Links myproject.feature_x -> myproject.main for PR targeting
 
-    parent_namespace_obj: Mapped[Optional["NodeNamespace"]] = relationship(
+    parent_namespace_obj: Mapped[NodeNamespace | None] = relationship(
         "NodeNamespace",
         foreign_keys=[parent_namespace],
         remote_side="NodeNamespace.namespace",
@@ -92,7 +93,7 @@ class NodeNamespace(Base):
         session: AsyncSession,
         namespace: str,
         raise_if_not_exists: bool = True,
-    ) -> Optional["NodeNamespace"]:
+    ) -> NodeNamespace | None:
         """
         List node names in namespace.
         """
@@ -113,7 +114,7 @@ class NodeNamespace(Base):
         session: AsyncSession,
         parent: str,
         exclude_namespace: str | None = None,
-    ) -> list["NodeNamespace"]:
+    ) -> list[NodeNamespace]:
         """
         List the active branch namespaces whose parent is ``parent``.
 
@@ -178,7 +179,7 @@ class NodeNamespace(Base):
         node_type: NodeType | None = None,
         include_deactivated: bool = False,
         with_edited_by: bool = False,
-    ) -> list["NodeMinimumDetail"]:
+    ) -> list[NodeMinimumDetail]:
         """
         List node names in namespace.
         """
@@ -243,7 +244,7 @@ class NodeNamespace(Base):
         namespace: str,
         include_deactivated: bool = False,
         options: list | None = None,
-    ) -> list["Node"]:
+    ) -> list[Node]:
         """
         List all nodes in the namespace.
         """
