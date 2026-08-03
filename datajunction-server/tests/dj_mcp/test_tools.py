@@ -22,7 +22,6 @@ from datajunction_server.models.node_type import NodeType as NodeTypeEnum
 from datajunction_server.models.sql import ScanEstimate
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 
-
 # ---------------------------------------------------------------------------
 # tools._format_bytes
 # ---------------------------------------------------------------------------

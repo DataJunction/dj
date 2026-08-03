@@ -1,6 +1,6 @@
 """Tests for RBAC API endpoints."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest import mock
 
 import pytest
@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.history import History
-from datajunction_server.database.rbac import RoleScope, RoleAssignment
+from datajunction_server.database.rbac import RoleAssignment, RoleScope
 from datajunction_server.database.user import User
 from datajunction_server.internal.access.authorization import (
     AuthorizationService,
@@ -785,7 +785,7 @@ async def test_create_role_assignment_with_expiration(
     user = user_result.scalar_one()
 
     # Create assignment with expiration
-    expires_at = datetime.now(timezone.utc) + timedelta(days=30)
+    expires_at = datetime.now(UTC) + timedelta(days=30)
     response = await client_with_basic.post(
         "/roles/temp-role/assign",
         json={

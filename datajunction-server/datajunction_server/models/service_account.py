@@ -1,4 +1,5 @@
 from pydantic import BaseModel
+
 from datajunction_server.typing import UTCDatetime
 
 

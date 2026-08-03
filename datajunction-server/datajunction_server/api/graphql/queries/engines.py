@@ -2,21 +2,19 @@
 Engine related queries.
 """
 
-from typing import List
-
 from sqlalchemy import select
 from strawberry.types import Info
 
-from datajunction_server.models.dialect import DialectRegistry
-from datajunction_server.api.graphql.scalars.catalog_engine import Engine, DialectInfo
+from datajunction_server.api.graphql.scalars.catalog_engine import DialectInfo, Engine
 from datajunction_server.api.graphql.utils import resolver_session
 from datajunction_server.database.engine import Engine as DBEngine
+from datajunction_server.models.dialect import DialectRegistry
 
 
 async def list_engines(
     *,
     info: Info = None,
-) -> List[Engine]:
+) -> list[Engine]:
     """
     List all available engines
     """
@@ -30,7 +28,7 @@ async def list_engines(
 async def list_dialects(
     *,
     info: Info = None,
-) -> List[DialectInfo]:
+) -> list[DialectInfo]:
     """
     List all supported dialects
     """

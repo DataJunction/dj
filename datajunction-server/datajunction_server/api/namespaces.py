@@ -5,30 +5,26 @@ Node namespace related APIs.
 import io
 import logging
 import zipfile
+from collections.abc import Callable
 from http import HTTPStatus
-from typing import Callable, Dict, List, Optional
 
 import yaml
-from fastapi import Depends, Query, BackgroundTasks, Request, Response, UploadFile, File
+from fastapi import BackgroundTasks, Depends, File, Query, Request, Response, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
-from sqlalchemy import or_, select, func
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import get_node_namespace, get_save_history
-from datajunction_server.database.node import Node
 from datajunction_server.database.namespace import NodeNamespace
+from datajunction_server.database.node import Node
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJAlreadyExistsException, DJInvalidInputException
-from datajunction_server.models.access import ResourceAction
-from datajunction_server.models.deployment import (
-    BulkNamespaceSourcesRequest,
-    BulkNamespaceSourcesResponse,
-    DeploymentSpec,
-    NamespaceGitConfig,
-    NamespaceSourcesResponse,
-)
-
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
+from datajunction_server.internal.access.authorization import (
+    AccessChecker,
+    AccessDenialMode,
+    get_access_checker,
+)
 from datajunction_server.internal.git.github_service import (
     GitHubService,
     GitHubServiceError,
@@ -37,30 +33,33 @@ from datajunction_server.internal.git.yaml_export import (
     fetch_existing_yaml_map,
     generate_namespace_yaml_files,
 )
-from datajunction_server.internal.access.authorization import (
-    AccessChecker,
-    get_access_checker,
-    AccessDenialMode,
-)
 from datajunction_server.internal.namespaces import (
     create_namespace,
+    detect_parent_cycle,
     get_git_info_for_namespace,
+    get_node_specs_for_export,
     get_nodes_in_namespace,
     get_nodes_in_namespace_detailed,
     get_project_config,
+    get_sources_for_namespace,
+    get_sources_for_namespaces_bulk,
     hard_delete_namespace,
     mark_namespace_deactivated,
     mark_namespace_restored,
-    get_sources_for_namespace,
-    get_sources_for_namespaces_bulk,
-    get_node_specs_for_export,
-    detect_parent_cycle,
     resolve_git_config,
-    validate_sibling_relationship,
     validate_git_path,
+    validate_sibling_relationship,
 )
 from datajunction_server.internal.nodes import activate_node, deactivate_node
 from datajunction_server.models import access
+from datajunction_server.models.access import ResourceAction
+from datajunction_server.models.deployment import (
+    BulkNamespaceSourcesRequest,
+    BulkNamespaceSourcesResponse,
+    DeploymentSpec,
+    NamespaceGitConfig,
+    NamespaceSourcesResponse,
+)
 from datajunction_server.models.node import (
     NamespaceOutput,
     NodeMinimumDetail,
@@ -86,7 +85,7 @@ router = SecureAPIRouter(tags=["namespaces"])
 @router.post("/namespaces/{namespace}/", status_code=HTTPStatus.CREATED)
 async def create_node_namespace(
     namespace: str,
-    include_parents: Optional[bool] = False,
+    include_parents: bool | None = False,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     *,
@@ -153,11 +152,11 @@ async def create_node_namespace(
 
 @router.get(
     "/namespaces/",
-    response_model=List[NamespaceOutput],
+    response_model=list[NamespaceOutput],
     status_code=200,
 )
 async def list_namespaces(
-    git_backed: Optional[bool] = Query(
+    git_backed: bool | None = Query(
         default=None,
         description=(
             "Filter to namespaces by git backing. ``true`` returns only "
@@ -167,7 +166,7 @@ async def list_namespaces(
     ),
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> List[NamespaceOutput]:
+) -> list[NamespaceOutput]:
     """
     List namespaces with node counts and git repository information
     """
@@ -206,12 +205,12 @@ async def list_namespaces(
 
 @router.get(
     "/namespaces/{namespace}/",
-    response_model=List[NodeMinimumDetail],
+    response_model=list[NodeMinimumDetail],
     status_code=HTTPStatus.OK,
 )
 async def list_nodes_in_namespace(
     namespace: str,
-    type_: Optional[NodeType] = Query(
+    type_: NodeType | None = Query(
         default=None,
         description="Filter the list of nodes to this type",
     ),
@@ -221,7 +220,7 @@ async def list_nodes_in_namespace(
     ),
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> List[NodeMinimumDetail]:
+) -> list[NodeMinimumDetail]:
     """
     List node names in namespace, filterable to a given type if desired.
     """
@@ -503,7 +502,7 @@ async def export_a_namespace(
     *,
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> List[Dict]:
+) -> list[dict]:
     """
     Generates a zip of YAML files for the contents of the given namespace
     as well as a project definition file.
@@ -549,7 +548,7 @@ async def export_namespace_spec(
 )
 async def export_namespace_yaml(
     namespace: str,
-    existing_zip: Optional[UploadFile] = File(None),
+    existing_zip: UploadFile | None = File(None),
     *,
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
@@ -574,7 +573,7 @@ async def export_namespace_yaml(
         # Merge with client-provided files. Re-add git_path prefix so keys match
         # what _node_spec_to_file_path produces.
         raw = await existing_zip.read()
-        existing_files_map: Dict[str, str] = {}
+        existing_files_map: dict[str, str] = {}
         with zipfile.ZipFile(io.BytesIO(raw)) as zf:
             for name in zf.namelist():
                 if name.endswith(".yaml"):

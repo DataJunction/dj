@@ -7,7 +7,6 @@ import logging
 import os
 from dataclasses import asdict
 from datetime import date, datetime, timezone
-from typing import Dict, List, Optional, Tuple
 
 import duckdb
 import snowflake.connector
@@ -35,7 +34,7 @@ _logger = logging.getLogger(__name__)
 def get_columns_from_description(
     description: Description,
     dialect: SQLADialect,
-) -> List[ColumnMetadata]:
+) -> list[ColumnMetadata]:
     """
     Extract column metadata from the cursor description.
 
@@ -72,8 +71,8 @@ def get_columns_from_description(
 
 def run_query(  # pylint: disable=R0914
     query: Query,
-    headers: Optional[Dict[str, str]] = None,
-) -> List[Tuple[str, List[ColumnMetadata], Stream]]:
+    headers: dict[str, str] | None = None,
+) -> list[tuple[str, list[ColumnMetadata], Stream]]:
     """
     Run a query and return its results.
 
@@ -144,7 +143,7 @@ def run_query(  # pylint: disable=R0914
     sqla_engine = create_engine(engine.uri, connect_args=engine.extra_params)
     connection = sqla_engine.connect()
 
-    output: List[Tuple[str, List[ColumnMetadata], Stream]] = []
+    output: list[tuple[str, list[ColumnMetadata], Stream]] = []
     results = connection.execute(text(query.executed_query))
     stream = (tuple(row) for row in results)
     columns = get_columns_from_description(
@@ -159,13 +158,13 @@ def run_query(  # pylint: disable=R0914
 def run_duckdb_query(
     query: Query,
     conn: duckdb.DuckDBPyConnection,
-) -> List[Tuple[str, List[ColumnMetadata], Stream]]:
+) -> list[tuple[str, list[ColumnMetadata], Stream]]:
     """
     Run a duckdb query against the local duckdb database
     """
-    output: List[Tuple[str, List[ColumnMetadata], Stream]] = []
+    output: list[tuple[str, list[ColumnMetadata], Stream]] = []
     rows = conn.execute(query.submitted_query).fetchall()
-    columns: List[ColumnMetadata] = []
+    columns: list[ColumnMetadata] = []
     output.append((query.submitted_query, columns, rows))
     return output
 
@@ -173,13 +172,13 @@ def run_duckdb_query(
 def run_snowflake_query(
     query: Query,
     cur: snowflake.connector.cursor.SnowflakeCursor,
-) -> List[Tuple[str, List[ColumnMetadata], Stream]]:
+) -> list[tuple[str, list[ColumnMetadata], Stream]]:
     """
     Run a query against a snowflake warehouse
     """
-    output: List[Tuple[str, List[ColumnMetadata], Stream]] = []
+    output: list[tuple[str, list[ColumnMetadata], Stream]] = []
     rows = cur.execute(query.submitted_query).fetchall()
-    columns: List[ColumnMetadata] = []
+    columns: list[ColumnMetadata] = []
     output.append((query.submitted_query, columns, rows))
     return output
 
@@ -187,7 +186,7 @@ def run_snowflake_query(
 def run_bigquery_query(
     query: Query,
     client: bigquery.Client,
-) -> List[Tuple[str, List[ColumnMetadata], Stream]]:
+) -> list[tuple[str, list[ColumnMetadata], Stream]]:
     """
     Run a query against BigQuery.
 
@@ -199,10 +198,10 @@ def run_bigquery_query(
     sql = query.submitted_query
     if query.catalog_name:
         sql = sql.replace(f"{query.catalog_name}.", "")
-    output: List[Tuple[str, List[ColumnMetadata], Stream]] = []
+    output: list[tuple[str, list[ColumnMetadata], Stream]] = []
     result = client.query(sql).result()
     rows = iter([tuple(row.values()) for row in result])
-    columns: List[ColumnMetadata] = []
+    columns: list[ColumnMetadata] = []
     output.append((sql, columns, rows))
     return output
 
@@ -224,7 +223,7 @@ async def process_query(
     settings: Settings,
     postgres_pool: AsyncConnectionPool,
     query: Query,
-    headers: Optional[Dict[str, str]] = None,
+    headers: dict[str, str] | None = None,
 ) -> QueryResults:
     """
     Process a query.

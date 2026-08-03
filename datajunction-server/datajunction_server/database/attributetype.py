@@ -1,6 +1,6 @@
 """Attribute type database schema."""
 
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Optional
 
 import sqlalchemy as sa
 from sqlalchemy import UniqueConstraint, select
@@ -29,8 +29,8 @@ class AttributeType(Base):
     namespace: Mapped[str] = mapped_column(nullable=False, default="system")
     name: Mapped[str] = mapped_column(nullable=False)
     description: Mapped[str] = mapped_column(nullable=False)
-    allowed_node_types: Mapped[List[str]] = mapped_column(sa.JSON, nullable=True)
-    uniqueness_scope: Mapped[List[str]] = mapped_column(sa.JSON, nullable=True)
+    allowed_node_types: Mapped[list[str]] = mapped_column(sa.JSON, nullable=True)
+    uniqueness_scope: Mapped[list[str]] = mapped_column(sa.JSON, nullable=True)
 
     def __hash__(self):
         return hash(self.id)
@@ -109,7 +109,7 @@ class ColumnAttribute(Base):
         lazy="joined",
     )
 
-    column_id: Mapped[Optional[int]] = mapped_column(
+    column_id: Mapped[int | None] = mapped_column(
         sa.ForeignKey(
             "column.id",
             name="fk_columnattribute_column_id_column",

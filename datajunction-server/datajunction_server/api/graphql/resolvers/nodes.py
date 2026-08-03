@@ -3,14 +3,15 @@ Node resolvers
 """
 
 from collections import OrderedDict
-from typing import Any, List, Optional
+from typing import Any
 
 from sqlalchemy import select as sa_select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer, joinedload, load_only, noload, selectinload
 from strawberry.types import Info
 
-from datajunction_server.errors import DJNodeNotFound
+from datajunction_server.api.graphql.resolvers.tags import tag_load_options
+from datajunction_server.api.graphql.resolvers.users import user_load_options
 from datajunction_server.api.graphql.scalars.node import (
     NodeName,
     NodeSortField,
@@ -23,12 +24,10 @@ from datajunction_server.api.graphql.utils import (
     resolver_session,
 )
 from datajunction_server.database.dimensionlink import DimensionLink
-
 from datajunction_server.database.node import Column, ColumnAttribute, CubeRelationship
 from datajunction_server.database.node import Node as DBNode
 from datajunction_server.database.node import NodeRevision as DBNodeRevision
-from datajunction_server.api.graphql.resolvers.tags import tag_load_options
-from datajunction_server.api.graphql.resolvers.users import user_load_options
+from datajunction_server.errors import DJNodeNotFound
 from datajunction_server.internal.access.group_membership import (
     get_group_membership_service,
 )
@@ -38,7 +37,7 @@ from datajunction_server.models.node import NodeMode, NodeStatus, NodeType
 class _RawColumn:
     """Lightweight stand-in for Column ORM objects in the scalar-only path."""
 
-    __slots__ = ("name", "dimension_column", "type", "order")
+    __slots__ = ("dimension_column", "name", "order", "type")
 
     def __init__(self, name, dimension_column, col_type, order):
         self.name = name
@@ -170,7 +169,7 @@ async def _attach_git_info(info: Info, nodes: list[DBNode]) -> None:
         return
 
     raw_results = await loader.load_many(unique_namespaces)
-    by_ns: dict[str, Optional[GitRepositoryInfo]] = {}
+    by_ns: dict[str, GitRepositoryInfo | None] = {}
     for ns, raw in zip(unique_namespaces, raw_results):
         by_ns[ns] = (
             GitRepositoryInfo.from_pydantic(  # type: ignore
@@ -213,28 +212,28 @@ def _is_cube_scalar_only_request(current_fields: dict) -> bool:
 
 async def find_nodes_by(
     info: Info,
-    names: Optional[List[str]] = None,
-    fragment: Optional[str] = None,
-    node_types: Optional[List[NodeType]] = None,
-    tags: Optional[List[str]] = None,
-    edited_by: Optional[str] = None,
-    namespace: Optional[str] = None,
-    limit: Optional[int] = 100,
-    before: Optional[str] = None,
-    after: Optional[str] = None,
+    names: list[str] | None = None,
+    fragment: str | None = None,
+    node_types: list[NodeType] | None = None,
+    tags: list[str] | None = None,
+    edited_by: str | None = None,
+    namespace: str | None = None,
+    limit: int | None = 100,
+    before: str | None = None,
+    after: str | None = None,
     order_by: NodeSortField = NodeSortField.CREATED_AT,
     ascending: bool = False,
-    mode: Optional[NodeMode] = None,
-    owned_by: Optional[str] = None,
+    mode: NodeMode | None = None,
+    owned_by: str | None = None,
     include_team: bool = False,
     missing_description: bool = False,
     missing_owner: bool = False,
-    dimensions: Optional[List[str]] = None,
-    statuses: Optional[List[NodeStatus]] = None,
+    dimensions: list[str] | None = None,
+    statuses: list[NodeStatus] | None = None,
     has_materialization: bool = False,
     orphaned_dimension: bool = False,
-    search: Optional[str] = None,
-) -> List[DBNode]:
+    search: str | None = None,
+) -> list[DBNode]:
     """
     Finds nodes based on the search parameters. This function also tries to optimize
     the database query by only retrieving joined-in fields if they were requested.
@@ -262,7 +261,7 @@ async def find_nodes_by(
         # When include_team is set with an ownedBy filter, expand to the user's
         # groups so nodes owned directly by the user OR by any of their groups
         # are returned. No-op when ownedBy is not set.
-        owned_by_list: Optional[List[str]] = None
+        owned_by_list: list[str] | None = None
         if owned_by:
             owned_by_list = [owned_by]
             if include_team:
@@ -314,29 +313,29 @@ async def find_nodes_by(
 
 async def count_nodes_by(
     info: Info,
-    names: Optional[List[str]] = None,
-    fragment: Optional[str] = None,
-    node_types: Optional[List[NodeType]] = None,
-    tags: Optional[List[str]] = None,
-    edited_by: Optional[str] = None,
-    namespace: Optional[str] = None,
-    mode: Optional[NodeMode] = None,
-    owned_by: Optional[str] = None,
+    names: list[str] | None = None,
+    fragment: str | None = None,
+    node_types: list[NodeType] | None = None,
+    tags: list[str] | None = None,
+    edited_by: str | None = None,
+    namespace: str | None = None,
+    mode: NodeMode | None = None,
+    owned_by: str | None = None,
     include_team: bool = False,
     missing_description: bool = False,
     missing_owner: bool = False,
-    dimensions: Optional[List[str]] = None,
-    statuses: Optional[List[NodeStatus]] = None,
+    dimensions: list[str] | None = None,
+    statuses: list[NodeStatus] | None = None,
     has_materialization: bool = False,
     orphaned_dimension: bool = False,
-    search: Optional[str] = None,
+    search: str | None = None,
 ) -> int:
     """
     Count nodes that match the same filters as ``find_nodes_by``. Used to
     populate ``totalCount`` on paginated connections.
     """
     async with resolver_session(info) as session:
-        owned_by_list: Optional[List[str]] = None
+        owned_by_list: list[str] | None = None
         if owned_by:
             owned_by_list = [owned_by]
             if include_team:
@@ -369,7 +368,7 @@ async def count_nodes_by(
 async def count_nodes_grouped(
     info: Info,
     group_by: Any,
-    namespace: Optional[str] = None,
+    namespace: str | None = None,
 ) -> dict:
     """
     Count nodes grouped by a column in a single query. Backs the generic

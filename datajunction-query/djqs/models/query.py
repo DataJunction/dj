@@ -5,7 +5,7 @@ Models for queries.
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, List, Optional
+from typing import Any
 from uuid import UUID, uuid4
 
 import msgpack
@@ -20,9 +20,9 @@ class BaseQuery:
     Base class for query models.
     """
 
-    catalog_name: Optional[str] = None
-    engine_name: Optional[str] = None
-    engine_version: Optional[str] = None
+    catalog_name: str | None = None
+    engine_name: str | None = None
+    engine_version: str | None = None
 
 
 @dataclass
@@ -37,10 +37,10 @@ class Query(BaseQuery):  # pylint: disable=too-many-instance-attributes
     engine_name: str = ""
     engine_version: str = ""
     async_: bool = False
-    executed_query: Optional[str] = None
-    scheduled: Optional[datetime] = None
-    started: Optional[datetime] = None
-    finished: Optional[datetime] = None
+    executed_query: str | None = None
+    scheduled: datetime | None = None
+    started: datetime | None = None
+    finished: datetime | None = None
     state: QueryState = QueryState.UNKNOWN
     progress: float = 0.0
 
@@ -74,8 +74,8 @@ class StatementResults:
     """
 
     sql: str
-    columns: List[ColumnMetadata] = field(default_factory=list)
-    rows: List[Row] = field(default_factory=list)
+    columns: list[ColumnMetadata] = field(default_factory=list)
+    rows: list[Row] = field(default_factory=list)
     row_count: int = 0  # used for pagination
 
 
@@ -86,20 +86,20 @@ class QueryResults(BaseQuery):  # pylint: disable=too-many-instance-attributes
     """
 
     id: uuid.UUID = field(default_factory=uuid4)  # pylint: disable=invalid-name
-    engine_name: Optional[str] = None
-    engine_version: Optional[str] = None
+    engine_name: str | None = None
+    engine_version: str | None = None
     submitted_query: str = ""
-    executed_query: Optional[str] = None
-    scheduled: Optional[datetime] = None
-    started: Optional[datetime] = None
-    finished: Optional[datetime] = None
+    executed_query: str | None = None
+    scheduled: datetime | None = None
+    started: datetime | None = None
+    finished: datetime | None = None
     state: QueryState = QueryState.UNKNOWN
     async_: bool = False
     progress: float = 0.0
-    results: List[StatementResults] = field(default_factory=list)
-    next: Optional[str] = None  # Changed to str, as AnyHttpUrl was from pydantic
-    previous: Optional[str] = None  # Changed to str, as AnyHttpUrl was from pydantic
-    errors: List[str] = field(default_factory=list)
+    results: list[StatementResults] = field(default_factory=list)
+    next: str | None = None  # Changed to str, as AnyHttpUrl was from pydantic
+    previous: str | None = None  # Changed to str, as AnyHttpUrl was from pydantic
+    errors: list[str] = field(default_factory=list)
 
 
 class QueryExtType(IntEnum):

@@ -5,8 +5,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from datajunction_server.errors import DJInvalidInputException
-
 from datajunction_server.construction.build_v3.cte import (
     filter_cte_projection,
     flatten_inner_ctes,
@@ -29,6 +27,12 @@ from datajunction_server.construction.build_v3.filters import (
     parse_filter,
     resolve_filter_references,
 )
+from datajunction_server.construction.build_v3.materialization import (
+    get_materialized_table_parts,
+    get_physical_table_name,
+    get_table_reference_parts_with_materialization,
+    has_available_materialization,
+)
 from datajunction_server.construction.build_v3.measures import (
     _add_table_prefixes_to_filter,
     _resolve_dim_namespace_refs,
@@ -36,38 +40,31 @@ from datajunction_server.construction.build_v3.measures import (
 )
 from datajunction_server.construction.build_v3.types import (
     BuildContext,
+    DecomposedMetricInfo,
     DimensionRef,
     JoinPath,
+    MetricGroup,
     ResolvedDimension,
 )
 from datajunction_server.construction.build_v3.utils import (
     amenable_name,
-    get_cte_name,
+    extract_columns_from_expression,
     get_column_type,
+    get_cte_name,
     get_short_name,
     make_column_ref,
     make_name,
 )
-from datajunction_server.naming import amenable_col_names
-from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
-from datajunction_server.construction.build_v3.utils import (
-    extract_columns_from_expression,
+from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.models.decompose import (
+    Aggregability,
+    AggregationRule,
+    MetricComponent,
 )
-from datajunction_server.construction.build_v3.materialization import (
-    get_materialized_table_parts,
-    get_physical_table_name,
-    get_table_reference_parts_with_materialization,
-    has_available_materialization,
-)
-from datajunction_server.construction.build_v3.types import (
-    MetricGroup,
-    DecomposedMetricInfo,
-)
-from datajunction_server.models.decompose import MetricComponent, Aggregability
-from datajunction_server.models.decompose import AggregationRule
-from datajunction_server.sql.parsing.backends.antlr4 import parse
-from datajunction_server.sql.parsing import ast
 from datajunction_server.models.node import NodeType
+from datajunction_server.naming import amenable_col_names
+from datajunction_server.sql.parsing import ast
+from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 
 
 class TestDimensionRefParsing:

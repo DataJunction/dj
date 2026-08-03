@@ -1,7 +1,7 @@
 """Namespace database schema."""
 
 from datetime import datetime
-from typing import List, Optional
+from typing import Optional
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, String, case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,31 +43,31 @@ class NodeNamespace(Base):
     )
 
     # Git configuration for branch management
-    github_repo_path: Mapped[Optional[str]] = mapped_column(
+    github_repo_path: Mapped[str | None] = mapped_column(
         String,
         nullable=True,
         default=None,
     )  # e.g., "owner/repo"
 
-    git_branch: Mapped[Optional[str]] = mapped_column(
+    git_branch: Mapped[str | None] = mapped_column(
         String,
         nullable=True,
         default=None,
     )  # e.g., "main" or "feature-x"
 
-    git_path: Mapped[Optional[str]] = mapped_column(
+    git_path: Mapped[str | None] = mapped_column(
         String,
         nullable=True,
         default=None,
     )  # e.g., "definitions/" - subdirectory within repo
 
-    default_branch: Mapped[Optional[str]] = mapped_column(
+    default_branch: Mapped[str | None] = mapped_column(
         String,
         nullable=True,
         default=None,
     )  # Default branch for git root namespaces (e.g., "main") - used as source when creating new branches
 
-    parent_namespace: Mapped[Optional[str]] = mapped_column(
+    parent_namespace: Mapped[str | None] = mapped_column(
         ForeignKey("nodenamespace.namespace", ondelete="RESTRICT"),
         nullable=True,
         default=None,
@@ -112,8 +112,8 @@ class NodeNamespace(Base):
         cls,
         session: AsyncSession,
         parent: str,
-        exclude_namespace: Optional[str] = None,
-    ) -> List["NodeNamespace"]:
+        exclude_namespace: str | None = None,
+    ) -> list["NodeNamespace"]:
         """
         List the active branch namespaces whose parent is ``parent``.
 
@@ -175,10 +175,10 @@ class NodeNamespace(Base):
         cls,
         session: AsyncSession,
         namespace: str,
-        node_type: Optional[NodeType] = None,
+        node_type: NodeType | None = None,
         include_deactivated: bool = False,
         with_edited_by: bool = False,
-    ) -> List["NodeMinimumDetail"]:
+    ) -> list["NodeMinimumDetail"]:
         """
         List node names in namespace.
         """
@@ -242,8 +242,8 @@ class NodeNamespace(Base):
         session: AsyncSession,
         namespace: str,
         include_deactivated: bool = False,
-        options: Optional[List] = None,
-    ) -> List["Node"]:
+        options: list | None = None,
+    ) -> list["Node"]:
         """
         List all nodes in the namespace.
         """

@@ -3,7 +3,6 @@ Available materialization jobs.
 """
 
 import abc
-from typing import Dict, List, Optional
 
 import requests.exceptions
 
@@ -32,16 +31,16 @@ class MaterializationJob(abc.ABC):
     Base class for a materialization job
     """
 
-    dialect: Optional[Dialect] = None
+    dialect: Dialect | None = None
 
     def __init__(self): ...
 
     def run_backfill(
         self,
         materialization: Materialization,
-        partitions: List[PartitionBackfill],
+        partitions: list[PartitionBackfill],
         query_service_client: QueryServiceClient,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> MaterializationInfo:
         """
         Kicks off a backfill based on the spec using the query service
@@ -80,7 +79,7 @@ class SparkSqlMaterializationJob(  # pragma: no cover
         self,
         materialization: Materialization,
         query_service_client: QueryServiceClient,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> MaterializationInfo:
         """
         Placeholder for the actual implementation.

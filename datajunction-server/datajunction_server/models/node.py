@@ -5,16 +5,16 @@ Model for nodes.
 import enum
 import sys
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple, Union, cast
+from typing import Any, Union, cast
 
 from pydantic import (
     BaseModel,
+    ConfigDict,
     Field,
+    RootModel,
+    create_model,
     field_validator,
     model_validator,
-    RootModel,
-    ConfigDict,
-    create_model,
 )
 from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.sql.schema import Column as SqlaColumn
@@ -32,12 +32,12 @@ from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import MaterializationConfigOutput
 from datajunction_server.models.node_type import NodeNameOutput, NodeType
 from datajunction_server.models.partition import PartitionOutput
+from datajunction_server.models.tag import TagMinimum, TagOutput
 from datajunction_server.models.unit import (
     AtomicUnit,
     CompoundUnit,
     unit_to_dict,
 )
-from datajunction_server.models.tag import TagMinimum, TagOutput
 from datajunction_server.models.user import UserNameOnly
 from datajunction_server.sql.parsing.types import ColumnType
 from datajunction_server.typing import UTCDatetime
@@ -55,9 +55,9 @@ class BuildCriteria:
         - used to deterimine whether to use an availability state
     """
 
-    timestamp: Optional[UTCDatetime] = None
+    timestamp: UTCDatetime | None = None
     dialect: Dialect = Dialect.SPARK
-    target_node_name: Optional[str] = None
+    target_node_name: str | None = None
 
 
 class NodeMode(StrEnum):
@@ -104,7 +104,7 @@ class AffectedSource(BaseModel):
 
     source_name: str
     total_size_bytes: int
-    partition_columns: List[str]
+    partition_columns: list[str]
     has_filters: bool
 
 
@@ -115,7 +115,7 @@ class ScanWarning(BaseModel):
 
     severity: str  # "info", "warning", or "critical"
     message: str
-    affected_sources: List[AffectedSource]
+    affected_sources: list[AffectedSource]
 
 
 class NodeStatusDetails(BaseModel):
@@ -124,8 +124,8 @@ class NodeStatusDetails(BaseModel):
     """
 
     status: NodeStatus
-    errors: List[NodeValidationError]
-    scan_warnings: Optional[List[ScanWarning]] = None
+    errors: list[NodeValidationError]
+    scan_warnings: list[ScanWarning] | None = None
 
 
 class NodeYAML(TypedDict, total=False):
@@ -137,7 +137,7 @@ class NodeYAML(TypedDict, total=False):
     display_name: str
     type: NodeType
     query: str
-    columns: Dict[str, ColumnYAML]
+    columns: dict[str, ColumnYAML]
 
 
 class NodeBase(BaseModel):
@@ -189,7 +189,7 @@ class PartitionAvailability(TemporalPartitionRange):
     # This list maps to the ordered list of categorical partitions at the node level.
     # For example, if the node's `categorical_partitions` are configured as ["country", "group_id"],
     # a valid entry for `value` may be ["DE", null].
-    value: List[Optional[str]]
+    value: list[str | None]
 
     # Valid through timestamp
     valid_through_ts: int | None = None
@@ -198,7 +198,7 @@ class PartitionAvailability(TemporalPartitionRange):
 class AvailabilityNode(TemporalPartitionRange):
     """A node in the availability trie tracker"""
 
-    children: Dict = {}
+    children: dict = {}
     valid_through_ts: int | None = Field(default=MIN_VALID_THROUGH_TS)
 
     def merge_temporal(self, other: "AvailabilityNode"):
@@ -265,11 +265,11 @@ class AvailabilityTracker:
                             del current.children[child]
             current = next_item
 
-    def get_partition_range(self) -> List[PartitionAvailability]:
+    def get_partition_range(self) -> list[PartitionAvailability]:
         """
         Gets the final set of merged partitions.
         """
-        candidates: List[Tuple[AvailabilityNode, List[str]]] = [(self.root, [])]
+        candidates: list[tuple[AvailabilityNode, list[str]]] = [(self.root, [])]
         final_partitions = []
         while candidates:
             current, partition_list = candidates.pop()
@@ -294,22 +294,22 @@ class GitRepositoryInfo(BaseModel):
     """
 
     repo: str = Field(description="GitHub repository path (e.g., 'owner/repo')")
-    branch: Optional[str] = Field(
+    branch: str | None = Field(
         default=None,
         description="Current git branch for this namespace (e.g., 'feature-x', 'main')",
     )
-    default_branch: Optional[str] = Field(
+    default_branch: str | None = Field(
         default=None,
         description="Default/canonical branch (e.g., 'main')",
     )
-    path: Optional[str] = Field(
+    path: str | None = Field(
         default=None,
         description="Subdirectory within repo (e.g., 'definitions/')",
     )
     is_default_branch: bool = Field(
         description="True if this is the default branch namespace (production/canonical)",
     )
-    parent_namespace: Optional[str] = Field(
+    parent_namespace: str | None = Field(
         default=None,
         description="Parent namespace for feature branches (e.g., 'myproject' for 'myproject.feature_x')",
     )
@@ -329,7 +329,7 @@ class AvailabilityStateBase(TemporalPartitionRange):
     table: str
     valid_through_ts: int
     url: str | None = Field(default=None)
-    links: Dict[str, Any] | None = Field(default_factory=dict)
+    links: dict[str, Any] | None = Field(default_factory=dict)
 
     # Optional explicit override for the node version this availability was
     # produced for. The POST scopes availability to the matching revision so a
@@ -481,10 +481,10 @@ class Unit(BaseModel):
     """
 
     name: str
-    label: Optional[str] = None
-    category: Optional[str] = None
-    abbreviation: Optional[str] = None
-    description: Optional[str] = None
+    label: str | None = None
+    category: str | None = None
+    abbreviation: str | None = None
+    description: str | None = None
 
     def __str__(self):
         return self.name  # pragma: no cover
@@ -621,8 +621,8 @@ class MetricMetadataOptions(BaseModel):
     Metric metadata options list
     """
 
-    directions: List[MetricDirection]
-    units: List[Unit]
+    directions: list[MetricDirection]
+    units: list[Unit]
 
 
 class MetricMetadataBase(BaseModel):  # type: ignore
@@ -630,11 +630,11 @@ class MetricMetadataBase(BaseModel):  # type: ignore
     Base class for additional metric metadata
     """
 
-    direction: Optional[MetricDirection] = Field(
+    direction: MetricDirection | None = Field(
         sa_column=SqlaColumn(Enum(MetricDirection)),
         default=MetricDirection.NEUTRAL,
     )
-    unit: Optional[MetricUnit] = Field(
+    unit: MetricUnit | None = Field(
         sa_column=SqlaColumn(Enum(MetricUnit)),
         default=MetricUnit.UNKNOWN,
     )
@@ -684,7 +684,7 @@ class ImmutableNodeFields(BaseModel):
     """
 
     name: str
-    namespace: Optional[str] = None
+    namespace: str | None = None
 
     @model_validator(mode="after")
     def set_namespace_from_name(self):
@@ -718,7 +718,7 @@ class NodeNameList(RootModel):
     List of node names
     """
 
-    root: List[str]
+    root: list[str]
 
 
 class NodeIndexItem(BaseModel):
@@ -793,14 +793,14 @@ class ColumnOutput(BaseModel):
     """
 
     name: str
-    display_name: Optional[str] = None
+    display_name: str | None = None
     type: str
-    description: Optional[str] = None
-    dimension_column: Optional[str] = None
-    attributes: Optional[List[AttributeOutput]] = None
-    dimension: Optional[NodeNameOutput] = None
-    partition: Optional[PartitionOutput] = None
-    unit: Optional[dict] = None
+    description: str | None = None
+    dimension_column: str | None = None
+    attributes: list[AttributeOutput] | None = None
+    dimension: NodeNameOutput | None = None
+    partition: PartitionOutput | None = None
+    unit: dict | None = None
 
     model_config = ConfigDict(from_attributes=True, validate_assignment=True)
 
@@ -830,8 +830,8 @@ class SourceColumnOutput(BaseModel):
 
     name: str
     type: ColumnType
-    attributes: Optional[List[AttributeOutput]] = None
-    dimension: Optional[str] = None
+    attributes: list[AttributeOutput] | None = None
+    dimension: str | None = None
 
     model_config = ConfigDict(validate_assignment=True, from_attributes=True)
 
@@ -853,7 +853,7 @@ class SourceNodeFields(BaseModel):
     catalog: str
     schema_: str
     table: str
-    columns: List["SourceColumnOutput"]
+    columns: list["SourceColumnOutput"]
     missing_table: bool = False
 
 
@@ -862,12 +862,12 @@ class CubeNodeFields(BaseModel):
     Cube-specific fields that can be changed
     """
 
-    metrics: List[str] | None = None
-    dimensions: List[str] | None = None
-    filters: Optional[List[str]] = None
-    orderby: Optional[List[str]] = None
-    limit: Optional[int] = None
-    description: Optional[str] = None
+    metrics: list[str] | None = None
+    dimensions: list[str] | None = None
+    filters: list[str] | None = None
+    orderby: list[str] | None = None
+    limit: int | None = None
+    description: str | None = None
     mode: NodeMode
 
 
@@ -876,8 +876,8 @@ class MetricNodeFields(BaseModel):
     Metric node fields that can be changed
     """
 
-    required_dimensions: Optional[List[str]] = None
-    metric_metadata: Optional[MetricMetadataInput] = None
+    required_dimensions: list[str] | None = None
+    metric_metadata: MetricMetadataInput | None = None
 
 
 #
@@ -901,7 +901,7 @@ class CreateSourceNode(ImmutableNodeFields, MutableNodeFields, SourceNodeFields)
     A create object for source nodes
     """
 
-    query: Optional[str] = None
+    query: str | None = None
 
 
 class CreateCubeNode(ImmutableNodeFields, MutableNodeFields, CubeNodeFields):
@@ -967,7 +967,7 @@ class GenericNodeOutputModel(BaseModel):
     def flatten_current(
         cls,
         values: Any,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Flatten the current node revision into top-level fields.
         """
@@ -1030,10 +1030,10 @@ class NodeRevisionOutput(BaseModel):
     description: str = ""
     query: str | None = None
     availability: AvailabilityStateBase | None = None
-    columns: List[ColumnOutput]
+    columns: list[ColumnOutput]
     updated_at: UTCDatetime
-    materializations: List[MaterializationConfigOutput]
-    parents: List[NodeNameOutput]
+    materializations: list[MaterializationConfigOutput]
+    parents: list[NodeNameOutput]
     metric_metadata: MetricMetadataOutput | None = None
     dimension_links: list[LinkDimensionOutput] | None = None
     custom_metadata: dict | None = None
@@ -1047,7 +1047,7 @@ class NodeOutput(GenericNodeOutputModel):
     """
 
     namespace: str
-    git_info: Optional[GitRepositoryInfo] = None
+    git_info: GitRepositoryInfo | None = None
     id: int = Field(alias="node_revision_id")
     node_id: int
     type: NodeType
@@ -1145,10 +1145,10 @@ class DAGNodeOutput(GenericNodeOutputModel):
     description: str = ""
     columns: list[ColumnOutput]
     updated_at: UTCDatetime
-    parents: List[NodeNameOutput]
-    dimension_links: List[LinkDimensionOutput]
+    parents: list[NodeNameOutput]
+    dimension_links: list[LinkDimensionOutput]
     created_at: UTCDatetime
-    tags: List[TagOutput] = []
+    tags: list[TagOutput] = []
     current_version: str
 
     model_config = ConfigDict(from_attributes=True)
@@ -1161,10 +1161,10 @@ class NodeValidation(BaseModel):
 
     message: str
     status: NodeStatus
-    dependencies: List[NodeRevisionOutput]
-    columns: List[ColumnOutput]
-    errors: List[DJError]
-    missing_parents: List[str]
+    dependencies: list[NodeRevisionOutput]
+    columns: list[ColumnOutput]
+    errors: list[DJError]
+    missing_parents: list[str]
 
 
 class LineageColumn(BaseModel):
@@ -1173,10 +1173,10 @@ class LineageColumn(BaseModel):
     """
 
     column_name: str
-    node_name: Optional[str] = None
-    node_type: Optional[str] = None
-    display_name: Optional[str] = None
-    lineage: Optional[List["LineageColumn"]] = None
+    node_name: str | None = None
+    node_type: str | None = None
+    display_name: str | None = None
+    lineage: list["LineageColumn"] | None = None
 
     model_config = ConfigDict(defer_initialization=True)
 
@@ -1193,8 +1193,8 @@ class NamespaceOutput(BaseModel):
 
     namespace: str
     num_nodes: int
-    github_repo_path: Optional[str] = None
-    git_branch: Optional[str] = None
+    github_repo_path: str | None = None
+    git_branch: str | None = None
 
 
 class BranchNamespaceOutput(BaseModel):

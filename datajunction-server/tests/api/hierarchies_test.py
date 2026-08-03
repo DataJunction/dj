@@ -16,14 +16,14 @@ from datajunction_server.internal.history import ActivityType, EntityType
 
 # Import shared fixtures
 from tests.fixtures.hierarchy_fixtures import (  # noqa: F401
-    time_catalog,
-    time_sources,
-    time_dimensions,
-    time_dimension_links,
     calendar_hierarchy,
-    fiscal_hierarchy,
     day_quarter_link,
+    fiscal_hierarchy,
     month_year_link,
+    time_catalog,
+    time_dimension_links,
+    time_dimensions,
+    time_sources,
 )
 
 

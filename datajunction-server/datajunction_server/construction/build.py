@@ -3,7 +3,7 @@
 import asyncio
 import collections
 import logging
-from typing import Any, DefaultDict, List, Optional, Set, Tuple
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,14 +11,14 @@ from datajunction_server.database import Engine
 from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.errors import DJError, DJInvalidInputException, ErrorCode
-from datajunction_server.internal.engines import get_engine
 from datajunction_server.internal.access.authorization import AccessChecker
+from datajunction_server.internal.engines import get_engine
 from datajunction_server.models.cube_materialization import MetricComponent
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import GenericCubeConfig
 from datajunction_server.models.node import BuildCriteria
 from datajunction_server.naming import LOOKUP_CHARS, amenable_name, from_amenable_name
-from datajunction_server.sql.dag import get_shared_dimensions, get_metric_parents
+from datajunction_server.sql.dag import get_metric_parents, get_shared_dimensions
 from datajunction_server.sql.decompose import MetricComponentExtractor
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 from datajunction_server.sql.parsing.types import ColumnType
@@ -29,7 +29,7 @@ _logger = logging.getLogger(__name__)
 
 def get_default_criteria(
     node: NodeRevision,
-    engine: Optional[Engine] = None,
+    engine: Engine | None = None,
 ) -> BuildCriteria:
     """
     Get the default build criteria for a node.
@@ -123,8 +123,8 @@ def rename_columns(
 
 async def group_metrics_by_parent(
     session: AsyncSession,
-    metric_nodes: List[Node],
-) -> DefaultDict[Node, List[NodeRevision]]:
+    metric_nodes: list[Node],
+) -> collections.defaultdict[Node, list[NodeRevision]]:
     """
     Group metrics by their parent node.
     For derived metrics, this groups by the ultimate non-metric parent(s).
@@ -132,8 +132,10 @@ async def group_metrics_by_parent(
     Note: If a metric has multiple ultimate parents, it will appear in
     multiple groups. This supports cross-fact metrics.
     """
-    common_parents: DefaultDict[Node, List[NodeRevision]] = collections.defaultdict(
-        list,
+    common_parents: collections.defaultdict[Node, list[NodeRevision]] = (
+        collections.defaultdict(
+            list,
+        )
     )
     for metric_node in metric_nodes:
         ultimate_parents = await get_metric_parents(session, [metric_node])
@@ -145,8 +147,8 @@ async def group_metrics_by_parent(
 
 async def validate_shared_dimensions(
     session: AsyncSession,
-    metric_nodes: List[Node],
-    dimensions: List[str],
+    metric_nodes: list[Node],
+    dimensions: list[str],
 ):
     """
     Determine if dimensions are shared.
@@ -188,17 +190,17 @@ async def validate_shared_dimensions(
 
 async def build_metric_nodes(
     session: AsyncSession,
-    metric_nodes: List[Node],
-    filters: List[str],
-    dimensions: List[str],
-    orderby: List[str],
-    limit: Optional[int] = None,
-    engine_name: Optional[str] = None,
-    engine_version: Optional[str] = None,
-    build_criteria: Optional[BuildCriteria] = None,
+    metric_nodes: list[Node],
+    filters: list[str],
+    dimensions: list[str],
+    orderby: list[str],
+    limit: int | None = None,
+    engine_name: str | None = None,
+    engine_version: str | None = None,
+    build_criteria: BuildCriteria | None = None,
     access_checker: AccessChecker | None = None,
     ignore_errors: bool = True,
-    query_parameters: Optional[dict[str, Any]] = None,
+    query_parameters: dict[str, Any] | None = None,
 ):
     """
     Build a single query for all metrics in the list, including the specified
@@ -257,12 +259,12 @@ def build_temp_select(temp_query: str):
 
 
 def build_materialized_cube_node(
-    selected_metrics: List[Column],
-    selected_dimensions: List[Column],
+    selected_metrics: list[Column],
+    selected_dimensions: list[Column],
     cube: NodeRevision,
-    filters: List[str] = None,
-    orderby: List[str] = None,
-    limit: Optional[int] = None,
+    filters: list[str] | None = None,
+    orderby: list[str] | None = None,
+    limit: int | None = None,
 ) -> ast.Query:
     """
     Build query for a materialized cube node
@@ -370,8 +372,8 @@ def build_materialized_cube_node(
 async def extract_components_and_parent_columns(
     metric_nodes: list[Node],
     session: "AsyncSession",
-) -> Tuple[
-    DefaultDict[str, Set[str]],
+) -> tuple[
+    collections.defaultdict[str, set[str]],
     dict[str, tuple[list[MetricComponent], ast.Query]],
 ]:
     """

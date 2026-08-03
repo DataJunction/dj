@@ -1,9 +1,10 @@
 import logging
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
+
 from datajunction_server.enum import StrEnum
 from datajunction_server.utils import get_settings
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from datajunction_server.transpilation import SQLTranspilationPlugin

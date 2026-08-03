@@ -12,14 +12,13 @@ from unittest.mock import AsyncMock
 import pytest
 from httpx import AsyncClient
 
-from datajunction_server.errors import DJException
-
 from datajunction_server.api.semantic_layer import (
-    FilterPayload,
     MAX_ROW_LIMIT,
+    FilterPayload,
     _filter_to_sql,
     _quote_value,
 )
+from datajunction_server.errors import DJException
 
 
 class TestFilterToSql:

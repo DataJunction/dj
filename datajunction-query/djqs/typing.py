@@ -6,8 +6,9 @@ Custom types for annotations.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from types import ModuleType
-from typing import Any, Iterator, List, Literal, Optional, Tuple, TypedDict, Union
+from typing import Any, Literal, Optional, TypedDict
 
 from typing_extensions import Protocol
 
@@ -28,22 +29,22 @@ TypeCode = Any
 
 # Cursor description
 Description = Optional[
-    List[
-        Tuple[
+    list[
+        tuple[
             str,
             TypeCode,
-            Optional[str],
-            Optional[str],
-            Optional[str],
-            Optional[str],
-            Optional[bool],
+            str | None,
+            str | None,
+            str | None,
+            str | None,
+            bool | None,
         ]
     ]
 ]
 
 
 # A stream of data
-Row = Tuple[Any, ...]
+Row = tuple[Any, ...]
 Stream = Iterator[Row]
 
 
@@ -98,12 +99,8 @@ class QueryState(StrEnum):
     FAILED = "FAILED"
 
 
-# sqloxide type hints
-# Reference: https://github.com/sqlparser-rs/sqlparser-rs/blob/main/src/ast/query.rs
-
-
 class Value(TypedDict, total=False):
-    Number: Tuple[str, bool]
+    Number: tuple[str, bool]
     SingleQuotedString: str
     Boolean: bool
 
@@ -113,7 +110,7 @@ class Limit(TypedDict):
 
 
 class Identifier(TypedDict):
-    quote_style: Optional[str]
+    quote_style: str | None
     value: str
 
 
@@ -129,7 +126,7 @@ class WindowFrame(TypedDict):
 
 
 class Expression(TypedDict, total=False):
-    CompoundIdentifier: List["Identifier"]
+    CompoundIdentifier: list[Identifier]
     Identifier: Identifier
     Value: Value
     Function: Function  # type: ignore
@@ -139,10 +136,10 @@ class Expression(TypedDict, total=False):
 
 
 class Case(TypedDict):
-    conditions: List[Expression]
-    else_result: Optional[Expression]
-    operand: Optional[Expression]
-    results: List[Expression]
+    conditions: list[Expression]
+    else_result: Expression | None
+    operand: Expression | None
+    results: list[Expression]
 
 
 class UnnamedArgument(TypedDict):
@@ -150,20 +147,20 @@ class UnnamedArgument(TypedDict):
 
 
 class Argument(TypedDict, total=False):
-    Unnamed: Union[UnnamedArgument, Wildcard]
+    Unnamed: UnnamedArgument | Wildcard
 
 
 class Over(TypedDict):
-    order_by: List[Expression]
-    partition_by: List[Expression]
+    order_by: list[Expression]
+    partition_by: list[Expression]
     window_frame: WindowFrame
 
 
 class Function(TypedDict):
-    args: List[Argument]
+    args: list[Argument]
     distinct: bool
-    name: List[Identifier]
-    over: Optional[Over]
+    name: list[Identifier]
+    over: Over | None
 
 
 class ExpressionWithAlias(TypedDict):
@@ -177,9 +174,9 @@ class Offset(TypedDict):
 
 
 class OrderBy(TypedDict, total=False):
-    asc: Optional[bool]
+    asc: bool | None
     expr: Expression
-    nulls_first: Optional[bool]
+    nulls_first: bool | None
 
 
 class Projection(TypedDict, total=False):
@@ -211,28 +208,28 @@ class BinaryOp(TypedDict):
 
 
 class LateralView(TypedDict):
-    lateral_col_alias: List[Identifier]
+    lateral_col_alias: list[Identifier]
     lateral_view: Expression
-    lateral_view_name: List[Identifier]
+    lateral_view_name: list[Identifier]
     outer: bool
 
 
 class TableAlias(TypedDict):
-    columns: List[Identifier]
+    columns: list[Identifier]
     name: Identifier
 
 
 class Table(TypedDict):
-    alias: Optional[TableAlias]
-    args: List[Argument]
-    name: List[Identifier]
-    with_hints: List[Expression]
+    alias: TableAlias | None
+    args: list[Argument]
+    name: list[Identifier]
+    with_hints: list[Expression]
 
 
 class Derived(TypedDict):
     lateral: bool
-    subquery: "Body"  # type: ignore
-    alias: Optional[TableAlias]
+    subquery: Body  # type: ignore
+    alias: TableAlias | None
 
 
 class Relation(TypedDict, total=False):
@@ -242,7 +239,7 @@ class Relation(TypedDict, total=False):
 
 class JoinConstraint(TypedDict):
     On: Expression
-    Using: List[Identifier]
+    Using: list[Identifier]
 
 
 class JoinOperator(TypedDict, total=False):
@@ -258,29 +255,29 @@ OuterApply = Literal["Outerapply"]
 
 
 class Join(TypedDict):
-    join_operator: Union[JoinOperator, CrossJoin, CrossApply, OuterApply]
+    join_operator: JoinOperator | CrossJoin | CrossApply | OuterApply
     relation: Relation
 
 
 class From(TypedDict):
-    joins: List[Join]
+    joins: list[Join]
     relation: Relation
 
 
 Select = TypedDict(
     "Select",
     {
-        "cluster_by": List[Expression],
+        "cluster_by": list[Expression],
         "distinct": bool,
-        "distribute_by": List[Expression],
-        "from": List[From],
-        "group_by": List[Expression],
-        "having": Optional[BinaryOp],
-        "lateral_views": List[LateralView],
-        "projection": List[Union[Projection, Wildcard]],
-        "selection": Optional[BinaryOp],
-        "sort_by": List[Expression],
-        "top": Optional[Top],
+        "distribute_by": list[Expression],
+        "from": list[From],
+        "group_by": list[Expression],
+        "having": BinaryOp | None,
+        "lateral_views": list[LateralView],
+        "projection": list[Projection | Wildcard],
+        "selection": BinaryOp | None,
+        "sort_by": list[Expression],
+        "top": Top | None,
     },
 )
 
@@ -293,26 +290,26 @@ CTETable = TypedDict(
     "CTETable",
     {
         "alias": TableAlias,
-        "from": Optional[Identifier],
+        "from": Identifier | None,
         "query": "Query",  # type: ignore
     },
 )
 
 
 class With(TypedDict):
-    cte_tables: List[CTETable]
+    cte_tables: list[CTETable]
 
 
 Query = TypedDict(
     "Query",
     {
         "body": Body,
-        "fetch": Optional[Fetch],
-        "limit": Optional[Limit],
-        "lock": Optional[Literal["Share", "Update"]],
-        "offset": Optional[Offset],
-        "order_by": List[OrderBy],
-        "with": Optional[With],
+        "fetch": Fetch | None,
+        "limit": Limit | None,
+        "lock": Literal["Share", "Update"] | None,
+        "offset": Offset | None,
+        "order_by": list[OrderBy],
+        "with": With | None,
     },
 )
 
@@ -322,5 +319,4 @@ class Statement(TypedDict):
     Query: Query
 
 
-# A parse tree, result of ``sqloxide.parse_sql``.
-ParseTree = List[Statement]  # type: ignore
+ParseTree = list[Statement]  # type: ignore

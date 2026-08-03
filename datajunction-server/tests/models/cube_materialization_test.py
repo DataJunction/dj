@@ -20,16 +20,16 @@ from datajunction_server.models.cube_materialization import (
     materialized_table_name,
     version_from_materialized_table,
 )
-from datajunction_server.models.materialization import MaterializationStrategy
-from datajunction_server.utils import get_settings
-from datajunction_server.models.node_type import NodeNameVersion
-from datajunction_server.models.partition import Granularity, PartitionType
 from datajunction_server.models.decompose import (
-    AggregationRule,
     Aggregability,
+    AggregationRule,
     MetricComponent,
 )
+from datajunction_server.models.materialization import MaterializationStrategy
+from datajunction_server.models.node_type import NodeNameVersion
+from datajunction_server.models.partition import Granularity, PartitionType
 from datajunction_server.models.query import ColumnMetadata
+from datajunction_server.utils import get_settings
 
 
 def _temporal_partition(name: str, dimension_column: str | None) -> Column:

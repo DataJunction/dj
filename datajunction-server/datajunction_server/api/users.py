@@ -2,8 +2,6 @@
 User related APIs.
 """
 
-from typing import List, Union
-
 from fastapi import Depends, Query
 from sqlalchemy import distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,13 +21,13 @@ settings = get_settings()
 router = SecureAPIRouter(tags=["users"])
 
 
-@router.get("/users/{username}", response_model=List[NodeMinimumDetail])
+@router.get("/users/{username}", response_model=list[NodeMinimumDetail])
 async def list_nodes_by_username(
     username: str,
     *,
     session: AsyncSession = Depends(get_session),
-    activity_types: List[str] = Query([ActivityType.CREATE, ActivityType.UPDATE]),
-) -> List[NodeMinimumDetail]:
+    activity_types: list[str] = Query([ActivityType.CREATE, ActivityType.UPDATE]),
+) -> list[NodeMinimumDetail]:
     """
     List all nodes with the specified activity type(s) by the user
     """
@@ -55,12 +53,12 @@ async def list_nodes_by_username(
     return [node.current for node in nodes]
 
 
-@router.get("/users", response_model=List[Union[str, UserActivity]])
+@router.get("/users", response_model=list[str | UserActivity])
 async def list_users_with_activity(
     session: AsyncSession = Depends(get_session),
     *,
     with_activity: bool = False,
-) -> List[Union[str, UserActivity]]:
+) -> list[str | UserActivity]:
     """
     Lists all users. The endpoint will include user activity counts if the
     `with_activity` flag is set to true.

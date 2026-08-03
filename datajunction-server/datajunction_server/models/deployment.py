@@ -1,16 +1,16 @@
 from enum import Enum
+from typing import Annotated, Any, ClassVar, Literal
+
 from pydantic import (
     AliasChoices,
     BaseModel,
+    ConfigDict,
     Field,
     PrivateAttr,
-    ConfigDict,
     TypeAdapter,
     model_validator,
 )
 
-from typing import Annotated, Any, ClassVar, Literal, Optional, Union
-from datajunction_server.models.partition import Granularity, PartitionType
 from datajunction_server.errors import (
     DJInvalidDeploymentConfig,
     DJInvalidInputException,
@@ -29,6 +29,7 @@ from datajunction_server.models.node import (
     NodeStatus,
     NodeType,
 )
+from datajunction_server.models.partition import Granularity, PartitionType
 from datajunction_server.models.unit import (
     Unit,
     legacy_unit_to_structured,
@@ -202,7 +203,7 @@ class ColumnSpec(BaseModel):
         exclude=True,
     )  # Internal use only, not serialized
 
-    def __eq__(self, other: Any) -> bool:
+    def __eq__(self, other: object) -> bool:
         if not isinstance(other, ColumnSpec):
             return False
         return (
@@ -225,7 +226,9 @@ class DimensionLinkSpec(BaseModel):
     role: str | None = None
     namespace: str | None = Field(default=None, exclude=True)
 
-    def __eq__(self, other: Any) -> bool:
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, DimensionLinkSpec):
+            return False
         return self.type == other.type and self.role == other.role
 
 
@@ -244,7 +247,7 @@ class DimensionJoinLinkSpec(DimensionLinkSpec):
     join_type: JoinType = JoinType.LEFT
     join_on: str | None = None
     default_value: str | None = None
-    spark_hints: Optional[SparkJoinStrategy] = None
+    spark_hints: SparkJoinStrategy | None = None
 
     @property
     def rendered_dimension_node(self) -> str:
@@ -275,7 +278,7 @@ class DimensionJoinLinkSpec(DimensionLinkSpec):
             ),
         )
 
-    def __eq__(self, other: Any) -> bool:
+    def __eq__(self, other: object) -> bool:
         if not isinstance(other, DimensionJoinLinkSpec):
             return False  # pragma: no cover
         return (
@@ -324,7 +327,7 @@ class DimensionReferenceLinkSpec(DimensionLinkSpec):
             ),
         )
 
-    def __eq__(self, other: Any) -> bool:
+    def __eq__(self, other: object) -> bool:
         if not isinstance(other, DimensionReferenceLinkSpec):
             return False
         return (
@@ -388,7 +391,7 @@ class NodeSpec(NamespacedSpec):
     @property
     def rendered_query(self) -> str | None:
         if hasattr(self, "query") and self.query:
-            query = getattr(self, "query")
+            query = self.query
             return render_prefixes(query, self.namespace)
         return None
 
@@ -403,7 +406,7 @@ class NodeSpec(NamespacedSpec):
             self._query_ast = parse(self.rendered_query)
         return self._query_ast
 
-    def __eq__(self, other: Any) -> bool:
+    def __eq__(self, other: object) -> bool:
         if not isinstance(other, NodeSpec):
             return False  # pragma: no cover
         return (
@@ -479,7 +482,7 @@ class LinkableNodeSpec(NodeSpec):
             for link in self.dimension_links
         }
 
-    def __eq__(self, other: Any) -> bool:
+    def __eq__(self, other: object) -> bool:
         if not isinstance(other, LinkableNodeSpec):
             return False
         dimension_links_equal = sorted(
@@ -513,7 +516,9 @@ class SourceSpec(LinkableNodeSpec):
 
     model_config = ConfigDict(populate_by_name=True)
 
-    def __eq__(self, other: Any) -> bool:
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, SourceSpec):
+            return False
         return super().__eq__(other) and (
             self.catalog == other.catalog
             and self.schema_ == other.schema_
@@ -529,7 +534,9 @@ class TransformSpec(LinkableNodeSpec):
     node_type: Literal[NodeType.TRANSFORM] = NodeType.TRANSFORM
     query: str
 
-    def __eq__(self, other: Any) -> bool:
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, TransformSpec):
+            return False
         return super().__eq__(other) and self.query_ast.compare(other.query_ast)
 
 
@@ -541,7 +548,9 @@ class DimensionSpec(LinkableNodeSpec):
     node_type: Literal[NodeType.DIMENSION] = NodeType.DIMENSION
     query: str
 
-    def __eq__(self, other: Any) -> bool:
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, DimensionSpec):
+            return False
         return super().__eq__(other) and self.query_ast.compare(other.query_ast)
 
 
@@ -673,7 +682,7 @@ class MetricSpec(NodeSpec):
             return None
         return legacy_unit_to_structured(self.unit_enum)
 
-    def __eq__(self, other: Any) -> bool:
+    def __eq__(self, other: object) -> bool:
         if not isinstance(other, MetricSpec):
             return False
         return (
@@ -729,7 +738,7 @@ class CubeSpec(NodeSpec):
             rendered.append(rendered_col)
         return rendered
 
-    def __eq__(self, other: Any) -> bool:
+    def __eq__(self, other: object) -> bool:
         if not isinstance(other, CubeSpec):
             return False
         if not super().__eq__(other):
@@ -754,13 +763,7 @@ class CubeSpec(NodeSpec):
 
 
 NodeUnion = Annotated[
-    Union[
-        SourceSpec,
-        TransformSpec,
-        DimensionSpec,
-        MetricSpec,
-        CubeSpec,
-    ],
+    SourceSpec | TransformSpec | DimensionSpec | MetricSpec | CubeSpec,
     Field(discriminator="node_type"),
 ]
 
@@ -772,7 +775,11 @@ def _norm(v: Any) -> Any:
     return v
 
 
-def diff(one: BaseModel, two: BaseModel, ignore_fields: list[str] = None) -> list[str]:
+def diff(
+    one: BaseModel,
+    two: BaseModel,
+    ignore_fields: list[str] | None = None,
+) -> list[str]:
     """
     Compare two Pydantic models and return a list of fields that have changed.
     """

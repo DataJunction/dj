@@ -2,7 +2,7 @@
 Tests for the data API.
 """
 
-from typing import Dict, List, Optional, cast
+from typing import cast
 from unittest import mock
 
 import pytest
@@ -1215,10 +1215,10 @@ class TestAvailabilityState:
 
         async def _post(
             node_name: str = "default.local_hard_hats",
-            min_temporal_partition: Optional[List[str]] = None,
-            max_temporal_partition: Optional[List[str]] = None,
-            partitions: List[Dict] = None,
-            categorical_partitions: List[str] = None,
+            min_temporal_partition: list[str] | None = None,
+            max_temporal_partition: list[str] | None = None,
+            partitions: list[dict] | None = None,
+            categorical_partitions: list[str] | None = None,
         ):
             if categorical_partitions is None:
                 categorical_partitions = ["country", "postal_code"]

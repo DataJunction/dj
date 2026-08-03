@@ -2,7 +2,7 @@
 Models for metrics.
 """
 
-from typing import List, Optional, Dict
+from typing import Optional
 
 from pydantic.main import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,36 +38,36 @@ class Metric(BaseModel):
     updated_at: UTCDatetime
 
     query: str
-    upstream_node: Optional[str] = None
+    upstream_node: str | None = None
     expression: str
 
-    dimensions: List[DimensionAttributeOutput]
-    metric_metadata: Optional[MetricMetadataOutput] = None
+    dimensions: list[DimensionAttributeOutput]
+    metric_metadata: MetricMetadataOutput | None = None
     # Structured metric-level unit, derived from the metric's output column.
     # `metric_metadata.unit` remains the legacy flat-string field for
     # back-compat; `unit` is the structured shape and is the source of truth
     # going forward. `None` when no unit is set, regardless of input shape.
-    unit: Optional[Dict] = None
-    required_dimensions: List[str]
+    unit: dict | None = None
+    required_dimensions: list[str]
 
     # Whether the metric is a single aggregation call (a "measure") that can map
     # 1:1 to a column in an externally-built pre-aggregation table. Derived/ratio
     # metrics are not measures. Computed on the fly from the metric's expression.
     is_measure: bool
 
-    incompatible_druid_functions: List[str]
+    incompatible_druid_functions: list[str]
 
-    measures: List[MetricComponent]
+    measures: list[MetricComponent]
     derived_query: str
     derived_expression: str
 
-    custom_metadata: Optional[Dict] = None
+    custom_metadata: dict | None = None
 
     @classmethod
     async def parse_node(
         cls,
         node: Node,
-        dims: List[DimensionAttributeOutput],
+        dims: list[DimensionAttributeOutput],
         session: AsyncSession,
     ) -> "Metric":
         """
@@ -120,10 +120,10 @@ class TranslatedSQL(TranspiledSQL):
     # TODO: once type-inference is added to /query/ endpoint
     # columns attribute can be required
     sql: str
-    columns: Optional[List[ColumnMetadata]] = None  # pragma: no-cover
-    dialect: Optional[Dialect] = None
-    upstream_tables: Optional[List[str]] = None
-    scan_estimate: Optional[ScanEstimate] = None
+    columns: list[ColumnMetadata] | None = None  # pragma: no-cover
+    dialect: Dialect | None = None
+    upstream_tables: list[str] | None = None
+    scan_estimate: ScanEstimate | None = None
 
     @classmethod
     def create(cls, *, dialect: Dialect | None = None, **kwargs):
@@ -145,11 +145,11 @@ class V3TranslatedSQL(BaseModel):
     """
 
     sql: str
-    columns: List[V3ColumnMetadata]
+    columns: list[V3ColumnMetadata]
     dialect: Dialect
 
     # If a cube was used, contains cube name (fetch details via /cubes/{name}/)
-    cube_name: Optional[str] = None
+    cube_name: str | None = None
 
     # Scan estimate (aggregated from all grain groups)
     scan_estimate: Optional["ScanEstimate"] = None

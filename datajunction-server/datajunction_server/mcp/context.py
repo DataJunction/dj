@@ -8,8 +8,9 @@ request. Lives in its own module to break the
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextvars import ContextVar
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,7 +18,7 @@ if TYPE_CHECKING:
     from datajunction_server.service_clients import QueryServiceClient
 
 
-_session_var: ContextVar[Optional[AsyncSession]] = ContextVar(
+_session_var: ContextVar[AsyncSession | None] = ContextVar(
     "dj_mcp_session",
     default=None,
 )
@@ -39,15 +40,13 @@ def get_mcp_session() -> AsyncSession:
     return session
 
 
-_qsc_provider_var: ContextVar[Optional[Callable[[], "QueryServiceClient"]]] = (
-    ContextVar(
-        "dj_mcp_qsc_provider",
-        default=None,
-    )
+_qsc_provider_var: ContextVar[Callable[[], QueryServiceClient] | None] = ContextVar(
+    "dj_mcp_qsc_provider",
+    default=None,
 )
 
 
-def get_mcp_query_service_client() -> Optional["QueryServiceClient"]:
+def get_mcp_query_service_client() -> QueryServiceClient | None:
     """Return a request-scoped query-service client if a provider is bound.
 
     Deployments bind a provider via ``mount_mcp(request_context=...)`` that

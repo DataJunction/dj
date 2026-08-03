@@ -8,12 +8,10 @@ and returns the output column names + types without any DB calls.
 import pytest
 
 from datajunction_server.internal.deployment.type_inference import (
+    TypeResolutionError,
     columns_signature_changed,
     validate_node_query,
-    TypeResolutionError,
 )
-
-
 from datajunction_server.sql.parsing.types import (
     BigIntType,
     BooleanType,
@@ -25,7 +23,6 @@ from datajunction_server.sql.parsing.types import (
     TimestampType,
     UnknownType,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -559,8 +556,8 @@ STRUCT_SOURCE = _col_map(
 class TestStructFieldAccess:
     def test_struct_field_resolves(self):
         """SELECT metadata.name FROM default.events — struct field access."""
+        from datajunction_server.sql.parsing.ast import Name, NestedField
         from datajunction_server.sql.parsing.types import StructType
-        from datajunction_server.sql.parsing.ast import NestedField, Name
 
         struct_source = _col_map(
             (
@@ -586,8 +583,8 @@ class TestStructFieldAccess:
 
     def test_table_qualified_struct_field(self):
         """SELECT t.metadata.name FROM default.events t — table.struct.field access."""
+        from datajunction_server.sql.parsing.ast import Name, NestedField
         from datajunction_server.sql.parsing.types import StructType
-        from datajunction_server.sql.parsing.ast import NestedField, Name
 
         struct_source = _col_map(
             (
@@ -617,8 +614,8 @@ class TestStructFieldAccess:
         Pattern: outer query references m.is_flag, where m is a subquery that
         projects t.details.is_flag AS is_flag from a source with a struct column.
         """
+        from datajunction_server.sql.parsing.ast import Name, NestedField
         from datajunction_server.sql.parsing.types import StructType
-        from datajunction_server.sql.parsing.ast import NestedField, Name
 
         source = _col_map(
             (
@@ -667,8 +664,8 @@ class TestStructFieldAccess:
 
     def test_nested_struct_chain(self):
         """data.nested.value — two levels of struct nesting, no table alias."""
+        from datajunction_server.sql.parsing.ast import Name, NestedField
         from datajunction_server.sql.parsing.types import StructType
-        from datajunction_server.sql.parsing.ast import NestedField, Name
 
         source = _col_map(
             (
@@ -713,8 +710,8 @@ class TestStructFieldAccess:
 
     def test_table_qualified_nested_struct_chain(self):
         """t.price.details.val — table alias + two levels of struct nesting."""
+        from datajunction_server.sql.parsing.ast import Name, NestedField
         from datajunction_server.sql.parsing.types import StructType
-        from datajunction_server.sql.parsing.ast import NestedField, Name
 
         source = _col_map(
             (
@@ -747,8 +744,8 @@ class TestStructFieldAccess:
 
     def test_three_level_struct_chain(self):
         """a.b.c.d — three levels of struct nesting."""
+        from datajunction_server.sql.parsing.ast import Name, NestedField
         from datajunction_server.sql.parsing.types import StructType
-        from datajunction_server.sql.parsing.ast import NestedField, Name
 
         source = _col_map(
             (
@@ -788,8 +785,8 @@ class TestStructFieldAccess:
 
     def test_struct_field_nonexistent(self):
         """SELECT metadata.nonexistent FROM default.events — bad struct field."""
+        from datajunction_server.sql.parsing.ast import Name, NestedField
         from datajunction_server.sql.parsing.types import StructType
-        from datajunction_server.sql.parsing.ast import NestedField, Name
 
         struct_source = _col_map(
             (
@@ -1462,8 +1459,8 @@ class TestSubscript:
 
     def test_struct_subscript(self):
         """col['field'] on a StructType resolves the field type."""
+        from datajunction_server.sql.parsing.ast import Name, NestedField
         from datajunction_server.sql.parsing.types import StructType
-        from datajunction_server.sql.parsing.ast import NestedField, Name
 
         source = _col_map(
             (

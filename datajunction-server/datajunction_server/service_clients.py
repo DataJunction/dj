@@ -4,7 +4,7 @@ import asyncio
 import logging
 from enum import Enum
 from http import HTTPStatus
-from typing import TYPE_CHECKING, Dict, List, Optional, Union, Any
+from typing import TYPE_CHECKING, Any, Optional
 from urllib.parse import urljoin
 
 import httpx
@@ -33,12 +33,12 @@ from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.sql.parsing.types import ColumnType
 
 if TYPE_CHECKING:
+    from datajunction_server.database.engine import Engine
     from datajunction_server.models.preaggregation import (
         BackfillInput,
         CubeBackfillInput,
         PreAggMaterializationInput,
     )
-    from datajunction_server.database.engine import Engine
 
 _logger = logging.getLogger(__name__)
 
@@ -61,7 +61,11 @@ class RequestsSessionWithEndpoint(requests.Session):
     subsequent requests will use as a prefix.
     """
 
-    def __init__(self, endpoint: str = None, retry_strategy: Retry = None):
+    def __init__(
+        self,
+        endpoint: str | None = None,
+        retry_strategy: Retry | None = None,
+    ):
         super().__init__()
         self.endpoint = endpoint
         self.mount("http://", HTTPAdapter(max_retries=retry_strategy))
@@ -104,7 +108,7 @@ class QueryServiceClient:
         uri: str,
         retries: int = 0,
         *,
-        default_headers: Optional[Dict[str, str]] = None,
+        default_headers: dict[str, str] | None = None,
         auth: Optional["httpx.Auth"] = None,
         transport: Optional["httpx.AsyncBaseTransport"] = None,
     ):
@@ -139,7 +143,7 @@ class QueryServiceClient:
             endpoint=self.uri,
             retry_strategy=retry_strategy,
         )
-        self._async_client: Optional[httpx.AsyncClient] = None
+        self._async_client: httpx.AsyncClient | None = None
 
     def _get_async_client(self) -> httpx.AsyncClient:
         """
@@ -205,9 +209,9 @@ class QueryServiceClient:
         catalog: str,
         schema: str,
         table: str,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
         engine: Optional["Engine"] = None,
-    ) -> List[Column]:
+    ) -> list[Column]:
         """Retrieves columns for a table."""
         params = (
             {"engine": engine.name, "engine_version": engine.version}
@@ -244,10 +248,10 @@ class QueryServiceClient:
 
     async def get_columns_for_tables_batch(
         self,
-        tables: List[tuple[str, str, str]],
-        request_headers: Optional[Dict[str, str]] = None,
+        tables: list[tuple[str, str, str]],
+        request_headers: dict[str, str] | None = None,
         engine: Optional["Engine"] = None,
-    ) -> Dict[tuple[str, str, str], List[Column]]:
+    ) -> dict[tuple[str, str, str], list[Column]]:
         """Retrieves columns for multiple tables in a single batch request."""
         table_names = [
             f"{catalog}.{schema}.{table}" for catalog, schema, table in tables
@@ -284,7 +288,7 @@ class QueryServiceClient:
         self,
         view_name: str,
         query_create: QueryCreate,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> str:
         """
         Re-create a view using the query service's DDL endpoint.
@@ -333,7 +337,7 @@ class QueryServiceClient:
     async def submit_query(
         self,
         query_create: QueryCreate,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> QueryWithResults:
         """Submit a query to the query service."""
         # ``request_headers`` intentionally not forwarded — see
@@ -354,7 +358,7 @@ class QueryServiceClient:
     async def get_query(
         self,
         query_id: str,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> QueryWithResults:
         """Get a previously submitted query."""
         get_query_endpoint = f"/queries/{query_id}/"
@@ -387,11 +391,8 @@ class QueryServiceClient:
 
     def materialize(
         self,
-        materialization_input: Union[
-            GenericMaterializationInput,
-            DruidMaterializationInput,
-        ],
-        request_headers: Optional[Dict[str, str]] = None,
+        materialization_input: GenericMaterializationInput | DruidMaterializationInput,
+        request_headers: dict[str, str] | None = None,
     ) -> MaterializationInfo:
         """
         Post a request to the query service asking it to set up a scheduled materialization
@@ -421,7 +422,7 @@ class QueryServiceClient:
     def materialize_cube(
         self,
         materialization_input: DruidCubeMaterializationInput,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> MaterializationInfo:
         """
         Post a request to the query service asking it to set up a scheduled materialization
@@ -453,7 +454,7 @@ class QueryServiceClient:
     def materialize_cube_v2(
         self,
         materialization_input: CubeMaterializationV2Input,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> MaterializationInfo:
         """
         Create a v2 cube materialization workflow (pre-agg based).
@@ -501,8 +502,8 @@ class QueryServiceClient:
     def materialize_preagg(
         self,
         materialization_input: "PreAggMaterializationInput",
-        request_headers: Optional[Dict[str, str]] = None,
-    ) -> Dict[str, Any]:
+        request_headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         """
         Create a scheduled workflow for a pre-aggregation.
 
@@ -550,8 +551,8 @@ class QueryServiceClient:
     def deactivate_preagg_workflow(
         self,
         output_table: str,
-        request_headers: Optional[Dict[str, str]] = None,
-    ) -> Dict[str, Any]:
+        request_headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         """
         Deactivate a pre-aggregation's workflows by output table name.
 
@@ -586,9 +587,9 @@ class QueryServiceClient:
     def deactivate_cube_workflow(
         self,
         cube_name: str,
-        version: Optional[str] = None,
-        request_headers: Optional[Dict[str, str]] = None,
-    ) -> Dict[str, Any]:
+        version: str | None = None,
+        request_headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         """
         Deactivate a cube's Druid materialization workflows by cube name and version.
 
@@ -628,9 +629,9 @@ class QueryServiceClient:
 
     def deactivate_workflows(
         self,
-        workflow_names: List[str],
-        request_headers: Optional[Dict[str, str]] = None,
-    ) -> Dict[str, Any]:
+        workflow_names: list[str],
+        request_headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         """
         Deactivate workflows by their exact workflow names.
 
@@ -660,8 +661,8 @@ class QueryServiceClient:
     def run_preagg_backfill(
         self,
         backfill_input: "BackfillInput",
-        request_headers: Optional[Dict[str, str]] = None,
-    ) -> Dict[str, Any]:
+        request_headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         """
         Run a backfill for a pre-aggregation.
 
@@ -693,8 +694,8 @@ class QueryServiceClient:
     def run_cube_backfill(
         self,
         backfill_input: "CubeBackfillInput",
-        request_headers: Optional[Dict[str, str]] = None,
-    ) -> Dict[str, Any]:
+        request_headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         """
         Run a backfill for a cube.
 
@@ -728,7 +729,7 @@ class QueryServiceClient:
         node_name: str,
         materialization_name: str,
         node_version: str | None = None,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> MaterializationInfo:
         """
         Deactivates the specified node materialization
@@ -760,9 +761,9 @@ class QueryServiceClient:
     def refresh_cube_materialization(
         self,
         cube_name: str,
-        cube_version: Optional[str] = None,
-        materializations: Optional[List[Dict]] = None,
-        request_headers: Optional[Dict[str, str]] = None,
+        cube_version: str | None = None,
+        materializations: list[dict] | None = None,
+        request_headers: dict[str, str] | None = None,
     ) -> MaterializationInfo:
         """
         Refresh/rebuild materialization workflows for a cube without creating a new version.
@@ -831,7 +832,7 @@ class QueryServiceClient:
         node_version: str,
         node_type: NodeType,
         materialization_name: str,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> MaterializationInfo:
         """
         Gets materialization info for the node and materialization config name.
@@ -867,8 +868,8 @@ class QueryServiceClient:
         node_version: str,
         node_type: NodeType,
         materialization_name: str,
-        partitions: List[PartitionBackfill],
-        request_headers: Optional[Dict[str, str]] = None,
+        partitions: list[PartitionBackfill],
+        request_headers: dict[str, str] | None = None,
     ) -> MaterializationInfo:
         """Kicks off a backfill with the given backfill spec"""
         backfill_endpoint = (

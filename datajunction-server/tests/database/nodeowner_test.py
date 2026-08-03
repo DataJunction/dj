@@ -1,13 +1,12 @@
 import pytest
 import pytest_asyncio
 from sqlalchemy import select
-
-from datajunction_server.database.node import Node, NodeType, NodeRevision, Column
-from datajunction_server.database.user import OAuthProvider, User
-from datajunction_server.database.nodeowner import NodeOwner
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import datajunction_server.sql.parsing.types as ct
+from datajunction_server.database.node import Column, Node, NodeRevision, NodeType
+from datajunction_server.database.nodeowner import NodeOwner
+from datajunction_server.database.user import OAuthProvider, User
 
 
 @pytest_asyncio.fixture

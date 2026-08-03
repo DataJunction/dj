@@ -5,7 +5,7 @@ Materialization utilities for checking and using materialized tables.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from datajunction_server.database.node import Node
 from datajunction_server.errors import DJInvalidInputException
@@ -25,7 +25,7 @@ def amenable_name(name: str) -> str:
     return name.replace(SEPARATOR, "_").replace("-", "_")
 
 
-def get_physical_table_name(node: Node) -> Optional[str]:
+def get_physical_table_name(node: Node) -> str | None:
     """
     Get the physical table name for a source node.
 
@@ -110,7 +110,7 @@ def get_materialized_table_parts(node: Node) -> list[str] | None:
 
 
 def should_use_materialized_table(
-    ctx: "BuildContext",
+    ctx: BuildContext,
     node: Node,
 ) -> bool:
     """
@@ -141,7 +141,7 @@ def should_use_materialized_table(
 
 
 def get_table_reference_parts_with_materialization(
-    ctx: "BuildContext",
+    ctx: BuildContext,
     node: Node,
 ) -> tuple[list[str], bool]:
     """

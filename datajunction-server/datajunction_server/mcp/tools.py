@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-import mcp.types as types
+from mcp import types
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.sql.base import ExecutableOption
@@ -51,12 +51,12 @@ from datajunction_server.utils import get_query_service_client, get_settings
 logger = logging.getLogger(__name__)
 
 
-async def _node_to_dict(node: Node, include_git: bool) -> Dict[str, Any]:
+async def _node_to_dict(node: Node, include_git: bool) -> dict[str, Any]:
     """Adapt a SQLAlchemy ``Node`` into the dict shape ``format_nodes_list``
     and ``format_node_details`` expect (originally a GraphQL response).
     """
     current = node.current
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         "name": node.name,
         "type": node.type.value if hasattr(node.type, "value") else str(node.type),
         "current": (
@@ -125,12 +125,12 @@ async def list_namespaces() -> str:
 
 async def search_nodes(
     query: str = "",
-    node_type: Optional[str] = None,
-    namespace: Optional[str] = None,
-    tags: Optional[List[str]] = None,
-    statuses: Optional[List[str]] = None,
-    mode: Optional[str] = None,
-    owned_by: Optional[str] = None,
+    node_type: str | None = None,
+    namespace: str | None = None,
+    tags: list[str] | None = None,
+    statuses: list[str] | None = None,
+    mode: str | None = None,
+    owned_by: str | None = None,
     has_materialization: bool = False,
     limit: int = 25,
     prefer_main_branch: bool = True,
@@ -156,7 +156,7 @@ async def search_nodes(
             actual_namespace = main_namespace
             logger.info("Resolved namespace '%s' to '%s'", namespace, actual_namespace)
 
-    options: List[ExecutableOption] = [
+    options: list[ExecutableOption] = [
         joinedload(Node.current),
         selectinload(Node.tags),
         selectinload(Node.owners),
@@ -189,7 +189,7 @@ async def get_node_details(name: str) -> str:
     """Get detailed information about a specific node."""
     session = get_mcp_session()
 
-    options: List[ExecutableOption] = [
+    options: list[ExecutableOption] = [
         joinedload(Node.current).options(
             selectinload(NodeRevision.columns),
             selectinload(NodeRevision.parents),
@@ -244,7 +244,7 @@ async def get_node_details(name: str) -> str:
             }
 
     # Add dimensions for the node so format_node_details can list them.
-    dim_dicts: List[Dict[str, Any]] = []
+    dim_dicts: list[dict[str, Any]] = []
     if node.type in (
         NodeType.SOURCE,
         NodeType.TRANSFORM,
@@ -264,8 +264,8 @@ async def get_node_details(name: str) -> str:
 
 
 async def get_common(
-    metrics: Optional[List[str]] = None,
-    dimensions: Optional[List[str]] = None,
+    metrics: list[str] | None = None,
+    dimensions: list[str] | None = None,
 ) -> str:
     """Bidirectional metrics ↔ dimensions compatibility lookup."""
     if not metrics and not dimensions:
@@ -326,12 +326,12 @@ async def get_common(
 
 
 async def build_metric_sql(
-    metrics: List[str],
-    dimensions: Optional[List[str]] = None,
-    filters: Optional[List[str]] = None,
-    orderby: Optional[List[str]] = None,
-    limit: Optional[int] = None,
-    dialect: Optional[str] = None,
+    metrics: list[str],
+    dimensions: list[str] | None = None,
+    filters: list[str] | None = None,
+    orderby: list[str] | None = None,
+    limit: int | None = None,
+    dialect: str | None = None,
     use_materialized: bool = True,
 ) -> str:
     """Generate executable SQL for a set of metrics."""
@@ -378,7 +378,7 @@ async def build_metric_sql(
 _AD_HOC_SCAN_LIMIT_BYTES = 1024**4
 
 
-def _format_bytes(n: Optional[int]) -> str:
+def _format_bytes(n: int | None) -> str:
     if n is None:
         return "unknown"
     units = ["B", "KB", "MB", "GB", "TB", "PB"]
@@ -391,11 +391,11 @@ def _format_bytes(n: Optional[int]) -> str:
 
 
 async def _execute_metrics_query(
-    metrics: List[str],
-    dimensions: Optional[List[str]],
-    filters: Optional[List[str]],
-    orderby: Optional[List[str]],
-    limit: Optional[int],
+    metrics: list[str],
+    dimensions: list[str] | None,
+    filters: list[str] | None,
+    orderby: list[str] | None,
+    limit: int | None,
 ) -> tuple[Any, Any]:
     """Build SQL, run it, return (query_result, generated_sql).
 
@@ -471,11 +471,11 @@ async def _execute_metrics_query(
 
 
 async def get_metric_data(
-    metrics: List[str],
-    dimensions: Optional[List[str]] = None,
-    filters: Optional[List[str]] = None,
-    orderby: Optional[List[str]] = None,
-    limit: Optional[int] = None,
+    metrics: list[str],
+    dimensions: list[str] | None = None,
+    filters: list[str] | None = None,
+    orderby: list[str] | None = None,
+    limit: int | None = None,
 ) -> str:
     """Execute a metrics query and format rows.
 
@@ -514,7 +514,7 @@ async def get_metric_data(
         lines.append(f"Query ID: {result.id}")
 
     results_root = getattr(getattr(result, "results", None), "root", None) or []
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     if results_root:
         first = results_root[0]
         column_names = [c.name for c in (first.columns or [])]
@@ -547,13 +547,13 @@ async def get_metric_data(
 
 
 async def get_query_plan(
-    metrics: List[str],
-    dimensions: Optional[List[str]] = None,
-    filters: Optional[List[str]] = None,
-    dialect: Optional[str] = None,
+    metrics: list[str],
+    dimensions: list[str] | None = None,
+    filters: list[str] | None = None,
+    dialect: str | None = None,
     use_materialized: bool = True,
     include_temporal_filters: bool = False,
-    lookback_window: Optional[str] = None,
+    lookback_window: str | None = None,
 ) -> str:
     """Show how DJ decomposes the requested metrics into grain groups + components."""
     session = get_mcp_session()
@@ -631,7 +631,7 @@ async def get_query_plan(
 async def get_node_lineage(
     node_name: str,
     direction: str = "both",
-    max_depth: Optional[int] = None,
+    max_depth: int | None = None,
 ) -> str:
     """Return upstream and/or downstream nodes for a given node."""
     session = get_mcp_session()
@@ -639,7 +639,7 @@ async def get_node_lineage(
 
     lines = [f"Lineage for: {node_name}", "=" * 60, ""]
 
-    def _format_section(title: str, nodes: List[Node]) -> List[str]:
+    def _format_section(title: str, nodes: list[Node]) -> list[str]:
         section = [f"{title} ({len(nodes)} nodes):", "-" * 60]
         if not nodes:
             section.append("  (none)")
@@ -706,15 +706,15 @@ async def get_node_dimensions(node_name: str) -> str:
 
 
 async def visualize_metrics(
-    metrics: List[str],
-    dimensions: Optional[List[str]] = None,
-    filters: Optional[List[str]] = None,
-    orderby: Optional[List[str]] = None,
+    metrics: list[str],
+    dimensions: list[str] | None = None,
+    filters: list[str] | None = None,
+    orderby: list[str] | None = None,
     limit: int = 100,
     chart_type: str = "line",
-    title: Optional[str] = None,
-    y_min: Optional[float] = None,
-) -> List[types.TextContent]:
+    title: str | None = None,
+    y_min: float | None = None,
+) -> list[types.TextContent]:
     """Render a text-based chart of the requested metrics.
 
     Optimised for terminal / chat MCP clients (Claude Code, Claude Desktop,
@@ -781,7 +781,7 @@ async def visualize_metrics(
         )
 
     x_values = [row.get(x_key, i) for i, row in enumerate(rows)]
-    x_dates: List[Optional[datetime]] = []
+    x_dates: list[datetime | None] = []
     for x in x_values:
         try:
             if isinstance(x, str) and len(x) == 8:
@@ -793,8 +793,8 @@ async def visualize_metrics(
         except (ValueError, TypeError):
             x_dates.append(None)
 
-    x_numeric: List[float] = []
-    x_labels: List[str] = []
+    x_numeric: list[float] = []
+    x_labels: list[str] = []
     is_categorical = False
 
     if x_dates and any(d is not None for d in x_dates):
@@ -822,7 +822,7 @@ async def visualize_metrics(
     plt.clear_figure()
     for metric in metrics:
         metric_name = metric.split(".")[-1]
-        y_numeric: List[Optional[float]] = []
+        y_numeric: list[float | None] = []
         for row in rows:
             v = row.get(metric_name)
             if v is None:
@@ -853,7 +853,7 @@ async def visualize_metrics(
         step = max(1, len(x_numeric) // 10)
         positions = [x_numeric[i] for i in range(0, len(x_numeric), step)]
         # Bind ``x_dates[i]`` to a local so mypy narrows the Optional[datetime].
-        labels: List[str] = []
+        labels: list[str] = []
         for i in range(0, len(x_dates), step):
             d = x_dates[i]
             labels.append(d.strftime("%m/%d") if d is not None else str(x_values[i]))

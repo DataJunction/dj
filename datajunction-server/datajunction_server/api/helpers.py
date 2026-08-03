@@ -9,8 +9,8 @@ import logging
 import re
 import time
 import uuid
+from collections.abc import Callable
 from http import HTTPStatus
-from typing import Callable, Dict, List, Optional, Set, Tuple
 
 from fastapi import Depends
 from sqlalchemy import select
@@ -47,22 +47,21 @@ from datajunction_server.errors import (
 from datajunction_server.internal.engines import get_engine
 from datajunction_server.internal.history import EntityType
 from datajunction_server.models.attribute import RESERVED_ATTRIBUTE_NAMESPACE
+from datajunction_server.models.engine import Dialect
 from datajunction_server.models.history import status_change_history
-from datajunction_server.models.node import NodeStatus
-from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.materialization import (
     MaterializationConfigInfoUnified,
-    MaterializationStrategy,
     MaterializationConfigOutput,
+    MaterializationStrategy,
 )
+from datajunction_server.models.node import NodeStatus
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import ColumnMetadata, QueryWithResults
 from datajunction_server.naming import from_amenable_name
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast
 from datajunction_server.typing import END_JOB_STATES
 from datajunction_server.utils import SEPARATOR
-
-from datajunction_server.models.engine import Dialect
 
 _logger = logging.getLogger(__name__)
 
@@ -149,8 +148,8 @@ async def check_namespace_not_git_only(
 
 async def get_node_by_name(
     session: AsyncSession,
-    name: Optional[str],
-    node_type: Optional[NodeType] = None,
+    name: str | None,
+    node_type: NodeType | None = None,
     with_current: bool = False,
     raise_if_not_exists: bool = True,
     include_inactive: bool = False,
@@ -258,8 +257,8 @@ def resolve_column(
 async def get_attribute_type(
     session: AsyncSession,
     name: str,
-    namespace: Optional[str] = RESERVED_ATTRIBUTE_NAMESPACE,
-) -> Optional[AttributeType]:
+    namespace: str | None = RESERVED_ATTRIBUTE_NAMESPACE,
+) -> AttributeType | None:
     """
     Gets an attribute type by name.
     """
@@ -290,8 +289,8 @@ async def get_catalog_by_name(session: AsyncSession, name: str) -> Catalog:
 def _resolve_required_dimensions(
     required_dimensions: list[str],
     parent_columns: list[Column],
-    dim_nodes: Dict[str, "Node"],
-) -> Tuple[Set[str], List[Column]]:
+    dim_nodes: dict[str, "Node"],
+) -> tuple[set[str], list[Column]]:
     """
     Pure resolution of required_dimensions strings against pre-fetched nodes.
 
@@ -305,15 +304,15 @@ def _resolve_required_dimensions(
     Returns:
         Tuple of (invalid dimension paths, matched Column objects)
     """
-    invalid_required_dimensions: Set[str] = set()
-    matched_columns: List[Column] = []
+    invalid_required_dimensions: set[str] = set()
+    matched_columns: list[Column] = []
 
     parent_col_map = {col.name: col for col in parent_columns}
 
     # Separate full paths from short names
     # full_paths: {dim_node_name: [(full_path, col_name), ...]}
-    full_paths: Dict[str, List[Tuple[str, str]]] = {}
-    short_names: List[str] = []
+    full_paths: dict[str, list[tuple[str, str]]] = {}
+    short_names: list[str] = []
 
     for required_dim in required_dimensions:
         if SEPARATOR in required_dim:
@@ -354,7 +353,7 @@ async def find_required_dimensions(
     session: AsyncSession,
     required_dimensions: list[str],
     parent_columns: list[Column],
-) -> Tuple[Set[str], List[Column]]:
+) -> tuple[set[str], list[Column]]:
     """
     Find Column objects for required dimension paths.
 
@@ -365,12 +364,12 @@ async def find_required_dimensions(
         Tuple of (invalid dimension paths, matched Column objects)
     """
     # Collect dim node names from full-path entries so we can batch-fetch them
-    dim_node_names: Set[str] = set()
+    dim_node_names: set[str] = set()
     for required_dim in required_dimensions:
         if SEPARATOR in required_dim:
             dim_node_names.add(required_dim.rsplit(SEPARATOR, 1)[0])
 
-    dim_nodes: Dict[str, "Node"] = {}
+    dim_nodes: dict[str, Node] = {}
     if dim_node_names:
         result = await session.execute(
             select(Node)
@@ -391,7 +390,7 @@ async def resolve_downstream_references(
     node_revision: NodeRevision,
     current_user: User,
     save_history: Callable,
-) -> List[NodeRevision]:
+) -> list[NodeRevision]:
     """
     Find all node revisions with missing parent references to `node` and resolve them
     """
@@ -481,7 +480,7 @@ async def resolve_downstream_references(
     return newly_valid_nodes
 
 
-def dedupe_cube_elements(columns: List[Column]) -> List[Column]:
+def dedupe_cube_elements(columns: list[Column]) -> list[Column]:
     """
     Dedupe cube element columns by column id.
 
@@ -492,7 +491,7 @@ def dedupe_cube_elements(columns: List[Column]) -> List[Column]:
     violate `pk_cube`. Roles live on the cube's node_columns, so deduping here is
     lossless.
     """
-    deduped: Dict = {}
+    deduped: dict = {}
     for col in columns:
         deduped.setdefault(col.id if col.id is not None else id(col), col)
     return list(deduped.values())
@@ -500,16 +499,16 @@ def dedupe_cube_elements(columns: List[Column]) -> List[Column]:
 
 async def validate_cube(
     session: AsyncSession,
-    metric_names: List[str],
-    dimension_names: List[str],
+    metric_names: list[str],
+    dimension_names: list[str],
     require_dimensions: bool = False,
-) -> Tuple[
-    List[Column],
-    List[Node],
-    List[Node],
-    List[Column],
-    List[Optional[str]],
-    Optional[Catalog],
+) -> tuple[
+    list[Column],
+    list[Node],
+    list[Node],
+    list[Column],
+    list[str | None],
+    Catalog | None,
 ]:
     """
     Validate that a set of metrics and dimensions can be built together.
@@ -526,7 +525,7 @@ async def validate_cube(
     catalog = catalogs[0] if catalogs else None
 
     # Verify that the provided metrics are metric nodes
-    metrics: List[Column] = [metric.current.columns[0] for metric in metric_nodes]
+    metrics: list[Column] = [metric.current.columns[0] for metric in metric_nodes]
     for metric in metrics:
         await session.refresh(metric, ["node_revision"])
     if not metrics:
@@ -553,14 +552,14 @@ async def validate_cube(
         session,
         dimension_names,
     )
-    dimension_mapping: Dict[str, Node] = {
+    dimension_mapping: dict[str, Node] = {
         f"{attr.node_name}{SEPARATOR}{attr.column_name}": dimension_nodes[
             attr.node_name
         ]
         for attr in dimension_attributes
     }
-    dimensions: List[Column] = []
-    dimension_roles: List[Optional[str]] = []
+    dimensions: list[Column] = []
+    dimension_roles: list[str | None] = []
     for attr in dimension_attributes:
         dimension_node = dimension_mapping[
             f"{attr.node_name}{SEPARATOR}{attr.column_name}"
@@ -616,7 +615,7 @@ async def check_metrics_exist(session: AsyncSession, metrics: list[str]) -> list
     Check that the list of metrics are valid metric nodes and return them.
     """
     metrics_sorting_order = {val: idx for idx, val in enumerate(metrics)}
-    metric_nodes: List[Node] = sorted(
+    metric_nodes: list[Node] = sorted(
         await Node.get_by_names(
             session,
             metrics,
@@ -644,7 +643,7 @@ async def check_metrics_exist(session: AsyncSession, metrics: list[str]) -> list
 async def check_dimension_attributes_exist(
     session: AsyncSession,
     dimensions: list[str],
-) -> Tuple[list[FullColumnName], Dict[str, Node]]:
+) -> tuple[list[FullColumnName], dict[str, Node]]:
     """
     Verify that the provided dimension attributes exist
     """
@@ -652,7 +651,7 @@ async def check_dimension_attributes_exist(
         FullColumnName(dimension_attribute) for dimension_attribute in dimensions
     ]
     dimension_node_names = [attr.node_name for attr in dimension_attributes]
-    dimension_nodes: Dict[str, Node] = {
+    dimension_nodes: dict[str, Node] = {
         node.name: node
         for node in await Node.get_by_names(
             session,
@@ -714,9 +713,9 @@ async def get_history(
 
 
 def validate_orderby(
-    orderby: List[str],
-    metrics: List[str],
-    dimension_attributes: List[str],
+    orderby: list[str],
+    metrics: list[str],
+    dimension_attributes: list[str],
 ):
     """
     Validate that all elements in an order by match a metric or dimension attribute
@@ -736,11 +735,11 @@ def validate_orderby(
 
 async def find_existing_cube(
     session: AsyncSession,
-    metric_columns: List[Column],
-    dimension_columns: List[Column],
-    dimension_roles: Optional[List[Optional[str]]] = None,
+    metric_columns: list[Column],
+    dimension_columns: list[Column],
+    dimension_roles: list[str | None] | None = None,
     materialized: bool = True,
-) -> Optional[NodeRevision]:
+) -> NodeRevision | None:
     """
     Find an existing cube with these metrics and dimensions, if any.
     If `materialized` is set, it will only look for materialized cubes.
@@ -828,9 +827,9 @@ async def resolve_engine(
 
 async def query_event_stream(
     query: QueryWithResults,
-    request_headers: Optional[Dict[str, str]],
+    request_headers: dict[str, str] | None,
     query_service_client: QueryServiceClient,
-    columns: List[Column],
+    columns: list[Column],
     request,
     timeout: float = 0.0,
     stream_delay: float = 0.5,
@@ -959,7 +958,7 @@ def get_materialization_info(
     node: Node,
     include_all_revisions: bool,
     show_inactive: bool,
-    request_headers: Optional[Dict[str, str]] = None,
+    request_headers: dict[str, str] | None = None,
 ):
     """Get materializations for a node
 
@@ -994,7 +993,7 @@ def get_node_revision_materialization(
     query_service_client: QueryServiceClient,
     node_revision: NodeRevision,
     show_inactive: bool,
-    request_headers: Optional[Dict[str, str]] = None,
+    request_headers: dict[str, str] | None = None,
 ) -> list[MaterializationConfigInfoUnified]:
     """Merge in materialization info from the query service for a node revision"""
     materializations = []

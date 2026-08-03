@@ -4,13 +4,14 @@ Hierarchies API endpoints.
 Handles creation, retrieval, updating, deletion, and validation of hierarchies.
 """
 
+from collections.abc import Callable
 from http import HTTPStatus
-from typing import Callable, List, cast
+from typing import cast
 
 from fastapi import Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from datajunction_server.api.helpers import get_save_history, get_node_namespace
+from datajunction_server.api.helpers import get_node_namespace, get_save_history
 from datajunction_server.database.hierarchy import (
     Hierarchy,
     HierarchyLevel,
@@ -18,26 +19,26 @@ from datajunction_server.database.hierarchy import (
 from datajunction_server.database.history import History
 from datajunction_server.database.node import Node
 from datajunction_server.database.user import User
-from datajunction_server.models.node_type import NodeType
 from datajunction_server.errors import (
     DJAlreadyExistsException,
     DJDoesNotExistException,
     DJInvalidInputException,
 )
-from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
-from datajunction_server.models.user import UserNameOnly
-from datajunction_server.models.node import NodeNameOutput
+from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.models.hierarchy import (
-    HierarchyCreateRequest,
-    HierarchyOutput,
-    HierarchyInfo,
-    HierarchyLevelOutput,
-    HierarchyUpdateRequest,
     DimensionHierarchiesResponse,
     DimensionHierarchyNavigation,
+    HierarchyCreateRequest,
+    HierarchyInfo,
+    HierarchyLevelOutput,
+    HierarchyOutput,
+    HierarchyUpdateRequest,
     NavigationTarget,
 )
+from datajunction_server.models.node import NodeNameOutput
+from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.user import UserNameOnly
 from datajunction_server.utils import (
     get_current_user,
     get_session,
@@ -46,14 +47,14 @@ from datajunction_server.utils import (
 router = SecureAPIRouter(tags=["hierarchies"])
 
 
-@router.get("/hierarchies/", response_model=List[HierarchyInfo])
+@router.get("/hierarchies/", response_model=list[HierarchyInfo])
 async def list_all_hierarchies(
     limit: int = Query(100, description="Maximum number of hierarchies to return"),
     offset: int = Query(0, description="Number of hierarchies to skip"),
     *,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
-) -> List[HierarchyInfo]:
+) -> list[HierarchyInfo]:
     """
     List all available hierarchies.
     """

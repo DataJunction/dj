@@ -1,7 +1,7 @@
 """Tests for RBAC authorization logic."""
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import cast
 
@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.database.group_member import GroupMember
 from datajunction_server.database.rbac import Role, RoleAssignment, RoleScope
 from datajunction_server.database.user import PrincipalKind, User
+from datajunction_server.errors import DJAuthorizationException
+from datajunction_server.internal.access.authentication.basic import get_user
 from datajunction_server.internal.access.authorization import (
     AccessChecker,
     AccessDenialMode,
@@ -20,17 +22,15 @@ from datajunction_server.internal.access.authorization import (
     RBACAuthorizationService,
     get_authorization_service,
 )
-from datajunction_server.errors import DJAuthorizationException
-from datajunction_server.internal.access.authentication.basic import get_user
+from datajunction_server.internal.access.group_membership import (
+    GroupMembershipService,
+)
 from datajunction_server.models.access import (
     AccessDecision,
     Resource,
     ResourceAction,
     ResourceRequest,
     ResourceType,
-)
-from datajunction_server.internal.access.group_membership import (
-    GroupMembershipService,
 )
 
 
@@ -354,7 +354,7 @@ def test_has_scope_permission_allows_exact_grant() -> None:
 def test_has_scope_permission_skips_expired_and_mismatched_scopes() -> None:
     expired = _assignment(
         [_scope(ResourceAction.MANAGE, ResourceType.NAMESPACE, "finance.*")],
-        expires_at=datetime.now(timezone.utc) - timedelta(hours=1),
+        expires_at=datetime.now(UTC) - timedelta(hours=1),
     )
     wrong_action = _assignment(
         [_scope(ResourceAction.READ, ResourceType.NAMESPACE, "finance.*")],
@@ -556,7 +556,7 @@ class TestRBACPermissionChecks:
             principal_id=default_user.id,
             role_id=role.id,
             granted_by_id=default_user.id,
-            expires_at=datetime.now(timezone.utc) - timedelta(hours=1),
+            expires_at=datetime.now(UTC) - timedelta(hours=1),
         )
         session.add(assignment)
         await session.commit()
@@ -1111,7 +1111,7 @@ class TestDefaultAccessRole:
                 principal_id=default_user.id,
                 role_id=role.id,
                 granted_by_id=default_user.id,
-                expires_at=datetime.now(timezone.utc) - timedelta(hours=1),
+                expires_at=datetime.now(UTC) - timedelta(hours=1),
             ),
         )
         await session.commit()

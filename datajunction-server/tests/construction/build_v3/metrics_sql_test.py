@@ -1,4 +1,5 @@
 import pytest
+
 from . import assert_sql_equal
 
 

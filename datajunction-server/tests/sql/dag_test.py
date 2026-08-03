@@ -4,20 +4,22 @@ Tests for ``datajunction_server.sql.dag``.
 
 import datetime
 from unittest.mock import MagicMock, patch
+
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.column import Column
 from datajunction_server.database.database import Database
+from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User
-from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.errors import DJException
 from datajunction_server.models.node import DimensionAttributeOutput, NodeType
 from datajunction_server.sql.dag import (
     build_reference_link,
     get_common_dimensions,
     get_dimension_attributes,
+    get_dimension_dag_indegree,
     get_dimensions,
     get_dimensions_dag,
     get_downstream_nodes,
@@ -25,7 +27,6 @@ from datajunction_server.sql.dag import (
     get_nodes_with_common_dimensions,
     get_shared_dimensions,
     topological_sort,
-    get_dimension_dag_indegree,
 )
 from datajunction_server.sql.parsing.types import IntegerType, StringType
 
@@ -426,7 +427,7 @@ class TestGetDimensionDagIndegree:
             name="default.deactivated_dim",
             type=NodeType.DIMENSION,
             created_by_id=current_user.id,
-            deactivated_at=datetime.datetime.now(datetime.timezone.utc),
+            deactivated_at=datetime.datetime.now(datetime.UTC),
         )
         session.add(dim4)
         await session.commit()
@@ -473,22 +474,20 @@ class TestGetDimensionDagIndegree:
         """
         Test getting downstream nodes using the BFS approach.
         """
-        expected_nodes = set(
-            [
-                "default.regional_level_agg",
-                "default.repair_orders_fact",
-                "default.repair_order",
-                "default.discounted_orders_rate",
-                "default.total_repair_order_discounts",
-                "default.avg_repair_order_discounts",
-                "default.avg_time_to_dispatch",
-                "default.regional_repair_efficiency",
-                "default.num_repair_orders",
-                "default.num_unique_hard_hats_approx",
-                "default.avg_repair_price",
-                "default.total_repair_cost",
-            ],
-        )
+        expected_nodes = {
+            "default.regional_level_agg",
+            "default.repair_orders_fact",
+            "default.repair_order",
+            "default.discounted_orders_rate",
+            "default.total_repair_order_discounts",
+            "default.avg_repair_order_discounts",
+            "default.avg_time_to_dispatch",
+            "default.regional_repair_efficiency",
+            "default.num_repair_orders",
+            "default.num_unique_hard_hats_approx",
+            "default.avg_repair_price",
+            "default.total_repair_cost",
+        }
 
         downstreams = await get_downstream_nodes(
             module__session,
@@ -2748,14 +2747,14 @@ async def test_get_dimensions_dag_surfaces_hidden_columns(
     UIs can filter on their end. Server-side query/validation paths must
     continue to see hidden columns.
     """
+    # Attribute types are seeded at startup; reuse them.
+    from sqlalchemy import select as _select
+
     from datajunction_server.database.attributetype import (
         AttributeType,
         ColumnAttribute,
     )
     from datajunction_server.models.attribute import ColumnAttributes
-
-    # Attribute types are seeded at startup; reuse them.
-    from sqlalchemy import select as _select
 
     hidden_attr = (
         await session.execute(
@@ -2869,13 +2868,13 @@ async def test_get_dimensions_surfaces_hidden_reference_link_columns(
     still surface the target column even when it carries the ``hidden``
     attribute — the attribute is a UI-only hint, not a server-side filter.
     """
+    from sqlalchemy import select as _select
+
     from datajunction_server.database.attributetype import (
         AttributeType,
         ColumnAttribute,
     )
     from datajunction_server.models.attribute import ColumnAttributes
-
-    from sqlalchemy import select as _select
 
     hidden_attr = (
         await session.execute(
@@ -3044,12 +3043,13 @@ async def test_build_reference_link_surfaces_hidden_target_column(
     column is marked ``hidden``; the attribute flows through ``properties``
     so the UI can decide whether to display it.
     """
+    from sqlalchemy import select as _select
+
     from datajunction_server.database.attributetype import (
         AttributeType,
         ColumnAttribute,
     )
     from datajunction_server.models.attribute import ColumnAttributes
-    from sqlalchemy import select as _select
 
     hidden_attr = (
         await session.execute(

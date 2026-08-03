@@ -3,7 +3,7 @@ Errors and warnings.
 """
 
 from http import HTTPStatus
-from typing import Any, Dict, List, Literal, Optional, TypedDict
+from typing import Any, Literal, TypedDict
 
 from pydantic import field_serializer
 from pydantic.main import BaseModel
@@ -78,7 +78,7 @@ class DebugType(TypedDict, total=False):
     documentation: str
 
     # any additional context
-    context: Dict[str, Any]
+    context: dict[str, Any]
 
 
 class DJErrorType(TypedDict):
@@ -88,7 +88,7 @@ class DJErrorType(TypedDict):
 
     code: str
     message: str
-    debug: Optional[DebugType]
+    debug: DebugType | None
 
 
 class DJError(BaseModel):
@@ -98,7 +98,7 @@ class DJError(BaseModel):
 
     code: ErrorCode
     message: str
-    debug: Optional[Dict[str, Any]] = None
+    debug: dict[str, Any] | None = None
     context: str = ""
 
     @field_serializer("code")
@@ -130,9 +130,9 @@ class DJWarningType(TypedDict):
     Type for serialized warnings.
     """
 
-    code: Optional[int]
+    code: int | None
     message: str
-    debug: Optional[DebugType]
+    debug: DebugType | None
 
 
 class DJWarning(BaseModel):
@@ -140,9 +140,9 @@ class DJWarning(BaseModel):
     A warning.
     """
 
-    code: Optional[ErrorCode] = None
+    code: ErrorCode | None = None
     message: str
-    debug: Optional[Dict[str, Any]] = None
+    debug: dict[str, Any] | None = None
 
 
 DBAPIExceptions = Literal[
@@ -164,9 +164,9 @@ class DJExceptionType(TypedDict):
     Type for serialized exceptions.
     """
 
-    message: Optional[str]
-    errors: List[DJErrorType]
-    warnings: List[DJWarningType]
+    message: str | None
+    errors: list[DJErrorType]
+    warnings: list[DJWarningType]
 
 
 class DJException(Exception):
@@ -175,8 +175,8 @@ class DJException(Exception):
     """
 
     message: str
-    errors: List[DJError]
-    warnings: List[DJWarning]
+    errors: list[DJError]
+    warnings: list[DJWarning]
 
     # exception that should be raised when ``DJException`` is caught by the DB API cursor
     dbapi_exception: DBAPIExceptions = "Error"
@@ -186,11 +186,11 @@ class DJException(Exception):
 
     def __init__(
         self,
-        message: Optional[str] = None,
-        errors: Optional[List[DJError]] = None,
-        warnings: Optional[List[DJWarning]] = None,
-        dbapi_exception: Optional[DBAPIExceptions] = None,
-        http_status_code: Optional[int] = None,
+        message: str | None = None,
+        errors: list[DJError] | None = None,
+        warnings: list[DJWarning] | None = None,
+        dbapi_exception: DBAPIExceptions | None = None,
+        http_status_code: int | None = None,
     ):
         self.errors = errors or []
         self.warnings = warnings or []

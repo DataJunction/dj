@@ -3,11 +3,11 @@ Available materialization jobs.
 """
 
 __all__ = [
-    "MaterializationJob",
-    "SparkSqlMaterializationJob",
     "DefaultCubeMaterialization",
     "DruidMeasuresCubeMaterializationJob",
     "DruidMetricsCubeMaterializationJob",
+    "MaterializationJob",
+    "SparkSqlMaterializationJob",
 ]
 from datajunction_server.materialization.jobs.cube_materialization import (
     DefaultCubeMaterialization,

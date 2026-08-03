@@ -3,17 +3,15 @@
 import itertools
 from types import SimpleNamespace
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.construction.build_v3.builder import build_measures_sql
 from datajunction_server.construction.build_v3.types import (
     BuildContext,
     DecomposedMetricInfo,
     GrainGroupSQL,
 )
-from sqlalchemy import select
-
 from datajunction_server.database.node import Column, Node, NodeRevision
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.column import SemanticType
@@ -31,6 +29,7 @@ from datajunction_server.models.node_type import NodeNameVersion
 from datajunction_server.models.partition import Granularity
 from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.sql.parsing import ast
+from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.utils import SEPARATOR
 
 
@@ -213,8 +212,8 @@ async def _v3_grain_group_to_measures_query(
     Async because we may need to refresh expired ORM attributes on the parent
     fact / source nodes that v3 left lazily-loaded.
     """
-    from datajunction_server.models.node_type import NodeType  # noqa: PLC0415
-    from datajunction_server.utils import refresh_if_needed  # noqa: PLC0415
+    from datajunction_server.models.node_type import NodeType
+    from datajunction_server.utils import refresh_if_needed
 
     parent_node = ctx.nodes.get(gg.parent_name)
     if not parent_node or not parent_node.current:  # pragma: no cover

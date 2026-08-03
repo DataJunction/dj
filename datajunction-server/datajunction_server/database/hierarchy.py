@@ -1,33 +1,33 @@
 """Hierarchy database schema."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import partial
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import (
+    JSON,
     BigInteger,
     DateTime,
     ForeignKey,
     Index,
     Integer,
     String,
-    JSON,
     Text,
-    select,
     UniqueConstraint,
+    select,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship, selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Mapped, mapped_column, relationship, selectinload
 
 from datajunction_server.database.base import Base
 from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User
-from datajunction_server.models.dimensionlink import JoinCardinality
-from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.base import labelize
-from datajunction_server.typing import UTCDatetime
+from datajunction_server.models.dimensionlink import JoinCardinality
 from datajunction_server.models.hierarchy import HierarchyLevelInput
+from datajunction_server.models.node_type import NodeType
+from datajunction_server.typing import UTCDatetime
 
 if TYPE_CHECKING:
     from datajunction_server.database.history import History
@@ -48,11 +48,11 @@ class Hierarchy(Base):  # type: ignore
         primary_key=True,
     )
     name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
-    display_name: Mapped[Optional[str]] = mapped_column(
+    display_name: Mapped[str | None] = mapped_column(
         String,
         insert_default=lambda context: labelize(context.current_parameters.get("name")),
     )
-    description: Mapped[Optional[str]] = mapped_column(Text)
+    description: Mapped[str | None] = mapped_column(Text)
 
     # Audit fields
     created_by_id: Mapped[int] = mapped_column(
@@ -66,17 +66,17 @@ class Hierarchy(Base):  # type: ignore
     )
     created_at: Mapped[UTCDatetime] = mapped_column(
         DateTime(timezone=True),
-        insert_default=partial(datetime.now, timezone.utc),
+        insert_default=partial(datetime.now, UTC),
     )
 
     # Relationships
-    levels: Mapped[List["HierarchyLevel"]] = relationship(
+    levels: Mapped[list["HierarchyLevel"]] = relationship(
         back_populates="hierarchy",
         cascade="all, delete-orphan",
         order_by="HierarchyLevel.level_order",
     )
 
-    history: Mapped[List["History"]] = relationship(
+    history: Mapped[list["History"]] = relationship(
         primaryjoin="History.entity_name==Hierarchy.name",
         order_by="History.created_at",
         foreign_keys="History.entity_name",
@@ -130,7 +130,7 @@ class Hierarchy(Base):  # type: ignore
         session: AsyncSession,
         limit: int = 100,
         offset: int = 0,
-    ) -> List["Hierarchy"]:
+    ) -> list["Hierarchy"]:
         """List all hierarchies with their levels and created_by info loaded."""
         result = await session.execute(
             select(cls)
@@ -165,7 +165,7 @@ class Hierarchy(Base):  # type: ignore
         cls,
         session: AsyncSession,
         dimension_node_id: int,
-    ) -> List["Hierarchy"]:
+    ) -> list["Hierarchy"]:
         """Get all hierarchies that use a specific dimension node."""
         result = await session.execute(
             select(cls)
@@ -344,7 +344,7 @@ class HierarchyLevel(Base):  # type: ignore
 
     # Optional: For single-dimension hierarchies where multiple levels
     # reference the same dimension node but use different grain columns
-    grain_columns: Mapped[Optional[List[str]]] = mapped_column(JSON)
+    grain_columns: Mapped[list[str] | None] = mapped_column(JSON)
 
     def __repr__(self):
         return f"<HierarchyLevel {self.name} (order={self.level_order})>"

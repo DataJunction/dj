@@ -8,11 +8,12 @@ Tests for:
 - Pull request creation (POST /namespaces/{namespace}/pull-request)
 """
 
-from http import HTTPStatus
-from unittest.mock import AsyncMock, MagicMock, patch
 import base64
 import io
 import tarfile
+from http import HTTPStatus
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 from httpx import AsyncClient
 

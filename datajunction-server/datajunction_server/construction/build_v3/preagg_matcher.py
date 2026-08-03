@@ -11,18 +11,18 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from datajunction_server.errors import DJInvalidInputException
-from datajunction_server.database.preaggregation import (
-    PreAggregation,
-    compute_expression_hash,
-)
-from datajunction_server.models.decompose import Aggregability, MetricComponent
-from datajunction_server.models.preaggregation import TemporalPartitionColumn
-from datajunction_server.naming import SEPARATOR
 from datajunction_server.construction.build_v3.dimensions import (
     parse_dimension_ref,
     roles_reaching_dimension,
 )
+from datajunction_server.database.preaggregation import (
+    PreAggregation,
+    compute_expression_hash,
+)
+from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.models.decompose import Aggregability, MetricComponent
+from datajunction_server.models.preaggregation import TemporalPartitionColumn
+from datajunction_server.naming import SEPARATOR
 
 if TYPE_CHECKING:
     from datajunction_server.construction.build_v3.types import BuildContext, GrainGroup
@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 def get_required_measure_identities(
-    grain_group: "GrainGroup",
+    grain_group: GrainGroup,
 ) -> set[tuple[str, str]]:
     """
     Identity of each measure a grain group needs: (expression hash, Phase-1
@@ -85,10 +85,10 @@ def canonical_dimension_ref(
 
 
 def find_matching_preagg(
-    ctx: "BuildContext",
-    parent_node: "Node",
+    ctx: BuildContext,
+    parent_node: Node,
     requested_grain: list[str],
-    grain_group: "GrainGroup",
+    grain_group: GrainGroup,
 ) -> PreAggregation | None:
     """
     Find a pre-aggregation that can satisfy the grain group requirements.

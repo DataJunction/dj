@@ -243,7 +243,7 @@ def test_event_type_in_fields_dict_merges_harmlessly():
     captured: list[dict] = []
     events.set_publisher(captured.append)
 
-    events.emit("query_requested", **{"event_type": "spoofed", "ts_ms": 0})
+    events.emit("query_requested", event_type="spoofed", ts_ms=0)
 
     event = captured[0]
     assert event["event_type"] == "query_requested"

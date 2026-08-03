@@ -1,26 +1,25 @@
 """User database schema."""
 
 import logging
+from datetime import UTC, datetime
+from functools import partial
 from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import (
     BigInteger,
+    DateTime,
     Enum,
+    ForeignKey,
     Integer,
     String,
-    ForeignKey,
+    and_,
     case,
     select,
-    DateTime,
-    and_,
 )
-from datetime import datetime, timezone
-from functools import partial
-
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, selectinload
 from sqlalchemy.sql.base import ExecutableOption
-from sqlalchemy.orm import selectinload
+
 from datajunction_server.database.base import Base
 from datajunction_server.database.nodeowner import NodeOwner
 from datajunction_server.enum import StrEnum
@@ -70,9 +69,9 @@ class User(Base):
         primary_key=True,
     )
     username: Mapped[str] = mapped_column(String, unique=True)
-    password: Mapped[Optional[str]]
-    email: Mapped[Optional[str]]
-    name: Mapped[Optional[str]]
+    password: Mapped[str | None]
+    email: Mapped[str | None]
+    name: Mapped[str | None]
     oauth_provider: Mapped[OAuthProvider] = mapped_column(
         Enum(OAuthProvider),
     )
@@ -89,7 +88,7 @@ class User(Base):
 
     created_at: Mapped[UTCDatetime | None] = mapped_column(
         DateTime(timezone=True),
-        insert_default=partial(datetime.now, timezone.utc),
+        insert_default=partial(datetime.now, UTC),
         nullable=True,
     )
 
@@ -170,7 +169,7 @@ class User(Base):
         cls,
         session: AsyncSession,
         username: str,
-        options: list[ExecutableOption] = None,
+        options: list[ExecutableOption] | None = None,
     ) -> Optional["User"]:
         """
         Find a user by username
@@ -228,7 +227,7 @@ class User(Base):
         cls,
         session: AsyncSession,
         user_id: int,
-        options: list[ExecutableOption] = None,
+        options: list[ExecutableOption] | None = None,
     ) -> list["User"]:
         """
         Find service accounts created by a user

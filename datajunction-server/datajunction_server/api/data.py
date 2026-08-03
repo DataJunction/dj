@@ -3,8 +3,9 @@ Data related APIs.
 """
 
 import logging
+from collections.abc import Callable
 from dataclasses import asdict
-from typing import Callable, Dict, List, Optional, cast
+from typing import cast
 
 from fastapi import BackgroundTasks, Depends, Query, Request
 from fastapi.responses import JSONResponse
@@ -14,14 +15,15 @@ from sqlalchemy.orm import joinedload, selectinload
 from sse_starlette.sse import EventSourceResponse
 
 from datajunction_server.api.helpers import (
-    resolve_engine,
+    get_save_history,
     query_event_stream,
+    resolve_engine,
 )
 from datajunction_server.construction.build_v3.builder import build_metrics_sql
 from datajunction_server.construction.build_v3.cube_matcher import (
     resolve_dialect_and_engine_for_metrics,
 )
-from datajunction_server.api.helpers import get_save_history
+from datajunction_server.construction.build_v3.types import GeneratedSQL
 from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.history import History
 from datajunction_server.database.node import Node, NodeRevision
@@ -36,12 +38,20 @@ from datajunction_server.internal.access.authorization import (
     AccessDenialMode,
     get_access_checker,
 )
+from datajunction_server.internal.caching.cachelib_cache import get_cache
+from datajunction_server.internal.caching.interface import Cache
+from datajunction_server.internal.caching.query_cache_manager import (
+    QueryBuildType,
+    QueryCacheManager,
+    QueryRequestParams,
+)
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.models import access
 from datajunction_server.models.cube_materialization import (
     version_from_materialized_table,
 )
 from datajunction_server.models.dialect import Dialect
+from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.node import AvailabilityStateBase
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import QueryCreate, QueryWithResults
@@ -52,14 +62,6 @@ from datajunction_server.utils import (
     get_session,
     get_settings,
 )
-from datajunction_server.internal.caching.cachelib_cache import get_cache
-from datajunction_server.internal.caching.interface import Cache
-from datajunction_server.internal.caching.query_cache_manager import (
-    QueryCacheManager,
-    QueryRequestParams,
-    QueryBuildType,
-)
-from datajunction_server.construction.build_v3.types import GeneratedSQL
 
 _logger = logging.getLogger(__name__)
 
@@ -195,7 +197,7 @@ async def add_availability_state(
             str(part) for part in data.max_temporal_partition or []
         ],
         partitions=[
-            partition.model_dump() if not isinstance(partition, Dict) else partition
+            partition.model_dump() if not isinstance(partition, dict) else partition
             for partition in (data.partitions or [])
         ],
         categorical_partitions=data.categorical_partitions,
@@ -304,10 +306,10 @@ async def remove_availability_state(
 async def get_data(
     node_name: str,
     *,
-    dimensions: List[str] = Query([], description="Dimensional attributes to group by"),
-    filters: List[str] = Query([], description="Filters on dimensional attributes"),
-    orderby: List[str] = Query([], description="Expression to order by"),
-    limit: Optional[int] = Query(
+    dimensions: list[str] = Query([], description="Dimensional attributes to group by"),
+    filters: list[str] = Query([], description="Filters on dimensional attributes"),
+    orderby: list[str] = Query([], description="Expression to order by"),
+    limit: int | None = Query(
         None,
         description="Number of rows to limit the data retrieved to",
     ),
@@ -327,8 +329,8 @@ async def get_data(
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    engine_name: Optional[str] = None,
-    engine_version: Optional[str] = None,
+    engine_name: str | None = None,
+    engine_version: str | None = None,
     background_tasks: BackgroundTasks,
     cache: Cache = Depends(get_cache),
 ) -> QueryWithResults:
@@ -340,20 +342,23 @@ async def get_data(
         cache=cache,
         query_type=QueryBuildType.NODE,
     )
-    generated_sql: GeneratedSQL = await query_cache_manager.get_or_load(
-        background_tasks,
-        request,
-        QueryRequestParams(
-            nodes=[node_name],
-            dimensions=dimensions,
-            filters=filters,
-            orderby=orderby,
-            limit=limit,
-            query_params=query_params,
-            engine_name=engine_name,
-            engine_version=engine_version,
-            use_materialized=use_materialized,
-            ignore_errors=ignore_errors,
+    generated_sql = cast(
+        GeneratedSQL,
+        await query_cache_manager.get_or_load(
+            background_tasks,
+            request,
+            QueryRequestParams(
+                nodes=[node_name],
+                dimensions=dimensions,
+                filters=filters,
+                orderby=orderby,
+                limit=limit,
+                query_params=query_params,
+                engine_name=engine_name,
+                engine_version=engine_version,
+                use_materialized=use_materialized,
+                ignore_errors=ignore_errors,
+            ),
         ),
     )
 
@@ -391,10 +396,10 @@ async def get_data(
 async def get_data_stream_for_node(
     node_name: str,
     *,
-    dimensions: List[str] = Query([], description="Dimensional attributes to group by"),
-    filters: List[str] = Query([], description="Filters on dimensional attributes"),
-    orderby: List[str] = Query([], description="Expression to order by"),
-    limit: Optional[int] = Query(
+    dimensions: list[str] = Query([], description="Dimensional attributes to group by"),
+    filters: list[str] = Query([], description="Filters on dimensional attributes"),
+    orderby: list[str] = Query([], description="Expression to order by"),
+    limit: int | None = Query(
         None,
         description="Number of rows to limit the data retrieved to",
     ),
@@ -402,8 +407,8 @@ async def get_data_stream_for_node(
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    engine_name: Optional[str] = None,
-    engine_version: Optional[str] = None,
+    engine_name: str | None = None,
+    engine_version: str | None = None,
     background_tasks: BackgroundTasks,
     cache: Cache = Depends(get_cache),
 ) -> QueryWithResults:
@@ -425,20 +430,23 @@ async def get_data_stream_for_node(
         cache=cache,
         query_type=QueryBuildType.NODE,
     )
-    translated_sql = await query_cache_manager.get_or_load(
-        background_tasks,
-        request,
-        QueryRequestParams(
-            nodes=[node_name],
-            dimensions=dimensions,
-            filters=filters,
-            orderby=orderby,
-            limit=limit,
-            query_params=query_params,
-            engine_name=engine_name,
-            engine_version=engine_version,
-            use_materialized=True,
-            ignore_errors=False,
+    translated_sql = cast(
+        TranslatedSQL,
+        await query_cache_manager.get_or_load(
+            background_tasks,
+            request,
+            QueryRequestParams(
+                nodes=[node_name],
+                dimensions=dimensions,
+                filters=filters,
+                orderby=orderby,
+                limit=limit,
+                query_params=query_params,
+                engine_name=engine_name,
+                engine_version=engine_version,
+                use_materialized=True,
+                ignore_errors=False,
+            ),
         ),
     )
     query_create = QueryCreate(
@@ -491,17 +499,17 @@ async def get_data_for_query(
 
 @router.get("/data/", response_model=QueryWithResults, name="Get Data For Metrics")
 async def get_data_for_metrics(
-    metrics: List[str] = Query([]),
-    dimensions: List[str] = Query([]),
-    filters: List[str] = Query([]),
-    orderby: List[str] = Query([]),
-    limit: Optional[int] = None,
+    metrics: list[str] = Query([]),
+    dimensions: list[str] = Query([]),
+    filters: list[str] = Query([]),
+    orderby: list[str] = Query([]),
+    limit: int | None = None,
     async_: bool = True,
     use_materialized: bool = Query(
         default=True,
         description="Whether to use materialized tables when available",
     ),
-    dialect: Optional[Dialect] = Query(
+    dialect: Dialect | None = Query(
         default=None,
         description="SQL dialect override. If omitted, resolved from the catalog/engine.",
     ),
@@ -509,8 +517,8 @@ async def get_data_for_metrics(
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    engine_name: Optional[str] = None,
-    engine_version: Optional[str] = None,
+    engine_name: str | None = None,
+    engine_version: str | None = None,
 ) -> QueryWithResults:
     """
     Return data for a set of metrics with dimensions and filters.
@@ -580,11 +588,11 @@ async def get_data_for_metrics(
 
 @router.get("/stream/", response_model=QueryWithResults)
 async def get_data_stream_for_metrics(
-    metrics: List[str] = Query([]),
-    dimensions: List[str] = Query([]),
-    filters: List[str] = Query([]),
-    orderby: List[str] = Query([]),
-    limit: Optional[int] = None,
+    metrics: list[str] = Query([]),
+    dimensions: list[str] = Query([]),
+    filters: list[str] = Query([]),
+    orderby: list[str] = Query([]),
+    limit: int | None = None,
     use_materialized: bool = Query(
         default=True,
         description="Whether to use materialized tables when available",
@@ -593,8 +601,8 @@ async def get_data_stream_for_metrics(
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    engine_name: Optional[str] = None,
-    engine_version: Optional[str] = None,
+    engine_name: str | None = None,
+    engine_version: str | None = None,
     current_user: User = Depends(get_current_user),
 ) -> QueryWithResults:
     """

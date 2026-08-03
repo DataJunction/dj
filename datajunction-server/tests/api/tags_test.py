@@ -2,6 +2,7 @@
 Tests for tags.
 """
 
+from typing import Any
 from unittest import mock
 
 import pytest
@@ -87,7 +88,7 @@ class TestTags:
             },
         )
         assert response.status_code == 201
-        expected_tag_output2 = {
+        expected_tag_output2: dict[str, Any] = {
             "tag_metadata": {},
             "display_name": "Sales Report2",
             "description": None,

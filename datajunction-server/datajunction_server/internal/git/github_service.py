@@ -3,7 +3,6 @@
 import base64
 import logging
 import time
-from typing import Optional
 
 import httpx
 import jwt
@@ -21,7 +20,7 @@ class GitHubServiceError(DJException):
         self,
         message: str,
         http_status_code: int = 500,
-        github_status: Optional[int] = None,
+        github_status: int | None = None,
     ):
         super().__init__(message=message, http_status_code=http_status_code)
         self.github_status = github_status
@@ -170,7 +169,7 @@ class GitHubService:
             self._handle_error(resp, "list branches")
             return resp.json()
 
-    async def get_branch(self, repo_path: str, branch: str) -> Optional[dict]:
+    async def get_branch(self, repo_path: str, branch: str) -> dict | None:
         """Get a specific branch.
 
         Args:
@@ -236,7 +235,7 @@ class GitHubService:
         repo_path: str,
         path: str,
         branch: str,
-    ) -> Optional[dict]:
+    ) -> dict | None:
         """Get file content and SHA (for updates).
 
         Args:
@@ -262,8 +261,8 @@ class GitHubService:
     def _add_co_author(
         self,
         message: str,
-        co_author_name: Optional[str],
-        co_author_email: Optional[str],
+        co_author_name: str | None,
+        co_author_email: str | None,
     ) -> str:
         """Add Co-authored-by trailer to commit message if co-author info provided.
 
@@ -286,9 +285,9 @@ class GitHubService:
         content: str,
         message: str,
         branch: str,
-        sha: Optional[str] = None,
-        co_author_name: Optional[str] = None,
-        co_author_email: Optional[str] = None,
+        sha: str | None = None,
+        co_author_name: str | None = None,
+        co_author_email: str | None = None,
     ) -> dict:
         """Create or update a file in the repository.
 
@@ -335,8 +334,8 @@ class GitHubService:
         message: str,
         branch: str,
         sha: str,
-        co_author_name: Optional[str] = None,
-        co_author_email: Optional[str] = None,
+        co_author_name: str | None = None,
+        co_author_email: str | None = None,
     ) -> dict:
         """Delete a file from the repository.
 
@@ -380,9 +379,9 @@ class GitHubService:
         files: list[dict],
         message: str,
         branch: str,
-        co_author_name: Optional[str] = None,
-        co_author_email: Optional[str] = None,
-        deletions: Optional[list[str]] = None,
+        co_author_name: str | None = None,
+        co_author_email: str | None = None,
+        deletions: list[str] | None = None,
     ) -> dict:
         """Commit multiple files (and/or deletions) in a single commit using Git Data API.
 
@@ -552,7 +551,7 @@ class GitHubService:
         repo_path: str,
         head: str,
         base: str,
-    ) -> Optional[dict]:
+    ) -> dict | None:
         """Get an existing pull request for the given head and base.
 
         Args:
@@ -599,7 +598,7 @@ class GitHubService:
             if resp.status_code != 422:
                 self._handle_error(resp, f"delete branch {branch}")
 
-    async def get_repo(self, repo_path: str) -> Optional[dict]:
+    async def get_repo(self, repo_path: str) -> dict | None:
         """Get repository info to verify access.
 
         Args:
@@ -715,7 +714,7 @@ class GitHubService:
         self,
         repo_path: str,
         commit_sha: str,
-    ) -> tuple[Optional[str], Optional[str]]:
+    ) -> tuple[str | None, str | None]:
         """Return the (name, email) of the commit author for the given SHA.
 
         Uses the GitHub Commits API which includes the full author object.

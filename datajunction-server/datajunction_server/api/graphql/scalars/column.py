@@ -1,7 +1,5 @@
 """Column scalars"""
 
-from typing import List, Optional
-
 import strawberry
 
 from datajunction_server.models.partition import PartitionType as PartitionType_
@@ -55,9 +53,9 @@ class Partition:
     """
 
     type_: PartitionType  # type: ignore
-    format: Optional[str]
-    granularity: Optional[str]
-    expression: Optional[str]
+    format: str | None
+    granularity: str | None
+    expression: str | None
 
 
 @strawberry.type
@@ -67,9 +65,9 @@ class Column:
     """
 
     name: str
-    display_name: Optional[str]
-    description: Optional[str]
+    display_name: str | None
+    description: str | None
     type: str
-    attributes: List[Attribute] = strawberry.field(default_factory=list)
-    dimension: Optional[NodeName]
-    partition: Optional[Partition]
+    attributes: list[Attribute] = strawberry.field(default_factory=list)
+    dimension: NodeName | None
+    partition: Partition | None

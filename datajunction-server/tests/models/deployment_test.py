@@ -1,26 +1,25 @@
 import pytest
 
 from datajunction_server.errors import DJInvalidDeploymentConfig
-from datajunction_server.models.node import NodeMode, NodeType
 from datajunction_server.models.deployment import (
+    ColumnSpec,
     DeploymentSpec,
     DimensionJoinLinkSpec,
-    DimensionSpec,
-    NamespaceGitConfig,
-    SourceSpec,
-    MetricSpec,
     DimensionReferenceLinkSpec,
-    TransformSpec,
-    ColumnSpec,
-    PartitionSpec,
-    PreAggSpec,
+    DimensionSpec,
     Granularity,
+    MetricSpec,
+    NamespaceGitConfig,
+    PartitionSpec,
     PartitionType,
+    PreAggSpec,
+    SourceSpec,
     TagSpec,
+    TransformSpec,
     eq_columns,
     eq_or_fallback,
 )
-from datajunction_server.models.node import MetricUnit
+from datajunction_server.models.node import MetricUnit, NodeMode, NodeType
 
 
 def test_source_spec():

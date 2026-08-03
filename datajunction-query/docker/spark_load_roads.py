@@ -1,6 +1,7 @@
 """
 Load the roads database into a local spark warehouse
 """
+
 from pyspark.sql import SparkSession  # pylint: disable=import-error
 
 print("Starting spark session...")

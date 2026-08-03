@@ -2,8 +2,9 @@
 A secure API router for routes that require authentication
 """
 
+from collections.abc import Callable
 from http import HTTPStatus
-from typing import Any, Callable
+from typing import Any
 
 from fastapi import APIRouter, Depends
 from fastapi.security import HTTPBearer
@@ -102,8 +103,7 @@ class TrailingSlashAPIRouter(APIRouter):
         and the path with the trailing slash, ensuring that we can serve both types of calls.
         This solution is pulled from https://github.com/tiangolo/fastapi/discussions/7298
         """
-        if path.endswith("/"):
-            path = path[:-1]
+        path = path.removesuffix("/")
 
         add_path = super().api_route(
             path,

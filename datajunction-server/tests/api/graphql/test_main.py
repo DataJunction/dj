@@ -1,8 +1,8 @@
 """Tests for GraphQL main module."""
 
-import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from graphql import GraphQLError
 
 from datajunction_server.api.graphql.main import (
@@ -213,6 +213,7 @@ def test_dj_schema_suppresses_default_error_logger():
     ERROR in Radar even after the GraphQLErrorReporter WARNING fix.
     """
     import logging
+
     from datajunction_server.api.graphql.main import schema
 
     error = GraphQLError("Cannot query field 'foo' on type 'Node'.")

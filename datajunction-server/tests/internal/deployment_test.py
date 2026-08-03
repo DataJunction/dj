@@ -1,46 +1,46 @@
-from contextlib import asynccontextmanager
 import random
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
-import pytest_asyncio
-from datajunction_server.api.attributes import default_attribute_types
-from datajunction_server.database.column import Column
-from datajunction_server.database.catalog import Catalog
-from datajunction_server.database.node import Node, NodeRevision
-from datajunction_server.sql.parsing.types import IntegerType, StringType
-from datajunction_server.database.user import User
 
-from datajunction_server.models.node_type import NodeType
+import pytest
+import pytest_asyncio
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from datajunction_server.api.attributes import default_attribute_types
+from datajunction_server.database.catalog import Catalog
+from datajunction_server.database.column import Column
+from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.user import User
+from datajunction_server.errors import (
+    DJGraphCycleException,
+    DJInvalidDeploymentConfig,
+)
 from datajunction_server.internal.deployment.orchestrator import (
     DeploymentOrchestrator,
     DeploymentSpec,
 )
 from datajunction_server.internal.deployment.utils import (
     DeploymentContext,
+    _find_upstreams_for_node,
     extract_node_graph,
     topological_levels,
-    _find_upstreams_for_node,
 )
 from datajunction_server.models.deployment import (
-    DeploymentResult,
-    NodeSpec,
-    TransformSpec,
-    SourceSpec,
-    MetricSpec,
-    DimensionSpec,
     CubeSpec,
+    DeploymentResult,
+    DimensionSpec,
+    MetricSpec,
+    NodeSpec,
+    SourceSpec,
+    TransformSpec,
 )
-from sqlalchemy.ext.asyncio import AsyncSession
-from datajunction_server.errors import (
-    DJGraphCycleException,
-    DJInvalidDeploymentConfig,
-)
-from datajunction_server.database.node import Node
 from datajunction_server.models.node import (
     NodeType,
 )
-import pytest
+from datajunction_server.models.node_type import NodeType
+from datajunction_server.sql.parsing.types import IntegerType, StringType
 
 
 @pytest.fixture
@@ -1945,9 +1945,10 @@ async def test_auto_register_sources_success(session: AsyncSession):
     """
     Test successful auto-registration of missing sources
     """
+    from unittest.mock import MagicMock
+
     from datajunction_server.database.engine import Engine
     from datajunction_server.models.dialect import Dialect
-    from unittest.mock import MagicMock
 
     # Setup: Create a test catalog with an engine
     catalog = Catalog(name="testcatalog")
@@ -2154,9 +2155,10 @@ async def test_auto_register_sources_backward_compat_with_source_prefix(
         ],
     )
 
+    from unittest.mock import MagicMock
+
     from datajunction_server.database.column import Column
     from datajunction_server.sql.parsing.types import IntegerType
-    from unittest.mock import MagicMock
 
     mock_query_service = MagicMock()
     mock_query_service.get_columns_for_tables_batch = AsyncMock(
@@ -2233,9 +2235,10 @@ async def test_auto_register_sources_no_duplication(session: AsyncSession):
         ],
     )
 
+    from unittest.mock import MagicMock
+
     from datajunction_server.database.column import Column
     from datajunction_server.sql.parsing.types import IntegerType, StringType
-    from unittest.mock import MagicMock
 
     mock_query_service = MagicMock()
     mock_query_service.get_columns_for_tables_batch = AsyncMock(

@@ -1,13 +1,14 @@
 from unittest import mock
+
 import pytest
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from datajunction_server.database.user import OAuthProvider, PrincipalKind, User
 from datajunction_server.internal.access.authentication.basic import (
     get_password_hash,
     validate_password_hash,
 )
-
-from sqlalchemy.ext.asyncio import AsyncSession
 
 
 @pytest.mark.asyncio

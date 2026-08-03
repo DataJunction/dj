@@ -2,7 +2,7 @@
 
 import enum
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from datajunction._base import SerializableMixin
 
@@ -17,7 +17,7 @@ class Engine(SerializableMixin):
     """
 
     name: str
-    version: Optional[str]
+    version: str | None
 
 
 @dataclass
@@ -28,9 +28,9 @@ class ColumnYAML(SerializableMixin):
 
     name: str
     type: str
-    display_name: Optional[str] = None
-    description: Optional[str] = None
-    attributes: Optional[List[str]] = None
+    display_name: str | None = None
+    description: str | None = None
+    attributes: list[str] | None = None
 
 
 class MetricDirection(str, enum.Enum):
@@ -78,7 +78,7 @@ class MetricMetadata(SerializableMixin):
     def from_dict(
         cls,
         dj_client: Optional["DJClient"],
-        data: Dict[str, Any],
+        data: dict[str, Any],
     ) -> "MetricMetadata":
         """
         Create an instance of the given dataclass `cls` from a dictionary `data`.
@@ -122,9 +122,9 @@ class Materialization(SerializableMixin):
     job: MaterializationJobType
     strategy: MaterializationStrategy
     schedule: str
-    config: Dict
+    config: dict
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """
         Convert to a dict
         """
@@ -173,13 +173,13 @@ class ColumnAttribute(SerializableMixin):
     """
 
     name: str
-    namespace: Optional[str] = "system"
+    namespace: str | None = "system"
 
     @classmethod
     def from_dict(
         cls,
         dj_client: Optional["DJClient"],
-        data: Dict[str, Any],
+        data: dict[str, Any],
     ) -> "ColumnAttribute":
         """
         Create an instance of the given dataclass `cls` from a dictionary `data`.
@@ -196,11 +196,11 @@ class Column(SerializableMixin):
 
     name: str
     type: str
-    display_name: Optional[str] = None
-    description: Optional[str] = None
-    attributes: Optional[List[ColumnAttribute]] = None
-    dimension: Optional[str] = None
-    dimension_column: Optional[str] = None
+    display_name: str | None = None
+    description: str | None = None
+    attributes: list[ColumnAttribute] | None = None
+    dimension: str | None = None
+    dimension_column: str | None = None
 
 
 @dataclass
@@ -209,30 +209,30 @@ class UpdateNode(SerializableMixin):  # pylint: disable=too-many-instance-attrib
     Fields for updating a node
     """
 
-    display_name: Optional[str] = None
-    description: Optional[str] = None
-    mode: Optional[NodeMode] = None
-    primary_key: Optional[List[str]] = None
-    query: Optional[str] = None
+    display_name: str | None = None
+    description: str | None = None
+    mode: NodeMode | None = None
+    primary_key: list[str] | None = None
+    query: str | None = None
     # this is a problem .... fails many tests
-    custom_metadata: Optional[Dict] = None
+    custom_metadata: dict | None = None
 
     # source nodes only
-    catalog: Optional[str] = None
-    schema_: Optional[str] = None
-    table: Optional[str] = None
-    columns: Optional[List[Column]] = field(default_factory=list[Column])
+    catalog: str | None = None
+    schema_: str | None = None
+    table: str | None = None
+    columns: list[Column] | None = field(default_factory=list[Column])
 
     # cube nodes only
-    metrics: Optional[List[str]] = None
-    dimensions: Optional[List[str]] = None
-    filters: Optional[List[str]] = None
-    orderby: Optional[List[str]] = None
-    limit: Optional[int] = None
+    metrics: list[str] | None = None
+    dimensions: list[str] | None = None
+    filters: list[str] | None = None
+    orderby: list[str] | None = None
+    limit: int | None = None
 
     # metric nodes only
-    required_dimensions: Optional[List[str]] = None
-    metric_metadata: Optional[MetricMetadata] = None
+    required_dimensions: list[str] | None = None
+    metric_metadata: MetricMetadata | None = None
 
 
 @dataclass
@@ -241,8 +241,8 @@ class UpdateTag(SerializableMixin):
     Model for a tag update
     """
 
-    description: Optional[str]
-    tag_metadata: Optional[Dict]
+    description: str | None
+    tag_metadata: dict | None
 
 
 class QueryState(str, enum.Enum):
@@ -259,7 +259,7 @@ class QueryState(str, enum.Enum):
     FAILED = "FAILED"
 
     @classmethod
-    def list(cls) -> List[str]:
+    def list(cls) -> list[str]:
         """
         List of available query states as strings
         """
@@ -273,12 +273,12 @@ class AvailabilityState(SerializableMixin):
     """
 
     catalog: str
-    schema_: Optional[str]
+    schema_: str | None
     table: str
     valid_through_ts: int
 
-    min_temporal_partition: Optional[List[str]] = None
-    max_temporal_partition: Optional[List[str]] = None
+    min_temporal_partition: list[str] | None = None
+    max_temporal_partition: list[str] | None = None
 
 
 END_JOB_STATES = [QueryState.FINISHED, QueryState.CANCELED, QueryState.FAILED]
@@ -295,18 +295,18 @@ class GitConfig(SerializableMixin):
     Git configuration for a namespace, enabling git-backed branch management.
     """
 
-    github_repo_path: Optional[str] = None
-    git_branch: Optional[str] = None
-    git_path: Optional[str] = None
-    default_branch: Optional[str] = None
-    parent_namespace: Optional[str] = None
-    git_only: Optional[bool] = None
+    github_repo_path: str | None = None
+    git_branch: str | None = None
+    git_path: str | None = None
+    default_branch: str | None = None
+    parent_namespace: str | None = None
+    git_only: bool | None = None
 
     @classmethod
     def from_dict(
         cls,
         dj_client: Optional["DJClient"],
-        data: Dict[str, Any],
+        data: dict[str, Any],
     ) -> "GitConfig":
         """Create a GitConfig from a dictionary."""
         return cls(
@@ -330,13 +330,13 @@ class BranchInfo(SerializableMixin):
     num_nodes: int = 0
     invalid_node_count: int = 0
     git_only: bool = False
-    last_updated_at: Optional[str] = None
+    last_updated_at: str | None = None
 
     @classmethod
     def from_dict(
         cls,
         dj_client: Optional["DJClient"],
-        data: Dict[str, Any],
+        data: dict[str, Any],
     ) -> "BranchInfo":
         """Create a BranchInfo from a dictionary."""
         return cls(
@@ -367,7 +367,7 @@ class DeploymentResult:
     operation: str
     status: str
     message: str = ""
-    changed_fields: List[str] = field(default_factory=list)
+    changed_fields: list[str] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, d: dict) -> "DeploymentResult":
@@ -387,7 +387,7 @@ class DownstreamImpact:
     name: str
     node_type: str
     predicted_status: str
-    caused_by: List[str] = field(default_factory=list)
+    caused_by: list[str] = field(default_factory=list)
     depth: int = 0
     impact_type: str = ""
 
@@ -410,8 +410,8 @@ class DeploymentInfo:
     uuid: str
     namespace: str
     status: str
-    results: List[DeploymentResult] = field(default_factory=list)
-    downstream_impacts: List[DownstreamImpact] = field(default_factory=list)
+    results: list[DeploymentResult] = field(default_factory=list)
+    downstream_impacts: list[DownstreamImpact] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, d: dict) -> "DeploymentInfo":
