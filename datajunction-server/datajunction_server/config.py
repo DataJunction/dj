@@ -252,7 +252,7 @@ class Settings(BaseSettings):  # pragma: no cover
     # implicitly asks for data through the present). When None, unbounded
     # queries are never rejected for staleness. Ignored unless
     # `preagg_freshness_gating` is on.
-    preagg_max_staleness_seconds: Optional[int] = None
+    preagg_max_staleness_seconds: int | None = None
 
     # Cube view output location
     # Used when generating CREATE OR REPLACE VIEW DDL for cube views

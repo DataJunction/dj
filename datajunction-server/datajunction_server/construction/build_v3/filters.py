@@ -456,7 +456,7 @@ def _int_literal(expression: ast.Expression) -> int | None:
 
 
 def _bounds_by_ref(
-    ctx: "BuildContext",
+    ctx: BuildContext,
     node_rev_id: int,
     *,
     upper: bool,
@@ -535,7 +535,7 @@ def _bounds_by_ref(
     return bounds
 
 
-def upper_bounds_by_ref(ctx: "BuildContext", node_rev_id: int) -> dict[str, int]:
+def upper_bounds_by_ref(ctx: BuildContext, node_rev_id: int) -> dict[str, int]:
     """
     Tightest ceiling each dimension reference carries, over all the query's
     filters. See :func:`_bounds_by_ref`.
@@ -543,7 +543,7 @@ def upper_bounds_by_ref(ctx: "BuildContext", node_rev_id: int) -> dict[str, int]
     return _bounds_by_ref(ctx, node_rev_id, upper=True)
 
 
-def lower_bounds_by_ref(ctx: "BuildContext", node_rev_id: int) -> dict[str, int]:
+def lower_bounds_by_ref(ctx: BuildContext, node_rev_id: int) -> dict[str, int]:
     """
     Tightest floor each dimension reference carries, over all the query's
     filters. See :func:`_bounds_by_ref`.

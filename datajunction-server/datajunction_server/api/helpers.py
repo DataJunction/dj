@@ -216,11 +216,11 @@ async def get_column(
 
 
 def resolve_column(
-    columns: List[Column],
+    columns: list[Column],
     column_name: str,
     node_name: str,
     node_type: NodeType,
-    missing_message: Optional[str] = None,
+    missing_message: str | None = None,
 ) -> Column:
     """Resolve a node column, including role-qualified cube identities."""
     if node_type == NodeType.CUBE:

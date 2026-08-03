@@ -153,7 +153,7 @@ def find_join_path(
 
 
 def roles_reaching_dimension(
-    ctx: "BuildContext",
+    ctx: BuildContext,
     node_rev_id: int,
     dim_node_name: str,
 ) -> set[str]:

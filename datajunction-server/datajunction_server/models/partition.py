@@ -2,7 +2,6 @@
 
 import re
 from datetime import datetime
-from typing import Optional
 
 from pydantic import ConfigDict
 from pydantic.main import BaseModel
@@ -118,7 +117,7 @@ PARTITION_FORMAT_TOKENS = {
 _TOKEN_PATTERN = re.compile("|".join(PARTITION_FORMAT_TOKENS))
 
 
-def render_partition_value(moment: datetime, format_: str | None) -> Optional[int]:
+def render_partition_value(moment: datetime, format_: str | None) -> int | None:
     """
     Render a point in time as an integer in a partition format.
 

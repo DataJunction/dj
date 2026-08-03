@@ -99,9 +99,7 @@ class SerializableMixin:  # pylint: disable=too-few-public-methods
             origin = get_origin(field_type)
             if origin in (Union, UnionType):
                 field_type = next(  # pragma: no cover
-                    typ
-                    for typ in get_args(field_type)
-                    if typ is not type(None)
+                    typ for typ in get_args(field_type) if typ is not type(None)
                 )
 
             # Serialize field value

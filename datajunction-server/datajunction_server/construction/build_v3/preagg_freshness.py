@@ -69,7 +69,7 @@ class TemporalAxis(NamedTuple):
     output_name: str
 
 
-def temporal_grain_axis(preagg: "PreAggregation") -> TemporalAxis | None:
+def temporal_grain_axis(preagg: PreAggregation) -> TemporalAxis | None:
     """
     The single temporal axis a pre-agg's availability range describes.
 
@@ -113,7 +113,7 @@ def _as_int(value: str) -> int | None:
 
 
 def _axis_value(
-    availability: "AvailabilityState",
+    availability: AvailabilityState,
     values: list[str] | None,
     axis: TemporalAxis,
 ) -> int | None:
@@ -145,7 +145,7 @@ def _axis_value(
 
 
 def _report_incomparable(
-    preagg: "PreAggregation",
+    preagg: PreAggregation,
     covered: int,
     requested: int,
 ) -> None:
@@ -161,11 +161,11 @@ def _report_incomparable(
 
 
 def _within_staleness_budget(
-    ctx: "BuildContext",
-    preagg: "PreAggregation",
+    ctx: BuildContext,
+    preagg: PreAggregation,
     axis: TemporalAxis,
     covered_through: int,
-    settings: "Settings",
+    settings: Settings,
 ) -> bool:
     """
     Whether an open-ended query's implicit "through the present" is satisfied.
@@ -197,7 +197,7 @@ def _within_staleness_budget(
     return True
 
 
-def preagg_is_fresh(ctx: "BuildContext", preagg: "PreAggregation") -> bool:
+def preagg_is_fresh(ctx: BuildContext, preagg: PreAggregation) -> bool:
     """
     Whether the range a pre-agg covers contains the range the query asks for.
 

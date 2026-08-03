@@ -236,7 +236,7 @@ async def _fetch_deployment_spec_from_git(
         for yaml_file in files_dir.rglob("*.yaml"):
             if yaml_file.name == "dj.yaml":
                 try:
-                    with open(yaml_file, "r", encoding="utf-8") as f:
+                    with open(yaml_file, encoding="utf-8") as f:
                         project_config = yaml.safe_load(f)
                 except Exception as exc:  # pragma: no cover
                     _logger.warning(

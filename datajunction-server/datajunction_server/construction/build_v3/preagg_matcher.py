@@ -58,7 +58,7 @@ def get_required_measure_identities(
 
 
 def canonical_dimension_ref(
-    ctx: "BuildContext",
+    ctx: BuildContext,
     node_rev_id: int,
     ref: str,
 ) -> str:
@@ -234,7 +234,7 @@ def get_preagg_measure_column(
 
 
 def get_preagg_dimension_column(
-    ctx: "BuildContext",
+    ctx: BuildContext,
     node_rev_id: int,
     preagg: PreAggregation,
     dimension_ref: str,
@@ -261,7 +261,7 @@ def get_preagg_dimension_column(
 
 def match_temporal_columns_to_grain(
     preagg: PreAggregation,
-) -> list[tuple["Column", str | None]]:
+) -> list[tuple[Column, str | None]]:
     """
     Each temporal partition column of a pre-agg's parent, paired with the grain
     entry it corresponds to (``None`` when the column isn't part of the grain).
@@ -298,7 +298,7 @@ def match_temporal_columns_to_grain(
     # names the parent's own column.
     col_to_dims: dict[str, list[str]] | None = None
 
-    matches: list[tuple["Column", str | None]] = []
+    matches: list[tuple[Column, str | None]] = []
     for temporal_col in temporal_columns:
         direct_ref = f"{node_revision.name}{SEPARATOR}{temporal_col.name}"
         if direct_ref in grain_columns:
@@ -328,7 +328,7 @@ def match_temporal_columns_to_grain(
     return matches
 
 
-def temporal_output_name(temporal_col: "Column", grain_ref: str | None) -> str:
+def temporal_output_name(temporal_col: Column, grain_ref: str | None) -> str:
     """
     Output column name for a temporal partition column.
 

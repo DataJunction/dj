@@ -20,7 +20,7 @@ from datajunction_server.models.node import (
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionOutput
 from datajunction_server.models.tag import TagOutput
-from datajunction_server.naming import SEPARATOR, amenable_name, from_amenable_name
+from datajunction_server.naming import SEPARATOR, amenable_name
 from datajunction_server.typing import UTCDatetime
 
 

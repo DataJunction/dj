@@ -108,7 +108,7 @@ class Partition(Base):  # type: ignore
             )
         return None  # pragma: no cover
 
-    def categorical_expression(self, column_name: Optional[str] = None):
+    def categorical_expression(self, column_name: str | None = None):
         """
         Expression for the categorical partition
         """
