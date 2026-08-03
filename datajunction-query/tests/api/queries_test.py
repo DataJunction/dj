@@ -250,19 +250,19 @@ def test_submit_query_msgpack(client: TestClient) -> None:
         2021,
         1,
         1,
-        tzinfo=datetime.timezone.utc,
+        tzinfo=datetime.UTC,
     )
     assert data["started"] == datetime.datetime(
         2021,
         1,
         1,
-        tzinfo=datetime.timezone.utc,
+        tzinfo=datetime.UTC,
     )
     assert data["finished"] == datetime.datetime(
         2021,
         1,
         1,
-        tzinfo=datetime.timezone.utc,
+        tzinfo=datetime.UTC,
     )
     assert data["state"] == QueryState.FINISHED.value
     assert data["progress"] == 1.0

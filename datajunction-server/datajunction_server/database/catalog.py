@@ -1,8 +1,10 @@
 """Catalog database schema."""
 
-from datetime import datetime, timezone
+from __future__ import annotations
+
+from datetime import UTC, datetime
 from functools import partial
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
@@ -13,11 +15,11 @@ from sqlalchemy import (
     Integer,
     String,
     UniqueConstraint,
+    select,
 )
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy_utils import UUIDType
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.base import Base
 from datajunction_server.database.engine import Engine
@@ -43,24 +45,24 @@ class Catalog(Base):
     )
     uuid: Mapped[UUID] = mapped_column(UUIDType(), default=uuid4)
     name: Mapped[str] = mapped_column(String)
-    engines: Mapped[List[Engine]] = relationship(
+    engines: Mapped[list[Engine]] = relationship(
         secondary="catalogengines",
         primaryjoin="Catalog.id==CatalogEngines.catalog_id",
         secondaryjoin="Engine.id==CatalogEngines.engine_id",
         lazy="selectin",
     )
-    node_revisions: Mapped[List["NodeRevision"]] = relationship(
+    node_revisions: Mapped[list[NodeRevision]] = relationship(
         back_populates="catalog",
     )
     created_at: Mapped[UTCDatetime] = mapped_column(
         DateTime(timezone=True),
-        insert_default=partial(datetime.now, timezone.utc),
+        insert_default=partial(datetime.now, UTC),
     )
     updated_at: Mapped[UTCDatetime] = mapped_column(
         DateTime(timezone=True),
-        insert_default=partial(datetime.now, timezone.utc),
+        insert_default=partial(datetime.now, UTC),
     )
-    extra_params: Mapped[Optional[Dict]] = mapped_column(JSON, default={})
+    extra_params: Mapped[dict | None] = mapped_column(JSON, default={})
 
     def __str__(self) -> str:
         return self.name
@@ -68,21 +70,21 @@ class Catalog(Base):
     def __hash__(self) -> int:
         return hash(self.id)
 
-    async def get_by_names(session: AsyncSession, names: list[str]) -> list["Catalog"]:
+    async def get_by_names(session: AsyncSession, names: list[str]) -> list[Catalog]:
         """
         Get catalogs by their names.
         """
         statement = select(Catalog).filter(Catalog.name.in_(names))
         return (await session.execute(statement)).scalars().all()
 
-    async def get_by_name(session: AsyncSession, name: str) -> Optional["Catalog"]:
+    async def get_by_name(session: AsyncSession, name: str) -> Catalog | None:
         """
         Get catalog by its name.
         """
         statement = select(Catalog).where(Catalog.name == name)
         return (await session.execute(statement)).scalar_one_or_none()
 
-    async def get_virtual_catalog(session: AsyncSession) -> "Catalog":
+    async def get_virtual_catalog(session: AsyncSession) -> Catalog:
         """
         Get the virtual catalog
         """
@@ -98,7 +100,7 @@ class Catalog(Base):
         return catalog
 
     @classmethod
-    async def get_default_catalog(cls, session: AsyncSession) -> Optional["Catalog"]:
+    async def get_default_catalog(cls, session: AsyncSession) -> Catalog | None:
         """
         Get the server-configured default catalog, or None if not set.
         """

@@ -2,7 +2,7 @@
 SQLAlchemy base model and custom type decorators.
 """
 
-from typing import Dict, List, Optional, Type, TypeVar
+from typing import TypeVar
 
 from pydantic import BaseModel
 from sqlalchemy import JSON
@@ -31,15 +31,15 @@ class PydanticListType(TypeDecorator):
     impl = JSON
     cache_ok = True
 
-    def __init__(self, pydantic_type: Type[T]):
+    def __init__(self, pydantic_type: type[T]):
         super().__init__()
         self.pydantic_type = pydantic_type
 
     def process_bind_param(
         self,
-        value: Optional[List[T]],
+        value: list[T] | None,
         dialect,
-    ) -> Optional[List[Dict]]:
+    ) -> list[dict] | None:
         """Serialize Pydantic models to dicts for storage."""
         if value is None:
             return None
@@ -49,9 +49,9 @@ class PydanticListType(TypeDecorator):
 
     def process_result_value(
         self,
-        value: Optional[List[Dict]],
+        value: list[dict] | None,
         dialect,
-    ) -> Optional[List[T]]:
+    ) -> list[T] | None:
         """Deserialize dicts back to Pydantic models."""
         if value is None:
             return None

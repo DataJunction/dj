@@ -18,16 +18,12 @@ https://docs.databricks.com/sql/language-manual/sql-ref-functions-builtin-alpha.
 
 import inspect
 import re
+from collections.abc import Callable
 from itertools import zip_longest
+from types import UnionType
 from typing import (
     TYPE_CHECKING,
-    Callable,
     ClassVar,
-    Dict,
-    List,
-    Optional,
-    Tuple,
-    Type,
     Union,
     cast,
     get_origin,
@@ -89,7 +85,7 @@ class Dispatch(metaclass=DispatchMeta):
     Function registry
     """
 
-    registry: ClassVar[Dict[str, Dict[Tuple[Tuple[int, Type]], Callable]]] = {}
+    registry: ClassVar[dict[str, dict[tuple[tuple[int, type]], Callable]]] = {}
 
     @classmethod
     def register(cls, func):
@@ -112,7 +108,7 @@ class Dispatch(metaclass=DispatchMeta):
                     "All arguments must have a type annotation.",
                 )
             inner_types = [type_]
-            if get_origin(type_) == Union:
+            if get_origin(type_) in (Union, UnionType):
                 inner_types = type_.__args__
                 for _ in inner_types:
                     spread_types += spread_types[:]
@@ -170,9 +166,9 @@ class Function(Dispatch):
 
     is_aggregation: ClassVar[bool] = False
     is_runtime: ClassVar[bool] = False
-    dialects: List[Dialect] = [Dialect.SPARK]
+    dialects: list[Dialect] = [Dialect.SPARK]
     # Override in subclasses to provide dialect-specific function names
-    dialect_names: ClassVar[Dict[Dialect, str]] = {}
+    dialect_names: ClassVar[dict[Dialect, str]] = {}
 
     @staticmethod
     def infer_type(*args) -> ct.ColumnType:
@@ -193,7 +189,7 @@ class TableFunction(Dispatch):
     """
 
     @staticmethod
-    def infer_type(*args) -> List[ct.ColumnType]:
+    def infer_type(*args) -> list[ct.ColumnType]:
         raise NotImplementedError()
 
 
@@ -294,15 +290,19 @@ class Aggregate(Function):
         }
         merge_columns = list(
             merge.expr.filter(
-                lambda x: isinstance(x, ast.Column)
-                and x.alias_or_name.name in available_identifiers,
+                lambda x: (
+                    isinstance(x, ast.Column)
+                    and x.alias_or_name.name in available_identifiers
+                ),
             ),
         )
         finish_columns = (
             list(
                 finish.expr.filter(
-                    lambda x: isinstance(x, ast.Column)
-                    and x.alias_or_name.name in available_identifiers,
+                    lambda x: (
+                        isinstance(x, ast.Column)
+                        and x.alias_or_name.name in available_identifiers
+                    ),
                 ),
             )
             if finish
@@ -552,7 +552,7 @@ class ApproxPercentile(Function):
 def infer_type(
     col: ct.NumberType,
     percentage: ct.ListType,
-    accuracy: Optional[ct.NumberType],
+    accuracy: ct.NumberType | None,
 ) -> ct.DoubleType:
     return ct.ListType(element_type=col.type)  # type: ignore
 
@@ -561,7 +561,7 @@ def infer_type(
 def infer_type(
     col: ct.NumberType,
     percentage: ct.FloatType,
-    accuracy: Optional[ct.NumberType],
+    accuracy: ct.NumberType | None,
 ) -> ct.NumberType:
     return col.type  # type: ignore
 
@@ -799,7 +799,7 @@ class ArrayOffset(Function):
 @ArrayOffset.register
 def infer_type(
     array: ct.ListType,
-    index: Union[ct.LongType, ct.IntegerType],
+    index: ct.LongType | ct.IntegerType,
 ) -> ct.NumberType:
     return array.type.element.type  # type: ignore
 
@@ -816,7 +816,7 @@ class ArrayOrdinal(Function):
 @ArrayOrdinal.register
 def infer_type(
     array: ct.ListType,
-    index: Union[ct.LongType, ct.IntegerType],
+    index: ct.LongType | ct.IntegerType,
 ) -> ct.NumberType:
     return array.type.element.type  # type: ignore
 
@@ -1583,7 +1583,7 @@ class Date(Function):
 
 
 @Date.register  # type: ignore
-def infer_type(arg: Union[ct.StringType, ct.TimestampType]) -> ct.ColumnType:
+def infer_type(arg: ct.StringType | ct.TimestampType) -> ct.ColumnType:
     return ct.DateType()
 
 
@@ -1692,7 +1692,7 @@ class DatePart(Function):
 @DatePart.register  # type: ignore
 def infer_type(
     arg1: ct.StringType,
-    arg2: Union[ct.DateType, ct.TimestampType],
+    arg2: ct.DateType | ct.TimestampType,
 ) -> ct.ColumnType:
     # The output can be integer, float, or string depending on the part extracted.
     # Here we assume the output is an integer for simplicity. Adjust as needed.
@@ -1759,7 +1759,7 @@ class Day(Function):
 
 @Day.register  # type: ignore
 def infer_type(
-    arg: Union[ct.StringType, ct.DateType, ct.TimestampType],
+    arg: ct.StringType | ct.DateType | ct.TimestampType,
 ) -> ct.IntegerType:  # type: ignore
     return ct.IntegerType()
 
@@ -1772,7 +1772,7 @@ class Dayofmonth(Function):
 
 @Dayofmonth.register  # type: ignore
 def infer_type(
-    arg: Union[ct.DateType, ct.StringType],
+    arg: ct.DateType | ct.StringType,
 ) -> ct.ColumnType:
     return ct.IntegerType()
 
@@ -1785,7 +1785,7 @@ class Dayofweek(Function):
 
 @Dayofweek.register  # type: ignore
 def infer_type(
-    arg: Union[ct.DateType, ct.StringType],
+    arg: ct.DateType | ct.StringType,
 ) -> ct.ColumnType:
     return ct.IntegerType()
 
@@ -1798,7 +1798,7 @@ class Dayofyear(Function):
 
 @Dayofyear.register  # type: ignore
 def infer_type(
-    arg: Union[ct.DateType, ct.StringType],
+    arg: ct.DateType | ct.StringType,
 ) -> ct.ColumnType:
     return ct.IntegerType()
 
@@ -1811,7 +1811,7 @@ class Decimal(Function):
 
 @Decimal.register  # type: ignore
 def infer_type(
-    arg1: Union[ct.IntegerType, ct.FloatType, ct.StringType],
+    arg1: ct.IntegerType | ct.FloatType | ct.StringType,
 ) -> ct.ColumnType:
     return ct.DecimalType(8, 6)
 
@@ -1901,7 +1901,7 @@ class Double(Function):
 
 @Double.register  # type: ignore
 def infer_type(
-    arg: Union[ct.IntegerType, ct.FloatType, ct.StringType],
+    arg: ct.IntegerType | ct.FloatType | ct.StringType,
 ) -> ct.ColumnType:
     return ct.DoubleType()
 
@@ -2106,7 +2106,7 @@ class Extract(Function):
     def infer_type(  # type: ignore
         field: "Expression",
         source: "Expression",
-    ) -> Union[ct.DecimalType, ct.IntegerType]:
+    ) -> ct.DecimalType | ct.IntegerType:
         if str(field.name) == "SECOND":  # type: ignore
             return ct.DecimalType(8, 6)
         return ct.IntegerType()
@@ -2158,7 +2158,7 @@ class Filter(Function):
 
 @Filter.register  # type: ignore
 def infer_type(
-    arg: Union[ct.ListType, ct.PrimitiveType],
+    arg: ct.ListType | ct.PrimitiveType,
     func: ct.PrimitiveType,
 ) -> ct.ListType:
     return arg.type  # type: ignore
@@ -2243,7 +2243,7 @@ class Float(Function):
 
 
 @Float.register  # type: ignore
-def infer_type(arg: Union[ct.NumberType, ct.StringType]) -> ct.FloatType:
+def infer_type(arg: ct.NumberType | ct.StringType) -> ct.FloatType:
     return ct.FloatType()
 
 
@@ -2379,7 +2379,7 @@ class FromCsv(Function):
 def infer_type(
     arg1: ct.StringType,
     schema: ct.StringType,
-    arg3: Optional[ct.MapType] = None,
+    arg3: ct.MapType | None = None,
 ) -> ct.ColumnType:
     # TODO: Handle options?
     from datajunction_server.sql.parsing.backends.antlr4 import (
@@ -2401,7 +2401,7 @@ class FromJson(Function):  # pragma: no cover
 def infer_type(
     json: ct.StringType,
     schema: ct.StringType,
-    options: Optional[Function] = None,
+    options: Function | None = None,
 ) -> ct.StructType:
     from datajunction_server.sql.parsing.backends.antlr4 import parse_rule
 
@@ -2547,7 +2547,7 @@ class Hex(Function):
 
 
 @Hex.register  # type: ignore
-def infer_type(arg: Union[ct.IntegerType, ct.StringType]) -> ct.ColumnType:
+def infer_type(arg: ct.IntegerType | ct.StringType) -> ct.ColumnType:
     return ct.StringType()
 
 
@@ -2581,7 +2581,7 @@ class Hour(Function):
 
 @Hour.register  # type: ignore
 def infer_type(
-    arg: Union[ct.TimestampType, ct.StringType],
+    arg: ct.TimestampType | ct.StringType,
 ) -> ct.ColumnType:
     return ct.IntegerType()
 
@@ -2832,8 +2832,8 @@ class Lag(Function):
 @Lag.register  # type: ignore
 def infer_type(
     arg: ct.ColumnType,
-    offset: Optional[ct.IntegerType] = None,
-    default: Optional[ct.ColumnType] = None,
+    offset: ct.IntegerType | None = None,
+    default: ct.ColumnType | None = None,
 ) -> ct.ColumnType:
     # The output type is the same as the input expression's type
     return arg.type
@@ -2850,7 +2850,7 @@ class Last(Function):
 @Last.register  # type: ignore
 def infer_type(
     arg: ct.ColumnType,
-    ignore_nulls: Optional[ct.BooleanType] = None,
+    ignore_nulls: ct.BooleanType | None = None,
 ) -> ct.ColumnType:
     # The output type is the same as the input expression's type
     return arg.type
@@ -2863,7 +2863,7 @@ class LastDay(Function):
 
 
 @LastDay.register  # type: ignore
-def infer_type(arg: Union[ct.DateType, ct.StringType]) -> ct.ColumnType:
+def infer_type(arg: ct.DateType | ct.StringType) -> ct.ColumnType:
     return ct.DateType()
 
 
@@ -2878,7 +2878,7 @@ class LastValue(Function):
 @LastValue.register  # type: ignore
 def infer_type(
     arg: ct.ColumnType,
-    ignore_nulls: Optional[ct.BooleanType] = None,
+    ignore_nulls: ct.BooleanType | None = None,
 ) -> ct.ColumnType:
     # The output type is the same as the input expression's type
     return arg.type
@@ -2905,8 +2905,8 @@ class Lead(Function):
 @Lead.register  # type: ignore
 def infer_type(
     arg: ct.ColumnType,
-    offset: Optional[ct.IntegerType] = None,
-    default: Optional[ct.ColumnType] = None,
+    offset: ct.IntegerType | None = None,
+    default: ct.ColumnType | None = None,
 ) -> ct.ColumnType:
     # The output type is the same as the input expression's type
     return arg.type
@@ -3030,7 +3030,7 @@ class Locate(Function):
 def infer_type(
     arg1: ct.StringType,
     arg2: ct.StringType,
-    pos: Optional[ct.IntegerType] = None,
+    pos: ct.IntegerType | None = None,
 ) -> ct.ColumnType:
     return ct.IntegerType()
 
@@ -3113,7 +3113,7 @@ class Lpad(Function):
 def infer_type(
     arg1: ct.StringType,
     arg2: ct.IntegerType,
-    pad: Optional[ct.StringType] = None,
+    pad: ct.StringType | None = None,
 ) -> ct.StringType:
     return ct.StringType()
 
@@ -3129,7 +3129,7 @@ class Ltrim(Function):
 @Ltrim.register  # type: ignore
 def infer_type(
     arg1: ct.StringType,
-    trim_str: Optional[ct.StringType] = None,
+    trim_str: ct.StringType | None = None,
 ) -> ct.StringType:
     return ct.StringType()
 
@@ -3213,7 +3213,7 @@ def infer_type(
     hour: ct.IntegerType,
     min_: ct.IntegerType,
     sec: ct.IntegerType,
-    timezone: Optional[ct.StringType] = None,
+    timezone: ct.StringType | None = None,
 ) -> ct.TimestampType:
     return ct.TimestampType()
 
@@ -3413,8 +3413,10 @@ class MapZipWith(Function):
         }
         columns = list(
             func.expr.filter(
-                lambda x: isinstance(x, ast.Column)
-                and x.alias_or_name.name in available_identifiers,
+                lambda x: (
+                    isinstance(x, ast.Column)
+                    and x.alias_or_name.name in available_identifiers
+                ),
             ),
         )
         for col in columns:
@@ -3447,10 +3449,10 @@ class Mask(Function):
 @Mask.register  # type: ignore
 def infer_type(
     input_: ct.StringType,
-    upper: Optional[ct.StringType] = None,
-    lower: Optional[ct.StringType] = None,
-    digit: Optional[ct.StringType] = None,
-    other: Optional[ct.StringType] = None,
+    upper: ct.StringType | None = None,
+    lower: ct.StringType | None = None,
+    digit: ct.StringType | None = None,
+    other: ct.StringType | None = None,
 ) -> ct.StringType:
     return ct.StringType()
 
@@ -3622,7 +3624,7 @@ class Minute(Function):
 
 
 @Minute.register  # type: ignore
-def infer_type(val: Union[ct.StringType, ct.TimestampType]) -> ct.IntegerType:
+def infer_type(val: ct.StringType | ct.TimestampType) -> ct.IntegerType:
     return ct.IntegerType()
 
 
@@ -3670,7 +3672,7 @@ class Month(Function):
 
 
 @Month.register
-def infer_type(arg: Union[ct.StringType, ct.DateTimeBase]) -> ct.BigIntType:
+def infer_type(arg: ct.StringType | ct.DateTimeBase) -> ct.BigIntType:
     return ct.BigIntType()
 
 
@@ -3682,9 +3684,9 @@ class MonthsBetween(Function):
 
 @MonthsBetween.register
 def infer_type(
-    arg: Union[ct.StringType, ct.TimestampType],
-    arg2: Union[ct.StringType, ct.TimestampType],
-    arg3: Optional[ct.BooleanType] = None,
+    arg: ct.StringType | ct.TimestampType,
+    arg2: ct.StringType | ct.TimestampType,
+    arg3: ct.BooleanType | None = None,
 ) -> ct.BigIntType:
     return ct.FloatType()
 
@@ -3740,7 +3742,7 @@ class NextDay(Function):
 
 @NextDay.register  # type: ignore
 def infer_type(
-    date: Union[ct.DateType, ct.StringType],
+    date: ct.DateType | ct.StringType,
     day_of_week: ct.StringType,
 ) -> ct.ColumnType:
     return ct.DateType()
@@ -3857,7 +3859,7 @@ def infer_type(
     input_: ct.StringType,
     replace: ct.StringType,
     pos: ct.IntegerType,
-    length: Optional[ct.IntegerType] = None,
+    length: ct.IntegerType | None = None,
 ) -> ct.ColumnType:
     return ct.StringType()
 
@@ -3872,7 +3874,7 @@ class Percentile(Function):
 
 @Percentile.register
 def infer_type(
-    col: Union[ct.NumberType, ct.IntervalTypeBase],
+    col: ct.NumberType | ct.IntervalTypeBase,
     percentage: ct.NumberType,
 ) -> ct.FloatType:
     return ct.FloatType()  # type: ignore
@@ -3880,7 +3882,7 @@ def infer_type(
 
 @Percentile.register
 def infer_type(
-    col: Union[ct.NumberType, ct.IntervalTypeBase],
+    col: ct.NumberType | ct.IntervalTypeBase,
     percentage: ct.NumberType,
     freq: ct.IntegerType,
 ) -> ct.FloatType:
@@ -3889,7 +3891,7 @@ def infer_type(
 
 @Percentile.register
 def infer_type(
-    col: Union[ct.NumberType, ct.IntervalTypeBase],
+    col: ct.NumberType | ct.IntervalTypeBase,
     percentage: ct.ListType,
 ) -> ct.ListType:
     return ct.ListType(element_type=ct.FloatType())  # type: ignore
@@ -3897,7 +3899,7 @@ def infer_type(
 
 @Percentile.register
 def infer_type(
-    col: Union[ct.NumberType, ct.IntervalTypeBase],
+    col: ct.NumberType | ct.IntervalTypeBase,
     percentage: ct.ListType,
     freq: ct.IntegerType,
 ) -> ct.ListType:
@@ -4057,7 +4059,7 @@ class RegexpExtract(Function):
 def infer_type(  # type: ignore
     str_: ct.StringType,
     regexp: ct.StringType,
-    idx: Optional[ct.IntegerType] = 1,
+    idx: ct.IntegerType | None = 1,
 ) -> ct.StringType:
     return ct.StringType()
 
@@ -4092,7 +4094,7 @@ def infer_type(  # type: ignore
     str_: ct.StringType,
     regexp: ct.StringType,
     rep: ct.StringType,
-    position: Optional[ct.IntegerType] = 1,
+    position: ct.IntegerType | None = 1,
 ) -> ct.StringType:
     return ct.StringType()
 
@@ -4109,7 +4111,7 @@ class Replace(Function):
 def infer_type(  # type: ignore
     string: ct.StringType,
     search: ct.StringType,
-    replace: Optional[ct.StringType] = "",
+    replace: ct.StringType | None = "",
 ) -> ct.StringType:
     return ct.StringType()
 
@@ -4178,7 +4180,7 @@ class Sequence(Function):
 def infer_type(  # type: ignore
     start: ct.IntegerBase,
     end: ct.IntegerBase,
-    step: Optional[ct.IntegerBase] = None,
+    step: ct.IntegerBase | None = None,
 ) -> ct.ListType:
     return ct.ListType(element_type=start.type)
 
@@ -4236,7 +4238,7 @@ class Split(Function):
 def infer_type(
     string: ct.StringType,
     regex: ct.StringType,
-    limit: Optional[ct.IntegerType] = None,
+    limit: ct.IntegerType | None = None,
 ) -> ct.ColumnType:
     return ct.ListType(element_type=ct.StringType())  # type: ignore
 
@@ -4432,14 +4434,14 @@ def infer_type(
 
 @Sum.register  # type: ignore
 def infer_type(
-    arg: Union[ct.NumberType, ct.IntervalTypeBase],
+    arg: ct.NumberType | ct.IntervalTypeBase,
 ) -> ct.DoubleType:
     return ct.DoubleType()
 
 
 @Sum.register  # type: ignore
 def infer_type(
-    arg: Union[ct.DateType, ct.TimestampType],
+    arg: ct.DateType | ct.TimestampType,
 ) -> ct.DoubleType:
     return ct.DoubleType()
 
@@ -4453,7 +4455,7 @@ class ToDate(Function):  # pragma: no cover
 @ToDate.register  # type: ignore
 def infer_type(
     expr: ct.StringType,
-    fmt: Optional[ct.StringType] = None,
+    fmt: ct.StringType | None = None,
 ) -> ct.DateType:
     return ct.DateType()
 
@@ -4467,7 +4469,7 @@ class ToTimestamp(Function):  # pragma: no cover
 @ToTimestamp.register  # type: ignore
 def infer_type(
     expr: ct.StringType,
-    fmt: Optional[ct.StringType] = None,
+    fmt: ct.StringType | None = None,
 ) -> ct.TimestampType:
     return ct.TimestampType()
 
@@ -4556,8 +4558,10 @@ class TransformKeys(Function):
         }
         columns = list(
             func.expr.filter(
-                lambda x: isinstance(x, ast.Column)
-                and x.alias_or_name.name in available_identifiers,
+                lambda x: (
+                    isinstance(x, ast.Column)
+                    and x.alias_or_name.name in available_identifiers
+                ),
             ),
         )
         for col in columns:
@@ -4597,8 +4601,10 @@ class TransformValues(Function):
         }
         columns = list(
             func.expr.filter(
-                lambda x: isinstance(x, ast.Column)
-                and x.alias_or_name.name in available_identifiers,
+                lambda x: (
+                    isinstance(x, ast.Column)
+                    and x.alias_or_name.name in available_identifiers
+                ),
             ),
         )
         for col in columns:
@@ -4771,8 +4777,8 @@ class UnixTimestamp(Function):
 
 @UnixTimestamp.register  # type: ignore
 def infer_type(
-    time_exp: Optional[Union[ct.TimestampType, ct.DateType, ct.StringType]] = None,
-    fmt: Optional[ct.StringType] = None,
+    time_exp: ct.TimestampType | ct.DateType | ct.StringType | None = None,
+    fmt: ct.StringType | None = None,
 ) -> ct.BigIntType:
     return ct.BigIntType()
 
@@ -4840,7 +4846,7 @@ class Week(Function):
 
 
 @Week.register
-def infer_type(arg: Union[ct.StringType, ct.DateTimeBase]) -> ct.BigIntType:
+def infer_type(arg: ct.StringType | ct.DateTimeBase) -> ct.BigIntType:
     return ct.BigIntType()
 
 
@@ -4872,7 +4878,7 @@ class Year(Function):
 
 @Year.register
 def infer_type(
-    arg: Union[ct.StringType, ct.DateTimeBase, ct.IntegerType],
+    arg: ct.StringType | ct.DateTimeBase | ct.IntegerType,
 ) -> ct.BigIntType:
     return ct.BigIntType()
 
@@ -4895,14 +4901,14 @@ class Explode(TableFunction):
 @Explode.register
 def infer_type(
     arg: ct.ListType,
-) -> List[ct.NestedField]:
+) -> list[ct.NestedField]:
     return [arg.element]
 
 
 @Explode.register
 def infer_type(
     arg: ct.MapType,
-) -> List[ct.NestedField]:
+) -> list[ct.NestedField]:
     return [arg.key, arg.value]
 
 
@@ -4919,14 +4925,14 @@ class Unnest(TableFunction):
 @Unnest.register
 def infer_type(
     arg: ct.ListType,
-) -> List[ct.NestedField]:
+) -> list[ct.NestedField]:
     return [arg.element]  # pragma: no cover
 
 
 @Unnest.register
 def infer_type(
     arg: ct.MapType,
-) -> List[ct.NestedField]:
+) -> list[ct.NestedField]:
     return [arg.key, arg.value]  # pragma: no cover
 
 
@@ -4940,7 +4946,7 @@ class Inline(TableFunction):
 @Inline.register
 def infer_type(
     arg: ct.ListType,
-) -> List[ct.NestedField]:
+) -> list[ct.NestedField]:
     # array<struct<f1, f2, ...>> -> one table column per struct field
     return list(arg.element.type.fields)
 
@@ -4955,7 +4961,7 @@ class InlineOuter(TableFunction):
 @InlineOuter.register
 def infer_type(
     arg: ct.ListType,
-) -> List[ct.NestedField]:
+) -> list[ct.NestedField]:
     return list(arg.element.type.fields)
 
 

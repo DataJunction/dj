@@ -2,14 +2,18 @@
 Tests for the namespaces API.
 """
 
+import asyncio
 from http import HTTPStatus
 from unittest import mock
 
-import asyncio
-from unittest import mock
-
 import pytest
+from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from datajunction_server.database.namespace import NodeNamespace
+from datajunction_server.internal.access.authorization import (
+    AuthorizationService,
+)
 from datajunction_server.internal.namespaces import (
     _merge_columns_preserving_comments,
     _merge_list_with_key,
@@ -17,6 +21,7 @@ from datajunction_server.internal.namespaces import (
     _node_spec_to_yaml_dict,
     node_spec_to_yaml,
 )
+from datajunction_server.models import access
 from datajunction_server.models.deployment import (
     BulkNamespaceSourcesRequest,
     BulkNamespaceSourcesResponse,
@@ -28,21 +33,11 @@ from datajunction_server.models.deployment import (
     GitDeploymentSource,
     LocalDeploymentSource,
     NamespaceSourcesResponse,
+    PartitionSpec,
     SourceSpec,
     TransformSpec,
-    PartitionSpec,
 )
-from datajunction_server.models.partition import PartitionType, Granularity
-
-import pytest
-from httpx import AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from datajunction_server.database.namespace import NodeNamespace
-from datajunction_server.internal.access.authorization import (
-    AuthorizationService,
-)
-from datajunction_server.models import access
+from datajunction_server.models.partition import Granularity, PartitionType
 from datajunction_server.utils import get_query_service_client
 
 
@@ -657,8 +652,8 @@ async def test_hard_delete_namespace_with_backfills(
     should succeed without a foreign key violation (regression test).
     """
     client = await client_example_loader(["ROADS"])
-    client.app.dependency_overrides[get_query_service_client] = (
-        lambda: query_service_client
+    client.app.dependency_overrides[get_query_service_client] = lambda: (
+        query_service_client
     )
 
     # Add a temporal partition to hard_hat so we can add a materialization
@@ -1673,8 +1668,8 @@ class TestExportYaml:
     @pytest.mark.asyncio
     async def test_export_yaml_returns_zip(self, client_with_roads):
         """Test that export/yaml returns a valid ZIP file"""
-        import zipfile
         import io
+        import zipfile
 
         response = await client_with_roads.post("/namespaces/default/export/yaml")
         assert response.status_code == 200
@@ -1709,8 +1704,9 @@ class TestExportYaml:
     @pytest.mark.asyncio
     async def test_export_yaml_node_files_structure(self, client_with_roads):
         """Test that exported node files have correct structure"""
-        import zipfile
         import io
+        import zipfile
+
         import yaml
 
         response = await client_with_roads.post("/namespaces/default/export/yaml")
@@ -1823,7 +1819,8 @@ class TestExportYaml:
         """When no existing_zip is uploaded but the namespace has github+branch
         configured, the server fetches existing YAML from the git branch.
         Covers line 556 — the `fetch_existing_yaml_map` call."""
-        from unittest.mock import AsyncMock, patch as mock_patch
+        from unittest.mock import AsyncMock
+        from unittest.mock import patch as mock_patch
 
         # Ensure the namespace is git-configured (idempotent if already set)
         await client_with_roads.patch(

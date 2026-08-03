@@ -3,12 +3,11 @@ Dimensions related APIs.
 """
 
 import logging
-from typing import List, Optional, cast
+from typing import cast
 
 from fastapi import Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from datajunction_server.models.node import NodeNameOutput
 from datajunction_server.api.helpers import get_node_by_name
 from datajunction_server.api.nodes import list_nodes
 from datajunction_server.database.node import Node
@@ -18,7 +17,7 @@ from datajunction_server.internal.access.authorization import (
     get_access_checker,
 )
 from datajunction_server.models import access
-from datajunction_server.models.node import NodeIndegreeOutput
+from datajunction_server.models.node import NodeIndegreeOutput, NodeNameOutput
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.dag import (
     get_dimension_dag_indegree,
@@ -34,13 +33,13 @@ _logger = logging.getLogger(__name__)
 router = SecureAPIRouter(tags=["dimensions"])
 
 
-@router.get("/dimensions/", response_model=List[NodeIndegreeOutput])
+@router.get("/dimensions/", response_model=list[NodeIndegreeOutput])
 async def list_dimensions(
-    prefix: Optional[str] = None,
+    prefix: str | None = None,
     *,
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> List[NodeIndegreeOutput]:
+) -> list[NodeIndegreeOutput]:
     """
     List all available dimensions.
     """
@@ -60,14 +59,14 @@ async def list_dimensions(
     )
 
 
-@router.get("/dimensions/{name}/nodes/", response_model=List[NodeNameOutput])
+@router.get("/dimensions/{name}/nodes/", response_model=list[NodeNameOutput])
 async def find_nodes_with_dimension(
     name: str,
     *,
-    node_type: List[NodeType] = Query([]),
+    node_type: list[NodeType] = Query([]),
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> List[NodeNameOutput]:
+) -> list[NodeNameOutput]:
     """
     List all nodes that have the specified dimension
     """
@@ -87,14 +86,14 @@ async def find_nodes_with_dimension(
     return [node for node in nodes if node.name in approved_nodes]
 
 
-@router.get("/dimensions/common/", response_model=List[NodeNameOutput])
+@router.get("/dimensions/common/", response_model=list[NodeNameOutput])
 async def find_nodes_with_common_dimensions(
-    dimension: List[str] = Query([]),
-    node_type: List[NodeType] = Query([]),
+    dimension: list[str] = Query([]),
+    node_type: list[NodeType] = Query([]),
     *,
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> List[NodeNameOutput]:
+) -> list[NodeNameOutput]:
     """
     Find all nodes that have the list of common dimensions
     """

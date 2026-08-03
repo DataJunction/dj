@@ -3,17 +3,17 @@ Models for queries.
 """
 
 from datetime import datetime
-from typing import Any, List, Optional, Union
+from typing import Any
 
 import msgpack
 from pydantic import (
     AliasChoices,
     AnyHttpUrl,
+    ConfigDict,
     Field,
+    RootModel,
     field_serializer,
     model_serializer,
-    RootModel,
-    ConfigDict,
 )
 from pydantic.main import BaseModel
 
@@ -26,9 +26,9 @@ class BaseQuery(BaseModel):
     Base class for query models.
     """
 
-    catalog_name: Optional[str]
-    engine_name: Optional[str] = None
-    engine_version: Optional[str] = None
+    catalog_name: str | None
+    engine_name: str | None = None
+    engine_version: str | None = None
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -52,10 +52,10 @@ class ColumnMetadata(BaseModel):
 
     name: str
     type: str
-    column: Optional[str] = None
-    node: Optional[str] = None
-    semantic_entity: Optional[str] = None
-    semantic_type: Optional[str] = None
+    column: str | None = None
+    node: str | None = None
+    semantic_entity: str | None = None
+    semantic_type: str | None = None
 
     def __hash__(self):
         return hash((self.name, self.type))  # pragma: no cover
@@ -105,8 +105,8 @@ class StatementResults(BaseModel):
     """
 
     sql: str
-    columns: List[Union[ColumnMetadata, V3ColumnMetadata]]
-    rows: List[Row]
+    columns: list[ColumnMetadata | V3ColumnMetadata]
+    rows: list[Row]
 
     # this indicates the total number of rows, and is useful for paginated requests
     row_count: int = 0
@@ -117,7 +117,7 @@ class QueryResults(RootModel):
     Results for a given query.
     """
 
-    root: List[StatementResults]
+    root: list[StatementResults]
 
 
 class TableRef(BaseModel):
@@ -136,31 +136,31 @@ class QueryWithResults(BaseModel):
     """
 
     id: str
-    engine_name: Optional[str] = None
-    engine_version: Optional[str] = None
+    engine_name: str | None = None
+    engine_version: str | None = None
     submitted_query: str
-    executed_query: Optional[str] = None
+    executed_query: str | None = None
 
-    scheduled: Optional[datetime] = None
-    started: Optional[datetime] = None
-    finished: Optional[datetime] = None
+    scheduled: datetime | None = None
+    started: datetime | None = None
+    finished: datetime | None = None
 
     state: QueryState = QueryState.UNKNOWN
     progress: float = 0.0
 
-    output_table: Optional[TableRef] = None
+    output_table: TableRef | None = None
     results: QueryResults
-    next: Optional[AnyHttpUrl] = None
-    previous: Optional[AnyHttpUrl] = None
-    errors: List[str] = []
-    links: Optional[List[AnyHttpUrl]] = None
+    next: AnyHttpUrl | None = None
+    previous: AnyHttpUrl | None = None
+    errors: list[str] = []
+    links: list[AnyHttpUrl] | None = None
 
     @field_serializer("next", "previous")
-    def serialize_single_url(self, url: Optional[AnyHttpUrl]) -> Optional[str]:
+    def serialize_single_url(self, url: AnyHttpUrl | None) -> str | None:
         return str(url) if url else None
 
     @field_serializer("links")
-    def serialize_links(self, links: Optional[List[AnyHttpUrl]]) -> Optional[List[str]]:
+    def serialize_links(self, links: list[AnyHttpUrl] | None) -> list[str] | None:
         return [str(url) for url in links] if links else None
 
 

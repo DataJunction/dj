@@ -11,18 +11,18 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from datajunction_server.errors import DJInvalidInputException
-from datajunction_server.database.preaggregation import (
-    PreAggregation,
-    compute_expression_hash,
-)
-from datajunction_server.models.decompose import Aggregability, MetricComponent
-from datajunction_server.models.preaggregation import TemporalPartitionColumn
-from datajunction_server.naming import SEPARATOR
 from datajunction_server.construction.build_v3.dimensions import (
     parse_dimension_ref,
     roles_reaching_dimension,
 )
+from datajunction_server.database.preaggregation import (
+    PreAggregation,
+    compute_expression_hash,
+)
+from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.models.decompose import Aggregability, MetricComponent
+from datajunction_server.models.preaggregation import TemporalPartitionColumn
+from datajunction_server.naming import SEPARATOR
 
 if TYPE_CHECKING:
     from datajunction_server.construction.build_v3.types import BuildContext, GrainGroup
@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 def get_required_measure_identities(
-    grain_group: "GrainGroup",
+    grain_group: GrainGroup,
 ) -> set[tuple[str, str]]:
     """
     Identity of each measure a grain group needs: (expression hash, Phase-1
@@ -58,7 +58,7 @@ def get_required_measure_identities(
 
 
 def canonical_dimension_ref(
-    ctx: "BuildContext",
+    ctx: BuildContext,
     node_rev_id: int,
     ref: str,
 ) -> str:
@@ -85,10 +85,10 @@ def canonical_dimension_ref(
 
 
 def find_matching_preagg(
-    ctx: "BuildContext",
-    parent_node: "Node",
+    ctx: BuildContext,
+    parent_node: Node,
     requested_grain: list[str],
-    grain_group: "GrainGroup",
+    grain_group: GrainGroup,
 ) -> PreAggregation | None:
     """
     Find a pre-aggregation that can satisfy the grain group requirements.
@@ -234,7 +234,7 @@ def get_preagg_measure_column(
 
 
 def get_preagg_dimension_column(
-    ctx: "BuildContext",
+    ctx: BuildContext,
     node_rev_id: int,
     preagg: PreAggregation,
     dimension_ref: str,
@@ -261,7 +261,7 @@ def get_preagg_dimension_column(
 
 def match_temporal_columns_to_grain(
     preagg: PreAggregation,
-) -> list[tuple["Column", str | None]]:
+) -> list[tuple[Column, str | None]]:
     """
     Each temporal partition column of a pre-agg's parent, paired with the grain
     entry it corresponds to (``None`` when the column isn't part of the grain).
@@ -298,7 +298,7 @@ def match_temporal_columns_to_grain(
     # names the parent's own column.
     col_to_dims: dict[str, list[str]] | None = None
 
-    matches: list[tuple["Column", str | None]] = []
+    matches: list[tuple[Column, str | None]] = []
     for temporal_col in temporal_columns:
         direct_ref = f"{node_revision.name}{SEPARATOR}{temporal_col.name}"
         if direct_ref in grain_columns:
@@ -328,7 +328,7 @@ def match_temporal_columns_to_grain(
     return matches
 
 
-def temporal_output_name(temporal_col: "Column", grain_ref: str | None) -> str:
+def temporal_output_name(temporal_col: Column, grain_ref: str | None) -> str:
     """
     Output column name for a temporal partition column.
 

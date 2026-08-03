@@ -18,12 +18,16 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
 
-from datajunction_server.models.decompose import MetricComponent
+from datajunction_server.construction.build_v3.builder import build_measures_sql
+from datajunction_server.construction.build_v3.cte import (
+    process_metric_combiner_expression,
+)
 from datajunction_server.construction.build_v3.preagg_matcher import (
     get_temporal_partitions,
 )
+from datajunction_server.construction.build_v3.types import GrainGroupSQL
+from datajunction_server.construction.build_v3.utils import build_join_from_clause
 from datajunction_server.database.preaggregation import (
     PreAggregation,
     compute_expression_hash,
@@ -32,23 +36,14 @@ from datajunction_server.database.preaggregation import (
     get_measure_identities,
     measure_identity_token,
 )
-
-from datajunction_server.construction.build_v3.cte import (
-    process_metric_combiner_expression,
-)
-from datajunction_server.construction.build_v3.types import GrainGroupSQL
-from datajunction_server.construction.build_v3.utils import build_join_from_clause
 from datajunction_server.models.column import SemanticType
+from datajunction_server.models.decompose import MetricComponent
+from datajunction_server.models.dialect import Dialect
+from datajunction_server.models.materialization import MaterializationStrategy
 from datajunction_server.models.query import V3ColumnMetadata
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import render_for_dialect, to_sql
-from datajunction_server.construction.build_v3.builder import build_measures_sql
-from datajunction_server.models.dialect import Dialect
-from datajunction_server.models.materialization import MaterializationStrategy
 from datajunction_server.utils import get_settings
-
-if TYPE_CHECKING:
-    pass
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +62,7 @@ class CombinedGrainGroupResult:
     shared_dimensions: list[str]  # Dimension columns used in JOIN
     all_measures: list[str]  # All measure columns in output
     # Metric components with aggregation info (for materialization)
-    measure_components: list["MetricComponent"] = field(default_factory=list)
+    measure_components: list[MetricComponent] = field(default_factory=list)
     # Mapping from component name to output column alias
     # e.g., {"account_id_hll_e7b21ce4": "approx_unique_accounts_rating"}
     component_aliases: dict[str, str] = field(default_factory=dict)
@@ -513,7 +508,7 @@ class PreAggSourceInfo:
 
     table_ref: str  # Fully qualified table name (catalog.schema.table)
     parent_name: str  # The node this pre-agg derives from
-    strategy: "MaterializationStrategy | None" = (
+    strategy: MaterializationStrategy | None = (
         None  # None when no PreAggregation record matched
     )
 

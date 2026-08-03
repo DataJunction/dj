@@ -3,7 +3,6 @@ Metric related APIs.
 """
 
 from http import HTTPStatus
-from typing import List, Optional
 
 from fastapi import BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import select
@@ -14,13 +13,13 @@ from sqlalchemy.sql.operators import is_
 from datajunction_server.api.nodes import list_nodes
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.errors import DJError, DJInvalidInputException, ErrorCode
-from datajunction_server.internal.caching.cachelib_cache import get_cache
-from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
     AccessChecker,
     get_access_checker,
 )
+from datajunction_server.internal.caching.cachelib_cache import get_cache
+from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.models.metric import Metric
 from datajunction_server.models.node import (
     DimensionAttributeOutput,
@@ -62,15 +61,15 @@ async def get_metric(session: AsyncSession, name: str) -> Node:
     return node  # type: ignore
 
 
-@router.get("/metrics/", response_model=List[str])
+@router.get("/metrics/", response_model=list[str])
 async def list_metrics(
-    prefix: Optional[str] = None,
+    prefix: str | None = None,
     *,
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
     cache: Cache = Depends(get_cache),
     background_tasks: BackgroundTasks,
-) -> List[str]:
+) -> list[str]:
     """
     List all available metrics.
     """
@@ -116,15 +115,15 @@ async def get_a_metric(
 
 @router.get(
     "/metrics/common/dimensions/",
-    response_model=List[DimensionAttributeOutput],
+    response_model=list[DimensionAttributeOutput],
 )
 async def get_common_dimensions(
-    metric: List[str] = Query(
+    metric: list[str] = Query(
         title="List of metrics to find common dimensions for",
         default=[],
     ),
     session: AsyncSession = Depends(get_session),
-) -> List[DimensionAttributeOutput]:
+) -> list[DimensionAttributeOutput]:
     """
     Return common dimensions for a set of metrics.
     """

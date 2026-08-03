@@ -10,7 +10,7 @@ DJ generates SQL; the client executes it. This router does NOT run queries —
 """
 
 import logging
-from typing import Any, Optional, Union
+from typing import Any
 
 from fastapi import Depends
 from fastapi.responses import JSONResponse
@@ -118,7 +118,7 @@ def _quote_value(value: Any) -> str:
     # Imported lazily so the optional ``sqlglot`` extra isn't required at app
     # import time — the rest of the codebase keeps sqlglot off the eager import
     # path (e.g. transpilation.py imports it inside functions).
-    import sqlglot  # noqa: PLC0415
+    import sqlglot
 
     return sqlglot.exp.convert(value).sql(dialect="spark")
 
@@ -158,7 +158,7 @@ class FilterPayload(BaseModel):
     """A WHERE/HAVING filter."""
 
     type: str = "WHERE"
-    column: Optional[str] = None
+    column: str | None = None
     operator: str = "="
     value: Any = None
 
@@ -170,10 +170,10 @@ class QueryPayload(BaseModel):
     dimensions: list[str] = Field(default_factory=list)
     filters: list[FilterPayload] = Field(default_factory=list)
     order: list[OrderPayload] = Field(default_factory=list)
-    limit: Optional[int] = None
+    limit: int | None = None
     # Accepted so we can explicitly reject it (DJ SQL generation has no offset);
     # silently ignoring it would return page 1 for every page.
-    offset: Optional[int] = None
+    offset: int | None = None
 
 
 class QueryRequest(BaseModel):
@@ -194,7 +194,7 @@ class MetricInfo(BaseModel):
     name: str
     type: str
     definition: str
-    description: Optional[str]
+    description: str | None
     aggregation: str
 
 
@@ -205,8 +205,8 @@ class DimensionInfo(BaseModel):
     name: str
     type: str
     definition: str
-    description: Optional[str]
-    grain: Optional[str]
+    description: str | None
+    grain: str | None
 
 
 class ViewSummary(BaseModel):
@@ -240,7 +240,7 @@ class GeneratedSQLResponse(BaseModel):
     sql: str
     dialect: str
     columns: list[ColumnInfo]
-    cube_name: Optional[str]
+    cube_name: str | None
 
 
 # ---------------------------------------------------------------------------
@@ -251,8 +251,8 @@ class GeneratedSQLResponse(BaseModel):
 @router.post("/views/list", response_model=list[ViewSummary])
 async def list_views(
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user),  # noqa: ARG001
-) -> Union[list[ViewSummary], JSONResponse]:
+    current_user: User = Depends(get_current_user),
+) -> list[ViewSummary] | JSONResponse:
     """List the semantic views (DJ cubes) available to the caller.
 
     The spec's ``/views/list`` returns summaries only (``{name, uid, features}``);
@@ -269,8 +269,8 @@ async def list_views(
 async def get_view(
     view_name: str,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user),  # noqa: ARG001
-) -> Union[ViewDetail, JSONResponse]:
+    current_user: User = Depends(get_current_user),
+) -> ViewDetail | JSONResponse:
     """Describe a single semantic view: its metrics and dimensions."""
     try:
         cube_node = await Node.get_cube_by_name(
@@ -337,8 +337,8 @@ async def generate_query_sql(
     view_name: str,
     body: QueryRequest,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user),  # noqa: ARG001
-) -> Union[GeneratedSQLResponse, JSONResponse]:
+    current_user: User = Depends(get_current_user),
+) -> GeneratedSQLResponse | JSONResponse:
     """Generate physical SQL for a view query."""
     payload = body.query
     if payload.offset:

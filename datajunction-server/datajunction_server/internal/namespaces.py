@@ -2,14 +2,15 @@
 Helper methods for namespaces endpoints.
 """
 
-from collections import defaultdict
 import logging
 import os
 import re
 import textwrap
-from datetime import datetime, timezone
+from collections import defaultdict
+from collections.abc import Callable
+from datetime import UTC, datetime
 from io import StringIO
-from typing import Callable, Dict, List, Optional, Tuple, cast
+from typing import cast
 
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import Comment, CommentedMap, CommentedSeq
@@ -66,9 +67,9 @@ RESERVED_NAMESPACE_NAMES = [
 async def get_nodes_in_namespace(
     session: AsyncSession,
     namespace: str,
-    node_type: NodeType = None,
+    node_type: NodeType | None = None,
     include_deactivated: bool = False,
-) -> List[NodeMinimumDetail]:
+) -> list[NodeMinimumDetail]:
     """
     Gets a list of node names in the namespace
     """
@@ -83,8 +84,8 @@ async def get_nodes_in_namespace(
 async def get_nodes_in_namespace_detailed(
     session: AsyncSession,
     namespace: str,
-    node_type: NodeType = None,
-) -> List[Node]:
+    node_type: NodeType | None = None,
+) -> list[Node]:
     """
     Gets a list of node names (w/ full details) in the namespace
     """
@@ -115,7 +116,7 @@ async def get_nodes_in_namespace_detailed(
 async def list_namespaces_in_hierarchy(
     session: AsyncSession,
     namespace: str,
-) -> List[NodeNamespace]:
+) -> list[NodeNamespace]:
     """
     Get all namespaces in hierarchy under the specified namespace
     """
@@ -141,12 +142,12 @@ async def mark_namespace_deactivated(
     namespace: NodeNamespace,
     current_user: User,
     save_history: Callable,
-    message: str = None,
+    message: str | None = None,
 ):
     """
     Deactivates the node namespace and updates history indicating so
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     namespace.deactivated_at = UTCDatetime(
         year=now.year,
         month=now.month,
@@ -174,7 +175,7 @@ async def mark_namespace_restored(
     namespace: NodeNamespace,
     current_user: User,
     save_history: Callable,
-    message: str = None,
+    message: str | None = None,
 ):
     """
     Restores the node namespace and updates history indicating so
@@ -222,7 +223,7 @@ def get_parent_namespaces(namespace: str):
 def resolve_git_info_from_map(
     namespace: str,
     ns_map: dict,
-) -> Optional[dict]:
+) -> dict | None:
     """
     Resolve git info for a namespace using a pre-loaded map of NodeNamespace rows.
 
@@ -243,7 +244,7 @@ def resolve_git_info_from_map(
     # If branch_ns.parent_namespace points outside the string hierarchy (a sibling),
     # use the FK-hop parent if it was pre-loaded into ns_map.
     # Otherwise, the git root is reachable via string ancestors.
-    config_ns: Optional[NodeNamespace] = None
+    config_ns: NodeNamespace | None = None
     if (
         branch_ns
         and branch_ns.parent_namespace
@@ -304,7 +305,7 @@ def resolve_git_info_from_map(
 async def get_git_info_for_namespace(
     session: AsyncSession,
     namespace: str,
-) -> Optional[dict]:
+) -> dict | None:
     """
     Return git repository info for a namespace.
 
@@ -346,7 +347,7 @@ async def create_namespace(
     current_user: User,
     save_history: Callable,
     include_parents: bool = True,
-) -> List[str]:
+) -> list[str]:
     """
     Creates a namespace entry in the database table.
     """
@@ -400,8 +401,8 @@ async def hard_delete_nodes(
     endpoint, or a deployment SAVEPOINT). Shared by ``hard_delete_namespace`` and
     the deployment orchestrator so both apply identical semantics.
     """
-    impacted_downstreams: Dict[str, List[str]] = defaultdict(list)
-    impacted_links: Dict[str, List[str]] = defaultdict(list)
+    impacted_downstreams: dict[str, list[str]] = defaultdict(list)
+    impacted_links: dict[str, list[str]] = defaultdict(list)
     if not node_ids:
         return ImpactedNodes(downstreams=[], links=[])
 
@@ -440,7 +441,7 @@ async def hard_delete_nodes(
         ).bindparams(bindparam("deleted_ids", expanding=True)),
         {"deleted_ids": node_ids},
     )
-    downstream_pairs: Dict[str, List[int]] = defaultdict(list)
+    downstream_pairs: dict[str, list[int]] = defaultdict(list)
     for parent_id, child_name in downstream_rows.all():
         downstream_pairs[child_name].append(parent_id)
     for child_name, parent_ids in downstream_pairs.items():
@@ -491,7 +492,7 @@ async def hard_delete_nodes(
             ),
             {"deleted_dim_ids": dimension_ids, "deleted_node_ids": node_ids},
         )
-        link_pairs: Dict[str, List[int]] = defaultdict(list)
+        link_pairs: dict[str, list[int]] = defaultdict(list)
         for dim_id, consumer_name in link_rows.all():
             link_pairs[consumer_name].append(dim_id)
         for consumer_name, dim_ids in link_pairs.items():
@@ -603,7 +604,7 @@ def _get_dir_and_filename(
     node_name: str,
     node_type: str,
     namespace_requested: str,
-) -> Tuple[str, str, str]:
+) -> tuple[str, str, str]:
     """
     Get the directory, filename, and build name for a node
     """
@@ -654,7 +655,7 @@ def _partition_config(column: Column):
     return {}
 
 
-def _source_project_config(node: Node, namespace_requested: str) -> Dict:
+def _source_project_config(node: Node, namespace_requested: str) -> dict:
     """
     Returns a project config definition for a source node
     """
@@ -685,7 +686,7 @@ def _source_project_config(node: Node, namespace_requested: str) -> Dict:
     }
 
 
-def _transform_project_config(node: Node, namespace_requested: str) -> Dict:
+def _transform_project_config(node: Node, namespace_requested: str) -> dict:
     """
     Returns a project config definition for a transform node
     """
@@ -716,7 +717,7 @@ def _transform_project_config(node: Node, namespace_requested: str) -> Dict:
     }
 
 
-def _dimension_project_config(node: Node, namespace_requested: str) -> Dict:
+def _dimension_project_config(node: Node, namespace_requested: str) -> dict:
     """
     Returns a project config definition for a dimension node
     """
@@ -747,7 +748,7 @@ def _dimension_project_config(node: Node, namespace_requested: str) -> Dict:
     }
 
 
-def _metric_project_config(node: Node, namespace_requested: str) -> Dict:
+def _metric_project_config(node: Node, namespace_requested: str) -> dict:
     """
     Returns a project config definition for a metric node
     """
@@ -802,7 +803,7 @@ async def _cube_project_config(
     session: AsyncSession,
     node: Node,
     namespace_requested: str,
-) -> Dict:
+) -> dict:
     """
     Returns a project config definition for a cube node
     """
@@ -861,9 +862,9 @@ def _dimension_links_config(node: Node):
 
 async def get_project_config(
     session: AsyncSession,
-    nodes: List[Node],
+    nodes: list[Node],
     namespace_requested: str,
-) -> List[Dict]:
+) -> list[dict]:
     """
     Returns a project config definition
     """
@@ -1042,7 +1043,7 @@ def inject_prefixes(unparameterized_string: str, prefix: str) -> str:
     return unparameterized_string.replace(f"{prefix}" + SEPARATOR, "${prefix}")
 
 
-def _get_node_suffix(full_name: str, namespace_prefix: str) -> Optional[str]:
+def _get_node_suffix(full_name: str, namespace_prefix: str) -> str | None:
     """
     Extract the suffix of a node name after the namespace prefix.
 
@@ -1057,7 +1058,7 @@ def _get_node_suffix(full_name: str, namespace_prefix: str) -> Optional[str]:
 def _inject_prefix_for_cube_ref(
     ref_name: str,
     namespace: str,
-    parent_namespace: Optional[str],
+    parent_namespace: str | None,
     namespace_suffixes: set[str],
 ) -> str:
     """
@@ -1836,7 +1837,7 @@ def _node_spec_to_yaml_dict(node_spec, include_all_columns=False) -> dict:
     # Use LiteralScalarString to force literal block style (|) for multiline queries
     from ruamel.yaml.scalarstring import LiteralScalarString
 
-    if "query" in data and data["query"]:
+    if data.get("query"):
         cleaned_query = "\n".join(line.rstrip() for line in data["query"].split("\n"))
         # Strip leading/trailing newlines and dedent to remove common leading whitespace
         # (prevents ruamel.yaml from emitting |4- instead of |-)
@@ -1861,7 +1862,7 @@ def _node_spec_to_yaml_dict(node_spec, include_all_columns=False) -> dict:
     # Also clean join_on in dimension_links
     if "dimension_links" in data:
         for link in data["dimension_links"]:
-            if "join_on" in link and link["join_on"]:
+            if link.get("join_on"):
                 cleaned_join = "\n".join(
                     line.rstrip() for line in link["join_on"].split("\n")
                 )
@@ -1936,7 +1937,7 @@ async def resolve_git_config(
     session: AsyncSession,
     namespace: str,
     max_depth: int = 50,
-) -> tuple[Optional[str], Optional[str], Optional[str]]:
+) -> tuple[str | None, str | None, str | None]:
     """
     Resolve complete git configuration by walking up the namespace string hierarchy.
 
@@ -1952,7 +1953,7 @@ async def resolve_git_config(
 def _rollup_branch_counts(
     branch_ns: str,
     counts_by_ns: dict[str, tuple[int, int, datetime]],
-) -> tuple[int, int, Optional[datetime]]:
+) -> tuple[int, int, datetime | None]:
     """
     Sum node counts for a branch namespace and all of its sub-namespaces.
 
@@ -1963,7 +1964,7 @@ def _rollup_branch_counts(
     """
     prefix = branch_ns + SEPARATOR
     num_nodes = invalid_node_count = 0
-    last_updated_at: Optional[datetime] = None
+    last_updated_at: datetime | None = None
     for node_ns, (num, invalid, updated_at) in counts_by_ns.items():
         if node_ns == branch_ns or node_ns.startswith(prefix):
             num_nodes += num
@@ -1979,7 +1980,7 @@ def _rollup_branch_counts(
 async def get_branches(
     session: AsyncSession,
     namespace: str,
-) -> List[BranchInfo]:
+) -> list[BranchInfo]:
     """
     Canonical listing of the branch namespaces created from ``namespace``.
 
@@ -2108,7 +2109,7 @@ async def detect_parent_cycle(
         )
 
 
-def validate_git_path(git_path: Optional[str]) -> None:
+def validate_git_path(git_path: str | None) -> None:
     """
     Ensure git_path doesn't escape repository boundaries.
 

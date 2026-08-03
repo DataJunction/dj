@@ -3,70 +3,66 @@ Fixtures for testing.
 """
 
 import asyncio
-import subprocess
-import sys
-from collections import namedtuple
-from sqlalchemy.pool import NullPool
-from contextlib import ExitStack, asynccontextmanager, contextmanager
-from datetime import timedelta
 import os
 import pathlib
 import re
-from http.client import HTTPException
-from typing import (
-    Any,
+import subprocess
+import sys
+from collections import namedtuple
+from collections.abc import (
     AsyncGenerator,
     Awaitable,
     Callable,
     Collection,
     Coroutine,
-    Dict,
     Generator,
     Iterator,
-    List,
-    Optional,
+)
+from contextlib import ExitStack, asynccontextmanager, contextmanager
+from datetime import timedelta
+from http.client import HTTPException
+from typing import (
+    Any,
 )
 from unittest.mock import AsyncMock, MagicMock, patch
 from urllib.parse import urlparse
 
-from psycopg import connect
-
 import duckdb
 import httpx
-import sqlglot
 import pytest
 import pytest_asyncio
+import sqlglot
 from cachelib.simple import SimpleCache
-from fastapi import Request
+from fastapi import BackgroundTasks, Request
 from fastapi_cache import FastAPICache
 from fastapi_cache.backends.inmemory import InMemoryBackend
 from httpx import AsyncClient
+from psycopg import connect
 from pytest_mock import MockerFixture
 from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 from testcontainers.core.waiting_utils import wait_for_logs
 from testcontainers.postgres import PostgresContainer
 
-from fastapi import BackgroundTasks
-
-from datajunction_server.api.main import app
 from datajunction_server.api.attributes import default_attribute_types
-from datajunction_server.internal.seed import seed_default_catalogs
+from datajunction_server.api.main import app
 from datajunction_server.config import DatabaseConfig, Settings
 from datajunction_server.database.base import Base
 from datajunction_server.database.column import Column
 from datajunction_server.database.engine import Engine
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJQueryServiceClientEntityNotFound
+from datajunction_server.internal.access.authentication.tokens import create_token
 from datajunction_server.internal.access.authorization import (
-    get_authorization_service,
     PassthroughAuthorizationService,
+    get_authorization_service,
 )
+from datajunction_server.internal.seed import seed_default_catalogs
 from datajunction_server.models.materialization import MaterializationInfo
 from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.models.user import OAuthProvider
-from datajunction_server.internal.access.authentication.tokens import create_token
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.typing import QueryState
 from datajunction_server.utils import (
@@ -127,7 +123,6 @@ def module__background_tasks() -> Generator[
 
     def fake_add_task(self, func, *args, **kwargs):
         tasks.append((func, args, kwargs))
-        return None
 
     BackgroundTasks.add_task = fake_add_task
     yield tasks
@@ -141,7 +136,6 @@ def background_tasks() -> Generator[list[tuple[Callable, tuple, dict]], None, No
 
     def fake_add_task(self, func, *args, **kwargs):
         tasks.append((func, args, kwargs))
-        return None
 
     BackgroundTasks.add_task = fake_add_task
     yield tasks
@@ -333,8 +327,8 @@ def settings_no_qs(
 
     from datajunction_server.models.dialect import register_dialect_plugin
     from datajunction_server.transpilation import (
-        SQLTranspilationPlugin,
         SQLGlotTranspilationPlugin,
+        SQLTranspilationPlugin,
     )
 
     register_dialect_plugin("spark", SQLTranspilationPlugin)
@@ -359,19 +353,21 @@ def duckdb_conn() -> duckdb.DuckDBPyConnection:
 
     Creates a 'default' catalog so that queries like "default".roads.table work.
     """
-    with open(
-        os.path.join(os.path.dirname(__file__), "duckdb.sql"),
-    ) as mock_data:
-        with duckdb.connect(
+    with (
+        open(
+            os.path.join(os.path.dirname(__file__), "duckdb.sql"),
+        ) as mock_data,
+        duckdb.connect(
             ":memory:",
-        ) as conn:
-            # Attach memory database as 'default' catalog so "default".schema.table works
-            conn.execute("""ATTACH ':memory:' AS "default" """)
-            conn.execute("""USE "default" """)
-            conn.execute(mock_data.read())
-            # Schema target for cube view DDL submitted via mock_create_view.
-            conn.execute('CREATE SCHEMA IF NOT EXISTS "default".dj_views')
-            yield conn
+        ) as conn,
+    ):
+        # Attach memory database as 'default' catalog so "default".schema.table works
+        conn.execute("""ATTACH ':memory:' AS "default" """)
+        conn.execute("""USE "default" """)
+        conn.execute(mock_data.read())
+        # Schema target for cube view DDL submitted via mock_create_view.
+        conn.execute('CREATE SCHEMA IF NOT EXISTS "default".dj_views')
+        yield conn
 
 
 @pytest.fixture(scope="session")
@@ -478,8 +474,8 @@ async def clean_session(
     # Register dialect plugins
     from datajunction_server.models.dialect import register_dialect_plugin
     from datajunction_server.transpilation import (
-        SQLTranspilationPlugin,
         SQLGlotTranspilationPlugin,
+        SQLTranspilationPlugin,
     )
 
     register_dialect_plugin("spark", SQLTranspilationPlugin)
@@ -694,18 +690,18 @@ def query_service_client(
         catalog: str,
         schema: str,
         table: str,
-        engine: Optional[Engine] = None,
-        request_headers: Optional[Dict[str, str]] = None,
-    ) -> List[Column]:
+        engine: Engine | None = None,
+        request_headers: dict[str, str] | None = None,
+    ) -> list[Column]:
         return COLUMN_MAPPINGS[f"{catalog}.{schema}.{table}"]
 
     async def mock_get_columns_for_table_async(
         catalog: str,
         schema: str,
         table: str,
-        request_headers: Optional[Dict[str, str]] = None,
-        engine: Optional[Engine] = None,
-    ) -> List[Column]:
+        request_headers: dict[str, str] | None = None,
+        engine: Engine | None = None,
+    ) -> list[Column]:
         return mock_get_columns_for_table(
             catalog,
             schema,
@@ -727,7 +723,7 @@ def query_service_client(
 
     def mock_submit_query(
         query_create: QueryCreate,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> QueryWithResults:
         # Transpile from Spark to DuckDB before executing
         transpiled_sql = transpile_to_duckdb(query_create.submitted_query)
@@ -757,7 +753,7 @@ def query_service_client(
 
     async def mock_submit_query_async(
         query_create: QueryCreate,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> QueryWithResults:
         return mock_submit_query(query_create, request_headers)
 
@@ -775,7 +771,7 @@ def query_service_client(
     def mock_create_view(
         view_name: str,
         query_create: QueryCreate,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> str:
         # Transpile from Spark to DuckDB before executing
         transpiled_sql = transpile_to_duckdb(query_create.submitted_query)
@@ -785,7 +781,7 @@ def query_service_client(
     async def mock_create_view_async(
         view_name: str,
         query_create: QueryCreate,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> str:
         return mock_create_view(view_name, query_create, request_headers)
 
@@ -802,7 +798,7 @@ def query_service_client(
 
     def mock_get_query(
         query_id: str,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> Collection[Collection[str]]:
         if query_id == "foo-bar-baz":
             raise DJQueryServiceClientEntityNotFound("Query foo-bar-baz not found.")
@@ -813,7 +809,7 @@ def query_service_client(
 
     async def mock_get_query_async(
         query_id: str,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> Collection[Collection[str]]:
         return mock_get_query(query_id, request_headers)
 
@@ -904,7 +900,7 @@ def patch_session_contexts(
     @asynccontextmanager
     async def fake_session_context(
         request: Request = None,
-        session_label: str = None,
+        session_label: str | None = None,
     ) -> AsyncGenerator[AsyncSession, None]:
         session = await session_factory()
         try:
@@ -1002,7 +998,7 @@ async def post_and_dont_raise_if_error(client: AsyncClient, endpoint: str, json:
 
 async def load_examples_in_client(
     client: AsyncClient,
-    examples_to_load: Optional[List[str]] = None,
+    examples_to_load: list[str] | None = None,
 ):
     """
     Load the DJ client with examples.
@@ -1051,7 +1047,7 @@ async def client_example_loader(
     without loading any examples.
     """
 
-    async def _load_examples(examples_to_load: Optional[List[str]] = None):
+    async def _load_examples(examples_to_load: list[str] | None = None):
         # Examples are already loaded in the template database
         return client
 
@@ -1060,7 +1056,7 @@ async def client_example_loader(
 
 @pytest_asyncio.fixture
 async def client_with_examples(
-    client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a DJ client fixture with all examples
@@ -1070,7 +1066,7 @@ async def client_with_examples(
 
 @pytest_asyncio.fixture
 async def client_with_service_setup(
-    client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a DJ client fixture with just the service setup
@@ -1080,7 +1076,7 @@ async def client_with_service_setup(
 
 @pytest_asyncio.fixture
 async def client_with_roads(
-    client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a DJ client fixture with roads examples
@@ -1090,7 +1086,7 @@ async def client_with_roads(
 
 @pytest_asyncio.fixture
 async def client_with_namespaced_roads(
-    client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a DJ client fixture with namespaced roads examples
@@ -1100,7 +1096,7 @@ async def client_with_namespaced_roads(
 
 @pytest_asyncio.fixture
 async def client_with_basic(
-    client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a DJ client fixture with basic examples
@@ -1110,7 +1106,7 @@ async def client_with_basic(
 
 @pytest_asyncio.fixture
 async def client_with_account_revenue(
-    client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a DJ client fixture with account revenue examples
@@ -1120,7 +1116,7 @@ async def client_with_account_revenue(
 
 @pytest_asyncio.fixture
 async def client_with_event(
-    client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a DJ client fixture with event examples
@@ -1130,7 +1126,7 @@ async def client_with_event(
 
 @pytest_asyncio.fixture
 async def client_with_dbt(
-    client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a DJ client fixture with dbt examples
@@ -1140,7 +1136,7 @@ async def client_with_dbt(
 
 @pytest_asyncio.fixture
 async def client_with_build_v3(
-    client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a DJ client fixture with BUILD_V3 examples.
@@ -1278,13 +1274,13 @@ async def client_qs(
 @pytest_asyncio.fixture
 async def client_with_query_service_example_loader(
     client_qs: AsyncClient,
-) -> Callable[[Optional[List[str]]], AsyncClient]:
+) -> Callable[[list[str] | None], AsyncClient]:
     """
     Provides a callable fixture for loading examples into a test client
     fixture that additionally has a mocked query service.
     """
 
-    def _load_examples(examples_to_load: Optional[List[str]] = None):
+    def _load_examples(examples_to_load: list[str] | None = None):
         return load_examples_in_client(client_qs, examples_to_load)
 
     return _load_examples
@@ -1293,7 +1289,7 @@ async def client_with_query_service_example_loader(
 @pytest_asyncio.fixture
 async def client_with_query_service(
     client_with_query_service_example_loader: Callable[
-        [Optional[List[str]]],
+        [list[str] | None],
         AsyncClient,
     ],
 ) -> AsyncClient:
@@ -1335,7 +1331,7 @@ async def module__client_example_loader(
     so this just returns the client directly.
     """
 
-    async def _load_examples(examples_to_load: Optional[List[str]] = None):
+    async def _load_examples(examples_to_load: list[str] | None = None):
         # Examples already loaded in template - just return the client
         return module__client
 
@@ -1536,12 +1532,12 @@ def module__settings(
         transpilation_plugins=["default"],
     )
 
+    from datajunction_server.internal import seed as seed_module
     from datajunction_server.models.dialect import register_dialect_plugin
     from datajunction_server.transpilation import (
-        SQLTranspilationPlugin,
         SQLGlotTranspilationPlugin,
+        SQLTranspilationPlugin,
     )
-    from datajunction_server.internal import seed as seed_module
 
     register_dialect_plugin("spark", SQLTranspilationPlugin)
     register_dialect_plugin("trino", SQLTranspilationPlugin)
@@ -1594,7 +1590,7 @@ def regular_settings(
 
 @pytest_asyncio.fixture(scope="module")
 async def module__client_with_dimension_link(
-    module__client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    module__client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a DJ client fixture with dbt examples
@@ -1604,7 +1600,7 @@ async def module__client_with_dimension_link(
 
 @pytest_asyncio.fixture(scope="module")
 async def module__client_with_roads(
-    module__client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    module__client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a DJ client fixture with roads examples
@@ -1614,7 +1610,7 @@ async def module__client_with_roads(
 
 @pytest_asyncio.fixture(scope="module")
 async def module__client_with_namespaced_roads(
-    module__client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    module__client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a DJ client fixture with roads examples
@@ -1624,7 +1620,7 @@ async def module__client_with_namespaced_roads(
 
 @pytest_asyncio.fixture(scope="module")
 async def module__client_with_account_revenue(
-    module__client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    module__client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a DJ client fixture with account revenue examples
@@ -1634,7 +1630,7 @@ async def module__client_with_account_revenue(
 
 @pytest_asyncio.fixture(scope="module")
 async def module__client_with_roads_and_acc_revenue(
-    module__client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    module__client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a DJ client fixture with roads examples
@@ -1644,7 +1640,7 @@ async def module__client_with_roads_and_acc_revenue(
 
 @pytest_asyncio.fixture(scope="module")
 async def module__client_with_basic(
-    module__client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    module__client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a DJ client fixture with account revenue examples
@@ -1654,7 +1650,7 @@ async def module__client_with_basic(
 
 @pytest_asyncio.fixture(scope="module")
 async def module__client_with_simple_hll(
-    module__client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    module__client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a minimal DJ client fixture for HLL/APPROX_COUNT_DISTINCT testing.
@@ -1664,7 +1660,7 @@ async def module__client_with_simple_hll(
 
 @pytest_asyncio.fixture(scope="module")
 async def module__client_with_both_basics(
-    module__client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    module__client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a DJ client fixture with account revenue examples
@@ -1674,7 +1670,7 @@ async def module__client_with_both_basics(
 
 @pytest_asyncio.fixture(scope="module")
 async def module__client_with_examples(
-    module__client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    module__client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a DJ client fixture with all examples
@@ -1684,7 +1680,7 @@ async def module__client_with_examples(
 
 @pytest_asyncio.fixture(scope="module")
 async def module__client_with_build_v3(
-    module__client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    module__client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a module-scoped DJ client fixture with BUILD_V3 examples.
@@ -2203,18 +2199,18 @@ def module__query_service_client(
         catalog: str,
         schema: str,
         table: str,
-        engine: Optional[Engine] = None,
-        request_headers: Optional[Dict[str, str]] = None,
-    ) -> List[Column]:
+        engine: Engine | None = None,
+        request_headers: dict[str, str] | None = None,
+    ) -> list[Column]:
         return COLUMN_MAPPINGS[f"{catalog}.{schema}.{table}"]
 
     async def mock_get_columns_for_table_async(
         catalog: str,
         schema: str,
         table: str,
-        request_headers: Optional[Dict[str, str]] = None,
-        engine: Optional[Engine] = None,
-    ) -> List[Column]:
+        request_headers: dict[str, str] | None = None,
+        engine: Engine | None = None,
+    ) -> list[Column]:
         return mock_get_columns_for_table(
             catalog,
             schema,
@@ -2236,7 +2232,7 @@ def module__query_service_client(
 
     def mock_submit_query(
         query_create: QueryCreate,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> QueryWithResults:
         # Transpile from Spark to DuckDB before executing
         transpiled_sql = transpile_to_duckdb(query_create.submitted_query)
@@ -2270,7 +2266,7 @@ def module__query_service_client(
 
     async def mock_submit_query_async(
         query_create: QueryCreate,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> QueryWithResults:
         return mock_submit_query(query_create, request_headers)
 
@@ -2288,7 +2284,7 @@ def module__query_service_client(
     def mock_create_view(
         view_name: str,
         query_create: QueryCreate,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> str:
         # Transpile from Spark to DuckDB before executing
         transpiled_sql = transpile_to_duckdb(query_create.submitted_query)
@@ -2298,7 +2294,7 @@ def module__query_service_client(
     async def mock_create_view_async(
         view_name: str,
         query_create: QueryCreate,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> str:
         return mock_create_view(view_name, query_create, request_headers)
 
@@ -2315,7 +2311,7 @@ def module__query_service_client(
 
     def mock_get_query(
         query_id: str,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> Collection[Collection[str]]:
         if query_id == "foo-bar-baz":
             raise DJQueryServiceClientEntityNotFound("Query foo-bar-baz not found.")
@@ -2326,7 +2322,7 @@ def module__query_service_client(
 
     async def mock_get_query_async(
         query_id: str,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> Collection[Collection[str]]:
         return mock_get_query(query_id, request_headers)
 
@@ -2400,7 +2396,7 @@ def module__query_service_client(
 
 @pytest_asyncio.fixture(scope="module")
 async def module__client_with_all_examples(
-    module__client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    module__client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a DJ client fixture with all examples

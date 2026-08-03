@@ -1,19 +1,20 @@
 """Dependency for notifications"""
 
 import logging
+from datetime import UTC, datetime
 from http import HTTPStatus
-from typing import Annotated, List, Optional
-from datetime import datetime, timezone
+from typing import Annotated
 
 from fastapi import Body, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy import update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy.dialects.postgresql import insert
+
+from datajunction_server.database.history import History
 from datajunction_server.database.notification_preference import NotificationPreference
 from datajunction_server.database.user import User
-from datajunction_server.database.history import History
 from datajunction_server.errors import DJDoesNotExistException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.history import ActivityType, EntityType
@@ -120,11 +121,11 @@ async def unsubscribe(
 
 @router.get("/notifications/")
 async def get_preferences(
-    entity_name: Optional[str] = None,
-    entity_type: Optional[EntityType] = None,
+    entity_name: str | None = None,
+    entity_type: EntityType | None = None,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
-) -> List[NotificationPreferenceModel]:
+) -> list[NotificationPreferenceModel]:
     """Gets notification preferences for the current user"""
     statement = (
         select(
@@ -187,7 +188,7 @@ async def mark_notifications_read(
     Mark all notifications as read by updating the user's
     last_viewed_notifications_at timestamp to now.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     await session.execute(
         update(User)
         .where(User.id == current_user.id)

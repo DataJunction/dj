@@ -74,7 +74,7 @@ def extract_subscript_role(subscript: ast.Subscript) -> str | None:
 
 def _raise_for_unresolved_filter_refs(
     refs: list[str],
-    nodes: dict[str, "Node"] | None,
+    nodes: dict[str, Node] | None,
 ) -> None:
     """
     Raise a single DJInvalidInputException covering every unresolved filter ref.
@@ -140,7 +140,7 @@ def resolve_filter_references(
     filter_ast: ast.Expression,
     column_aliases: dict[str, str],
     cte_alias: str | None = None,
-    nodes: dict[str, "Node"] | None = None,
+    nodes: dict[str, Node] | None = None,
 ) -> ast.Expression:
     """
     Resolve dimension/column references in a filter AST to their actual column aliases.
@@ -314,7 +314,7 @@ def combine_filters(filters: list[ast.Expression]) -> ast.Expression | None:
 
     def _and(a: ast.Expression, b: ast.Expression) -> ast.Expression:
         result = ast.BinaryOp.And(a, b)
-        assert result is not None  # noqa: S101  # two non-None args guarantee non-None result
+        assert result is not None  # two non-None args guarantee non-None result
         return result
 
     return reduce(_and, filters)
@@ -324,7 +324,7 @@ def parse_and_resolve_filters(
     filter_strs: list[str],
     column_aliases: dict[str, str],
     cte_alias: str | None = None,
-    nodes: dict[str, "Node"] | None = None,
+    nodes: dict[str, Node] | None = None,
 ) -> ast.Expression | None:
     """
     Parse filter strings and resolve references, returning combined WHERE clause.
@@ -456,7 +456,7 @@ def _int_literal(expression: ast.Expression) -> int | None:
 
 
 def _bounds_by_ref(
-    ctx: "BuildContext",
+    ctx: BuildContext,
     node_rev_id: int,
     *,
     upper: bool,
@@ -535,7 +535,7 @@ def _bounds_by_ref(
     return bounds
 
 
-def upper_bounds_by_ref(ctx: "BuildContext", node_rev_id: int) -> dict[str, int]:
+def upper_bounds_by_ref(ctx: BuildContext, node_rev_id: int) -> dict[str, int]:
     """
     Tightest ceiling each dimension reference carries, over all the query's
     filters. See :func:`_bounds_by_ref`.
@@ -543,7 +543,7 @@ def upper_bounds_by_ref(ctx: "BuildContext", node_rev_id: int) -> dict[str, int]
     return _bounds_by_ref(ctx, node_rev_id, upper=True)
 
 
-def lower_bounds_by_ref(ctx: "BuildContext", node_rev_id: int) -> dict[str, int]:
+def lower_bounds_by_ref(ctx: BuildContext, node_rev_id: int) -> dict[str, int]:
     """
     Tightest floor each dimension reference carries, over all the query's
     filters. See :func:`_bounds_by_ref`.

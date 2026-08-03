@@ -1,8 +1,10 @@
 """BigQuery query client using google-cloud-bigquery."""
 
+from __future__ import annotations
+
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
 
 from datajunction_server.database.column import Column
 from datajunction_server.errors import (
@@ -52,9 +54,9 @@ class BigQueryClient(BaseQueryServiceClient):
     def __init__(
         self,
         project: str,
-        credentials_path: Optional[str] = None,
-        credentials_info: Optional[Dict[str, Any]] = None,
-        location: Optional[str] = None,
+        credentials_path: str | None = None,
+        credentials_info: dict[str, Any] | None = None,
+        location: str | None = None,
         **connection_kwargs,
     ):
         """
@@ -80,7 +82,7 @@ class BigQueryClient(BaseQueryServiceClient):
         self._credentials_info = credentials_info
         self._connection_kwargs = connection_kwargs
 
-    def _get_client(self, project: Optional[str] = None):
+    def _get_client(self, project: str | None = None):
         """Return a configured google.cloud.bigquery.Client instance."""
         credentials = None
 
@@ -102,7 +104,7 @@ class BigQueryClient(BaseQueryServiceClient):
 
     def _get_project_from_engine(
         self,
-        engine: Optional["Engine"],
+        engine: Engine | None,
         fallback_catalog: str,
     ) -> str:
         """
@@ -134,7 +136,7 @@ class BigQueryClient(BaseQueryServiceClient):
 
             if parsed.query:
                 query_params = parse_qs(parsed.query)
-                if "project" in query_params and query_params["project"]:
+                if query_params.get("project"):
                     return query_params["project"][0]
 
         except Exception as e:  # pragma: no cover
@@ -150,9 +152,9 @@ class BigQueryClient(BaseQueryServiceClient):
         catalog: str,
         schema: str,
         table: str,
-        request_headers: Optional[Dict[str, str]] = None,
-        engine: Optional["Engine"] = None,
-    ) -> List[Column]:
+        request_headers: dict[str, str] | None = None,
+        engine: Engine | None = None,
+    ) -> list[Column]:
         """
         Retrieve columns for a BigQuery table via INFORMATION_SCHEMA.
 
@@ -161,7 +163,7 @@ class BigQueryClient(BaseQueryServiceClient):
         """
         project = self._get_project_from_engine(engine, catalog)
 
-        def _fetch() -> List[Column]:
+        def _fetch() -> list[Column]:
             try:
                 client = self._get_client(project=project)
 
@@ -203,7 +205,7 @@ class BigQueryClient(BaseQueryServiceClient):
             except Exception as e:
                 _logger.exception("Error retrieving columns from BigQuery")
                 raise DJQueryServiceClientException(
-                    message=f"Error retrieving columns from BigQuery: {str(e)}",
+                    message=f"Error retrieving columns from BigQuery: {e!s}",
                 ) from e
 
         return await asyncio.to_thread(_fetch)
@@ -225,8 +227,8 @@ class BigQueryClient(BaseQueryServiceClient):
             DecimalType,
             FloatType,
             StringType,
-            TimeType,
             TimestampType,
+            TimeType,
         )
 
         # Strip parameterized suffixes like NUMERIC(10, 2) → NUMERIC

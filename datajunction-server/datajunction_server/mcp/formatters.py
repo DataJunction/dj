@@ -2,10 +2,10 @@
 Formatters to convert GraphQL responses into AI-friendly formats
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
-def format_nodes_list(nodes: List[Dict[str, Any]]) -> str:
+def format_nodes_list(nodes: list[dict[str, Any]]) -> str:
     """
     Format a list of nodes for the search/discovery flow.
 
@@ -54,8 +54,8 @@ def format_nodes_list(nodes: List[Dict[str, Any]]) -> str:
 
 
 def format_node_details(
-    node: Dict[str, Any],
-    dimensions: Optional[List[Dict[str, Any]]] = None,
+    node: dict[str, Any],
+    dimensions: list[dict[str, Any]] | None = None,
 ) -> str:
     """
     Format detailed node information for AI
@@ -168,8 +168,8 @@ def format_node_details(
 
 
 def format_dimensions_compatibility(
-    metrics: List[str],
-    common_dims: List[Dict[str, Any]],
+    metrics: list[str],
+    common_dims: list[dict[str, Any]],
 ) -> str:
     """
     Format dimension compatibility information

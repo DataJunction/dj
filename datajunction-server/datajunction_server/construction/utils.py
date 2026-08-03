@@ -3,7 +3,7 @@ Utilities used around construction
 """
 
 import time
-from typing import TYPE_CHECKING, Optional, Set
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 async def get_dj_node(
     session: AsyncSession,
     node_name: str,
-    kinds: Optional[Set[NodeType]] = None,
+    kinds: set[NodeType] | None = None,
     current: bool = True,
 ) -> NodeRevision:
     """Return the DJ Node with a given name from a set of node types"""
@@ -56,7 +56,9 @@ async def get_dj_node(
             ),
         ) from no_result_exc
     finally:
-        from datajunction_server.instrumentation.provider import get_metrics_provider  # noqa: PLC0415
+        from datajunction_server.instrumentation.provider import (
+            get_metrics_provider,
+        )
 
         get_metrics_provider().timer(
             "dj.compile.get_dj_node_ms",

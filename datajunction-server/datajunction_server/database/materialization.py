@@ -1,6 +1,6 @@
 """Materialization database schema."""
 
-from typing import TYPE_CHECKING, List, Optional, Union
+from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
 from sqlalchemy import (
@@ -19,12 +19,12 @@ from sqlalchemy.orm import Mapped, joinedload, mapped_column, relationship
 from datajunction_server.database.backfill import Backfill
 from datajunction_server.database.base import Base
 from datajunction_server.database.column import Column
+from datajunction_server.models.cube_materialization import DruidCubeV3Config
 from datajunction_server.models.materialization import (
     DruidMeasuresCubeConfig,
     GenericMaterializationConfig,
     MaterializationStrategy,
 )
-from datajunction_server.models.cube_materialization import DruidCubeV3Config
 from datajunction_server.typing import UTCDatetime
 
 if TYPE_CHECKING:
@@ -67,7 +67,7 @@ class Materialization(Base):
 
     name: Mapped[str]
 
-    strategy: Mapped[Optional[MaterializationStrategy]] = mapped_column(
+    strategy: Mapped[MaterializationStrategy | None] = mapped_column(
         Enum(MaterializationStrategy),
     )
 
@@ -76,7 +76,7 @@ class Materialization(Base):
 
     # Arbitrary config relevant to the materialization job
     config: Mapped[
-        Union[GenericMaterializationConfig, DruidMeasuresCubeConfig, DruidCubeV3Config]
+        GenericMaterializationConfig | DruidMeasuresCubeConfig | DruidCubeV3Config
     ] = mapped_column(
         JSON,
         default={},
@@ -94,7 +94,7 @@ class Materialization(Base):
         default=None,
     )
 
-    backfills: Mapped[List[Backfill]] = relationship(
+    backfills: Mapped[list[Backfill]] = relationship(
         back_populates="materialization",
         primaryjoin="Materialization.id==Backfill.materialization_id",
         cascade="all, delete",
@@ -106,8 +106,8 @@ class Materialization(Base):
         cls,
         session: AsyncSession,
         node_revision_id: int,
-        materialization_names: List[str],
-    ) -> List["Materialization"]:
+        materialization_names: list[str],
+    ) -> list["Materialization"]:
         """
         Get materializations by name and node revision id.
         """

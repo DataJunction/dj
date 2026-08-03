@@ -2,6 +2,7 @@
 
 from unittest import mock
 
+from datajunction_server.models.dialect import Dialect, DialectRegistry
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.sql import GeneratedSQL, NodeNameVersion
@@ -10,7 +11,6 @@ from datajunction_server.transpilation import (
     SQLTranspilationPlugin,
     transpile_sql,
 )
-from datajunction_server.models.dialect import Dialect, DialectRegistry
 
 
 def test_get_transpilation_plugin(regular_settings) -> None:

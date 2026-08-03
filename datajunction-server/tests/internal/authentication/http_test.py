@@ -5,8 +5,8 @@ Test internal http authentication logic
 import asyncio
 from unittest.mock import MagicMock
 
-from sqlalchemy.ext.asyncio import AsyncSession
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJException

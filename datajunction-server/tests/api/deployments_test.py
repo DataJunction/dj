@@ -1,46 +1,47 @@
 import asyncio
 import json
-from unittest import mock
 import uuid
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
+from unittest import mock
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from datajunction_server.models.deployment import (
-    ColumnSpec,
-    DeploymentSpec,
-    DeploymentStatus,
-    DimensionReferenceLinkSpec,
-    TransformSpec,
-    SourceSpec,
-    MetricSpec,
-    DimensionSpec,
-    CubeSpec,
-    DimensionJoinLinkSpec,
-    GitDeploymentSource,
-    LocalDeploymentSource,
-    PreAggSpec,
-    TagSpec,
-)
-from datajunction_server.utils import get_query_service_client
-from datajunction_server.internal.git.github_service import GitHubServiceError
+import pytest
+
 from datajunction_server.api.deployments import (
     InProcessExecutor,
     _normalize_repo_path,
 )
-from datajunction_server.models.dimensionlink import JoinType
 from datajunction_server.database.node import Node, NodeRelationship
 from datajunction_server.database.tag import Tag
+from datajunction_server.internal.access.authorization import AuthorizationService
+from datajunction_server.internal.git.github_service import GitHubServiceError
+from datajunction_server.models import access
+from datajunction_server.models.deployment import (
+    ColumnSpec,
+    CubeSpec,
+    DeploymentSpec,
+    DeploymentStatus,
+    DimensionJoinLinkSpec,
+    DimensionReferenceLinkSpec,
+    DimensionSpec,
+    GitDeploymentSource,
+    LocalDeploymentSource,
+    MetricSpec,
+    PreAggSpec,
+    SourceSpec,
+    TagSpec,
+    TransformSpec,
+)
+from datajunction_server.models.dimensionlink import JoinType
 from datajunction_server.models.node import (
     MetricDirection,
     MetricUnit,
     NodeMode,
     NodeType,
 )
-from datajunction_server.internal.access.authorization import AuthorizationService
-from datajunction_server.models import access
+from datajunction_server.utils import get_query_service_client
 from tests.construction.build_v3 import assert_sql_equal
-import pytest
 
 
 # Patch target: the name as imported into the validator module, where
@@ -2245,6 +2246,7 @@ class TestDeployments:
         leaving metrics with derived_expression = NULL after deployment.
         """
         from sqlalchemy.orm import joinedload, selectinload
+
         from datajunction_server.database.node import Node, NodeRevision
 
         namespace = "derive_measures"
@@ -3541,7 +3543,7 @@ class TestDeployments:
                 "default.repair_orders_fact",
                 f"{namespace}.default.repair_orders_fact",
                 "transform",
-            ),  # noqa: E501
+            ),
             (
                 "default.num_repair_orders",
                 f"{namespace}.default.num_repair_orders",
@@ -5247,8 +5249,9 @@ class TestDeploymentStatusUpdate:
         api/deployments.py lines 217-219 catches it and records a FAILED status.
         """
         from contextlib import asynccontextmanager
-        from datajunction_server.internal.deployment.utils import DeploymentContext
+
         from datajunction_server.database.deployment import Deployment
+        from datajunction_server.internal.deployment.utils import DeploymentContext
 
         deployment_id = str(uuid.uuid4())
 
@@ -5374,7 +5377,7 @@ class TestDeploymentRevalidation:
         which derives parents from node_graph. Verify the new revision has the
         correct NodeRelationship row regardless of any corruption on the old revision.
         """
-        from sqlalchemy import select, delete
+        from sqlalchemy import delete, select
 
         namespace = "revalidate_parents_test"
 
@@ -5467,10 +5470,10 @@ async def test_validate_reference_dimension_link_bad_attribute():
     validate_reference_dimension_link raises when the dimension attribute
     does not exist on the dimension node's columns.
     """
+    from datajunction_server.errors import DJInvalidInputException
     from datajunction_server.internal.deployment.orchestrator import (
         validate_reference_dimension_link,
     )
-    from datajunction_server.errors import DJInvalidInputException
 
     # Build a reference link pointing to a non-existent column
     link = DimensionReferenceLinkSpec(

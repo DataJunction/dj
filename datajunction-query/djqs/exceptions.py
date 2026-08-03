@@ -2,7 +2,7 @@
 Errors and warnings.
 """
 
-from typing import Any, Dict, List, Literal, Optional, TypedDict
+from typing import Any, Literal, TypedDict
 
 from djqs.enum import IntEnum
 
@@ -38,7 +38,7 @@ class DebugType(TypedDict, total=False):
     documentation: str
 
     # any additional context
-    context: Dict[str, Any]
+    context: dict[str, Any]
 
 
 class DJErrorType(TypedDict):
@@ -48,7 +48,7 @@ class DJErrorType(TypedDict):
 
     code: int
     message: str
-    debug: Optional[DebugType]
+    debug: DebugType | None
 
 
 class DJError:
@@ -60,7 +60,7 @@ class DJError:
         self,
         code: ErrorCode,
         message: str,
-        debug: Optional[Dict[str, Any]] = None,
+        debug: dict[str, Any] | None = None,
     ):
         self.code = code
         self.message = message
@@ -72,7 +72,7 @@ class DJError:
         """
         return f"{self.message} (error code: {self.code})"
 
-    def dict(self) -> Dict[str, Any]:
+    def dict(self) -> dict[str, Any]:
         """
         Convert the error to a dictionary.
         """
@@ -88,9 +88,9 @@ class DJWarningType(TypedDict):
     Type for serialized warnings.
     """
 
-    code: Optional[int]
+    code: int | None
     message: str
-    debug: Optional[DebugType]
+    debug: DebugType | None
 
 
 class DJWarning:  # pylint: disable=too-few-public-methods
@@ -101,14 +101,14 @@ class DJWarning:  # pylint: disable=too-few-public-methods
     def __init__(
         self,
         message: str,
-        code: Optional[ErrorCode] = None,
-        debug: Optional[Dict[str, Any]] = None,
+        code: ErrorCode | None = None,
+        debug: dict[str, Any] | None = None,
     ):
         self.code = code
         self.message = message
         self.debug = debug
 
-    def dict(self) -> Dict[str, Any]:
+    def dict(self) -> dict[str, Any]:
         """
         Convert the warning to a dictionary.
         """
@@ -138,9 +138,9 @@ class DJExceptionType(TypedDict):
     Type for serialized exceptions.
     """
 
-    message: Optional[str]
-    errors: List[DJErrorType]
-    warnings: List[DJWarningType]
+    message: str | None
+    errors: list[DJErrorType]
+    warnings: list[DJWarningType]
 
 
 class DJException(Exception):
@@ -150,11 +150,11 @@ class DJException(Exception):
 
     def __init__(  # pylint: disable=too-many-arguments
         self,
-        message: Optional[str] = None,
-        errors: Optional[List[DJError]] = None,
-        warnings: Optional[List[DJWarning]] = None,
-        dbapi_exception: Optional[DBAPIExceptions] = None,
-        http_status_code: Optional[int] = None,
+        message: str | None = None,
+        errors: list[DJError] | None = None,
+        warnings: list[DJWarning] | None = None,
+        dbapi_exception: DBAPIExceptions | None = None,
+        http_status_code: int | None = None,
     ):
         self.errors = errors or []
         self.warnings = warnings or []

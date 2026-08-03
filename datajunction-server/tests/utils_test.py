@@ -2,25 +2,24 @@
 Tests for ``datajunction_server.utils``.
 """
 
-from typing import cast
-import logging
-from unittest.mock import AsyncMock, MagicMock, patch
 import json
-import pytest
-from starlette.requests import Request
-from starlette.datastructures import Headers
-from starlette.types import Scope
+import logging
+from typing import cast
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pytest_mock import MockerFixture
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.background import BackgroundTasks
+from starlette.datastructures import Headers
+from starlette.requests import Request
+from starlette.types import Scope
 from testcontainers.postgres import PostgresContainer
 from yarl import URL
 
 from datajunction_server.config import DatabaseConfig, Settings
-from datajunction_server.database.user import OAuthProvider, User
+from datajunction_server.database.user import OAuthProvider, PrincipalKind, User
 from datajunction_server.errors import (
     DJDatabaseException,
     DJException,
@@ -29,19 +28,18 @@ from datajunction_server.errors import (
 from datajunction_server.utils import (
     DatabaseSessionManager,
     Version,
+    _create_configured_query_client,
     execute_with_retry,
     get_issue_url,
-    get_query_service_client,
     get_legacy_query_service_client,
+    get_query_service_client,
     get_session,
     get_session_manager,
     get_settings,
-    setup_logging,
     is_graphql_query,
+    setup_logging,
     sync_user_groups,
-    _create_configured_query_client,
 )
-from datajunction_server.database.user import PrincipalKind
 
 
 def test_setup_logging() -> None:
@@ -492,9 +490,9 @@ async def test_http_query_service_client_wrapper(mocker: MockerFixture) -> None:
     """
     Test HttpQueryServiceClient properly wraps QueryServiceClient.
     """
-    from datajunction_server.query_clients import HttpQueryServiceClient
-    from datajunction_server.models.query import QueryCreate
     from datajunction_server.models.node_type import NodeType
+    from datajunction_server.models.query import QueryCreate
+    from datajunction_server.query_clients import HttpQueryServiceClient
 
     # Mock the underlying QueryServiceClient
     mock_client = mocker.MagicMock()

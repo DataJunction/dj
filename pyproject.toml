@@ -2,7 +2,7 @@
 name = "datajunction-monorepo"
 version = "0.0.1"
 dependencies = []
-requires-python = ">=3.10,<4.0"
+requires-python = ">=3.11,<4.0"
 
 [[tool.uv.index]]
 name = "pypi"

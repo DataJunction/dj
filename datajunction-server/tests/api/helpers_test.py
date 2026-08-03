@@ -5,9 +5,8 @@ Tests for API helpers.
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from datajunction_server.api import helpers
@@ -16,10 +15,10 @@ from datajunction_server.api.helpers import (
     find_required_dimensions,
 )
 from datajunction_server.database.column import Column
-from datajunction_server.internal import sql
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.errors import DJDoesNotExistException, DJException
+from datajunction_server.internal import sql
 from datajunction_server.internal.nodes import propagate_valid_status
 from datajunction_server.models.node import NodeStatus
 from datajunction_server.sql.parsing.types import IntegerType

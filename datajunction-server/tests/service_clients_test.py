@@ -17,8 +17,8 @@ from datajunction_server.errors import (
     DJQueryServiceClientException,
 )
 from datajunction_server.models.cube_materialization import (
-    CubeMetric,
     CubeMaterializationV2Input,
+    CubeMetric,
     DruidCubeMaterializationInput,
     MeasureKey,
     NodeNameVersion,

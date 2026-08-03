@@ -2,13 +2,14 @@
 Unit tests for datajunction_server.internal.impact.propagate_impact
 """
 
+from datetime import UTC
 from unittest.mock import patch
 
 import pytest
 
 from datajunction_server.database.column import Column as DBColumn
-from datajunction_server.database.node import Node, NodeRevision, NodeRelationship
 from datajunction_server.database.namespace import NodeNamespace
+from datajunction_server.database.node import Node, NodeRelationship, NodeRevision
 from datajunction_server.database.user import User
 from datajunction_server.internal.impact import _merge_impacts, propagate_impact
 from datajunction_server.models.impact import DownstreamImpact, ImpactType
@@ -19,7 +20,6 @@ from datajunction_server.sql.parsing.types import (
     IntegerType,
     StringType,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -326,7 +326,7 @@ async def test_propagate_impact_deactivated_children_skipped(
     Covers the while-loop exit path where next_frontier becomes empty because
     all discovered child nodes have been deactivated (filtered by deactivated_at IS NULL).
     """
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     session.add(NodeNamespace(namespace="ns"))
 
@@ -346,7 +346,7 @@ async def test_propagate_impact_deactivated_children_skipped(
     await _persist(session, _link(parent, child_rev))
 
     # Deactivate the child node so it is filtered out in BFS
-    child.deactivated_at = datetime.now(timezone.utc)
+    child.deactivated_at = datetime.now(UTC)
     session.add(child)
     await session.flush()
 

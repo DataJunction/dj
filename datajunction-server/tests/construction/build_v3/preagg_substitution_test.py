@@ -15,6 +15,9 @@ Key scenarios:
 6. use_materialized=False -> always compute from source
 """
 
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
 import pytest
 
 from datajunction_server.config import Settings
@@ -22,6 +25,7 @@ from datajunction_server.construction.build_v3.measures import (
     build_grain_group_from_preagg,
 )
 from datajunction_server.construction.build_v3.types import BuildContext, GrainGroup
+from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.preaggregation import (
     PreAggregation,
     compute_expression_hash,
@@ -32,11 +36,8 @@ from datajunction_server.models.decompose import (
     MetricComponent,
     PreAggMeasure,
 )
-from types import SimpleNamespace
-from unittest.mock import MagicMock
-
-from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.utils import get_query_service_client
+
 from . import assert_sql_equal, get_first_grain_group
 
 

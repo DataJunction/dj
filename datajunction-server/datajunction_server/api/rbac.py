@@ -1,15 +1,15 @@
 """RBAC API endpoints."""
 
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 from fastapi import Depends, Query
+from sqlalchemy import delete as sql_delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from sqlalchemy import delete as sql_delete
 
 from datajunction_server.database.history import History
-from datajunction_server.database.rbac import Role, RoleScope, RoleAssignment
+from datajunction_server.database.rbac import Role, RoleAssignment, RoleScope
 from datajunction_server.database.user import User
 from datajunction_server.errors import (
     DJAlreadyExistsException,
@@ -34,8 +34,8 @@ from datajunction_server.models.rbac import (
     RoleUpdate,
     ScopeValue,
 )
-from datajunction_server.utils import get_session, get_current_user
 from datajunction_server.models.user import UserOutput
+from datajunction_server.utils import get_current_user, get_session
 
 router = SecureAPIRouter(tags=["rbac"])
 
@@ -77,9 +77,9 @@ async def log_activity(
     entity_name: str,
     activity_type: ActivityType,
     user: str,
-    pre: Optional[Dict[str, Any]] = None,
-    post: Optional[Dict[str, Any]] = None,
-    details: Optional[Dict[str, Any]] = None,
+    pre: dict[str, Any] | None = None,
+    post: dict[str, Any] | None = None,
+    details: dict[str, Any] | None = None,
 ) -> None:
     """
     Log activity to history table.
@@ -174,7 +174,7 @@ async def create_role(
     return role
 
 
-@router.get("/roles/", response_model=List[RoleOutput])
+@router.get("/roles/", response_model=list[RoleOutput])
 async def list_roles(
     *,
     session: AsyncSession = Depends(get_session),
@@ -182,8 +182,8 @@ async def list_roles(
     limit: int = Query(default=100, le=500),
     offset: int = Query(default=0, ge=0),
     include_deleted: bool = Query(default=False),
-    created_by_id: Optional[int] = Query(default=None),
-) -> List[Role]:
+    created_by_id: int | None = Query(default=None),
+) -> list[Role]:
     """
     List all roles with their scopes.
 
@@ -326,7 +326,7 @@ async def delete_role(
         )
 
     # Soft delete
-    role.deleted_at = datetime.now(timezone.utc)
+    role.deleted_at = datetime.now(UTC)
 
     # Log activity for audit trail (who deleted is captured in History.user)
     await log_activity(
@@ -422,13 +422,13 @@ async def add_scope_to_role(
     return scope
 
 
-@router.get("/roles/{role_name}/scopes/", response_model=List[RoleScopeOutput])
+@router.get("/roles/{role_name}/scopes/", response_model=list[RoleScopeOutput])
 async def list_role_scopes(
     role_name: str,
     *,
     session: AsyncSession = Depends(get_session),
     current_user: UserOutput = Depends(get_current_user),
-) -> List[RoleScope]:
+) -> list[RoleScope]:
     """
     List all scopes for a role.
     """
@@ -605,7 +605,7 @@ async def assign_role_to_principal(
     return assignment
 
 
-@router.get("/roles/{role_name}/assignments", response_model=List[RoleAssignmentOutput])
+@router.get("/roles/{role_name}/assignments", response_model=list[RoleAssignmentOutput])
 async def list_role_assignments(
     role_name: str,
     *,
@@ -613,7 +613,7 @@ async def list_role_assignments(
     current_user: UserOutput = Depends(get_current_user),
     limit: int = Query(default=100, le=500),
     offset: int = Query(default=0, ge=0),
-) -> List[RoleAssignment]:
+) -> list[RoleAssignment]:
     """
     List all principals who have this role.
 

@@ -1,8 +1,10 @@
 """Base abstract class for query service clients."""
 
+from __future__ import annotations
+
 import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any
 
 from datajunction_server.database.column import Column
 from datajunction_server.models.cube_materialization import (
@@ -13,9 +15,9 @@ from datajunction_server.models.materialization import (
     GenericMaterializationInput,
     MaterializationInfo,
 )
-from datajunction_server.models.preaggregation import PreAggMaterializationInput
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionBackfill
+from datajunction_server.models.preaggregation import PreAggMaterializationInput
 from datajunction_server.models.query import QueryCreate, QueryWithResults
 
 if TYPE_CHECKING:
@@ -42,17 +44,17 @@ class BaseQueryServiceClient(ABC):
         catalog: str,
         schema: str,
         table: str,
-        request_headers: Optional[Dict[str, str]] = None,
-        engine: Optional["Engine"] = None,
-    ) -> List[Column]:
+        request_headers: dict[str, str] | None = None,
+        engine: Engine | None = None,
+    ) -> list[Column]:
         """Retrieves columns for a table."""
 
     async def get_columns_for_tables_batch(
         self,
-        tables: List[tuple[str, str, str]],  # [(catalog, schema, table), ...]
-        request_headers: Optional[Dict[str, str]] = None,
-        engine: Optional["Engine"] = None,
-    ) -> Dict[tuple[str, str, str], List[Column]]:
+        tables: list[tuple[str, str, str]],  # [(catalog, schema, table), ...]
+        request_headers: dict[str, str] | None = None,
+        engine: Engine | None = None,
+    ) -> dict[tuple[str, str, str], list[Column]]:
         """
         Retrieves columns for multiple tables in a single batch request.
 
@@ -84,7 +86,7 @@ class BaseQueryServiceClient(ABC):
         self,
         view_name: str,
         query_create: QueryCreate,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> str:
         """Re-create a view using the query service."""
         raise NotImplementedError(
@@ -94,7 +96,7 @@ class BaseQueryServiceClient(ABC):
     async def submit_query(
         self,
         query_create: QueryCreate,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> QueryWithResults:
         """Submit a query to the query service."""
         raise NotImplementedError(
@@ -104,7 +106,7 @@ class BaseQueryServiceClient(ABC):
     async def get_query(
         self,
         query_id: str,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> QueryWithResults:
         """Get a previously submitted query."""
         raise NotImplementedError(
@@ -113,11 +115,8 @@ class BaseQueryServiceClient(ABC):
 
     def materialize(
         self,
-        materialization_input: Union[
-            GenericMaterializationInput,
-            DruidMaterializationInput,
-        ],
-        request_headers: Optional[Dict[str, str]] = None,
+        materialization_input: GenericMaterializationInput | DruidMaterializationInput,
+        request_headers: dict[str, str] | None = None,
     ) -> MaterializationInfo:
         """
         Post a request to set up a scheduled materialization.
@@ -139,7 +138,7 @@ class BaseQueryServiceClient(ABC):
     def materialize_cube(
         self,
         materialization_input: DruidCubeMaterializationInput,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> MaterializationInfo:
         """
         Post a request to set up a scheduled cube materialization.
@@ -161,8 +160,8 @@ class BaseQueryServiceClient(ABC):
     def materialize_preagg(
         self,
         materialization_input: PreAggMaterializationInput,
-        request_headers: Optional[Dict[str, str]] = None,
-    ) -> Dict[str, Any]:
+        request_headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         """
         Create/update a scheduled workflow for a pre-aggregation materialization.
 
@@ -186,8 +185,8 @@ class BaseQueryServiceClient(ABC):
     def deactivate_preagg_workflow(
         self,
         output_table: str,
-        request_headers: Optional[Dict[str, str]] = None,
-    ) -> Dict[str, Any]:
+        request_headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         """Deactivate a pre-aggregation's workflows by output table name."""
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support pre-aggregation workflows",
@@ -195,9 +194,9 @@ class BaseQueryServiceClient(ABC):
 
     def run_preagg_backfill(
         self,
-        backfill_input: "BackfillInput",
-        request_headers: Optional[Dict[str, str]] = None,
-    ) -> Dict[str, Any]:
+        backfill_input: BackfillInput,
+        request_headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         """Run a backfill for a pre-aggregation."""
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support pre-aggregation backfill",
@@ -205,9 +204,9 @@ class BaseQueryServiceClient(ABC):
 
     def run_cube_backfill(
         self,
-        backfill_input: "CubeBackfillInput",
-        request_headers: Optional[Dict[str, str]] = None,
-    ) -> Dict[str, Any]:
+        backfill_input: CubeBackfillInput,
+        request_headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         """Run a backfill for a cube."""
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support cube backfill",
@@ -216,9 +215,9 @@ class BaseQueryServiceClient(ABC):
     def refresh_cube_materialization(
         self,
         cube_name: str,
-        cube_version: Optional[str] = None,
-        materializations: Optional[List[Dict[str, Any]]] = None,
-        request_headers: Optional[Dict[str, str]] = None,
+        cube_version: str | None = None,
+        materializations: list[dict[str, Any]] | None = None,
+        request_headers: dict[str, str] | None = None,
     ) -> MaterializationInfo:
         """
         Refresh/rebuild materialization workflows for a cube without creating a new version.
@@ -244,7 +243,7 @@ class BaseQueryServiceClient(ABC):
         node_name: str,
         materialization_name: str,
         node_version: str | None = None,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> MaterializationInfo:
         """
         Deactivates the specified node materialization.
@@ -271,7 +270,7 @@ class BaseQueryServiceClient(ABC):
         node_version: str,
         node_type: NodeType,
         materialization_name: str,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> MaterializationInfo:
         """
         Gets materialization info for the node and materialization config name.
@@ -299,8 +298,8 @@ class BaseQueryServiceClient(ABC):
         node_version: str,
         node_type: NodeType,
         materialization_name: str,
-        partitions: List[PartitionBackfill],
-        request_headers: Optional[Dict[str, str]] = None,
+        partitions: list[PartitionBackfill],
+        request_headers: dict[str, str] | None = None,
     ) -> MaterializationInfo:
         """
         Kicks off a backfill with the given backfill spec.

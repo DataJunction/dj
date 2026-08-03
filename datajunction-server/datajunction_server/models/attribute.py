@@ -3,10 +3,9 @@ Models for attributes.
 """
 
 from enum import Enum
-from typing import List, Optional
 
-from pydantic.main import BaseModel
 from pydantic import ConfigDict
+from pydantic.main import BaseModel
 
 from datajunction_server.enum import StrEnum
 from datajunction_server.models.node_type import NodeType
@@ -38,8 +37,8 @@ class MutableAttributeTypeFields(AttributeTypeIdentifier):
     """
 
     description: str
-    allowed_node_types: List[NodeType]
-    uniqueness_scope: Optional[List[UniquenessScope]] = None
+    allowed_node_types: list[NodeType]
+    uniqueness_scope: list[UniquenessScope] | None = None
 
 
 class AttributeTypeBase(MutableAttributeTypeFields):
