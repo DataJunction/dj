@@ -6,7 +6,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
+from datajunction_server.config import Settings
 from datajunction_server.construction.build_v3.preagg_matcher import (
+    JoinBackCoverage,
+    is_join_back_safe,
+    join_back_coverage,
     match_temporal_columns_to_grain,
     temporal_output_name,
     find_matching_preagg,
@@ -1325,3 +1329,433 @@ class TestTemporalOutputName:
     def test_role_qualified_grain_reference(self):
         column = _temporal_column("date_int")
         assert temporal_output_name(column, "v3.date.week[order]") == "week_order"
+
+
+JOIN_BACK_SETTINGS = (
+    "datajunction_server.construction.build_v3.preagg_matcher.get_settings"
+)
+
+
+def _dimension_node(name: str, columns: list[str], primary_key: list[str]) -> Node:
+    """A dimension node whose current revision declares a primary key."""
+    from datajunction_server.database.attributetype import (
+        AttributeType,
+        ColumnAttribute,
+    )
+
+    pk_attr = AttributeType(namespace="system", name="primary_key")
+    cols = []
+    for order, col_name in enumerate(columns):
+        col = Column(name=col_name, type=IntegerType(), order=order)
+        if col_name in primary_key:
+            col.attributes = [ColumnAttribute(attribute_type=pk_attr)]
+        cols.append(col)
+    node = Node(name=name, type=NodeType.DIMENSION, current_version="v1.0")
+    node.current = NodeRevision(
+        name=name,
+        type=NodeType.DIMENSION,
+        version="v1.0",
+        columns=cols,
+    )
+    return node
+
+
+def _ctx_with(dimension: Node, hops: int = 1, role: str = "customer") -> BuildContext:
+    """A build context knowing one dimension, reachable in ``hops`` links."""
+    ctx = BuildContext(session=None, metrics=[], dimensions=[])
+    ctx.nodes[dimension.name] = dimension
+    ctx.join_paths[(1, dimension.name, role)] = [
+        DimensionLink(join_sql="a = b") for _ in range(hops)
+    ]
+    return ctx
+
+
+class TestJoinBackCoverage:
+    """Deciding whether a requested attribute is one join off a retained key."""
+
+    def test_attribute_of_a_dimension_whose_key_is_retained(self):
+        ctx = _ctx_with(
+            _dimension_node("v3.customer", ["customer_id", "name"], ["customer_id"]),
+        )
+        coverage = join_back_coverage(
+            ctx,
+            1,
+            {"v3.customer.name[customer]", "v3.order_details.status"},
+            {"v3.customer.customer_id[customer]", "v3.order_details.status"},
+        )
+        assert coverage == [
+            JoinBackCoverage(
+                dimension_ref="v3.customer.name[customer]",
+                key_refs=("v3.customer.customer_id[customer]",),
+                dimension_node="v3.customer",
+                role="customer",
+            ),
+        ]
+
+    def test_retained_column_is_not_the_key(self):
+        """Joining on a non-key column can match many rows and multiply measures."""
+        ctx = _ctx_with(
+            _dimension_node(
+                "v3.customer",
+                ["customer_id", "name", "location_id"],
+                ["customer_id"],
+            ),
+        )
+        assert (
+            join_back_coverage(
+                ctx,
+                1,
+                {"v3.customer.name[customer]"},
+                {"v3.customer.location_id[customer]"},
+            )
+            is None
+        )
+
+    def test_composite_key_only_partly_retained(self):
+        ctx = _ctx_with(
+            _dimension_node(
+                "v3.customer",
+                ["customer_id", "region", "name"],
+                ["customer_id", "region"],
+            ),
+        )
+        assert (
+            join_back_coverage(
+                ctx,
+                1,
+                {"v3.customer.name[customer]"},
+                {"v3.customer.customer_id[customer]"},
+            )
+            is None
+        )
+
+    def test_composite_key_fully_retained(self):
+        ctx = _ctx_with(
+            _dimension_node(
+                "v3.customer",
+                ["customer_id", "region", "name"],
+                ["customer_id", "region"],
+            ),
+        )
+        coverage = join_back_coverage(
+            ctx,
+            1,
+            {"v3.customer.name[customer]"},
+            {"v3.customer.customer_id[customer]", "v3.customer.region[customer]"},
+        )
+        assert coverage is not None
+        assert coverage[0].key_refs == (
+            "v3.customer.customer_id[customer]",
+            "v3.customer.region[customer]",
+        )
+
+    def test_role_must_match(self):
+        """Same dimension at another role is a different join path."""
+        ctx = _ctx_with(
+            _dimension_node("v3.customer", ["customer_id", "name"], ["customer_id"]),
+            role="billing",
+        )
+        assert (
+            join_back_coverage(
+                ctx,
+                1,
+                {"v3.customer.name[billing]"},
+                {"v3.customer.customer_id[customer]"},
+            )
+            is None
+        )
+
+    def test_two_dimensions_each_joined_back(self):
+        ctx = BuildContext(session=None, metrics=[], dimensions=[])
+        for name, cols in (
+            ("v3.customer", ["customer_id", "name"]),
+            ("v3.product", ["product_id", "category"]),
+        ):
+            node = _dimension_node(name, cols, [cols[0]])
+            ctx.nodes[name] = node
+            ctx.join_paths[(1, name, "")] = [DimensionLink(join_sql="a = b")]
+        coverage = join_back_coverage(
+            ctx,
+            1,
+            {"v3.customer.name", "v3.product.category"},
+            {"v3.customer.customer_id", "v3.product.product_id"},
+        )
+        assert coverage is not None
+        assert [c.dimension_ref for c in coverage] == [
+            "v3.customer.name",
+            "v3.product.category",
+        ]
+
+    def test_dimension_not_loaded(self):
+        ctx = BuildContext(session=None, metrics=[], dimensions=[])
+        assert (
+            join_back_coverage(
+                ctx,
+                1,
+                {"v3.customer.name"},
+                {"v3.customer.customer_id"},
+            )
+            is None
+        )
+
+    def test_dimension_without_a_primary_key(self):
+        ctx = _ctx_with(_dimension_node("v3.customer", ["customer_id", "name"], []))
+        assert (
+            join_back_coverage(
+                ctx,
+                1,
+                {"v3.customer.name[customer]"},
+                {"v3.customer.customer_id[customer]"},
+            )
+            is None
+        )
+
+    def test_unparseable_reference(self):
+        ctx = _ctx_with(
+            _dimension_node("v3.customer", ["customer_id", "name"], ["customer_id"]),
+        )
+        assert join_back_coverage(ctx, 1, {"status"}, set()) is None
+
+    def test_multi_hop_dimension_is_not_covered(self):
+        """The seam refuses chains, so a two-link path can't be joined back."""
+        ctx = _ctx_with(
+            _dimension_node("v3.customer", ["customer_id", "name"], ["customer_id"]),
+            hops=2,
+        )
+        assert (
+            join_back_coverage(
+                ctx,
+                1,
+                {"v3.customer.name[customer]"},
+                {"v3.customer.customer_id[customer]"},
+            )
+            is None
+        )
+
+    def test_requested_column_is_itself_the_key(self):
+        """A key request would have matched directly; reaching here means it's absent."""
+        ctx = _ctx_with(
+            _dimension_node("v3.customer", ["customer_id", "name"], ["customer_id"]),
+        )
+        assert (
+            join_back_coverage(ctx, 1, {"v3.customer.customer_id[customer]"}, set())
+            is None
+        )
+
+
+class TestIsJoinBackSafe:
+    """The seam that #2346's declared cardinality will replace."""
+
+    def test_single_hop_is_safe(self):
+        ctx = _ctx_with(
+            _dimension_node("v3.customer", ["customer_id", "name"], ["customer_id"]),
+        )
+        assert is_join_back_safe(ctx, 1, "v3.customer", "customer") is True
+
+    def test_multi_hop_is_refused_for_now(self):
+        ctx = _ctx_with(
+            _dimension_node("v3.customer", ["customer_id", "name"], ["customer_id"]),
+            hops=2,
+        )
+        assert is_join_back_safe(ctx, 1, "v3.customer", "customer") is False
+
+    def test_no_path_is_not_safe(self):
+        ctx = BuildContext(session=None, metrics=[], dimensions=[])
+        assert is_join_back_safe(ctx, 1, "v3.customer", "customer") is False
+
+
+class TestFindMatchingPreaggJoinBack:
+    """find_matching_preagg with the join-back gate on."""
+
+    def _setup(self, session, parent_node, metric_node, grain_columns, preagg_hash):
+        avail = AvailabilityState(
+            catalog="test",
+            schema_="test",
+            table="preagg",
+            valid_through_ts=9999999999,
+        )
+        session.add(avail)
+        return avail, PreAggregation(
+            node_revision_id=parent_node.current.id,
+            grain_columns=grain_columns,
+            measures=[make_preagg_measure("sum_x", "x")],
+            sql="SELECT ...",
+            grain_group_hash=preagg_hash,
+            preagg_hash=preagg_hash,
+        )
+
+    def _customer_ctx(self, session, parent_node, preaggs):
+        ctx = BuildContext(
+            session=session,
+            metrics=["test.metric"],
+            dimensions=["test.dim"],
+            use_materialized=True,
+            available_preaggs={parent_node.current.id: preaggs},
+        )
+        customer = _dimension_node(
+            "v3.customer",
+            ["customer_id", "name"],
+            ["customer_id"],
+        )
+        ctx.nodes["v3.customer"] = customer
+        ctx.join_paths[(parent_node.current.id, "v3.customer", "")] = [
+            DimensionLink(join_sql="a = b"),
+        ]
+        return ctx
+
+    @pytest.mark.asyncio
+    async def test_matches_by_joining_back_to_a_retained_key(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+        metric_node: Node,
+        mocker,
+    ):
+        """An attribute absent from the grain is reachable via the retained key."""
+        mocker.patch(
+            JOIN_BACK_SETTINGS,
+            return_value=Settings(preagg_join_back=True),
+        )
+        avail, preagg = self._setup(
+            session,
+            parent_node,
+            metric_node,
+            ["v3.customer.customer_id"],
+            "jb01",
+        )
+        await session.flush()
+        preagg.availability_id = avail.id
+        session.add(preagg)
+        await session.flush()
+
+        ctx = self._customer_ctx(session, parent_node, [preagg])
+        grain_group = make_grain_group(
+            parent_node,
+            [(metric_node, make_component("sum_x", "x"))],
+        )
+        result = find_matching_preagg(
+            ctx,
+            parent_node,
+            ["v3.customer.name"],
+            grain_group,
+        )
+        assert result is not None
+        assert result.id == preagg.id
+
+    @pytest.mark.asyncio
+    async def test_gate_off_does_not_match(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+        metric_node: Node,
+        mocker,
+    ):
+        """Default configuration leaves routing exactly as it was."""
+        mocker.patch(
+            JOIN_BACK_SETTINGS,
+            return_value=Settings(preagg_join_back=False),
+        )
+        avail, preagg = self._setup(
+            session,
+            parent_node,
+            metric_node,
+            ["v3.customer.customer_id"],
+            "jb02",
+        )
+        await session.flush()
+        preagg.availability_id = avail.id
+        session.add(preagg)
+        await session.flush()
+
+        ctx = self._customer_ctx(session, parent_node, [preagg])
+        grain_group = make_grain_group(
+            parent_node,
+            [(metric_node, make_component("sum_x", "x"))],
+        )
+        assert (
+            find_matching_preagg(ctx, parent_node, ["v3.customer.name"], grain_group)
+            is None
+        )
+
+    @pytest.mark.asyncio
+    async def test_direct_match_beats_a_join_back_at_finer_grain(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+        metric_node: Node,
+        mocker,
+    ):
+        """Joins rank ahead of grain size, so a direct scan always wins."""
+        mocker.patch(
+            JOIN_BACK_SETTINGS,
+            return_value=Settings(preagg_join_back=True),
+        )
+        # The joining candidate has the smaller grain, so grain size alone would
+        # pick it over the one that covers the request outright.
+        avail_a, joining = self._setup(
+            session,
+            parent_node,
+            metric_node,
+            ["v3.customer.customer_id"],
+            "jb03a",
+        )
+        avail_b, direct = self._setup(
+            session,
+            parent_node,
+            metric_node,
+            ["v3.customer.name", "dim2", "dim3"],
+            "jb03b",
+        )
+        await session.flush()
+        joining.availability_id = avail_a.id
+        direct.availability_id = avail_b.id
+        session.add_all([joining, direct])
+        await session.flush()
+
+        ctx = self._customer_ctx(session, parent_node, [joining, direct])
+        grain_group = make_grain_group(
+            parent_node,
+            [(metric_node, make_component("sum_x", "x"))],
+        )
+        result = find_matching_preagg(
+            ctx,
+            parent_node,
+            ["v3.customer.name"],
+            grain_group,
+        )
+        assert result is not None
+        assert result.id == direct.id
+
+    @pytest.mark.asyncio
+    async def test_non_additive_measure_never_joins_back(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+        metric_node: Node,
+        mocker,
+    ):
+        """Exact-grain demands set equality, which a join back can never satisfy."""
+        mocker.patch(
+            JOIN_BACK_SETTINGS,
+            return_value=Settings(preagg_join_back=True),
+        )
+        avail, preagg = self._setup(
+            session,
+            parent_node,
+            metric_node,
+            ["v3.customer.customer_id"],
+            "jb04",
+        )
+        await session.flush()
+        preagg.availability_id = avail.id
+        session.add(preagg)
+        await session.flush()
+
+        ctx = self._customer_ctx(session, parent_node, [preagg])
+        limited = make_component("count_distinct_x", "x")
+        limited.rule = AggregationRule(type=Aggregability.LIMITED, level=["x"])
+        grain_group = make_grain_group(parent_node, [(metric_node, limited)])
+        assert (
+            find_matching_preagg(ctx, parent_node, ["v3.customer.name"], grain_group)
+            is None
+        )

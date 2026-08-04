@@ -9,6 +9,8 @@ tables are available.
 from __future__ import annotations
 
 import logging
+import sys
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from datajunction_server.construction.build_v3.dimensions import (
@@ -23,6 +25,7 @@ from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.decompose import Aggregability, MetricComponent
 from datajunction_server.models.preaggregation import TemporalPartitionColumn
 from datajunction_server.naming import SEPARATOR
+from datajunction_server.utils import get_settings
 
 if TYPE_CHECKING:
     from datajunction_server.construction.build_v3.types import BuildContext, GrainGroup
@@ -84,6 +87,112 @@ def canonical_dimension_ref(
     return f"{ref}[{roles.pop()}]"
 
 
+@dataclass(frozen=True)
+class JoinBackCoverage:
+    """
+    A requested dimension reachable by joining a dimension the pre-agg keyed on.
+
+    The pre-agg's grain holds a dimension's key rather than the attribute asked
+    for, so the attribute is one join away: read the pre-agg, join the dimension
+    on the retained key, and group by the attribute.
+    """
+
+    dimension_ref: str
+    key_refs: tuple[str, ...]
+    dimension_node: str
+    role: str
+
+
+def join_back_enabled() -> bool:
+    """Whether pre-aggregations may be joined back to a retained dimension key."""
+    return get_settings().preagg_join_back
+
+
+def is_join_back_safe(
+    ctx: BuildContext,
+    node_rev_id: int,
+    dim_node_name: str,
+    role: str,
+) -> bool:
+    """
+    Whether joining a dimension onto a retained key is safe to re-aggregate over.
+
+    A single link whose join is on the dimension's primary key is many-to-one, so
+    it cannot multiply the measures. Multi-hop paths are refused for now: each
+    additional link is only safe if it too cannot fan out, and nothing declares
+    that yet.
+
+    This is the seam for #2346, which adds a declared ``JoinCardinality`` to
+    dimension links. Once that lands, this should ask whether any link on the
+    path can fan out rather than counting hops -- which also lifts the single-hop
+    restriction.
+    """
+    path = ctx.join_paths.get((node_rev_id, dim_node_name, role))
+    return path is not None and len(path) == 1
+
+
+def join_back_coverage(
+    ctx: BuildContext,
+    node_rev_id: int,
+    requested_grain_set: set[str],
+    preagg_grain_set: set[str],
+) -> list[JoinBackCoverage] | None:
+    """
+    How each requested dimension the pre-agg lacks could be reached by a join.
+
+    Returns one entry per dimension that needs a join, or ``None`` when any
+    requested dimension can be reached no other way -- in which case the pre-agg
+    cannot serve the query at all.
+
+    A dimension qualifies only when the grain retains its *whole* primary key at
+    the same role. Joining on part of a composite key, or on a column that merely
+    happens to be present, can match several dimension rows per pre-aggregated
+    row and multiply the measures.
+    """
+    coverage: list[JoinBackCoverage] = []
+    for ref in sorted(requested_grain_set - preagg_grain_set):
+        try:
+            dim_ref = parse_dimension_ref(ref)
+        except DJInvalidInputException:
+            return None
+
+        dim_node = ctx.nodes.get(dim_ref.node_name)
+        if not dim_node or not dim_node.current:
+            return None
+
+        primary_key = [col.name for col in dim_node.current.primary_key()]
+        if not primary_key or dim_ref.column_name in primary_key:
+            # No key to join on, or the request *is* the key -- which would have
+            # matched directly, so reaching here means the grain lacks it.
+            return None
+
+        role = dim_ref.role or ""
+        suffix = f"[{role}]" if role else ""
+        key_refs = tuple(
+            canonical_dimension_ref(
+                ctx,
+                node_rev_id,
+                f"{dim_ref.node_name}{SEPARATOR}{key_col}{suffix}",
+            )
+            for key_col in primary_key
+        )
+        if not set(key_refs).issubset(preagg_grain_set):
+            return None
+
+        if not is_join_back_safe(ctx, node_rev_id, dim_ref.node_name, role):
+            return None
+
+        coverage.append(
+            JoinBackCoverage(
+                dimension_ref=ref,
+                key_refs=key_refs,
+                dimension_node=dim_ref.node_name,
+                role=role,
+            ),
+        )
+    return coverage
+
+
 def find_matching_preagg(
     ctx: BuildContext,
     parent_node: Node,
@@ -139,9 +248,11 @@ def find_matching_preagg(
         for _, component in grain_group.components
     )
 
-    # Find a matching pre-agg
+    # Find a matching pre-agg. Ranked by joins first, then grain size: a pre-agg
+    # that covers the request directly always beats one needing a join back, even
+    # when the joining one is at a coarser grain.
     best_match: PreAggregation | None = None
-    best_grain_size = float("inf")
+    best_cost: tuple[int, float] = (sys.maxsize, float("inf"))
 
     for preagg in available:
         preagg_grain_set = {
@@ -152,20 +263,39 @@ def find_matching_preagg(
         # Check grain compatibility. For additive measures the pre-agg may be at
         # the same or a finer grain (roll-up allowed → subset match). For
         # non-additive measures the pre-agg grain must exactly match the request.
-        if requires_exact_grain:
-            if requested_grain_set != preagg_grain_set:
-                logger.debug(
-                    f"[BuildV3] Pre-agg {preagg.id} grain {preagg_grain_set} "
-                    f"must exactly match requested grain {requested_grain_set} "
-                    f"because the grain group has non-additive measures",
-                )
-                continue
-        elif not requested_grain_set.issubset(preagg_grain_set):
+        if requires_exact_grain and requested_grain_set != preagg_grain_set:
             logger.debug(
                 f"[BuildV3] Pre-agg {preagg.id} grain {preagg_grain_set} "
-                f"doesn't cover requested grain {requested_grain_set}",
+                f"must exactly match requested grain {requested_grain_set} "
+                f"because the grain group has non-additive measures",
             )
             continue
+
+        # Non-additive measures never reach a join back: exact grain demands set
+        # equality, and needing a join means the request isn't in the grain.
+        join_back: list[JoinBackCoverage] = []
+        if not requires_exact_grain and not requested_grain_set.issubset(
+            preagg_grain_set,
+        ):
+            # The grain may still reach the request by joining a dimension whose
+            # key it retained. Nothing to try when the gate is off.
+            coverage = (
+                join_back_coverage(
+                    ctx,
+                    node_rev_id,
+                    requested_grain_set,
+                    preagg_grain_set,
+                )
+                if join_back_enabled()
+                else None
+            )
+            if coverage is None:
+                logger.debug(
+                    f"[BuildV3] Pre-agg {preagg.id} grain {preagg_grain_set} "
+                    f"doesn't cover requested grain {requested_grain_set}",
+                )
+                continue
+            join_back = coverage
 
         # Coverage check on (expression hash, Phase-1 aggregation) -- see
         # get_required_measure_identities for why the aggregation is part of it.
@@ -181,14 +311,16 @@ def find_matching_preagg(
             )
             continue
 
-        # Found a compatible pre-agg - prefer the one with smallest grain
+        # Found a compatible pre-agg - prefer fewest joins, then smallest grain
         # (closest to requested grain = less roll-up work)
-        if len(preagg_grain_set) < best_grain_size:  # pragma: no branch
+        cost = (len(join_back), float(len(preagg_grain_set)))
+        if cost < best_cost:  # pragma: no branch
             best_match = preagg
-            best_grain_size = len(preagg_grain_set)
+            best_cost = cost
             logger.debug(
                 f"[BuildV3] Found matching pre-agg {preagg.id} "
-                f"(grain={preagg_grain_set}, measures={len(preagg_measures)})",
+                f"(grain={preagg_grain_set}, measures={len(preagg_measures)}, "
+                f"joins={len(join_back)})",
             )
 
     if best_match:
