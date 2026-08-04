@@ -3,6 +3,7 @@ GitRepositoryInfo GraphQL scalar
 """
 
 import strawberry
+
 from datajunction_server.models.node import (
     GitRepositoryInfo as PydanticGitRepositoryInfo,
 )

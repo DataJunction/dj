@@ -7,7 +7,7 @@ import logging
 import uuid
 from dataclasses import asdict
 from http import HTTPStatus
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import msgpack
 from accept_types import get_best_match
@@ -53,7 +53,7 @@ router = APIRouter(tags=["SQL Queries"])
     },
 )
 async def submit_query(  # pylint: disable=too-many-arguments
-    accept: Optional[str] = Header(None),
+    accept: str | None = Header(None),
     *,
     settings: Settings = Depends(get_settings),
     request: Request,
@@ -140,7 +140,7 @@ async def save_query_and_run(  # pylint: disable=R0913
     response: Response,
     background_tasks: BackgroundTasks,
     postgres_pool: AsyncConnectionPool,
-    headers: Optional[Dict[str, str]] = None,
+    headers: dict[str, str] | None = None,
 ) -> QueryResults:
     """
     Store a new query to the DB and run it.
@@ -209,7 +209,7 @@ async def save_query_and_run(  # pylint: disable=R0913
 def load_query_results(
     settings: Settings,
     key: str,
-) -> List[StatementResults]:
+) -> list[StatementResults]:
     """
     Load results from backend, if available.
 

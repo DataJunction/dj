@@ -1,9 +1,10 @@
 from typing import cast
+
 import pytest
 import pytest_asyncio
-import pytest_asyncio
-from datajunction_server.database.user import OAuthProvider, User
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from datajunction_server.database.user import OAuthProvider, User
 
 
 @pytest_asyncio.fixture

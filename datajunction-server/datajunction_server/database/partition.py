@@ -1,7 +1,7 @@
 """Partition database schema."""
 
 import re
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from sqlalchemy import BigInteger, Enum, ForeignKey, Index, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -45,9 +45,9 @@ class Partition(Base):  # type: ignore
     # Temporal partitions will additionally have the following properties:
     #
     # Timestamp granularity
-    granularity: Mapped[Optional[Granularity]] = mapped_column(Enum(Granularity))
+    granularity: Mapped[Granularity | None] = mapped_column(Enum(Granularity))
     # Timestamp format
-    format: Mapped[Optional[str]]
+    format: Mapped[str | None]
 
     # The column reference that this partition is defined on
     column_id: Mapped[int] = mapped_column(
@@ -71,7 +71,7 @@ class Partition(Base):  # type: ignore
             format=self.format,
         )
 
-    def temporal_expression(self, interval: Optional[str] = None):
+    def temporal_expression(self, interval: str | None = None):
         """
         This expression evaluates to the temporal partition value for scheduled runs. Defaults to
         CAST(FORMAT(DJ_LOGICAL_TIMESTAMP(), 'yyyyMMdd') AS <column type>). Includes the interval
@@ -108,7 +108,7 @@ class Partition(Base):  # type: ignore
             )
         return None  # pragma: no cover
 
-    def categorical_expression(self, column_name: Optional[str] = None):
+    def categorical_expression(self, column_name: str | None = None):
         """
         Expression for the categorical partition
         """

@@ -1,7 +1,6 @@
 """Node validation functions."""
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Set, Union
 
 from sqlalchemy.exc import MissingGreenlet
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +14,7 @@ from datajunction_server.errors import (
     DJInvalidMetricQueryException,
     ErrorCode,
 )
+from datajunction_server.instrumentation.provider import timed
 from datajunction_server.internal.deployment.type_inference import validate_node_query
 from datajunction_server.internal.deployment.utils import (
     classify_parents,
@@ -23,14 +23,13 @@ from datajunction_server.internal.deployment.utils import (
 from datajunction_server.models.base import labelize
 from datajunction_server.models.node import NodeRevisionBase, NodeStatus
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.instrumentation.provider import timed
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import SqlSyntaxError, parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.sql.parsing.types import ListType, MapType, StructType
 
 
-def _reparse_parent_column_types(dependencies_map: Dict) -> None:
+def _reparse_parent_column_types(dependencies_map: dict) -> None:
     """Re-parse string column types on parent nodes before type inference.
 
     Columns loaded from the DB with exotic types (map<...>, array<...>) may
@@ -40,7 +39,7 @@ def _reparse_parent_column_types(dependencies_map: Dict) -> None:
     """
     from datajunction_server.sql.parsing.backends.antlr4 import parse_rule
 
-    for parent in dependencies_map.keys():
+    for parent in dependencies_map:
         for col in parent.columns:
             if isinstance(col.type, str) or (
                 type(col.type).__name__ == "ColumnType"
@@ -77,15 +76,15 @@ class NodeValidator:
     """
 
     status: NodeStatus = NodeStatus.VALID
-    columns: List[Column] = field(default_factory=list)
-    required_dimensions: List[Column] = field(default_factory=list)
-    dependencies_map: Dict[NodeRevision, List[ast.Table]] = field(default_factory=dict)
-    missing_parents_map: Dict[str, List[ast.Table]] = field(default_factory=dict)
-    type_inference_failures: List[str] = field(default_factory=list)
-    errors: List[DJError] = field(default_factory=list)
-    updated_columns: List[str] = field(default_factory=list)
+    columns: list[Column] = field(default_factory=list)
+    required_dimensions: list[Column] = field(default_factory=list)
+    dependencies_map: dict[NodeRevision, list[ast.Table]] = field(default_factory=dict)
+    missing_parents_map: dict[str, list[ast.Table]] = field(default_factory=dict)
+    type_inference_failures: list[str] = field(default_factory=list)
+    errors: list[DJError] = field(default_factory=list)
+    updated_columns: list[str] = field(default_factory=list)
 
-    def modified_columns(self, node_revision: NodeRevision) -> Set[str]:
+    def modified_columns(self, node_revision: NodeRevision) -> set[str]:
         """
         Compared to the provided node revision, returns the modified columns
         """
@@ -107,7 +106,7 @@ class NodeValidator:
     lambda data, session: {"node_type": str(data.type)},
 )
 async def validate_node_data(
-    data: Union[NodeRevisionBase, NodeRevision],
+    data: NodeRevisionBase | NodeRevision,
     session: AsyncSession,
 ) -> NodeValidator:
     """
@@ -142,7 +141,7 @@ async def validate_node_data(
         # Collect table/subquery aliases and CTE names before bake_ctes() destroys them.
         # Both Table nodes (regular tables) and Query nodes (inline subqueries) can
         # carry aliases that appear as column namespaces in the query body.
-        local_aliases: Set[str] = set()
+        local_aliases: set[str] = set()
         for tbl in (*query_ast.find_all(ast.Table), *query_ast.find_all(ast.Query)):
             if tbl.alias is not None:
                 local_aliases.add(tbl.alias.identifier(False))
@@ -217,7 +216,7 @@ async def validate_node_data(
                 from datajunction_server.sql.dag import get_dimensions
 
                 # Get dimensions for each base metric
-                all_dimension_sets: List[Set[str]] = []
+                all_dimension_sets: list[set[str]] = []
                 for base_metric in metric_parents:
                     dims = await get_dimensions(
                         session,
@@ -497,7 +496,7 @@ def _build_columns_from_output(
     lambda data, session: {"node_type": str(data.type)},
 )
 async def validate_node_data_v2(
-    data: Union[NodeRevisionBase, NodeRevision],
+    data: NodeRevisionBase | NodeRevision,
     session: AsyncSession,
 ) -> NodeValidator:
     """
@@ -541,7 +540,7 @@ async def validate_node_data_v2(
     # Use the default load options so dependencies can be serialized by API
     # response models that access .availability, .materializations, .parents,
     # .dimension_links (legacy compile implicitly traversed these).
-    dep_nodes: Dict[str, Node] = {}
+    dep_nodes: dict[str, Node] = {}
     if candidates:
         loaded = await Node.get_by_names(session, sorted(candidates))
         dep_nodes = {n.name: n for n in loaded}
@@ -614,7 +613,7 @@ async def validate_node_data_v2(
             # Cross-fact derived metric: all base metrics must share >=1 dimension
             from datajunction_server.sql.dag import get_dimensions
 
-            all_dimension_sets: List[Set[str]] = []
+            all_dimension_sets: list[set[str]] = []
             for base_metric in metric_parents:
                 dims = await get_dimensions(
                     session,

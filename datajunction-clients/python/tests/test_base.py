@@ -4,7 +4,6 @@ Test serializable mixin for dict to dataclass conversion
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import List, Optional, Union
 
 from datajunction._base import SerializableMixin
 from datajunction._internal import DJClient
@@ -42,7 +41,7 @@ class CandidateB(SerializableMixin):
 class UnionListHolder(SerializableMixin):
     """Holds a list whose inner type is a discriminated union of dataclasses."""
 
-    items: List[Union[CandidateA, CandidateB]]
+    items: list[CandidateA | CandidateB]
 
 
 def test_serialize_union_list_fallback():
@@ -74,7 +73,7 @@ class DataClassSimple(SerializableMixin):
 
     name: str
     version: str
-    other: Optional[int]
+    other: int | None
     created: datetime
 
 
@@ -83,17 +82,17 @@ class DataClassNested(SerializableMixin):
     """Nested dataclass"""
 
     name: str
-    dj_client: Optional[DJClient]
-    dc_list: List[DataClassSimple]
-    dc_list_optional: Optional[List[DataClassSimple]]
-    dc_optional: Optional[DataClassSimple]
-    dc_str_list: List[str]
+    dj_client: DJClient | None
+    dc_list: list[DataClassSimple]
+    dc_list_optional: list[DataClassSimple] | None
+    dc_optional: DataClassSimple | None
+    dc_str_list: list[str]
 
 
 class OtherClass(SerializableMixin):  # pylint: disable=too-few-public-methods
     """Non-dataclass test case"""
 
-    def __init__(self, name: str, version: Optional[str]):
+    def __init__(self, name: str, version: str | None):
         self.name = name
         self.version = version
 

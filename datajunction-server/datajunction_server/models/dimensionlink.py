@@ -1,7 +1,5 @@
 """Models for dimension links"""
 
-from typing import Dict, Optional
-
 from pydantic import BaseModel, ConfigDict
 
 from datajunction_server.enum import StrEnum
@@ -57,7 +55,7 @@ class LinkDimensionIdentifier(BaseModel):
     """
 
     dimension_node: str
-    role: Optional[str] = None
+    role: str | None = None
 
 
 class JoinLinkInput(BaseModel):
@@ -66,12 +64,12 @@ class JoinLinkInput(BaseModel):
     """
 
     dimension_node: str
-    join_type: Optional[JoinType] = JoinType.LEFT
-    join_on: Optional[str] = None
-    join_cardinality: Optional[JoinCardinality] = JoinCardinality.MANY_TO_ONE
-    role: Optional[str] = None
-    default_value: Optional[str] = None
-    spark_hints: Optional[SparkJoinStrategy] = None
+    join_type: JoinType | None = JoinType.LEFT
+    join_on: str | None = None
+    join_cardinality: JoinCardinality | None = JoinCardinality.MANY_TO_ONE
+    role: str | None = None
+    default_value: str | None = None
+    spark_hints: SparkJoinStrategy | None = None
 
 
 class LinkDimensionOutput(BaseModel):
@@ -82,10 +80,10 @@ class LinkDimensionOutput(BaseModel):
     dimension: NodeNameOutput
     join_type: JoinType
     join_sql: str
-    join_cardinality: Optional[JoinCardinality] = None
-    role: Optional[str] = None
-    foreign_keys: Dict[str, str | None]
-    default_value: Optional[str] = None
-    spark_hints: Optional[SparkJoinStrategy] = None
+    join_cardinality: JoinCardinality | None = None
+    role: str | None = None
+    foreign_keys: dict[str, str | None]
+    default_value: str | None = None
+    spark_hints: SparkJoinStrategy | None = None
 
     model_config = ConfigDict(from_attributes=True)

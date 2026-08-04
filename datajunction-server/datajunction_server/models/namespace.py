@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Optional
+
 from pydantic import BaseModel
 
 from datajunction_server.typing import StrEnum
@@ -15,17 +15,17 @@ class BranchInfo(BaseModel):
     num_nodes: int = 0
     invalid_node_count: int = 0
     git_only: bool = False
-    last_updated_at: Optional[datetime] = None
+    last_updated_at: datetime | None = None
 
 
 class ImpactedNode(BaseModel):
     name: str
-    caused_by: List[str]
+    caused_by: list[str]
 
 
 class ImpactedNodes(BaseModel):
-    downstreams: List[ImpactedNode]
-    links: List[ImpactedNode]
+    downstreams: list[ImpactedNode]
+    links: list[ImpactedNode]
 
 
 class HardDeleteResponse(BaseModel):
@@ -51,4 +51,4 @@ class NamespaceWriteResult(BaseModel):
     """
 
     status: NamespaceWriteStatus
-    namespaces: List[str]
+    namespaces: list[str]

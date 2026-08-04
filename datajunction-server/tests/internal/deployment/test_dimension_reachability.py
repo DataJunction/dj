@@ -2,8 +2,9 @@
 Tests for DimensionReachability — batched dimension reachability lookups.
 """
 
-import pytest
 from unittest.mock import AsyncMock, patch
+
+import pytest
 
 from datajunction_server.internal.deployment.dimension_reachability import (
     DimensionReachability,

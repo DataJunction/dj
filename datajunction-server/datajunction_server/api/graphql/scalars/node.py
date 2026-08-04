@@ -1,16 +1,17 @@
 """Node-related scalars."""
 
+from __future__ import annotations
+
 import datetime
 from enum import Enum
-from typing import Any, List, Optional
+from typing import Any
 
 import strawberry
+from sqlalchemy.orm.attributes import InstrumentedAttribute, set_committed_value
 from strawberry.scalars import JSON
 from strawberry.types import Info
-from sqlalchemy.orm.attributes import InstrumentedAttribute, set_committed_value
 
 from datajunction_server.api.graphql.scalars import BigInt
-from datajunction_server.api.graphql.utils import extract_fields
 from datajunction_server.api.graphql.scalars.availabilitystate import (
     AvailabilityState,
     PartitionAvailability,
@@ -33,6 +34,7 @@ from datajunction_server.api.graphql.scalars.metricmetadata import (
     MetricMetadata,
 )
 from datajunction_server.api.graphql.scalars.user import User
+from datajunction_server.api.graphql.utils import extract_fields
 from datajunction_server.database.dimensionlink import (
     JoinCardinality as JoinCardinality_,
 )
@@ -84,7 +86,7 @@ _CUBE_SCALAR_ONLY_FIELDS: frozenset = frozenset(
 )
 
 
-def is_scalar_only(fields: Optional[dict[str, Any]]) -> bool:
+def is_scalar_only(fields: dict[str, Any] | None) -> bool:
     """
     Check if requested cube-metric fields are all plain noderevision scalars.
     Such selections need no relationship loads, so they can be served from the
@@ -124,16 +126,16 @@ class _ScalarOnlyRevision:
     """
 
     __slots__ = (
-        "name",
-        "id",
-        "display_name",
-        "description",
-        "mode",
-        "version",
-        "status",
-        "updated_at",
         "custom_metadata",
+        "description",
+        "display_name",
+        "id",
+        "mode",
+        "name",
+        "status",
         "type",
+        "updated_at",
+        "version",
     )
 
     def __init__(
@@ -194,7 +196,7 @@ class CubeElement:
     name: str
     display_name: str
     type: str
-    partition: Optional[Partition]
+    partition: Partition | None
 
 
 @strawberry.type
@@ -206,10 +208,10 @@ class DimensionLink:
     dimension: NodeName
     join_type: JoinType  # type: ignore
     join_sql: str
-    join_cardinality: Optional[JoinCardinality]  # type: ignore
-    role: Optional[str]
+    join_cardinality: JoinCardinality | None  # type: ignore
+    role: str | None
     foreign_keys: JSON
-    default_value: Optional[str]
+    default_value: str | None
 
 
 @strawberry.type
@@ -224,10 +226,10 @@ class DimensionAttribute:
     properties: list[str]
     type: str
 
-    _dimension_node: Optional["Node"] = None
+    _dimension_node: Node | None = None
 
     @strawberry.field(description="The dimension node this attribute belongs to")
-    async def dimension_node(self, info: Info) -> Optional["Node"]:
+    async def dimension_node(self, info: Info) -> Node | None:
         """
         Lazy load the dimension node when queried.
         """
@@ -252,27 +254,27 @@ class NodeRevision:
     id: BigInt
     type: NodeType  # type: ignore
     name: str
-    display_name: Optional[str]
+    display_name: str | None
     version: str
     status: NodeStatus  # type: ignore
-    mode: Optional[NodeMode]  # type: ignore
+    mode: NodeMode | None  # type: ignore
     description: str = ""
     updated_at: datetime.datetime
-    custom_metadata: Optional[JSON] = None
+    custom_metadata: JSON | None = None
 
     @strawberry.field
-    def catalog(self, root: "DBNodeRevision") -> Optional[Catalog]:
+    def catalog(self, root: DBNodeRevision) -> Catalog | None:
         """
         Catalog for the node
         """
         return Catalog.from_pydantic(root.catalog)  # type: ignore
 
-    query: Optional[str] = None
+    query: str | None = None
 
     @strawberry.field
     def columns(
         self,
-        root: "DBNodeRevision",
+        root: DBNodeRevision,
         attributes: list[str] | None = None,
     ) -> list[Column]:
         """
@@ -331,11 +333,11 @@ class NodeRevision:
             is None  # handles deactivated dimension nodes
         ]
 
-    parents: List[NodeNameVersion]
+    parents: list[NodeNameVersion]
 
     # Materialization-related outputs
     @strawberry.field
-    def availability(self, root: "DBNodeRevision") -> Optional[AvailabilityState]:
+    def availability(self, root: DBNodeRevision) -> AvailabilityState | None:
         """
         The availability state of materialized data for this node
         """
@@ -367,8 +369,8 @@ class NodeRevision:
     @strawberry.field
     def materializations(
         self,
-        root: "DBNodeRevision",
-    ) -> Optional[List[MaterializationConfig]]:
+        root: DBNodeRevision,
+    ) -> list[MaterializationConfig] | None:
         """
         The materialization configurations for this node
         """
@@ -402,14 +404,14 @@ class NodeRevision:
         ]
 
     # Only source nodes will have these fields
-    schema_: Optional[str]
-    table: Optional[str]
+    schema_: str | None
+    table: str | None
 
     # Only metrics will have these fields
-    required_dimensions: List[Column] | None = None
+    required_dimensions: list[Column] | None = None
 
     @strawberry.field
-    def primary_key(self, root: "DBNodeRevision") -> list[str]:
+    def primary_key(self, root: DBNodeRevision) -> list[str]:
         """
         The primary key of the node
         """
@@ -418,7 +420,7 @@ class NodeRevision:
     @strawberry.field
     def metric_metadata(
         self,
-        root: "DBNodeRevision",
+        root: DBNodeRevision,
         info: Info,
     ) -> MetricMetadata | None:
         """
@@ -464,7 +466,7 @@ class NodeRevision:
         )
 
     @strawberry.field
-    def is_derived_metric(self, root: "DBNodeRevision") -> bool:
+    def is_derived_metric(self, root: DBNodeRevision) -> bool:
         """
         Returns True if this metric references other metrics (making it a derived metric).
         A derived metric is a metric whose parent(s) include other metric nodes.
@@ -474,7 +476,7 @@ class NodeRevision:
         return root.is_derived_metric
 
     @strawberry.field
-    def is_measure(self, root: "DBNodeRevision") -> bool:
+    def is_measure(self, root: DBNodeRevision) -> bool:
         """
         Returns True if this metric is a "measure": a single top-level aggregation
         call (e.g. SUM(x), COUNT(x), AVG(x)) with no cross-measure arithmetic that
@@ -488,7 +490,7 @@ class NodeRevision:
     @strawberry.field
     async def extracted_measures(
         self,
-        root: "DBNodeRevision",
+        root: DBNodeRevision,
         info: Info,
     ) -> DecomposedMetric | None:
         """
@@ -539,7 +541,7 @@ class NodeRevision:
 
     # Only cubes will have these fields
     @strawberry.field
-    def cube_metrics(self, root: "DBNodeRevision", info: Info) -> List["NodeRevision"]:  # type: ignore[return-value]
+    def cube_metrics(self, root: DBNodeRevision, info: Info) -> list[NodeRevision]:  # type: ignore[return-value]
         """
         Metrics for a cube node
         """
@@ -578,7 +580,7 @@ class NodeRevision:
         )
 
     @strawberry.field
-    def cube_filters(self, root: "DBNodeRevision") -> List[str]:
+    def cube_filters(self, root: DBNodeRevision) -> list[str]:
         """
         Filters for a cube node
         """
@@ -589,9 +591,9 @@ class NodeRevision:
     @strawberry.field
     def cube_dimensions(
         self,
-        root: "DBNodeRevision",
+        root: DBNodeRevision,
         info: Info,
-    ) -> List[DimensionAttribute]:
+    ) -> list[DimensionAttribute]:
         """
         Dimensions for a cube node
         """
@@ -677,7 +679,7 @@ class Node:
     type: NodeType  # type: ignore
     current_version: str
     created_at: datetime.datetime
-    deactivated_at: Optional[datetime.datetime]
+    deactivated_at: datetime.datetime | None
 
     current: NodeRevision
     revisions: list[NodeRevision]
@@ -687,14 +689,14 @@ class Node:
     owners: list[User]
 
     @strawberry.field
-    def edited_by(self, root: "DBNode") -> list[str]:
+    def edited_by(self, root: DBNode) -> list[str]:
         """
         The users who edited this node
         """
         return root.edited_by
 
     @strawberry.field
-    def git_info(self, root: "DBNode") -> Optional[GitRepositoryInfo]:
+    def git_info(self, root: DBNode) -> GitRepositoryInfo | None:
         """
         Git repository information for this node's namespace.
 

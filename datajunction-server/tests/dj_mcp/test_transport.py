@@ -72,13 +72,15 @@ async def test_mount_mcp_invokes_request_context_per_request() -> None:
     app = FastAPI()
     transport.mount_mcp(app, request_context=recorder)
 
-    async with LifespanManager(app):
-        async with httpx.AsyncClient(
+    async with (
+        LifespanManager(app),
+        httpx.AsyncClient(
             transport=ASGITransport(app=app),
             base_url="http://test",
             follow_redirects=True,
-        ) as client:
-            await client.get("/mcp/")
+        ) as client,
+    ):
+        await client.get("/mcp/")
 
     assert events == ["enter", "exit"]
     assert seen_scope["type"] == "http"

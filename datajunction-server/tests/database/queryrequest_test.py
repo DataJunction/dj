@@ -1,11 +1,12 @@
 import pytest
+
+from datajunction_server.database.node import Node
 from datajunction_server.database.queryrequest import (
     QueryBuildType,
     QueryRequestKey,
     VersionedNodeKey,
     VersionedQueryKey,
 )
-from datajunction_server.database.node import Node
 
 
 def test_str_with_version():

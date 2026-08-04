@@ -2,6 +2,8 @@
 Tests for mark_node_as_missing_parent, deactivate_node, and activate_node functionality.
 """
 
+from datetime import UTC
+
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,8 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.database.node import Node, NodeRevision, NodeType
 from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.internal.nodes import (
-    deactivate_node,
     activate_node,
+    deactivate_node,
     hard_delete_node,
     mark_node_as_missing_parent,
 )
@@ -104,6 +106,7 @@ async def child_node(session: AsyncSession, user: User, parent_node: Node) -> No
 
     # Set up parent relationship directly (avoid lazy load)
     from sqlalchemy import insert
+
     from datajunction_server.database.node import NodeRelationship
 
     relationship_stmt = insert(NodeRelationship).values(
@@ -371,15 +374,16 @@ async def test_activate_node_with_duplicate_missing_parents(
     Setup attaches one duplicate to the child and leaves two unattached,
     so the cleanup loop's inner check fires both True and False.
     """
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from sqlalchemy import select
+
     from datajunction_server.database.node import MissingParent
 
     save_history = mock_save_history
 
     # Mark the parent deactivated so activate_node will proceed.
-    parent_node.deactivated_at = datetime.now(timezone.utc)
+    parent_node.deactivated_at = datetime.now(UTC)
     session.add(parent_node)
 
     # Three duplicate MissingParent rows for the same name. Attach only

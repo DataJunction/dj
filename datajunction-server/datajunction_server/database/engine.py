@@ -1,11 +1,9 @@
 """Engine database schema."""
 
-from typing import Optional
-
 import sqlalchemy as sa
-from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import UniqueConstraint, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Mapped, mapped_column
 
 from datajunction_server.database.base import Base
 from datajunction_server.models.dialect import Dialect
@@ -39,8 +37,8 @@ class Engine(Base):
     )
     name: Mapped[str]
     version: Mapped[str]
-    uri: Mapped[Optional[str]]
-    dialect: Mapped[Optional[Dialect]] = mapped_column(DialectType())
+    uri: Mapped[str | None]
+    dialect: Mapped[Dialect | None] = mapped_column(DialectType())
 
     async def get_by_names(session: AsyncSession, names: list[str]) -> list["Engine"]:
         """

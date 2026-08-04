@@ -3,7 +3,8 @@ Tests for derived metrics functionality.
 Derived metrics are metrics that reference other metrics.
 """
 
-from typing import Any, Callable, Coroutine, List, Optional
+from collections.abc import Callable, Coroutine
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -547,7 +548,7 @@ class TestDerivedMetricsIntegration:
     async def test_create_same_parent_ratio_metric(
         self,
         client_example_loader: Callable[
-            [Optional[List[str]]],
+            [list[str] | None],
             Coroutine[Any, Any, AsyncClient],
         ],
     ):
@@ -570,7 +571,7 @@ class TestDerivedMetricsIntegration:
     async def test_create_cross_fact_ratio_metric_with_shared_dimensions(
         self,
         client_example_loader: Callable[
-            [Optional[List[str]]],
+            [list[str] | None],
             Coroutine[Any, Any, AsyncClient],
         ],
     ):
@@ -593,7 +594,7 @@ class TestDerivedMetricsIntegration:
     async def test_create_period_over_period_wow_metric(
         self,
         client_example_loader: Callable[
-            [Optional[List[str]]],
+            [list[str] | None],
             Coroutine[Any, Any, AsyncClient],
         ],
     ):
@@ -615,7 +616,7 @@ class TestDerivedMetricsIntegration:
     async def test_create_period_over_period_mom_metric(
         self,
         client_example_loader: Callable[
-            [Optional[List[str]]],
+            [list[str] | None],
             Coroutine[Any, Any, AsyncClient],
         ],
     ):
@@ -637,7 +638,7 @@ class TestDerivedMetricsIntegration:
     async def test_derived_metric_upstream_nodes(
         self,
         client_example_loader: Callable[
-            [Optional[List[str]]],
+            [list[str] | None],
             Coroutine[Any, Any, AsyncClient],
         ],
     ):
@@ -660,7 +661,7 @@ class TestDerivedMetricsIntegration:
     async def test_derived_metric_downstream_from_base(
         self,
         client_example_loader: Callable[
-            [Optional[List[str]]],
+            [list[str] | None],
             Coroutine[Any, Any, AsyncClient],
         ],
     ):
@@ -683,7 +684,7 @@ class TestDerivedMetricsIntegration:
     async def test_same_parent_derived_metric_dimensions(
         self,
         client_example_loader: Callable[
-            [Optional[List[str]]],
+            [list[str] | None],
             Coroutine[Any, Any, AsyncClient],
         ],
     ):
@@ -708,7 +709,7 @@ class TestDerivedMetricsIntegration:
     async def test_cross_fact_derived_metric_dimensions_intersection(
         self,
         client_example_loader: Callable[
-            [Optional[List[str]]],
+            [list[str] | None],
             Coroutine[Any, Any, AsyncClient],
         ],
     ):
@@ -744,7 +745,7 @@ class TestDerivedMetricsIntegration:
     async def test_cross_fact_no_shared_dimensions_fails(
         self,
         client_example_loader: Callable[
-            [Optional[List[str]]],
+            [list[str] | None],
             Coroutine[Any, Any, AsyncClient],
         ],
     ):
@@ -780,7 +781,7 @@ class TestDerivedMetricsIntegration:
     async def test_nested_derived_metric_succeeds(
         self,
         client_example_loader: Callable[
-            [Optional[List[str]]],
+            [list[str] | None],
             Coroutine[Any, Any, AsyncClient],
         ],
     ):

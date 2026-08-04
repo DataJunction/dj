@@ -8,7 +8,7 @@ call it without importing from the ``api`` layer, keeping the dependency
 direction api -> internal.
 """
 
-from typing import Optional, cast
+from typing import cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -20,8 +20,8 @@ from datajunction_server.construction.build_v3.dimensions import (
     roles_reaching_dimension,
 )
 from datajunction_server.construction.build_v3.types import GeneratedMeasuresSQL
-from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.availabilitystate import AvailabilityState
+from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.preaggregation import (
     PreAggregation,
     compute_expression_hash,
@@ -44,7 +44,7 @@ def assert_column_type_compatible(
     *,
     subject: str,
     physical_column: str,
-    expected_type: Optional[str],
+    expected_type: str | None,
     actual_type: object,
     table: ExternalPreAggTable,
 ) -> None:
@@ -120,7 +120,7 @@ async def register_external_preaggregations(
     query_service_client: QueryServiceClient,
     request_headers: dict[str, str],
     *,
-    name: Optional[str],
+    name: str | None,
     metrics: list[str],
     dimensions: list[str],
     table: ExternalPreAggTable,

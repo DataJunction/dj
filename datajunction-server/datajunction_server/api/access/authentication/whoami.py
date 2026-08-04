@@ -4,12 +4,12 @@ Router for getting the current active user
 
 from datetime import timedelta
 from http import HTTPStatus
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from fastapi import Depends, Request
 from fastapi.responses import JSONResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from datajunction_server.database.user import User
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authentication.tokens import create_token

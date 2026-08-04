@@ -1,8 +1,10 @@
 """RBAC database schema."""
 
-from datetime import datetime, timezone
+from __future__ import annotations
+
+from datetime import UTC, datetime
 from functools import partial
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     BigInteger,
@@ -18,9 +20,9 @@ from sqlalchemy import (
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship, selectinload
 
-from datajunction_server.errors import DJDoesNotExistException
-from datajunction_server.models.access import ResourceType, ResourceAction
 from datajunction_server.database.base import Base
+from datajunction_server.errors import DJDoesNotExistException
+from datajunction_server.models.access import ResourceAction, ResourceType
 from datajunction_server.typing import UTCDatetime
 
 if TYPE_CHECKING:
@@ -47,7 +49,7 @@ class Role(Base):
         primary_key=True,
     )
     name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_by_id: Mapped[int] = mapped_column(
         ForeignKey("users.id"),
@@ -55,27 +57,27 @@ class Role(Base):
     )
     created_at: Mapped[UTCDatetime] = mapped_column(
         DateTime(timezone=True),
-        insert_default=partial(datetime.now, timezone.utc),
+        insert_default=partial(datetime.now, UTC),
     )
 
     # Soft delete for audit trail (who deleted is in History table)
-    deleted_at: Mapped[Optional[UTCDatetime]] = mapped_column(
+    deleted_at: Mapped[UTCDatetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
 
     # Relationships
-    created_by: Mapped["User"] = relationship(
+    created_by: Mapped[User] = relationship(
         "User",
         foreign_keys=[created_by_id],
         lazy="selectin",
     )
-    scopes: Mapped[list["RoleScope"]] = relationship(
+    scopes: Mapped[list[RoleScope]] = relationship(
         "RoleScope",
         back_populates="role",
         cascade="all, delete-orphan",
     )
-    assignments: Mapped[list["RoleAssignment"]] = relationship(
+    assignments: Mapped[list[RoleAssignment]] = relationship(
         "RoleAssignment",
         back_populates="role",
         cascade="all, delete-orphan",
@@ -93,8 +95,8 @@ class Role(Base):
         session: AsyncSession,
         name: str,
         include_deleted: bool = False,
-        options: Optional[List] = None,
-    ) -> Optional["Role"]:
+        options: list | None = None,
+    ) -> Role | None:
         """
         Get a role by name.
 
@@ -129,8 +131,8 @@ class Role(Base):
         session: AsyncSession,
         name: str,
         include_deleted: bool = False,
-        options: Optional[List] = None,
-    ) -> "Role":
+        options: list | None = None,
+    ) -> Role:
         """
         Get a role by name, raising an exception if not found.
 
@@ -158,10 +160,10 @@ class Role(Base):
         cls,
         session: AsyncSession,
         include_deleted: bool = False,
-        created_by_id: Optional[int] = None,
+        created_by_id: int | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List["Role"]:
+    ) -> list[Role]:
         """
         Find roles with optional filters.
 
@@ -289,15 +291,15 @@ class RoleAssignment(Base):
     )
     granted_at: Mapped[UTCDatetime] = mapped_column(
         DateTime(timezone=True),
-        insert_default=partial(datetime.now, timezone.utc),
+        insert_default=partial(datetime.now, UTC),
     )
-    expires_at: Mapped[Optional[UTCDatetime]] = mapped_column(
+    expires_at: Mapped[UTCDatetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
 
     # Relationships
-    principal: Mapped["User"] = relationship(
+    principal: Mapped[User] = relationship(
         "User",
         foreign_keys=[principal_id],
         lazy="selectin",
@@ -307,7 +309,7 @@ class RoleAssignment(Base):
         back_populates="assignments",
         lazy="selectin",
     )
-    granted_by: Mapped["User"] = relationship(
+    granted_by: Mapped[User] = relationship(
         "User",
         foreign_keys=[granted_by_id],
         lazy="selectin",
@@ -329,11 +331,11 @@ class RoleAssignment(Base):
     async def find(
         cls,
         session: AsyncSession,
-        principal_id: Optional[int] = None,
-        role_id: Optional[int] = None,
+        principal_id: int | None = None,
+        role_id: int | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List["RoleAssignment"]:
+    ) -> list[RoleAssignment]:
         """
         Find role assignments with optional filters.
 

@@ -9,12 +9,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from datajunction_server.database.preaggregation import PreAggregation
-from datajunction_server.models.preaggregation import WorkflowUrl
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.partition import Partition
+from datajunction_server.database.preaggregation import PreAggregation
 from datajunction_server.models.materialization import MaterializationStrategy
 from datajunction_server.models.partition import Granularity, PartitionType
+from datajunction_server.models.preaggregation import WorkflowUrl
 from datajunction_server.utils import get_query_service_client
 from datajunction_server.construction.build_v3.builder import build_measures_sql
 from datajunction_server.models.access import ResourceAction
@@ -30,8 +30,8 @@ def mock_query_service_client(client_with_build_v3):
     """
     mock_client = MagicMock()
     # Override the FastAPI dependency
-    client_with_build_v3.app.dependency_overrides[get_query_service_client] = (
-        lambda: mock_client
+    client_with_build_v3.app.dependency_overrides[get_query_service_client] = lambda: (
+        mock_client
     )
     yield mock_client
     # Clean up - remove the override (will be cleared by client fixture anyway)
@@ -2367,8 +2367,8 @@ def _mock_query_service(client_with_build_v3, columns):
 
     mock_client = MagicMock()
     mock_client.get_columns_for_table = _fake_get_columns
-    client_with_build_v3.app.dependency_overrides[get_query_service_client] = (
-        lambda: mock_client
+    client_with_build_v3.app.dependency_overrides[get_query_service_client] = lambda: (
+        mock_client
     )
 
 

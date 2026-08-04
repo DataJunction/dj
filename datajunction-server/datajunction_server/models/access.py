@@ -4,9 +4,9 @@ Models for authorization
 
 from dataclasses import dataclass
 
+from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.naming import SEPARATOR
 from datajunction_server.typing import StrEnum
-from datajunction_server.database.node import Node, NodeRevision
 
 
 class ResourceType(StrEnum):

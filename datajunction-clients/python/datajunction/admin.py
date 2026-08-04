@@ -1,7 +1,6 @@
 """DataJunction admin client module."""
 
 import logging
-from typing import Optional
 
 from datajunction.builder import DJBuilder
 from datajunction.exceptions import DJClientException
@@ -66,8 +65,8 @@ class DJAdmin(DJBuilder):  # pylint: disable=too-many-public-methods
         self,
         name: str,
         version: str,
-        uri: Optional[str] = None,
-        dialect: Optional[str] = None,
+        uri: str | None = None,
+        dialect: str | None = None,
         skip_if_exists: bool = False,
     ) -> None:
         """

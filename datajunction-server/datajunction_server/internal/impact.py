@@ -15,11 +15,11 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from sqlalchemy import select
-from sqlalchemy.sql.operators import is_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.sql.operators import is_
 
-from datajunction_server.database.node import Node, NodeRevision, NodeRelationship
+from datajunction_server.database.node import Node, NodeRelationship, NodeRevision
 from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.internal.deployment.dimension_reachability import (
     DimensionReachability,
@@ -332,9 +332,7 @@ def _merge_impacts(
     }
     for impact in link_impacts:
         existing = by_name.get(impact.name)
-        if existing is None:
-            by_name[impact.name] = impact
-        elif severity.get(impact.impact_type, 0) > severity.get(
+        if existing is None or severity.get(impact.impact_type, 0) > severity.get(
             existing.impact_type,
             0,
         ):

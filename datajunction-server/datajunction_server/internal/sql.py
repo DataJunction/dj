@@ -1,7 +1,7 @@
 import logging
-import time
-from typing import TYPE_CHECKING, Any, Tuple, cast
 import re
+import time
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from datajunction_server.construction.build_v3.types import (
@@ -11,24 +11,20 @@ if TYPE_CHECKING:
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from datajunction_server.internal.access.authorization import (
-    AccessChecker,
-    AccessDenialMode,
-)
 from datajunction_server.api.helpers import (
     assemble_column_metadata,
-    find_existing_cube,
-    get_catalog_by_name,
-    validate_orderby,
-    validate_cube,
     check_dimension_attributes_exist,
     check_metrics_exist,
+    find_existing_cube,
+    get_catalog_by_name,
+    validate_cube,
+    validate_orderby,
 )
 from datajunction_server.construction.build import (
     build_materialized_cube_node,
     build_metric_nodes,
-    group_metrics_by_parent,
     extract_components_and_parent_columns,
+    group_metrics_by_parent,
     rename_columns,
 )
 from datajunction_server.construction.build_v2 import (
@@ -37,11 +33,15 @@ from datajunction_server.construction.build_v2 import (
     get_dimensions_referenced_in_metrics,
 )
 from datajunction_server.database import Engine
-from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.catalog import Catalog
-from datajunction_server.errors import DJInvalidInputException, DJException
-from datajunction_server.internal.engines import get_engine
+from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.errors import DJException, DJInvalidInputException
 from datajunction_server.instrumentation.provider import get_metrics_provider
+from datajunction_server.internal.access.authorization import (
+    AccessChecker,
+    AccessDenialMode,
+)
+from datajunction_server.internal.engines import get_engine
 from datajunction_server.models import access
 from datajunction_server.models.column import SemanticType
 from datajunction_server.models.cube_materialization import Aggregability
@@ -78,7 +78,7 @@ def _v3_to_model_column(col) -> ColumnMetadata:
     client's metric-column fallback resolves correctly, and
     ``semantic_entity`` is ``<metric_path>.<munged_name>`` to mirror v2.
     """
-    from datajunction_server.naming import amenable_name  # noqa: PLC0415
+    from datajunction_server.naming import amenable_name
 
     semantic_name = col.semantic_name
     semantic_type = col.semantic_type
@@ -146,7 +146,7 @@ async def build_node_sql(
     # internally on node type: metrics → ``build_metrics_sql([node])``;
     # cubes → ``build_metrics_sql(cube.metrics, ..., matched_cube=cube)``;
     # source / dimension / transform → its own assembly path.
-    from datajunction_server.construction.build_v3.node_query import (  # noqa: PLC0415
+    from datajunction_server.construction.build_v3.node_query import (
         build_node_sql_v3,
     )
 
@@ -209,7 +209,7 @@ async def generate_metrics_sql(
     """
     # Imported lazily (like build_node_sql's build_v3 import below) to avoid an
     # import cycle: build_v3 pulls in modules that import this one.
-    from datajunction_server.construction.build_v3 import (  # noqa: PLC0415
+    from datajunction_server.construction.build_v3 import (
         build_metrics_sql,
         resolve_dialect_and_engine_for_metrics,
         validate_pinned_cube_covers_filters,
@@ -301,8 +301,8 @@ async def build_sql_for_multiple_metrics(
     session: AsyncSession,
     metrics: list[str],
     dimensions: list[str],
-    filters: list[str] = None,
-    orderby: list[str] = None,
+    filters: list[str] | None = None,
+    orderby: list[str] | None = None,
     limit: int | None = None,
     engine_name: str | None = None,
     engine_version: str | None = None,
@@ -310,7 +310,7 @@ async def build_sql_for_multiple_metrics(
     ignore_errors: bool = True,
     use_materialized: bool = True,
     query_parameters: dict[str, str] | None = None,
-) -> Tuple[TranslatedSQL, Engine, Catalog]:
+) -> tuple[TranslatedSQL, Engine, Catalog]:
     """
     Build SQL for multiple metrics. Used by both /sql and /data endpoints
     """
@@ -481,14 +481,14 @@ async def get_measures_query(
     metrics: list[str],
     dimensions: list[str],
     filters: list[str],
-    orderby: list[str] = None,
+    orderby: list[str] | None = None,
     engine_name: str | None = None,
     engine_version: str | None = None,
-    access_checker: AccessChecker = None,
+    access_checker: AccessChecker | None = None,
     include_all_columns: bool = False,
     use_materialized: bool = True,
     preagg_requested: bool = False,
-    query_parameters: dict[str, Any] = None,
+    query_parameters: dict[str, Any] | None = None,
 ) -> list[GeneratedSQL]:
     """
     Builds the measures SQL for a set of metrics with dimensions and filters.

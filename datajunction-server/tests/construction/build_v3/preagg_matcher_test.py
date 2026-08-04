@@ -7,13 +7,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
 from datajunction_server.construction.build_v3.preagg_matcher import (
+    match_temporal_columns_to_grain,
+    temporal_output_name,
     find_matching_preagg,
     get_preagg_dimension_column,
     get_preagg_measure_column,
     get_required_measure_identities,
     get_temporal_partitions,
 )
-from datajunction_server.models.query import V3ColumnMetadata
 from datajunction_server.construction.build_v3.types import BuildContext, GrainGroup
 from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.column import Column
@@ -34,6 +35,7 @@ from datajunction_server.models.decompose import (
 from datajunction_server.models.dimensionlink import JoinType
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import Granularity, PartitionType
+from datajunction_server.models.query import V3ColumnMetadata
 from datajunction_server.models.user import OAuthProvider
 from datajunction_server.sql.parsing.types import IntegerType, StringType
 
@@ -1242,3 +1244,84 @@ class TestGetTemporalPartitionsMultipleDimLinks:
 
         assert len(partitions) == 1
         assert partitions[0].column_name == "dateint"
+
+
+def _temporal_column(name: str, format_: str = "yyyyMMdd") -> Column:
+    """A temporal partition column, detached from any session."""
+    column = Column(name=name, type=IntegerType(), order=0)
+    column.partition = Partition(
+        type_=PartitionType.TEMPORAL,
+        granularity=Granularity.DAY,
+        format=format_,
+    )
+    return column
+
+
+def _preagg_with(columns: list[Column], grain_columns: list[str]) -> PreAggregation:
+    """A pre-agg over a detached parent revision carrying the given columns."""
+    preagg = PreAggregation(grain_columns=grain_columns)
+    preagg.node_revision = NodeRevision(
+        name="v3.order_details",
+        type=NodeType.TRANSFORM,
+        version="v1.0",
+        columns=columns,
+    )
+    return preagg
+
+
+class TestMatchTemporalColumnsToGrain:
+    """Pairing a parent's temporal partition columns with the grain entries they reach."""
+
+    def test_no_node_revision(self):
+        assert match_temporal_columns_to_grain(PreAggregation(grain_columns=[])) == []
+
+    def test_no_temporal_columns(self):
+        preagg = _preagg_with(
+            [Column(name="order_date", type=IntegerType(), order=0)],
+            ["v3.order_details.order_date"],
+        )
+        assert match_temporal_columns_to_grain(preagg) == []
+
+    def test_matched_via_the_columns_own_dimension_reference(self):
+        """Strategy 3: the column carries a dimension reference of its own."""
+        column = _temporal_column("date_int")
+        column.dimension = Node(name="v3.date", type=NodeType.DIMENSION)
+        preagg = _preagg_with([column], ["v3.date.week[order]"])
+        assert match_temporal_columns_to_grain(preagg) == [
+            (column, "v3.date.week[order]"),
+        ]
+
+    def test_dimension_reference_not_in_grain(self):
+        column = _temporal_column("date_int")
+        column.dimension = Node(name="v3.date", type=NodeType.DIMENSION)
+        preagg = _preagg_with([column], ["v3.order_details.status"])
+        assert match_temporal_columns_to_grain(preagg) == [(column, None)]
+
+    def test_second_column_reuses_the_link_map(self):
+        """The dimension-link map is built once, not per temporal column."""
+        first = _temporal_column("date_int")
+        second = _temporal_column("hour_int")
+        preagg = _preagg_with([first, second], ["v3.order_details.status"])
+        assert match_temporal_columns_to_grain(preagg) == [
+            (first, None),
+            (second, None),
+        ]
+
+
+class TestTemporalOutputName:
+    """Naming the output column from the grain entry a temporal column matched."""
+
+    def test_falls_back_to_the_source_name(self):
+        assert (
+            temporal_output_name(_temporal_column("order_date"), None) == "order_date"
+        )
+
+    def test_plain_grain_reference(self):
+        column = _temporal_column("order_date")
+        assert (
+            temporal_output_name(column, "v3.order_details.order_date") == "order_date"
+        )
+
+    def test_role_qualified_grain_reference(self):
+        column = _temporal_column("date_int")
+        assert temporal_output_name(column, "v3.date.week[order]") == "week_order"

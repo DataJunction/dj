@@ -6,12 +6,13 @@ Run as a subprocess to avoid event loop conflicts with pytest-asyncio.
 Usage: python populate_template.py <database_url>
 """
 
+# ruff: noqa: E402 - env vars must be set before importing datajunction_server modules
+
 import asyncio
 import os
 import sys
 from datetime import timedelta
 from http.client import HTTPException
-from typing import Dict, List, Optional
 
 import httpx
 from cachelib.simple import SimpleCache
@@ -32,35 +33,40 @@ os.environ["READER_DB__URI"] = reader_db_url
 
 # Add tests directory to path for examples import
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from examples import COLUMN_MAPPINGS, EXAMPLES, SERVICE_SETUP  # noqa: E402
+from examples import COLUMN_MAPPINGS, EXAMPLES, SERVICE_SETUP
 
 # Import config first and clear cache to ensure our env vars are used
-from datajunction_server.config import DatabaseConfig, Settings  # noqa: E402
-from datajunction_server.utils import get_settings  # noqa: E402
+from datajunction_server.config import DatabaseConfig, Settings
+from datajunction_server.utils import get_settings
 
 # Clear the lru_cache on get_settings to force it to re-read
 get_settings.cache_clear()
 
 # Now import the rest of the modules - they should use our settings
-from datajunction_server.api.main import app  # noqa: E402
-from datajunction_server.api.attributes import default_attribute_types  # noqa: E402
-from datajunction_server.database.base import Base  # noqa: E402
-from datajunction_server.database.column import Column  # noqa: E402
-from datajunction_server.database.engine import Engine  # noqa: E402
-from datajunction_server.database.user import User  # noqa: E402
-from datajunction_server.internal.access.authentication.tokens import create_token  # noqa: E402
-from datajunction_server.internal.access.authorization import (  # noqa: E402
-    get_authorization_service,
-    PassthroughAuthorizationService,
+from datajunction_server.api.attributes import default_attribute_types
+from datajunction_server.api.main import app
+from datajunction_server.database.base import Base
+from datajunction_server.database.column import Column
+from datajunction_server.database.engine import Engine
+from datajunction_server.database.user import User
+from datajunction_server.internal.access.authentication.tokens import (
+    create_token,
 )
-from datajunction_server.internal.seed import seed_default_catalogs  # noqa: E402
-from datajunction_server.models.dialect import register_dialect_plugin  # noqa: E402
-from datajunction_server.models.query import QueryCreate, QueryWithResults  # noqa: E402
-from datajunction_server.models.user import OAuthProvider  # noqa: E402
-from datajunction_server.service_clients import QueryServiceClient  # noqa: E402
-from datajunction_server.transpilation import SQLTranspilationPlugin  # noqa: E402
-from datajunction_server.typing import QueryState  # noqa: E402
-from datajunction_server.utils import get_session, get_query_service_client  # noqa: E402
+from datajunction_server.internal.access.authorization import (
+    PassthroughAuthorizationService,
+    get_authorization_service,
+)
+from datajunction_server.internal.seed import seed_default_catalogs
+from datajunction_server.models.dialect import register_dialect_plugin
+from datajunction_server.models.query import QueryCreate, QueryWithResults
+from datajunction_server.models.user import OAuthProvider
+from datajunction_server.service_clients import QueryServiceClient
+from datajunction_server.transpilation import SQLTranspilationPlugin
+from datajunction_server.typing import QueryState
+from datajunction_server.utils import (
+    get_query_service_client,
+    get_session,
+)
 
 # Verify our settings are correct
 actual_settings = get_settings()
@@ -70,7 +76,7 @@ print(
 )
 
 # Import seed module to patch its cached settings
-from datajunction_server.internal import seed as seed_module  # noqa: E402
+from datajunction_server.internal import seed as seed_module
 
 # Create template settings (matching what get_settings() should return)
 template_settings = Settings(
@@ -109,7 +115,7 @@ async def post_and_dont_raise_if_error(client: AsyncClient, endpoint: str, json:
 
 async def load_examples_in_client(
     client: AsyncClient,
-    examples_to_load: Optional[List[str]] = None,
+    examples_to_load: list[str] | None = None,
 ):
     """Load the DJ client with examples"""
     # Basic service setup always has to be done
@@ -197,14 +203,14 @@ async def main():
             catalog: str,
             schema: str,
             table: str,
-            engine: Optional[Engine] = None,
-            request_headers: Optional[Dict[str, str]] = None,
-        ) -> List[Column]:
+            engine: Engine | None = None,
+            request_headers: dict[str, str] | None = None,
+        ) -> list[Column]:
             return COLUMN_MAPPINGS.get(f"{catalog}.{schema}.{table}", [])
 
         def mock_submit_query(
             query_create: QueryCreate,
-            request_headers: Optional[Dict[str, str]] = None,
+            request_headers: dict[str, str] | None = None,
         ) -> QueryWithResults:
             return QueryWithResults(
                 id="bd98d6be-e2d2-413e-94c7-96d9411ddee2",
@@ -220,9 +226,9 @@ async def main():
             catalog: str,
             schema: str,
             table: str,
-            request_headers: Optional[Dict[str, str]] = None,
-            engine: Optional[Engine] = None,
-        ) -> List[Column]:
+            request_headers: dict[str, str] | None = None,
+            engine: Engine | None = None,
+        ) -> list[Column]:
             return mock_get_columns_for_table(
                 catalog,
                 schema,
@@ -233,7 +239,7 @@ async def main():
 
         async def mock_submit_query_async(
             query_create: QueryCreate,
-            request_headers: Optional[Dict[str, str]] = None,
+            request_headers: dict[str, str] | None = None,
         ) -> QueryWithResults:
             return mock_submit_query(query_create, request_headers)
 

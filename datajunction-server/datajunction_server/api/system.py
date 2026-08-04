@@ -3,31 +3,33 @@ Router for various system overview metrics
 """
 
 import logging
+from typing import cast
+
 from fastapi import BackgroundTasks, Depends, Query, Request
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from datajunction_server.database.node import Node
+from datajunction_server.internal.access.authentication.http import SecureAPIRouter
+from datajunction_server.internal.caching.cachelib_cache import get_cache
+from datajunction_server.internal.caching.interface import Cache
+from datajunction_server.internal.caching.query_cache_manager import (
+    QueryBuildType,
+    QueryCacheManager,
+    QueryRequestParams,
+)
+from datajunction_server.models.metric import TranslatedSQL
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.system import DimensionStats, SystemMetricData
 from datajunction_server.sql.dag import (
     get_cubes_using_dimensions,
     get_dimension_dag_indegree,
 )
-from datajunction_server.internal.caching.cachelib_cache import get_cache
-from datajunction_server.internal.caching.interface import Cache
-from datajunction_server.database.node import Node
-from datajunction_server.internal.access.authentication.http import SecureAPIRouter
-from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import (
     get_session,
     get_settings,
 )
-from datajunction_server.internal.caching.query_cache_manager import (
-    QueryCacheManager,
-    QueryRequestParams,
-    QueryBuildType,
-)
-from datajunction_server.models.sql import GeneratedSQL
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -86,16 +88,19 @@ async def get_data_for_system_metric(
     """
     query_cache_manager = QueryCacheManager(cache=cache, query_type=QueryBuildType.NODE)
     # e.g., "system.dj.number_of_nodes"
-    translated_sql: GeneratedSQL = await query_cache_manager.get_or_load(
-        background_tasks,
-        request,
-        QueryRequestParams(
-            nodes=[metric_name],
-            dimensions=dimensions,
-            filters=filters,
-            orderby=orderby,
-            limit=limit,
-            engine_name=settings.seed_setup.system_engine_name,
+    translated_sql = cast(
+        TranslatedSQL,
+        await query_cache_manager.get_or_load(
+            background_tasks,
+            request,
+            QueryRequestParams(
+                nodes=[metric_name],
+                dimensions=dimensions,
+                filters=filters,
+                orderby=orderby,
+                limit=limit,
+                engine_name=settings.seed_setup.system_engine_name,
+            ),
         ),
     )
     # The /system/data endpoint executes the SQL directly against the DJ

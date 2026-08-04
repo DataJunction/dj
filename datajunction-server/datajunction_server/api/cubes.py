@@ -4,7 +4,6 @@ Cube related APIs.
 
 import logging
 from http import HTTPStatus
-from typing import List, Optional
 
 from fastapi import Depends, Query, Request
 from fastapi.responses import JSONResponse
@@ -16,12 +15,6 @@ from datajunction_server.construction.build_v3.combiners import (
     build_combiner_sql_from_preaggs,
 )
 from datajunction_server.construction.build_v3.cte import strip_role_suffix
-from datajunction_server.internal.views import _build_view_body, CubeViewNames
-from datajunction_server.transpilation import transpile_sql
-from datajunction_server.models.materialization import (
-    DRUID_AGG_MAPPING,
-    DRUID_SKETCH_TYPES,
-)
 from datajunction_server.construction.dimensions import build_dimensions_from_cube_query
 from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.node import Node
@@ -43,6 +36,7 @@ from datajunction_server.internal.nodes import (
     get_all_cube_revisions_metadata,
     get_single_cube_revision_metadata,
 )
+from datajunction_server.internal.views import CubeViewNames, _build_view_body
 from datajunction_server.models.cube import (
     CubeRevisionMetadata,
     DimensionValue,
@@ -51,30 +45,33 @@ from datajunction_server.models.cube import (
     ViewDDLResponse,
 )
 from datajunction_server.models.cube_materialization import (
+    CubeMaterializationV2Input,
     CubeMaterializeRequest,
     CubeMaterializeResponse,
-    CubeMaterializationV2Input,
     DruidCubeMaterializationInput,
     DruidCubeV3Config,
     PreAggTableInfo,
     UpsertCubeMaterialization,
 )
 from datajunction_server.models.dialect import Dialect
-from datajunction_server.models.preaggregation import (
-    BackfillRequest,
-    BackfillResponse,
-    CubeBackfillInput,
-)
 from datajunction_server.models.materialization import (
+    DRUID_AGG_MAPPING,
+    DRUID_SKETCH_TYPES,
     Granularity,
     MaterializationJobTypeEnum,
     MaterializationStrategy,
 )
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.node_type import NodeNameVersion
+from datajunction_server.models.preaggregation import (
+    BackfillRequest,
+    BackfillResponse,
+    CubeBackfillInput,
+)
 from datajunction_server.models.query import ColumnMetadata, QueryCreate
 from datajunction_server.naming import from_amenable_name
 from datajunction_server.service_clients import QueryServiceClient
+from datajunction_server.transpilation import transpile_sql
 from datajunction_server.utils import (
     get_current_user,
     get_query_service_client,
@@ -204,7 +201,7 @@ def _build_metrics_spec(
 async def get_all_cubes(
     *,
     session: AsyncSession = Depends(get_session),
-    catalog: Optional[str] = Query(
+    catalog: str | None = Query(
         None,
         description="Filter to include only cubes available in a specific catalog",
     ),
@@ -293,7 +290,7 @@ async def cube_materialization_info(
             "The cube must have a single temporal partition column set "
             "in order for it to be materialized.",
         )
-    temporal_partition = temporal_partitions[0] if temporal_partitions else None
+    temporal_partition = temporal_partitions[0]
     granularity_lookback_defaults = {
         Granularity.MINUTE: "1 MINUTE",
         Granularity.HOUR: "1 HOUR",
@@ -350,12 +347,12 @@ async def cube_materialization_info(
 async def get_cube_dimension_sql(
     name: str,
     *,
-    dimensions: List[str] = Query([], description="Dimensions to get values for"),
-    filters: Optional[str] = Query(
+    dimensions: list[str] = Query([], description="Dimensions to get values for"),
+    filters: str | None = Query(
         None,
         description="Filters on dimensional attributes",
     ),
-    limit: Optional[int] = Query(
+    limit: int | None = Query(
         None,
         description="Number of rows to limit the data retrieved to",
     ),
@@ -388,12 +385,12 @@ async def get_cube_dimension_sql(
 async def get_cube_dimension_values(
     name: str,
     *,
-    dimensions: List[str] = Query([], description="Dimensions to get values for"),
-    filters: Optional[str] = Query(
+    dimensions: list[str] = Query([], description="Dimensions to get values for"),
+    filters: str | None = Query(
         None,
         description="Filters on dimensional attributes",
     ),
-    limit: Optional[int] = Query(
+    limit: int | None = Query(
         None,
         description="Number of rows to limit the data retrieved to",
     ),

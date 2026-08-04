@@ -1,20 +1,20 @@
+from datetime import UTC, datetime
+from functools import partial
 from uuid import UUID, uuid4
-from sqlalchemy import String, Enum, JSON, DateTime, Index
-from datetime import datetime
+
+from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Index, String
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy_utils import UUIDType
+
+from datajunction_server.database.base import Base
+from datajunction_server.database.user import User
 from datajunction_server.models.deployment import (
     DeploymentResult,
     DeploymentSpec,
     DeploymentStatus,
 )
 from datajunction_server.models.impact import DownstreamImpact
-from sqlalchemy import JSON, DateTime, ForeignKey, String
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy_utils import UUIDType
 from datajunction_server.typing import UTCDatetime
-from datajunction_server.database.user import User
-from datetime import datetime, timezone
-from functools import partial
-from datajunction_server.database.base import Base
 
 
 class Deployment(Base):
@@ -48,12 +48,12 @@ class Deployment(Base):
 
     created_at: Mapped[UTCDatetime] = mapped_column(
         DateTime(timezone=True),
-        default=partial(datetime.now, timezone.utc),
+        default=partial(datetime.now, UTC),
     )
     updated_at: Mapped[UTCDatetime] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
     )
 
     @property

@@ -6,9 +6,9 @@ import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from datajunction_server.models.dialect import Dialect
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.engine import Engine
+from datajunction_server.models.dialect import Dialect
 from datajunction_server.utils import get_settings
 
 logger = logging.getLogger(__name__)

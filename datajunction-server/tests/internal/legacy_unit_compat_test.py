@@ -34,7 +34,6 @@ from datajunction_server.models.unit import (
     unit_to_dict,
 )
 
-
 # A representative legacy metric YAML — flat-string `unit:` at the metric
 # spec top level, no `columns:` block, no structured unit. This is the
 # shape every existing metric YAML uses.
@@ -244,7 +243,7 @@ class TestAllLegacyUnitValuesRoundTrip:
         # Helper returns a Unit instance; compare via canonical dict.
         assert unit_to_dict(structured) == col_unit
 
-    def test_uppercase_legacy_input_accepted(self):  # noqa: ANN201
+    def test_uppercase_legacy_input_accepted(self):
         """Legacy parser accepts case-insensitive input (existing behavior)."""
         spec = MetricSpec(
             name="legacy_compat.m",

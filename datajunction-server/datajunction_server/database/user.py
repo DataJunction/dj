@@ -1,26 +1,27 @@
 """User database schema."""
 
+from __future__ import annotations
+
 import logging
-from typing import TYPE_CHECKING, Optional
+from datetime import UTC, datetime
+from functools import partial
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     BigInteger,
+    DateTime,
     Enum,
+    ForeignKey,
     Integer,
     String,
-    ForeignKey,
+    and_,
     case,
     select,
-    DateTime,
-    and_,
 )
-from datetime import datetime, timezone
-from functools import partial
-
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, selectinload
 from sqlalchemy.sql.base import ExecutableOption
-from sqlalchemy.orm import selectinload
+
 from datajunction_server.database.base import Base
 from datajunction_server.database.nodeowner import NodeOwner
 from datajunction_server.enum import StrEnum
@@ -70,9 +71,9 @@ class User(Base):
         primary_key=True,
     )
     username: Mapped[str] = mapped_column(String, unique=True)
-    password: Mapped[Optional[str]]
-    email: Mapped[Optional[str]]
-    name: Mapped[Optional[str]]
+    password: Mapped[str | None]
+    email: Mapped[str | None]
+    name: Mapped[str | None]
     oauth_provider: Mapped[OAuthProvider] = mapped_column(
         Enum(OAuthProvider),
     )
@@ -89,7 +90,7 @@ class User(Base):
 
     created_at: Mapped[UTCDatetime | None] = mapped_column(
         DateTime(timezone=True),
-        insert_default=partial(datetime.now, timezone.utc),
+        insert_default=partial(datetime.now, UTC),
         nullable=True,
     )
 
@@ -100,31 +101,31 @@ class User(Base):
         default=None,
     )
 
-    created_by: Mapped["User"] = relationship("User")
-    created_collections: Mapped[list["Collection"]] = relationship(
+    created_by: Mapped[User] = relationship("User")
+    created_collections: Mapped[list[Collection]] = relationship(
         "Collection",
         back_populates="created_by",
         foreign_keys="Collection.created_by_id",
         lazy="noload",  # Don't load during SQL generation - not needed
     )
-    created_nodes: Mapped[list["Node"]] = relationship(
+    created_nodes: Mapped[list[Node]] = relationship(
         "Node",
         back_populates="created_by",
         foreign_keys="Node.created_by_id",
         lazy="noload",  # Don't load during SQL generation - not needed
     )
-    created_node_revisions: Mapped[list["NodeRevision"]] = relationship(
+    created_node_revisions: Mapped[list[NodeRevision]] = relationship(
         "NodeRevision",
         back_populates="created_by",
         foreign_keys="NodeRevision.created_by_id",
     )
-    created_tags: Mapped[list["Tag"]] = relationship(
+    created_tags: Mapped[list[Tag]] = relationship(
         "Tag",
         back_populates="created_by",
         foreign_keys="Tag.created_by_id",
         lazy="noload",  # Don't load during SQL generation - not needed
     )
-    notification_preferences: Mapped[list["NotificationPreference"]] = relationship(
+    notification_preferences: Mapped[list[NotificationPreference]] = relationship(
         "NotificationPreference",
         back_populates="user",
         lazy="noload",  # Don't load during SQL generation - not needed
@@ -146,20 +147,20 @@ class User(Base):
 
     # Group membership relationships (for kind=GROUP)
     # Groups that this user owns (for kind=GROUP)
-    group_members: Mapped[list["GroupMember"]] = relationship(
+    group_members: Mapped[list[GroupMember]] = relationship(
         "GroupMember",
         foreign_keys="GroupMember.group_id",
         viewonly=True,
     )
     # Memberships where this user is a member of groups (for kind=USER or SERVICE_ACCOUNT)
-    member_of: Mapped[list["GroupMember"]] = relationship(
+    member_of: Mapped[list[GroupMember]] = relationship(
         "GroupMember",
         foreign_keys="GroupMember.member_id",
         viewonly=True,
     )
 
     # RBAC role assignments (for authorization)
-    role_assignments: Mapped[list["RoleAssignment"]] = relationship(
+    role_assignments: Mapped[list[RoleAssignment]] = relationship(
         "RoleAssignment",
         foreign_keys="RoleAssignment.principal_id",
         viewonly=True,
@@ -170,8 +171,8 @@ class User(Base):
         cls,
         session: AsyncSession,
         username: str,
-        options: list[ExecutableOption] = None,
-    ) -> Optional["User"]:
+        options: list[ExecutableOption] | None = None,
+    ) -> User | None:
         """
         Find a user by username
         """
@@ -197,7 +198,7 @@ class User(Base):
         usernames: list[str],
         raise_if_not_exists: bool = True,
         options: list[ExecutableOption] | None = None,
-    ) -> list["User"]:
+    ) -> list[User]:
         """
         Find users by username, preserving the order of the input usernames list.
         """
@@ -228,8 +229,8 @@ class User(Base):
         cls,
         session: AsyncSession,
         user_id: int,
-        options: list[ExecutableOption] = None,
-    ) -> list["User"]:
+        options: list[ExecutableOption] | None = None,
+    ) -> list[User]:
         """
         Find service accounts created by a user
         """

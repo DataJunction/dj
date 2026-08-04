@@ -11,28 +11,29 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from datajunction_server.errors import DJInvalidInputException
-from datajunction_server.database.preaggregation import (
-    PreAggregation,
-    compute_expression_hash,
-)
-from datajunction_server.models.decompose import Aggregability, MetricComponent
-from datajunction_server.models.preaggregation import TemporalPartitionColumn
-from datajunction_server.naming import SEPARATOR
 from datajunction_server.construction.build_v3.dimensions import (
     parse_dimension_ref,
     roles_reaching_dimension,
 )
+from datajunction_server.database.preaggregation import (
+    PreAggregation,
+    compute_expression_hash,
+)
+from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.models.decompose import Aggregability, MetricComponent
+from datajunction_server.models.preaggregation import TemporalPartitionColumn
+from datajunction_server.naming import SEPARATOR
 
 if TYPE_CHECKING:
     from datajunction_server.construction.build_v3.types import BuildContext, GrainGroup
+    from datajunction_server.database.column import Column
     from datajunction_server.database.node import Node
 
 logger = logging.getLogger(__name__)
 
 
 def get_required_measure_identities(
-    grain_group: "GrainGroup",
+    grain_group: GrainGroup,
 ) -> set[tuple[str, str]]:
     """
     Identity of each measure a grain group needs: (expression hash, Phase-1
@@ -57,7 +58,7 @@ def get_required_measure_identities(
 
 
 def canonical_dimension_ref(
-    ctx: "BuildContext",
+    ctx: BuildContext,
     node_rev_id: int,
     ref: str,
 ) -> str:
@@ -84,10 +85,10 @@ def canonical_dimension_ref(
 
 
 def find_matching_preagg(
-    ctx: "BuildContext",
-    parent_node: "Node",
+    ctx: BuildContext,
+    parent_node: Node,
     requested_grain: list[str],
-    grain_group: "GrainGroup",
+    grain_group: GrainGroup,
 ) -> PreAggregation | None:
     """
     Find a pre-aggregation that can satisfy the grain group requirements.
@@ -233,7 +234,7 @@ def get_preagg_measure_column(
 
 
 def get_preagg_dimension_column(
-    ctx: "BuildContext",
+    ctx: BuildContext,
     node_rev_id: int,
     preagg: PreAggregation,
     dimension_ref: str,
@@ -258,106 +259,119 @@ def get_preagg_dimension_column(
     return default_column
 
 
+def match_temporal_columns_to_grain(
+    preagg: PreAggregation,
+) -> list[tuple[Column, str | None]]:
+    """
+    Each temporal partition column of a pre-agg's parent, paired with the grain
+    entry it corresponds to (``None`` when the column isn't part of the grain).
+
+    A temporal column reaches the grain three ways: named directly by the parent,
+    reached through a dimension link the column feeds, or through the column's own
+    dimension reference. Callers derive what they need from the matched ref --
+    ``get_temporal_partitions`` an output column name, freshness gating the axis
+    ``valid_through_ts`` describes.
+    """
+    node_revision = preagg.node_revision
+    if not node_revision:  # pragma: no cover - defensive
+        return []
+
+    grain_columns = preagg.grain_columns or []
+    temporal_columns = node_revision.temporal_partition_columns()
+    if not temporal_columns:
+        return []
+
+    def grain_ref_under(dim_node: str, dim_attr: str | None = None) -> str | None:
+        """First grain entry belonging to a dimension node."""
+        return next(
+            (
+                grain_col
+                for grain_col in grain_columns
+                if grain_col == dim_attr or grain_col.startswith(dim_node + SEPARATOR)
+            ),
+            None,
+        )
+
+    # A source column can feed several dimension links, so this is multi-valued:
+    # keeping only one would miss the attribute actually named in the grain. Built
+    # lazily -- it parses each link's join SQL, which is wasted whenever the grain
+    # names the parent's own column.
+    col_to_dims: dict[str, list[str]] | None = None
+
+    matches: list[tuple[Column, str | None]] = []
+    for temporal_col in temporal_columns:
+        direct_ref = f"{node_revision.name}{SEPARATOR}{temporal_col.name}"
+        if direct_ref in grain_columns:
+            matches.append((temporal_col, direct_ref))
+            continue
+
+        if col_to_dims is None:
+            col_to_dims = {}
+            for (
+                dim_attr,
+                source_col,
+            ) in node_revision.dimensions_to_columns_map().items():
+                source_name = source_col.identifier().split(SEPARATOR)[-1]
+                col_to_dims.setdefault(source_name, []).append(dim_attr)
+
+        matched_ref = next(
+            (
+                ref
+                for dim_attr in col_to_dims.get(temporal_col.name, [])
+                if (ref := grain_ref_under(dim_attr.rsplit(SEPARATOR, 1)[0], dim_attr))
+            ),
+            None,
+        )
+        if matched_ref is None and temporal_col.dimension:
+            matched_ref = grain_ref_under(temporal_col.dimension.name)
+        matches.append((temporal_col, matched_ref))
+    return matches
+
+
+def temporal_output_name(temporal_col: Column, grain_ref: str | None) -> str:
+    """
+    Output column name for a temporal partition column.
+
+    Named from the grain entry it matched -- ``v3.date.week[order]`` becomes
+    ``week_order`` -- falling back to the source column name when the column
+    isn't in the grain.
+    """
+    if grain_ref is None:
+        return temporal_col.name
+    parsed = parse_dimension_ref(grain_ref)
+    if parsed.role:
+        return f"{parsed.column_name}_{parsed.role}"
+    return parsed.column_name
+
+
 def get_temporal_partitions(preagg: PreAggregation) -> list[TemporalPartitionColumn]:
     """
     Get temporal partition columns for a pre-aggregation.
     """
-    col_type_map: dict[str, str] = {}
-    if preagg.node_revision and preagg.node_revision.columns:  # pragma: no branch
-        for col in preagg.node_revision.columns:
-            col_type_map[col.name] = str(col.type)
-
     temporal_partitions: list[TemporalPartitionColumn] = []
-    if preagg.node_revision:  # pragma: no branch
-        # Build reverse mapping: source column name -> list of dimension attributes.
-        # dimensions_to_columns_map returns {dim_attr (AST Column): source_col (AST Column)}.
-        # A single source column may appear in multiple dimension links (e.g., one
-        # simple link plus one multi-column link), so this must be multi-valued —
-        # otherwise only one mapping survives and we may miss the dim_attr that
-        # the user actually selected in the cube grain.
-        col_to_dims: dict[str, list[str]] = {}
-        dim_to_col = preagg.node_revision.dimensions_to_columns_map()
-        for dim_attr, source_col in dim_to_col.items():
-            source_col_name = source_col.identifier().split(SEPARATOR)[-1]
-            col_to_dims.setdefault(source_col_name, []).append(dim_attr)
-
-        for temporal_col in preagg.node_revision.temporal_partition_columns():
-            source_name = temporal_col.name
-            source_type = str(temporal_col.type) if temporal_col.type else "int"
-            output_name = source_name  # default
-
-            # Strategy 1: Source name directly in grain
-            full_source_col = f"{preagg.node_revision.name}{SEPARATOR}{source_name}"
-            if full_source_col in preagg.grain_columns:
-                output_name = source_name  # pragma: no cover
-
-            # Strategy 2: Check dimension links via dimensions_to_columns_map.
-            # Try every dim_attr that maps back to this source column — the first
-            # one whose attribute (or parent node) appears in grain_columns wins.
-            elif source_name in col_to_dims:
-                for dim_attr in col_to_dims[source_name]:
-                    dim_node = dim_attr.rsplit(SEPARATOR, 1)[0]
-                    matched = False
-                    for gc in preagg.grain_columns:
-                        if gc == dim_attr or gc.startswith(dim_node + SEPARATOR):
-                            # Parse the dimension ref to handle role syntax properly
-                            # e.g., "v3.date.week[order]" -> column_name="week", role="order"
-                            # -> output_name="week_order"
-                            parsed = parse_dimension_ref(gc)
-                            output_name = parsed.column_name
-                            if parsed.role:  # pragma: no branch
-                                output_name = f"{output_name}_{parsed.role}"
-                            logger.info(
-                                "Temporal column %s links to dimension %s -> output %s",
-                                source_name,
-                                dim_attr,
-                                output_name,
-                            )
-                            matched = True
-                            break
-                    if matched:
-                        break
-
-            # Strategy 3: Check column.dimension reference link
-            elif temporal_col.dimension:  # pragma: no cover
-                dim_name = temporal_col.dimension.name
-                for gc in preagg.grain_columns:
-                    if gc.startswith(dim_name + SEPARATOR):
-                        # Parse the dimension ref to handle role syntax properly
-                        parsed = parse_dimension_ref(gc)
-                        output_name = parsed.column_name
-                        if parsed.role:
-                            output_name = f"{output_name}_{parsed.role}"
-                        break
-
-            # Map output column to source type (for DDL generation)
-            if output_name != source_name:
-                col_type_map[output_name] = source_type  # pragma: no cover
-
-            logger.info(
-                "Temporal partition: source=%s -> output=%s (type=%s)",
-                source_name,
-                output_name,
-                source_type,
-            )
-
-            temporal_partitions.append(
-                TemporalPartitionColumn(
-                    column_name=output_name,
-                    column_type=source_type,
-                    format=temporal_col.partition.format
-                    if temporal_col.partition
-                    else None,
-                    granularity=(
-                        str(temporal_col.partition.granularity.value)
-                        if temporal_col.partition and temporal_col.partition.granularity
-                        else None
-                    ),
-                    expression=(
-                        str(temporal_col.partition.temporal_expression())
-                        if temporal_col.partition
-                        else None
-                    ),
+    for temporal_col, grain_ref in match_temporal_columns_to_grain(preagg):
+        source_type = str(temporal_col.type) if temporal_col.type else "int"
+        output_name = temporal_output_name(temporal_col, grain_ref)
+        logger.info(
+            "Temporal partition: source=%s -> output=%s (type=%s)",
+            temporal_col.name,
+            output_name,
+            source_type,
+        )
+        partition = temporal_col.partition
+        temporal_partitions.append(
+            TemporalPartitionColumn(
+                column_name=output_name,
+                column_type=source_type,
+                format=partition.format if partition else None,
+                granularity=(
+                    str(partition.granularity.value)
+                    if partition and partition.granularity
+                    else None
                 ),
-            )
+                expression=(
+                    str(partition.temporal_expression()) if partition else None
+                ),
+            ),
+        )
     return temporal_partitions

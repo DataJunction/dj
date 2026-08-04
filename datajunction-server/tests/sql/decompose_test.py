@@ -6,13 +6,13 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.construction.build_v3 import assert_sql_equal
 from datajunction_server.database.node import Node, NodeRelationship, NodeRevision
 from datajunction_server.models.cube_materialization import (
     Aggregability,
     AggregationRule,
     MetricComponent,
 )
+from datajunction_server.models.engine import Dialect
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql import functions as dj_functions
 from datajunction_server.sql.decompose import (
@@ -21,10 +21,10 @@ from datajunction_server.sql.decompose import (
     wrap_divisions_in_nullif,
 )
 from datajunction_server.sql.parsing import ast
+from datajunction_server.sql.parsing.ast import to_sql
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
-from datajunction_server.models.engine import Dialect
-from datajunction_server.sql.parsing.ast import to_sql
+from tests.construction.build_v3 import assert_sql_equal
 
 
 @pytest_asyncio.fixture
@@ -58,7 +58,7 @@ async def create_metric(session: AsyncSession, current_user, parent_node):
     """Fixture to create a metric node with a query."""
     created_metrics: list[NodeRevision] = []
 
-    async def _create(query: str, name: str = None, parent=None):
+    async def _create(query: str, name: str | None = None, parent=None):
         parent_to_use = parent if parent else parent_node
         metric_name = name or f"test_metric_{len(created_metrics)}"
 

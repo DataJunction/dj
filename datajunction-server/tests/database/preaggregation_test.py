@@ -1,18 +1,19 @@
 """Tests for PreAggregation database schema."""
 
+from unittest.mock import MagicMock
+
 import pytest
 import pytest_asyncio
-from unittest.mock import MagicMock
 
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.preaggregation import (
-    PreAggregation,
     VALID_PREAGG_STRATEGIES,
-    compute_grain_group_hash,
+    PreAggregation,
     compute_expression_hash,
+    compute_grain_group_hash,
+    compute_preagg_hash,
     get_measure_identities,
     measure_identity_token,
-    compute_preagg_hash,
 )
 from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.models.decompose import AggregationRule, PreAggMeasure

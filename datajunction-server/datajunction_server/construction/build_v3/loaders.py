@@ -7,21 +7,21 @@ from __future__ import annotations
 import logging
 from collections import namedtuple
 
-from sqlalchemy import select, text, bindparam
+from sqlalchemy import bindparam, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload, joinedload, load_only, noload
-
-from datajunction_server.database.dimensionlink import DimensionLink
-from datajunction_server.database.node import Node, NodeRevision, Column
-from datajunction_server.database.preaggregation import PreAggregation
-from datajunction_server.models.node_type import NodeType
+from sqlalchemy.orm import joinedload, load_only, noload, selectinload
 
 from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
+from datajunction_server.construction.build_v3.preagg_freshness import preagg_is_fresh
 from datajunction_server.construction.build_v3.types import BuildContext
 from datajunction_server.construction.build_v3.utils import (
     collect_required_dimensions,
     iter_namespaced_columns,
 )
+from datajunction_server.database.dimensionlink import DimensionLink
+from datajunction_server.database.node import Column, Node, NodeRevision
+from datajunction_server.database.preaggregation import PreAggregation
+from datajunction_server.models.node_type import NodeType
 
 logger = logging.getLogger(__name__)
 
@@ -655,7 +655,11 @@ async def load_available_preaggs(ctx: BuildContext) -> None:
 
     # Index by node_revision_id for fast lookup
     for preagg in preaggs:
-        if preagg.availability and preagg.availability.is_available():
+        if (
+            preagg.availability
+            and preagg.availability.is_available()
+            and preagg_is_fresh(ctx, preagg)
+        ):
             if preagg.node_revision_id not in ctx.available_preaggs:
                 ctx.available_preaggs[preagg.node_revision_id] = []
             ctx.available_preaggs[preagg.node_revision_id].append(preagg)

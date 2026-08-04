@@ -3,13 +3,14 @@ Node materialization related APIs.
 """
 
 import logging
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from http import HTTPStatus
-from typing import Annotated, Callable, List
+from typing import Annotated
 
 from fastapi import Depends, Request
-from pydantic import Discriminator
 from fastapi.responses import JSONResponse
+from pydantic import Discriminator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
@@ -40,7 +41,6 @@ from datajunction_server.internal.materializations import (
 from datajunction_server.materialization.jobs import MaterializationJob
 from datajunction_server.models.base import labelize
 from datajunction_server.models.cube_materialization import UpsertCubeMaterialization
-from datajunction_server.models.node import AvailabilityStateInfo
 from datajunction_server.models.materialization import (
     MaterializationConfigInfoUnified,
     MaterializationInfo,
@@ -48,6 +48,7 @@ from datajunction_server.models.materialization import (
     MaterializationStrategy,
     UpsertMaterialization,
 )
+from datajunction_server.models.node import AvailabilityStateInfo
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionBackfill
 from datajunction_server.naming import amenable_name
@@ -291,7 +292,7 @@ async def upsert_materialization(
 
 @router.get(
     "/nodes/{node_name}/materializations/",
-    response_model=List[MaterializationConfigInfoUnified],
+    response_model=list[MaterializationConfigInfoUnified],
     name="List Materializations for a Node",
 )
 async def list_node_materializations(
@@ -302,7 +303,7 @@ async def list_node_materializations(
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-) -> List[MaterializationConfigInfoUnified]:
+) -> list[MaterializationConfigInfoUnified]:
     """
     Show all materializations configured for the node, with any associated metadata
     like urls from the materialization service, if available.
@@ -406,7 +407,7 @@ async def deactivate_node_materializations(
         node_version=node_revision.version,  # type: ignore
         request_headers=request_headers,
     )
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     materialization_to_deactivate.deactivated_at = UTCDatetime(
         year=now.year,
         month=now.month,
@@ -448,7 +449,7 @@ async def deactivate_node_materializations(
 async def run_materialization_backfill(
     node_name: str,
     materialization_name: str,
-    backfill_partitions: List[PartitionBackfill],
+    backfill_partitions: list[PartitionBackfill],
     *,
     session: AsyncSession = Depends(get_session),
     request: Request,
@@ -555,7 +556,7 @@ async def run_materialization_backfill(
 
 @router.get(
     "/nodes/{node_name}/availability/",
-    response_model=List[AvailabilityStateInfo],
+    response_model=list[AvailabilityStateInfo],
     status_code=200,
     name="List All Availability States for a Node",
 )
@@ -563,7 +564,7 @@ async def list_node_availability_states(
     node_name: str,
     *,
     session: AsyncSession = Depends(get_session),
-) -> List[AvailabilityStateInfo]:
+) -> list[AvailabilityStateInfo]:
     """
     Retrieve all availability states for a given node across all revisions.
     """

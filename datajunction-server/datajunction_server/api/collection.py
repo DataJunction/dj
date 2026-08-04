@@ -4,7 +4,6 @@ Collection related APIs.
 
 import logging
 from http import HTTPStatus
-from typing import List
 
 from fastapi import Depends, HTTPException, Response
 from sqlalchemy import select
@@ -83,7 +82,7 @@ async def delete_a_collection(
 async def list_collections(
     *,
     session: AsyncSession = Depends(get_session),
-) -> List[CollectionInfo]:
+) -> list[CollectionInfo]:
     """
     List all collections
     """
@@ -117,7 +116,7 @@ async def get_collection(
 )
 async def add_nodes_to_collection(
     name: str,
-    data: List[str],
+    data: list[str],
     *,
     session: AsyncSession = Depends(get_session),
 ):
@@ -145,7 +144,7 @@ async def add_nodes_to_collection(
 )
 async def delete_nodes_from_collection(
     name: str,
-    data: List[str],
+    data: list[str],
     *,
     session: AsyncSession = Depends(get_session),
 ):

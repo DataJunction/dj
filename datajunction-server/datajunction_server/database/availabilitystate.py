@@ -1,8 +1,8 @@
 """Availability state database schema."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import partial
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import sqlalchemy as sa
 from sqlalchemy import JSON, DateTime, ForeignKey, Index
@@ -26,60 +26,60 @@ class AvailabilityState(Base):
     )
 
     catalog: Mapped[str]
-    schema_: Mapped[Optional[str]] = mapped_column(nullable=True)
+    schema_: Mapped[str | None] = mapped_column(nullable=True)
     table: Mapped[str]
     valid_through_ts: Mapped[int] = mapped_column(sa.BigInteger())
-    url: Mapped[Optional[str]]
-    links: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, default=dict)
+    url: Mapped[str | None]
+    links: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=dict)
 
     # An ordered list of categorical partitions like ["country", "group_id"]
     # or ["region_id", "age_group"]
-    categorical_partitions: Mapped[Optional[List[str]]] = mapped_column(
+    categorical_partitions: Mapped[list[str] | None] = mapped_column(
         JSON,
         default=[],
     )
 
     # An ordered list of temporal partitions like ["date", "hour"] or ["date"]
-    temporal_partitions: Mapped[Optional[List[str]]] = mapped_column(
+    temporal_partitions: Mapped[list[str] | None] = mapped_column(
         JSON,
         default=[],
     )
 
     # Node-level temporal ranges
-    min_temporal_partition: Mapped[Optional[List[str]]] = mapped_column(
+    min_temporal_partition: Mapped[list[str] | None] = mapped_column(
         JSON,
         default=[],
     )
-    max_temporal_partition: Mapped[Optional[List[str]]] = mapped_column(
+    max_temporal_partition: Mapped[list[str] | None] = mapped_column(
         JSON,
         default=[],
     )
 
     # Partition-level availabilities
-    partitions: Mapped[Optional[List[PartitionAvailability]]] = mapped_column(
+    partitions: Mapped[list[PartitionAvailability] | None] = mapped_column(
         JSON,
         default=[],
     )
     updated_at: Mapped[UTCDatetime] = mapped_column(
         DateTime(timezone=True),
-        default=partial(datetime.now, timezone.utc),
+        default=partial(datetime.now, UTC),
     )
 
     # Table-level size metadata
-    total_size_bytes: Mapped[Optional[int]] = mapped_column(
+    total_size_bytes: Mapped[int | None] = mapped_column(
         sa.BigInteger(),
         nullable=True,
     )
-    total_row_count: Mapped[Optional[int]] = mapped_column(
+    total_row_count: Mapped[int | None] = mapped_column(
         sa.BigInteger(),
         nullable=True,
     )
-    total_partitions: Mapped[Optional[int]] = mapped_column(nullable=True)
-    ttl_days: Mapped[Optional[int]] = mapped_column(nullable=True)
+    total_partitions: Mapped[int | None] = mapped_column(nullable=True)
+    ttl_days: Mapped[int | None] = mapped_column(nullable=True)
 
     def is_available(
         self,
-        criteria: Optional[BuildCriteria] = None,
+        criteria: BuildCriteria | None = None,
     ) -> bool:  # pragma: no cover
         """
         Determine whether an availability state is useable given criteria

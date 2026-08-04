@@ -3,8 +3,8 @@ Unit tests for git namespace validation functions.
 """
 
 import pytest
-
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.internal.namespaces import (

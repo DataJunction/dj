@@ -1,6 +1,6 @@
 """Shared authorization test helpers."""
 
-from typing import Callable
+from collections.abc import Callable
 
 from datajunction_server.internal.access.authorization import (
     AuthorizationService,
