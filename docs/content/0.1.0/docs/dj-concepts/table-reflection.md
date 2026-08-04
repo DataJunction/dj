@@ -31,5 +31,5 @@ Using reflection is recommended but not required. DJ uses an OpenAPI specificati
 utilized by the DJ server. The DJ project includes an open source reflection service [DJRS](https://github.com/DataJunction/djrs) that leverages
 optional endpoints on a query service. The open source query service [DJQS](https://github.com/DataJunction/djqs) implements these optional endpoints,
 however if you're running a custom query service, these endpoints are only necessary if you want to enable reflection. To learn more, check out the
-deployment guides for the [Reflection Service](../deploying-dj/reflection-service/) and
-[Query Service](../deploying-dj/query-service/).
+deployment guides for the [Reflection Service](../../deploying-dj/reflection-service/) and
+[Query Service](../../deploying-dj/query-service/).

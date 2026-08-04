@@ -12,7 +12,7 @@ Cubes are used to represent a set of metrics with dimensions and filters.
 | name         | Unique name used by other nodes to select from this node                                    | string       |
 | display_name | A human readable name for the node                                                          | string       |
 | description  | A human readable description of the node                                                    | string       |
-| mode         | `published` or `draft` (see [Node Mode](../../../dj-concepts/node-dependencies/#node-mode)) | string       |
+| mode         | `published` or `draft` (see [Node Mode](../../dj-concepts/node-dependencies/#node-mode)) | string       |
 | metrics      | A set of metric node names                                                                  | list[string] |
 | dimensions   | A set of dimension attribute names                                                          | list[string] |
 | filters      | A set of filters                                                                            | list[string] |

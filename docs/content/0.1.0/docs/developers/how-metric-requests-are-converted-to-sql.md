@@ -10,7 +10,7 @@ This document explains how DataJunction converts metric requests into SQL querie
 - Optimizing metric definitions
 - Contributing to the SQL generation code
 
-For background on metric decomposition (the theory behind breaking metrics into pre-aggregatable components), see [Metric Decomposition]({{< ref "/docs/dj-concepts/metric-decomposition" >}}).
+For background on metric decomposition (the theory behind breaking metrics into pre-aggregatable components), see [Metric Decomposition](../../dj-concepts/metric-decomposition/).
 
 ## Overview Architecture
 

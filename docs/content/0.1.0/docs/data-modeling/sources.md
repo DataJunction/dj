@@ -15,7 +15,7 @@ are built upon.
 | name         | Unique name used by other nodes to select from this node                                    | string |
 | description  | A human readable description of the node                                                    | string |
 | display_name | A human readable name for the node                                                          | string |
-| mode         | `published` or `draft` (see [Node Mode](../../../dj-concepts/node-dependencies/#node-mode)) | string |
+| mode         | `published` or `draft` (see [Node Mode](../../dj-concepts/node-dependencies/#node-mode)) | string |
 | catalog      | The name of the external catalog                                                            | string |
 | schema_      | The name of the external schema                                                             | string |
 | table        | The name of the external table                                                              | string |
@@ -106,7 +106,7 @@ warehouse setup, you can just register a table as a source node by telling DJ ab
 The reflection service will automatically add the column names and types to all source nodes and 
 update them whenever the external table changes.
 
-To read more about DJRS, see the [Table Reflection](../../../dj-concepts/table-reflection/) page.
+To read more about DJRS, see the [Table Reflection](../../dj-concepts/table-reflection/) page.
 
 {{< tabs "creating source nodes with DJRS" >}}
 {{< tab "curl" >}}

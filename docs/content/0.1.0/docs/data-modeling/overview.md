@@ -5,9 +5,9 @@ title: "Overview"
 
 Data modeling in DJ can be done in several ways:
 * Using the UI
-* Using the [API](../../developers/dj-server-v0.0.1a44)
-* Any [supported clients](../dj-clients/)
-* Using [YAML files](./yaml)
+* Using the [API](../../developers/the-datajunction-api-specification/)
+* Any [supported clients](../../developers/clients/)
+* Using [YAML files](../yaml/)
 
 ## Data Modeling Stages
 
@@ -20,4 +20,3 @@ The typical flow for onboarding data models looks like this:
 5. Create [metric nodes](../metrics/), which are aggregate expressions on one or more fields from a source, transform, or dimension node.
 6. Create [cube nodes](../cubes/) for bundling commonly used metrics and dimensions together (often used to facilitate materialization for quick access, like when powering analytical dashboards).
 
-We'll walk through this in more detail in the [Data Modeling Tutorial](#).

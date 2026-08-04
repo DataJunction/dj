@@ -6,7 +6,7 @@ title: "Materialization"
 ## Cube Nodes
 
 When we attach a materialization config to a cube node (instructions
-[here](../../getting-started/creating-nodes/cubes#adding-materialization-config)), we are requesting DJ to prepare
+[here](../../data-modeling/cubes/#adding-materialization-config)), we are requesting DJ to prepare
 for the materialization of the cube's underlying data into an OLAP database (such as Druid). This enables
 low-latency metric queries across all defined dimensions in the cube.
 

@@ -16,7 +16,7 @@ toc: true
 
 👉 Trying to onboard onto DJ for data modeling? See the guide to [Data Modeling](../../data-modeling/overview).
 
-👉 Want to contribute to DJ develpopment? See the [Developers Guide](../../developers/running-dj-locally)
+👉 Want to contribute to DJ develpopment? See the [Developers Guide](../../developers/running-locally/)
 {{< /alert >}}
 
 ## What is it?

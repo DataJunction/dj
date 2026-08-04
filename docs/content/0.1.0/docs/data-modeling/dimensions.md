@@ -13,7 +13,7 @@ They must always have a primary key configured, and can have any number of assoc
 
 One key feature of dimension nodes is the ability to configure **join links**. Any DJ node can be linked to a dimension
 node via two different types of [dimension linking](../dimension-links). These links are used to build out 
-the dimensional metadata edges of the [DJ DAG](../../../dj-concepts/the-dj-dag), enabling DJ to find all accessible
+the dimensional metadata edges of the [DJ DAG](../../dj-concepts/the-dj-dag/), enabling DJ to find all accessible
 dimensions for each metric.
 
 {{< alert icon="📢" >}}
@@ -59,7 +59,7 @@ erDiagram
 | name          | Unique name used by other nodes to select from this node                                    | string |
 | display_name  | A human readable name for the node                                                          | string |
 | description   | A human readable description of the node                                                    | string |
-| mode          | `published` or `draft` (see [Node Mode](../../../dj-concepts/node-dependencies/#node-mode)) | string |
+| mode          | `published` or `draft` (see [Node Mode](../../dj-concepts/node-dependencies/#node-mode)) | string |
 | query         | A SQL query that selects from other nodes                                                   | string |
 
 Assume a `default.dispatchers` source node was defined as follows.

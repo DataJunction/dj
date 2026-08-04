@@ -17,7 +17,7 @@ engine supports.
 | name         | Unique name used by other nodes to select from this node                                    | string |
 | display_name | A human readable name for the node                                                          | string |
 | description  | A human readable description of the node                                                    | string |
-| mode         | `published` or `draft` (see [Node Mode](../../../dj-concepts/node-dependencies/#node-mode)) | string |
+| mode         | `published` or `draft` (see [Node Mode](../../dj-concepts/node-dependencies/#node-mode)) | string |
 | query        | A SQL query that selects from other nodes                                                   | string |
 
 ## Creating Transform Nodes
