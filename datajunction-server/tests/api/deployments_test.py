@@ -14,7 +14,6 @@ from datajunction_server.api.deployments import (
 )
 from datajunction_server.database.node import Node, NodeRelationship
 from datajunction_server.database.tag import Tag
-from datajunction_server.internal.access.authorization import AuthorizationService
 from datajunction_server.internal.git.github_service import GitHubServiceError
 from datajunction_server.models import access
 from datajunction_server.models.deployment import (
@@ -41,36 +40,8 @@ from datajunction_server.models.node import (
     NodeType,
 )
 from datajunction_server.utils import get_query_service_client
+from tests.authz import VALIDATOR_AUTH_SERVICE, deny
 from tests.construction.build_v3 import assert_sql_equal
-
-
-# Patch target: the name as imported into the validator module, where
-# AccessChecker.check() looks the authorization service up.
-_VALIDATOR_AUTH_SERVICE = (
-    "datajunction_server.internal.access.authorization."
-    "validator.get_authorization_service"
-)
-
-
-class _DenyDeleteAuthorizationService(AuthorizationService):
-    """
-    Approves everything except DELETE -- a caller with WRITE but not DELETE.
-
-    The deployment HTTP entrypoint only checks WRITE on the root namespace, so
-    such a caller passes the entrypoint; this isolates the orchestrator's own
-    DELETE authorization on nodes/namespaces it removes.
-    """
-
-    name = "test_deny_delete_deploy"
-
-    def authorize(self, auth_context, requests):
-        return [
-            access.AccessDecision(
-                request=request,
-                approved=request.verb != access.ResourceAction.DELETE,
-            )
-            for request in requests
-        ]
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -1347,8 +1318,8 @@ class TestDeploymentAuthorization:
         # Now deny DELETE (WRITE still allowed, so the HTTP entrypoint passes) and
         # try to delete everything via an empty spec.
         mocker.patch(
-            _VALIDATOR_AUTH_SERVICE,
-            lambda: _DenyDeleteAuthorizationService(),
+            VALIDATOR_AUTH_SERVICE,
+            deny(access.ResourceAction.DELETE),
         )
         data = await deploy_and_wait(
             client,

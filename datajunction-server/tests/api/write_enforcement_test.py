@@ -22,7 +22,7 @@ import pytest
 from httpx import AsyncClient
 
 from datajunction_server.models.access import ResourceAction, ResourceType
-from tests.authz import VALIDATOR_AUTH_SERVICE, DenyActionAuthorizationService
+from tests.authz import VALIDATOR_AUTH_SERVICE, RecordingAuthorizationService
 from tests.test_route_coverage import (
     EXCLUDED_ROUTES,
     _mutating_routes,
@@ -45,6 +45,10 @@ class Case(NamedTuple):
     # The kind of resource the check must name. Its name is always STUB, since
     # that is what the request addresses -- a check on anything else is a bug.
     resource: ResourceType = ResourceType.NODE
+    # The action that governs the endpoint. Denying a single action is what
+    # isolates its own gate: a DELETE grant implies WRITE, so a delete-governed
+    # endpoint is unexercised by denying WRITE.
+    action: ResourceAction = ResourceAction.WRITE
 
     @property
     def path(self) -> str:
@@ -52,7 +56,7 @@ class Case(NamedTuple):
         return re.sub(r"\{[^}]+\}", STUB, self.route) + self.query
 
 
-DENY_WRITE_CASES = [
+CASES = [
     # dimension links
     Case("DELETE", "/nodes/{node_name}/link", {"dimension_node": "enforce.dim"}),
     Case("DELETE", "/nodes/{name}/columns/{column}", query="?dimension=enforce.dim"),
@@ -93,17 +97,14 @@ DENY_WRITE_CASES = [
     # check fires before loading. The {preagg_id} endpoints check after loading a
     # real pre-agg, so they live in preaggregations_test.py with those fixtures.
     Case("DELETE", "/preaggs/workflows", query=f"?node_name={STUB}"),
-]
-
-# Delete-governed endpoints. A DELETE grant implies WRITE, so denying WRITE would
-# leave these unexercised.
-DENY_DELETE_CASES = [
-    Case("DELETE", "/nodes/{name}"),
-    Case("DELETE", "/nodes/{name}/hard"),
+    # delete-governed endpoints
+    Case("DELETE", "/nodes/{name}", action=ResourceAction.DELETE),
+    Case("DELETE", "/nodes/{name}/hard", action=ResourceAction.DELETE),
     Case(
         "DELETE",
         "/namespaces/{namespace}/hard",
         resource=ResourceType.NAMESPACE,
+        action=ResourceAction.DELETE,
     ),
 ]
 
@@ -193,31 +194,32 @@ def _pending_routes() -> set[tuple[str, str]]:
 
 def _tested_routes() -> set[tuple[str, str]]:
     """Routes with a denial test, wherever that test lives."""
-    return {
-        (case.method, _normalize(case.route))
-        for case in DENY_WRITE_CASES + DENY_DELETE_CASES
-    } | set(DENIAL_TESTED_ELSEWHERE)
+    return {(case.method, _normalize(case.route)) for case in CASES} | set(
+        DENIAL_TESTED_ELSEWHERE,
+    )
 
 
-async def assert_denied(
-    client: AsyncClient,
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", CASES, ids=lambda case: case.path)
+async def test_endpoint_denies_its_action(
+    client_with_basic: AsyncClient,
     mocker,
-    case: Case,
-    action: ResourceAction,
+    case,
 ):
     """
-    The endpoint must answer 403 when `action` is denied, for the right resource.
+    Each endpoint returns 403 when its governing action is denied, and the check
+    names the resource the request addressed.
 
     The deny decision is resource-blind, so the status alone would also pass for a
     check aimed at the wrong resource. The recorded requests are what pin that.
     """
-    service = DenyActionAuthorizationService(action)
+    service = RecordingAuthorizationService(denied=case.action)
     mocker.patch(VALIDATOR_AUTH_SERVICE, lambda: service)
 
-    response = await client.request(case.method, case.path, json=case.body)
+    response = await client_with_basic.request(case.method, case.path, json=case.body)
 
     assert response.status_code == 403, (
-        f"{case.method} {case.path} did not enforce {action.value.upper()} "
+        f"{case.method} {case.path} did not enforce {case.action.value.upper()} "
         f"(got {response.status_code}: {response.text[:200]})"
     )
     assert "Access denied" in response.json()["message"]
@@ -226,32 +228,10 @@ async def assert_denied(
         (request.verb, request.access_object.resource_type, request.access_object.name)
         for request in service.requests
     }
-    assert (action, case.resource, STUB) in checked, (
-        f"{case.method} {case.path} never checked {action.value} on "
+    assert (case.action, case.resource, STUB) in checked, (
+        f"{case.method} {case.path} never checked {case.action.value} on "
         f"{case.resource.value} '{STUB}'; it checked {sorted(checked)}"
     )
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("case", DENY_WRITE_CASES, ids=lambda case: case.path)
-async def test_endpoint_denies_without_write(
-    client_with_basic: AsyncClient,
-    mocker,
-    case,
-):
-    """Each write-governed endpoint returns 403 when WRITE is denied."""
-    await assert_denied(client_with_basic, mocker, case, ResourceAction.WRITE)
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("case", DENY_DELETE_CASES, ids=lambda case: case.path)
-async def test_endpoint_denies_without_delete(
-    client_with_basic: AsyncClient,
-    mocker,
-    case,
-):
-    """Each delete-governed endpoint returns 403 when DELETE is denied."""
-    await assert_denied(client_with_basic, mocker, case, ResourceAction.DELETE)
 
 
 def test_every_mutating_route_has_a_denial_test():

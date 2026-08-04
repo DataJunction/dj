@@ -17,18 +17,20 @@ VALIDATOR_AUTH_SERVICE = (
 )
 
 
-class DenyActionAuthorizationService(AuthorizationService):
+class RecordingAuthorizationService(AuthorizationService):
     """
-    Approves every request except those using the denied action.
+    Records every request, approving all of them unless ``denied`` is set.
 
-    Records what it was asked to authorize. The decision is resource-blind, so a
-    403 alone only proves *some* check of that action fired; assert against
-    ``requests`` to pin the resource it targeted.
+    Denying a single action is what isolates an endpoint's own gate: a DELETE
+    grant implies WRITE, so a delete-governed endpoint is unexercised by denying
+    WRITE. The decision ignores the resource, so a 403 alone only proves *some*
+    check of that action fired -- assert against ``requests`` to pin which
+    resource it named.
     """
 
-    name = "test_deny_action"
+    name = "test_recording"
 
-    def __init__(self, denied: access.ResourceAction):
+    def __init__(self, denied: access.ResourceAction | None = None):
         self.denied = denied
         self.requests: list[access.ResourceRequest] = []
 
@@ -44,13 +46,9 @@ def deny(action: access.ResourceAction) -> Callable[[], AuthorizationService]:
     """
     A ``get_authorization_service`` replacement that denies one action.
 
-    Denying a single action is what isolates an endpoint's own gate: a DELETE
-    grant implies WRITE, so a delete-governed endpoint is only exercised by
-    ``deny(ResourceAction.DELETE)``.
-
     Usage: ``mocker.patch(VALIDATOR_AUTH_SERVICE, deny(ResourceAction.WRITE))``
     """
-    return lambda: DenyActionAuthorizationService(action)
+    return lambda: RecordingAuthorizationService(denied=action)
 
 
 class ScopedActionAuthorizationService(AuthorizationService):
