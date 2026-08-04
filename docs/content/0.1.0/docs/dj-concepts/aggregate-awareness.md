@@ -166,6 +166,41 @@ mapping, because it's covered automatically once its component measures are cove
 "every aggregate is its own named metric" principle that underlies decomposition generally — you're
 just applying it at registration time instead of at materialization time.
 
+### Plan for this when you author metrics, not when you register tables
+
+This constraint reaches back into how you model, because it cannot be worked around
+later. `measure_columns` maps a **metric to a single column**, so a metric that
+decomposes into more than one component has nothing to map and registration refuses
+it. And the components it *does* decompose into are named automatically, with a hash
+suffix derived from the expression — `line_total_sum_e1f61696`,
+`customer_id_hll_23002251` — names that are deliberately not addressable from YAML.
+
+So a metric authored as
+
+```sql
+SELECT SUM(revenue) / COUNT(DISTINCT view_id) FROM fct_views
+```
+
+can never be bound to an aggregate table, no matter what columns that table holds.
+There is no spelling of `measure_columns` that reaches its two components. The only
+fix is to refactor the metric, which means changing a node other teams may already
+be querying.
+
+The habit that avoids this: **give every aggregation primitive its own metric node**,
+then compose. One node per `SUM(...)`, `COUNT(...)`, `COUNT(DISTINCT ...)`, and
+ratios or averages expressed as derived metrics referencing those:
+
+```yaml
+# revenue.yaml          query: SELECT SUM(revenue) FROM fct_views
+# view_count.yaml       query: SELECT COUNT(DISTINCT view_id) FROM fct_views
+# revenue_per_view.yaml query: SELECT revenue / view_count      <- derived
+```
+
+Each primitive is independently mappable, and the derived metric is covered for free
+once its components are. This costs nothing if you do it from the start and is
+expensive to retrofit, so it is worth doing even for metrics you have no aggregate
+table for yet.
+
 ### A measure is its expression *and* its aggregation
 
 A measure is identified by the pair (expression, aggregation), not by the expression alone. `SUM(price)`
