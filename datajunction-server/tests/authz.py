@@ -18,14 +18,22 @@ VALIDATOR_AUTH_SERVICE = (
 
 
 class DenyActionAuthorizationService(AuthorizationService):
-    """Approves every request except those using the denied action."""
+    """
+    Approves every request except those using the denied action.
+
+    Records what it was asked to authorize. The decision is resource-blind, so a
+    403 alone only proves *some* check of that action fired; assert against
+    ``requests`` to pin the resource it targeted.
+    """
 
     name = "test_deny_action"
 
     def __init__(self, denied: access.ResourceAction):
         self.denied = denied
+        self.requests: list[access.ResourceRequest] = []
 
     def authorize(self, auth_context, requests):
+        self.requests.extend(requests)
         return [
             access.AccessDecision(request=request, approved=request.verb != self.denied)
             for request in requests

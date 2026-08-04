@@ -3602,3 +3602,26 @@ async def test_create_namespace_under_wildcard_scope(client_with_roads, mocker):
     # A namespace outside the scope stays denied.
     denied = await client_with_roads.post("/namespaces/marketing.sub/")
     assert denied.status_code == 403, denied.text
+
+
+async def test_reactivating_namespace_requires_write_on_it(client_with_roads, mocker):
+    """
+    Reactivation is governed by the namespace being reactivated.
+
+    An orphaned namespace (created without its parent, then deactivated) can be
+    reactivated by a create request with include_parents. The missing ancestor is
+    not a substitute for WRITE on the namespace itself.
+    """
+    assert (await client_with_roads.post("/namespaces/orphan.leaf/")).status_code == 201
+    assert (
+        await client_with_roads.delete("/namespaces/orphan.leaf/")
+    ).status_code == 200
+
+    # Granted WRITE on the missing ancestor only, not on the leaf.
+    mocker.patch(VALIDATOR_AUTH_SERVICE, scoped(ResourceAction.WRITE, "orphan"))
+    response = await client_with_roads.post(
+        "/namespaces/orphan.leaf/?include_parents=true",
+    )
+
+    assert response.status_code == 403, response.text
+    assert "orphan.leaf" in response.json()["message"]

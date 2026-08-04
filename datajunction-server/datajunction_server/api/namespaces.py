@@ -46,7 +46,7 @@ from datajunction_server.internal.namespaces import (
     hard_delete_namespace,
     mark_namespace_deactivated,
     mark_namespace_restored,
-    namespaces_to_create,
+    namespaces_to_authorize,
     resolve_git_config,
     validate_git_path,
     validate_sibling_relationship,
@@ -99,13 +99,13 @@ async def create_node_namespace(
     """
     # A namespace write is governed by the namespace itself, matching node creation
     # and register_table. include_parents can add ancestors too, so authorize every
-    # namespace this request would create; reactivating one mutates only itself.
-    targets = await namespaces_to_create(
+    # namespace this request would create or reactivate.
+    targets = await namespaces_to_authorize(
         session,
         namespace,
         include_parents=bool(include_parents),
     )
-    access_checker.add_namespaces(targets or [namespace], ResourceAction.WRITE)
+    access_checker.add_namespaces(targets, ResourceAction.WRITE)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     result = await create_or_reactivate_namespace(

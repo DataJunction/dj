@@ -2,10 +2,12 @@
 Write-enforcement tests for the mutating endpoints covered in #2234 step 0.
 
 The route-coverage guard proves each endpoint *reaches* AccessChecker.check();
-these prove the check actually *bites* -- i.e. returns HTTP 403 when the caller
-lacks the action. Only a denial test can catch a check that fires on the wrong
-action or resource, which is why every mutating route needs one (see
-test_every_mutating_route_has_a_denial_test below).
+these prove the check actually *bites* -- it returns HTTP 403 when the caller
+lacks the action, and it names the resource the request addressed. A 403 on its
+own would not show the latter, since the deny decision ignores the resource, so
+each case also asserts what the handler asked to authorize. That is what catches
+a check aimed at the wrong action or resource, and why every mutating route needs
+one (see test_every_mutating_route_has_a_denial_test below).
 
 Most checks run before the endpoint loads its target resource, so a denial
 returns 403 whether or not the resource exists. Cases below therefore name a
@@ -19,8 +21,8 @@ from typing import Any, NamedTuple
 import pytest
 from httpx import AsyncClient
 
-from datajunction_server.models.access import ResourceAction
-from tests.authz import VALIDATOR_AUTH_SERVICE, deny
+from datajunction_server.models.access import ResourceAction, ResourceType
+from tests.authz import VALIDATOR_AUTH_SERVICE, DenyActionAuthorizationService
 from tests.test_route_coverage import (
     EXCLUDED_ROUTES,
     _mutating_routes,
@@ -40,6 +42,9 @@ class Case(NamedTuple):
     route: str
     body: Any = None
     query: str = ""
+    # The kind of resource the check must name. Its name is always STUB, since
+    # that is what the request addresses -- a check on anything else is a bug.
+    resource: ResourceType = ResourceType.NODE
 
     @property
     def path(self) -> str:
@@ -52,8 +57,12 @@ DENY_WRITE_CASES = [
     Case("DELETE", "/nodes/{node_name}/link", {"dimension_node": "enforce.dim"}),
     Case("DELETE", "/nodes/{name}/columns/{column}", query="?dimension=enforce.dim"),
     # namespaces
-    Case("POST", "/namespaces/{namespace}"),
-    Case("POST", "/namespaces/{namespace}/restore"),
+    Case("POST", "/namespaces/{namespace}", resource=ResourceType.NAMESPACE),
+    Case(
+        "POST",
+        "/namespaces/{namespace}/restore",
+        resource=ResourceType.NAMESPACE,
+    ),
     # materializations
     Case(
         "POST",
@@ -91,7 +100,11 @@ DENY_WRITE_CASES = [
 DENY_DELETE_CASES = [
     Case("DELETE", "/nodes/{name}"),
     Case("DELETE", "/nodes/{name}/hard"),
-    Case("DELETE", "/namespaces/{namespace}/hard"),
+    Case(
+        "DELETE",
+        "/namespaces/{namespace}/hard",
+        resource=ResourceType.NAMESPACE,
+    ),
 ]
 
 # Routes whose denial test lives in another module, next to the fixtures it needs.
@@ -186,8 +199,21 @@ def _tested_routes() -> set[tuple[str, str]]:
     } | set(DENIAL_TESTED_ELSEWHERE)
 
 
-async def assert_denied(client: AsyncClient, case: Case, action: ResourceAction):
-    """The endpoint must answer 403 when `action` is denied."""
+async def assert_denied(
+    client: AsyncClient,
+    mocker,
+    case: Case,
+    action: ResourceAction,
+):
+    """
+    The endpoint must answer 403 when `action` is denied, for the right resource.
+
+    The deny decision is resource-blind, so the status alone would also pass for a
+    check aimed at the wrong resource. The recorded requests are what pin that.
+    """
+    service = DenyActionAuthorizationService(action)
+    mocker.patch(VALIDATOR_AUTH_SERVICE, lambda: service)
+
     response = await client.request(case.method, case.path, json=case.body)
 
     assert response.status_code == 403, (
@@ -195,6 +221,15 @@ async def assert_denied(client: AsyncClient, case: Case, action: ResourceAction)
         f"(got {response.status_code}: {response.text[:200]})"
     )
     assert "Access denied" in response.json()["message"]
+
+    checked = {
+        (request.verb, request.access_object.resource_type, request.access_object.name)
+        for request in service.requests
+    }
+    assert (action, case.resource, STUB) in checked, (
+        f"{case.method} {case.path} never checked {action.value} on "
+        f"{case.resource.value} '{STUB}'; it checked {sorted(checked)}"
+    )
 
 
 @pytest.mark.asyncio
@@ -205,8 +240,7 @@ async def test_endpoint_denies_without_write(
     case,
 ):
     """Each write-governed endpoint returns 403 when WRITE is denied."""
-    mocker.patch(VALIDATOR_AUTH_SERVICE, deny(ResourceAction.WRITE))
-    await assert_denied(client_with_basic, case, ResourceAction.WRITE)
+    await assert_denied(client_with_basic, mocker, case, ResourceAction.WRITE)
 
 
 @pytest.mark.asyncio
@@ -217,8 +251,7 @@ async def test_endpoint_denies_without_delete(
     case,
 ):
     """Each delete-governed endpoint returns 403 when DELETE is denied."""
-    mocker.patch(VALIDATOR_AUTH_SERVICE, deny(ResourceAction.DELETE))
-    await assert_denied(client_with_basic, case, ResourceAction.DELETE)
+    await assert_denied(client_with_basic, mocker, case, ResourceAction.DELETE)
 
 
 def test_every_mutating_route_has_a_denial_test():
