@@ -126,6 +126,7 @@ async def register_external_preaggregations(
     table: ExternalPreAggTable,
     measure_columns: dict[str, str],
     dimension_columns: dict[str, str] | None = None,
+    measures_result: GeneratedMeasuresSQL | None = None,
 ) -> list[PreAggregation]:
     """
     Core logic for adopting an externally-built pre-aggregation table.
@@ -136,6 +137,11 @@ async def register_external_preaggregations(
     caller owns the transaction (the endpoint commits; the deploy orchestrator
     commits its whole plan). Callers must ensure ``query_service_client`` is
     configured. Returns the created/updated pre-aggregations.
+
+    ``measures_result`` lets a caller that already resolved the grain groups pass
+    them in. A caller that authorizes against the parent nodes must do this:
+    resolving twice can yield different parents (the result depends on
+    ``use_materialized``), which would authorize one set and write another.
     """
     # 1. Validate each mapped metric is a measure, and map its component's
     #    identity -- (expression hash, Phase-1 aggregation) -- to the declared
@@ -177,13 +183,14 @@ async def register_external_preaggregations(
         ] = physical_column
 
     # 2. Decompose the requested metrics into grain groups (no SQL is executed).
-    measures_result = await build_measures_sql(
-        session=session,
-        metrics=metrics,
-        dimensions=dimensions,
-        dialect=Dialect.SPARK,
-        use_materialized=False,
-    )
+    if measures_result is None:
+        measures_result = await build_measures_sql(
+            session=session,
+            metrics=metrics,
+            dimensions=dimensions,
+            dialect=Dialect.SPARK,
+            use_materialized=False,
+        )
     assert_dimension_refs_are_role_qualified(measures_result, dimensions)
 
     # 3. Introspect the external table and confirm the declared columns exist.

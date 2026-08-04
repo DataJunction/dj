@@ -2,6 +2,8 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
+from datajunction_server.typing import StrEnum
+
 
 class BranchInfo(BaseModel):
     """Information about a branch namespace."""
@@ -30,3 +32,23 @@ class HardDeleteResponse(BaseModel):
     deleted_nodes: list[str]
     deleted_namespaces: list[str]
     impacted: ImpactedNodes
+
+
+class NamespaceWriteStatus(StrEnum):
+    """What a create-or-reactivate namespace request ended up doing."""
+
+    CREATED = "created"
+    REACTIVATED = "reactivated"
+    ALREADY_EXISTS = "already_exists"
+
+
+class NamespaceWriteResult(BaseModel):
+    """
+    Outcome of creating or reactivating a namespace.
+
+    ``namespaces`` holds the namespaces created (parents included when
+    requested), or the single namespace that was reactivated / already existed.
+    """
+
+    status: NamespaceWriteStatus
+    namespaces: list[str]

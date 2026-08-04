@@ -26,7 +26,6 @@ from datajunction_server.api.helpers import (
     get_save_history,
     raise_if_node_exists,
 )
-from datajunction_server.api.namespaces import create_node_namespace
 from datajunction_server.api.tags import get_tags_by_name
 from datajunction_server.database.attributetype import ColumnAttribute
 from datajunction_server.database.column import Column
@@ -49,7 +48,10 @@ from datajunction_server.internal.access.authorization import (
 from datajunction_server.internal.caching.cachelib_cache import get_cache
 from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.internal.history import ActivityType, EntityType
-from datajunction_server.internal.namespaces import get_git_info_for_namespace
+from datajunction_server.internal.namespaces import (
+    create_or_reactivate_namespace,
+    get_git_info_for_namespace,
+)
 from datajunction_server.internal.nodes import (
     activate_node,
     copy_to_new_node,
@@ -673,15 +675,20 @@ async def register_table(
     name = f"{namespace}.{table}"
     await raise_if_node_exists(session, name)
 
+    # Authorize before the idempotent namespace create/reactivate below (which can
+    # commit). Uses the node's own namespace (node-create semantics); the namespace
+    # endpoint's parent-boundary rule is intentionally different (see PR description).
+    access_checker.add_namespace(namespace, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     # Create the namespace if required (idempotent)
-    await create_node_namespace(
+    await create_or_reactivate_namespace(
         namespace=namespace,
+        include_parents=False,
         session=session,
         current_user=current_user,
         save_history=save_history,
     )
-    access_checker.add_namespace(namespace, ResourceAction.WRITE)
-    await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     # Use reflection to get column names and types
     _catalog = await get_catalog_by_name(session=session, name=catalog)
@@ -748,6 +755,7 @@ async def register_view(
     view_name = f"{schema_}.{view}"
     await raise_if_node_exists(session, node_name)
 
+    # Node-create semantics: authorize on the node's own namespace (see register_table).
     access_checker.add_namespace(namespace, ResourceAction.WRITE)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
@@ -778,8 +786,9 @@ async def register_view(
     )
 
     # Create the namespace if required (idempotent)
-    await create_node_namespace(
+    await create_or_reactivate_namespace(
         namespace=namespace,
+        include_parents=False,
         session=session,
         current_user=current_user,
         save_history=save_history,
@@ -1006,6 +1015,7 @@ async def remove_complex_dimension_link(
         link_identifier.dimension_node,
         ResourceAction.READ,
     )
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
     return await remove_dimension_link(
         session,
         node_name,

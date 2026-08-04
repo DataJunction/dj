@@ -22,6 +22,7 @@ from datajunction_server.internal.namespaces import (
     node_spec_to_yaml,
 )
 from datajunction_server.models import access
+from datajunction_server.models.access import ResourceAction
 from datajunction_server.models.deployment import (
     BulkNamespaceSourcesRequest,
     BulkNamespaceSourcesResponse,
@@ -39,6 +40,7 @@ from datajunction_server.models.deployment import (
 )
 from datajunction_server.models.partition import Granularity, PartitionType
 from datajunction_server.utils import get_query_service_client
+from tests.authz import VALIDATOR_AUTH_SERVICE, scoped
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -3571,3 +3573,55 @@ async def test_hard_delete_namespace_with_sibling_parent_ref(
     )
     assert config_response.status_code == 200
     assert config_response.json()["parent_namespace"] is None
+
+
+async def test_create_namespace_under_wildcard_scope(client_with_roads, mocker):
+    """
+    A grant scoped to ``finance.*`` must allow creating namespaces beneath it.
+
+    Authorization targets the namespace being created, not its parent: ``finance.*``
+    does not match ``finance``, so checking the parent would reject a caller whose
+    grant only covers what is under it. include_parents skips ancestors that already
+    exist, for the same reason.
+    """
+    await client_with_roads.post("/namespaces/finance/")
+    mocker.patch(
+        VALIDATOR_AUTH_SERVICE,
+        scoped(ResourceAction.WRITE, "finance.*"),
+    )
+
+    created = await client_with_roads.post("/namespaces/finance.sub/")
+    assert created.status_code == 201, created.text
+
+    # `finance` already exists, so it is not created and not authorized against.
+    nested = await client_with_roads.post(
+        "/namespaces/finance.a.b/?include_parents=true",
+    )
+    assert nested.status_code == 201, nested.text
+
+    # A namespace outside the scope stays denied.
+    denied = await client_with_roads.post("/namespaces/marketing.sub/")
+    assert denied.status_code == 403, denied.text
+
+
+async def test_reactivating_namespace_requires_write_on_it(client_with_roads, mocker):
+    """
+    Reactivation is governed by the namespace being reactivated.
+
+    An orphaned namespace (created without its parent, then deactivated) can be
+    reactivated by a create request with include_parents. The missing ancestor is
+    not a substitute for WRITE on the namespace itself.
+    """
+    assert (await client_with_roads.post("/namespaces/orphan.leaf/")).status_code == 201
+    assert (
+        await client_with_roads.delete("/namespaces/orphan.leaf/")
+    ).status_code == 200
+
+    # Granted WRITE on the missing ancestor only, not on the leaf.
+    mocker.patch(VALIDATOR_AUTH_SERVICE, scoped(ResourceAction.WRITE, "orphan"))
+    response = await client_with_roads.post(
+        "/namespaces/orphan.leaf/?include_parents=true",
+    )
+
+    assert response.status_code == 403, response.text
+    assert "orphan.leaf" in response.json()["message"]

@@ -29,8 +29,10 @@ from datajunction_server.errors import DJDoesNotExistException, DJInvalidInputEx
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
     AccessChecker,
+    AccessDenialMode,
     get_access_checker,
 )
+from datajunction_server.models.access import ResourceAction
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.materializations import (
     create_new_materialization,
@@ -110,6 +112,12 @@ async def upsert_materialization(
     Add or update a materialization of the specified node. If a node_name is specified
     for the materialization config, it will always update that named config.
     """
+    # Materializing a node is a write on that node, same as deactivate/backfill below.
+    # The cube path also runs READ checks while building its config, but those cover
+    # the cube's metrics and dimensions, not the node being materialized.
+    access_checker.add_request_by_node_name(node_name, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     request_headers = dict(request.headers)
     node = await Node.get_by_name(session, node_name, raise_if_not_exists=True)
     if node.type == NodeType.SOURCE:  # type: ignore
@@ -342,6 +350,7 @@ async def deactivate_node_materializations(
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> JSONResponse:
     """
     Deactivate the node materialization with the provided name.
@@ -350,6 +359,8 @@ async def deactivate_node_materializations(
     If node_version not provided, it will deactivate the materialization
     for the current version of the node.
     """
+    access_checker.add_request_by_node_name(node_name, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
     request_headers = dict(request.headers)
 
     # find the node revision to deactivate the materialization for
@@ -445,10 +456,13 @@ async def run_materialization_backfill(
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> MaterializationInfo:
     """
     Start a backfill for a configured materialization.
     """
+    access_checker.add_request_by_node_name(node_name, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
     request_headers = dict(request.headers)
     node = await Node.get_by_name(
         session,

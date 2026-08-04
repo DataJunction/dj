@@ -16,6 +16,9 @@ from datajunction_server.models.materialization import MaterializationStrategy
 from datajunction_server.models.partition import Granularity, PartitionType
 from datajunction_server.models.preaggregation import WorkflowUrl
 from datajunction_server.utils import get_query_service_client
+from datajunction_server.construction.build_v3.builder import build_measures_sql
+from datajunction_server.models.access import ResourceAction
+from tests.authz import VALIDATOR_AUTH_SERVICE, deny
 
 
 @pytest.fixture
@@ -2766,5 +2769,152 @@ class TestRegisterPreAggregations:
             )
             assert response.status_code == 422
             assert "externally-registered" in response.text
+        finally:
+            del client_with_build_v3.app.dependency_overrides[get_query_service_client]
+
+
+@pytest.mark.xdist_group(name="preaggregations")
+class TestRegisterAuthorizesWhatItWrites:
+    """
+    Registration must authorize the same parent nodes it writes to.
+
+    The grain groups are resolved by build_measures_sql, and its result depends on
+    use_materialized: building twice with different arguments can authorize one set
+    of parents and write another. So the route must build once and reuse it.
+    """
+
+    @pytest.mark.asyncio
+    async def test_measures_are_built_once(
+        self,
+        client_with_build_v3: AsyncClient,
+        mocker,
+    ):
+        """POST /preaggs/register resolves grain groups exactly once."""
+        _mock_query_service(client_with_build_v3, ["revenue_total", "order_cnt"])
+        # Both modules imported the builder by name, so count calls through each.
+        spies = [
+            mocker.patch(
+                f"datajunction_server.{module}.preaggregations.build_measures_sql",
+                wraps=build_measures_sql,
+            )
+            for module in ("api", "internal")
+        ]
+        try:
+            response = await client_with_build_v3.post(
+                "/preaggs/register",
+                json={
+                    "metrics": ["v3.avg_order_value"],
+                    "dimensions": ["v3.product.category"],
+                    "table": {
+                        "catalog": "default",
+                        "schema": "analytics",
+                        "table": "built_once",
+                        "valid_through_ts": 1700000000,
+                    },
+                    "measure_columns": {
+                        "v3.total_revenue": "revenue_total",
+                        "v3.order_count": "order_cnt",
+                    },
+                },
+            )
+            assert response.status_code == 201, response.text
+            calls = [call for spy in spies for call in spy.call_args_list]
+            assert len(calls) == 1, (
+                f"grain groups resolved {len(calls)} times; the authorization build "
+                "and the registration build can disagree"
+            )
+            assert calls[0].kwargs["use_materialized"] is False
+        finally:
+            del client_with_build_v3.app.dependency_overrides[get_query_service_client]
+
+
+@pytest.mark.xdist_group(name="preaggregations")
+class TestPreaggWriteEnforcement:
+    """
+    A pre-agg write must return 403 when the caller lacks WRITE on the node the
+    pre-agg is based on. These verify the check *bites* (the route-coverage guard
+    only proves it is reached). Fixtures create real pre-aggs first; the deny
+    override is applied inside each test so setup runs with normal access.
+    """
+
+    @pytest.mark.asyncio
+    async def test_id_endpoints_deny_without_write(
+        self,
+        client_with_preaggs,
+        mock_qs_for_preaggs,
+        mocker,
+    ):
+        """The {preagg_id} write endpoints return 403 without WRITE."""
+        client = client_with_preaggs["client"]
+        preagg_id = client_with_preaggs["preagg1"].id
+        mocker.patch(VALIDATOR_AUTH_SERVICE, deny(ResourceAction.WRITE))
+
+        cases = [
+            ("POST", f"/preaggs/{preagg_id}/materialize", None),
+            ("PATCH", f"/preaggs/{preagg_id}/config", {}),
+            ("DELETE", f"/preaggs/{preagg_id}/workflow", None),
+            ("POST", f"/preaggs/{preagg_id}/backfill", {"start_date": "2024-01-01"}),
+        ]
+        for method, path, body in cases:
+            response = await client.request(method, path, json=body)
+            assert response.status_code == 403, (
+                f"{method} {path} not enforced ({response.status_code}): "
+                f"{response.text[:200]}"
+            )
+            assert "Access denied" in response.json()["message"]
+
+    @pytest.mark.asyncio
+    async def test_plan_denies_without_write(
+        self,
+        client_with_build_v3,
+        mocker,
+    ):
+        """POST /preaggs/plan returns 403 without WRITE on the metrics' parent node."""
+        mocker.patch(VALIDATOR_AUTH_SERVICE, deny(ResourceAction.WRITE))
+        response = await client_with_build_v3.post(
+            "/preaggs/plan",
+            json={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+        assert response.status_code == 403, response.text
+        assert "Access denied" in response.json()["message"]
+
+    @pytest.mark.asyncio
+    async def test_register_denies_without_write(
+        self,
+        client_with_build_v3,
+        mocker,
+    ):
+        """POST /preaggs/register returns 403 without WRITE, before any registration work."""
+        _mock_query_service(
+            client_with_build_v3,
+            ["revenue_total", "order_cnt", "category"],
+        )
+        try:
+            mocker.patch(
+                VALIDATOR_AUTH_SERVICE,
+                deny(ResourceAction.WRITE),
+            )
+            response = await client_with_build_v3.post(
+                "/preaggs/register",
+                json={
+                    "metrics": ["v3.avg_order_value"],
+                    "dimensions": ["v3.product.category"],
+                    "table": {
+                        "catalog": "default",
+                        "schema": "analytics",
+                        "table": "denied_agg",
+                        "valid_through_ts": 1700000000,
+                    },
+                    "measure_columns": {
+                        "v3.total_revenue": "revenue_total",
+                        "v3.order_count": "order_cnt",
+                    },
+                },
+            )
+            assert response.status_code == 403, response.text
+            assert "Access denied" in response.json()["message"]
         finally:
             del client_with_build_v3.app.dependency_overrides[get_query_service_client]

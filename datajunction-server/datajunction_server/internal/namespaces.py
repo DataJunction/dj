@@ -48,6 +48,8 @@ from datajunction_server.models.namespace import (
     HardDeleteResponse,
     ImpactedNode,
     ImpactedNodes,
+    NamespaceWriteResult,
+    NamespaceWriteStatus,
 )
 from datajunction_server.models.node import NodeMinimumDetail
 from datajunction_server.models.node_type import NodeType
@@ -220,6 +222,38 @@ def get_parent_namespaces(namespace: str):
     return [SEPARATOR.join(parts[0:i]) for i in range(len(parts)) if parts[0:i]]
 
 
+async def namespaces_to_authorize(
+    session: AsyncSession,
+    namespace: str,
+    include_parents: bool,
+) -> list[str]:
+    """
+    The namespaces a create request would create or reactivate.
+
+    ``namespace`` is always included: even when it already exists the request can
+    reactivate it, so a grant on an ancestor is never a substitute for one on the
+    namespace itself. Ancestors that already exist are excluded, since they are
+    not mutated -- requiring one would reject a caller whose grant is scoped below
+    it (``finance.*`` does not match ``finance``).
+    """
+    if not include_parents:
+        return [namespace]
+
+    parents = get_parent_namespaces(namespace)
+    existing = set(
+        (
+            await session.execute(
+                select(NodeNamespace.namespace).where(
+                    NodeNamespace.namespace.in_(parents),
+                ),
+            )
+        )
+        .scalars()
+        .all(),
+    )
+    return [parent for parent in parents if parent not in existing] + [namespace]
+
+
 def resolve_git_info_from_map(
     namespace: str,
     ns_map: dict,
@@ -380,6 +414,67 @@ async def create_namespace(
             )
     await session.commit()
     return parents
+
+
+async def create_or_reactivate_namespace(
+    namespace: str,
+    *,
+    include_parents: bool,
+    session: AsyncSession,
+    current_user: User,
+    save_history: Callable,
+) -> NamespaceWriteResult:
+    """
+    Create or reactivate a node namespace.
+
+    Shared by the create-namespace endpoint and the internal register_table /
+    register_view callers. Returns what happened so the API layer can shape the
+    response; callers that only need the namespace to exist can ignore it.
+    Access control is enforced by each caller, not here, so this must only be
+    reached from a path that has already authorized the write.
+    """
+    if node_namespace := await NodeNamespace.get(
+        session,
+        namespace,
+        raise_if_not_exists=False,
+    ):  # pragma: no cover
+        if node_namespace.deactivated_at:
+            node_namespace.deactivated_at = None
+            session.add(node_namespace)
+            await session.commit()
+            return NamespaceWriteResult(
+                status=NamespaceWriteStatus.REACTIVATED,
+                namespaces=[namespace],
+            )
+        return NamespaceWriteResult(
+            status=NamespaceWriteStatus.ALREADY_EXISTS,
+            namespaces=[namespace],
+        )
+    # Block creating child namespaces under a git root — only branch namespaces
+    # (configured via PATCH /namespaces/{name}/git with parent_namespace + git_branch)
+    # are allowed there.
+    parent = namespace.rsplit(".", 1)[0] if "." in namespace else None
+    if parent:
+        parent_ns = await NodeNamespace.get(session, parent, raise_if_not_exists=False)
+        if parent_ns and parent_ns.github_repo_path and parent_ns.git_branch is None:
+            raise DJInvalidInputException(
+                message=(
+                    f"Cannot create namespace '{namespace}' under git root '{parent}'. "
+                    "Create a new branch under this namespace instead."
+                ),
+            )
+
+    created_namespaces = await create_namespace(
+        session=session,
+        namespace=namespace,
+        include_parents=include_parents,
+        current_user=current_user,
+        save_history=save_history,
+    )
+    return NamespaceWriteResult(
+        status=NamespaceWriteStatus.CREATED,
+        namespaces=created_namespaces,
+    )
 
 
 async def hard_delete_nodes(

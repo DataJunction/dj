@@ -27,8 +27,10 @@ from datajunction_server.errors import (
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
     AccessChecker,
+    AccessDenialMode,
     get_access_checker,
 )
+from datajunction_server.models.access import ResourceAction
 from datajunction_server.internal.materializations import build_cube_materialization
 from datajunction_server.internal.nodes import (
     get_all_cube_revisions_metadata,
@@ -470,6 +472,7 @@ async def materialize_cube(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> CubeMaterializeResponse:
     """
     Create a Druid cube materialization workflow.
@@ -496,6 +499,8 @@ async def materialize_cube(
     Returns:
         CubeMaterializeResponse with pre-agg dependencies, combined SQL, and Druid spec.
     """
+    access_checker.add_request_by_node_name(name, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
     # Get the cube
     node = await Node.get_cube_by_name(session, name)
     if not node:
@@ -847,6 +852,7 @@ async def deactivate_cube_materialization(
     current_user: User = Depends(get_current_user),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     request: Request,
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> JSONResponse:
     """
     Deactivate (remove) the Druid cube materialization for this cube.
@@ -855,6 +861,8 @@ async def deactivate_cube_materialization(
     1. Remove the materialization record from the cube
     2. Optionally deactivate the workflow in the query service (if supported)
     """
+    access_checker.add_request_by_node_name(name, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
     node = await Node.get_cube_by_name(session, name)
     if not node:
         raise DJInvalidInputException(
@@ -949,6 +957,7 @@ async def run_cube_backfill(
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> BackfillResponse:
     """
     Run a backfill for the cube over the specified date range.
@@ -960,6 +969,9 @@ async def run_cube_backfill(
     Prerequisites:
     - Cube materialization must be scheduled (via POST /cubes/{name}/materialize)
     """
+    access_checker.add_request_by_node_name(name, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     from datetime import date as date_type
 
     # Verify the cube exists

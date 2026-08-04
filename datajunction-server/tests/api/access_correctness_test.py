@@ -10,46 +10,12 @@ the mismatch.
 
 from httpx import AsyncClient
 
-from datajunction_server.internal.access.authorization import AuthorizationService
 from datajunction_server.models import access
-
-# Patch target: the name as imported into the validator module, where
-# AccessChecker.check() looks the service up.
-VALIDATOR_AUTH_SERVICE = (
-    "datajunction_server.internal.access.authorization."
-    "validator.get_authorization_service"
+from tests.authz import (
+    VALIDATOR_AUTH_SERVICE,
+    RecordingAuthorizationService,
+    deny,
 )
-
-
-class DenyDeleteAuthorizationService(AuthorizationService):
-    """Approves everything except DELETE -- a caller with WRITE but not DELETE."""
-
-    name = "test_deny_delete"
-
-    def authorize(self, auth_context, requests):
-        return [
-            access.AccessDecision(
-                request=request,
-                approved=request.verb != access.ResourceAction.DELETE,
-            )
-            for request in requests
-        ]
-
-
-class RecordingAuthorizationService(AuthorizationService):
-    """Approves everything and records the requests it was asked to authorize."""
-
-    name = "test_recording"
-
-    def __init__(self):
-        self.requests: list[access.ResourceRequest] = []
-
-    def authorize(self, auth_context, requests):
-        self.requests.extend(requests)
-        return [
-            access.AccessDecision(request=request, approved=True)
-            for request in requests
-        ]
 
 
 async def test_deactivate_namespace_requires_delete(
@@ -65,7 +31,7 @@ async def test_deactivate_namespace_requires_delete(
     caller was allowed through (and hit the 405 "still active nodes" path);
     now the DELETE request is denied up front with 403.
     """
-    mocker.patch(VALIDATOR_AUTH_SERVICE, lambda: DenyDeleteAuthorizationService())
+    mocker.patch(VALIDATOR_AUTH_SERVICE, deny(access.ResourceAction.DELETE))
 
     response = await client_with_roads.delete("/namespaces/default/")
 
