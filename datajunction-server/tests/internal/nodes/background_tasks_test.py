@@ -73,6 +73,7 @@ async def test_derive_frozen_measures_swallows_exceptions(caplog):
             result = await derive_frozen_measures(
                 node_revision_id=99,
                 current_user=MagicMock(),
+                access_target=MagicMock(),
             )
 
     assert result == []
@@ -102,6 +103,7 @@ async def test_save_column_level_lineage_swallows_exceptions(caplog):
             await save_column_level_lineage(
                 node_revision_id=99,
                 current_user=MagicMock(),
+                access_target=MagicMock(),
             )
 
     # The exception must be folded into the message itself (not just exc_info),

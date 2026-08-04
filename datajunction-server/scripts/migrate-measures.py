@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import joinedload, selectinload, sessionmaker
 
 from datajunction_server.database.node import Node, NodeRevision, NodeType
-from datajunction_server.internal.nodes import derive_frozen_measures
+from datajunction_server.internal.nodes import derive_frozen_measures_bulk
 from datajunction_server.utils import get_settings
 
 settings = get_settings()
@@ -46,37 +46,15 @@ async def backfill_measures():
                 if not metric.name.startswith("system.temp")
             ]
             print(f"Found {len(metric_revisions)} metric revisions")
-            for idx, revision in enumerate(metric_revisions):
-                try:
-                    print(
-                        f"[{idx + 1}/{len(metric_revisions)}] Processing metric revision {revision.name}@{revision.version}",
-                    )
-                    derived_measures = [
-                        m for m in await derive_frozen_measures(session, revision) if m
-                    ]
-                    print(
-                        f"[{idx + 1}/{len(metric_revisions)}] Derived the following frozen measures: {[m.name for m in derived_measures]}",
-                    )
-
-                    for frozen_measure in derived_measures:
-                        session.add(frozen_measure)
-                        with session.no_autoflush:
-                            if frozen_measure not in revision.frozen_measures:
-                                revision.frozen_measures.append(frozen_measure)
-                        print(
-                            f"[{idx + 1}/{len(metric_revisions)}] Added frozen measures: {[m.name for m in derived_measures]}",
-                        )
-                    session.add(revision)
-                    print("---")
-                except Exception as exc:
-                    print(
-                        "[{idx+1}/{len(metric_revisions)}] Failed to process",
-                        derived_measures,
-                    )
-                    print(exc)
-                    raise exc
-
+            # Operator tool with no request user, so it uses the system-facing
+            # bulk API (which also links the measures to each revision); the
+            # per-revision entry point authorizes a user for WRITE.
+            await derive_frozen_measures_bulk(
+                session,
+                [revision.id for revision in metric_revisions],
+            )
             await session.commit()
+            print(f"Derived frozen measures for {len(metric_revisions)} revisions")
 
 
 if __name__ == "__main__":

@@ -67,7 +67,11 @@ from datajunction_server.internal.validation import (
     validate_node_data,
     validate_node_data_v2,
 )
-from datajunction_server.models.access import ResourceAction
+from datajunction_server.models.access import (
+    Resource,
+    ResourceAction,
+    ResourceRequest,
+)
 from datajunction_server.models.attribute import (
     AttributeTypeIdentifier,
     ColumnAttributes,
@@ -299,18 +303,24 @@ async def create_a_node(
         save_history=save_history,
     )
 
+    # Node creation is governed on the target namespace, so the background work
+    # re-authorizes that same resource (see _background_write_allowed).
+    create_access_target = Resource.from_namespace(data.namespace)
+
     # For metric nodes, derive the referenced frozen measures and save them
     if node.type == NodeType.METRIC:
         background_tasks.add_task(
             derive_frozen_measures,
             node_revision.id,
             current_user=current_user,
+            access_target=create_access_target,
         )
 
     background_tasks.add_task(
         save_column_level_lineage,
         node_revision_id=node_revision.id,
         current_user=current_user,
+        access_target=create_access_target,
     )
 
     return await Node.get_by_name(  # type: ignore
@@ -708,35 +718,36 @@ async def create_cube_node_revision(
 
 async def _background_write_allowed(
     session: AsyncSession,
-    node_revision_id: int,
+    access_target: Resource,
     current_user: User,
     action_description: str,
 ) -> bool:
     """
-    Whether ``current_user`` may WRITE the node owning ``node_revision_id``.
+    Whether ``current_user`` may WRITE ``access_target``.
 
     Background tasks mutate after the response has returned, outside the request's
     AccessChecker, so they re-authorize here instead of trusting the scheduling
-    caller. Denials are logged and skip the mutation rather than raising, since
-    the callers swallow exceptions and an exception would be indistinguishable
-    from a failure.
-    """
-    node_name = (
-        await session.execute(
-            select(NodeRevision.name).where(NodeRevision.id == node_revision_id),
-        )
-    ).scalar_one_or_none()
-    if node_name is None:  # pragma: no cover
-        return False
+    caller. The target is supplied by that caller rather than derived here,
+    because the endpoints do not all govern the same resource: node creation
+    authorizes the target namespace while updates authorize the node. Deriving a
+    node request here would deny the create path, whose grant may be a namespace
+    scope that no node pattern matches.
 
+    Denials are logged and skip the mutation rather than raising, since the
+    callers swallow exceptions and an exception would be indistinguishable from
+    a failure.
+    """
     access_checker = AccessChecker(await AuthContext.from_user(session, current_user))
-    access_checker.add_request_by_node_name(node_name, ResourceAction.WRITE)
+    access_checker.add_request(
+        ResourceRequest(verb=ResourceAction.WRITE, access_object=access_target),
+    )
     decisions = await access_checker.check(on_denied=AccessDenialMode.RETURN)
     if any(not decision.approved for decision in decisions):
         _logger.warning(
-            "Skipping %s for node %s: %s lacks WRITE",
+            "Skipping %s for %s %s: %s lacks WRITE",
             action_description,
-            node_name,
+            access_target.resource_type.value,
+            access_target.name,
             current_user.username,
         )
         return False
@@ -746,6 +757,7 @@ async def _background_write_allowed(
 async def derive_frozen_measures(
     node_revision_id: int,
     current_user: User,
+    access_target: Resource,
 ) -> list[FrozenMeasure]:
     """
     Find or create frozen measures for a metric.
@@ -759,14 +771,15 @@ async def derive_frozen_measures(
     on completion. The deployment path uses ``derive_frozen_measures_bulk``
     instead to batch DB work across all metrics in a single transaction.
 
-    Runs after the response, so it authorizes ``current_user`` for WRITE on the
-    metric itself rather than trusting the scheduling caller (#2234 step 0).
+    Runs after the response, so it authorizes ``current_user`` for WRITE on
+    ``access_target`` -- the resource the scheduling endpoint governed -- rather
+    than trusting that caller to have checked (#2234 step 0).
     """
     try:
         async with session_context() as session:
             if not await _background_write_allowed(
                 session,
-                node_revision_id,
+                access_target,
                 current_user,
                 "deriving frozen measures",
             ):
@@ -1418,6 +1431,8 @@ async def update_node_with_query(
             save_column_level_lineage,
             node_revision_id=new_revision.id,
             current_user=current_user,
+            # Node updates are governed on the node itself.
+            access_target=Resource.from_node(new_revision),
         )
         # TODO: Do not save this until:
         #   1. We get to the bottom of why there are query building discrepancies
@@ -2300,18 +2315,23 @@ async def create_new_revision_from_existing(
     return new_revision
 
 
-async def save_column_level_lineage(node_revision_id: int, current_user: User):
+async def save_column_level_lineage(
+    node_revision_id: int,
+    current_user: User,
+    access_target: Resource,
+):
     """
     Saves the column-level lineage for a node revision
 
-    Runs after the response, so it authorizes ``current_user`` for WRITE on the
-    node itself rather than trusting the scheduling caller (#2234 step 0).
+    Runs after the response, so it authorizes ``current_user`` for WRITE on
+    ``access_target`` -- the resource the scheduling endpoint governed -- rather
+    than trusting that caller to have checked (#2234 step 0).
     """
     try:
         async with session_context() as session:
             if not await _background_write_allowed(
                 session,
-                node_revision_id,
+                access_target,
                 current_user,
                 "saving column-level lineage",
             ):
@@ -3743,6 +3763,8 @@ async def revalidate_node(
             derive_frozen_measures,
             node.current.id,  # type: ignore
             current_user=current_user,
+            # Revalidation is governed on the node itself.
+            access_target=Resource.from_node(node),  # type: ignore
         )
 
     return node_validator
