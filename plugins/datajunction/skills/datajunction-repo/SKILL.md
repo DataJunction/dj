@@ -3,8 +3,9 @@ name: datajunction-repo
 description: |
   Activate this skill when authoring DataJunction (DJ) nodes via YAML files
   in a git repository — the repo-backed workflow. Covers YAML schemas per
-  node type, branch-based development, temporal partitions on cubes, and
-  the full PR-driven deployment flow. For modeling decisions (how to
+  node type, branch-based development, temporal partitions on cubes,
+  registering pre-aggregations / aggregate awareness, and the full
+  PR-driven deployment flow. For modeling decisions (how to
   structure metrics, decomposition workflow), invoke `datajunction-semantic-model`.
   For direct API authoring, invoke `datajunction-api`. For concepts,
   invoke `datajunction`.
@@ -16,6 +17,13 @@ description: |
   - create metric, create dimension, create cube, build cube
   - temporal partition, partition pushdown
   - pre-commit, push.sh
+  - pre-aggregation, pre-agg, preagg, kind: preagg
+  - aggregate awareness, aggregate navigation, query routing
+  - external pre-aggregation, externally-built aggregate, registered aggregate
+  - multiple tables for a metric, fact table and agg table, fact/agg hierarchy
+  - summary table, rollup table, agg table, materialized aggregate
+  - measure_columns, dimension_columns, valid_through_ts, availability
+  - freshness, join back, retained key
 user-invocable: false
 ---
 
@@ -556,6 +564,121 @@ columns:
 **Result**: Queries with `include_temporal_filters=True` push `WHERE order_date >= X AND order_date <= Y` to the `orders` transform.
 
 ---
+
+## Pre-Aggregations / Aggregate Awareness
+
+This one concept goes by many names. All of the following describe it:
+
+- **aggregate awareness**, **aggregate navigation**, **query routing**
+- **pre-aggregations**, **pre-aggs**, **preaggs**
+- **external pre-aggregations**, **externally-built aggregates**, **registered aggregates**
+- **multiple tables for a metric** — a raw fact table *plus* one or more aggregate tables
+- **summary tables**, **rollup tables**, **agg tables**, **materialized aggregates**
+- **fact/agg hierarchy**, **last-mile aggregate**, **intermediate aggregate**
+
+The idea: a metric is defined once against its fact table, but the same numbers
+often exist pre-summed in coarser tables. Rather than making callers choose,
+you register those tables and DJ decides per query which to read — falling back
+to the fact table when no aggregate can answer correctly.
+
+### Registering an externally-built aggregate
+
+When an outside pipeline already builds the table, describe the binding in a
+`kind: preagg` YAML file. You are telling DJ *which metrics* the table serves,
+*at what grain*, and *which physical column* holds each piece:
+
+```yaml
+kind: preagg
+name: orders_by_day_country
+metrics: ['${prefix}total_revenue', '${prefix}order_count']
+dimensions:
+  - ${prefix}date.dateint
+  - ${prefix}location.country[shipping]     # role-qualified where needed
+catalog: warehouse
+schema: analytics
+table: orders_daily_agg
+measure_columns:                            # metric -> physical column
+  ${prefix}total_revenue: revenue_sum
+dimension_columns:                          # dimension -> physical column
+  ${prefix}date.dateint: utc_date
+```
+
+Only `measure_columns` and `dimension_columns` remap names — you cannot introduce
+a dimension that has no link path from the parent node. Add the dimension link to
+the model first, then map its column.
+
+### Rules that decide whether your table gets used
+
+**A measure is its expression *and* its aggregation.** `SUM(price)` and
+`MAX(price)` are different measures that share an inner expression. A column of
+sums cannot serve a `MAX` metric. Map each metric to the column built with *that
+metric's* aggregation — DJ compares the aggregation but cannot inspect the data,
+so a mismapping is silently wrong.
+
+**Bare dimension references must be unambiguous.** If a fact reaches a dimension
+under two roles, a bare name identifies neither and registration is rejected with
+the qualified alternatives listed. Register `location.country[shipping]`, not
+`location.country`.
+
+**Non-additive metrics need an exact grain.** A `COUNT(DISTINCT x)` cannot be
+rolled up from pre-aggregated rows, so such a metric is served only when the
+requested grain matches the stored grain exactly. Additive measures roll up
+freely from any finer grain.
+
+**Attributes are reachable only through a retained whole key.** An aggregate that
+keeps a dimension's primary key can also answer queries for *attributes* of that
+dimension, by joining it back on the key. This needs the **entire** primary key
+at the same role — a daily-snapshot dimension keyed `(account_id, utc_date)` needs
+both registered, even when the aggregate's date is already present as some other
+dimension's column. Retaining part of a composite key would match many dimension
+rows per aggregated row and multiply the measures, so DJ refuses.
+
+### Declare partitions in YAML, not through the API
+
+A temporal partition on the parent's date column is what lets DJ reason about
+*when* an aggregate's data ends. Declare it on the column:
+
+```yaml
+columns:
+  - name: activity_date
+    type: int
+    partition:
+      type: temporal
+      granularity: day
+      format: yyyyMMdd
+```
+
+Setting a partition through `POST /nodes/{node}/columns/{col}/partition/` works,
+but the next deploy recreates the node from YAML and reverts it. Without a
+temporal partition column, freshness checks have no axis to judge against and
+silently do nothing.
+
+### Freshness is reported per build, not committed
+
+The YAML describes the durable binding — metrics, grain, table, columns — which
+does not change between runs. Freshness does, so it is reported after each build:
+
+```
+POST /preaggs/{preagg_id}/availability/
+```
+
+Supply `valid_through_ts` at minimum. Also supply `temporal_partitions` plus
+`min_temporal_partition` / `max_temporal_partition` if you want DJ to check the
+range a query asks for against the range the table actually holds — the scalar
+alone only describes the recent end, so it cannot catch a backfill gap.
+
+### Two operational traps
+
+**Any edit to the parent node strands its aggregates.** Registrations are keyed
+by node revision, so even a description-only change re-registers them at a new
+revision. A repo deploy re-creates the binding automatically, but **availability
+is not restored** — re-report it, or the aggregate stops being used entirely and
+every query silently reverts to the fact table.
+
+**Registration validates existence, not correctness.** DJ checks that each named
+column exists and that its type is compatible. It cannot check that the column's
+*values* match the aggregation you claimed. A column of sums registered against a
+`MAX` metric will be read as if it held maxima.
 
 ## Complete Workflow Example
 
