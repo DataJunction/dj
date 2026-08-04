@@ -81,7 +81,11 @@ services:
             psql -U dj -c 'CREATE DATABASE djqs';
             wait"
     volumes:
-      - ./postgres_metadata:/var/lib/postgresql
+      # Named volume rather than a bind mount into the repo: Postgres writes as
+      # its own uid, so a bind mount leaves root-owned files in the working tree.
+      # In CI that breaks any later step that scans the workspace (EACCES); locally
+      # it means you need sudo to clean your own checkout.
+      - postgres_metadata:/var/lib/postgresql
       - ./db-init/create-readonly-user.sh:/docker-entrypoint-initdb.d/create-readonly-user.sh
     environment:
       - POSTGRES_PASSWORD=dj
@@ -320,3 +324,6 @@ services:
     container_name: ${DJ_CONTAINER_PREFIX:-dj}-superset-redis
     restart: always
     profiles: ["superset"]
+
+volumes:
+  postgres_metadata:

@@ -1,8 +1,17 @@
-name: "Manual : Run client integration tests"
+name: "Client integration tests"
 on:
   schedule:
     - cron:  '0 12 * * *'
   workflow_dispatch:
+  # Run on PRs touching a client, the demo stack, or this workflow. Deliberately
+  # not scoped to datajunction-server/**: that would fire on nearly every PR and
+  # the stack takes minutes across three language runtimes. Server changes that
+  # break a client are caught by the nightly schedule instead.
+  pull_request:
+    paths:
+      - 'datajunction-clients/**'
+      - 'docker-compose.yml'
+      - '.github/workflows/client-integration-tests.yml'
 jobs:
   python-client-integration:
     runs-on: ubuntu-latest
@@ -11,7 +20,7 @@ jobs:
       matrix:
         python-version: ['3.11', '3.12', '3.13']
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Build and launch DJ demo environment
         uses: hoverkraft-tech/compose-action@v2.0.1
         with:
@@ -42,7 +51,7 @@ jobs:
       matrix:
         node-version: [18.x]
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Build and launch DJ demo environment
         uses: hoverkraft-tech/compose-action@v2.0.1
         with:
@@ -59,7 +68,7 @@ jobs:
             djrs-beat
             dj-trino
       - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
       - name: Install Dev Dependencies
@@ -76,7 +85,7 @@ jobs:
         java-version: [ 17 ]
         distribution: [ 'temurin' ]
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Build and launch DJ demo environment
         uses: hoverkraft-tech/compose-action@v2.0.1
         with:
@@ -93,7 +102,7 @@ jobs:
             djrs-beat
             dj-trino
       - name: Set up JDK ${{ matrix.java-version }}
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           java-version: ${{ matrix.java-version }}
           distribution: ${{ matrix.distribution }}
