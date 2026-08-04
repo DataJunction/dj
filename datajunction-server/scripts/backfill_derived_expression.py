@@ -27,7 +27,7 @@ import logging
 from sqlalchemy import select
 
 from datajunction_server.database.node import Node, NodeRevision
-from datajunction_server.internal.nodes import derive_frozen_measures
+from datajunction_server.internal.nodes import derive_frozen_measures_bulk
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import session_context
 
@@ -66,9 +66,12 @@ async def backfill(batch_size: int = 100, dry_run: bool = False) -> None:
         batch = targets[i : i + batch_size]
         for nr_id, name in batch:
             try:
-                # derive_frozen_measures opens its own session_context and
-                # commits inside; safe to call in a loop.
-                await derive_frozen_measures(nr_id)
+                # Operator tool with no request user, so it uses the
+                # system-facing bulk API; the per-revision entry point
+                # authorizes a user for WRITE on the metric.
+                async with session_context() as session:
+                    await derive_frozen_measures_bulk(session, [nr_id])
+                    await session.commit()
                 done += 1
             except Exception as exc:
                 failed += 1

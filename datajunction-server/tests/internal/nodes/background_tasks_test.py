@@ -54,15 +54,24 @@ async def test_derive_frozen_measures_swallows_exceptions(caplog):
         mock_ctx.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        with patch(
-            "datajunction_server.internal.nodes._derive_frozen_measures_impl",
-            side_effect=RuntimeError("boom"),
+        with (
+            patch(
+                "datajunction_server.internal.nodes._background_write_allowed",
+                return_value=True,
+            ),
+            patch(
+                "datajunction_server.internal.nodes._derive_frozen_measures_impl",
+                side_effect=RuntimeError("boom"),
+            ),
         ):
             with caplog.at_level(
                 logging.ERROR,
                 logger="datajunction_server.internal.nodes",
             ):
-                result = await derive_frozen_measures(node_revision_id=99)
+                result = await derive_frozen_measures(
+                    node_revision_id=99,
+                    current_user=MagicMock(),
+                )
 
     assert result == []
     assert any("deriving frozen measures" in r.message.lower() for r in caplog.records)
@@ -78,11 +87,20 @@ async def test_save_column_level_lineage_swallows_exceptions(caplog):
         mock_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
         mock_session.execute.side_effect = RuntimeError("boom")
 
-        with caplog.at_level(
-            logging.ERROR,
-            logger="datajunction_server.internal.nodes",
+        with (
+            patch(
+                "datajunction_server.internal.nodes._background_write_allowed",
+                return_value=True,
+            ),
+            caplog.at_level(
+                logging.ERROR,
+                logger="datajunction_server.internal.nodes",
+            ),
         ):
-            await save_column_level_lineage(node_revision_id=99)
+            await save_column_level_lineage(
+                node_revision_id=99,
+                current_user=MagicMock(),
+            )
 
     # The exception must be folded into the message itself (not just exc_info),
     # so backends that retain only the formatted message stay diagnosable.
