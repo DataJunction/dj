@@ -1,3 +1,5 @@
+import { getColumnIdentifier } from '../utils/column';
+
 // Note: MarkerType.Arrow is just the string "arrow" - we use the literal
 // to avoid importing reactflow in this service (which would bloat the main bundle)
 const MARKER_TYPE_ARROW = 'arrow';
@@ -1709,7 +1711,7 @@ export const DataJunctionAPI = {
         )
         .map(col => col.name);
       const column_names = node.columns.map(col => {
-        return { name: col.name, type: col.type };
+        return { name: getColumnIdentifier(node, col), type: col.type };
       });
       return {
         id: String(node.name),

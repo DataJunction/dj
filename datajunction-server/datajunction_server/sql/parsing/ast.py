@@ -1,4 +1,7 @@
 # mypy: ignore-errors
+
+from __future__ import annotations
+
 import asyncio
 import collections
 import decimal
@@ -18,10 +21,8 @@ import re
 from typing import (
     TYPE_CHECKING,
     Any,
-    Callable,
     Dict,
     Generic,
-    Iterator,
     List,
     Optional,
     Set,
@@ -31,6 +32,7 @@ from typing import (
     Union,
     cast,
 )
+from collections.abc import Callable, Iterator
 
 if TYPE_CHECKING:
     from datajunction_server.models.dialect import Dialect
@@ -94,19 +96,19 @@ logger = logging.getLogger(__name__)
 # When set, Function.__str__ will use dialect-specific function names.
 # Default is None (use canonical/Spark names).
 
-_render_dialect: ContextVar[Optional["Dialect"]] = ContextVar(
+_render_dialect: ContextVar[Dialect | None] = ContextVar(
     "_render_dialect",
     default=None,
 )
 
 
-def get_render_dialect() -> Optional["Dialect"]:
+def get_render_dialect() -> Dialect | None:
     """Get the current render dialect from context."""
     return _render_dialect.get()
 
 
 @contextmanager
-def render_for_dialect(dialect: "Dialect"):
+def render_for_dialect(dialect: Dialect):
     """
     Context manager to render AST for a specific dialect.
 
@@ -121,7 +123,7 @@ def render_for_dialect(dialect: "Dialect"):
         _render_dialect.reset(token)
 
 
-def to_sql(query: "Query", dialect: Optional["Dialect"] = None) -> str:
+def to_sql(query: Query, dialect: Dialect | None = None) -> str:
     """
     Render a query AST to SQL for a specific dialect.
 
@@ -185,7 +187,7 @@ def flatten(maybe_iterables: Any) -> Iterator:
     if not isinstance(maybe_iterables, (list, tuple, set, Iterator)):
         return iter([maybe_iterables])
     return chain.from_iterable(
-        (flatten(maybe_iterable) for maybe_iterable in maybe_iterables)
+        flatten(maybe_iterable) for maybe_iterable in maybe_iterables
     )
 
 
@@ -218,8 +220,8 @@ class Node(ABC):
 
     """
 
-    parent: Optional["Node"] = None
-    parent_key: Optional[str] = None
+    parent: Node | None = None
+    parent_key: str | None = None
 
     _is_compiled: bool = False
 
@@ -240,7 +242,7 @@ class Node(ABC):
         self.parent = None
         return self
 
-    def set_parent(self: TNode, parent: "Node", parent_key: str) -> TNode:
+    def set_parent(self: TNode, parent: Node, parent_key: str) -> TNode:
         """
         Add parent to the node
         """
@@ -275,7 +277,7 @@ class Node(ABC):
             if isinstance(child, Node) and not key.startswith("_"):
                 child.set_parent(self, key)
 
-    def swap(self: TNode, other: "Node") -> TNode:
+    def swap(self: TNode, other: Node) -> TNode:
         """
         Swap the Node for another
         """
@@ -307,9 +309,9 @@ class Node(ABC):
         return deepcopy(self)
 
     def get_nearest_parent_of_type(
-        self: "Node",
-        node_type: Type[TNode],
-    ) -> Optional[TNode]:
+        self: Node,
+        node_type: type[TNode],
+    ) -> TNode | None:
         """
         Traverse up the tree until you find a node of `node_type` or hit the root
         """
@@ -320,8 +322,8 @@ class Node(ABC):
         return self.parent.get_nearest_parent_of_type(node_type)
 
     def get_furthest_parent(
-        self: "Node",
-    ) -> Optional[TNode]:
+        self: Node,
+    ) -> TNode | None:
         """
         Traverse up the tree until you find a node of `node_type` or hit the root
         """
@@ -333,7 +335,7 @@ class Node(ABC):
                 return curr_parent
             curr_parent = curr_parent.parent
 
-    def flatten(self) -> Iterator["Node"]:
+    def flatten(self) -> Iterator[Node]:
         """
         Flatten the sub-ast of the node as an iterator
         """
@@ -388,9 +390,11 @@ class Node(ABC):
         if nodes_only:
             child_generator = iter(
                 filter(
-                    lambda child: isinstance(child, Node)
-                    if not named
-                    else isinstance(child[1], Node),
+                    lambda child: (
+                        isinstance(child, Node)
+                        if not named
+                        else isinstance(child[1], Node)
+                    ),
                     child_generator,
                 ),
             )
@@ -398,9 +402,9 @@ class Node(ABC):
         if not nones:
             child_generator = iter(
                 filter(
-                    lambda child: (child is not None)
-                    if not named
-                    else (child[1] is not None),
+                    lambda child: (
+                        (child is not None) if not named else (child[1] is not None)
+                    ),
                     child_generator,
                 ),
             )
@@ -408,7 +412,7 @@ class Node(ABC):
         return child_generator
 
     @property
-    def children(self) -> Iterator["Node"]:
+    def children(self) -> Iterator[Node]:
         """
         Returns an iterator of all nodes that are one
         step from the current node down including through iterables
@@ -423,9 +427,9 @@ class Node(ABC):
 
     def replace(
         self,
-        from_: "Node",
-        to: "Node",
-        compare: Optional[Callable[[Any, Any], bool]] = None,
+        from_: Node,
+        to: Node,
+        compare: Callable[[Any, Any], bool] | None = None,
         times: int = -1,
         copy: bool = True,
     ):
@@ -447,42 +451,41 @@ class Node(ABC):
             if replacements == times:
                 return
 
-    def filter(self, func: Callable[["Node"], bool]) -> Iterator["Node"]:
+    def filter(self, func: Callable[[Node], bool]) -> Iterator[Node]:
         """
         Find all nodes that `func` returns `True` for
         """
         if func(self):
             yield self
 
-        for node in chain(*[child.filter(func) for child in self.children]):
-            yield node
+        yield from chain(*[child.filter(func) for child in self.children])
 
-    def contains(self, other: "Node") -> bool:
+    def contains(self, other: Node) -> bool:
         """
         Checks if the subtree of `self` contains the node.
         Optimized to walk up parent pointers instead of traversing the entire subtree.
         """
         # Walk up from `other` to see if we reach `self`
-        current: Optional["Node"] = other
+        current: Node | None = other
         while current is not None:
             if current is self:
                 return True
             current = current.parent
         return False
 
-    def has_ancestor(self, other: Optional["Node"]) -> bool:
+    def has_ancestor(self, other: Node | None) -> bool:
         """
         Checks if `other` is an ancestor of `self` (i.e., `self` is in `other`'s subtree).
         """
         return bool(other) and other.contains(self)
 
-    def find_all(self, node_type: Type[TNode]) -> Iterator[TNode]:
+    def find_all(self, node_type: type[TNode]) -> Iterator[TNode]:
         """
         Find all nodes of a particular type in the node's sub-ast
         """
         return self.filter(lambda n: isinstance(n, node_type))  # type: ignore
 
-    def apply(self, func: Callable[["Node"], None]):
+    def apply(self, func: Callable[[Node], None]):
         """
         Traverse ast and apply func to each Node
         """
@@ -492,7 +495,7 @@ class Node(ABC):
 
     def compare(
         self,
-        other: "Node",
+        other: Node,
     ) -> bool:
         """
         Compare two ASTs for deep equality
@@ -503,23 +506,23 @@ class Node(ABC):
             return True
         return hash(self) == hash(other)
 
-    def diff(self, other: "Node") -> List[Tuple["Node", "Node"]]:
+    def diff(self, other: Node) -> list[tuple[Node, Node]]:
         """
         Compare two ASTs for differences and return the pairs of differences
         """
 
-        def _diff(self, other: "Node"):
+        def _diff(self, other: Node):
             if self != other:
                 diffs.append((self, other))
             else:
                 for child, other_child in zip_longest(self.children, other.children):
                     _diff(child, other_child)
 
-        diffs: List[Tuple["Node", "Node"]] = []
+        diffs: list[tuple[Node, Node]] = []
         _diff(self, other)
         return diffs
 
-    def similarity_score(self, other: "Node") -> float:
+    def similarity_score(self, other: Node) -> float:
         """
         Determine how similar two nodes are with a float score
         """
@@ -614,12 +617,12 @@ class Aliasable(Node):
     A mixin for Nodes that are aliasable
     """
 
-    alias: Optional["Name"] = None
-    as_: Optional[bool] = None
-    semantic_entity: Optional[str] = None
-    semantic_type: Optional[SemanticType] = None
+    alias: Name | None = None
+    as_: bool | None = None
+    semantic_entity: str | None = None
+    semantic_type: SemanticType | None = None
 
-    def set_alias(self: TNode, alias: Optional["Name"]) -> TNode:
+    def set_alias(self: TNode, alias: Name | None) -> TNode:
         self.alias = alias
         return self
 
@@ -643,7 +646,7 @@ class Aliasable(Node):
         return [self]
 
     @property
-    def alias_or_name(self) -> "Name":
+    def alias_or_name(self) -> Name:
         if self.alias is not None:
             return self.alias
         elif isinstance(self, Named):
@@ -691,10 +694,10 @@ class Expression(Node):
     An expression type simply for type checking
     """
 
-    parenthesized: Optional[bool] = field(init=False, default=None)
+    parenthesized: bool | None = field(init=False, default=None)
 
     @property
-    def type(self) -> Union[ColumnType, List[ColumnType]]:
+    def type(self) -> ColumnType | list[ColumnType]:
         """
         Return the type of the expression
         """
@@ -715,7 +718,7 @@ class Expression(Node):
             for child in self.children
         )
 
-    def set_alias(self: TExpression, alias: "Name") -> Alias[TExpression]:
+    def set_alias(self: TExpression, alias: Name) -> Alias[TExpression]:
         return Alias(child=self).set_alias(alias)
 
     def without_aliases(self) -> TExpression:
@@ -736,7 +739,7 @@ class Name(Node):
 
     name: str
     quote_style: str = ""
-    namespace: Optional["Name"] = None
+    namespace: Name | None = None
 
     def __post_init__(self):
         if isinstance(self.name, Name):
@@ -748,7 +751,7 @@ class Name(Node):
         return self.identifier(True)
 
     @property
-    def names(self) -> List["Name"]:
+    def names(self) -> list[Name]:
         namespace = [self]
         name = self
         while name.namespace:
@@ -779,8 +782,8 @@ class Named(Node):
 
     @staticmethod
     def namespaces_intersect(
-        namespace_a: List[Name],
-        namespace_b: List[Name],
+        namespace_a: list[Name],
+        namespace_b: list[Name],
         quotes: bool = False,
     ):
         return all(
@@ -789,11 +792,11 @@ class Named(Node):
         )
 
     @property
-    def names(self) -> List[Name]:
+    def names(self) -> list[Name]:
         return self.name.names
 
     @property
-    def namespace(self) -> List[Name]:
+    def namespace(self) -> list[Name]:
         return self.names[:-1]
 
     @property
@@ -815,7 +818,7 @@ class Named(Node):
         )
 
     @property
-    def alias_or_name(self) -> "Name":
+    def alias_or_name(self) -> Name:
         return self.name
 
 
@@ -838,18 +841,18 @@ class Column(Aliasable, Named, Expression):
     Column used in statements
     """
 
-    _table: Optional[Union[Aliasable, "TableExpression"]] = field(
+    _table: Aliasable | TableExpression | None = field(
         repr=False,
         default=None,
     )
     _is_struct_ref: bool = False
-    _struct_col_name: Optional[str] = field(repr=False, default=None)
-    _type: Optional["ColumnType"] = field(repr=False, default=None)
-    _expression: Optional[Expression] = field(repr=False, default=None)
+    _struct_col_name: str | None = field(repr=False, default=None)
+    _type: ColumnType | None = field(repr=False, default=None)
+    _expression: Expression | None = field(repr=False, default=None)
     _is_compiled: bool = False
-    _struct_hint: Optional[str] = field(repr=False, default=None)
-    role: Optional[str] = None
-    dimension_ref: Optional[str] = None
+    _struct_hint: str | None = field(repr=False, default=None)
+    role: str | None = None
+    dimension_ref: str | None = None
 
     @property
     def type(self):
@@ -865,7 +868,7 @@ class Column(Aliasable, Named, Expression):
         parent_expr = f"in {self.parent}" if self.parent else "that has no parent"
         raise DJParseException(f"Cannot resolve type of column `{self}` {parent_expr}")
 
-    def add_type(self, type_: ColumnType) -> "Column":
+    def add_type(self, type_: ColumnType) -> Column:
         """
         Add a referenced type
         """
@@ -882,7 +885,7 @@ class Column(Aliasable, Named, Expression):
         )
 
     @property
-    def expression(self) -> Optional[Expression]:
+    def expression(self) -> Expression | None:
         """
         Return the Expression this node points to in a subquery
         """
@@ -898,14 +901,14 @@ class Column(Aliasable, Named, Expression):
             self._table.parent = self
             self._table.parent_key = "_table"
 
-    def add_expression(self, expression: "Expression") -> "Column":
+    def add_expression(self, expression: Expression) -> Column:
         """
         Add a referenced expression where the column came from
         """
         self._expression = expression
         return self
 
-    def set_struct_ref(self, struct_col_name: Optional[str] = None):
+    def set_struct_ref(self, struct_col_name: str | None = None):
         """
         Marks this column as a struct dereference. This implies that we treat the name
         and namespace values on this object as struct column and struct subscript values.
@@ -919,11 +922,11 @@ class Column(Aliasable, Named, Expression):
         if struct_col_name is not None:
             self._struct_col_name = struct_col_name
 
-    def add_table(self, table: "TableExpression"):
+    def add_table(self, table: TableExpression):
         self._table = table
 
     @property
-    def table(self) -> Optional["TableExpression"]:
+    def table(self) -> TableExpression | None:
         """
         Return the table the column was referenced from
         """
@@ -942,14 +945,14 @@ class Column(Aliasable, Named, Expression):
         """
         return self._api_column
 
-    def set_api_column(self, api_column: bool = False) -> "Column":
+    def set_api_column(self, api_column: bool = False) -> Column:
         """
         Set the api column flag
         """
         self._api_column = api_column
         return self
 
-    def use_alias_as_name(self) -> "Column":
+    def use_alias_as_name(self) -> Column:
         """Use the column's alias as its name"""
         self.name = self.alias
         self.alias = None
@@ -958,7 +961,7 @@ class Column(Aliasable, Named, Expression):
     def is_compiled(self):
         return self._is_compiled or (self.table and self._type)
 
-    def column_names(self) -> Tuple[Optional[str], str, Optional[str]]:
+    def column_names(self) -> tuple[str | None, str, str | None]:
         """
         Returns the column namespace (if any), column name, and subscript name (if any)
         """
@@ -977,8 +980,8 @@ class Column(Aliasable, Named, Expression):
     @classmethod
     def from_existing(
         cls,
-        col: Union[Aliasable, Expression, "Column"],
-        table: "TableExpression",
+        col: Aliasable | Expression | Column,
+        table: TableExpression,
     ):
         """
         Build a selectable column from an existing one
@@ -994,7 +997,7 @@ class Column(Aliasable, Named, Expression):
     async def find_table_sources(
         self,
         ctx: CompileContext,
-    ) -> List["TableExpression"]:
+    ) -> list[TableExpression]:
         # flake8: noqa
         """
         Find all tables that this column could have originated from.
@@ -1202,7 +1205,7 @@ class Column(Aliasable, Named, Expression):
                             to_process.append((new_table, path + [link]))
         return found
 
-    def _get_parent_query(self) -> Optional["Query"]:
+    def _get_parent_query(self) -> Query | None:
         """Find the parent Query node for this column."""
         node = self.parent
         while node is not None:
@@ -1391,16 +1394,16 @@ class Wildcard(Named, Expression):
     """
 
     name: Name = field(init=False, repr=False, default_factory=lambda: Name("*"))
-    _table: Optional["Table"] = field(repr=False, default=None)
+    _table: Table | None = field(repr=False, default=None)
 
     @property
-    def table(self) -> Optional["Table"]:
+    def table(self) -> Table | None:
         """
         Return the table the column was referenced from if there's one
         """
         return self._table
 
-    def add_table(self, table: "Table") -> "Wildcard":
+    def add_table(self, table: Table) -> Wildcard:
         """
         Add a referenced table
         """
@@ -1422,15 +1425,15 @@ class TableExpression(Aliasable, Expression):
     A type for table expressions
     """
 
-    column_list: List[Column] = field(default_factory=list)
-    _columns: List[Expression] = field(
+    column_list: list[Column] = field(default_factory=list)
+    _columns: list[Expression] = field(
         default_factory=list,
     )  # all those expressions that can be had from the table; usually derived from dj node metadata for Table
     # ref (referenced) columns are columns used elsewhere from this table
-    _ref_columns: List[Column] = field(init=False, repr=False, default_factory=list)
+    _ref_columns: list[Column] = field(init=False, repr=False, default_factory=list)
 
     @property
-    def columns(self) -> List[Expression]:
+    def columns(self) -> list[Expression]:
         """
         Return the columns named in this table
         """
@@ -1443,7 +1446,7 @@ class TableExpression(Aliasable, Expression):
         ]
 
     @property
-    def column_mapping(self) -> Dict[str, Column]:
+    def column_mapping(self) -> dict[str, Column]:
         """
         Return the columns named in this table
         """
@@ -1454,7 +1457,7 @@ class TableExpression(Aliasable, Expression):
         }
 
     @property
-    def ref_columns(self) -> Set[Column]:
+    def ref_columns(self) -> set[Column]:
         """
         Return the columns referenced from this table
         """
@@ -1462,14 +1465,14 @@ class TableExpression(Aliasable, Expression):
 
     @staticmethod
     def _resolve_struct_field_path(
-        struct_type: "StructType",
-        field_path: List[str],
-    ) -> Optional["ColumnType"]:
+        struct_type: StructType,
+        field_path: list[str],
+    ) -> ColumnType | None:
         """
         Walk a sequence of field names through nested StructTypes.
         Returns the leaf ColumnType, or None if the path doesn't resolve.
         """
-        current: "ColumnType" = struct_type
+        current: ColumnType = struct_type
         for field_name in field_path:
             if not isinstance(current, StructType):
                 return None
@@ -1483,7 +1486,7 @@ class TableExpression(Aliasable, Expression):
     async def add_ref_column(
         self,
         column: Column,
-        ctx: Optional[CompileContext] = None,
+        ctx: CompileContext | None = None,
     ) -> bool:
         """
         Add column referenced from this table. Returns True if the table has the column
@@ -1711,18 +1714,18 @@ class Table(TableExpression, Named):
     A type for tables
     """
 
-    _dj_node: Optional[DJNode] = field(repr=False, default=None)
-    dimension_link: Optional[DimensionLink] = field(repr=False, default=None)
-    path: Optional[List["Table"]] = field(repr=False, default=None)
+    _dj_node: DJNode | None = field(repr=False, default=None)
+    dimension_link: DimensionLink | None = field(repr=False, default=None)
+    path: list[Table] | None = field(repr=False, default=None)
 
     @property
-    def dj_node(self) -> Optional[DJNode]:
+    def dj_node(self) -> DJNode | None:
         """
         Return the dj_node referenced by this table
         """
         return self._dj_node
 
-    def set_dj_node(self, dj_node: DJNode) -> "Table":
+    def set_dj_node(self, dj_node: DJNode) -> Table:
         """
         Set dj_node referenced by this table
         """
@@ -1739,7 +1742,7 @@ class Table(TableExpression, Named):
     def is_compiled(self) -> bool:
         return super().is_compiled() and (self.dj_node is not None)
 
-    def set_alias(self: TNode, alias: "Name") -> TNode:
+    def set_alias(self: TNode, alias: Name) -> TNode:
         self.alias = alias
         for col in self._columns:
             if col.table:
@@ -1940,15 +1943,15 @@ class BinaryOp(Operation):
     op: BinaryOpKind
     left: Expression
     right: Expression
-    use_alias_as_name: Optional[bool] = False
+    use_alias_as_name: bool | None = False
 
     @classmethod
     def And(
         cls,
-        left: Optional[Expression] = None,
-        right: Optional[Expression] = None,
+        left: Expression | None = None,
+        right: Expression | None = None,
         *rest: Expression,
-    ) -> Optional[Union["BinaryOp", Expression]]:
+    ) -> BinaryOp | Expression | None:
         """
         Create a BinaryOp of kind BinaryOpKind.And rolling up all expressions.
         Tolerates 0/1 args so that callers may safely `.And(*conditions)` an empty list.
@@ -1970,9 +1973,9 @@ class BinaryOp(Operation):
     def Eq(
         cls,
         left: Expression,
-        right: Optional[Expression],
-        use_alias_as_name: Optional[bool] = False,
-    ) -> Union["BinaryOp", Expression]:
+        right: Expression | None,
+        use_alias_as_name: bool | None = False,
+    ) -> BinaryOp | Expression:
         """
         Create a BinaryOp of kind BinaryOpKind.Eq
         """
@@ -2063,7 +2066,7 @@ class BinaryOp(Operation):
                 return left
             return BooleanType()
 
-        BINOP_TYPE_COMBO_LOOKUP: Dict[
+        BINOP_TYPE_COMBO_LOOKUP: dict[
             BinaryOpKind,
             Callable[[ColumnType, ColumnType], ColumnType],
         ] = {
@@ -2124,7 +2127,7 @@ class Frame(Expression):
 
     frame_type: str
     start: FrameBound
-    end: Optional[FrameBound] = None
+    end: FrameBound | None = None
 
     def __str__(self) -> str:
         end = f" AND {self.end}" if self.end else ""
@@ -2138,9 +2141,9 @@ class Over(Expression):
     Represents a function used in a statement
     """
 
-    partition_by: List[Expression] = field(default_factory=list)
-    order_by: List["SortItem"] = field(default_factory=list)
-    window_frame: Optional[Frame] = None
+    partition_by: list[Expression] = field(default_factory=list)
+    order_by: list[SortItem] = field(default_factory=list)
+    window_frame: Frame | None = None
 
     def __str__(self) -> str:
         partition_by = (  # pragma: no cover
@@ -2178,17 +2181,17 @@ class Function(Named, Operation):
     Represents a function used in a statement
     """
 
-    args: List[Expression] = field(default_factory=list)
+    args: list[Expression] = field(default_factory=list)
     quantifier: SetQuantifier | None = None
-    over: Optional[Over] = None
+    over: Over | None = None
     args_compiled: bool = False
 
     def __new__(
         cls,
         name: Name,
-        args: List[Expression],
+        args: list[Expression],
         quantifier: str = "",
-        over: Optional[Over] = None,
+        over: Over | None = None,
     ):
         # Check if function is a table-valued function
         if (
@@ -2304,8 +2307,8 @@ class Number(Value):
     Number value
     """
 
-    value: Union[float, int, decimal.Decimal]
-    _type: Optional[IntegerBase] = None
+    value: float | int | decimal.Decimal
+    _type: IntegerBase | None = None
 
     def __post_init__(self):
         super().__post_init__()
@@ -2396,7 +2399,7 @@ class IntervalUnit(Value):
     """
 
     unit: str
-    value: Optional[Number] = None
+    value: Number | None = None
 
     def __str__(self) -> str:
         return f"{self.value or ''} {self.unit}"
@@ -2408,8 +2411,8 @@ class Interval(Value):
     Interval value
     """
 
-    from_: List[IntervalUnit]
-    to: Optional[IntervalUnit] = None
+    from_: list[IntervalUnit]
+    to: IntervalUnit | None = None
 
     def __str__(self) -> str:
         to = f"TO {self.to}" if self.to else ""
@@ -2457,7 +2460,7 @@ class Struct(Value):
     Struct value
     """
 
-    values: List[Aliasable]
+    values: list[Aliasable]
 
     def __str__(self):
         inner = ", ".join(str(value) for value in self.values)
@@ -2514,7 +2517,7 @@ class In(Predicate):
     """
 
     expr: Expression = field(default_factory=Expression)
-    source: Union[List[Expression], "Select"] = field(default_factory=Expression)
+    source: list[Expression] | Select = field(default_factory=Expression)
 
     def __str__(self) -> str:
         not_ = "NOT " if self.negated else ""
@@ -2548,9 +2551,9 @@ class Like(Predicate):
 
     expr: Expression = field(default_factory=Expression)
     quantifier: str = ""
-    patterns: List[Expression] = field(default_factory=list)
-    escape_char: Optional[str] = None
-    case_sensitive: Optional[bool] = True
+    patterns: list[Expression] = field(default_factory=list)
+    escape_char: str | None = None
+    case_sensitive: bool | None = True
 
     def __str__(self) -> str:
         not_ = "NOT " if self.negated else ""
@@ -2632,11 +2635,11 @@ class Case(Expression):
     A case statement of branches
     """
 
-    expr: Optional[Expression] = None
-    conditions: List[Expression] = field(default_factory=list)
-    else_result: Optional[Expression] = None
-    operand: Optional[Expression] = None
-    results: List[Expression] = field(default_factory=list)
+    expr: Expression | None = None
+    conditions: list[Expression] = field(default_factory=list)
+    else_result: Expression | None = None
+    operand: Expression | None = None
+    results: list[Expression] = field(default_factory=list)
 
     def __str__(self) -> str:
         branches = "\n\tWHEN ".join(
@@ -2699,7 +2702,7 @@ class Lambda(Expression):
     Represents a lambda expression
     """
 
-    identifiers: List[Name]
+    identifiers: list[Name]
     expr: Expression
 
     def __str__(self) -> str:
@@ -2710,7 +2713,7 @@ class Lambda(Expression):
         return f"{id_str}->{self.expr}"
 
     @property
-    def type(self) -> Union[ColumnType, List[ColumnType]]:
+    def type(self) -> ColumnType | list[ColumnType]:
         """
         The return type of the lambda function
         """
@@ -2723,8 +2726,8 @@ class JoinCriteria(Node):
     Represents the criteria for a join relation in a FROM clause
     """
 
-    on: Optional[Expression] = None
-    using: Optional[List[Named]] = None
+    on: Expression | None = None
+    using: list[Named] | None = None
 
     def __str__(self) -> str:
         if self.on:
@@ -2742,7 +2745,7 @@ class Join(Node):
 
     join_type: str
     right: Expression
-    criteria: Optional[JoinCriteria] = None
+    criteria: JoinCriteria | None = None
     lateral: bool = False
     natural: bool = False
 
@@ -2767,7 +2770,7 @@ class InlineTable(TableExpression, Named):
     An inline table
     """
 
-    values: List[Expression] = field(default_factory=list)
+    values: list[Expression] = field(default_factory=list)
     explicit_columns: bool = False
 
     def __str__(self) -> str:
@@ -2790,7 +2793,7 @@ class FunctionTableExpression(TableExpression, Named, Operation):
     default where a FunctionTable is required but succeeds optional fields
     """
 
-    args: List[Expression] = field(default_factory=list)
+    args: list[Expression] = field(default_factory=list)
 
 
 class FunctionTable(FunctionTableExpression):
@@ -2837,7 +2840,7 @@ class FunctionTable(FunctionTableExpression):
         self.alias = alias
         return self
 
-    async def _type(self, ctx: Optional[CompileContext] = None) -> List[NestedField]:
+    async def _type(self, ctx: CompileContext | None = None) -> list[NestedField]:
         name = self.name.name.upper()
         dj_func = table_function_registry[name]
         arg_types = []
@@ -2897,7 +2900,7 @@ class Relation(Node):
     """
 
     primary: Expression
-    extensions: List[Join] = field(default_factory=list)
+    extensions: list[Join] = field(default_factory=list)
 
     def __str__(self) -> str:
         if self.extensions:
@@ -2913,7 +2916,7 @@ class From(Node):
     Represents the FROM clause of a SELECT statement
     """
 
-    relations: List[Relation] = field(default_factory=list)
+    relations: list[Relation] = field(default_factory=list)
 
     def __str__(self) -> str:
         parts = ["FROM "]
@@ -2944,7 +2947,7 @@ class SetOp(Node):
     """
 
     kind: str = ""  # Union, intersect, ...
-    right: Optional["SelectExpression"] = None
+    right: SelectExpression | None = None
 
     def __str__(self) -> str:
         return f"\n{self.kind}\n{self.right}"
@@ -3001,8 +3004,8 @@ class Organization(Node):
     Sets up organization for the query
     """
 
-    order: List[SortItem] = field(default_factory=list)
-    sort: List[SortItem] = field(default_factory=list)
+    order: list[SortItem] = field(default_factory=list)
+    sort: list[SortItem] = field(default_factory=list)
 
     def __str__(self) -> str:
         ret = ""
@@ -3020,7 +3023,7 @@ class Hint(Node):
     """
 
     name: Name
-    parameters: List[Column] = field(default_factory=list)
+    parameters: list[Column] = field(default_factory=list)
 
     def __str__(self) -> str:
         params = (
@@ -3039,16 +3042,16 @@ class SelectExpression(Aliasable, Expression):
     """
 
     quantifier: str = ""  # Distinct, All
-    projection: List[Union[Aliasable, Expression, Column]] = field(default_factory=list)
-    from_: Optional[From] = None
-    group_by: List[Expression] = field(default_factory=list)
-    having: Optional[Expression] = None
-    where: Optional[Expression] = None
-    lateral_views: List[LateralView] = field(default_factory=list)
-    set_op: Optional[SetOp] = None
-    limit: Optional[Expression] = None
-    organization: Optional[Organization] = None
-    hints: Optional[List[Hint]] = None
+    projection: list[Aliasable | Expression | Column] = field(default_factory=list)
+    from_: From | None = None
+    group_by: list[Expression] = field(default_factory=list)
+    having: Expression | None = None
+    where: Expression | None = None
+    lateral_views: list[LateralView] = field(default_factory=list)
+    set_op: SetOp | None = None
+    limit: Expression | None = None
+    organization: Organization | None = None
+    hints: list[Hint] | None = None
 
     def add_set_op(self, set_op: SetOp):
         if self.set_op:
@@ -3069,7 +3072,7 @@ class SelectExpression(Aliasable, Expression):
                 projection.append(expression)
         self.projection = projection
 
-    def where_clause_expressions_list(self) -> Optional[List[Expression]]:
+    def where_clause_expressions_list(self) -> list[Expression] | None:
         """
         Converts the WHERE clause to a list of expressions separated by AND operators
         """
@@ -3092,14 +3095,14 @@ class SelectExpression(Aliasable, Expression):
         return filters
 
     @property
-    def column_mapping(self) -> Dict[str, "Column"]:
+    def column_mapping(self) -> dict[str, Column]:
         """
         Returns a dictionary with the output column names mapped to the columns
         """
         return {col.alias_or_name.name: col for col in self.projection}
 
     @property
-    def semantic_column_mapping(self) -> Dict[str, "Column"]:
+    def semantic_column_mapping(self) -> dict[str, Column]:
         """
         Returns a dictionary with the semantic entity names mapped to the output columns
         """
@@ -3115,7 +3118,7 @@ class QueryParameter(Expression):
     name: str
     prefix: str = ":"
     quote_style: str = ""
-    _type: Optional["ColumnType"] = field(repr=False, default=None)
+    _type: ColumnType | None = field(repr=False, default=None)
 
     def __str__(self) -> str:
         return self.identifier(quotes=True)
@@ -3207,14 +3210,14 @@ class Query(TableExpression, UnNamed):
     """
 
     select: SelectExpression = field(default_factory=SelectExpression)
-    ctes: List["Query"] = field(default_factory=list)
+    ctes: list[Query] = field(default_factory=list)
     # Cache for find_all(TableExpression) to avoid repeated traversals
-    _table_expr_cache: Optional[List["TableExpression"]] = field(
+    _table_expr_cache: list[TableExpression] | None = field(
         default=None,
         repr=False,
     )
 
-    def get_table_expressions(self) -> List["TableExpression"]:
+    def get_table_expressions(self) -> list[TableExpression]:
         """
         Get all TableExpression nodes in this query's subtree.
         Results are cached for performance.
@@ -3253,7 +3256,7 @@ class Query(TableExpression, UnNamed):
             self._is_compiled = True
             return
 
-        def _compile(info: Tuple[Column, List[TableExpression]]):
+        def _compile(info: tuple[Column, list[TableExpression]]):
             """
             Given a list of table sources, find a matching origin table for the column.
             """
@@ -3432,7 +3435,7 @@ class Query(TableExpression, UnNamed):
             self._columns += expr.columns
         self._is_compiled = True
 
-    def bake_ctes(self) -> "Query":
+    def bake_ctes(self) -> Query:
         """
         Add ctes into the select and return the select
 
@@ -3443,8 +3446,11 @@ class Query(TableExpression, UnNamed):
         for cte in self.ctes:
             tables = list(
                 self.filter(
-                    lambda node: isinstance(node, Table)
-                    and node.identifier(False) == cte.alias_or_name.identifier(False),
+                    lambda node: (
+                        isinstance(node, Table)
+                        and node.identifier(False)
+                        == cte.alias_or_name.identifier(False)
+                    ),
                 ),
             )
             for i, tbl in enumerate(tables):
@@ -3461,7 +3467,7 @@ class Query(TableExpression, UnNamed):
         self.ctes = []
         return self
 
-    def to_cte(self, cte_name: Name, parent_ast: Optional["Query"] = None) -> "Query":
+    def to_cte(self, cte_name: Name, parent_ast: Query | None = None) -> Query:
         """
         Prepares the query to be a CTE
         """
@@ -3492,7 +3498,7 @@ class Query(TableExpression, UnNamed):
                 query = f"{query}{as_}{self.alias}"
         return query
 
-    def set_alias(self: TNode, alias: "Name") -> TNode:
+    def set_alias(self: TNode, alias: Name) -> TNode:
         self.alias = alias
         for col in self._columns:
             if isinstance(col, Column) and col.table is not None:
@@ -3501,8 +3507,8 @@ class Query(TableExpression, UnNamed):
 
     async def extract_dependencies(
         self,
-        context: Optional[CompileContext] = None,
-    ) -> Tuple[Dict[NodeRevision, List[Table]], Dict[str, List[Table]]]:
+        context: CompileContext | None = None,
+    ) -> tuple[dict[NodeRevision, list[Table]], dict[str, list[Table]]]:
         """
         Find all dependencies in a compiled query.
 
@@ -3510,8 +3516,8 @@ class Query(TableExpression, UnNamed):
         For queries without FROM (e.g., derived metrics): finds Column references
         with namespaces that point to node names (e.g., default.metric_a).
         """
-        deps: Dict[NodeRevision, List[Table]] = {}
-        danglers: Dict[str, List[Table]] = {}
+        deps: dict[NodeRevision, list[Table]] = {}
+        danglers: dict[str, list[Table]] = {}
 
         # Check if this is a query without FROM (e.g., derived metric)
         has_from = self.select.from_ is not None

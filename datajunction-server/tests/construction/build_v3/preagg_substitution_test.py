@@ -15,12 +15,17 @@ Key scenarios:
 6. use_materialized=False -> always compute from source
 """
 
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
 import pytest
 
+from datajunction_server.config import Settings
 from datajunction_server.construction.build_v3.measures import (
     build_grain_group_from_preagg,
 )
 from datajunction_server.construction.build_v3.types import BuildContext, GrainGroup
+from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.preaggregation import (
     PreAggregation,
     compute_expression_hash,
@@ -31,11 +36,8 @@ from datajunction_server.models.decompose import (
     MetricComponent,
     PreAggMeasure,
 )
-from types import SimpleNamespace
-from unittest.mock import MagicMock
-
-from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.utils import get_query_service_client
+
 from . import assert_sql_equal, get_first_grain_group
 
 
@@ -417,6 +419,176 @@ class TestExternalPreAggRouting:
                 GROUP BY status
                 """,
             )
+
+    @pytest.mark.asyncio
+    async def test_external_preagg_stranded_by_node_revision(
+        self,
+        client_with_build_v3,
+    ):
+        """A pre-agg stops being used once the parent node gains a new revision.
+
+        Pre-aggs are keyed by node_revision_id (via grain_group_hash), so any edit
+        that creates a revision -- including a description-only change -- silently
+        strands them until they are re-registered. ``dj push`` re-registers in the
+        same deploy, but out-of-band registrations go stale with no warning.
+        """
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.order_details.status"],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "revenue_by_status",
+                "valid_through_ts": 20250101,
+            },
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            table_columns={"status": "string", "rev_sum": "double"},
+        )
+        params = {
+            "metrics": ["v3.total_revenue"],
+            "dimensions": ["v3.order_details.status"],
+        }
+        before = await client_with_build_v3.get("/sql/measures/v3/", params=params)
+        assert before.status_code == 200
+        assert_sql_equal(
+            get_first_grain_group(before.json())["sql"],
+            """
+            SELECT status, SUM(rev_sum) rev_sum
+            FROM default.analytics.revenue_by_status
+            GROUP BY status
+            """,
+        )
+
+        # A description-only edit still produces a new node revision.
+        patched = await client_with_build_v3.patch(
+            "/nodes/v3.order_details/",
+            json={"description": "Order line items (edited)"},
+        )
+        assert patched.status_code == 200
+
+        # The pre-agg is pinned to the previous revision, so the query now builds
+        # from source instead.
+        after = await client_with_build_v3.get("/sql/measures/v3/", params=params)
+        assert after.status_code == 200
+        assert_sql_equal(
+            get_first_grain_group(after.json())["sql"],
+            """
+            WITH v3_order_details AS (
+                SELECT o.status, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            GROUP BY t1.status
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_external_preagg_same_grain_tie_is_first_registered(
+        self,
+        client_with_build_v3,
+    ):
+        """When two pre-aggs at the same grain both cover the requested measures,
+        the first-registered one wins.
+
+        The matcher prefers the smallest grain (``<``), so equal grain sizes never
+        displace an earlier candidate. Pinning this makes the tie-break explicit
+        rather than incidental.
+        """
+        for table, metrics, measure_columns, table_columns in (
+            (
+                "revenue_only",
+                ["v3.total_revenue"],
+                {"v3.total_revenue": "rev_sum"},
+                {"status": "string", "rev_sum": "double"},
+            ),
+            (
+                "revenue_and_quantity",
+                ["v3.total_revenue", "v3.total_quantity"],
+                {"v3.total_revenue": "rev_sum", "v3.total_quantity": "qty_sum"},
+                {"status": "string", "rev_sum": "double", "qty_sum": "double"},
+            ),
+        ):
+            await _register_external_preagg(
+                client_with_build_v3,
+                metrics=metrics,
+                dimensions=["v3.order_details.status"],
+                table_ref={
+                    "catalog": "default",
+                    "schema": "analytics",
+                    "table": table,
+                    "valid_through_ts": 20250101,
+                },
+                measure_columns=measure_columns,
+                table_columns=table_columns,
+            )
+
+        # Distinct rows: same grain, different measure sets.
+        listing = await client_with_build_v3.get(
+            "/preaggs/",
+            params={"node_name": "v3.order_details"},
+        )
+        assert len(listing.json()["items"]) == 2
+
+        # Both cover total_revenue; the earlier registration is used.
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+        assert response.status_code == 200
+        assert_sql_equal(
+            get_first_grain_group(response.json())["sql"],
+            """
+            SELECT status, SUM(rev_sum) rev_sum
+            FROM default.analytics.revenue_only
+            GROUP BY status
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_external_preagg_multi_hop_role_dimension(
+        self,
+        client_with_build_v3,
+    ):
+        """A multi-hop role reference resolves like any other: the mapped physical
+        column is read and aliased to the hop-qualified alias.
+
+        ``v3.location.country[customer->home]`` reaches location via customer, so
+        the alias is ``country_home``.
+        """
+        dimension = "v3.location.country[customer->home]"
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=[dimension],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "revenue_by_home_country",
+                "valid_through_ts": 20250101,
+            },
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            dimension_columns={dimension: "home_country"},
+            table_columns={"home_country": "string", "rev_sum": "double"},
+        )
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={"metrics": ["v3.total_revenue"], "dimensions": [dimension]},
+        )
+        assert response.status_code == 200
+        assert_sql_equal(
+            get_first_grain_group(response.json())["sql"],
+            """
+            SELECT home_country country_home, SUM(rev_sum) rev_sum
+            FROM default.analytics.revenue_by_home_country
+            GROUP BY home_country
+            """,
+        )
 
     @pytest.mark.asyncio
     async def test_external_preagg_pending_not_used(self, client_with_build_v3):
@@ -1163,7 +1335,7 @@ class TestExternalPreAggRouting:
         await _register_external_preagg(
             client_with_build_v3,
             metrics=["v3.total_revenue"],
-            dimensions=["v3.customer.customer_id"],
+            dimensions=["v3.customer.customer_id[customer]"],
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
@@ -1177,7 +1349,7 @@ class TestExternalPreAggRouting:
             "/sql/metrics/v3/",
             params={
                 "metrics": ["v3.revenue_per_visitor"],
-                "dimensions": ["v3.customer.customer_id"],
+                "dimensions": ["v3.customer.customer_id[customer]"],
             },
         )
         assert metrics_response.status_code == 200
@@ -1190,23 +1362,31 @@ class TestExternalPreAggRouting:
                 FROM default.v3.page_views
             ),
             order_details_0 AS (
-                SELECT customer_id, SUM(revenue_sum) revenue_sum
+                SELECT customer_id_customer, SUM(revenue_sum) revenue_sum
                 FROM default.analytics.revenue_by_customer
-                GROUP BY customer_id
+                GROUP BY customer_id_customer
             ),
             page_views_enriched_0 AS (
-                SELECT t1.customer_id
+                SELECT t1.customer_id customer_id_customer, t1.customer_id
                 FROM v3_page_views_enriched t1
                 GROUP BY t1.customer_id
+            ),
+            page_views_enriched_0_agg AS (
+                SELECT customer_id_customer,
+                       COUNT(DISTINCT customer_id) customer_id
+                FROM page_views_enriched_0
+                GROUP BY customer_id_customer
             )
-            SELECT COALESCE(order_details_0.customer_id,
-                            page_views_enriched_0.customer_id) AS customer_id,
+            SELECT COALESCE(order_details_0.customer_id_customer,
+                            page_views_enriched_0_agg.customer_id_customer)
+                       AS customer_id_customer,
                    SUM(order_details_0.revenue_sum)
-                   / NULLIF(COUNT(DISTINCT page_views_enriched_0.customer_id), 0)
+                   / NULLIF(MAX(page_views_enriched_0_agg.customer_id), 0)
                    AS revenue_per_visitor
             FROM order_details_0
-            FULL OUTER JOIN page_views_enriched_0
-                ON order_details_0.customer_id = page_views_enriched_0.customer_id
+            FULL OUTER JOIN page_views_enriched_0_agg
+                ON order_details_0.customer_id_customer
+                   = page_views_enriched_0_agg.customer_id_customer
             GROUP BY 1
             """,
         )
@@ -1319,6 +1499,120 @@ class TestExternalPreAggRouting:
             GROUP BY order_details_0.date_id_order
             """,
         )
+
+    @pytest.mark.asyncio
+    async def test_external_preagg_rejects_unqualified_role_dimension(
+        self,
+        client_with_build_v3,
+    ):
+        """A bare reference is rejected only when several roles reach the
+        dimension, since it then names none of them. Single-role dimensions,
+        locally-owned columns and role-free links stay legal.
+        """
+        rejected = await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.location.country"],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "revenue_by_country",
+            },
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            table_columns={"country": "string", "rev_sum": "double"},
+            expected_status=422,
+        )
+        assert rejected.json()["message"] == (
+            "Dimension `v3.location.country` is ambiguous across roles. "
+            "Use one of: `v3.location.country[customer->home]`, "
+            "`v3.location.country[from]`, `v3.location.country[to]`"
+        )
+
+        # References that are legal stay legal: a role-qualified dimension, a
+        # locally-owned column, the FK column behind a join, and a role-free link.
+        for dimension, table, columns in (
+            (
+                "v3.location.country[from]",
+                "revenue_by_from_country",
+                {"country_from": "string", "rev_sum": "double"},
+            ),
+            (
+                "v3.order_details.status",
+                "revenue_by_status_local",
+                {"status": "string", "rev_sum": "double"},
+            ),
+            (
+                "v3.order_details.order_date",
+                "revenue_by_order_date",
+                {"order_date": "int", "rev_sum": "double"},
+            ),
+            (
+                "v3.product.category",
+                "revenue_by_category_plain",
+                {"category": "string", "rev_sum": "double"},
+            ),
+            (
+                "v3.customer.customer_id",
+                "revenue_by_customer_bare",
+                {"customer_id": "int", "rev_sum": "double"},
+            ),
+        ):
+            await _register_external_preagg(
+                client_with_build_v3,
+                metrics=["v3.total_revenue"],
+                dimensions=[dimension],
+                table_ref={
+                    "catalog": "default",
+                    "schema": "analytics",
+                    "table": table,
+                    "valid_through_ts": 20250101,
+                },
+                measure_columns={"v3.total_revenue": "rev_sum"},
+                table_columns=columns,
+            )
+
+    @pytest.mark.asyncio
+    async def test_external_preagg_bare_and_role_qualified_refs_interoperate(
+        self,
+        client_with_build_v3,
+    ):
+        """When one role reaches a dimension, a bare and a role-qualified
+        reference name the same thing, so either spelling matches a pre-agg
+        registered with the other -- including its column mapping.
+        """
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.customer.customer_id"],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "revenue_by_customer_key",
+                "valid_through_ts": 20250101,
+            },
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            dimension_columns={"v3.customer.customer_id": "cust_key"},
+            table_columns={"cust_key": "int", "rev_sum": "double"},
+        )
+        # The output alias follows the spelling that was requested; only matching
+        # is canonicalized.
+        for dimension, alias in (
+            ("v3.customer.customer_id", "customer_id"),
+            ("v3.customer.customer_id[customer]", "customer_id_customer"),
+        ):
+            response = await client_with_build_v3.get(
+                "/sql/measures/v3/",
+                params={"metrics": ["v3.total_revenue"], "dimensions": [dimension]},
+            )
+            assert response.status_code == 200
+            assert_sql_equal(
+                get_first_grain_group(response.json())["sql"],
+                f"""
+                SELECT cust_key {alias}, SUM(rev_sum) rev_sum
+                FROM default.analytics.revenue_by_customer_key
+                GROUP BY cust_key
+                """,
+            )
 
     @pytest.mark.asyncio
     async def test_external_preagg_dimension_column_must_exist(
@@ -1448,6 +1742,507 @@ class TestExternalPreAggRouting:
             SELECT st status, cat category, SUM(rev_sum) rev_sum
             FROM default.analytics.revenue_by_status_category
             GROUP BY st, cat
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_external_preagg_filter_only_dimension_selects_finer_agg(
+        self,
+        client_with_build_v3,
+    ):
+        """A filter-only dimension is part of the coverage requirement: with a
+        coarse and a fine pre-agg both covering the projected grain, the finer one
+        wins because only it carries the filtered dimension. Ignoring filters when
+        ranking candidates picked the coarse agg and dropped the predicate."""
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.order_details.status"],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "rev_by_status",
+                "valid_through_ts": 20250101,
+            },
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            table_columns={"status": "string", "rev_sum": "double"},
+        )
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.order_details.status", "v3.product.category"],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "rev_by_status_cat",
+                "valid_through_ts": 20250101,
+            },
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            table_columns={
+                "status": "string",
+                "category": "string",
+                "rev_sum": "double",
+            },
+        )
+        params = {
+            "metrics": ["v3.total_revenue"],
+            "dimensions": ["v3.order_details.status"],
+            "filters": ["v3.product.category = 'Electronics'"],
+        }
+        measures_response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params=params,
+        )
+        assert measures_response.status_code == 200
+        assert_sql_equal(
+            get_first_grain_group(measures_response.json())["sql"],
+            """
+            SELECT status, category, SUM(rev_sum) rev_sum
+            FROM default.analytics.rev_by_status_cat
+            WHERE category = 'Electronics'
+            GROUP BY status, category
+            """,
+        )
+        metrics_response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params=params,
+        )
+        assert metrics_response.status_code == 200
+        assert_sql_equal(
+            metrics_response.json()["sql"],
+            """
+            WITH order_details_0 AS (
+                SELECT status, category, SUM(rev_sum) rev_sum
+                FROM default.analytics.rev_by_status_cat
+                WHERE category = 'Electronics'
+                GROUP BY status, category
+            )
+            SELECT order_details_0.status AS status,
+                   SUM(order_details_0.rev_sum) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.status
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_external_preagg_filter_pushdown_uses_mapped_column(
+        self,
+        client_with_build_v3,
+    ):
+        """A pushed-down predicate on a locally-owned dimension is rewritten to the
+        pre-agg's mapped physical column (``st``), not the DJ column name -- which
+        would reference a column the external table does not have."""
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.order_details.status", "v3.product.category"],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "rev_st_cat",
+                "valid_through_ts": 20250101,
+            },
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            dimension_columns={"v3.order_details.status": "st"},
+            table_columns={"st": "string", "category": "string", "rev_sum": "double"},
+        )
+        params = {
+            "metrics": ["v3.total_revenue"],
+            "dimensions": ["v3.product.category"],
+            "filters": ["v3.order_details.status = 'completed'"],
+        }
+        measures_response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params=params,
+        )
+        assert measures_response.status_code == 200
+        assert_sql_equal(
+            get_first_grain_group(measures_response.json())["sql"],
+            """
+            SELECT category, st status, SUM(rev_sum) rev_sum
+            FROM default.analytics.rev_st_cat
+            WHERE st = 'completed'
+            GROUP BY category, st
+            """,
+        )
+        metrics_response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params=params,
+        )
+        assert metrics_response.status_code == 200
+        assert_sql_equal(
+            metrics_response.json()["sql"],
+            """
+            WITH order_details_0 AS (
+                SELECT category, st status, SUM(rev_sum) rev_sum
+                FROM default.analytics.rev_st_cat
+                WHERE st = 'completed'
+                GROUP BY category, st
+            )
+            SELECT order_details_0.category AS category,
+                   SUM(order_details_0.rev_sum) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.category
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_external_preagg_dimension_mapping_is_per_agg(
+        self,
+        client_with_build_v3,
+    ):
+        """Column mappings are scoped to the pre-agg that declares them: the same
+        dimension reads ``order_status`` from one table and ``status`` from
+        another, depending on which agg the metric routes to."""
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.order_details.status"],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "rev_by_st",
+                "valid_through_ts": 20250101,
+            },
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            dimension_columns={"v3.order_details.status": "order_status"},
+            table_columns={"order_status": "string", "rev_sum": "double"},
+        )
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_quantity"],
+            dimensions=["v3.order_details.status"],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "qty_by_status",
+                "valid_through_ts": 20250101,
+            },
+            measure_columns={"v3.total_quantity": "qty_sum"},
+            table_columns={"status": "string", "qty_sum": "double"},
+        )
+        revenue_response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+        assert revenue_response.status_code == 200
+        assert_sql_equal(
+            get_first_grain_group(revenue_response.json())["sql"],
+            """
+            SELECT order_status status, SUM(rev_sum) rev_sum
+            FROM default.analytics.rev_by_st
+            GROUP BY order_status
+            """,
+        )
+        quantity_response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_quantity"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+        assert quantity_response.status_code == 200
+        assert_sql_equal(
+            get_first_grain_group(quantity_response.json())["sql"],
+            """
+            SELECT status, SUM(qty_sum) qty_sum
+            FROM default.analytics.qty_by_status
+            GROUP BY status
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_external_preagg_metric_filter_becomes_having(
+        self,
+        client_with_build_v3,
+    ):
+        """A metric-valued filter becomes a HAVING over the merge expression on the
+        pre-agg column, not over the base-fact expression (which the CTE no longer
+        exposes)."""
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.order_details.status"],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "rev_by_status",
+                "valid_through_ts": 20250101,
+            },
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            table_columns={"status": "string", "rev_sum": "double"},
+        )
+        params = {
+            "metrics": ["v3.total_revenue"],
+            "dimensions": ["v3.order_details.status"],
+            "filters": ["v3.total_revenue > 100"],
+        }
+        # The metric filter does not leak into the pre-agg scan.
+        measures_response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params=params,
+        )
+        assert measures_response.status_code == 200
+        assert_sql_equal(
+            get_first_grain_group(measures_response.json())["sql"],
+            """
+            SELECT status, SUM(rev_sum) rev_sum
+            FROM default.analytics.rev_by_status
+            GROUP BY status
+            """,
+        )
+        metrics_response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params=params,
+        )
+        assert metrics_response.status_code == 200
+        assert_sql_equal(
+            metrics_response.json()["sql"],
+            """
+            WITH order_details_0 AS (
+                SELECT status, SUM(rev_sum) rev_sum
+                FROM default.analytics.rev_by_status
+                GROUP BY status
+            )
+            SELECT order_details_0.status AS status,
+                   SUM(order_details_0.rev_sum) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.status
+            HAVING SUM(order_details_0.rev_sum) > 100
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_external_preagg_order_by_metric_with_limit(
+        self,
+        client_with_build_v3,
+    ):
+        """ORDER BY on a metric plus LIMIT apply to the outer query only; neither
+        leaks into the pre-agg CTE, which would truncate rows before the roll-up."""
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.order_details.status"],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "rev_by_status",
+                "valid_through_ts": 20250101,
+            },
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            table_columns={"status": "string", "rev_sum": "double"},
+        )
+        params = {
+            "metrics": ["v3.total_revenue"],
+            "dimensions": ["v3.order_details.status"],
+            "orderby": ["v3.total_revenue DESC"],
+            "limit": 10,
+        }
+        measures_response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params=params,
+        )
+        assert measures_response.status_code == 200
+        assert_sql_equal(
+            get_first_grain_group(measures_response.json())["sql"],
+            """
+            SELECT status, SUM(rev_sum) rev_sum
+            FROM default.analytics.rev_by_status
+            GROUP BY status
+            """,
+        )
+        metrics_response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params=params,
+        )
+        assert metrics_response.status_code == 200
+        assert_sql_equal(
+            metrics_response.json()["sql"],
+            """
+            WITH order_details_0 AS (
+                SELECT status, SUM(rev_sum) rev_sum
+                FROM default.analytics.rev_by_status
+                GROUP BY status
+            )
+            SELECT order_details_0.status AS status,
+                   SUM(order_details_0.rev_sum) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.status
+            ORDER BY total_revenue DESC
+            LIMIT 10
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_external_preagg_degenerate_grains(self, client_with_build_v3):
+        """Degenerate grains: an empty-grain pre-agg answers a no-dimension query
+        with a GROUP BY-less scan, and a subset grain that drops the agg's leading
+        key still rolls up (on the mapped column)."""
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=[],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "rev_total",
+                "valid_through_ts": 20250101,
+            },
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            table_columns={"rev_sum": "double"},
+        )
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.order_details.status", "v3.product.category"],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "rev_st_cat",
+                "valid_through_ts": 20250101,
+            },
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            dimension_columns={"v3.product.category": "cat"},
+            table_columns={"status": "string", "cat": "string", "rev_sum": "double"},
+        )
+        # (a) No dimensions at all -> the empty-grain agg, scanned without GROUP BY.
+        no_dims = {"metrics": ["v3.total_revenue"]}
+        measures_response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params=no_dims,
+        )
+        assert measures_response.status_code == 200
+        assert_sql_equal(
+            get_first_grain_group(measures_response.json())["sql"],
+            """
+            SELECT SUM(rev_sum) rev_sum
+            FROM default.analytics.rev_total
+            """,
+        )
+        metrics_response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params=no_dims,
+        )
+        assert metrics_response.status_code == 200
+        assert_sql_equal(
+            metrics_response.json()["sql"],
+            """
+            WITH order_details_0 AS (
+                SELECT SUM(rev_sum) rev_sum
+                FROM default.analytics.rev_total
+            )
+            SELECT SUM(order_details_0.rev_sum) AS total_revenue
+            FROM order_details_0
+            """,
+        )
+        # (b) A subset grain that omits the agg's first grain column (status).
+        subset = {
+            "metrics": ["v3.total_revenue"],
+            "dimensions": ["v3.product.category"],
+        }
+        measures_response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params=subset,
+        )
+        assert measures_response.status_code == 200
+        assert_sql_equal(
+            get_first_grain_group(measures_response.json())["sql"],
+            """
+            SELECT cat category, SUM(rev_sum) rev_sum
+            FROM default.analytics.rev_st_cat
+            GROUP BY cat
+            """,
+        )
+        metrics_response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params=subset,
+        )
+        assert metrics_response.status_code == 200
+        assert_sql_equal(
+            metrics_response.json()["sql"],
+            """
+            WITH order_details_0 AS (
+                SELECT cat category, SUM(rev_sum) rev_sum
+                FROM default.analytics.rev_st_cat
+                GROUP BY cat
+            )
+            SELECT order_details_0.category AS category,
+                   SUM(order_details_0.rev_sum) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.category
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_external_preagg_uncovered_distinct_measure_falls_back(
+        self,
+        client_with_build_v3,
+    ):
+        """Rejection is about measure coverage, not grain: a COUNT DISTINCT metric
+        at exactly the pre-agg's grain still falls back to source when the table
+        carries no column for the distinct component."""
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.order_details.status"],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "rev_by_status",
+                "valid_through_ts": 20250101,
+            },
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            table_columns={"status": "string", "rev_sum": "double"},
+        )
+        params = {
+            "metrics": ["v3.order_count"],
+            "dimensions": ["v3.order_details.status"],
+        }
+        measures_response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params=params,
+        )
+        assert measures_response.status_code == 200
+        measures_sql = get_first_grain_group(measures_response.json())["sql"]
+        assert "default.analytics.rev_by_status" not in measures_sql
+        assert_sql_equal(
+            measures_sql,
+            """
+            WITH v3_order_details AS (
+                SELECT o.order_id, o.status
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t1.status, t1.order_id
+            FROM v3_order_details t1
+            GROUP BY t1.status, t1.order_id
+            """,
+        )
+        metrics_response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params=params,
+        )
+        assert metrics_response.status_code == 200
+        assert_sql_equal(
+            metrics_response.json()["sql"],
+            """
+            WITH v3_order_details AS (
+                SELECT o.order_id, o.status
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+                SELECT t1.status, t1.order_id
+                FROM v3_order_details t1
+                GROUP BY t1.status, t1.order_id
+            )
+            SELECT order_details_0.status AS status,
+                   COUNT(DISTINCT order_details_0.order_id) AS order_count
+            FROM order_details_0
+            GROUP BY order_details_0.status
             """,
         )
 
@@ -2330,3 +3125,270 @@ class TestBuildGrainGroupFromPreaggErrorPaths:
         )
         # Only one component should appear in output despite two in input
         assert len(result.components) == 1
+
+
+class TestPreAggFreshnessGating:
+    """
+    Routing decisions made against the temporal range a pre-agg's table covers.
+
+    The pre-agg below sits on a date grain and is stale in wall-clock terms, but
+    perfectly good for a query bounded inside the range it holds.
+    """
+
+    PREAGG_SQL = """
+    WITH order_details_0 AS (
+        SELECT date_id_order, SUM(revenue_sum) revenue_sum
+        FROM default.analytics.revenue_by_date
+        GROUP BY date_id_order
+    )
+    SELECT order_details_0.date_id_order AS date_id_order,
+           SUM(order_details_0.revenue_sum) AS total_revenue
+    FROM order_details_0
+    WHERE order_details_0.date_id_order {predicate}
+    GROUP BY order_details_0.date_id_order
+    """
+
+    SOURCE_SQL = """
+    WITH v3_order_details AS (
+        SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
+        FROM default.v3.orders o
+        JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+        WHERE o.order_date {predicate}
+    ),
+    order_details_0 AS (
+        SELECT t1.order_date date_id_order,
+               SUM(t1.line_total) line_total_sum_e1f61696
+        FROM v3_order_details t1
+        GROUP BY t1.order_date
+    )
+    SELECT order_details_0.date_id_order AS date_id_order,
+           SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+    FROM order_details_0
+    WHERE order_details_0.date_id_order {predicate}
+    GROUP BY order_details_0.date_id_order
+    """
+
+    UNFILTERED_SOURCE_SQL = """
+    WITH v3_order_details AS (
+        SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
+        FROM default.v3.orders o
+        JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+    ),
+    order_details_0 AS (
+        SELECT t1.order_date date_id_order,
+               SUM(t1.line_total) line_total_sum_e1f61696
+        FROM v3_order_details t1
+        GROUP BY t1.order_date
+    )
+    SELECT order_details_0.date_id_order AS date_id_order,
+           SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+    FROM order_details_0
+    GROUP BY order_details_0.date_id_order
+    """
+
+    TABLE_REF = {
+        "catalog": "default",
+        "schema": "analytics",
+        "table": "revenue_by_date",
+    }
+
+    async def _register(self, client) -> int:
+        """Partition the fact on order_date, then adopt a date-grain pre-agg."""
+        partition_response = await client.post(
+            "/nodes/v3.order_details/columns/order_date/partition",
+            json={"type_": "temporal", "format": "yyyyMMdd", "granularity": "day"},
+        )
+        assert partition_response.status_code == 201
+        response = await _register_external_preagg(
+            client,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.date.date_id[order]"],
+            table_ref={**self.TABLE_REF, "valid_through_ts": 20250101},
+            measure_columns={"v3.total_revenue": "revenue_sum"},
+            table_columns={"date_id_order": "int", "revenue_sum": "double"},
+        )
+        return response.json()["preaggs"][0]["id"]
+
+    async def _report_range(self, client, preagg_id: int, min_: str, max_: str):
+        """Report the actual partition range the external table holds."""
+        response = await client.post(
+            f"/preaggs/{preagg_id}/availability/",
+            json={
+                **self.TABLE_REF,
+                "valid_through_ts": 20250101,
+                "min_temporal_partition": [min_],
+                "max_temporal_partition": [max_],
+            },
+        )
+        assert response.status_code == 200, response.text
+
+    def _configure(self, mocker, *, gating: bool, max_staleness: int | None = None):
+        # A real Settings instance, so renaming a setting fails here loudly.
+        mocker.patch(
+            "datajunction_server.construction.build_v3.preagg_freshness.get_settings",
+            return_value=Settings(
+                preagg_freshness_gating=gating,
+                preagg_max_staleness_seconds=max_staleness,
+            ),
+        )
+
+    async def _metrics_sql(self, client, filters: list[str]) -> str:
+        response = await client.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.date.date_id[order]"],
+                "filters": filters,
+            },
+        )
+        assert response.status_code == 200
+        return response.json()["sql"]
+
+    @pytest.mark.asyncio
+    async def test_historical_query_uses_a_stale_preagg(
+        self,
+        client_with_build_v3,
+        mocker,
+    ):
+        """A query bounded inside the watermark is served, however old the table."""
+        await self._register(client_with_build_v3)
+        self._configure(mocker, gating=True)
+        assert_sql_equal(
+            await self._metrics_sql(
+                client_with_build_v3,
+                ["v3.date.date_id[order] <= 20240101"],
+            ),
+            self.PREAGG_SQL.format(predicate="<= 20240101"),
+        )
+
+    @pytest.mark.asyncio
+    async def test_query_past_the_watermark_falls_back_to_source(
+        self,
+        client_with_build_v3,
+        mocker,
+    ):
+        """
+        A query reaching past the watermark computes from source instead. Nothing
+        but ``valid_through_ts`` has been reported, so that is what it's judged on.
+        """
+        await self._register(client_with_build_v3)
+        self._configure(mocker, gating=True)
+        assert_sql_equal(
+            await self._metrics_sql(
+                client_with_build_v3,
+                ["v3.date.date_id[order] <= 20260101"],
+            ),
+            self.SOURCE_SQL.format(predicate="<= 20260101"),
+        )
+
+    @pytest.mark.asyncio
+    async def test_query_below_the_covered_range_falls_back_to_source(
+        self,
+        client_with_build_v3,
+        mocker,
+    ):
+        """The table starts in 2024, so it cannot answer a query reaching to 2020."""
+        preagg_id = await self._register(client_with_build_v3)
+        await self._report_range(
+            client_with_build_v3,
+            preagg_id,
+            "20240101",
+            "20260601",
+        )
+        self._configure(mocker, gating=True)
+        assert_sql_equal(
+            await self._metrics_sql(
+                client_with_build_v3,
+                ["v3.date.date_id[order] >= 20200101"],
+            ),
+            self.SOURCE_SQL.format(predicate=">= 20200101"),
+        )
+
+    @pytest.mark.asyncio
+    async def test_query_inside_the_covered_range_uses_the_preagg(
+        self,
+        client_with_build_v3,
+        mocker,
+    ):
+        """The same table answers a query that starts after its first partition."""
+        preagg_id = await self._register(client_with_build_v3)
+        await self._report_range(
+            client_with_build_v3,
+            preagg_id,
+            "20240101",
+            "20260601",
+        )
+        self._configure(mocker, gating=True)
+        assert_sql_equal(
+            await self._metrics_sql(
+                client_with_build_v3,
+                ["v3.date.date_id[order] >= 20240201"],
+            ),
+            self.PREAGG_SQL.format(predicate=">= 20240201"),
+        )
+
+    @pytest.mark.asyncio
+    async def test_reported_max_supersedes_the_watermark(
+        self,
+        client_with_build_v3,
+        mocker,
+    ):
+        """
+        A query past ``valid_through_ts`` but inside the reported partition range
+        is served: the range the table actually holds is the stronger signal.
+        """
+        preagg_id = await self._register(client_with_build_v3)
+        await self._report_range(
+            client_with_build_v3,
+            preagg_id,
+            "20240101",
+            "20260601",
+        )
+        self._configure(mocker, gating=True)
+        assert_sql_equal(
+            await self._metrics_sql(
+                client_with_build_v3,
+                ["v3.date.date_id[order] <= 20260101"],
+            ),
+            self.PREAGG_SQL.format(predicate="<= 20260101"),
+        )
+
+    @pytest.mark.asyncio
+    async def test_gating_off_serves_the_same_query_from_the_preagg(
+        self,
+        client_with_build_v3,
+        mocker,
+    ):
+        """Default configuration routes exactly as it did before the gate."""
+        await self._register(client_with_build_v3)
+        self._configure(mocker, gating=False)
+        assert_sql_equal(
+            await self._metrics_sql(
+                client_with_build_v3,
+                ["v3.date.date_id[order] <= 20260101"],
+            ),
+            self.PREAGG_SQL.format(predicate="<= 20260101"),
+        )
+
+    @pytest.mark.asyncio
+    async def test_open_ended_query_falls_back_under_a_staleness_budget(
+        self,
+        client_with_build_v3,
+        mocker,
+    ):
+        """
+        An unfiltered query implicitly asks for data through now, so a configured
+        staleness budget rejects a covered range that far behind.
+        """
+        preagg_id = await self._register(client_with_build_v3)
+        await self._report_range(
+            client_with_build_v3,
+            preagg_id,
+            "20240101",
+            "20250101",
+        )
+        self._configure(mocker, gating=True, max_staleness=86400)
+        assert_sql_equal(
+            await self._metrics_sql(client_with_build_v3, []),
+            self.UNFILTERED_SOURCE_SQL,
+        )

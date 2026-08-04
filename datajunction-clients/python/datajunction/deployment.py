@@ -8,7 +8,7 @@ import urllib.request
 from enum import Enum
 from pathlib import Path
 import time
-from typing import Any, Union
+from typing import Any
 
 import yaml
 from rich.console import Console
@@ -77,7 +77,7 @@ class DeploymentService:
     def pull(
         self,
         namespace: str,
-        target_path: Union[str, Path],
+        target_path: str | Path,
     ):
         """
         Export a namespace to a local project.
@@ -289,7 +289,7 @@ class DeploymentService:
 
     @staticmethod
     def read_yaml_file(path: str | Path) -> dict[str, Any]:
-        with open(path, "r") as f:
+        with open(path) as f:
             return yaml.safe_load(f)
 
     @staticmethod

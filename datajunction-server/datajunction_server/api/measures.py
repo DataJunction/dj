@@ -3,7 +3,6 @@ Measures related APIs.
 """
 
 import logging
-from typing import List, Optional
 
 from fastapi import Depends
 from sqlalchemy import select
@@ -12,13 +11,13 @@ from sqlalchemy.orm import joinedload
 
 from datajunction_server.database import Node, NodeRevision
 from datajunction_server.database.column import Column
-from datajunction_server.database.measure import Measure, FrozenMeasure
+from datajunction_server.database.measure import FrozenMeasure, Measure
 from datajunction_server.errors import DJAlreadyExistsException, DJDoesNotExistException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.models.measure import (
-    FrozenMeasureOutput,
     CreateMeasure,
     EditMeasure,
+    FrozenMeasureOutput,
     MeasureOutput,
     NodeColumn,
 )
@@ -62,8 +61,8 @@ async def get_measure_by_name(
 
 async def get_node_columns(
     session: AsyncSession,
-    node_columns: List[NodeColumn],
-) -> List[Column]:
+    node_columns: list[NodeColumn],
+) -> list[Column]:
     """
     Finds all the specified node columns or raises if they don't exist
     """
@@ -92,11 +91,11 @@ async def get_node_columns(
     return measure_columns
 
 
-@router.get("/measures/", response_model=List[str])
+@router.get("/measures/", response_model=list[str])
 async def list_measures(
-    prefix: Optional[str] = None,
+    prefix: str | None = None,
     session: AsyncSession = Depends(get_session),
-) -> List[str]:
+) -> list[str]:
     """
     List all measures.
     """
@@ -190,10 +189,10 @@ async def edit_measure(
 
 @router.get("/frozen-measures/", response_model=list[FrozenMeasureOutput])
 async def list_frozen_measures(
-    prefix: Optional[str] = None,
-    aggregation: Optional[str] = None,
-    upstream_name: Optional[str] = None,
-    upstream_version: Optional[str] = None,
+    prefix: str | None = None,
+    aggregation: str | None = None,
+    upstream_name: str | None = None,
+    upstream_version: str | None = None,
     session: AsyncSession = Depends(get_session),
 ) -> list[FrozenMeasureOutput]:
     """

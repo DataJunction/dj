@@ -5,39 +5,38 @@ SQL Generation (V3): Measures and Metrics SQL Builders.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
     from datajunction_server.database.node import NodeRevision
 
+from datajunction_server.construction.build_v3.cte import (
+    detect_window_metrics_requiring_grain_groups,
+)
 from datajunction_server.construction.build_v3.cube_matcher import (
     build_sql_from_cube_impl,
     find_matching_cube,
 )
-from datajunction_server.construction.build_v3.cte import (
-    detect_window_metrics_requiring_grain_groups,
-)
 from datajunction_server.construction.build_v3.decomposition import (
     decompose_and_group_metrics,
 )
+from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
+from datajunction_server.construction.build_v3.filters import (
+    get_filter_column_references,
+)
 from datajunction_server.construction.build_v3.loaders import (
-    load_nodes,
     load_available_preaggs,
+    load_nodes,
 )
 from datajunction_server.construction.build_v3.measures import (
     build_window_metric_grain_groups,
     process_metric_group,
 )
 from datajunction_server.construction.build_v3.metrics import (
-    generate_metrics_sql,
     classify_filters,
-)
-from datajunction_server.construction.build_v3.window_lookback import (
-    apply_live_window_lookback,
-    apply_output_restriction,
-    densify_window_base_metrics,
+    generate_metrics_sql,
 )
 from datajunction_server.construction.build_v3.types import (
     BuildContext,
@@ -45,13 +44,14 @@ from datajunction_server.construction.build_v3.types import (
     GeneratedSQL,
     GrainGroupSQL,
 )
-from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
-from datajunction_server.construction.build_v3.filters import (
-    get_filter_column_references,
-)
 from datajunction_server.construction.build_v3.utils import (
     add_dimensions_from_filters,
     add_dimensions_from_metric_expressions,
+)
+from datajunction_server.construction.build_v3.window_lookback import (
+    apply_live_window_lookback,
+    apply_output_restriction,
+    densify_window_base_metrics,
 )
 from datajunction_server.database.partition import Partition
 from datajunction_server.errors import DJError, DJInvalidInputException, ErrorCode
@@ -111,7 +111,7 @@ async def extract_temporal_partition_columns(
     session: AsyncSession,
     metrics: list[str],
     dimensions: list[str],
-    matched_cube: Optional["NodeRevision"] = None,
+    matched_cube: NodeRevision | None = None,
 ) -> dict[str, Partition] | None:
     """
     Extract temporal partition columns from a matching cube.
@@ -146,7 +146,7 @@ async def extract_temporal_partition_columns(
     temporal_partition_columns = {}
     for column in matching_cube.columns:
         if column.partition and column.partition.type_ == PartitionType.TEMPORAL:
-            temporal_partition_columns[column.name] = column.partition
+            temporal_partition_columns[column.cube_element_name] = column.partition
 
     return temporal_partition_columns if temporal_partition_columns else None
 
@@ -249,7 +249,7 @@ async def setup_build_context(
     use_materialized: bool = True,
     include_temporal_filters: bool = False,
     lookback_window: str | None = None,
-    matched_cube: Optional["NodeRevision"] = None,
+    matched_cube: NodeRevision | None = None,
 ) -> BuildContext:
     """
     Create and initialize a BuildContext with all setup done.
@@ -354,7 +354,7 @@ async def build_measures_sql(
     include_temporal_filters: bool = False,
     lookback_window: str | None = None,
     query_parameters: dict[str, Any] | None = None,
-    matched_cube: Optional["NodeRevision"] = None,
+    matched_cube: NodeRevision | None = None,
 ) -> GeneratedMeasuresSQL:
     """
     Build measures SQL for a set of metrics, dimensions, and filters.
@@ -501,7 +501,7 @@ async def build_metrics_sql(
     limit: int | None = None,
     dialect: Dialect | None = None,
     use_materialized: bool = True,
-    matched_cube: Optional[NodeRevision] = None,
+    matched_cube: NodeRevision | None = None,
     query_parameters: dict[str, Any] | None = None,
     lookback_window: str | None = None,
 ) -> GeneratedSQL:

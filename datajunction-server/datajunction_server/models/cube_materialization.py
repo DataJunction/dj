@@ -1,9 +1,9 @@
 """Models related to cube materialization"""
 
 import hashlib
-from typing import Any, Dict, List, Optional, Union, Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator, computed_field
+from pydantic import BaseModel, Field, computed_field, field_validator
 
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.column import SemanticType
@@ -49,7 +49,7 @@ def materialized_table_name(
 def version_from_materialized_table(
     table: str,
     node_name: str,
-) -> Optional[str]:
+) -> str | None:
     """Recover the node version encoded in a materialized table/datasource name.
 
     Inverse of ``materialized_table_name``. Tolerates an optional
@@ -58,7 +58,7 @@ def version_from_materialized_table(
     materialized name for ``node_name`` (e.g. a source table or another node),
     so callers can fall back safely.
     """
-    from datajunction_server.utils import get_settings  # noqa: PLC0415
+    from datajunction_server.utils import get_settings
 
     candidate = table
     prefix = get_settings().druid_datasource_prefix
@@ -80,7 +80,7 @@ class MetricMeasures(BaseModel):
     """
 
     metric: str
-    measures: List[MetricComponent]
+    measures: list[MetricComponent]
     combiner: str
 
 
@@ -90,7 +90,7 @@ class DruidSpec(BaseModel):
     """
 
     datasource: str = Field(description="The Druid datasource name.")
-    ingestion_spec: Dict = Field(
+    ingestion_spec: dict = Field(
         description="Druid ingestion spec for the materialization.",
     )
 
@@ -125,7 +125,7 @@ class MeasuresMaterialization(BaseModel):
         description="The time granularity for each materialization run. Examples: DAY, HOUR",
     )
 
-    spark_conf: Dict[str, str] | None = Field(
+    spark_conf: dict[str, str] | None = Field(
         description="Spark config for this materialization.",
     )
     upstream_tables: list[str] = Field(
@@ -189,9 +189,7 @@ class MeasuresMaterialization(BaseModel):
         # The cube column stores the role separately in ``dimension_column``
         # as ``[role]``. Reconstruct the role-qualified form to match the v3
         # measures-query ``semantic_entity`` (e.g. ``node.col[role]``).
-        partition_ref = (
-            f"{temporal_partition.name}{temporal_partition.dimension_column or ''}"
-        )
+        partition_ref = temporal_partition.cube_element_name
         partition_matches = [
             col.name
             for col in measures_query.columns
@@ -271,7 +269,7 @@ class UpsertCubeMaterialization(BaseModel):
     schedule: str
 
     # Configuration for the materialization (optional for compatibility)
-    config: Dict[str, Any] | None = None
+    config: dict[str, Any] | None = None
 
     # Lookback window, only relevant if materialization strategy is INCREMENTAL_TIME
     lookback_window: str | None = "1 DAY"
@@ -279,7 +277,7 @@ class UpsertCubeMaterialization(BaseModel):
     @field_validator("job")
     def validate_job(
         cls,
-        job: Union[str, MaterializationJobTypeEnum],
+        job: str | MaterializationJobTypeEnum,
     ) -> MaterializationJobTypeEnum:
         """
         Validates the `job` field. Converts to an enum if `job` is a string.
@@ -306,7 +304,7 @@ class CombineMaterialization(BaseModel):
 
     node: NodeNameVersion
     query: str | None = None
-    columns: List[ColumnMetadata]
+    columns: list[ColumnMetadata]
     grain: list[str] = Field(
         description="The grain at which the node is being materialized.",
     )
@@ -396,7 +394,7 @@ class CombineMaterialization(BaseModel):
                 " on this cube or it cannot be materialized to Druid.",
             )
 
-        from datajunction_server.utils import get_settings  # noqa: PLC0415
+        from datajunction_server.utils import get_settings
 
         druid_datasource_name = (
             f"{get_settings().druid_datasource_prefix}{self.output_table_name}"
@@ -404,7 +402,7 @@ class CombineMaterialization(BaseModel):
 
         # if there are categorical partitions, we can additionally include one of them
         # in the partitionDimension field under partitionsSpec
-        druid_spec: Dict = {
+        druid_spec: dict = {
             "dataSchema": {
                 "dataSource": druid_datasource_name,
                 "parser": {
@@ -457,7 +455,7 @@ class DruidCubeConfig(BaseModel):
     metrics: list[CubeMetric]
 
     # List of MeasuresMaterialization configurations.
-    measures_materializations: List[MeasuresMaterialization]
+    measures_materializations: list[MeasuresMaterialization]
 
     # List of materializations used to combine measures outputs. For hyper efficient
     # Druid queries, there should ideally only be a single one, but this may not be
@@ -465,7 +463,7 @@ class DruidCubeConfig(BaseModel):
     combiners: list[CombineMaterialization]
 
     # Lookback window, only relevant if materialization strategy is INCREMENTAL_TIME
-    lookback_window: Optional[str] = "1 DAY"
+    lookback_window: str | None = "1 DAY"
 
 
 class DruidCubeMaterializationInput(BaseModel):
@@ -484,10 +482,10 @@ class DruidCubeMaterializationInput(BaseModel):
     strategy: MaterializationStrategy
     schedule: str
     job: str
-    lookback_window: Optional[str] = "1 DAY"
+    lookback_window: str | None = "1 DAY"
 
     # List of measures materializations
-    measures_materializations: List[MeasuresMaterialization]
+    measures_materializations: list[MeasuresMaterialization]
 
     # List of materializations used to combine measures outputs. For hyper efficient
     # Druid queries, there should ideally only be a single one, but this may not be
@@ -517,11 +515,11 @@ class CubeMaterializeRequest(BaseModel):
         default=MaterializationStrategy.INCREMENTAL_TIME,
         description="Materialization strategy (FULL or INCREMENTAL_TIME)",
     )
-    lookback_window: Optional[str] = Field(
+    lookback_window: str | None = Field(
         default="1 DAY",
         description="Lookback window for incremental materialization. Accepts null for FULL strategy.",
     )
-    druid_datasource: Optional[str] = Field(
+    druid_datasource: str | None = Field(
         default=None,
         description="Custom Druid datasource name. Defaults to 'dj__{cube_name}'",
     )
@@ -540,10 +538,10 @@ class PreAggTableInfo(BaseModel):
     parent_node: str = Field(
         description="Parent node name this pre-agg is derived from",
     )
-    grain: List[str] = Field(
+    grain: list[str] = Field(
         description="Grain columns for this pre-agg",
     )
-    strategy: Optional[MaterializationStrategy] = Field(
+    strategy: MaterializationStrategy | None = Field(
         default=None,
         description=(
             "Materialization strategy of the pre-agg. Used by the cube "
@@ -568,29 +566,29 @@ class CubeMaterializeResponse(BaseModel):
     druid_datasource: str
 
     # Pre-agg dependencies - the Druid workflow should wait for these
-    preagg_tables: List[PreAggTableInfo]
+    preagg_tables: list[PreAggTableInfo]
 
     # Combined SQL that reads from pre-agg tables
     combined_sql: str
-    combined_columns: List[ColumnMetadata]
-    combined_grain: List[str]
+    combined_columns: list[ColumnMetadata]
+    combined_grain: list[str]
 
     # Druid ingestion spec
-    druid_spec: Dict
+    druid_spec: dict
 
     # Materialization config
     strategy: MaterializationStrategy
     schedule: str
-    lookback_window: Optional[str] = None
+    lookback_window: str | None = None
 
     # Metric combiner expressions (metric_name -> combiner SQL)
-    metric_combiners: Dict[str, str] = Field(
+    metric_combiners: dict[str, str] = Field(
         default_factory=dict,
         description="Mapping of metric names to their combiner SQL expressions",
     )
 
     # Workflow info
-    workflow_urls: List[str] = Field(
+    workflow_urls: list[str] = Field(
         default_factory=list,
         description="URLs to the created workflows (if any)",
     )
@@ -614,7 +612,7 @@ class CubeMaterializationV2Input(BaseModel):
     cube_version: str = Field(description="Cube version")
 
     # Pre-agg table dependencies
-    preagg_tables: List[PreAggTableInfo] = Field(
+    preagg_tables: list[PreAggTableInfo] = Field(
         description="List of pre-agg tables the Druid ingestion depends on",
     )
 
@@ -622,10 +620,10 @@ class CubeMaterializationV2Input(BaseModel):
     combined_sql: str = Field(
         description="SQL that combines pre-agg tables (FULL OUTER JOIN + COALESCE)",
     )
-    combined_columns: List[ColumnMetadata] = Field(
+    combined_columns: list[ColumnMetadata] = Field(
         description="Output columns of the combined SQL",
     )
-    combined_grain: List[str] = Field(
+    combined_grain: list[str] = Field(
         description="Shared grain of the combined query",
     )
 
@@ -633,16 +631,16 @@ class CubeMaterializationV2Input(BaseModel):
     druid_datasource: str = Field(
         description="Target Druid datasource name",
     )
-    druid_spec: Dict = Field(
+    druid_spec: dict = Field(
         description="Druid ingestion spec",
     )
 
     # Temporal partition info (only set for INCREMENTAL_TIME)
-    timestamp_column: Optional[str] = Field(
+    timestamp_column: str | None = Field(
         default=None,
         description="Name of the timestamp/partition column. None for FULL strategy without a temporal partition.",
     )
-    timestamp_format: Optional[str] = Field(
+    timestamp_format: str | None = Field(
         default=None,
         description="Format of the timestamp column. None when timestamp_column is None.",
     )
@@ -654,7 +652,7 @@ class CubeMaterializationV2Input(BaseModel):
     schedule: str = Field(
         description="Cron schedule (e.g., '0 0 * * *' for daily)",
     )
-    lookback_window: Optional[str] = Field(
+    lookback_window: str | None = Field(
         default=None,
         description="Lookback window for incremental. None for FULL strategy.",
     )
@@ -689,7 +687,7 @@ class DruidCubeV3Config(BaseModel):
     )
 
     # Pre-agg table dependencies
-    preagg_tables: List[PreAggTableInfo] = Field(
+    preagg_tables: list[PreAggTableInfo] = Field(
         description="Pre-agg tables the Druid ingestion reads from",
     )
 
@@ -697,59 +695,59 @@ class DruidCubeV3Config(BaseModel):
     combined_sql: str = Field(
         description="SQL that combines pre-agg tables",
     )
-    combined_columns: List[ColumnMetadata] = Field(
+    combined_columns: list[ColumnMetadata] = Field(
         description="Output columns of the combined SQL",
     )
-    combined_grain: List[str] = Field(
+    combined_grain: list[str] = Field(
         description="Shared grain columns of the cube",
     )
 
     # Metric components for Druid metricsSpec
-    measure_components: List[MetricComponent] = Field(
+    measure_components: list[MetricComponent] = Field(
         default_factory=list,
         description="Metric components with aggregation/merge info",
     )
-    component_aliases: Dict[str, str] = Field(
+    component_aliases: dict[str, str] = Field(
         default_factory=dict,
         description="Mapping from component name to output column alias",
     )
 
     # Cube's metric node names (deprecated - use metrics field instead)
-    cube_metrics: List[str] = Field(
+    cube_metrics: list[str] = Field(
         default_factory=list,
         description="List of metric node names in the cube",
     )
 
     # Metrics with their combiner expressions
     # This replaces the computed `metrics` property with stored values
-    metrics: List[Dict[str, Any]] = Field(
+    metrics: list[dict[str, Any]] = Field(
         default_factory=list,
         description="List of metrics with metric_expression for querying the materialized cube",
     )
 
     # Temporal partition info (only set for INCREMENTAL_TIME)
-    timestamp_column: Optional[str] = Field(
+    timestamp_column: str | None = Field(
         default=None,
         description="Name of the timestamp/partition column. None for FULL strategy without a temporal partition.",
     )
-    timestamp_format: Optional[str] = Field(
+    timestamp_format: str | None = Field(
         default=None,
         description="Format of the timestamp column. None when timestamp_column is None.",
     )
 
     # Workflow tracking
-    workflow_urls: List[str] = Field(
+    workflow_urls: list[str] = Field(
         default_factory=list,
         description="URLs for the materialization workflow",
     )
-    workflow_names: List[str] = Field(
+    workflow_names: list[str] = Field(
         default_factory=list,
         description="Workflow names for deactivation",
     )
 
     @computed_field  # type: ignore[misc]
     @property
-    def dimensions(self) -> List[str]:
+    def dimensions(self) -> list[str]:
         """
         Backwards compatibility: Returns dimensions (alias for combined_grain).
 
@@ -760,7 +758,7 @@ class DruidCubeV3Config(BaseModel):
 
     @computed_field  # type: ignore[misc]
     @property
-    def combiners(self) -> List[Dict[str, Any]]:
+    def combiners(self) -> list[dict[str, Any]]:
         """
         Returns combiners with columns in expected format.
 
@@ -785,7 +783,7 @@ class DruidCubeV3Config(BaseModel):
 
     @computed_field  # type: ignore[misc]
     @property
-    def urls(self) -> List[str]:
+    def urls(self) -> list[str]:
         """
         Old UI compatibility: Alias for workflow_urls.
 

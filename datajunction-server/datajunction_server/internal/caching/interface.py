@@ -4,14 +4,14 @@ Caching interface and logging wrapper
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Optional
+from typing import Any
 
 
 class CacheInterface(ABC):
     """Cache interface"""
 
     @abstractmethod
-    def get(self, key: str) -> Optional[Any]:
+    def get(self, key: str) -> Any | None:
         """Get a cached value"""
 
     @abstractmethod
@@ -29,7 +29,7 @@ class Cache(CacheInterface):
     def __init__(self):
         self.logger = logging.getLogger(self.__class__.__name__)
 
-    def get(self, key: str) -> Optional[Any]:  # type: ignore
+    def get(self, key: str) -> Any | None:  # type: ignore
         """Log the cache check and then use the implemented cache"""
         self.logger.info(
             "%s: Getting cached value for key %s",

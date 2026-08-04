@@ -1,5 +1,7 @@
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
 from datajunction_server.api.graphql.resolvers.nodes import (
     resolve_metrics_and_dimensions,
 )

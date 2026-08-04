@@ -2,12 +2,10 @@
 Models for cubes.
 """
 
-from typing import List, Optional
-
-from pydantic import Field, model_validator, ConfigDict
+from pydantic import ConfigDict, Field, model_validator
 from pydantic.main import BaseModel
 
-from datajunction_server.naming import SEPARATOR, from_amenable_name, amenable_name
+from datajunction_server.database.node import NodeRevision
 from datajunction_server.models.materialization import MaterializationConfigOutput
 from datajunction_server.models.measure import (
     FrozenMeasureKey,
@@ -19,10 +17,10 @@ from datajunction_server.models.node import (
     NodeMode,
     NodeStatus,
 )
-from datajunction_server.database.node import NodeRevision
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionOutput
 from datajunction_server.models.tag import TagOutput
+from datajunction_server.naming import SEPARATOR, amenable_name
 from datajunction_server.typing import UTCDatetime
 
 
@@ -40,8 +38,8 @@ class CubeElementMetadata(BaseModel):
     display_name: str
     node_name: str
     type: str
-    partition: Optional[PartitionOutput] = None
-    role: Optional[str] = None
+    partition: PartitionOutput | None = None
+    role: str | None = None
 
     @model_validator(mode="before")
     def type_string(cls, values):
@@ -101,18 +99,18 @@ class CubeRevisionMetadata(BaseModel):
     status: NodeStatus
     mode: NodeMode
     description: str = ""
-    availability: Optional[AvailabilityStateBase] = None
-    cube_elements: List[CubeElementMetadata]
-    cube_node_metrics: List[str]
-    cube_node_dimensions: List[str]
-    cube_filters: Optional[List[str]] = None
-    query: Optional[str] = None
-    columns: List[ColumnOutput]
-    sql_columns: Optional[List[ColumnOutput]] = None
+    availability: AvailabilityStateBase | None = None
+    cube_elements: list[CubeElementMetadata]
+    cube_node_metrics: list[str]
+    cube_node_dimensions: list[str]
+    cube_filters: list[str] | None = None
+    query: str | None = None
+    columns: list[ColumnOutput]
+    sql_columns: list[ColumnOutput] | None = None
     updated_at: UTCDatetime
-    materializations: List[MaterializationConfigOutput]
-    tags: Optional[List[TagOutput]] = None
-    custom_metadata: Optional[dict] = None
+    materializations: list[MaterializationConfigOutput]
+    tags: list[TagOutput] | None = None
+    custom_metadata: dict | None = None
     measures: list[MetricMeasures] | None = None
 
     model_config = ConfigDict(
@@ -125,38 +123,32 @@ class CubeRevisionMetadata(BaseModel):
         """
         Converts a cube node revision into a cube revision metadata object
         """
-        # Preserve the ordering of elements
-        element_ordering = {col.name: col.order for col in cube.columns}
-        cube.cube_elements = sorted(
-            cube.cube_elements,
-            key=lambda elem: element_ordering.get(from_amenable_name(elem.name), 0),
-        )
-
         # Parse the database object into a pydantic object
         cube_metadata = cls.model_validate(cube)
 
-        # node_columns are the role-aware source of truth (one per role); the
-        # cube_elements many-to-many holds each referenced column only once. Expand
-        # each dimension element into one entry per role so both survive on load.
-        metric_names = {metric.name for metric in cube.cube_metrics()}
-        roles_by_full_name: dict[str, List[Optional[str]]] = {}
-        for col in sorted(cube.columns, key=lambda c: c.order):
-            if col.name in metric_names:
+        # Cube columns are the ordered, role-aware source of truth. The
+        # cube_elements many-to-many intentionally stores each referenced DB
+        # column once, so reconstruct one metadata entry per cube column.
+        elements_by_column_name = {
+            (
+                element.node_name
+                if element.type == "metric"
+                else f"{element.node_name}{SEPARATOR}{element.name}"
+            ): element
+            for element in cube_metadata.cube_elements
+        }
+        expanded_elements: list[CubeElementMetadata] = []
+        for column in cube.columns:
+            element = elements_by_column_name.get(column.name)
+            if element is None:  # pragma: no cover - database invariant
                 continue
-            role = col.dimension_column.strip("[]") if col.dimension_column else None
-            roles_by_full_name.setdefault(col.name, []).append(role)
-
-        expanded_elements: List[CubeElementMetadata] = []
-        for elem_meta in cube_metadata.cube_elements:
-            if elem_meta.type == "metric":
-                expanded_elements.append(elem_meta)
-                continue
-            full_name = f"{elem_meta.node_name}{SEPARATOR}{elem_meta.name}"
-            roles = roles_by_full_name.get(full_name, [None])
-            for position, role in enumerate(roles):
-                element = elem_meta if position == 0 else elem_meta.model_copy()
-                element.role = role
+            if element.type == "metric":
                 expanded_elements.append(element)
+                continue
+            role = (
+                column.dimension_column.strip("[]") if column.dimension_column else None
+            )
+            expanded_elements.append(element.model_copy(update={"role": role}))
         cube_metadata.cube_elements = expanded_elements
 
         # Populate metric measures
@@ -202,8 +194,8 @@ class DimensionValue(BaseModel):
     Dimension value and count
     """
 
-    value: List[str]
-    count: Optional[int]
+    value: list[str]
+    count: int | None
 
 
 class DimensionValues(BaseModel):
@@ -211,6 +203,6 @@ class DimensionValues(BaseModel):
     Dimension values
     """
 
-    dimensions: List[str]
-    values: List[DimensionValue]
+    dimensions: list[str]
+    values: list[DimensionValue]
     cardinality: int

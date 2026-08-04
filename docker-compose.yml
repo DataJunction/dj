@@ -81,7 +81,8 @@ services:
             psql -U dj -c 'CREATE DATABASE djqs';
             wait"
     volumes:
-      - ./postgres_metadata:/var/lib/postgresql
+      # Named volume: a bind mount here leaves root-owned files in the checkout.
+      - postgres_metadata:/var/lib/postgresql
       - ./db-init/create-readonly-user.sh:/docker-entrypoint-initdb.d/create-readonly-user.sh
     environment:
       - POSTGRES_PASSWORD=dj
@@ -127,6 +128,9 @@ services:
       - djqs-network
     build:
       context: ./datajunction-query
+    environment:
+      # Without this, djqs starts with no engines or catalogs configured.
+      - CONFIGURATION_FILE=/code/config.djqs.yml
     volumes:
       - ./datajunction-query:/code
       - /code/.venv  # Isolate container venv from local
@@ -320,3 +324,6 @@ services:
     container_name: ${DJ_CONTAINER_PREFIX:-dj}-superset-redis
     restart: always
     profiles: ["superset"]
+
+volumes:
+  postgres_metadata:

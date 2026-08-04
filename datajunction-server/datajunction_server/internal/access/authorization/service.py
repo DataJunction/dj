@@ -4,23 +4,23 @@ Authorization service implementations for access control.
 
 import logging
 from abc import ABC, abstractmethod
-from datetime import datetime, timezone
-from functools import lru_cache
-from typing import List, TYPE_CHECKING
+from datetime import UTC, datetime
+from functools import cache
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from datajunction_server.database.rbac import RoleScope
 
 
+from datajunction_server.internal.access.authorization.context import (
+    AuthContext,
+)
 from datajunction_server.models.access import (
     AccessDecision,
     ResourceAction,
     ResourceRequest,
     ResourceType,
     parse_scope_pattern,
-)
-from datajunction_server.internal.access.authorization.context import (
-    AuthContext,
 )
 from datajunction_server.utils import (
     SEPARATOR,
@@ -167,7 +167,7 @@ class RBACAuthorizationService(AuthorizationService):
         return [self._make_decision(request, candidate_scopes) for request in requests]
 
     @classmethod
-    def candidate_scopes(cls, auth_context: AuthContext) -> List["RoleScope"]:
+    def candidate_scopes(cls, auth_context: AuthContext) -> list["RoleScope"]:
         """
         Collect every scope that could grant a request for this context.
 
@@ -177,8 +177,8 @@ class RBACAuthorizationService(AuthorizationService):
         decision a single resolve step, leaving room for future deny/precedence
         rules without restructuring.
         """
-        scopes: List["RoleScope"] = []
-        now = datetime.now(timezone.utc)
+        scopes: list[RoleScope] = []
+        now = datetime.now(UTC)
         for assignment in auth_context.role_assignments:
             if assignment.expires_at and assignment.expires_at < now:
                 continue
@@ -202,7 +202,7 @@ class RBACAuthorizationService(AuthorizationService):
     def _make_decision(
         self,
         request: ResourceRequest,
-        candidate_scopes: List["RoleScope"],
+        candidate_scopes: list["RoleScope"],
     ) -> AccessDecision:
         """
         Convert ResourceRequest to AccessDecision.
@@ -286,7 +286,7 @@ class RBACAuthorizationService(AuthorizationService):
     @classmethod
     def has_permission(
         cls,
-        assignments: List,
+        assignments: list,
         action: ResourceAction,
         resource_type: ResourceType,
         resource_name: str,
@@ -311,7 +311,7 @@ class RBACAuthorizationService(AuthorizationService):
         for assignment in assignments:
             # Skip expired assignments
             if assignment.expires_at and assignment.expires_at < datetime.now(
-                timezone.utc,
+                UTC,
             ):
                 continue
 
@@ -331,7 +331,7 @@ class RBACAuthorizationService(AuthorizationService):
     @classmethod
     def has_scope_permission(
         cls,
-        assignments: List,
+        assignments: list,
         action: ResourceAction,
         scope_type: ResourceType,
         scope_value: str,
@@ -339,7 +339,7 @@ class RBACAuthorizationService(AuthorizationService):
         """Return whether an assigned scope contains the requested scope."""
         for assignment in assignments:
             if assignment.expires_at and assignment.expires_at < datetime.now(
-                timezone.utc,
+                UTC,
             ):
                 continue
             for granted_scope in assignment.role.scopes:
@@ -457,7 +457,7 @@ class PassthroughAuthorizationService(AuthorizationService):
         return self.authorize(auth_context, requests)
 
 
-@lru_cache(maxsize=None)
+@cache
 def get_authorization_service() -> AuthorizationService:
     """
     Factory function to get the configured authorization service.

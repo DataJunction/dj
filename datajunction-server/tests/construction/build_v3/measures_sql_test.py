@@ -1,7 +1,8 @@
 import pytest
-from . import assert_sql_equal, get_first_grain_group
+
 from datajunction_server.construction.build_v3.builder import build_measures_sql
 
+from . import assert_sql_equal, get_first_grain_group
 
 # All base metrics from order_details
 ORDER_DETAILS_BASE_METRICS = [
@@ -3042,6 +3043,62 @@ class TestTemporalFilters:
             GROUP BY t1.order_date
             """,
         )
+
+    @pytest.mark.asyncio
+    async def test_temporal_filter_uses_partitioned_dimension_role(
+        self,
+        session,
+        client_with_build_v3,
+    ):
+        """A role-qualified cube partition filters through that exact link."""
+        response = await client_with_build_v3.post(
+            "/nodes/v3.order_details/link",
+            json={
+                "dimension_node": "v3.date",
+                "join_type": "left",
+                "join_on": "v3.order_details.customer_id = v3.date.date_id",
+                "role": "ship",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+        cube_name = "v3.test_role_temporal_cube"
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": cube_name,
+                "metrics": ["v3.total_revenue"],
+                "dimensions": [
+                    "v3.date.date_id[order]",
+                    "v3.date.date_id[ship]",
+                ],
+                "mode": "published",
+                "description": "Role-aware temporal filter regression",
+            },
+        )
+        assert response.status_code == 201, response.json()
+        response = await client_with_build_v3.post(
+            f"/nodes/{cube_name}/columns/v3.date.date_id[ship]/partition",
+            json={
+                "type_": "temporal",
+                "format": "yyyyMMdd",
+                "granularity": "day",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        result = await build_measures_sql(
+            session=session,
+            metrics=["v3.total_revenue"],
+            dimensions=[
+                "v3.date.date_id[order]",
+                "v3.date.date_id[ship]",
+            ],
+            include_temporal_filters=True,
+        )
+        sql = result.grain_groups[0].sql
+        assert "customer_id = CAST(DATE_FORMAT" in sql
+        assert "order_date = CAST(DATE_FORMAT" not in sql
 
     @pytest.mark.asyncio
     async def test_no_temporal_filter_when_disabled(

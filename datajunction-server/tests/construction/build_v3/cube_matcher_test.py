@@ -8,11 +8,14 @@ Uses function-scoped sessions for test isolation.
 """
 
 import time
+from types import SimpleNamespace
 
 import pytest
 
 from datajunction_server.construction.build_v3.builder import build_metrics_sql
 from datajunction_server.construction.build_v3.cube_matcher import (
+    _build_mat_col_lookup,
+    _materialized_dimension_column,
     build_sql_from_cube,
     build_synthetic_grain_group,
     find_matching_cube,
@@ -29,8 +32,51 @@ from datajunction_server.construction.build_v3.utils import (
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.decompose import Aggregability
 from datajunction_server.models.dialect import Dialect
-
 from tests.construction.build_v3 import assert_sql_equal
+
+
+def test_materialized_dimension_lookup_preserves_roles():
+    """Two roles with one short name resolve to distinct physical columns."""
+    cube = SimpleNamespace(
+        materializations=[
+            SimpleNamespace(
+                config={
+                    "combiners": [
+                        {
+                            "columns": [
+                                {
+                                    "column": "v3.date.date_id[order]",
+                                    "name": "date_id_order",
+                                },
+                                {
+                                    "column": "v3.date.date_id[ship]",
+                                    "name": "date_id_ship",
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ),
+        ],
+    )
+    lookup = _build_mat_col_lookup(cube)
+
+    assert (
+        _materialized_dimension_column(
+            lookup,
+            "v3.date.date_id[order]",
+            "date_id_order_default",
+        )
+        == "date_id_order"
+    )
+    assert (
+        _materialized_dimension_column(
+            lookup,
+            "v3.date.date_id[ship]",
+            "date_id_ship_default",
+        )
+        == "date_id_ship"
+    )
 
 
 class TestExtractFilterDimensionRefs:
@@ -3334,8 +3380,8 @@ class TestDataEndpointCubePath:
         mock_qs_client.submit_query = mock_submit_query_async
 
         # Override the dependency at the app level
-        client.app.dependency_overrides[get_query_service_client] = (
-            lambda: mock_qs_client
+        client.app.dependency_overrides[get_query_service_client] = lambda: (
+            mock_qs_client
         )
 
         try:
@@ -3424,8 +3470,8 @@ class TestDataEndpointCubePath:
 
         mock_qs_client = MagicMock()
         mock_qs_client.submit_query = mock_submit_query_async
-        client.app.dependency_overrides[get_query_service_client] = (
-            lambda: mock_qs_client
+        client.app.dependency_overrides[get_query_service_client] = lambda: (
+            mock_qs_client
         )
 
         try:

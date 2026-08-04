@@ -5,30 +5,26 @@ Node namespace related APIs.
 import io
 import logging
 import zipfile
+from collections.abc import Callable
 from http import HTTPStatus
-from typing import Callable, Dict, List, Optional
 
 import yaml
-from fastapi import Depends, Query, BackgroundTasks, Request, Response, UploadFile, File
+from fastapi import BackgroundTasks, Depends, File, Query, Request, Response, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
-from sqlalchemy import or_, select, func
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import get_node_namespace, get_save_history
-from datajunction_server.database.node import Node
 from datajunction_server.database.namespace import NodeNamespace
+from datajunction_server.database.node import Node
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJAlreadyExistsException, DJInvalidInputException
-from datajunction_server.models.access import ResourceAction
-from datajunction_server.models.deployment import (
-    BulkNamespaceSourcesRequest,
-    BulkNamespaceSourcesResponse,
-    DeploymentSpec,
-    NamespaceGitConfig,
-    NamespaceSourcesResponse,
-)
-
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
+from datajunction_server.internal.access.authorization import (
+    AccessChecker,
+    AccessDenialMode,
+    get_access_checker,
+)
 from datajunction_server.internal.git.github_service import (
     GitHubService,
     GitHubServiceError,
@@ -37,30 +33,35 @@ from datajunction_server.internal.git.yaml_export import (
     fetch_existing_yaml_map,
     generate_namespace_yaml_files,
 )
-from datajunction_server.internal.access.authorization import (
-    AccessChecker,
-    get_access_checker,
-    AccessDenialMode,
-)
 from datajunction_server.internal.namespaces import (
-    create_namespace,
+    create_or_reactivate_namespace,
+    detect_parent_cycle,
     get_git_info_for_namespace,
+    get_node_specs_for_export,
     get_nodes_in_namespace,
     get_nodes_in_namespace_detailed,
     get_project_config,
+    get_sources_for_namespace,
+    get_sources_for_namespaces_bulk,
     hard_delete_namespace,
     mark_namespace_deactivated,
     mark_namespace_restored,
-    get_sources_for_namespace,
-    get_sources_for_namespaces_bulk,
-    get_node_specs_for_export,
-    detect_parent_cycle,
+    namespaces_to_authorize,
     resolve_git_config,
-    validate_sibling_relationship,
     validate_git_path,
+    validate_sibling_relationship,
 )
 from datajunction_server.internal.nodes import activate_node, deactivate_node
 from datajunction_server.models import access
+from datajunction_server.models.access import ResourceAction
+from datajunction_server.models.deployment import (
+    BulkNamespaceSourcesRequest,
+    BulkNamespaceSourcesResponse,
+    DeploymentSpec,
+    NamespaceGitConfig,
+    NamespaceSourcesResponse,
+)
+from datajunction_server.models.namespace import NamespaceWriteStatus
 from datajunction_server.models.node import (
     NamespaceOutput,
     NodeMinimumDetail,
@@ -86,66 +87,55 @@ router = SecureAPIRouter(tags=["namespaces"])
 @router.post("/namespaces/{namespace}/", status_code=HTTPStatus.CREATED)
 async def create_node_namespace(
     namespace: str,
-    include_parents: Optional[bool] = False,
+    include_parents: bool | None = False,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     *,
     save_history: Callable = Depends(get_save_history),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> JSONResponse:
     """
     Create a node namespace
     """
-    if node_namespace := await NodeNamespace.get(
+    # A namespace write is governed by the namespace itself, matching node creation
+    # and register_table. include_parents can add ancestors too, so authorize every
+    # namespace this request would create or reactivate.
+    targets = await namespaces_to_authorize(
         session,
         namespace,
-        raise_if_not_exists=False,
-    ):  # pragma: no cover
-        if node_namespace.deactivated_at:
-            node_namespace.deactivated_at = None
-            session.add(node_namespace)
-            await session.commit()
-            return JSONResponse(
-                status_code=HTTPStatus.CREATED,
-                content={
-                    "message": (
-                        "The following node namespace has been successfully reactivated: "
-                        + namespace
-                    ),
-                },
-            )
-        return JSONResponse(
-            status_code=409,
-            content={
-                "message": f"Node namespace `{namespace}` already exists",
-            },
-        )
-    # Block creating child namespaces under a git root — only branch namespaces
-    # (configured via PATCH /namespaces/{name}/git with parent_namespace + git_branch)
-    # are allowed there.
-    parent = namespace.rsplit(".", 1)[0] if "." in namespace else None
-    if parent:
-        parent_ns = await NodeNamespace.get(session, parent, raise_if_not_exists=False)
-        if parent_ns and parent_ns.github_repo_path and parent_ns.git_branch is None:
-            raise DJInvalidInputException(
-                message=(
-                    f"Cannot create namespace '{namespace}' under git root '{parent}'. "
-                    "Create a new branch under this namespace instead."
-                ),
-            )
+        include_parents=bool(include_parents),
+    )
+    access_checker.add_namespaces(targets, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
-    created_namespaces = await create_namespace(
-        session=session,
+    result = await create_or_reactivate_namespace(
         namespace=namespace,
-        include_parents=include_parents,  # type: ignore
+        include_parents=bool(include_parents),
+        session=session,
         current_user=current_user,
         save_history=save_history,
     )
+    if result.status == NamespaceWriteStatus.ALREADY_EXISTS:
+        return JSONResponse(
+            status_code=HTTPStatus.CONFLICT,
+            content={"message": f"Node namespace `{namespace}` already exists"},
+        )
+    if result.status == NamespaceWriteStatus.REACTIVATED:  # pragma: no cover
+        return JSONResponse(
+            status_code=HTTPStatus.CREATED,
+            content={
+                "message": (
+                    "The following node namespace has been successfully reactivated: "
+                    + namespace
+                ),
+            },
+        )
     return JSONResponse(
         status_code=HTTPStatus.CREATED,
         content={
             "message": (
                 "The following node namespaces have been successfully created: "
-                + ", ".join(created_namespaces)
+                + ", ".join(result.namespaces)
             ),
         },
     )
@@ -153,11 +143,11 @@ async def create_node_namespace(
 
 @router.get(
     "/namespaces/",
-    response_model=List[NamespaceOutput],
+    response_model=list[NamespaceOutput],
     status_code=200,
 )
 async def list_namespaces(
-    git_backed: Optional[bool] = Query(
+    git_backed: bool | None = Query(
         default=None,
         description=(
             "Filter to namespaces by git backing. ``true`` returns only "
@@ -167,7 +157,7 @@ async def list_namespaces(
     ),
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> List[NamespaceOutput]:
+) -> list[NamespaceOutput]:
     """
     List namespaces with node counts and git repository information
     """
@@ -206,12 +196,12 @@ async def list_namespaces(
 
 @router.get(
     "/namespaces/{namespace}/",
-    response_model=List[NodeMinimumDetail],
+    response_model=list[NodeMinimumDetail],
     status_code=HTTPStatus.OK,
 )
 async def list_nodes_in_namespace(
     namespace: str,
-    type_: Optional[NodeType] = Query(
+    type_: NodeType | None = Query(
         default=None,
         description="Filter the list of nodes to this type",
     ),
@@ -221,7 +211,7 @@ async def list_nodes_in_namespace(
     ),
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> List[NodeMinimumDetail]:
+) -> list[NodeMinimumDetail]:
     """
     List node names in namespace, filterable to a given type if desired.
     """
@@ -503,7 +493,7 @@ async def export_a_namespace(
     *,
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> List[Dict]:
+) -> list[dict]:
     """
     Generates a zip of YAML files for the contents of the given namespace
     as well as a project definition file.
@@ -549,7 +539,7 @@ async def export_namespace_spec(
 )
 async def export_namespace_yaml(
     namespace: str,
-    existing_zip: Optional[UploadFile] = File(None),
+    existing_zip: UploadFile | None = File(None),
     *,
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
@@ -574,7 +564,7 @@ async def export_namespace_yaml(
         # Merge with client-provided files. Re-add git_path prefix so keys match
         # what _node_spec_to_file_path produces.
         raw = await existing_zip.read()
-        existing_files_map: Dict[str, str] = {}
+        existing_files_map: dict[str, str] = {}
         with zipfile.ZipFile(io.BytesIO(raw)) as zf:
             for name in zf.namelist():
                 if name.endswith(".yaml"):

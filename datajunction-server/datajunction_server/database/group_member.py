@@ -1,6 +1,6 @@
 """Group membership database schema."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import partial
 
 from sqlalchemy import (
@@ -52,7 +52,7 @@ class GroupMember(Base):
     )
     added_at: Mapped[UTCDatetime] = mapped_column(
         DateTime(timezone=True),
-        insert_default=partial(datetime.now, timezone.utc),
+        insert_default=partial(datetime.now, UTC),
     )
 
     group = relationship(

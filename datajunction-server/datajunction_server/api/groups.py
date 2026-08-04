@@ -2,8 +2,6 @@
 Group management APIs.
 """
 
-from typing import List
-
 from fastapi import Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -82,11 +80,11 @@ async def register_group(
     return group
 
 
-@router.get("/groups/", response_model=List[GroupOutput])
+@router.get("/groups/", response_model=list[GroupOutput])
 async def list_groups(
     *,
     session: AsyncSession = Depends(get_session),
-) -> List[User]:
+) -> list[User]:
     """
     List all registered groups.
     """
@@ -215,12 +213,12 @@ async def remove_group_member(
     await session.commit()
 
 
-@router.get("/groups/{group_name}/members/", response_model=List[UserOutput])
+@router.get("/groups/{group_name}/members/", response_model=list[UserOutput])
 async def list_group_members(
     group_name: str,
     *,
     session: AsyncSession = Depends(get_session),
-) -> List[User]:
+) -> list[User]:
     """
     List members of a group.
 

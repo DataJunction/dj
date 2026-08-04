@@ -14,6 +14,10 @@ include = ["alembic/**", "alembic.ini"]
 [tool.hatch.metadata]
 allow-direct-references = true
 
+[[tool.mypy.overrides]]
+module = "datajunction_server.sql.parsing.backends.grammar.generated.*"
+ignore_errors = true
+
 [project]
 name = "datajunction-server"
 dynamic = ["version"]

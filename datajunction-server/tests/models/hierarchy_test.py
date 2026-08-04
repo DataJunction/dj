@@ -2,10 +2,9 @@
 Test hierarchy models and database operations using proper DJ patterns.
 """
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 import pytest
 from pydantic import ValidationError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.hierarchy import Hierarchy, HierarchyLevel
 from datajunction_server.database.node import Node, NodeRevision
@@ -18,12 +17,12 @@ from datajunction_server.models.node_type import NodeType
 
 # Import shared fixtures
 from tests.fixtures.hierarchy_fixtures import (  # noqa: F401
-    time_catalog,
-    time_sources,
-    time_dimensions,
-    time_dimension_links,
     calendar_hierarchy,
     fiscal_hierarchy,
+    time_catalog,
+    time_dimension_links,
+    time_dimensions,
+    time_sources,
 )
 
 
@@ -334,7 +333,7 @@ class TestHierarchy:
     ):
         """Test validation fails with wrong cardinality dimension link."""
         from datajunction_server.database.dimensionlink import DimensionLink
-        from datajunction_server.models.dimensionlink import JoinType, JoinCardinality
+        from datajunction_server.models.dimensionlink import JoinCardinality, JoinType
 
         dimensions, revisions = time_dimensions
 

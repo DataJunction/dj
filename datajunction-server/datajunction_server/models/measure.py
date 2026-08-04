@@ -2,19 +2,13 @@
 Models for measures.
 """
 
-from typing import TYPE_CHECKING, List, Optional
-
-from pydantic.main import BaseModel
 from pydantic import ConfigDict, Field, model_validator
+from pydantic.main import BaseModel
 
 from datajunction_server.enum import StrEnum
 from datajunction_server.models.cube_materialization import (
     AggregationRule as MeasureAggregationRule,
 )
-
-
-if TYPE_CHECKING:
-    pass
 
 
 class AggregationRule(StrEnum):
@@ -42,9 +36,9 @@ class CreateMeasure(BaseModel):
     """
 
     name: str
-    display_name: Optional[str] = None
-    description: Optional[str] = None
-    columns: List[NodeColumn] = Field(default_factory=list)
+    display_name: str | None = None
+    description: str | None = None
+    columns: list[NodeColumn] = Field(default_factory=list)
     additive: AggregationRule = AggregationRule.NON_ADDITIVE
 
 
@@ -53,10 +47,10 @@ class EditMeasure(BaseModel):
     Editable fields on a measure
     """
 
-    display_name: Optional[str] = None
-    description: Optional[str] = None
-    columns: Optional[List[NodeColumn]] = None
-    additive: Optional[AggregationRule] = None
+    display_name: str | None = None
+    description: str | None = None
+    columns: list[NodeColumn] | None = None
+    additive: AggregationRule | None = None
 
 
 class ColumnOutput(BaseModel):
@@ -94,9 +88,9 @@ class MeasureOutput(BaseModel):
     """
 
     name: str
-    display_name: Optional[str] = None
-    description: Optional[str] = None
-    columns: List[ColumnOutput] = Field(default_factory=list)
+    display_name: str | None = None
+    description: str | None = None
+    columns: list[ColumnOutput] = Field(default_factory=list)
     additive: AggregationRule
 
     model_config = ConfigDict(from_attributes=True)

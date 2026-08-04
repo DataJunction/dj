@@ -9,8 +9,6 @@ Key concepts:
 - DecomposedMetric: A metric broken into components + combiner expression
 """
 
-from typing import List
-
 from pydantic import BaseModel
 
 from datajunction_server.enum import StrEnum
@@ -153,6 +151,6 @@ class DecomposedMetric(BaseModel):
             combiner: "hll_sketch_estimate(hll_union(user_hll))"
     """
 
-    components: List[MetricComponent]
+    components: list[MetricComponent]
     combiner: str  # Expression combining merged components into final value
     derived_query: str | None = None  # The full derived query as string

@@ -1,7 +1,8 @@
 """Naming related utils."""
 
+from collections.abc import Iterable
 from string import ascii_letters, digits
-from typing import Any, Iterable, List
+from typing import Any
 
 SEPARATOR = "."
 
@@ -37,8 +38,8 @@ LOOKUP_CHARS = {
 
 def amenable_name(name: str) -> str:
     """Takes a string and makes it have only alphanumerics"""
-    ret: List[str] = []
-    cont: List[str] = []
+    ret: list[str] = []
+    cont: list[str] = []
     for char in name:
         if char in ACCEPTABLE_CHARS:
             cont.append(char)

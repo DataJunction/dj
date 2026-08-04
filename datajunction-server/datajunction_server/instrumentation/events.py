@@ -11,8 +11,9 @@ this package never sets identity itself, so without a deployment it stays empty.
 import inspect
 import logging
 import time
+from collections.abc import Callable
 from contextvars import ContextVar
-from typing import Any, Callable
+from typing import Any
 
 _logger = logging.getLogger(__name__)
 

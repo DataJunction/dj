@@ -8,15 +8,20 @@ call it without importing from the ``api`` layer, keeping the dependency
 direction api -> internal.
 """
 
-from typing import Optional, cast
+from typing import cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from datajunction_server.api.helpers import get_catalog_by_name
 from datajunction_server.construction.build_v3.builder import build_measures_sql
-from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.construction.build_v3.dimensions import (
+    parse_dimension_ref,
+    roles_reaching_dimension,
+)
+from datajunction_server.construction.build_v3.types import GeneratedMeasuresSQL
 from datajunction_server.database.availabilitystate import AvailabilityState
+from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.preaggregation import (
     PreAggregation,
     compute_expression_hash,
@@ -39,7 +44,7 @@ def assert_column_type_compatible(
     *,
     subject: str,
     physical_column: str,
-    expected_type: Optional[str],
+    expected_type: str | None,
     actual_type: object,
     table: ExternalPreAggTable,
 ) -> None:
@@ -73,17 +78,55 @@ def assert_column_type_compatible(
         )
 
 
+def assert_dimension_refs_are_role_qualified(
+    measures_result: GeneratedMeasuresSQL,
+    dimensions: list[str],
+) -> None:
+    """
+    Reject a bare dimension reference that reaches its dimension by more than one
+    role, since it names none of them.
+
+    Mirrors how such a reference resolves: a role-free link wins, a single named
+    role is unambiguous, and anything else has to be qualified rather than
+    resolved to whichever path happens to sort first.
+    """
+    for ref in dimensions:
+        dim_ref = parse_dimension_ref(ref)
+        if dim_ref.role:
+            continue
+        roles: set[str] = set()
+        for grain_group in measures_result.grain_groups:
+            parent_node = measures_result.ctx.nodes.get(grain_group.parent_name)
+            if not parent_node or not parent_node.current:  # pragma: no cover
+                continue
+            roles |= roles_reaching_dimension(
+                measures_result.ctx,
+                parent_node.current.id,
+                dim_ref.node_name,
+            )
+        named = sorted(role for role in roles if role)
+        if "" not in roles and len(named) > 1:
+            options = ", ".join(f"`{ref}[{role}]`" for role in named)
+            raise DJInvalidInputException(
+                message=(
+                    f"Dimension `{ref}` is ambiguous across roles. "
+                    f"Use one of: {options}"
+                ),
+            )
+
+
 async def register_external_preaggregations(
     session: AsyncSession,
     query_service_client: QueryServiceClient,
     request_headers: dict[str, str],
     *,
-    name: Optional[str],
+    name: str | None,
     metrics: list[str],
     dimensions: list[str],
     table: ExternalPreAggTable,
     measure_columns: dict[str, str],
     dimension_columns: dict[str, str] | None = None,
+    measures_result: GeneratedMeasuresSQL | None = None,
 ) -> list[PreAggregation]:
     """
     Core logic for adopting an externally-built pre-aggregation table.
@@ -94,6 +137,11 @@ async def register_external_preaggregations(
     caller owns the transaction (the endpoint commits; the deploy orchestrator
     commits its whole plan). Callers must ensure ``query_service_client`` is
     configured. Returns the created/updated pre-aggregations.
+
+    ``measures_result`` lets a caller that already resolved the grain groups pass
+    them in. A caller that authorizes against the parent nodes must do this:
+    resolving twice can yield different parents (the result depends on
+    ``use_materialized``), which would authorize one set and write another.
     """
     # 1. Validate each mapped metric is a measure, and map its component's
     #    identity -- (expression hash, Phase-1 aggregation) -- to the declared
@@ -135,13 +183,15 @@ async def register_external_preaggregations(
         ] = physical_column
 
     # 2. Decompose the requested metrics into grain groups (no SQL is executed).
-    measures_result = await build_measures_sql(
-        session=session,
-        metrics=metrics,
-        dimensions=dimensions,
-        dialect=Dialect.SPARK,
-        use_materialized=False,
-    )
+    if measures_result is None:
+        measures_result = await build_measures_sql(
+            session=session,
+            metrics=metrics,
+            dimensions=dimensions,
+            dialect=Dialect.SPARK,
+            use_materialized=False,
+        )
+    assert_dimension_refs_are_role_qualified(measures_result, dimensions)
 
     # 3. Introspect the external table and confirm the declared columns exist.
     catalog = await get_catalog_by_name(session=session, name=table.catalog)

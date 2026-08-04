@@ -1,7 +1,7 @@
 """Dimension links table."""
 
 from functools import cached_property
-from typing import TYPE_CHECKING, Dict, List, Optional, Set
+from typing import TYPE_CHECKING
 
 from sqlalchemy import JSON, BigInteger, Enum, ForeignKey, Index, Integer
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -42,7 +42,7 @@ class DimensionLink(Base):
     # One such example is a dimension node "default.users" that has "birth_date" and
     # "registration_date" as fields. "default.users" will be linked to the "default.date"
     # dimension twice, once per field, but each dimension link will have different roles.
-    role: Mapped[Optional[str]]
+    role: Mapped[str | None]
 
     node_revision_id: Mapped[int] = mapped_column(
         ForeignKey(
@@ -73,21 +73,21 @@ class DimensionLink(Base):
     join_sql: Mapped[str]
 
     # Metadata about the join
-    join_type: Mapped[Optional[JoinType]]
+    join_type: Mapped[JoinType | None]
     join_cardinality: Mapped[JoinCardinality] = mapped_column(
         Enum(JoinCardinality),
         default=JoinCardinality.MANY_TO_ONE,
     )
 
     # Additional materialization settings that are needed in order to do this join
-    materialization_conf: Mapped[Optional[Dict]] = mapped_column(JSON, default={})
+    materialization_conf: Mapped[dict | None] = mapped_column(JSON, default={})
 
     # Optional default value to use when LEFT JOIN produces NULL
     # (e.g., "Unknown" for a dimension column that may not have a match)
-    default_value: Mapped[Optional[str]] = mapped_column(default=None)
+    default_value: Mapped[str | None] = mapped_column(default=None)
 
     # Optional Spark join strategy hint (e.g., broadcast, merge)
-    spark_hints: Mapped[Optional[SparkJoinStrategy]] = mapped_column(
+    spark_hints: Mapped[SparkJoinStrategy | None] = mapped_column(
         Enum(SparkJoinStrategy),
         default=None,
     )
@@ -104,7 +104,7 @@ class DimensionLink(Base):
         )
 
     @classmethod
-    def parse_join_type(cls, join_type: str) -> Optional[JoinType]:
+    def parse_join_type(cls, join_type: str) -> JoinType | None:
         """
         Parse a join type string into an enum value.
         """
@@ -144,7 +144,7 @@ class DimensionLink(Base):
             self.dimension.name,
         )
 
-    def joins(self) -> List["ast.Join"]:
+    def joins(self) -> list["ast.Join"]:
         """
         The join ASTs for this dimension link
         """
@@ -157,7 +157,7 @@ class DimensionLink(Base):
         join_type: JoinType,
         node_name: str,
         dimension_name: str,
-    ) -> Dict["ast.Column", "ast.Column"]:
+    ) -> dict["ast.Column", "ast.Column"]:
         """
         If the dimension link was configured with an equality operation on the
         dimension's primary key columns to a set of foreign key columns, this method
@@ -197,7 +197,7 @@ class DimensionLink(Base):
                     mapping[comp.left] = comp.right  # pragma: no cover
         return mapping
 
-    def foreign_key_mapping(self) -> Dict["ast.Column", "ast.Column"]:
+    def foreign_key_mapping(self) -> dict["ast.Column", "ast.Column"]:
         """
         If the dimension link was configured with an equality operation on the
         dimension's primary key columns to a set of foreign key columns, this method
@@ -212,7 +212,7 @@ class DimensionLink(Base):
         )
 
     @hybrid_property
-    def foreign_keys(self) -> Dict[str, str | None]:
+    def foreign_keys(self) -> dict[str, str | None]:
         """
         Returns a mapping from the foreign key column(s) on the origin node to
         the primary key column(s) on the dimension node. The dict values are column names.
@@ -237,7 +237,7 @@ class DimensionLink(Base):
         return mapping
 
     @hybrid_property
-    def foreign_key_column_names(self) -> Set[str]:
+    def foreign_key_column_names(self) -> set[str]:
         """
         Returns a set of foreign key column names
         """

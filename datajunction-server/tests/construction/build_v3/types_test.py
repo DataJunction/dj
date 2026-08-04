@@ -4,7 +4,6 @@ Tests for types.py in build_v3.
 
 from unittest.mock import MagicMock
 
-
 from datajunction_server.construction.build_v3.types import (
     DecomposedMetricInfo,
     GrainGroup,

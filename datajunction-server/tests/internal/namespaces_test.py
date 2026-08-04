@@ -5,13 +5,44 @@ Tests for internal namespace functions
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
 
+from datajunction_server.database.user import User
 from datajunction_server.internal.namespaces import (
     _merge_list_with_key,
     _merge_yaml_preserving_comments,
+    create_or_reactivate_namespace,
     node_spec_to_yaml,
 )
 from datajunction_server.models.deployment import MetricSpec, TransformSpec
+from datajunction_server.models.namespace import NamespaceWriteStatus
 from datajunction_server.models.node_type import NodeType
+
+
+async def test_create_or_reactivate_namespace_reports_already_exists(
+    session,
+    current_user: User,
+):
+    """
+    An existing namespace is reported back, not raised.
+
+    The register_table / register_view callers discard the result and only need
+    the namespace to exist, so raising here would make registering into any
+    existing namespace fail.
+    """
+
+    async def save_history(event, session):
+        """No-op history recorder."""
+
+    async def create():
+        return await create_or_reactivate_namespace(
+            "already_exists_ns",
+            include_parents=False,
+            session=session,
+            current_user=current_user,
+            save_history=save_history,
+        )
+
+    assert (await create()).status == NamespaceWriteStatus.CREATED
+    assert (await create()).status == NamespaceWriteStatus.ALREADY_EXISTS
 
 
 class TestMergeListWithKey:

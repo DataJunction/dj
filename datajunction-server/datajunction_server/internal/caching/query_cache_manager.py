@@ -1,32 +1,40 @@
 import asyncio
-import time
-from copy import deepcopy
-from dataclasses import asdict, dataclass
 import json
 import logging
-from typing import Any, OrderedDict
+import time
+from collections import OrderedDict
+from copy import deepcopy
+from dataclasses import asdict, dataclass
+from typing import Any, Union, cast
+
 from fastapi import BackgroundTasks, Request
-from datajunction_server.internal.caching.cache_manager import RefreshAheadCacheManager
 from sqlalchemy.ext.asyncio import AsyncSession
-from datajunction_server.internal.caching.interface import Cache
+
 from datajunction_server.database.queryrequest import (
-    QueryRequestKey,
     QueryBuildType,
+    QueryRequestKey,
     VersionedQueryKey,
 )
+from datajunction_server.instrumentation.provider import get_metrics_provider, timed
 from datajunction_server.internal.access.authorization import (
     AccessChecker,
     AuthContext,
     get_access_checker,
 )
-from datajunction_server.internal.sql import build_sql_for_multiple_metrics
-from datajunction_server.models.sql import GeneratedSQL
-from datajunction_server.instrumentation.provider import get_metrics_provider, timed
-from datajunction_server.utils import get_current_user, session_context, get_settings
-from datajunction_server.internal.sql import get_measures_query
-from datajunction_server.internal.sql import build_node_sql
+from datajunction_server.internal.caching.cache_manager import (
+    CacheManager,
+    RefreshAheadCacheManager,
+)
+from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.internal.engines import get_engine
+from datajunction_server.internal.sql import (
+    build_node_sql,
+    build_sql_for_multiple_metrics,
+    get_measures_query,
+)
 from datajunction_server.models.metric import TranslatedSQL
+from datajunction_server.models.sql import GeneratedSQL
+from datajunction_server.utils import get_current_user, get_settings, session_context
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +103,12 @@ async def build_access_checker_from_request(
     return get_access_checker(auth_context)
 
 
-class QueryCacheManager(RefreshAheadCacheManager):
+class QueryCacheManager(
+    RefreshAheadCacheManager[
+        QueryRequestParams,
+        Union[list[GeneratedSQL], TranslatedSQL],
+    ],
+):
     """
     A generic manager for handling caching operations.
     """
@@ -300,8 +313,8 @@ class QueryCacheManager(RefreshAheadCacheManager):
                 other_args=params.other_args or {},
             )
             # Call parent method directly (can't use super() in nested function)
-            return await RefreshAheadCacheManager.build_cache_key(
-                self,
+            return await CacheManager.build_cache_key(
+                cast(CacheManager[dict, Any], self),
                 request,
                 asdict(query_request),
             )

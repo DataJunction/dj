@@ -5,9 +5,8 @@ Tests for API helpers.
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from datajunction_server.api import helpers
@@ -16,10 +15,10 @@ from datajunction_server.api.helpers import (
     find_required_dimensions,
 )
 from datajunction_server.database.column import Column
-from datajunction_server.internal import sql
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.errors import DJDoesNotExistException, DJException
+from datajunction_server.internal import sql
 from datajunction_server.internal.nodes import propagate_valid_status
 from datajunction_server.models.node import NodeStatus
 from datajunction_server.sql.parsing.types import IntegerType
@@ -146,6 +145,47 @@ async def test_find_existing_cube():
         materialized=False,
     )
     assert node == "foo-cube"
+
+
+@pytest.mark.asyncio
+async def test_find_existing_cube_matches_dimension_role():
+    """Legacy cube matching must not satisfy one role with another."""
+    dimension = MagicMock(spec=Column)
+    dimension.name = "date_id"
+    dimension.full_name.return_value = "v3.date.date_id"
+
+    wrong_revision = MagicMock(
+        columns=[Column(name="v3.date.date_id", dimension_column="[ship]")],
+    )
+    right_revision = MagicMock(
+        columns=[Column(name="v3.date.date_id", dimension_column="[order]")],
+    )
+    candidates = [
+        MagicMock(current=wrong_revision),
+        MagicMock(current=right_revision),
+    ]
+    mock_execute = AsyncMock(
+        unique=MagicMock(
+            return_value=MagicMock(
+                scalars=MagicMock(
+                    return_value=MagicMock(
+                        all=MagicMock(return_value=candidates),
+                    ),
+                ),
+            ),
+        ),
+    )
+    mock_session = AsyncMock(execute=AsyncMock(return_value=mock_execute))
+
+    result = await helpers.find_existing_cube(
+        session=mock_session,
+        metric_columns=[],
+        dimension_columns=[dimension],
+        dimension_roles=["[order]"],
+        materialized=False,
+    )
+
+    assert result is right_revision
 
 
 @pytest.mark.asyncio

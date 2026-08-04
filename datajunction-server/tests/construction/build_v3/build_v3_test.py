@@ -8,6 +8,7 @@ These tests cover:
 """
 
 import pytest
+
 from datajunction_server.construction.build_v3.builder import (
     _normalize_query_param_value,
     setup_build_context,

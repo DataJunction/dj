@@ -8,8 +8,8 @@ to git branches for the git-backed workflow.
 import asyncio
 import logging
 import time
+from collections.abc import Callable
 from http import HTTPStatus
-from typing import Callable, List
 
 from fastapi import Depends
 from fastapi.responses import JSONResponse
@@ -25,14 +25,17 @@ from datajunction_server.errors import (
     DJAlreadyExistsException,
     DJInvalidInputException,
 )
+from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
     AccessChecker,
     AccessDenialMode,
     get_access_checker,
 )
-from datajunction_server.internal.git.github_service import GitHubService
-from datajunction_server.internal.git.github_service import GitHubServiceError
+from datajunction_server.internal.git.github_service import (
+    GitHubService,
+    GitHubServiceError,
+)
 from datajunction_server.internal.namespaces import (
     get_branches,
     hard_delete_namespace,
@@ -43,7 +46,6 @@ from datajunction_server.internal.nodes import copy_nodes_to_namespace
 from datajunction_server.models.access import ResourceAction
 from datajunction_server.models.deployment import DeploymentResult
 from datajunction_server.models.namespace import BranchInfo
-from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.utils import SEPARATOR, get_current_user, get_session
 
 _logger = logging.getLogger(__name__)
@@ -60,7 +62,7 @@ class CreateBranchResult(BaseModel):
     """Result of creating a branch."""
 
     branch: BranchInfo
-    deployment_results: List[DeploymentResult]
+    deployment_results: list[DeploymentResult]
 
 
 async def _create_git_branch(
@@ -89,7 +91,7 @@ async def _create_namespace_and_copy_nodes(
     branch_name: str,
     root_namespace: NodeNamespace,
     current_user: User,
-) -> List[DeploymentResult]:
+) -> list[DeploymentResult]:
     """Create DJ namespace and copy nodes from appropriate source.
 
     Args:
@@ -467,7 +469,7 @@ async def create_branch(
 
 @router.get(
     "/namespaces/{namespace}/branches",
-    response_model=List[BranchInfo],
+    response_model=list[BranchInfo],
     name="List branch namespaces",
 )
 async def list_branches(
@@ -475,7 +477,7 @@ async def list_branches(
     *,
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> List[BranchInfo]:
+) -> list[BranchInfo]:
     """
     List all branch namespaces that were created from this namespace.
     """

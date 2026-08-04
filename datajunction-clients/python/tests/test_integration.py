@@ -51,7 +51,7 @@ def test_integration():
     dj.create_namespace("integration.tests.trino")
     source = dj.create_source(
         name="integration.tests.source1",
-        catalog="unknown",
+        catalog="tpch",
         schema="db",
         table="tbl",
         display_name="Test Source with Columns",
@@ -112,12 +112,10 @@ def test_integration():
         metrics=["integration.tests.trino.metric1"],
     )
     assert len(common_dimensions) == 2
-    assert set(
-        [
-            "integration.tests.trino.dimension1.id",
-            "integration.tests.trino.dimension1.foo",
-        ],
-    ) == {attribute["name"] for attribute in common_dimensions}
+    assert {
+        "integration.tests.trino.dimension1.id",
+        "integration.tests.trino.dimension1.foo",
+    } == {attribute["name"] for attribute in common_dimensions}
     sql = dj.sql(
         metrics=["integration.tests.trino.metric1"],
         dimensions=["integration.tests.trino.dimension1.id"],

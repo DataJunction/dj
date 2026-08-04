@@ -1,74 +1,47 @@
 import asyncio
 import json
-from unittest import mock
 import uuid
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
+from unittest import mock
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from datajunction_server.models.deployment import (
-    ColumnSpec,
-    DeploymentSpec,
-    DeploymentStatus,
-    DimensionReferenceLinkSpec,
-    TransformSpec,
-    SourceSpec,
-    MetricSpec,
-    DimensionSpec,
-    CubeSpec,
-    DimensionJoinLinkSpec,
-    GitDeploymentSource,
-    LocalDeploymentSource,
-    PreAggSpec,
-)
-from datajunction_server.utils import get_query_service_client
-from datajunction_server.internal.git.github_service import GitHubServiceError
+import pytest
+
 from datajunction_server.api.deployments import (
     InProcessExecutor,
     _normalize_repo_path,
 )
-from datajunction_server.models.dimensionlink import JoinType
 from datajunction_server.database.node import Node, NodeRelationship
 from datajunction_server.database.tag import Tag
+from datajunction_server.internal.git.github_service import GitHubServiceError
+from datajunction_server.models import access
+from datajunction_server.models.deployment import (
+    ColumnSpec,
+    CubeSpec,
+    DeploymentSpec,
+    DeploymentStatus,
+    DimensionJoinLinkSpec,
+    DimensionReferenceLinkSpec,
+    DimensionSpec,
+    GitDeploymentSource,
+    LocalDeploymentSource,
+    MetricSpec,
+    PreAggSpec,
+    SourceSpec,
+    TagSpec,
+    TransformSpec,
+)
+from datajunction_server.models.dimensionlink import JoinType
 from datajunction_server.models.node import (
     MetricDirection,
     MetricUnit,
     NodeMode,
     NodeType,
 )
-from datajunction_server.internal.access.authorization import AuthorizationService
-from datajunction_server.models import access
+from datajunction_server.utils import get_query_service_client
+from tests.authz import VALIDATOR_AUTH_SERVICE, deny
 from tests.construction.build_v3 import assert_sql_equal
-import pytest
-
-
-# Patch target: the name as imported into the validator module, where
-# AccessChecker.check() looks the authorization service up.
-_VALIDATOR_AUTH_SERVICE = (
-    "datajunction_server.internal.access.authorization."
-    "validator.get_authorization_service"
-)
-
-
-class _DenyDeleteAuthorizationService(AuthorizationService):
-    """
-    Approves everything except DELETE -- a caller with WRITE but not DELETE.
-
-    The deployment HTTP entrypoint only checks WRITE on the root namespace, so
-    such a caller passes the entrypoint; this isolates the orchestrator's own
-    DELETE authorization on nodes/namespaces it removes.
-    """
-
-    name = "test_deny_delete_deploy"
-
-    def authorize(self, auth_context, requests):
-        return [
-            access.AccessDecision(
-                request=request,
-                approved=request.verb != access.ResourceAction.DELETE,
-            )
-            for request in requests
-        ]
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -1345,8 +1318,8 @@ class TestDeploymentAuthorization:
         # Now deny DELETE (WRITE still allowed, so the HTTP entrypoint passes) and
         # try to delete everything via an empty spec.
         mocker.patch(
-            _VALIDATOR_AUTH_SERVICE,
-            lambda: _DenyDeleteAuthorizationService(),
+            VALIDATOR_AUTH_SERVICE,
+            deny(access.ResourceAction.DELETE),
         )
         data = await deploy_and_wait(
             client,
@@ -2244,6 +2217,7 @@ class TestDeployments:
         leaving metrics with derived_expression = NULL after deployment.
         """
         from sqlalchemy.orm import joinedload, selectinload
+
         from datajunction_server.database.node import Node, NodeRevision
 
         namespace = "derive_measures"
@@ -3001,6 +2975,95 @@ class TestDeployments:
         assert [tag.name for tag in node.tags] == ["tag1"]
 
     @pytest.mark.asyncio
+    async def test_deploy_tag_metadata(
+        self,
+        client,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        Test that tag_metadata declared on a tag in the deployment spec is
+        persisted, both when the tag is created and when it is later updated.
+
+        The deployment spec is the source of truth: the declared bag replaces
+        the stored one, so keys added out-of-band or dropped from the spec do
+        not linger on the server.
+        """
+        namespace = "tag_metadata_deploy"
+        default_us_state.tags = ["inventory"]
+
+        def spec(tag_metadata):
+            return DeploymentSpec(
+                namespace=namespace,
+                nodes=[default_us_states, default_us_state],
+                tags=[
+                    TagSpec(
+                        name="inventory",
+                        display_name="Inventory",
+                        description="Inventory tag",
+                        tag_type="group",
+                        tag_metadata=tag_metadata,
+                    ),
+                ],
+            )
+
+        # Create path
+        data = await deploy_and_wait(
+            client,
+            spec({"order": 1, "display": {"color": "blue"}}),
+        )
+        assert data["status"] == "success"
+        response = await client.get("/tags/inventory/")
+        assert response.json() == {
+            "name": "inventory",
+            "display_name": "Inventory",
+            "description": "Inventory tag",
+            "tag_type": "group",
+            "tag_metadata": {"order": 1, "display": {"color": "blue"}},
+        }
+
+        # A key is added out-of-band, outside the deployment
+        response = await client.patch(
+            "/tags/inventory/",
+            json={
+                "tag_metadata": {
+                    "order": 1,
+                    "display": {"color": "blue"},
+                    "added_out_of_band": {"foo": "bar"},
+                },
+            },
+        )
+        assert response.status_code == 200
+
+        # Update path: the spec replaces the stored bag, dropping the
+        # out-of-band key and replacing nested contents rather than merging
+        data = await deploy_and_wait(
+            client,
+            spec({"order": 2, "display": {"icon": "box"}}),
+        )
+        assert data["status"] == "success"
+        response = await client.get("/tags/inventory/")
+        assert response.json() == {
+            "name": "inventory",
+            "display_name": "Inventory",
+            "description": "Inventory tag",
+            "tag_type": "group",
+            "tag_metadata": {"order": 2, "display": {"icon": "box"}},
+        }
+
+        # Removing tag_metadata from the spec clears it on the server
+        data = await deploy_and_wait(client, spec(None))
+        assert data["status"] == "success"
+        response = await client.get("/tags/inventory/")
+        assert response.json() == {
+            "name": "inventory",
+            "display_name": "Inventory",
+            "description": "Inventory tag",
+            "tag_type": "group",
+            "tag_metadata": {},
+        }
+
+    @pytest.mark.asyncio
     async def test_deploy_column_properties(
         self,
         client,
@@ -3451,7 +3514,7 @@ class TestDeployments:
                 "default.repair_orders_fact",
                 f"{namespace}.default.repair_orders_fact",
                 "transform",
-            ),  # noqa: E501
+            ),
             (
                 "default.num_repair_orders",
                 f"{namespace}.default.num_repair_orders",
@@ -5157,8 +5220,9 @@ class TestDeploymentStatusUpdate:
         api/deployments.py lines 217-219 catches it and records a FAILED status.
         """
         from contextlib import asynccontextmanager
-        from datajunction_server.internal.deployment.utils import DeploymentContext
+
         from datajunction_server.database.deployment import Deployment
+        from datajunction_server.internal.deployment.utils import DeploymentContext
 
         deployment_id = str(uuid.uuid4())
 
@@ -5284,7 +5348,7 @@ class TestDeploymentRevalidation:
         which derives parents from node_graph. Verify the new revision has the
         correct NodeRelationship row regardless of any corruption on the old revision.
         """
-        from sqlalchemy import select, delete
+        from sqlalchemy import delete, select
 
         namespace = "revalidate_parents_test"
 
@@ -5377,10 +5441,10 @@ async def test_validate_reference_dimension_link_bad_attribute():
     validate_reference_dimension_link raises when the dimension attribute
     does not exist on the dimension node's columns.
     """
+    from datajunction_server.errors import DJInvalidInputException
     from datajunction_server.internal.deployment.orchestrator import (
         validate_reference_dimension_link,
     )
-    from datajunction_server.errors import DJInvalidInputException
 
     # Build a reference link pointing to a non-existent column
     link = DimensionReferenceLinkSpec(

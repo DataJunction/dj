@@ -8,11 +8,12 @@ Tests for:
 - Pull request creation (POST /namespaces/{namespace}/pull-request)
 """
 
-from http import HTTPStatus
-from unittest.mock import AsyncMock, MagicMock, patch
 import base64
 import io
 import tarfile
+from http import HTTPStatus
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 from httpx import AsyncClient
 
@@ -5526,6 +5527,236 @@ columns:
             assert data["source"]["branch"] == "main"
             assert data["source"]["commit_author_name"] == "Alice Smith"
             assert data["source"]["commit_author_email"] == "alice@example.com"
+
+    @pytest.mark.asyncio
+    async def test_sync_from_git_deploys_tags_from_project_config(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """
+        Tags declared in dj.yaml must be deployed by sync-from-git, with their
+        tag_metadata intact.
+        """
+        await client_with_service_setup.post("/namespaces/sync_tags")
+        await client_with_service_setup.patch(
+            "/namespaces/sync_tags/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+                "git_path": "nodes",
+            },
+        )
+
+        project_yaml = """
+namespace: sync_tags
+tags:
+  - name: inventory
+    display_name: Inventory
+    description: Inventory tag
+    tag_type: group
+    tag_metadata:
+      order: 1
+      display:
+        color: blue
+"""
+        node_yaml = """
+name: ${prefix}tagged_source
+node_type: source
+description: Test source node
+catalog: default
+schema_: test
+table: test_table
+tags:
+  - inventory
+columns:
+  - name: id
+    type: int
+"""
+        tarball = create_mock_tarball(
+            {
+                "nodes/dj.yaml": project_yaml,
+                "nodes/tagged_source.yaml": node_yaml,
+            },
+        )
+
+        with patch(
+            "datajunction_server.api.git_sync.GitHubService",
+        ) as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.resolve_ref_to_sha = AsyncMock(return_value="abc123def456")
+            mock_github.get_commit_author = AsyncMock(
+                return_value=("Alice Smith", "alice@example.com"),
+            )
+            mock_github.download_archive = AsyncMock(return_value=tarball)
+            mock_github_class.return_value = mock_github
+
+            response = await client_with_service_setup.post(
+                "/namespaces/sync_tags/sync-from-git",
+            )
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.json()["status"] == "success"
+
+        response = await client_with_service_setup.get("/tags/inventory/")
+        assert response.json() == {
+            "name": "inventory",
+            "display_name": "Inventory",
+            "description": "Inventory tag",
+            "tag_type": "group",
+            "tag_metadata": {"order": 1, "display": {"color": "blue"}},
+        }
+
+    @pytest.mark.asyncio
+    async def test_sync_from_git_skips_malformed_tag_entries(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """
+        Malformed entries in the dj.yaml `tags:` list (a bare string, or a
+        mapping with no name) are skipped, while well-formed tags in the same
+        file are still deployed.
+        """
+        await client_with_service_setup.post("/namespaces/sync_bad_tags")
+        await client_with_service_setup.patch(
+            "/namespaces/sync_bad_tags/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+                "git_path": "nodes",
+            },
+        )
+
+        project_yaml = """
+namespace: sync_bad_tags
+tags:
+  - just_a_string
+  - description: a mapping with no name
+    tag_type: group
+  - name: well_formed
+    display_name: Well Formed
+    description: Well formed tag
+    tag_type: group
+    tag_metadata:
+      order: 1
+"""
+        node_yaml = """
+name: ${prefix}tagged_source
+node_type: source
+description: Test source node
+catalog: default
+schema_: test
+table: test_table
+tags:
+  - well_formed
+columns:
+  - name: id
+    type: int
+"""
+        tarball = create_mock_tarball(
+            {
+                "nodes/dj.yaml": project_yaml,
+                "nodes/tagged_source.yaml": node_yaml,
+            },
+        )
+
+        with patch(
+            "datajunction_server.api.git_sync.GitHubService",
+        ) as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.resolve_ref_to_sha = AsyncMock(return_value="abc123def456")
+            mock_github.get_commit_author = AsyncMock(
+                return_value=("Alice Smith", "alice@example.com"),
+            )
+            mock_github.download_archive = AsyncMock(return_value=tarball)
+            mock_github_class.return_value = mock_github
+
+            response = await client_with_service_setup.post(
+                "/namespaces/sync_bad_tags/sync-from-git",
+            )
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.json()["status"] == "success"
+
+        # The well-formed tag was deployed
+        response = await client_with_service_setup.get("/tags/well_formed/")
+        assert response.json() == {
+            "name": "well_formed",
+            "display_name": "Well Formed",
+            "description": "Well formed tag",
+            "tag_type": "group",
+            "tag_metadata": {"order": 1},
+        }
+
+        # The bare string was not turned into a tag
+        response = await client_with_service_setup.get("/tags/just_a_string/")
+        assert response.status_code == HTTPStatus.NOT_FOUND
+
+        # ...and neither was the mapping without a name
+        response = await client_with_service_setup.get("/tags/")
+        assert [
+            tag
+            for tag in response.json()
+            if tag["description"] == "a mapping with no name"
+        ] == []
+
+    @pytest.mark.asyncio
+    async def test_sync_from_git_ignores_non_mapping_project_config(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """
+        A dj.yaml that does not parse to a mapping (e.g. an empty file, which
+        yields None) is ignored instead of failing the deployment.
+        """
+        await client_with_service_setup.post("/namespaces/sync_empty_config")
+        await client_with_service_setup.patch(
+            "/namespaces/sync_empty_config/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+                "git_path": "nodes",
+            },
+        )
+
+        node_yaml = """
+name: ${prefix}untagged_source
+node_type: source
+description: Test source node
+catalog: default
+schema_: test
+table: test_table
+columns:
+  - name: id
+    type: int
+"""
+        tarball = create_mock_tarball(
+            {
+                "nodes/dj.yaml": "",
+                "nodes/tagged_source.yaml": node_yaml,
+            },
+        )
+
+        with patch(
+            "datajunction_server.api.git_sync.GitHubService",
+        ) as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.resolve_ref_to_sha = AsyncMock(return_value="abc123def456")
+            mock_github.get_commit_author = AsyncMock(
+                return_value=("Alice Smith", "alice@example.com"),
+            )
+            mock_github.download_archive = AsyncMock(return_value=tarball)
+            mock_github_class.return_value = mock_github
+
+            response = await client_with_service_setup.post(
+                "/namespaces/sync_empty_config/sync-from-git",
+            )
+
+        assert response.status_code == HTTPStatus.OK
+        data = response.json()
+        assert data["status"] == "success"
+        assert [result["name"] for result in data["results"]] == [
+            "sync_empty_config.untagged_source",
+        ]
 
     @pytest.mark.asyncio
     async def test_sync_from_git_no_git_config(

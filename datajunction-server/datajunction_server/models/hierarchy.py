@@ -2,12 +2,12 @@
 Pydantic models for hierarchies.
 """
 
-from typing import List, Optional
 from datetime import datetime
+
+from pydantic import BaseModel, Field, field_validator
 
 from datajunction_server.models.node import NodeNameOutput
 from datajunction_server.models.user import UserNameOnly
-from pydantic import BaseModel, Field, field_validator
 
 
 class HierarchyLevelInput(BaseModel):
@@ -62,16 +62,16 @@ class HierarchyCreateRequest(BaseModel):
 class HierarchyUpdateRequest(BaseModel):
     """Request model for updating a hierarchy."""
 
-    display_name: Optional[str] = None
-    description: Optional[str] = None
-    levels: Optional[List[HierarchyLevelInput]] = Field(None, min_length=2)
+    display_name: str | None = None
+    description: str | None = None
+    levels: list[HierarchyLevelInput] | None = Field(None, min_length=2)
 
     @field_validator("levels")
     @classmethod
     def validate_levels(
         cls,
-        levels: Optional[List[HierarchyLevelInput]],
-    ) -> Optional[List[HierarchyLevelInput]]:
+        levels: list[HierarchyLevelInput] | None,
+    ) -> list[HierarchyLevelInput] | None:
         """Validate hierarchy levels if provided and auto-assign level_order."""
         if levels:
             return HierarchyLevelInput.validate_list(levels)
@@ -82,11 +82,11 @@ class HierarchyOutput(BaseModel):
     """Output model for hierarchies."""
 
     name: str
-    display_name: Optional[str] = None
-    description: Optional[str] = None
+    display_name: str | None = None
+    description: str | None = None
     created_by: UserNameOnly
     created_at: datetime
-    levels: List[HierarchyLevelOutput]
+    levels: list[HierarchyLevelOutput]
 
     class Config:
         from_attributes = True
@@ -96,8 +96,8 @@ class HierarchyInfo(BaseModel):
     """Simplified hierarchy info for listings."""
 
     name: str
-    display_name: Optional[str] = None
-    description: Optional[str] = None
+    display_name: str | None = None
+    description: str | None = None
     created_by: UserNameOnly
     created_at: datetime
     level_count: int
@@ -110,7 +110,7 @@ class HierarchyType(BaseModel):
     """Information about the type of hierarchy (single vs multi-dimension)."""
 
     type: str  # "single_dimension" | "multi_dimension"
-    dimension_nodes: List[str]  # List of dimension node names used
+    dimension_nodes: list[str]  # List of dimension node names used
     description: str
 
 
@@ -127,15 +127,15 @@ class DimensionHierarchyNavigation(BaseModel):
     """Navigation information for a dimension within a specific hierarchy."""
 
     hierarchy_name: str
-    hierarchy_display_name: Optional[str] = None
+    hierarchy_display_name: str | None = None
     current_level: str
     current_level_order: int
-    drill_up: List[NavigationTarget] = []
-    drill_down: List[NavigationTarget] = []
+    drill_up: list[NavigationTarget] = []
+    drill_down: list[NavigationTarget] = []
 
 
 class DimensionHierarchiesResponse(BaseModel):
     """Response showing all hierarchies that use a dimension and navigation options."""
 
     dimension_node: str
-    hierarchies: List[DimensionHierarchyNavigation]
+    hierarchies: list[DimensionHierarchyNavigation]

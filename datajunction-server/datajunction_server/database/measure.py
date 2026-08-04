@@ -1,28 +1,29 @@
 """Measure database schema."""
 
-from typing import List, Optional
+from __future__ import annotations
 
 from sqlalchemy import (
+    JSON,
     BigInteger,
     Enum,
     ForeignKey,
     Index,
     Integer,
     String,
-    JSON,
     TypeDecorator,
     select,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship, selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Mapped, mapped_column, relationship, selectinload
+
 from datajunction_server.database.base import Base
 from datajunction_server.database.column import Column
-from datajunction_server.models.base import labelize
-from datajunction_server.models.measure import AggregationRule
 from datajunction_server.database.node import NodeRevision
+from datajunction_server.models.base import labelize
 from datajunction_server.models.cube_materialization import (
     AggregationRule as MeasureAggregationRule,
 )
+from datajunction_server.models.measure import AggregationRule
 
 
 class Measure(Base):  # type: ignore
@@ -43,12 +44,12 @@ class Measure(Base):  # type: ignore
         primary_key=True,
     )
     name: Mapped[str] = mapped_column(unique=True)
-    display_name: Mapped[Optional[str]] = mapped_column(
+    display_name: Mapped[str | None] = mapped_column(
         String,
         insert_default=lambda context: labelize(context.current_parameters.get("name")),
     )
-    description: Mapped[Optional[str]]
-    columns: Mapped[List["Column"]] = relationship(
+    description: Mapped[str | None]
+    columns: Mapped[list[Column]] = relationship(
         back_populates="measure",
         lazy="joined",
     )
@@ -107,7 +108,7 @@ class FrozenMeasure(Base):
             ondelete="CASCADE",
         ),
     )
-    upstream_revision: Mapped["NodeRevision"] = relationship(
+    upstream_revision: Mapped[NodeRevision] = relationship(
         "NodeRevision",
         lazy="selectin",
     )
@@ -123,7 +124,7 @@ class FrozenMeasure(Base):
     rule: Mapped[MeasureAggregationRule] = mapped_column(MeasureAggregationRuleType)
 
     # Associated node revisions that use this measure
-    used_by_node_revisions: Mapped[list["NodeRevision"]] = relationship(
+    used_by_node_revisions: Mapped[list[NodeRevision]] = relationship(
         secondary="node_revision_frozen_measures",
         back_populates="frozen_measures",
         lazy="selectin",
@@ -142,7 +143,7 @@ class FrozenMeasure(Base):
         cls,
         session: AsyncSession,
         name: str,
-    ) -> Optional["FrozenMeasure"]:
+    ) -> FrozenMeasure | None:
         """
         Get a measure by name
         """
@@ -161,7 +162,7 @@ class FrozenMeasure(Base):
         cls,
         session: AsyncSession,
         names: list[str],
-    ) -> list["FrozenMeasure"]:
+    ) -> list[FrozenMeasure]:
         """
         Get multiple measures by names in a single query.
         """
@@ -181,11 +182,11 @@ class FrozenMeasure(Base):
     async def find_by(
         cls,
         session: AsyncSession,
-        prefix: Optional[str] = None,
-        aggregation: Optional[str] = None,
-        upstream_name: Optional[str] = None,
-        upstream_version: Optional[str] = None,
-    ) -> list["FrozenMeasure"]:
+        prefix: str | None = None,
+        aggregation: str | None = None,
+        upstream_name: str | None = None,
+        upstream_version: str | None = None,
+    ) -> list[FrozenMeasure]:
         """
         Find frozen measure by search params
         """

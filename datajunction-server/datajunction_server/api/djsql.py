@@ -3,7 +3,6 @@ Data related APIs.
 """
 
 import logging
-from typing import List, Optional
 
 from fastapi import Depends, Query, Request
 from pydantic import BaseModel
@@ -38,15 +37,15 @@ class DJSQLColumn(BaseModel):
 
     name: str
     type: str
-    semantic_name: Optional[str] = None
-    semantic_type: Optional[str] = None  # "dimension", "metric", etc.
+    semantic_name: str | None = None
+    semantic_type: str | None = None  # "dimension", "metric", etc.
 
 
 class TranslatedDJSQL(BaseModel):
     """Response model for translated DJ SQL."""
 
     sql: str
-    columns: List[DJSQLColumn]
+    columns: list[DJSQLColumn]
     dialect: str
 
 
@@ -62,7 +61,7 @@ def selects_from_metrics(select: ast.SelectExpression) -> bool:
 
 def parse_dj_sql(
     query: str,
-) -> tuple[List[str], List[str], List[str], List[str], Optional[int]]:
+) -> tuple[list[str], list[str], list[str], list[str], int | None]:
     """
     Parse a DJ SQL query and extract metrics, dimensions, filters, orderby, limit.
 
@@ -137,7 +136,7 @@ def parse_dj_sql(
 @router.get("/djsql/", response_model=TranslatedDJSQL)
 async def get_sql_for_djsql(
     query: str = Query(..., description="DJ SQL query"),
-    dialect: Optional[str] = Query(
+    dialect: str | None = Query(
         None,
         description="SQL dialect (spark, trino, druid)",
     ),
@@ -163,7 +162,7 @@ async def get_sql_for_djsql(
     metrics, dimensions, filters, orderby, limit = parse_dj_sql(query)
 
     # Map dialect string to enum (None means use builder default)
-    dialect_enum: Optional[Dialect] = None
+    dialect_enum: Dialect | None = None
     if dialect:
         dialect_map = {
             "spark": Dialect.SPARK,
@@ -206,8 +205,8 @@ async def _build_djsql_query(
     session: AsyncSession,
     query: str,
     use_materialized: bool,
-    engine_name: Optional[str],
-    engine_version: Optional[str],
+    engine_name: str | None,
+    engine_version: str | None,
 ):
     """
     Shared SQL-build path for ``/djsql/data`` and ``/djsql/stream/``. Routes
@@ -250,8 +249,8 @@ async def get_data_for_djsql(
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    engine_name: Optional[str] = None,
-    engine_version: Optional[str] = None,
+    engine_name: str | None = None,
+    engine_version: str | None = None,
 ) -> QueryWithResults:
     """
     Return data for a DJ SQL query.
@@ -305,8 +304,8 @@ async def get_data_stream_for_djsql(
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    engine_name: Optional[str] = None,
-    engine_version: Optional[str] = None,
+    engine_name: str | None = None,
+    engine_version: str | None = None,
 ) -> QueryWithResults:  # pragma: no cover
     """
     Return data for a DJ SQL query using server side events.

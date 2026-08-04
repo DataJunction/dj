@@ -2,63 +2,57 @@
 Unit tests for DeploymentOrchestrator
 """
 
-import pytest
+from datetime import UTC
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
+import pytest
 from sqlalchemy import select
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
-from datajunction_server.internal.deployment.orchestrator import (
-    DeploymentOrchestrator,
-)
-from datajunction_server.internal.deployment.utils import DeploymentContext
-from datajunction_server.internal.deployment.validation import (
-    CubeValidationData,
-)
 from datajunction_server.database.catalog import Catalog
-from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.column import Column
-from datajunction_server.models.partition import Granularity
-
-from datajunction_server.internal.deployment.utils import DeploymentContext
+from datajunction_server.database.dimensionlink import (
+    JoinCardinality,
+    JoinType,
+)
+from datajunction_server.database.namespace import NodeNamespace
+from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.tag import Tag
+from datajunction_server.database.user import OAuthProvider, User
+from datajunction_server.errors import DJError, DJInvalidDeploymentConfig, ErrorCode
 from datajunction_server.internal.deployment.orchestrator import (
     DeploymentOrchestrator,
     DeploymentPlan,
     ResourceRegistry,
     column_changed,
+    tag_needs_update,
 )
+from datajunction_server.internal.deployment.utils import DeploymentContext
 from datajunction_server.internal.deployment.validation import (
+    CubeValidationData,
     NodeValidationResult,
 )
 from datajunction_server.models.deployment import (
     ColumnSpec,
-    DeploymentSpec,
-    HierarchySpec,
-    HierarchyLevelSpec,
-    PartitionType,
-    PartitionSpec,
-    TagSpec,
-)
-from datajunction_server.models.deployment import (
-    SourceSpec,
-    TransformSpec,
-    MetricSpec,
     CubeSpec,
     DeploymentResult,
+    DeploymentSpec,
     DimensionJoinLinkSpec,
     DimensionReferenceLinkSpec,
-)
-from datajunction_server.models.node import MetricUnit, NodeStatus
-from datajunction_server.database.namespace import NodeNamespace
-from datajunction_server.database.user import OAuthProvider, User
-from datajunction_server.database.tag import Tag
-from datajunction_server.database.catalog import Catalog
-from datajunction_server.database.dimensionlink import (
-    JoinCardinality,
-    JoinType,
+    HierarchyLevelSpec,
+    HierarchySpec,
+    MetricSpec,
+    PartitionSpec,
+    PartitionType,
+    SourceSpec,
+    TagSpec,
+    TransformSpec,
 )
 from datajunction_server.models.dimensionlink import JoinLinkInput
 from datajunction_server.models.history import ActivityType
-from datajunction_server.errors import DJError, DJInvalidDeploymentConfig, ErrorCode
+from datajunction_server.models.node import MetricUnit, NodeStatus
+from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.partition import Granularity
 
 
 @pytest.fixture
@@ -489,6 +483,114 @@ class TestDeploymentPlanning:
         result_tags = await orchestrator._setup_tags()
         assert result_tags.keys() == {"new_tag"}
         assert len(orchestrator.errors) == 0
+
+    @pytest.mark.asyncio
+    async def test_setup_tags_metadata_is_declarative(
+        self,
+        session,
+        current_user,
+    ):
+        """
+        tag_metadata declared in the deployment spec must be written on the
+        create path and on the update path. A deployment is declarative: the
+        spec is the source of truth, so the declared bag replaces whatever is
+        stored — keys dropped from the spec (or written out-of-band by someone
+        else) are removed, and an omitted bag clears the metadata entirely.
+        """
+        context = MagicMock(autospec=DeploymentContext)
+        context.current_user = current_user
+        context.save_history = AsyncMock()
+
+        def make_orchestrator(tag_metadata):
+            return DeploymentOrchestrator(
+                deployment_spec=DeploymentSpec(
+                    namespace="some.namespace",
+                    nodes=[],
+                    tags=[
+                        TagSpec(
+                            name="inventory",
+                            display_name="Inventory",
+                            description="Inventory tag",
+                            tag_type="group",
+                            tag_metadata=tag_metadata,
+                        ),
+                    ],
+                ),
+                deployment_id="test-deployment",
+                session=session,
+                context=context,
+            )
+
+        # Create path
+        result_tags = await make_orchestrator(
+            {"order": 1, "display": {"color": "blue"}},
+        )._setup_tags()
+        assert result_tags["inventory"].tag_metadata == {
+            "order": 1,
+            "display": {"color": "blue"},
+        }
+
+        # A key is added out-of-band (e.g. via PATCH /tags), so the stored bag
+        # no longer matches the spec
+        result_tags["inventory"].tag_metadata = {
+            "order": 1,
+            "display": {"color": "blue"},
+            "added_out_of_band": {"foo": "bar"},
+        }
+        session.add(result_tags["inventory"])
+        await session.commit()
+
+        # Update path: the spec replaces the stored bag wholesale, so the
+        # out-of-band key is dropped and nested contents are replaced, not merged
+        orchestrator = make_orchestrator({"order": 2, "display": {"icon": "box"}})
+        assert (
+            tag_needs_update(
+                result_tags["inventory"],
+                orchestrator.deployment_spec.tags[0],
+            )
+            is True
+        )
+        result_tags = await orchestrator._setup_tags()
+        assert result_tags["inventory"].tag_metadata == {
+            "order": 2,
+            "display": {"icon": "box"},
+        }
+
+        # Redeploying the same metadata is not a change
+        assert (
+            tag_needs_update(
+                result_tags["inventory"],
+                make_orchestrator(
+                    {"order": 2, "display": {"icon": "box"}},
+                ).deployment_spec.tags[0],
+            )
+            is False
+        )
+
+        # Dropping a key from the spec removes it from the server
+        result_tags = await make_orchestrator({"order": 3})._setup_tags()
+        assert result_tags["inventory"].tag_metadata == {"order": 3}
+
+        # A spec without tag_metadata clears the bag
+        orchestrator = make_orchestrator(None)
+        assert (
+            tag_needs_update(
+                result_tags["inventory"],
+                orchestrator.deployment_spec.tags[0],
+            )
+            is True
+        )
+        result_tags = await orchestrator._setup_tags()
+        assert result_tags["inventory"].tag_metadata == {}
+
+        # ...and an already-empty bag with an omitted spec value is not a change
+        assert (
+            tag_needs_update(
+                result_tags["inventory"],
+                make_orchestrator(None).deployment_spec.tags[0],
+            )
+            is False
+        )
 
     @pytest.mark.asyncio
     async def test_setup_owners_missing(self, session, current_user):
@@ -2238,7 +2340,7 @@ async def test_create_deployment_plan_reactivates_deactivated_auto_source(
     so the deploy tried to INSERT a row that already existed and Postgres
     rejected with a UniqueViolation.
     """
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     session.add(NodeNamespace(namespace="test"))
     catalog = Catalog(name="ext_cat2")
@@ -2251,7 +2353,7 @@ async def test_create_deployment_plan_reactivates_deactivated_auto_source(
         type="source",
         current_version="v1.0",
         created_by_id=current_user.id,
-        deactivated_at=datetime.now(timezone.utc),
+        deactivated_at=datetime.now(UTC),
     )
     session.add(deactivated_source)
     deactivated_rev = NodeRevision(
@@ -2366,14 +2468,16 @@ async def test_create_deployment_plan_acquires_advisory_lock_for_autoreg(
             lock_calls.append(params["key"])
         return await real_execute(stmt, params, *args, **kwargs)
 
-    with patch.object(session, "execute", side_effect=spy_execute):
-        with patch.object(
+    with (
+        patch.object(session, "execute", side_effect=spy_execute),
+        patch.object(
             orchestrator,
             "check_external_deps",
             # Pass sources in NON-sorted order to verify they get sorted.
             side_effect=[(set(), [src_b, src_a], []), (set(), [], [])],
-        ):
-            await orchestrator._create_deployment_plan()
+        ),
+    ):
+        await orchestrator._create_deployment_plan()
 
     # Both source names had their lock acquired, in sorted order.
     assert lock_calls == [
@@ -2390,7 +2494,7 @@ async def test_node_get_by_names_include_inactive(
     """Node.get_by_names returns deactivated nodes only when include_inactive=True.
     Guards the (previously uncovered) inactive filter so a future regression
     in this contract would surface immediately."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     session.add(NodeNamespace(namespace="test_inactive"))
     catalog = Catalog(name="inactive_test_cat")
@@ -2402,7 +2506,7 @@ async def test_node_get_by_names_include_inactive(
         type="source",
         current_version="v1.0",
         created_by_id=current_user.id,
-        deactivated_at=datetime.now(timezone.utc),
+        deactivated_at=datetime.now(UTC),
     )
     session.add(node)
     await session.commit()
@@ -2637,6 +2741,58 @@ class TestGenerateChangelog:
 
         assert changed_fields == []
         assert changelog == ["└─ Updated dimension_links"]
+
+    @pytest.mark.asyncio
+    async def test_cube_column_change_uses_role_qualified_identity(
+        self,
+        session,
+        mock_deployment_context,
+    ):
+        """A property change on one role must compare with that same role."""
+        cube_spec = CubeSpec(
+            name="role_cube",
+            namespace="default",
+            metrics=["default.metric"],
+            dimensions=["default.date.date_id[ship]"],
+            columns=[
+                ColumnSpec(
+                    name="default.date.date_id[ship]",
+                    description="new description",
+                ),
+            ],
+        )
+        existing_column = Column(
+            name="default.date.date_id",
+            dimension_column="[ship]",
+            description="old description",
+        )
+        existing_revision = MagicMock(
+            type=NodeType.CUBE,
+            columns=[existing_column],
+        )
+        existing = MagicMock(current=existing_revision)
+        existing.to_spec = AsyncMock(return_value=cube_spec)
+
+        orchestrator = DeploymentOrchestrator(
+            deployment_spec=DeploymentSpec(namespace="default", nodes=[]),
+            deployment_id="role-changelog-test",
+            session=session,
+            context=mock_deployment_context,
+            dry_run=True,
+        )
+        orchestrator.registry.nodes["default.role_cube"] = existing
+        result = NodeValidationResult(
+            spec=cube_spec,
+            status=NodeStatus.VALID,
+            inferred_columns=cube_spec.rendered_columns,
+            errors=[],
+            dependencies=[],
+        )
+
+        changelog, changed_fields = await orchestrator._generate_changelog(result)
+
+        assert changed_fields == []
+        assert changelog == ["└─ Set properties for 1 columns"]
 
 
 @pytest.mark.asyncio
@@ -3031,6 +3187,7 @@ class TestSqlalchemyHelpers:
     def test_sqlalchemy_to_dj_type_known_types(self):
         """Each SQLAlchemy type maps to the expected DJ type string."""
         from sqlalchemy import (
+            JSON,
             BigInteger,
             Boolean,
             Date,
@@ -3038,14 +3195,13 @@ class TestSqlalchemyHelpers:
             Float,
             Integer,
             Interval,
-            JSON,
             Numeric,
             SmallInteger,
             String,
             Text,
             Time,
         )
-        from sqlalchemy.dialects.postgresql import JSONB, UUID, ARRAY
+        from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 
         from datajunction_server.internal.deployment.orchestrator import (
             _sqlalchemy_to_dj_type,

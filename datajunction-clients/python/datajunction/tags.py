@@ -4,7 +4,6 @@ Models related to tags
 
 # pylint: disable=protected-access
 from dataclasses import dataclass
-from typing import Dict, Optional
 
 from datajunction._internal import ClientEntity
 from datajunction.exceptions import DJClientException
@@ -19,9 +18,9 @@ class Tag(ClientEntity):
 
     name: str
     tag_type: str
-    description: Optional[str] = None
-    display_name: Optional[str] = None
-    tag_metadata: Optional[Dict] = None
+    description: str | None = None
+    display_name: str | None = None
+    tag_metadata: dict | None = None
 
     def to_dict(self) -> dict:
         """

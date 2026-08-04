@@ -4,9 +4,11 @@ import DJClientContext from '../../providers/djclient';
 import { Field, Form, Formik } from 'formik';
 import EditIcon from '../../icons/EditIcon';
 import { displayMessageAfterSubmit } from '../../../utils/form';
+import { getColumnIdentifier } from '../../utils/column';
 
 export default function PartitionColumnPopover({ column, node, onSubmit }) {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
+  const columnIdentifier = getColumnIdentifier(node, column);
   const [popoverAnchor, setPopoverAnchor] = useState(false);
   const ref = useRef(null);
 
@@ -45,7 +47,10 @@ export default function PartitionColumnPopover({ column, node, onSubmit }) {
   };
 
   const removePartition = async setStatus => {
-    const response = await djClient.removePartition(node.name, column.name);
+    const response = await djClient.removePartition(
+      node.name,
+      columnIdentifier,
+    );
     if (response.status === 200 || response.status === 201) {
       setStatus({ success: 'Partition removed' });
       onSubmit();
@@ -76,7 +81,7 @@ export default function PartitionColumnPopover({ column, node, onSubmit }) {
       >
         <Formik
           initialValues={{
-            column: column.name,
+            column: columnIdentifier,
             node: node.name,
             partition_type: column.partition?.type_ ?? '',
             format: column.partition?.format ?? 'yyyyMMdd',
@@ -90,7 +95,7 @@ export default function PartitionColumnPopover({ column, node, onSubmit }) {
                 <div className="popover-header">
                   <div className="popover-title">Partition column</div>
                   <div className="popover-subtitle">
-                    {popoverAnchor ? column.name : null}
+                    {popoverAnchor ? columnIdentifier : null}
                   </div>
                 </div>
                 {displayMessageAfterSubmit(status)}
@@ -110,7 +115,7 @@ export default function PartitionColumnPopover({ column, node, onSubmit }) {
                 <input
                   hidden={true}
                   name="column"
-                  value={column.name}
+                  value={columnIdentifier}
                   readOnly={true}
                 />
                 <input

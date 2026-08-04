@@ -5,21 +5,11 @@ Dimension + join path resolution and building functions
 from __future__ import annotations
 
 import difflib
-from http import HTTPStatus
 import logging
-from typing import Callable, Optional, cast
+from collections.abc import Callable
+from http import HTTPStatus
+from typing import cast
 
-from datajunction_server.construction.build_v3.utils import (
-    get_short_name,
-    iter_namespaced_columns,
-    make_name,
-)
-from datajunction_server.errors import (
-    DJError,
-    DJException,
-    DJInvalidInputException,
-    ErrorCode,
-)
 from datajunction_server.construction.build_v3.materialization import (
     get_table_reference_parts_with_materialization,
 )
@@ -29,8 +19,19 @@ from datajunction_server.construction.build_v3.types import (
     JoinPath,
     ResolvedDimension,
 )
+from datajunction_server.construction.build_v3.utils import (
+    get_short_name,
+    iter_namespaced_columns,
+    make_name,
+)
 from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.node import Node, NodeType
+from datajunction_server.errors import (
+    DJError,
+    DJException,
+    DJInvalidInputException,
+    ErrorCode,
+)
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.utils import SEPARATOR
@@ -78,8 +79,8 @@ def find_join_path(
     ctx: BuildContext,
     from_node: Node,
     target_dim_name: str,
-    role: Optional[str] = None,
-) -> Optional[JoinPath]:
+    role: str | None = None,
+) -> JoinPath | None:
     """
     Find the join path from a node to a target dimension.
 
@@ -151,11 +152,27 @@ def find_join_path(
     return None  # pragma: no cover
 
 
+def roles_reaching_dimension(
+    ctx: BuildContext,
+    node_rev_id: int,
+    dim_node_name: str,
+) -> set[str]:
+    """
+    Role paths from a node revision to a dimension node, ``""`` for a role-free
+    link. Read from the join paths preloaded for this build.
+    """
+    return {
+        stored_role
+        for (src_id, dim_name, stored_role) in ctx.join_paths
+        if src_id == node_rev_id and dim_name == dim_node_name
+    }
+
+
 def can_skip_join_for_dimension(
     dim_ref: DimensionRef,
-    join_path: Optional[JoinPath],
+    join_path: JoinPath | None,
     parent_node: Node,
-) -> tuple[bool, Optional[str], int]:
+) -> tuple[bool, str | None, int]:
     """
     Check whether the trailing hops of a join path can be skipped because the
     requested column is foreign-key-aligned with a column on a closer node.
@@ -252,7 +269,7 @@ def _resolve_filter_only_dim(
     parent_node: Node,
     dim_ref: DimensionRef,
     original_ref: str,
-) -> Optional[str]:
+) -> str | None:
     """
     Resolve a filter-only dim ref via the parent's upstream lineage in a
     single BFS walk over ``ctx.parent_map``. Returns one of:
@@ -354,11 +371,11 @@ def _register_pushdown_into_upstream(
     transform, the filter goes into that transform's own CTE on the bare
     FK column.
     """
-    from datajunction_server.construction.build_v3.filters import parse_filter
     from datajunction_server.construction.build_v3.cte import (
         get_column_full_name,
         inject_filter_into_select,
     )
+    from datajunction_server.construction.build_v3.filters import parse_filter
 
     # Find filter strings that reference this dim ref. Parse each once.
     base_ref = original_ref.split("[")[0]
@@ -433,7 +450,7 @@ def _resolve_pushdown_targets(
     linked_node: Node,
     fk_col: str,
     children_of: Callable[[str], list[str]],
-) -> list[tuple[str, Optional[str], Optional["ast.Select"]]]:
+) -> list[tuple[str, str | None, ast.Select | None]]:
     """
     Return one ``(target_cte_name, qualifier, arm_select)`` triple per
     Table reference to the linked source in the child transform's query.
@@ -449,7 +466,7 @@ def _resolve_pushdown_targets(
     """
     if linked_node.type != NodeType.SOURCE:
         return [(linked_node.name, None, None)]
-    all_targets: list[tuple[str, Optional[str], Optional["ast.Select"]]] = []
+    all_targets: list[tuple[str, str | None, ast.Select | None]] = []
     for child_name in children_of(linked_node.name):
         child = ctx.nodes.get(child_name)
         if (
@@ -470,7 +487,7 @@ def _resolve_pushdown_targets(
         # CTE bodies, subqueries inside WHERE/HAVING.  Collect every
         # match so a self-join (two refs to the same source) produces
         # two filter injections, one per alias.
-        matches: list[tuple[str, "ast.Select"]] = []
+        matches: list[tuple[str, ast.Select]] = []
         for tbl in child_query.find_all(ast.Table):
             try:
                 tbl_name = tbl.name.identifier(quotes=False)
@@ -499,14 +516,14 @@ def _resolve_pushdown_targets(
     return all_targets
 
 
-def _enclosing_select(node: ast.Node) -> Optional["ast.Select"]:
+def _enclosing_select(node: ast.Node) -> ast.Select | None:
     """Walk up ``node.parent`` until a :class:`ast.Select` is reached.
 
     Returns the nearest enclosing Select, or ``None`` if none is found.
     Used to figure out which subquery's WHERE clause a filter must be
     injected into for a deeply nested Table reference to be addressable.
     """
-    cur: Optional[ast.Node] = getattr(node, "parent", None)
+    cur: ast.Node | None = getattr(node, "parent", None)
     while cur is not None:
         if isinstance(cur, ast.Select):
             return cur
@@ -518,15 +535,15 @@ def _rewrite_filter_col_refs(
     filter_str: str,
     base_ref: str,
     fk_col: str,
-    qualifier: Optional[str],
-) -> Optional[ast.Expression]:
+    qualifier: str | None,
+) -> ast.Expression | None:
     """
     Parse ``filter_str`` and replace every column ref matching ``base_ref``
     (a dim FQN sans role) with ``[qualifier.]fk_col``. Returns the
     rewritten AST or ``None`` on parse failure.
     """
-    from datajunction_server.construction.build_v3.filters import parse_filter
     from datajunction_server.construction.build_v3.cte import get_column_full_name
+    from datajunction_server.construction.build_v3.filters import parse_filter
 
     try:
         rewritten = parse_filter(filter_str)
@@ -550,7 +567,7 @@ def _local_reference_dimension_column(
     ctx: BuildContext,
     parent_node: Node,
     dim_ref: DimensionRef,
-) -> Optional[str]:
+) -> str | None:
     """
     Return the parent column that supplies dim_ref via a column-level dimension
     annotation (a reference / denormalized dimension), or None.

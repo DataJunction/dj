@@ -3,7 +3,6 @@ Available materialization jobs.
 """
 
 import abc
-from typing import Dict, List, Optional
 
 import requests.exceptions
 
@@ -16,6 +15,7 @@ from datajunction_server.models.materialization import (
     MaterializationInfo,
     MaterializationStrategy,
 )
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionBackfill
 from datajunction_server.naming import amenable_name
 from datajunction_server.service_clients import QueryServiceClient
@@ -31,16 +31,16 @@ class MaterializationJob(abc.ABC):
     Base class for a materialization job
     """
 
-    dialect: Optional[Dialect] = None
+    dialect: Dialect | None = None
 
     def __init__(self): ...
 
     def run_backfill(
         self,
         materialization: Materialization,
-        partitions: List[PartitionBackfill],
+        partitions: list[PartitionBackfill],
         query_service_client: QueryServiceClient,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> MaterializationInfo:
         """
         Kicks off a backfill based on the spec using the query service
@@ -79,7 +79,7 @@ class SparkSqlMaterializationJob(  # pragma: no cover
         self,
         materialization: Materialization,
         query_service_client: QueryServiceClient,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> MaterializationInfo:
         """
         Placeholder for the actual implementation.
@@ -99,10 +99,17 @@ class SparkSqlMaterializationJob(  # pragma: no cover
             temporal_partitions
             and materialization.strategy == MaterializationStrategy.INCREMENTAL_TIME
         ):
+            partition_name = (
+                temporal_partitions[0].cube_element_name
+                if materialization.node_revision.type == NodeType.CUBE
+                else temporal_partitions[0].name
+            )
             temporal_partition_col = [
                 col
                 for col in query_ast.select.projection
-                if col.alias_or_name.name.endswith(temporal_partitions[0].name)  # type: ignore
+                if col.alias_or_name.name  # type: ignore
+                in {partition_name, amenable_name(partition_name)}
+                or col.alias_or_name.name.endswith(partition_name)  # type: ignore
             ]
             temporal_op = (
                 ast.BinaryOp(
@@ -143,11 +150,16 @@ class SparkSqlMaterializationJob(  # pragma: no cover
                 materialization.node_revision.categorical_partition_columns()
             )
             if categorical_partitions:
+                categorical_partition_name = (
+                    categorical_partitions[0].cube_element_name
+                    if materialization.node_revision.type == NodeType.CUBE
+                    else categorical_partitions[0].name
+                )
                 categorical_partition_col = [
                     col
                     for col in final_query.select.projection
                     if col.alias_or_name.name  # type: ignore
-                    == amenable_name(categorical_partitions[0].name)  # type: ignore
+                    == amenable_name(categorical_partition_name)
                 ]
                 categorical_op = ast.BinaryOp(
                     left=ast.Column(
@@ -155,7 +167,9 @@ class SparkSqlMaterializationJob(  # pragma: no cover
                             categorical_partition_col[0].alias_or_name.name,  # type: ignore
                         ),
                     ),
-                    right=categorical_partitions[0].partition.categorical_expression(),
+                    right=categorical_partitions[0].partition.categorical_expression(
+                        categorical_partition_name,
+                    ),
                     op=ast.BinaryOpKind.Eq,
                 )
                 final_query.select.where = ast.BinaryOp(

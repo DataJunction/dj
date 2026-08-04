@@ -1,8 +1,8 @@
 """Database schema"""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import partial
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 from sqlalchemy import JSON, BigInteger, DateTime, ForeignKey, Index, Integer, String
@@ -40,23 +40,23 @@ class Database(Base):
     uuid: Mapped[UUID] = mapped_column(UUIDType(), default=uuid4)
 
     name: Mapped[str] = mapped_column(String, unique=True)
-    description: Mapped[Optional[str]] = mapped_column(String, default="")
+    description: Mapped[str | None] = mapped_column(String, default="")
     URI: Mapped[str]
-    extra_params: Mapped[Optional[Dict]] = mapped_column(JSON, default={})
+    extra_params: Mapped[dict | None] = mapped_column(JSON, default={})
     read_only: Mapped[bool] = mapped_column(default=True)
     async_: Mapped[bool] = mapped_column(default=False, name="async")
     cost: Mapped[float] = mapped_column(default=1.0)
 
     created_at: Mapped[UTCDatetime] = mapped_column(
         DateTime(timezone=True),
-        default=partial(datetime.now, timezone.utc),
+        default=partial(datetime.now, UTC),
     )
     updated_at: Mapped[UTCDatetime] = mapped_column(
         DateTime(timezone=True),
-        default=partial(datetime.now, timezone.utc),
+        default=partial(datetime.now, UTC),
     )
 
-    tables: Mapped[List["Table"]] = relationship(
+    tables: Mapped[list["Table"]] = relationship(
         back_populates="database",
         cascade="all, delete",
     )
@@ -79,7 +79,7 @@ class Table(Base):
         primary_key=True,
     )
 
-    schema: Mapped[Optional[str]] = mapped_column(default=None, name="schema_")
+    schema: Mapped[str | None] = mapped_column(default=None, name="schema_")
     table: Mapped[str]
     cost: Mapped[float] = mapped_column(default=1.0)
 
@@ -88,7 +88,7 @@ class Table(Base):
     )
     database: Mapped["Database"] = relationship("Database", back_populates="tables")
 
-    columns: Mapped[List["Column"]] = relationship(
+    columns: Mapped[list["Column"]] = relationship(
         secondary="tablecolumns",
         primaryjoin="Table.id==TableColumns.table_id",
         secondaryjoin="Column.id==TableColumns.column_id",
@@ -97,7 +97,7 @@ class Table(Base):
 
     def identifier(
         self,
-    ) -> Tuple[Optional[str], Optional[str], str]:  # pragma: no cover
+    ) -> tuple[str | None, str | None, str]:  # pragma: no cover
         """
         Unique identifier for this table.
         """

@@ -6,12 +6,11 @@ import json
 import logging
 import time
 from http import HTTPStatus
-from typing import List, Optional
+from typing import cast
 
 from fastapi import BackgroundTasks, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from datajunction_server.utils import get_current_user
 from datajunction_server.construction.build_v3 import (
     build_combiner_sql,
     build_measures_sql,
@@ -19,36 +18,34 @@ from datajunction_server.construction.build_v3 import (
 from datajunction_server.construction.build_v3.combiners import (
     build_combiner_sql_from_preaggs,
 )
-from datajunction_server.models.dialect import Dialect
-from datajunction_server.sql.parsing import ast
-
+from datajunction_server.database import Node
+from datajunction_server.database.queryrequest import QueryBuildType
+from datajunction_server.database.user import User
+from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.instrumentation.provider import get_metrics_provider
+from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.caching.cachelib_cache import get_cache
 from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.internal.caching.query_cache_manager import (
     QueryCacheManager,
     QueryRequestParams,
 )
-from datajunction_server.internal.caching.cachelib_cache import get_cache
-from datajunction_server.internal.caching.interface import Cache
-from datajunction_server.database import Node
-from datajunction_server.database.user import User
-from datajunction_server.database.queryrequest import QueryBuildType
-from datajunction_server.errors import DJInvalidInputException
-from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.sql import generate_metrics_sql
+from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.metric import TranslatedSQL, V3TranslatedSQL
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import V3ColumnMetadata
 from datajunction_server.models.sql import (
     CombinedMeasuresSQLResponse,
     ComponentResponse,
+    GeneratedSQL,
     GrainGroupResponse,
     MeasuresSQLResponse,
     MetricFormulaResponse,
 )
-from datajunction_server.models.sql import GeneratedSQL
+from datajunction_server.sql.parsing import ast
 from datajunction_server.utils import (
+    get_current_user,
     get_session,
     get_settings,
 )
@@ -60,14 +57,14 @@ router = SecureAPIRouter(tags=["sql"])
 
 @router.get(
     "/sql/measures/v2/",
-    response_model=List[GeneratedSQL],
+    response_model=list[GeneratedSQL],
     name="Get Measures SQL",
 )
 async def get_measures_sql_for_cube_v2(
-    metrics: List[str] = Query([]),
-    dimensions: List[str] = Query([]),
-    filters: List[str] = Query([]),
-    orderby: List[str] = Query([]),
+    metrics: list[str] = Query([]),
+    dimensions: list[str] = Query([]),
+    filters: list[str] = Query([]),
+    orderby: list[str] = Query([]),
     preaggregate: bool = Query(
         False,
         description=(
@@ -85,12 +82,12 @@ async def get_measures_sql_for_cube_v2(
         ),
     ),
     cache: Cache = Depends(get_cache),
-    engine_name: Optional[str] = None,
-    engine_version: Optional[str] = None,
+    engine_name: str | None = None,
+    engine_version: str | None = None,
     use_materialized: bool = True,
     background_tasks: BackgroundTasks,
     request: Request,
-) -> List[GeneratedSQL]:
+) -> list[GeneratedSQL]:
     """
     Return measures SQL for a set of metrics with dimensions and filters.
 
@@ -131,17 +128,17 @@ async def get_measures_sql_for_cube_v2(
 )
 async def get_sql(
     node_name: str,
-    dimensions: List[str] = Query([]),
-    filters: List[str] = Query([]),
-    orderby: List[str] = Query([]),
-    limit: Optional[int] = None,
+    dimensions: list[str] = Query([]),
+    filters: list[str] = Query([]),
+    orderby: list[str] = Query([]),
+    limit: int | None = None,
     query_params: str = Query("{}", description="Query parameters"),
     *,
-    engine_name: Optional[str] = None,
-    engine_version: Optional[str] = None,
+    engine_name: str | None = None,
+    engine_version: str | None = None,
     background_tasks: BackgroundTasks,
-    ignore_errors: Optional[bool] = True,
-    use_materialized: Optional[bool] = True,
+    ignore_errors: bool = True,
+    use_materialized: bool = True,
     cache: Cache = Depends(get_cache),
     request: Request,
 ) -> TranslatedSQL:
@@ -152,20 +149,23 @@ async def get_sql(
         cache=cache,
         query_type=QueryBuildType.NODE,
     )
-    return await query_cache_manager.get_or_load(
-        background_tasks,
-        request,
-        QueryRequestParams(
-            nodes=[node_name],
-            dimensions=dimensions,
-            filters=filters,
-            orderby=orderby,
-            limit=limit,
-            query_params=query_params,
-            engine_name=engine_name,
-            engine_version=engine_version,
-            use_materialized=use_materialized,
-            ignore_errors=ignore_errors,
+    return cast(
+        TranslatedSQL,
+        await query_cache_manager.get_or_load(
+            background_tasks,
+            request,
+            QueryRequestParams(
+                nodes=[node_name],
+                dimensions=dimensions,
+                filters=filters,
+                orderby=orderby,
+                limit=limit,
+                query_params=query_params,
+                engine_name=engine_name,
+                engine_version=engine_version,
+                use_materialized=use_materialized,
+                ignore_errors=ignore_errors,
+            ),
         ),
     )
 
@@ -177,10 +177,10 @@ async def get_sql(
     tags=["sql", "v3"],
 )
 async def get_measures_sql_v3(
-    metrics: List[str] = Query([]),
-    dimensions: List[str] = Query([]),
-    filters: List[str] = Query([]),
-    cube: Optional[str] = Query(
+    metrics: list[str] = Query([]),
+    dimensions: list[str] = Query([]),
+    filters: list[str] = Query([]),
+    cube: str | None = Query(
         None,
         description=(
             "Cube node name. When provided, the cube's stored filters are "
@@ -199,7 +199,7 @@ async def get_measures_sql_v3(
             "the metrics and dimensions resolve to a cube with temporal partitions."
         ),
     ),
-    lookback_window: Optional[str] = Query(
+    lookback_window: str | None = Query(
         None,
         description=(
             "Lookback window for temporal filters (e.g., '3 DAY', '1 WEEK'). "
@@ -419,9 +419,9 @@ def _build_measures_response(result) -> MeasuresSQLResponse:
     tags=["sql", "v3"],
 )
 async def get_combined_measures_sql_v3(
-    metrics: List[str] = Query([]),
-    dimensions: List[str] = Query([]),
-    filters: List[str] = Query([]),
+    metrics: list[str] = Query([]),
+    dimensions: list[str] = Query([]),
+    filters: list[str] = Query([]),
     use_preagg_tables: bool = Query(
         False,
         description=(
@@ -563,10 +563,10 @@ async def get_combined_measures_sql_v3(
     tags=["sql", "v3"],
 )
 async def get_metrics_sql_v3(
-    metrics: List[str] = Query([]),
-    dimensions: List[str] = Query([]),
-    filters: List[str] = Query([]),
-    cube: Optional[str] = Query(
+    metrics: list[str] = Query([]),
+    dimensions: list[str] = Query([]),
+    filters: list[str] = Query([]),
+    cube: str | None = Query(
         None,
         description=(
             "Cube node name. When provided, the cube's stored filters are "
@@ -574,16 +574,16 @@ async def get_metrics_sql_v3(
             "directly without an additional matching lookup."
         ),
     ),
-    orderby: List[str] = Query(
+    orderby: list[str] = Query(
         [],
         description="ORDER BY clauses using semantic names (e.g., 'v3.total_revenue DESC', 'v3.date.month')",
     ),
-    limit: Optional[int] = Query(
+    limit: int | None = Query(
         None,
         description="Maximum number of rows to return",
     ),
     use_materialized: bool = Query(True),
-    dialect: Optional[Dialect] = Query(
+    dialect: Dialect | None = Query(
         None,
         description="SQL dialect for the generated query. If not specified, "
         "auto-resolves based on cube availability.",
@@ -669,18 +669,18 @@ async def get_metrics_sql_v3(
 
 @router.get("/sql/", response_model=TranslatedSQL, name="Get SQL For Metrics")
 async def get_sql_for_metrics(
-    metrics: List[str] = Query([]),
-    dimensions: List[str] = Query([]),
-    filters: List[str] = Query([]),
-    orderby: List[str] = Query([]),
-    limit: Optional[int] = None,
+    metrics: list[str] = Query([]),
+    dimensions: list[str] = Query([]),
+    filters: list[str] = Query([]),
+    orderby: list[str] = Query([]),
+    limit: int | None = None,
     query_params: str = Query("{}", description="Query parameters"),
     *,
     session: AsyncSession = Depends(get_session),
-    engine_name: Optional[str] = None,
-    engine_version: Optional[str] = None,
-    ignore_errors: Optional[bool] = True,
-    use_materialized: Optional[bool] = True,
+    engine_name: str | None = None,
+    engine_version: str | None = None,
+    ignore_errors: bool = True,
+    use_materialized: bool = True,
     background_tasks: BackgroundTasks,
     cache: Cache = Depends(get_cache),
     request: Request,
@@ -717,20 +717,23 @@ async def get_sql_for_metrics(
         query_type=QueryBuildType.METRICS,
     )
 
-    return await query_cache_manager.get_or_load(
-        background_tasks,
-        request,
-        QueryRequestParams(
-            nodes=metrics,
-            dimensions=dimensions,
-            filters=filters,
-            limit=limit,
-            orderby=orderby,
-            query_params=query_params,
-            engine_name=engine_name,
-            engine_version=engine_version,
-            use_materialized=use_materialized,
-            ignore_errors=ignore_errors,
+    return cast(
+        TranslatedSQL,
+        await query_cache_manager.get_or_load(
+            background_tasks,
+            request,
+            QueryRequestParams(
+                nodes=metrics,
+                dimensions=dimensions,
+                filters=filters,
+                limit=limit,
+                orderby=orderby,
+                query_params=query_params,
+                engine_name=engine_name,
+                engine_version=engine_version,
+                use_materialized=use_materialized,
+                ignore_errors=ignore_errors,
+            ),
+            session=session,  # Pass the session to reuse it
         ),
-        session=session,  # Pass the session to reuse it
     )

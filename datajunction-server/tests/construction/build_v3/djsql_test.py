@@ -6,6 +6,7 @@ to executable SQL using the build_v3 metrics SQL builder.
 """
 
 import pytest
+
 from . import assert_sql_equal
 
 

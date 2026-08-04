@@ -4,7 +4,7 @@ Tests for the nodes API.
 
 import asyncio
 import re
-from typing import Any, Dict
+from typing import Any
 from unittest import mock
 from uuid import uuid4
 
@@ -28,6 +28,8 @@ from datajunction_server.sql.dag import get_upstream_nodes
 from datajunction_server.sql.parsing import ast, types
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.sql.parsing.types import IntegerType, StringType, TimestampType
+from datajunction_server.models.access import ResourceAction
+from tests.authz import VALIDATOR_AUTH_SERVICE, deny
 from tests.sql.utils import compare_query_strings
 
 
@@ -364,7 +366,7 @@ class TestNodeCRUD:
     """
 
     @pytest.fixture
-    def create_dimension_node_payload(self) -> Dict[str, Any]:
+    def create_dimension_node_payload(self) -> dict[str, Any]:
         """
         Payload for creating a dimension node.
         NOTE: Uses unique name to avoid conflicts with template database.
@@ -380,7 +382,7 @@ class TestNodeCRUD:
         }
 
     @pytest.fixture
-    def create_invalid_transform_node_payload(self) -> Dict[str, Any]:
+    def create_invalid_transform_node_payload(self) -> dict[str, Any]:
         """
         Payload for creating a transform node.
         """
@@ -397,7 +399,7 @@ class TestNodeCRUD:
         }
 
     @pytest.fixture
-    def create_transform_node_payload(self) -> Dict[str, Any]:
+    def create_transform_node_payload(self) -> dict[str, Any]:
         """
         Payload for creating a transform node.
         """
@@ -1805,6 +1807,29 @@ class TestNodeCRUD:
         assert response.status_code == 201
 
     @pytest.mark.asyncio
+    async def test_register_table_denies_before_creating_namespace(
+        self,
+        module__client_with_basic,
+        mocker,
+    ):
+        """
+        A caller without WRITE must be denied *before* the namespace is created or
+        reactivated (regression: register_table used to mutate then check).
+        """
+        mocker.patch(
+            VALIDATOR_AUTH_SERVICE,
+            deny(ResourceAction.WRITE),
+        )
+        response = await module__client_with_basic.post(
+            "/register/table/public/denied_reg/widgets/",
+        )
+        assert response.status_code == 403
+        assert "Access denied" in response.json()["message"]
+
+        # The namespace must not have been created (mutation must not precede auth).
+        namespaces = await module__client_with_basic.get("/namespaces/")
+        assert "source.public.denied_reg" not in namespaces.text
+
     async def test_create_source_node_with_query_service(
         self,
         module__client_with_basic,
@@ -2616,7 +2641,7 @@ class TestNodeCRUD:
         catalog: Catalog,
         source_node: Node,
         client: AsyncClient,
-        create_invalid_transform_node_payload: Dict[str, Any],
+        create_invalid_transform_node_payload: dict[str, Any],
     ) -> None:
         """
         Test creating an invalid transform node in draft and published modes.
@@ -2683,7 +2708,7 @@ class TestNodeCRUD:
         catalog: Catalog,
         source_node: Node,
         client: AsyncClient,
-        create_transform_node_payload: Dict[str, Any],
+        create_transform_node_payload: dict[str, Any],
     ) -> None:
         """
         Test creating and updating a transform node that references an existing source.
@@ -3063,7 +3088,7 @@ class TestNodeCRUD:
         catalog: Catalog,
         source_node: Node,
         client: AsyncClient,
-        create_dimension_node_payload: Dict[str, Any],
+        create_dimension_node_payload: dict[str, Any],
     ) -> None:
         """
         Test creating and updating a dimension node that references an existing source.
@@ -3264,7 +3289,7 @@ class TestNodeCRUD:
         catalog: Catalog,
         source_node: Node,
         client: AsyncClient,
-        create_dimension_node_payload: Dict[str, Any],
+        create_dimension_node_payload: dict[str, Any],
     ) -> None:
         """
         Test creating an invalid node in draft mode
@@ -3941,7 +3966,7 @@ class TestNodeColumnsAttributes:
     """
 
     @pytest.fixture
-    def create_source_node_payload(self) -> Dict[str, Any]:
+    def create_source_node_payload(self) -> dict[str, Any]:
         """
         Payload for creating a source node.
         """

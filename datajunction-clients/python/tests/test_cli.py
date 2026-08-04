@@ -5,7 +5,8 @@ import os
 import re
 import sys
 from io import StringIO
-from typing import Callable
+from collections.abc import Callable
+from types import SimpleNamespace
 from unittest import mock
 from unittest.mock import patch
 
@@ -292,6 +293,43 @@ def test_json_output_commands(
     )
     data = json.loads(output)
     assert isinstance(data, (dict, list))
+
+
+def test_describe_cube_json_preserves_column_roles():
+    """Role-played cube columns must remain distinct in CLI JSON output."""
+    builder_client = mock.MagicMock()
+    builder_client.node.return_value = SimpleNamespace(
+        name="v3.role_cube",
+        type="cube",
+        description="Role-playing cube",
+        display_name="Role Cube",
+        query=None,
+        columns=[
+            SimpleNamespace(
+                name="v3.date.date_id",
+                dimension_column="[order]",
+                type="int",
+            ),
+            SimpleNamespace(
+                name="v3.date.date_id",
+                dimension_column="[ship]",
+                type="int",
+            ),
+        ],
+        status="valid",
+        mode="published",
+        version="v1.0",
+    )
+
+    output = run_cli_command(
+        builder_client,
+        ["dj", "describe", "v3.role_cube", "--format", "json"],
+    )
+
+    assert [column["name"] for column in json.loads(output)["columns"]] == [
+        "v3.date.date_id[order]",
+        "v3.date.date_id[ship]",
+    ]
 
 
 @pytest.mark.parametrize(
@@ -751,7 +789,7 @@ def test_data_with_raw_dict_response(builder_client: DJBuilder, capsys):
     """
     import pandas as pd
 
-    raw_response = {"results": [{"columns": [], "rows": []}], "errors": []}
+    raw_response: dict = {"results": [{"columns": [], "rows": []}], "errors": []}
     mock_df = pd.DataFrame()
     with patch.object(builder_client, "data", return_value=raw_response):
         with mock.patch(
@@ -2795,9 +2833,11 @@ class TestGenerateCodeowners:
         output = tmp_path / "CODEOWNERS"
         with patch(
             "datajunction.deployment.DeploymentService.read_yaml_file",
-            side_effect=lambda p: (_ for _ in ()).throw(OSError("unreadable"))
-            if "bad" in str(p)
-            else {"name": "good", "owners": ["alice@example.com"]},
+            side_effect=lambda p: (
+                (_ for _ in ()).throw(OSError("unreadable"))
+                if "bad" in str(p)
+                else {"name": "good", "owners": ["alice@example.com"]}
+            ),
         ):
             count = DeploymentService.build_codeowners(tmp_path, output=output)
 

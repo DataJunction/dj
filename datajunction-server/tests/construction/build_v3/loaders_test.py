@@ -1,6 +1,6 @@
 """Tests for loaders.py - load_available_preaggs function."""
 
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
@@ -16,9 +16,9 @@ from datajunction_server.database.preaggregation import (
 )
 from datajunction_server.database.user import User
 from datajunction_server.models.decompose import (
-    MetricComponent,
-    AggregationRule,
     Aggregability,
+    AggregationRule,
+    MetricComponent,
 )
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.user import OAuthProvider

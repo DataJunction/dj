@@ -3,9 +3,9 @@ Tests for POST /deployments/impact endpoint (orchestrator dry-run).
 """
 
 import asyncio
+from unittest import mock
 
 import pytest
-from unittest import mock
 
 from datajunction_server.models.deployment import (
     ColumnSpec,

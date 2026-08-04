@@ -15,12 +15,12 @@ import pytest
 import pytest_asyncio
 
 from datajunction_server.construction.build_v3.types import GeneratedSQL
+from datajunction_server.database.column import Column
 from datajunction_server.mcp import context, tools
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.node_type import NodeType as NodeTypeEnum
 from datajunction_server.models.sql import ScanEstimate
 from datajunction_server.sql.parsing.backends.antlr4 import parse
-
 
 # ---------------------------------------------------------------------------
 # tools._format_bytes
@@ -591,7 +591,18 @@ async def test_get_node_details_cube_skips_dimension_lookup(
     current.status = MagicMock(value="valid")
     current.mode = MagicMock(value="published")
     current.query = ""
-    current.columns = []
+    current.columns = [
+        Column(
+            name="n.date.date_id",
+            dimension_column="[order]",
+            type="int",
+        ),
+        Column(
+            name="n.date.date_id",
+            dimension_column="[ship]",
+            type="int",
+        ),
+    ]
     current.parents = []
     current.metric_metadata = None
 
@@ -619,8 +630,10 @@ async def test_get_node_details_cube_skips_dimension_lookup(
     monkeypatch.setattr(tools, "get_dimensions", fake_get_dims)
     monkeypatch.setattr(tools, "get_git_info_for_namespace", fake_get_git)
 
-    await tools.get_node_details("n.cube")
+    output = await tools.get_node_details("n.cube")
     assert get_dims_called == []  # cube branch must not call get_dimensions
+    assert "n.date.date_id[order]" in output
+    assert "n.date.date_id[ship]" in output
 
 
 # ---------------------------------------------------------------------------

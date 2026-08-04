@@ -6,10 +6,10 @@ import logging
 
 from passlib.context import CryptContext
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.sql.base import ExecutableOption
 from sqlalchemy.orm import noload, selectinload
+from sqlalchemy.sql.base import ExecutableOption
 
-from datajunction_server.database.rbac import RoleAssignment, Role
+from datajunction_server.database.rbac import Role, RoleAssignment
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJAuthenticationException, DJError, ErrorCode
 

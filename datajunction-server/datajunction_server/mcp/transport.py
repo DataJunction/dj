@@ -27,7 +27,6 @@ from contextlib import (
     asynccontextmanager,
     nullcontext,
 )
-from typing import Optional
 
 from fastapi import FastAPI
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
@@ -41,14 +40,14 @@ from datajunction_server.utils import get_session_manager
 logger = logging.getLogger(__name__)
 
 # Re-export for convenience — tools and tests import from this module.
-__all__ = ["mount_mcp", "get_mcp_session"]
+__all__ = ["get_mcp_session", "mount_mcp"]
 
 
 def mount_mcp(
     app: FastAPI,
     path: str = "/mcp",
     *,
-    request_context: Optional[Callable[[Scope], AbstractContextManager[object]]] = None,
+    request_context: Callable[[Scope], AbstractContextManager[object]] | None = None,
 ) -> None:
     """Mount the MCP HTTP transport on ``app`` at ``path``.
 
@@ -73,7 +72,7 @@ def mount_mcp(
     started_via_lifespan = False
     lazy_started = False
     lazy_lock = asyncio.Lock()
-    lazy_exit_stack: Optional[AsyncExitStack] = None
+    lazy_exit_stack: AsyncExitStack | None = None
 
     async def ensure_started() -> None:
         nonlocal lazy_started, lazy_exit_stack

@@ -6,43 +6,44 @@ import asyncio
 import logging
 import time
 import uuid
-from typing import Optional
+from abc import ABC, abstractmethod
 
-from fastapi import Depends, BackgroundTasks, Request
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import BackgroundTasks, Depends, Request
 from sqlalchemy import select
-from datajunction_server.database.user import User
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from datajunction_server.database.deployment import Deployment
 from datajunction_server.database.namespace import NodeNamespace
+from datajunction_server.database.user import User
 from datajunction_server.errors import DJDoesNotExistException, DJInvalidInputException
-from datajunction_server.internal.caching.cachelib_cache import get_cache
-from datajunction_server.internal.caching.interface import Cache
-from datajunction_server.internal.git.github_service import (
-    GitHubServiceError,
-    GitHubService,
-)
-from datajunction_server.internal.namespaces import resolve_git_config
-from datajunction_server.service_clients import QueryServiceClient
-from datajunction_server.models.deployment import (
-    DeploymentResult,
-    DeploymentSpec,
-    DeploymentInfo,
-    DeploymentSourceType,
-    GitDeploymentSource,
-    LocalDeploymentSource,
-)
 from datajunction_server.instrumentation.provider import get_metrics_provider
-from datajunction_server.internal.deployment.deployment import deploy
-from datajunction_server.internal.deployment.orchestrator import DeploymentOrchestrator
-from datajunction_server.internal.deployment.utils import DeploymentContext
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
     AccessChecker,
     AccessDenialMode,
     get_access_checker,
 )
+from datajunction_server.internal.caching.cachelib_cache import get_cache
+from datajunction_server.internal.caching.interface import Cache
+from datajunction_server.internal.deployment.deployment import deploy
+from datajunction_server.internal.deployment.orchestrator import DeploymentOrchestrator
+from datajunction_server.internal.deployment.utils import DeploymentContext
+from datajunction_server.internal.git.github_service import (
+    GitHubService,
+    GitHubServiceError,
+)
+from datajunction_server.internal.namespaces import resolve_git_config
 from datajunction_server.models import access
-from datajunction_server.models.deployment import DeploymentStatus
+from datajunction_server.models.deployment import (
+    DeploymentInfo,
+    DeploymentResult,
+    DeploymentSourceType,
+    DeploymentSpec,
+    DeploymentStatus,
+    GitDeploymentSource,
+    LocalDeploymentSource,
+)
+from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.utils import (
     get_current_user,
     get_query_service_client,
@@ -50,7 +51,6 @@ from datajunction_server.utils import (
     get_settings,
     session_context,
 )
-from abc import ABC, abstractmethod
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -60,7 +60,7 @@ router = SecureAPIRouter(tags=["deployments"])
 async def _verify_git_deployment(
     session: AsyncSession,
     deployment_spec: DeploymentSpec,
-    namespace_obj: Optional[NodeNamespace],
+    namespace_obj: NodeNamespace | None,
 ) -> None:
     """
     Verify that a deployment to a git_only namespace meets requirements:
@@ -144,11 +144,9 @@ def _normalize_repo_path(repository: str) -> str:
     """
     repo = repository.strip()
     for prefix in ("https://", "http://", "ssh://", "git@"):
-        if repo.startswith(prefix):
-            repo = repo[len(prefix) :]
+        repo = repo.removeprefix(prefix)
     repo = repo.replace(":", "/")
-    if repo.endswith(".git"):
-        repo = repo[: -len(".git")]
+    repo = repo.removesuffix(".git")
     parts = [segment for segment in repo.split("/") if segment]
     return "/".join(parts[-2:]) if len(parts) >= 2 else repo
 

@@ -9,13 +9,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from datajunction_server.internal.materializations import (
+    schedule_materialization_jobs_bg,
+)
 from datajunction_server.internal.nodes import (
     derive_frozen_measures,
     propagate_update_downstream,
     save_column_level_lineage,
-)
-from datajunction_server.internal.materializations import (
-    schedule_materialization_jobs_bg,
 )
 
 
@@ -28,19 +28,21 @@ async def test_propagate_update_downstream_swallows_exceptions(caplog):
         mock_ctx.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        with patch(
-            "datajunction_server.internal.nodes._propagate_update_downstream",
-            side_effect=RuntimeError("boom"),
-        ):
-            with caplog.at_level(
+        with (
+            patch(
+                "datajunction_server.internal.nodes._propagate_update_downstream",
+                side_effect=RuntimeError("boom"),
+            ),
+            caplog.at_level(
                 logging.ERROR,
                 logger="datajunction_server.internal.nodes",
-            ):
-                await propagate_update_downstream(
-                    node=MagicMock(name="test.node"),
-                    current_user=MagicMock(),
-                    save_history=MagicMock(),
-                )
+            ),
+        ):
+            await propagate_update_downstream(
+                node=MagicMock(name="test.node"),
+                current_user=MagicMock(),
+                save_history=MagicMock(),
+            )
 
     assert any("propagating update" in r.message.lower() for r in caplog.records)
 
@@ -63,15 +65,15 @@ async def test_derive_frozen_measures_swallows_exceptions(caplog):
                 "datajunction_server.internal.nodes._derive_frozen_measures_impl",
                 side_effect=RuntimeError("boom"),
             ),
-        ):
-            with caplog.at_level(
+            caplog.at_level(
                 logging.ERROR,
                 logger="datajunction_server.internal.nodes",
-            ):
-                result = await derive_frozen_measures(
-                    node_revision_id=99,
-                    current_user=MagicMock(),
-                )
+            ),
+        ):
+            result = await derive_frozen_measures(
+                node_revision_id=99,
+                current_user=MagicMock(),
+            )
 
     assert result == []
     assert any("deriving frozen measures" in r.message.lower() for r in caplog.records)

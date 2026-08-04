@@ -1,6 +1,8 @@
 """Column database schema."""
 
-from typing import TYPE_CHECKING, List, Optional, Tuple
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from sqlalchemy import BigInteger, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -37,31 +39,31 @@ class Column(Base):  # type: ignore
         BigInteger().with_variant(Integer, "sqlite"),
         primary_key=True,
     )
-    order: Mapped[Optional[int]]
+    order: Mapped[int | None]
     name: Mapped[str] = mapped_column()
-    display_name: Mapped[Optional[str]] = mapped_column(
+    display_name: Mapped[str | None] = mapped_column(
         String,
         insert_default=lambda context: labelize(context.current_parameters.get("name")),
     )
-    type: Mapped[Optional[ColumnType]] = mapped_column(ColumnTypeDecorator)
-    description: Mapped[Optional[str]] = mapped_column()
+    type: Mapped[ColumnType | None] = mapped_column(ColumnTypeDecorator)
+    description: Mapped[str | None] = mapped_column()
 
     # Structured unit metadata. The TypeDecorator validates JSONB into a
     # typed `Unit` (AtomicUnit | CompoundUnit) on read and canonicalizes
     # Unit-or-dict input back to JSONB on write.
-    unit: Mapped[Optional[Unit]] = mapped_column(
+    unit: Mapped[Unit | None] = mapped_column(
         UnitTypeDecorator,
         nullable=True,
     )
 
-    dimension_id: Mapped[Optional[int]] = mapped_column(
+    dimension_id: Mapped[int | None] = mapped_column(
         ForeignKey("node.id", ondelete="SET NULL", name="fk_column_dimension_id_node"),
     )
-    dimension: Mapped[Optional["Node"]] = relationship(
+    dimension: Mapped[Node | None] = relationship(
         "Node",
         lazy="joined",
     )
-    dimension_column: Mapped[Optional[str]] = mapped_column()
+    dimension_column: Mapped[str | None] = mapped_column()
 
     node_revision_id: Mapped[int] = mapped_column(
         ForeignKey(
@@ -73,45 +75,59 @@ class Column(Base):  # type: ignore
         index=True,
     )
 
-    node_revision: Mapped["NodeRevision"] = relationship(
+    node_revision: Mapped[NodeRevision] = relationship(
         "NodeRevision",
         foreign_keys=[node_revision_id],
         back_populates="columns",
     )
 
-    attributes: Mapped[List["ColumnAttribute"]] = relationship(
+    attributes: Mapped[list[ColumnAttribute]] = relationship(
         back_populates="column",
         lazy="selectin",
         cascade="all,delete",
     )
-    measure_id: Mapped[Optional[int]] = mapped_column(
+    measure_id: Mapped[int | None] = mapped_column(
         ForeignKey(
             "measures.id",
             name="fk_column_measure_id_measures",
             ondelete="SET NULL",
         ),
     )
-    measure: Mapped["Measure"] = relationship(back_populates="columns")
+    measure: Mapped[Measure] = relationship(back_populates="columns")
 
-    partition_id: Mapped[Optional[int]] = mapped_column(
+    partition_id: Mapped[int | None] = mapped_column(
         ForeignKey(
             "partition.id",
             name="fk_column_partition_id_partition",
             ondelete="SET NULL",
         ),
     )
-    partition: Mapped["Partition"] = relationship(
+    partition: Mapped[Partition] = relationship(
         lazy="joined",
         primaryjoin="Column.id==Partition.column_id",
         uselist=False,
         cascade="all,delete",
     )
 
-    def to_spec(self):
+    @property
+    def cube_element_name(self) -> str:
+        """Role-qualified identity for a column on a cube revision.
+
+        Cube columns store the dimension attribute FQN in ``name`` and the
+        role suffix (for example, ``[order_date]``) separately in
+        ``dimension_column``.  Both parts are required to distinguish two
+        role-played uses of the same dimension attribute.
+
+        ``dimension_column`` has different semantics on non-cube columns, so
+        callers should only use this property for columns owned by cubes.
+        """
+        return self.name + (self.dimension_column or "")
+
+    def to_spec(self, *, include_cube_role: bool = False):
         from datajunction_server.models.deployment import ColumnSpec
 
         return ColumnSpec(
-            name=self.name,
+            name=self.cube_element_name if include_cube_role else self.name,
             type=str(self.type),
             display_name=self.display_name,
             description=self.description,
@@ -121,7 +137,7 @@ class Column(Base):  # type: ignore
             unit=self.unit,
         )
 
-    def identifier(self) -> Tuple[str, ColumnType]:
+    def identifier(self) -> tuple[str, ColumnType]:
         """
         Unique identifier for this column.
         """
@@ -180,7 +196,7 @@ class Column(Base):  # type: ignore
         """
         return f"{self.node_revision.name}.{self.name}"  # type: ignore
 
-    def copy(self) -> "Column":
+    def copy(self) -> Column:
         """
         Returns a full copy of the column
         """
