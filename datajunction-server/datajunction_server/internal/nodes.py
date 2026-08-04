@@ -154,6 +154,7 @@ async def create_a_source_node(
         access_checker=access_checker,
         background_tasks=background_tasks,
         save_history=save_history,
+        access_target=_create_access_target(data),
     ):
         return recreated_node
 
@@ -245,6 +246,8 @@ async def create_a_node(
 
     await raise_if_node_exists(session, data.name)
 
+    create_access_target = _create_access_target(data)
+
     # if the node previously existed and now is inactive
     if recreated_node := await create_node_from_inactive(
         new_node_type=node_type,
@@ -257,6 +260,7 @@ async def create_a_node(
         access_checker=access_checker,
         save_history=save_history,
         cache=cache,
+        access_target=create_access_target,
     ):
         return recreated_node  # pragma: no cover
 
@@ -302,10 +306,6 @@ async def create_a_node(
         current_user=current_user,
         save_history=save_history,
     )
-
-    # Node creation is governed on the target namespace, so the background work
-    # re-authorizes that same resource (see _background_write_allowed).
-    create_access_target = Resource.from_namespace(data.namespace)
 
     # For metric nodes, derive the referenced frozen measures and save them
     if node.type == NodeType.METRIC:
@@ -354,6 +354,7 @@ async def create_a_cube(
         background_tasks=background_tasks,
         access_checker=access_checker,
         save_history=save_history,
+        access_target=_create_access_target(data),
     ):
         return recreated_node  # pragma: no cover
 
@@ -714,6 +715,19 @@ async def create_cube_node_revision(
         custom_metadata=data.custom_metadata,
     )
     return node_revision
+
+
+def _create_access_target(
+    data: CreateSourceNode | CreateNode | CreateCubeNode,
+) -> Resource:
+    """
+    The resource a create endpoint governs: the node's target namespace.
+
+    Background work scheduled by a create re-authorizes this rather than the node
+    (see ``_background_write_allowed``), including on the re-creation path, which
+    routes through the update helper.
+    """
+    return Resource.from_namespace(data.namespace or get_namespace_from_name(data.name))
 
 
 async def _background_write_allowed(
@@ -1316,10 +1330,16 @@ async def update_node_with_query(
     access_checker: AccessChecker,
     save_history: Callable,
     cache: Cache | None = None,
+    access_target: Resource | None = None,
 ) -> Node:
     """
     Update the named node with the changes defined in the UpdateNode object.
     Propagate these changes to all of the node's downstream children.
+
+    ``access_target`` is the resource the calling endpoint authorized, used by the
+    background work scheduled below. It defaults to the node, which is what the
+    update endpoint governs; re-creating an inactive node routes here from the
+    create endpoint, which governs the target namespace instead.
 
     Note: this function works for both source nodes and nodes with query (transforms,
     dimensions, metrics). We should update it to separate out the logic for source nodes
@@ -1431,8 +1451,7 @@ async def update_node_with_query(
             save_column_level_lineage,
             node_revision_id=new_revision.id,
             current_user=current_user,
-            # Node updates are governed on the node itself.
-            access_target=Resource.from_node(new_revision),
+            access_target=access_target or Resource.from_node(new_revision),
         )
         # TODO: Do not save this until:
         #   1. We get to the bottom of why there are query building discrepancies
@@ -1937,10 +1956,15 @@ async def create_node_from_inactive(
     background_tasks: BackgroundTasks = None,
     access_checker: AccessChecker | None = None,
     cache: Cache | None = None,
+    access_target: Resource | None = None,
 ) -> Node | None:
     """
     If the node existed and is inactive the re-creation takes different steps than
     creating it from scratch.
+
+    ``access_target`` is forwarded to the update path so background work
+    re-authorizes what the *create* endpoint governed (the namespace), not the
+    node that path would otherwise assume.
     """
     previous_inactive_node = await Node.get_by_name(
         session,
@@ -1988,6 +2012,7 @@ async def create_node_from_inactive(
                 access_checker=access_checker,  # type: ignore
                 save_history=save_history,
                 cache=cache,
+                access_target=access_target,
             )
         else:
             await update_cube_node(

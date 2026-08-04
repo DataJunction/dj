@@ -1,21 +1,19 @@
 """
 Authorization on the background mutation path (#2234 step 0).
 
-These tasks run after the HTTP response has returned, in their own session, so
-they sit outside the request's AccessChecker. Two contracts follow from that:
+These tasks run after the response, in their own session, outside the request's
+AccessChecker. Two contracts follow:
 
 * ``derive_frozen_measures`` and ``save_column_level_lineage`` re-authorize the
-  resource their scheduling endpoint governed -- the target namespace for
-  creation, the node for updates -- rather than trusting that caller to have
-  checked. The resource matters: a namespace scope reaches a node request only
-  through pattern matching, so authorizing the node would deny work scheduled by
-  a create that a namespace-scoped grant allowed.
+  resource their endpoint governed -- the namespace for creation, the node for
+  updates. Authorizing the node instead would deny work scheduled by a create
+  that a namespace-scoped grant allowed, since a namespace scope reaches a node
+  request only by pattern matching.
 
-* ``propagate_update_downstream`` deliberately does *not* authorize, because a
-  node is only downstream once its own owner points it at the upstream. Gating it
-  would either block owners whose nodes have dependents, or skip the denied ones
-  and leave the graph asserting VALID for nodes that are now broken -- silently,
-  since propagation swallows exceptions.
+* ``propagate_update_downstream`` deliberately does not, since a node is only
+  downstream once its own owner points it at the upstream. Gating it would block
+  owners whose nodes have dependents, or leave the graph asserting VALID for
+  broken nodes -- silently, as propagation swallows exceptions.
 """
 
 from functools import partial
@@ -44,13 +42,15 @@ VALIDATOR_AUTH_SERVICE = (
     "datajunction_server.internal.access.authorization."
     "validator.get_authorization_service"
 )
+LINEAGE_TASK = "datajunction_server.internal.nodes.save_column_level_lineage"
+DERIVE_TASK = "datajunction_server.internal.nodes.derive_frozen_measures"
 
 NAMESPACE = "bgauthz"
 SOURCE = f"{NAMESPACE}.events"
 TRANSFORM = f"{NAMESPACE}.users_per_country"
 METRIC = f"{NAMESPACE}.total_users"
-# Node creation is governed on the target namespace, so that is the resource its
-# background work must re-authorize.
+# Creation is governed on the target namespace, so that is what its background
+# work must re-authorize.
 CREATE_TARGET = access.Resource.from_namespace(NAMESPACE)
 
 
@@ -64,11 +64,8 @@ def allow(_request: access.ResourceRequest) -> bool:
 
 class RecordingAuthorizationService(AuthorizationService):
     """
-    Decides each request by ``approves``, recording what it was asked.
-
-    Recording the requests and the acting principal is what lets a test assert
-    the implementation authorized the *right* resource for the *right* user,
-    rather than only that it consulted authorization at all.
+    Decides each request by ``approves``, recording requests and the principal so
+    tests can assert the *right* resource was authorized for the *right* user.
     """
 
     name = "test_recording_background"
@@ -92,13 +89,13 @@ async def _post(client: AsyncClient, url: str, json=None) -> None:
     assert response.status_code in (200, 201, 409), response.text
 
 
-async def _create_metric(client: AsyncClient, name: str) -> None:
+async def _create_metric(client: AsyncClient, name: str, description: str) -> None:
     await _post(
         client,
         "/nodes/metric/",
         {
             "name": name,
-            "description": "Total users",
+            "description": description,
             "query": f"SELECT SUM(num_users) FROM {TRANSFORM}",
             "mode": "published",
         },
@@ -115,7 +112,6 @@ async def metric_graph(client: AsyncClient) -> None:
         "/nodes/source/",
         {
             "name": SOURCE,
-            "description": "Raw events",
             "columns": [
                 {"name": "id", "type": "int"},
                 {"name": "country", "type": "string"},
@@ -131,7 +127,6 @@ async def metric_graph(client: AsyncClient) -> None:
         "/nodes/transform/",
         {
             "name": TRANSFORM,
-            "description": "Users per country",
             "query": (
                 f"SELECT country, COUNT(DISTINCT id) AS num_users "
                 f"FROM {SOURCE} GROUP BY 1"
@@ -139,67 +134,60 @@ async def metric_graph(client: AsyncClient) -> None:
             "mode": "published",
         },
     )
-    await _create_metric(client, METRIC)
+    await _create_metric(client, METRIC, "Total users")
 
 
 async def _revision(session, name: str) -> NodeRevision:
     """Latest revision of ``name``, read fresh -- the tasks commit elsewhere."""
     session.expire_all()
-    revision = (
-        (
-            await session.execute(
-                select(NodeRevision)
-                .where(NodeRevision.name == name)
-                .order_by(NodeRevision.id.desc()),
-            )
+    query = select(NodeRevision).where(NodeRevision.name == name)
+    revision = (await session.execute(query.order_by(NodeRevision.id.desc()))).scalars()
+    return revision.first()
+
+
+async def _assert_gated_on_write(mocker, task, username, ran) -> None:
+    """``task`` must ask for WRITE on the create target, and run only if granted."""
+    for approves, expected in ((deny, False), (allow, True)):
+        recorder = RecordingAuthorizationService(approves)
+        mocker.patch(VALIDATOR_AUTH_SERVICE, lambda: recorder)
+        await task()
+
+        assert recorder.usernames == [username]
+        assert [
+            (request.verb, request.access_object) for request in recorder.requests
+        ] == [(access.ResourceAction.WRITE, CREATE_TARGET)]
+        assert await ran() is expected, (
+            f"task ran={not expected} with WRITE {'denied' if expected else 'granted'}"
         )
-        .scalars()
-        .first()
-    )
-    assert revision is not None
-    return revision
-
-
-async def _run_task(mocker, task, approves) -> RecordingAuthorizationService:
-    """Run ``task`` under a recording service and hand it back for assertions."""
-    recorder = RecordingAuthorizationService(approves)
-    mocker.patch(VALIDATOR_AUTH_SERVICE, lambda: recorder)
-    await task()
-    return recorder
-
-
-def assert_write_authorized(
-    recorder: RecordingAuthorizationService,
-    username: str,
-    target: access.Resource = CREATE_TARGET,
-) -> None:
-    """The task must have asked for WRITE on ``target``, acting as ``username``."""
-    assert recorder.usernames == [username]
-    assert [(request.verb, request.access_object) for request in recorder.requests] == [
-        (access.ResourceAction.WRITE, target),
-    ]
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("recreate", [False, True], ids=["create", "recreate"])
 async def test_create_schedules_background_work_against_the_namespace(
+    recreate,
     client: AsyncClient,
     metric_graph,
     mocker,
 ):
     """
-    Creation must hand its background tasks the namespace it authorized.
+    Creation hands its background tasks the namespace it authorized.
 
-    Pins the wiring rather than the helper: scheduling a node target would deny
-    the work under the namespace-scoped grant that allowed the create.
+    Re-creating a deleted node routes through ``create_node_from_inactive`` into
+    the update path, whose default target is the node -- which an exact namespace
+    grant does not match, so lineage would be silently skipped.
     """
-    derive = mocker.patch("datajunction_server.internal.nodes.derive_frozen_measures")
-    lineage = mocker.patch(
-        "datajunction_server.internal.nodes.save_column_level_lineage",
-    )
+    lineage = mocker.patch(LINEAGE_TASK)
+    derive = mocker.patch(DERIVE_TASK)
 
-    await _create_metric(client, f"{METRIC}_again")
+    if recreate:
+        assert (await client.delete(f"/nodes/{METRIC}/")).status_code == 200
+        # Recreate with a change; an identical recreate makes no new revision
+        # and so schedules nothing.
+        await _create_metric(client, METRIC, "Total users, again")
+    else:
+        await _create_metric(client, f"{METRIC}_again", "Total users")
+        assert derive.call_args.kwargs["access_target"] == CREATE_TARGET
 
-    assert derive.call_args.kwargs["access_target"] == CREATE_TARGET
     assert lineage.call_args.kwargs["access_target"] == CREATE_TARGET
 
 
@@ -210,12 +198,9 @@ async def test_exact_namespace_grant_authorizes_create_background_work(
     mocker,
 ):
     """
-    An exact namespace WRITE grant -- enough to create the node -- must also
-    satisfy the background work that create schedules.
-
-    Runs the real RBAC matcher under a restrictive policy, since resource type is
-    what decides it: `bgauthz` does not match the node name `bgauthz.total_users`,
-    so authorizing the node would leave a created node without derived metadata.
+    An exact namespace grant -- enough to create the node -- must also satisfy the
+    background work that create schedules. Uses the real RBAC matcher, since the
+    resource type decides it: `bgauthz` does not match `bgauthz.total_users`.
     """
     settings = mocker.patch(
         "datajunction_server.internal.access.authorization.service.settings",
@@ -226,20 +211,20 @@ async def test_exact_namespace_grant_authorizes_create_background_work(
     role = Role(name="bgauthz-namespace-writer", created_by_id=current_user.id)
     session.add(role)
     await session.flush()
-    session.add(
-        RoleScope(
-            role_id=role.id,
-            action=access.ResourceAction.WRITE,
-            scope_type=access.ResourceType.NAMESPACE,
-            scope_value=NAMESPACE,
-        ),
-    )
-    session.add(
-        RoleAssignment(
-            principal_id=current_user.id,
-            role_id=role.id,
-            granted_by_id=current_user.id,
-        ),
+    session.add_all(
+        [
+            RoleScope(
+                role_id=role.id,
+                action=access.ResourceAction.WRITE,
+                scope_type=access.ResourceType.NAMESPACE,
+                scope_value=NAMESPACE,
+            ),
+            RoleAssignment(
+                principal_id=current_user.id,
+                role_id=role.id,
+                granted_by_id=current_user.id,
+            ),
+        ],
     )
     await session.commit()
     mocker.patch(VALIDATOR_AUTH_SERVICE, lambda: RBACAuthorizationService())
@@ -254,7 +239,7 @@ async def test_exact_namespace_grant_authorizes_create_background_work(
 
 
 @pytest.mark.asyncio
-async def test_lineage_authorizes_the_create_target(
+async def test_lineage_gated_on_the_create_target(
     metric_graph,
     session,
     current_user,
@@ -264,58 +249,55 @@ async def test_lineage_authorizes_the_create_target(
     revision = await _revision(session, METRIC)
     revision.lineage = None
     await session.commit()
-    task = partial(
-        save_column_level_lineage,
-        node_revision_id=revision.id,
-        current_user=current_user,
-        access_target=CREATE_TARGET,
-    )
 
-    denied = await _run_task(mocker, task, deny)
-    assert_write_authorized(denied, current_user.username)
-    assert not (await _revision(session, METRIC)).lineage, (
-        "lineage was written despite WRITE being denied"
-    )
+    async def ran() -> bool:
+        return bool((await _revision(session, METRIC)).lineage)
 
-    granted = await _run_task(mocker, task, allow)
-    assert_write_authorized(granted, current_user.username)
-    assert (await _revision(session, METRIC)).lineage, (
-        "lineage was not written when WRITE was granted"
+    await _assert_gated_on_write(
+        mocker,
+        partial(
+            save_column_level_lineage,
+            node_revision_id=revision.id,
+            current_user=current_user,
+            access_target=CREATE_TARGET,
+        ),
+        current_user.username,
+        ran,
     )
 
 
 @pytest.mark.asyncio
-async def test_frozen_measures_authorize_the_create_target(
+async def test_frozen_measures_gated_on_the_create_target(
     metric_graph,
     session,
     current_user,
     mocker,
 ):
     """
-    Derivation runs only when the caller may write the create target.
-
-    Asserts whether the derivation body is reached rather than inspecting the
-    return value, which is empty for several unrelated reasons.
+    Derivation runs only when the caller may write the create target. Observes
+    whether the body was reached, since the return value is empty for several
+    unrelated reasons.
     """
     revision = await _revision(session, METRIC)
     derive = mocker.patch(
         "datajunction_server.internal.nodes._derive_frozen_measures_impl",
         return_value=[],
     )
-    task = partial(
-        derive_frozen_measures,
-        node_revision_id=revision.id,
-        current_user=current_user,
-        access_target=CREATE_TARGET,
+
+    async def ran() -> bool:
+        return derive.called
+
+    await _assert_gated_on_write(
+        mocker,
+        partial(
+            derive_frozen_measures,
+            node_revision_id=revision.id,
+            current_user=current_user,
+            access_target=CREATE_TARGET,
+        ),
+        current_user.username,
+        ran,
     )
-
-    denied = await _run_task(mocker, task, deny)
-    assert_write_authorized(denied, current_user.username)
-    derive.assert_not_called()
-
-    granted = await _run_task(mocker, task, allow)
-    assert_write_authorized(granted, current_user.username)
-    derive.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -327,9 +309,8 @@ async def test_downstream_revalidation_not_gated_on_caller_write(
 ):
     """
     A caller who may write only the upstream still gets downstream revalidation.
-
-    Fails if a WRITE check is ever added to the propagation path -- which is the
-    point: such a check would break cross-namespace graphs.
+    Fails if a WRITE check is added there -- which would break cross-namespace
+    graphs.
     """
     assert (await client.get(f"/nodes/{METRIC}/")).json()["status"] == NodeStatus.VALID
 
