@@ -3392,3 +3392,980 @@ class TestPreAggFreshnessGating:
             await self._metrics_sql(client_with_build_v3, []),
             self.UNFILTERED_SOURCE_SQL,
         )
+
+
+class TestPreAggJoinBack:
+    """
+    Queries routed to a pre-agg that retained a dimension's key but not the
+    attribute asked for. The pre-agg scan becomes a CTE shaped like the parent
+    fact -- its retained key projected under the parent's FK column name -- and
+    the dimension is joined back onto it.
+    """
+
+    TABLE = {
+        "catalog": "default",
+        "schema": "analytics",
+        "table": "rev_by_cust",
+        "valid_through_ts": 20250101,
+    }
+
+    async def _measures_sql(self, client, params):
+        response = await client.get("/sql/measures/v3/", params=params)
+        assert response.status_code == 200, response.text
+        return get_first_grain_group(response.json())["sql"]
+
+    async def _metrics_sql(self, client, params):
+        response = await client.get("/sql/metrics/v3/", params=params)
+        assert response.status_code == 200, response.text
+        return response.json()["sql"]
+
+    @pytest.mark.asyncio
+    async def test_joins_back_to_a_retained_key(self, client_with_build_v3):
+        """The grain keeps the customer key under a physical name of its own; the
+        requested attribute is read by joining the customer dimension on it.
+
+        The emitted join key is the physical column (``cust_key``), aliased to the
+        parent's FK column name (``customer_id``) so the dimension link's join SQL
+        resolves against the scan.
+        """
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=[
+                "v3.customer.customer_id[customer]",
+                "v3.order_details.status",
+            ],
+            table_ref=self.TABLE,
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            dimension_columns={"v3.customer.customer_id[customer]": "cust_key"},
+            table_columns={"cust_key": "int", "status": "string", "rev_sum": "double"},
+        )
+        params = {
+            "metrics": ["v3.total_revenue"],
+            "dimensions": ["v3.customer.name[customer]"],
+        }
+        assert_sql_equal(
+            await self._measures_sql(client_with_build_v3, params),
+            """
+            WITH v3_customer AS (
+                SELECT customer_id, name FROM default.v3.customers
+            ),
+            v3_order_details_preagg AS (
+                SELECT cust_key customer_id, rev_sum
+                FROM default.analytics.rev_by_cust
+            )
+            SELECT t2.name name_customer, SUM(t1.rev_sum) rev_sum
+            FROM v3_order_details_preagg t1
+            LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
+            GROUP BY t2.name
+            """,
+        )
+        assert_sql_equal(
+            await self._metrics_sql(client_with_build_v3, params),
+            """
+            WITH v3_customer AS (
+                SELECT customer_id, name FROM default.v3.customers
+            ),
+            v3_order_details_preagg AS (
+                SELECT cust_key customer_id, rev_sum
+                FROM default.analytics.rev_by_cust
+            ),
+            order_details_0 AS (
+                SELECT t2.name name_customer, SUM(t1.rev_sum) rev_sum
+                FROM v3_order_details_preagg t1
+                LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
+                GROUP BY t2.name
+            )
+            SELECT order_details_0.name_customer AS name_customer,
+                   SUM(order_details_0.rev_sum) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.name_customer
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_direct_match_beats_a_joining_one(self, client_with_build_v3):
+        """A pre-agg covering the request outright wins even when it is at the
+        larger grain -- joins rank ahead of grain size, so no join is emitted."""
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.customer.customer_id[customer]"],
+            table_ref={**self.TABLE, "table": "rev_by_cust_key"},
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            dimension_columns={"v3.customer.customer_id[customer]": "cust_key"},
+            table_columns={"cust_key": "int", "rev_sum": "double"},
+        )
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=[
+                "v3.customer.name[customer]",
+                "v3.order_details.status",
+                "v3.product.category",
+            ],
+            table_ref={**self.TABLE, "table": "rev_by_name_status_cat"},
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            table_columns={
+                "name_customer": "string",
+                "status": "string",
+                "category": "string",
+                "rev_sum": "double",
+            },
+        )
+        params = {
+            "metrics": ["v3.total_revenue"],
+            "dimensions": ["v3.customer.name[customer]"],
+        }
+        assert_sql_equal(
+            await self._measures_sql(client_with_build_v3, params),
+            """
+            SELECT name_customer, SUM(rev_sum) rev_sum
+            FROM default.analytics.rev_by_name_status_cat
+            GROUP BY name_customer
+            """,
+        )
+        assert_sql_equal(
+            await self._metrics_sql(client_with_build_v3, params),
+            """
+            WITH order_details_0 AS (
+                SELECT name_customer, SUM(rev_sum) rev_sum
+                FROM default.analytics.rev_by_name_status_cat
+                GROUP BY name_customer
+            )
+            SELECT order_details_0.name_customer AS name_customer,
+                   SUM(order_details_0.rev_sum) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.name_customer
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_non_additive_measure_builds_from_source(
+        self,
+        client_with_build_v3,
+    ):
+        """A distinct count can't be re-aggregated over a rolled-up grain, and a
+        join back is by definition a roll-up -- so the query builds from source."""
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.order_count"],
+            dimensions=["v3.customer.customer_id[customer]"],
+            table_ref={**self.TABLE, "table": "orders_by_cust"},
+            measure_columns={"v3.order_count": "order_cnt"},
+            dimension_columns={"v3.customer.customer_id[customer]": "cust_key"},
+            table_columns={"cust_key": "int", "order_cnt": "bigint"},
+        )
+        params = {
+            "metrics": ["v3.order_count"],
+            "dimensions": ["v3.customer.name[customer]"],
+        }
+        assert_sql_equal(
+            await self._measures_sql(client_with_build_v3, params),
+            """
+            WITH v3_customer AS (
+                SELECT customer_id, name FROM default.v3.customers
+            ),
+            v3_order_details AS (
+                SELECT o.order_id, o.customer_id
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t2.name name_customer, t1.order_id
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
+            GROUP BY t2.name, t1.order_id
+            """,
+        )
+        assert_sql_equal(
+            await self._metrics_sql(client_with_build_v3, params),
+            """
+            WITH v3_customer AS (
+                SELECT customer_id, name FROM default.v3.customers
+            ),
+            v3_order_details AS (
+                SELECT o.order_id, o.customer_id
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+                SELECT t2.name name_customer, t1.order_id
+                FROM v3_order_details t1
+                LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
+                GROUP BY t2.name, t1.order_id
+            )
+            SELECT order_details_0.name_customer AS name_customer,
+                   COUNT(DISTINCT order_details_0.order_id) AS order_count
+            FROM order_details_0
+            GROUP BY order_details_0.name_customer
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_filter_on_a_joined_back_attribute(self, client_with_build_v3):
+        """A predicate on the joined attribute lands after the join: the pre-agg
+        scan has no such column, and pushing it into the scan would reference one
+        that doesn't exist."""
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=[
+                "v3.customer.customer_id[customer]",
+                "v3.order_details.status",
+            ],
+            table_ref=self.TABLE,
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            dimension_columns={"v3.customer.customer_id[customer]": "cust_key"},
+            table_columns={"cust_key": "int", "status": "string", "rev_sum": "double"},
+        )
+        params = {
+            "metrics": ["v3.total_revenue"],
+            "dimensions": ["v3.order_details.status"],
+            "filters": ["v3.customer.name[customer] = 'Alice'"],
+        }
+        assert_sql_equal(
+            await self._measures_sql(client_with_build_v3, params),
+            """
+            WITH v3_customer AS (
+                SELECT customer_id, name FROM default.v3.customers
+            ),
+            v3_order_details_preagg AS (
+                SELECT cust_key customer_id, status, rev_sum
+                FROM default.analytics.rev_by_cust
+            )
+            SELECT t1.status, t2.name name_customer, SUM(t1.rev_sum) rev_sum
+            FROM v3_order_details_preagg t1
+            LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
+            WHERE t2.name = 'Alice'
+            GROUP BY t1.status, t2.name
+            """,
+        )
+        assert_sql_equal(
+            await self._metrics_sql(client_with_build_v3, params),
+            """
+            WITH v3_customer AS (
+                SELECT customer_id, name FROM default.v3.customers
+            ),
+            v3_order_details_preagg AS (
+                SELECT cust_key customer_id, status, rev_sum
+                FROM default.analytics.rev_by_cust
+            ),
+            order_details_0 AS (
+                SELECT t1.status, t2.name name_customer, SUM(t1.rev_sum) rev_sum
+                FROM v3_order_details_preagg t1
+                LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
+                WHERE t2.name = 'Alice'
+                GROUP BY t1.status, t2.name
+            )
+            SELECT order_details_0.status AS status,
+                   SUM(order_details_0.rev_sum) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.status
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_two_joined_back_attributes_are_both_filtered(
+        self,
+        client_with_build_v3,
+    ):
+        """Two filter-only attributes, each one join off a retained key, are ANDed
+        into the same WHERE against their own dimension aliases."""
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=[
+                "v3.customer.customer_id[customer]",
+                "v3.product.product_id",
+                "v3.order_details.status",
+            ],
+            table_ref={**self.TABLE, "table": "rev_cust_prod_status"},
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            dimension_columns={
+                "v3.customer.customer_id[customer]": "cust_key",
+                "v3.product.product_id": "prod_key",
+            },
+            table_columns={
+                "cust_key": "int",
+                "prod_key": "int",
+                "status": "string",
+                "rev_sum": "double",
+            },
+        )
+        params = {
+            "metrics": ["v3.total_revenue"],
+            "dimensions": ["v3.order_details.status"],
+            "filters": [
+                "v3.customer.name[customer] = 'Alice'",
+                "v3.product.category = 'Electronics'",
+            ],
+        }
+        assert_sql_equal(
+            await self._measures_sql(client_with_build_v3, params),
+            """
+            WITH v3_customer AS (
+                SELECT customer_id, name FROM default.v3.customers
+            ),
+            v3_product AS (
+                SELECT product_id, category FROM default.v3.products
+            ),
+            v3_order_details_preagg AS (
+                SELECT cust_key customer_id, prod_key product_id, status, rev_sum
+                FROM default.analytics.rev_cust_prod_status
+            )
+            SELECT t1.status,
+                   t2.name name_customer,
+                   t3.category,
+                   SUM(t1.rev_sum) rev_sum
+            FROM v3_order_details_preagg t1
+            LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
+            LEFT OUTER JOIN v3_product t3 ON t1.product_id = t3.product_id
+            WHERE t2.name = 'Alice' AND t3.category = 'Electronics'
+            GROUP BY t1.status, t2.name, t3.category
+            """,
+        )
+        assert_sql_equal(
+            await self._metrics_sql(client_with_build_v3, params),
+            """
+            WITH v3_customer AS (
+                SELECT customer_id, name FROM default.v3.customers
+            ),
+            v3_product AS (
+                SELECT product_id, category FROM default.v3.products
+            ),
+            v3_order_details_preagg AS (
+                SELECT cust_key customer_id, prod_key product_id, status, rev_sum
+                FROM default.analytics.rev_cust_prod_status
+            ),
+            order_details_0 AS (
+                SELECT t1.status,
+                       t2.name name_customer,
+                       t3.category,
+                       SUM(t1.rev_sum) rev_sum
+                FROM v3_order_details_preagg t1
+                LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
+                LEFT OUTER JOIN v3_product t3 ON t1.product_id = t3.product_id
+                WHERE t2.name = 'Alice' AND t3.category = 'Electronics'
+                GROUP BY t1.status, t2.name, t3.category
+            )
+            SELECT order_details_0.status AS status,
+                   SUM(order_details_0.rev_sum) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.status
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_retained_column_that_is_not_the_key(self, client_with_build_v3):
+        """The grain keeps ``location_id``, a plain attribute of the customer
+        dimension. Joining on it could match many customers per pre-aggregated row
+        and multiply the revenue, so the query builds from source instead."""
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.customer.location_id[customer]"],
+            table_ref={**self.TABLE, "table": "rev_by_cust_loc"},
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            table_columns={"location_id_customer": "int", "rev_sum": "double"},
+        )
+        params = {
+            "metrics": ["v3.total_revenue"],
+            "dimensions": ["v3.customer.name[customer]"],
+        }
+        assert_sql_equal(
+            await self._measures_sql(client_with_build_v3, params),
+            """
+            WITH v3_customer AS (
+                SELECT customer_id, name FROM default.v3.customers
+            ),
+            v3_order_details AS (
+                SELECT o.customer_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t2.name name_customer,
+                   SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
+            GROUP BY t2.name
+            """,
+        )
+        assert_sql_equal(
+            await self._metrics_sql(client_with_build_v3, params),
+            """
+            WITH v3_customer AS (
+                SELECT customer_id, name FROM default.v3.customers
+            ),
+            v3_order_details AS (
+                SELECT o.customer_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+                SELECT t2.name name_customer,
+                       SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
+                GROUP BY t2.name
+            )
+            SELECT order_details_0.name_customer AS name_customer,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.name_customer
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_key_retained_at_another_role(self, client_with_build_v3):
+        """The grain keeps the location key at the ``from`` role while the query
+        asks for the ``to`` role: a different join path, so no match."""
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.location.location_id[from]"],
+            table_ref={**self.TABLE, "table": "rev_by_from_loc"},
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            table_columns={"location_id_from": "int", "rev_sum": "double"},
+        )
+        params = {
+            "metrics": ["v3.total_revenue"],
+            "dimensions": ["v3.location.city[to]"],
+        }
+        assert_sql_equal(
+            await self._measures_sql(client_with_build_v3, params),
+            """
+            WITH v3_location AS (
+                SELECT location_id, city FROM default.v3.locations
+            ),
+            v3_order_details AS (
+                SELECT o.to_location_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t2.city city_to, SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_location t2 ON t1.to_location_id = t2.location_id
+            GROUP BY t2.city
+            """,
+        )
+        assert_sql_equal(
+            await self._metrics_sql(client_with_build_v3, params),
+            """
+            WITH v3_location AS (
+                SELECT location_id, city FROM default.v3.locations
+            ),
+            v3_order_details AS (
+                SELECT o.to_location_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+                SELECT t2.city city_to, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                LEFT OUTER JOIN v3_location t2 ON t1.to_location_id = t2.location_id
+                GROUP BY t2.city
+            )
+            SELECT order_details_0.city_to AS city_to,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.city_to
+            """,
+        )
+
+    async def _add_composite_key_dimension(self, client):
+        """A dimension keyed on (order_id, line_number), linked to the fact."""
+        response = await client.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.order_line",
+                "description": "Order line dimension with a composite primary key",
+                "query": (
+                    "SELECT order_id, line_number, product_id FROM v3.src_order_items"
+                ),
+                "mode": "published",
+                "primary_key": ["order_id", "line_number"],
+            },
+        )
+        assert response.status_code == 201, response.text
+        response = await client.post(
+            "/nodes/v3.order_details/link",
+            json={
+                "dimension_node": "v3.order_line",
+                "join_type": "left",
+                "join_on": (
+                    "v3.order_details.order_id = v3.order_line.order_id "
+                    "AND v3.order_details.line_number = v3.order_line.line_number"
+                ),
+                "role": "line",
+            },
+        )
+        assert response.status_code == 201, response.text
+
+    @pytest.mark.asyncio
+    async def test_composite_key_fully_retained(self, client_with_build_v3):
+        """Both key columns are in the grain, so the join ANDs them together --
+        each pre-aggregated row matches exactly one dimension row."""
+        await self._add_composite_key_dimension(client_with_build_v3)
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=[
+                "v3.order_line.order_id[line]",
+                "v3.order_line.line_number[line]",
+            ],
+            table_ref={**self.TABLE, "table": "rev_by_line"},
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            dimension_columns={
+                "v3.order_line.order_id[line]": "ord",
+                "v3.order_line.line_number[line]": "ln",
+            },
+            table_columns={"ord": "int", "ln": "int", "rev_sum": "double"},
+        )
+        params = {
+            "metrics": ["v3.total_revenue"],
+            "dimensions": ["v3.order_line.product_id[line]"],
+        }
+        assert_sql_equal(
+            await self._measures_sql(client_with_build_v3, params),
+            """
+            WITH v3_order_line AS (
+                SELECT order_id, line_number, product_id
+                FROM default.v3.order_items
+            ),
+            v3_order_details_preagg AS (
+                SELECT ord order_id, ln line_number, rev_sum
+                FROM default.analytics.rev_by_line
+            )
+            SELECT t2.product_id product_id_line, SUM(t1.rev_sum) rev_sum
+            FROM v3_order_details_preagg t1
+            LEFT OUTER JOIN v3_order_line t2
+                ON t1.order_id = t2.order_id AND t1.line_number = t2.line_number
+            GROUP BY t2.product_id
+            """,
+        )
+        assert_sql_equal(
+            await self._metrics_sql(client_with_build_v3, params),
+            """
+            WITH v3_order_line AS (
+                SELECT order_id, line_number, product_id
+                FROM default.v3.order_items
+            ),
+            v3_order_details_preagg AS (
+                SELECT ord order_id, ln line_number, rev_sum
+                FROM default.analytics.rev_by_line
+            ),
+            order_details_0 AS (
+                SELECT t2.product_id product_id_line, SUM(t1.rev_sum) rev_sum
+                FROM v3_order_details_preagg t1
+                LEFT OUTER JOIN v3_order_line t2
+                    ON t1.order_id = t2.order_id
+                    AND t1.line_number = t2.line_number
+                GROUP BY t2.product_id
+            )
+            SELECT order_details_0.product_id_line AS product_id_line,
+                   SUM(order_details_0.rev_sum) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.product_id_line
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_composite_key_only_partly_retained(self, client_with_build_v3):
+        """Half a composite key can match several dimension rows per pre-aggregated
+        row, so the pre-agg is refused and the query builds from source."""
+        await self._add_composite_key_dimension(client_with_build_v3)
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.order_line.order_id[line]"],
+            table_ref={**self.TABLE, "table": "rev_by_order"},
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            table_columns={"order_id_line": "int", "rev_sum": "double"},
+        )
+        params = {
+            "metrics": ["v3.total_revenue"],
+            "dimensions": ["v3.order_line.product_id[line]"],
+        }
+        assert_sql_equal(
+            await self._measures_sql(client_with_build_v3, params),
+            """
+            WITH v3_order_details AS (
+                SELECT o.order_id,
+                       oi.line_number,
+                       oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_order_line AS (
+                SELECT order_id, line_number, product_id
+                FROM default.v3.order_items
+            )
+            SELECT t2.product_id product_id_line,
+                   SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_order_line t2
+                ON t1.order_id = t2.order_id AND t1.line_number = t2.line_number
+            GROUP BY t2.product_id
+            """,
+        )
+        assert_sql_equal(
+            await self._metrics_sql(client_with_build_v3, params),
+            """
+            WITH v3_order_details AS (
+                SELECT o.order_id,
+                       oi.line_number,
+                       oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_order_line AS (
+                SELECT order_id, line_number, product_id
+                FROM default.v3.order_items
+            ),
+            order_details_0 AS (
+                SELECT t2.product_id product_id_line,
+                       SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                LEFT OUTER JOIN v3_order_line t2
+                    ON t1.order_id = t2.order_id
+                    AND t1.line_number = t2.line_number
+                GROUP BY t2.product_id
+            )
+            SELECT order_details_0.product_id_line AS product_id_line,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.product_id_line
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_two_dimensions_joined_back(self, client_with_build_v3):
+        """Two retained keys, two dimensions joined onto the same scan."""
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=[
+                "v3.customer.customer_id[customer]",
+                "v3.product.product_id",
+            ],
+            table_ref={**self.TABLE, "table": "rev_by_cust_prod"},
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            dimension_columns={
+                "v3.customer.customer_id[customer]": "cust_key",
+                "v3.product.product_id": "prod_key",
+            },
+            table_columns={"cust_key": "int", "prod_key": "int", "rev_sum": "double"},
+        )
+        params = {
+            "metrics": ["v3.total_revenue"],
+            "dimensions": ["v3.customer.name[customer]", "v3.product.category"],
+        }
+        assert_sql_equal(
+            await self._measures_sql(client_with_build_v3, params),
+            """
+            WITH v3_customer AS (
+                SELECT customer_id, name FROM default.v3.customers
+            ),
+            v3_product AS (
+                SELECT product_id, category FROM default.v3.products
+            ),
+            v3_order_details_preagg AS (
+                SELECT cust_key customer_id, prod_key product_id, rev_sum
+                FROM default.analytics.rev_by_cust_prod
+            )
+            SELECT t2.name name_customer, t3.category, SUM(t1.rev_sum) rev_sum
+            FROM v3_order_details_preagg t1
+            LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
+            LEFT OUTER JOIN v3_product t3 ON t1.product_id = t3.product_id
+            GROUP BY t2.name, t3.category
+            """,
+        )
+        assert_sql_equal(
+            await self._metrics_sql(client_with_build_v3, params),
+            """
+            WITH v3_customer AS (
+                SELECT customer_id, name FROM default.v3.customers
+            ),
+            v3_product AS (
+                SELECT product_id, category FROM default.v3.products
+            ),
+            v3_order_details_preagg AS (
+                SELECT cust_key customer_id, prod_key product_id, rev_sum
+                FROM default.analytics.rev_by_cust_prod
+            ),
+            order_details_0 AS (
+                SELECT t2.name name_customer, t3.category, SUM(t1.rev_sum) rev_sum
+                FROM v3_order_details_preagg t1
+                LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
+                LEFT OUTER JOIN v3_product t3 ON t1.product_id = t3.product_id
+                GROUP BY t2.name, t3.category
+            )
+            SELECT order_details_0.name_customer AS name_customer,
+                   order_details_0.category AS category,
+                   SUM(order_details_0.rev_sum) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.name_customer, order_details_0.category
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_one_dimension_joined_back_at_two_roles(self, client_with_build_v3):
+        """Both location keys are retained, so the same dimension is joined twice
+        under distinct aliases -- the two ``city`` columns don't collide."""
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=[
+                "v3.location.location_id[from]",
+                "v3.location.location_id[to]",
+            ],
+            table_ref={**self.TABLE, "table": "rev_by_lanes"},
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            dimension_columns={
+                "v3.location.location_id[from]": "orig",
+                "v3.location.location_id[to]": "dest",
+            },
+            table_columns={"orig": "int", "dest": "int", "rev_sum": "double"},
+        )
+        params = {
+            "metrics": ["v3.total_revenue"],
+            "dimensions": ["v3.location.city[from]", "v3.location.city[to]"],
+        }
+        assert_sql_equal(
+            await self._measures_sql(client_with_build_v3, params),
+            """
+            WITH v3_location AS (
+                SELECT location_id, city FROM default.v3.locations
+            ),
+            v3_order_details_preagg AS (
+                SELECT orig from_location_id, dest to_location_id, rev_sum
+                FROM default.analytics.rev_by_lanes
+            )
+            SELECT t2.city city_from, t3.city city_to, SUM(t1.rev_sum) rev_sum
+            FROM v3_order_details_preagg t1
+            LEFT OUTER JOIN v3_location t2 ON t1.from_location_id = t2.location_id
+            LEFT OUTER JOIN v3_location t3 ON t1.to_location_id = t3.location_id
+            GROUP BY t2.city, t3.city
+            """,
+        )
+        assert_sql_equal(
+            await self._metrics_sql(client_with_build_v3, params),
+            """
+            WITH v3_location AS (
+                SELECT location_id, city FROM default.v3.locations
+            ),
+            v3_order_details_preagg AS (
+                SELECT orig from_location_id, dest to_location_id, rev_sum
+                FROM default.analytics.rev_by_lanes
+            ),
+            order_details_0 AS (
+                SELECT t2.city city_from, t3.city city_to, SUM(t1.rev_sum) rev_sum
+                FROM v3_order_details_preagg t1
+                LEFT OUTER JOIN v3_location t2 ON t1.from_location_id = t2.location_id
+                LEFT OUTER JOIN v3_location t3 ON t1.to_location_id = t3.location_id
+                GROUP BY t2.city, t3.city
+            )
+            SELECT order_details_0.city_from AS city_from,
+                   order_details_0.city_to AS city_to,
+                   SUM(order_details_0.rev_sum) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.city_from, order_details_0.city_to
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_joined_attribute_shares_a_name_with_a_preagg_column(
+        self,
+        client_with_build_v3,
+    ):
+        """The pre-agg stores ``status`` in a physical column called ``name``, the
+        same name as the joined customer attribute. Every reference is
+        table-qualified, so the predicate binds to the dimension's ``name`` rather
+        than the pre-agg's."""
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=[
+                "v3.customer.customer_id[customer]",
+                "v3.order_details.status",
+            ],
+            table_ref={**self.TABLE, "table": "rev_shadowed"},
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            dimension_columns={
+                "v3.customer.customer_id[customer]": "cust_key",
+                "v3.order_details.status": "name",
+            },
+            table_columns={"cust_key": "int", "name": "string", "rev_sum": "double"},
+        )
+        params = {
+            "metrics": ["v3.total_revenue"],
+            "dimensions": ["v3.order_details.status"],
+            "filters": ["v3.customer.name[customer] = 'Alice'"],
+        }
+        assert_sql_equal(
+            await self._measures_sql(client_with_build_v3, params),
+            """
+            WITH v3_customer AS (
+                SELECT customer_id, name FROM default.v3.customers
+            ),
+            v3_order_details_preagg AS (
+                SELECT cust_key customer_id, name status, rev_sum
+                FROM default.analytics.rev_shadowed
+            )
+            SELECT t1.status, t2.name name_customer, SUM(t1.rev_sum) rev_sum
+            FROM v3_order_details_preagg t1
+            LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
+            WHERE t2.name = 'Alice'
+            GROUP BY t1.status, t2.name
+            """,
+        )
+        assert_sql_equal(
+            await self._metrics_sql(client_with_build_v3, params),
+            """
+            WITH v3_customer AS (
+                SELECT customer_id, name FROM default.v3.customers
+            ),
+            v3_order_details_preagg AS (
+                SELECT cust_key customer_id, name status, rev_sum
+                FROM default.analytics.rev_shadowed
+            ),
+            order_details_0 AS (
+                SELECT t1.status, t2.name name_customer, SUM(t1.rev_sum) rev_sum
+                FROM v3_order_details_preagg t1
+                LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
+                WHERE t2.name = 'Alice'
+                GROUP BY t1.status, t2.name
+            )
+            SELECT order_details_0.status AS status,
+                   SUM(order_details_0.rev_sum) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.status
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_joins_back_to_a_materialized_dimension(self, client_with_build_v3):
+        """A materialized dimension is joined as its physical table, with no CTE."""
+        response = await client_with_build_v3.post(
+            "/data/v3.customer/availability/",
+            json={
+                "catalog": "analytics",
+                "schema_": "dim",
+                "table": "customer_dim",
+                "valid_through_ts": 9999999999,
+            },
+        )
+        assert response.status_code == 200, response.text
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.customer.customer_id[customer]"],
+            table_ref={**self.TABLE, "table": "rev_by_cust_key"},
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            dimension_columns={"v3.customer.customer_id[customer]": "cust_key"},
+            table_columns={"cust_key": "int", "rev_sum": "double"},
+        )
+        params = {
+            "metrics": ["v3.total_revenue"],
+            "dimensions": ["v3.customer.name[customer]"],
+        }
+        assert_sql_equal(
+            await self._measures_sql(client_with_build_v3, params),
+            """
+            WITH v3_order_details_preagg AS (
+                SELECT cust_key customer_id, rev_sum
+                FROM default.analytics.rev_by_cust_key
+            )
+            SELECT t2.name name_customer, SUM(t1.rev_sum) rev_sum
+            FROM v3_order_details_preagg t1
+            LEFT OUTER JOIN analytics.dim.customer_dim t2
+                ON t1.customer_id = t2.customer_id
+            GROUP BY t2.name
+            """,
+        )
+        assert_sql_equal(
+            await self._metrics_sql(client_with_build_v3, params),
+            """
+            WITH v3_order_details_preagg AS (
+                SELECT cust_key customer_id, rev_sum
+                FROM default.analytics.rev_by_cust_key
+            ),
+            order_details_0 AS (
+                SELECT t2.name name_customer, SUM(t1.rev_sum) rev_sum
+                FROM v3_order_details_preagg t1
+                LEFT OUTER JOIN analytics.dim.customer_dim t2
+                    ON t1.customer_id = t2.customer_id
+                GROUP BY t2.name
+            )
+            SELECT order_details_0.name_customer AS name_customer,
+                   SUM(order_details_0.rev_sum) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.name_customer
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_retained_key_is_also_requested(self, client_with_build_v3):
+        """Asking for the key alongside the attribute projects the key twice out of
+        the scan: once under the parent's FK name for the join, once under the name
+        the outer query selects. The second yields to the first, so the two don't
+        collide."""
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_revenue"],
+            dimensions=[
+                "v3.customer.customer_id[customer]",
+                "v3.order_details.status",
+            ],
+            table_ref=self.TABLE,
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            dimension_columns={"v3.customer.customer_id[customer]": "cust_key"},
+            table_columns={"cust_key": "int", "status": "string", "rev_sum": "double"},
+        )
+        params = {
+            "metrics": ["v3.total_revenue"],
+            "dimensions": ["v3.customer.customer_id", "v3.customer.name[customer]"],
+        }
+        assert_sql_equal(
+            await self._measures_sql(client_with_build_v3, params),
+            """
+            WITH v3_customer AS (
+                SELECT customer_id, name FROM default.v3.customers
+            ),
+            v3_order_details_preagg AS (
+                SELECT cust_key customer_id, cust_key customer_id_1, rev_sum
+                FROM default.analytics.rev_by_cust
+            )
+            SELECT t1.customer_id_1 customer_id,
+                   t2.name name_customer,
+                   SUM(t1.rev_sum) rev_sum
+            FROM v3_order_details_preagg t1
+            LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
+            GROUP BY t1.customer_id_1, t2.name
+            """,
+        )
+        assert_sql_equal(
+            await self._metrics_sql(client_with_build_v3, params),
+            """
+            WITH v3_customer AS (
+                SELECT customer_id, name FROM default.v3.customers
+            ),
+            v3_order_details_preagg AS (
+                SELECT cust_key customer_id, cust_key customer_id_1, rev_sum
+                FROM default.analytics.rev_by_cust
+            ),
+            order_details_0 AS (
+                SELECT t1.customer_id_1 customer_id,
+                       t2.name name_customer,
+                       SUM(t1.rev_sum) rev_sum
+                FROM v3_order_details_preagg t1
+                LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
+                GROUP BY t1.customer_id_1, t2.name
+            )
+            SELECT order_details_0.customer_id AS customer_id,
+                   order_details_0.name_customer AS name_customer,
+                   SUM(order_details_0.rev_sum) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.customer_id, order_details_0.name_customer
+            """,
+        )
