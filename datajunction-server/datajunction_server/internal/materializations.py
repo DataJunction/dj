@@ -325,6 +325,66 @@ def _materialization_name(
     )
 
 
+def stop_cube_materialization_workflows(
+    query_service_client: QueryServiceClient,
+    cube_name: str,
+    cube_version: str,
+    materializations: list[Materialization],
+    request_headers: dict[str, str] | None = None,
+) -> None:
+    """
+    Ask the query service to stop the workflows behind cube materializations.
+
+    Workflow names recorded on the materialization configs are stopped together in
+    one call. Materializations predating persisted workflow names fall back to the
+    cube name + version endpoint, whose arguments are identical for every
+    materialization on a revision, so it is called at most once.
+
+    Never raises: a query service that is unreachable, or that has already forgotten
+    the workflow, must not block the DJ-side operation that triggered the teardown.
+    """
+    workflow_names: list[str] = []
+    needs_legacy_stop = False
+    for materialization in materializations:
+        config = (
+            materialization.config if isinstance(materialization.config, dict) else {}
+        )
+        names = config.get("workflow_names", [])
+        if names:
+            workflow_names.extend(names)
+        else:
+            needs_legacy_stop = True
+    try:
+        if workflow_names:
+            query_service_client.deactivate_workflows(
+                workflow_names=workflow_names,
+                request_headers=request_headers,
+            )
+            _logger.info(
+                "Deactivated workflows for cube=%s: %s",
+                cube_name,
+                workflow_names,
+            )
+        if needs_legacy_stop:
+            query_service_client.deactivate_cube_workflow(
+                cube_name,
+                version=cube_version,
+                request_headers=request_headers,
+            )
+            _logger.info(
+                "Deactivated workflow for cube=%s version=%s (legacy)",
+                cube_name,
+                cube_version,
+            )
+    except Exception as exc:
+        _logger.warning(
+            "Failed to deactivate workflows for cube=%s version=%s: %s (continuing)",
+            cube_name,
+            cube_version,
+            str(exc),
+        )
+
+
 async def schedule_materialization_jobs(
     session: AsyncSession,
     node_revision_id: int,
