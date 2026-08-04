@@ -131,6 +131,11 @@ services:
       - djqs-network
     build:
       context: ./datajunction-query
+    environment:
+      # Without this the query service starts with no engines or catalogs
+      # configured, and every /table/.../register call fails with
+      # "cannot find engine trino with version 451".
+      - CONFIGURATION_FILE=/code/config.djqs.yml
     volumes:
       - ./datajunction-query:/code
       - /code/.venv  # Isolate container venv from local

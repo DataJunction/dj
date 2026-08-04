@@ -51,7 +51,7 @@ def test_integration():
     dj.create_namespace("integration.tests.trino")
     source = dj.create_source(
         name="integration.tests.source1",
-        catalog="unknown",
+        catalog="tpch",
         schema="db",
         table="tbl",
         display_name="Test Source with Columns",
