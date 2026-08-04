@@ -1794,7 +1794,7 @@ async def _propagate_update_downstream(
     whenever another team depends on them, or skip the denied ones and leave the
     graph asserting VALID for nodes that are now broken -- silently, since the
     caller above swallows exceptions. Pinned by
-    tests/api/background_propagation_test.py.
+    tests/internal/nodes/background_authz_test.py.
     """
     _logger.info("Propagating update of node %s downstream", node.name)
     downstreams = await get_downstream_nodes(
