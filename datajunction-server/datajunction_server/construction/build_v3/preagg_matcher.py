@@ -9,7 +9,6 @@ tables are available.
 from __future__ import annotations
 
 import logging
-import sys
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -23,6 +22,7 @@ from datajunction_server.database.preaggregation import (
 )
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.decompose import Aggregability, MetricComponent
+from datajunction_server.models.dimensionlink import JoinType
 from datajunction_server.models.preaggregation import TemporalPartitionColumn
 from datajunction_server.naming import SEPARATOR
 
@@ -34,6 +34,7 @@ if TYPE_CHECKING:
         ResolvedDimension,
     )
     from datajunction_server.database.column import Column
+    from datajunction_server.database.dimensionlink import DimensionLink
     from datajunction_server.database.node import Node
 
 logger = logging.getLogger(__name__)
@@ -106,6 +107,9 @@ class JoinBackCoverage:
 
     dimension: ResolvedDimension
     key_refs: tuple[str, ...]
+    # The one link reaching the dimension; is_join_back_safe established there is
+    # exactly one, so consumers don't re-derive it or re-assert the invariant.
+    link: DimensionLink
 
 
 @dataclass(frozen=True)
@@ -130,6 +134,11 @@ def is_join_back_safe(join_path: JoinPath | None) -> bool:
     additional link is only safe if it too cannot fan out, and nothing checks
     that yet.
 
+    The join type matters too: a RIGHT or FULL link makes the *dimension* the
+    preserved side, so a predicate on the pre-agg's own columns would have to be
+    absorbed into the join rather than applied after it -- machinery the source
+    path has and this one doesn't.
+
     This is the seam for asking each link on the path whether it can fan out --
     ``DimensionLink.join_cardinality`` already records that, but it defaults to
     ``MANY_TO_ONE`` for every link nobody annotated, so trusting it today would
@@ -137,7 +146,9 @@ def is_join_back_safe(join_path: JoinPath | None) -> bool:
     should test the path's links rather than count them, which also lifts the
     single-hop restriction.
     """
-    return join_path is not None and len(join_path.links) == 1
+    if join_path is None or len(join_path.links) != 1:
+        return False
+    return join_path.links[0].join_type in (None, JoinType.LEFT, JoinType.INNER)
 
 
 def join_back_coverage(
@@ -192,8 +203,15 @@ def join_back_coverage(
 
         if not is_join_back_safe(rdim.join_path):
             return None
+        assert rdim.join_path is not None  # narrowed by is_join_back_safe
 
-        coverage.append(JoinBackCoverage(dimension=rdim, key_refs=key_refs))
+        coverage.append(
+            JoinBackCoverage(
+                dimension=rdim,
+                key_refs=key_refs,
+                link=rdim.join_path.links[0],
+            ),
+        )
     return coverage
 
 
@@ -256,8 +274,7 @@ def find_matching_preagg(
     # Find a matching pre-agg. Ranked by joins first, then grain size: a pre-agg
     # that covers the request directly always beats one needing a join back, even
     # when the joining one is at a coarser grain.
-    best_match: PreaggMatch | None = None
-    best_cost: tuple[int, float] = (sys.maxsize, float("inf"))
+    candidates: list[tuple[tuple[int, int], PreaggMatch]] = []
 
     for preagg in available:
         preagg_grain_set = {
@@ -312,18 +329,22 @@ def find_matching_preagg(
             )
             continue
 
-        # Found a compatible pre-agg - prefer fewest joins, then smallest grain
-        # (closest to requested grain = less roll-up work)
-        cost = (len(join_back), float(len(preagg_grain_set)))
-        if cost < best_cost:  # pragma: no branch
-            best_match = PreaggMatch(preagg=preagg, join_back=tuple(join_back))
-            best_cost = cost
-            logger.debug(
-                f"[BuildV3] Found matching pre-agg {preagg.id} "
-                f"(grain={preagg_grain_set}, measures={len(preagg_measures)}, "
-                f"joins={len(join_back)})",
-            )
+        logger.debug(
+            f"[BuildV3] Pre-agg {preagg.id} is a candidate "
+            f"(grain={preagg_grain_set}, measures={len(preagg_measures)}, "
+            f"joins={len(join_back)})",
+        )
+        candidates.append(
+            (
+                (len(join_back), len(preagg_grain_set)),
+                PreaggMatch(preagg=preagg, join_back=tuple(join_back)),
+            ),
+        )
 
+    # Fewest joins first, then smallest grain: a pre-agg covering the request
+    # outright always beats one needing a join, and among equals the one closest
+    # to the requested grain is the least roll-up work.
+    best_match = min(candidates, key=lambda c: c[0])[1] if candidates else None
     if best_match:
         logger.info(
             f"[BuildV3] Using pre-agg {best_match.preagg.id} for "

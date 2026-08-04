@@ -1751,9 +1751,13 @@ def find_upstream_temporal_source_node(
     return None
 
 
-def _preagg_column(name: str, table: str | None, alias: str | None = None) -> Any:
+def _preagg_column(
+    name: str,
+    table: str | None,
+    alias: str | None = None,
+) -> ast.Column:
     """A pre-agg column reference, table-qualified when the scan became a CTE."""
-    col = make_column_ref(name, table) if table else ast.Column(name=ast.Name(name))
+    col = make_column_ref(name, table)
     if alias is not None and alias != name:
         col.alias = ast.Name(alias)
     return col
@@ -1767,20 +1771,6 @@ def _unique_name(base: str, taken: dict[str, str]) -> str:
         suffix += 1
         name = f"{base}_{suffix}"
     return name
-
-
-def _joined_dimension_type(ctx: BuildContext, rdim: ResolvedDimension) -> str:
-    """Declared type of a dimension attribute read from the dimension node."""
-    dim_node = ctx.nodes[rdim.node_name]
-    assert dim_node.current is not None  # join_back_coverage checked both
-    return next(
-        (
-            str(col.type)
-            for col in dim_node.current.columns
-            if col.name == rdim.column_name
-        ),
-        "string",
-    )
 
 
 def _preagg_join_key_projection(
@@ -1798,12 +1788,12 @@ def _preagg_join_key_projection(
     """
     projection: dict[str, str] = {}
     for coverage in join_back:
-        join_path = coverage.dimension.join_path
-        assert join_path is not None  # is_join_back_safe guarantees a single link
-        link = join_path.links[0]
-        # foreign_key_mapping is keyed by the dimension's primary key column.
+        link = coverage.link
+        # Already computed: resolve_dimensions touches this on every non-local
+        # dimension's links, and a join-back dimension is non-local by construction.
         fk_by_pk = {
-            pk.name.name: fk.name.name for pk, fk in link.foreign_key_mapping().items()
+            get_short_name(pk): get_short_name(fk)
+            for pk, fk in link.foreign_keys_reversed.items()
         }
         for key_ref in coverage.key_refs:
             key_col = parse_dimension_ref(key_ref).column_name
@@ -1834,9 +1824,7 @@ def _preagg_dimension_ctes(
     needed_columns: dict[str, set[str]] = {}
     for coverage in join_back:
         rdim = coverage.dimension
-        join_path = rdim.join_path
-        assert join_path is not None  # is_join_back_safe guarantees a single link
-        link = join_path.links[0]
+        link = coverage.link
         dim_node = ctx.nodes.get(link.dimension.name, link.dimension)
         if dim_node not in dim_nodes:
             dim_nodes.append(dim_node)
@@ -1846,31 +1834,6 @@ def _preagg_dimension_ctes(
             cols.update(extract_join_columns_for_node(link.join_sql, dim_node.name))
     ctes, scanned_sources, _ = collect_node_ctes(ctx, dim_nodes, needed_columns)
     return ctes, scanned_sources
-
-
-def _resolve_preagg_filter(
-    filter_ast: ast.Expression,
-    ref_columns: dict[str, tuple[str, str | None]],
-) -> None:
-    """
-    Resolve a filter's dimension references to the columns backing them.
-
-    ``ref_columns`` maps each dimension reference to the column name and table
-    alias it reads. Resolution goes through a placeholder per reference rather
-    than through column names, so an attribute read off a joined dimension can't
-    be confused with a pre-agg column that happens to be spelled the same.
-    """
-    tokens = {ref: f"__preagg_ref_{index}" for index, ref in enumerate(ref_columns)}
-    resolve_filter_references(filter_ast, tokens, cte_alias=None)
-    for ref, (col_name, table_alias) in ref_columns.items():
-        resolved = (
-            ast.Name(col_name, namespace=ast.Name(table_alias))
-            if table_alias
-            else ast.Name(col_name)
-        )
-        for col in filter_ast.find_all(ast.Column):
-            if col.name.name == tokens[ref]:
-                col.name = deepcopy(resolved)
 
 
 def build_grain_group_from_preagg(
@@ -1943,6 +1906,7 @@ def build_grain_group_from_preagg(
     joins: list[ast.Join] = []
     ctes: list[tuple[str, ast.Query]] = []
     scanned_sources = [preagg_table]
+    spark_hints: list[ast.Hint] = []
     # Scan CTE projection: output name -> the pre-agg column it reads.
     scan_projection: dict[str, str] = {}
     if join_back:
@@ -1952,6 +1916,12 @@ def build_grain_group_from_preagg(
             ctx,
             [coverage.dimension for coverage in join_back],
             scan_alias,
+        )
+        # Same hints the source-built path attaches, so routing to a pre-agg
+        # doesn't silently change the plan for the same query.
+        spark_hints = _collect_spark_hints(
+            [coverage.dimension for coverage in join_back],
+            dim_aliases,
         )
         ctes, dim_sources = _preagg_dimension_ctes(ctx, join_back)
         scanned_sources.extend(dim_sources)
@@ -1978,7 +1948,7 @@ def build_grain_group_from_preagg(
                 cast(str, scan_alias),
                 dim_aliases,
             )
-            col_type = _joined_dimension_type(ctx, dim)
+            col_type = get_column_type(ctx.nodes[dim.node_name], dim.column_name)
             select_items.append(
                 build_dimension_col_expr(
                     dim,
@@ -2115,6 +2085,7 @@ def build_grain_group_from_preagg(
         projection=select_items,
         from_=from_clause,
         group_by=group_by,
+        hints=spark_hints if spark_hints else None,
     )
 
     # Push filter-only dimension filters into the scan, on the physical column and
@@ -2133,7 +2104,20 @@ def build_grain_group_from_preagg(
                 ctx.filter_dimensions,
             ):
                 continue
-            _resolve_preagg_filter(filter_ast, ref_columns)
+            # Qualified per reference: a joined attribute can share a name with
+            # a pre-agg column, so the table has to travel with the column.
+            resolve_filter_references(
+                filter_ast,
+                {
+                    ref: (
+                        ast.Name(col, namespace=ast.Name(table))
+                        if table
+                        else ast.Name(col)
+                    )
+                    for ref, (col, table) in ref_columns.items()
+                },
+                cte_alias=None,
+            )
             # ANDed straight into the WHERE rather than pushed onto a joined
             # dimension's side of its LEFT JOIN: excluding the fact rows that
             # don't match is the whole point of the predicate, and it matches

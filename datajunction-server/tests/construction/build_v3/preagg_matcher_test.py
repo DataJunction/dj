@@ -7,7 +7,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
 from datajunction_server.construction.build_v3.preagg_matcher import (
-    JoinBackCoverage,
     is_join_back_safe,
     join_back_coverage,
     match_temporal_columns_to_grain,
@@ -1484,12 +1483,11 @@ class TestJoinBackCoverage:
             resolved,
             {"v3.customer.customer_id[customer]", "v3.order_details.status"},
         )
-        assert coverage == [
-            JoinBackCoverage(
-                dimension=resolved[0],
-                key_refs=("v3.customer.customer_id[customer]",),
-            ),
-        ]
+        assert coverage is not None
+        assert len(coverage) == 1
+        assert coverage[0].dimension == resolved[0]
+        assert coverage[0].key_refs == ("v3.customer.customer_id[customer]",)
+        assert coverage[0].link is resolved[0].join_path.links[0]
 
     def test_retained_column_is_not_the_key(self):
         """Joining on a non-key column can match many rows and multiply measures."""
