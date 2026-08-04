@@ -3,10 +3,8 @@ on:
   schedule:
     - cron:  '0 12 * * *'
   workflow_dispatch:
-  # Run on PRs touching a client, the demo stack, or this workflow. Deliberately
-  # not scoped to datajunction-server/**: that would fire on nearly every PR and
-  # the stack takes minutes across three language runtimes. Server changes that
-  # break a client are caught by the nightly schedule instead.
+  # Not scoped to datajunction-server/** — that would fire on nearly every PR.
+  # Server changes that break a client are caught by the nightly run.
   pull_request:
     paths:
       - 'datajunction-clients/**'
