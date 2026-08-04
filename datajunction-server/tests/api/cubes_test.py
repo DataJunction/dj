@@ -9,12 +9,16 @@ from unittest import mock
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.cubes import _resolve_cube_partition_output_column
 from datajunction_server.construction.build_v3.combiners import (
     PreAggSourceInfo,
     TemporalPartitionInfo,
 )
+from datajunction_server.database.materialization import Materialization
+from datajunction_server.database.node import NodeRevision
 from datajunction_server.errors import (
     DJInvalidInputException,
     DJQueryServiceClientException,
@@ -6133,3 +6137,382 @@ class TestCubeRefreshMaterialization:
         # Verify version didn't change
         response = await client_with_repairs_cube.get(f"/nodes/{cube_name}/")
         assert response.json()["version"] == initial_version
+
+
+class TestStopStaleCubeMaterializationWorkflows:
+    """
+    A non-trivial cube revision must stop the previous revision's materialization
+    workflows. Left running, they keep posting availability for a table built from
+    the old definition, and that stale-but-live availability is then used to route
+    queries against the new revision, producing column-not-found errors.
+    """
+
+    METRICS = ["default.num_repair_orders", "default.avg_repair_price"]
+    DIMENSIONS = ["default.hard_hat.city", "default.hard_hat.hire_date"]
+    MATERIALIZATION_NAME = (
+        "druid_metrics_cube__incremental_time__default.hard_hat.hire_date"
+    )
+
+    @classmethod
+    async def _make_materialized_cube(
+        cls,
+        client: AsyncClient,
+        cube_name: str,
+        *,
+        filters: list[str] | None = None,
+    ) -> None:
+        """
+        Build a cube with a single active materialization on it.
+        """
+        payload = {
+            "metrics": list(cls.METRICS),
+            "dimensions": list(cls.DIMENSIONS),
+            "description": "Cube of repair metrics",
+            "mode": "published",
+            "name": cube_name,
+        }
+        if filters is not None:
+            payload["filters"] = filters
+        response = await client.post("/nodes/cube/", json=payload)
+        assert response.status_code < 400, response.json()
+
+        response = await client.post(
+            f"/nodes/{cube_name}/columns/default.hard_hat.hire_date/partition",
+            json={"type_": "temporal", "granularity": "day", "format": "yyyyMMdd"},
+        )
+        assert response.status_code < 400, response.json()
+
+        response = await client.post(
+            f"/nodes/{cube_name}/materialization/",
+            json={
+                "job": "druid_metrics_cube",
+                "strategy": "incremental_time",
+                "config": {"spark": {}},
+                "schedule": "",
+            },
+        )
+        assert response.status_code < 400, response.json()
+
+    @staticmethod
+    async def _materialization_states(
+        session: AsyncSession,
+        cube_name: str,
+    ) -> list[tuple[str, bool]]:
+        """
+        (materialization name, is deactivated) for every revision of the cube.
+        """
+        statement = (
+            select(Materialization.name, Materialization.deactivated_at)
+            .join(NodeRevision, NodeRevision.id == Materialization.node_revision_id)
+            .where(NodeRevision.name == cube_name)
+        )
+        return [
+            (name, deactivated_at is not None)
+            for name, deactivated_at in (await session.execute(statement)).all()
+        ]
+
+    @staticmethod
+    async def _materialization_history(
+        client: AsyncClient,
+        cube_name: str,
+    ) -> list[dict]:
+        """
+        Materialization status-change history entries recorded for the cube.
+        """
+        response = await client.get(f"/history?node={cube_name}")
+        assert response.status_code == 200, response.json()
+        return [
+            entry["details"]
+            for entry in response.json()
+            if entry["entity_type"] == "materialization"
+            and entry["activity_type"] == "status_change"
+        ]
+
+    @pytest.mark.asyncio
+    async def test_dimension_change_stops_previous_workflows(
+        self,
+        client_with_repairs_cube: AsyncClient,
+        module__session: AsyncSession,
+        mocker,
+    ):
+        """
+        A swapped dimension is non-trivial: the previous revision's workflow is
+        stopped in the query service and marked deactivated in DJ.
+        """
+        cube_name = "default.stop_workflows_dimension_change"
+        await self._make_materialized_cube(
+            client_with_repairs_cube,
+            cube_name,
+            filters=["default.hard_hat.state='AZ'"],
+        )
+        qs_client = client_with_repairs_cube.app.dependency_overrides[
+            get_query_service_client
+        ]()
+        mock_deactivate_cube_workflow = mocker.patch.object(
+            qs_client,
+            "deactivate_cube_workflow",
+            return_value={"status": "deactivated"},
+        )
+        mock_deactivate_workflows = mocker.patch.object(
+            qs_client,
+            "deactivate_workflows",
+            return_value={"status": "deactivated"},
+        )
+
+        response = await client_with_repairs_cube.patch(
+            f"/nodes/{cube_name}",
+            json={
+                "dimensions": [
+                    "default.hard_hat.state",
+                    "default.hard_hat.hire_date",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["version"] == "v2.0"
+
+        # The legacy materialization config carries no workflow names, so the
+        # cube-name + version endpoint is used, targeting the *previous* version.
+        mock_deactivate_cube_workflow.assert_called_once_with(
+            cube_name,
+            version="v1.0",
+            request_headers=mock.ANY,
+        )
+        mock_deactivate_workflows.assert_not_called()
+
+        assert await self._materialization_states(module__session, cube_name) == [
+            (self.MATERIALIZATION_NAME, True),
+        ]
+        assert await self._materialization_history(
+            client_with_repairs_cube,
+            cube_name,
+        ) == [
+            {
+                "message": (
+                    "Cube updated to v2.0. Materializations from the previous "
+                    "version were stopped because the cube changed non-trivially. "
+                    "Please set up materializations again if you want to continue "
+                    "materializing this cube."
+                ),
+                "previous_version": "v1.0",
+                "new_version": "v2.0",
+                "stopped_materializations": [self.MATERIALIZATION_NAME],
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_filters_change_stops_previous_workflows(
+        self,
+        client_with_repairs_cube: AsyncClient,
+        module__session: AsyncSession,
+        mocker,
+    ):
+        """
+        A filters-only change is only a minor version bump, but it still changes
+        which rows land in the materialized table, so it is non-trivial.
+        """
+        cube_name = "default.stop_workflows_filters_change"
+        await self._make_materialized_cube(
+            client_with_repairs_cube,
+            cube_name,
+            filters=["default.hard_hat.state='AZ'"],
+        )
+        qs_client = client_with_repairs_cube.app.dependency_overrides[
+            get_query_service_client
+        ]()
+        mock_deactivate_cube_workflow = mocker.patch.object(
+            qs_client,
+            "deactivate_cube_workflow",
+            return_value={"status": "deactivated"},
+        )
+
+        response = await client_with_repairs_cube.patch(
+            f"/nodes/{cube_name}",
+            json={"filters": ["default.hard_hat.state='CA'"]},
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["version"] == "v1.1"
+
+        mock_deactivate_cube_workflow.assert_called_once_with(
+            cube_name,
+            version="v1.0",
+            request_headers=mock.ANY,
+        )
+        assert await self._materialization_states(module__session, cube_name) == [
+            (self.MATERIALIZATION_NAME, True),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_trivial_change_keeps_previous_workflows(
+        self,
+        client_with_repairs_cube: AsyncClient,
+        module__session: AsyncSession,
+        mocker,
+    ):
+        """
+        A description-only change still creates a new revision, but the materialized
+        table stays valid, so the running workflow is left alone.
+        """
+        cube_name = "default.keep_workflows_trivial_change"
+        await self._make_materialized_cube(client_with_repairs_cube, cube_name)
+        qs_client = client_with_repairs_cube.app.dependency_overrides[
+            get_query_service_client
+        ]()
+        mock_deactivate_cube_workflow = mocker.patch.object(
+            qs_client,
+            "deactivate_cube_workflow",
+            return_value={"status": "deactivated"},
+        )
+
+        response = await client_with_repairs_cube.patch(
+            f"/nodes/{cube_name}",
+            json={"description": "Cube of repair metrics, revisited"},
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["version"] == "v1.1"
+
+        mock_deactivate_cube_workflow.assert_not_called()
+        assert await self._materialization_states(module__session, cube_name) == [
+            (self.MATERIALIZATION_NAME, False),
+        ]
+        assert (
+            await self._materialization_history(client_with_repairs_cube, cube_name)
+            == []
+        )
+
+    @pytest.mark.asyncio
+    async def test_metric_component_change_stops_previous_workflows(
+        self,
+        client_with_repairs_cube: AsyncClient,
+        module__session: AsyncSession,
+        mocker,
+    ):
+        """
+        Swapping a metric changes the cube's component set even though dimensions
+        and filters are untouched.
+        """
+        cube_name = "default.stop_workflows_metric_change"
+        await self._make_materialized_cube(
+            client_with_repairs_cube,
+            cube_name,
+            filters=["default.hard_hat.state='AZ'"],
+        )
+        qs_client = client_with_repairs_cube.app.dependency_overrides[
+            get_query_service_client
+        ]()
+        mock_deactivate_cube_workflow = mocker.patch.object(
+            qs_client,
+            "deactivate_cube_workflow",
+            return_value={"status": "deactivated"},
+        )
+
+        response = await client_with_repairs_cube.patch(
+            f"/nodes/{cube_name}",
+            json={
+                "metrics": [
+                    "default.num_repair_orders",
+                    "default.total_repair_cost",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["version"] == "v2.0"
+
+        mock_deactivate_cube_workflow.assert_called_once_with(
+            cube_name,
+            version="v1.0",
+            request_headers=mock.ANY,
+        )
+        assert await self._materialization_states(module__session, cube_name) == [
+            (self.MATERIALIZATION_NAME, True),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_refresh_does_not_revive_stopped_workflows(
+        self,
+        client_with_repairs_cube: AsyncClient,
+        module__session: AsyncSession,
+        mocker,
+    ):
+        """
+        Asking for a materialization refresh after a non-trivial update must not
+        re-activate the previous revision's stopped materializations.
+        """
+        cube_name = "default.stop_workflows_then_refresh"
+        await self._make_materialized_cube(
+            client_with_repairs_cube,
+            cube_name,
+            filters=["default.hard_hat.state='AZ'"],
+        )
+        qs_client = client_with_repairs_cube.app.dependency_overrides[
+            get_query_service_client
+        ]()
+        mocker.patch.object(
+            qs_client,
+            "deactivate_cube_workflow",
+            return_value={"status": "deactivated"},
+        )
+        mock_refresh = mocker.patch.object(
+            qs_client,
+            "refresh_cube_materialization",
+            return_value={"status": "refreshed"},
+        )
+
+        response = await client_with_repairs_cube.patch(
+            f"/nodes/{cube_name}",
+            json={"dimensions": ["default.hard_hat.hire_date"]},
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["version"] == "v2.0"
+
+        response = await client_with_repairs_cube.patch(
+            f"/nodes/{cube_name}/?refresh_materialization=true",
+            json={},
+        )
+        assert response.status_code == 200, response.json()
+
+        # The new revision has no materializations of its own, so there is nothing
+        # to refresh -- and nothing revived on the previous revision.
+        assert mock_refresh.call_args_list == [
+            mock.call(
+                cube_name=cube_name,
+                cube_version="v2.0",
+                materializations=[],
+                request_headers=mock.ANY,
+            ),
+        ]
+        assert await self._materialization_states(module__session, cube_name) == [
+            (self.MATERIALIZATION_NAME, True),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_no_query_service_still_deactivates_in_dj(
+        self,
+        client_with_repairs_cube: AsyncClient,
+        module__session: AsyncSession,
+    ):
+        """
+        With no query service configured there is no workflow to stop remotely, but
+        DJ still stops treating the previous revision's materializations as active.
+        """
+        cube_name = "default.stop_workflows_without_query_service"
+        await self._make_materialized_cube(
+            client_with_repairs_cube,
+            cube_name,
+            filters=["default.hard_hat.state='AZ'"],
+        )
+        app = client_with_repairs_cube.app
+        original_override = app.dependency_overrides[get_query_service_client]
+        app.dependency_overrides[get_query_service_client] = lambda: None
+        try:
+            response = await client_with_repairs_cube.patch(
+                f"/nodes/{cube_name}",
+                json={"dimensions": ["default.hard_hat.hire_date"]},
+            )
+        finally:
+            app.dependency_overrides[get_query_service_client] = original_override
+        assert response.status_code == 200, response.json()
+        assert response.json()["version"] == "v2.0"
+        assert await self._materialization_states(module__session, cube_name) == [
+            (self.MATERIALIZATION_NAME, True),
+        ]

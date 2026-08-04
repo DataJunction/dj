@@ -32,7 +32,10 @@ from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.column import Column
 from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.history import History
-from datajunction_server.database.measure import FrozenMeasure
+from datajunction_server.database.measure import (
+    FrozenMeasure,
+    NodeRevisionFrozenMeasure,
+)
 from datajunction_server.database.metricmetadata import MetricMetadata
 from datajunction_server.database.node import (
     MissingParent,
@@ -42,6 +45,10 @@ from datajunction_server.database.node import (
     NodeRevision,
 )
 from datajunction_server.database.partition import Partition
+from datajunction_server.database.preaggregation import (
+    compute_expression_hash,
+    measure_identity_token,
+)
 from datajunction_server.database.user import User
 from datajunction_server.errors import (
     DJDoesNotExistException,
@@ -59,6 +66,7 @@ from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.materializations import (
     create_new_materialization,
     schedule_materialization_jobs_bg,
+    stop_cube_materialization_workflows,
 )
 from datajunction_server.internal.validation import (
     NodeValidator,
@@ -1483,6 +1491,100 @@ def node_update_history_event(new_revision: NodeRevision, current_user: User):
     )
 
 
+def cube_metric_revision_ids(cube_revision: NodeRevision) -> set[int]:
+    """
+    Ids of the metric node revisions a cube revision points at.
+
+    Requires ``cube_elements`` and each element's ``node_revision`` to be loaded:
+    the relationship declares no lazy strategy, so an unloaded access raises
+    ``MissingGreenlet`` under async. ``Node.get_cube_by_name`` selectin-loads both,
+    and revisions freshly built by ``create_cube_node_revision`` hold them in memory.
+    """
+    return {
+        element.node_revision.id
+        for element in cube_revision.cube_elements
+        if element.node_revision.type == NodeType.METRIC
+    }
+
+
+async def cube_metric_component_identities(
+    session: AsyncSession,
+    cube_revision: NodeRevision,
+) -> set[str]:
+    """
+    Identity tokens for every metric component used by a cube revision's metrics.
+
+    A cube revision does not store its own components: it points at metric node
+    revisions (through ``cube_elements``) and each of those owns the frozen measures
+    derived from its query. A token combines the owning metric, the component name
+    and the component's expression hash + phase-1 aggregation, so a metric being
+    added, removed, or silently recompiled into a different expression all show up
+    as a change to this set.
+    """
+    metric_revision_ids = cube_metric_revision_ids(cube_revision)
+    statement = (
+        select(
+            NodeRevision.name,
+            FrozenMeasure.name,
+            FrozenMeasure.expression,
+            FrozenMeasure.aggregation,
+        )
+        .select_from(NodeRevisionFrozenMeasure)
+        .join(
+            NodeRevision,
+            NodeRevision.id == NodeRevisionFrozenMeasure.node_revision_id,
+        )
+        .join(
+            FrozenMeasure,
+            FrozenMeasure.id == NodeRevisionFrozenMeasure.frozen_measure_id,
+        )
+        .where(NodeRevisionFrozenMeasure.node_revision_id.in_(metric_revision_ids))
+    )
+    rows = (await session.execute(statement)).all()
+    return {
+        f"{metric_name}:{component_name}:"
+        + measure_identity_token(compute_expression_hash(expression), aggregation)
+        for metric_name, component_name, expression, aggregation in rows
+    }
+
+
+async def is_non_trivial_cube_change(
+    session: AsyncSession,
+    old_revision: NodeRevision,
+    new_revision: NodeRevision,
+) -> bool:
+    """
+    Whether a new cube revision differs from the previous one in a way that
+    invalidates the previous revision's materialized table.
+
+    A change is non-trivial when the set of metric components (including their
+    expression hashes), the dimension set, or the filters changed. Anything else
+    (description, display name, mode, custom metadata, dimension or filter ordering)
+    leaves the materialized table's schema and contents valid. Sets are compared
+    because filters are ANDed and dimension ordering does not affect the
+    materialized table, so neither carries meaning through its ordering.
+
+    This is deliberately a different question from ``major_changes`` in
+    ``update_cube_node`` (which decides the version bump from the request payload):
+    here we ask whether the previously materialized table is still usable.
+    """
+    if set(old_revision.cube_dimensions()) != set(new_revision.cube_dimensions()):
+        return True
+    if set(old_revision.cube_filters or []) != set(new_revision.cube_filters or []):
+        return True
+    # Both revisions pointing at the same metric revisions necessarily own the same
+    # frozen measures, so the components — and the table's schema — cannot differ.
+    # Checking ids in memory first avoids two joined queries on minor-only edits.
+    if cube_metric_revision_ids(old_revision) == cube_metric_revision_ids(
+        new_revision,
+    ):
+        return False
+    return await cube_metric_component_identities(
+        session,
+        old_revision,
+    ) != await cube_metric_component_identities(session, new_revision)
+
+
 async def update_cube_node(
     session: AsyncSession,
     node_revision: NodeRevision,
@@ -1587,7 +1689,9 @@ async def update_cube_node(
         old_version = Version.parse(node_revision.version)
         if major_changes:
             new_cube_revision.version = str(old_version.next_major_version())
-        elif minor_changes:  # pragma: no cover
+        else:
+            # Reaching here without major changes means there were minor ones:
+            # the "no changes at all" case returned above.
             new_cube_revision.version = str(old_version.next_minor_version())
         new_cube_revision.node = node_revision.node
         new_cube_revision.node.current_version = new_cube_revision.version  # type: ignore
@@ -1628,17 +1732,32 @@ async def update_cube_node(
                     granularity=col.partition.granularity,
                 )
 
-        # Note: Materializations are NOT auto-recreated on cube update.
-        # Users should explicitly set up materializations for the new cube version
-        # after updating the cube definition.
-
-        # Notify if the old revision had active materializations that won't be migrated
+        # Materializations are not migrated to the new revision. When the new
+        # revision is non-trivially different, the previous revision's workflows are
+        # also stopped: left running, they keep posting fresh availability for a
+        # table built from the old definition, and that stale-but-live availability
+        # record can then be used to route queries against the new revision,
+        # producing column-not-found errors.
+        #
+        # "default"-named materializations are included: they are legacy Druid
+        # materializations that post availability just like any other, so leaving
+        # them running reproduces exactly the failure we are preventing.
         active_materializations = [
-            mat
-            for mat in node_revision.materializations
-            if not mat.deactivated_at and mat.name != "default"
+            mat for mat in node_revision.materializations if not mat.deactivated_at
         ]
-        if active_materializations:
+        materializations_to_stop = (
+            active_materializations
+            if active_materializations
+            and await is_non_trivial_cube_change(
+                session,
+                node_revision,
+                new_cube_revision,
+            )
+            else []
+        )
+        if materializations_to_stop:
+            for mat in materializations_to_stop:
+                mat.deactivated_at = UTCDatetime.now(UTC)  # type: ignore
             await save_history(
                 event=History(
                     entity_type=EntityType.MATERIALIZATION,
@@ -1648,14 +1767,15 @@ async def update_cube_node(
                     details={
                         "message": (
                             f"Cube updated to {new_cube_revision.version}. "
-                            "Active materializations from the previous version were not migrated. "
-                            "Please reconfigure materializations if you want to continue "
+                            "Materializations from the previous version were stopped "
+                            "because the cube changed non-trivially. Please set up "
+                            "materializations again if you want to continue "
                             "materializing this cube."
                         ),
                         "previous_version": node_revision.version,
                         "new_version": new_cube_revision.version,
-                        "invalidated_materializations": [
-                            mat.name for mat in active_materializations
+                        "stopped_materializations": [
+                            mat.name for mat in materializations_to_stop
                         ],
                     },
                     user=current_user.username,
@@ -1666,6 +1786,22 @@ async def update_cube_node(
         session.add(new_cube_revision)
         session.add(new_cube_revision.node)
         await session.commit()
+
+    # Stop the remote workflows only once DJ's own state is committed, so a slow or
+    # failing query service can neither hold the transaction open nor leave DJ
+    # claiming the old materializations are still active. The call is batched rather
+    # than per-materialization: these are blocking HTTP requests, so a loop would
+    # stall the event loop once per materialization. The helper swallows query
+    # service errors: a stop that can't be delivered must not abort a legitimate
+    # cube edit, and the History event above records what we attempted.
+    if query_service_client and materializations_to_stop:
+        stop_cube_materialization_workflows(
+            query_service_client=query_service_client,
+            cube_name=node_revision.name,
+            cube_version=node_revision.version,
+            materializations=materializations_to_stop,
+            request_headers=request_headers,
+        )
 
     await session.refresh(new_cube_revision)
     await session.refresh(new_cube_revision.node)

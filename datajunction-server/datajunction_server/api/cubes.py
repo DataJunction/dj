@@ -31,7 +31,10 @@ from datajunction_server.internal.access.authorization import (
     get_access_checker,
 )
 from datajunction_server.models.access import ResourceAction
-from datajunction_server.internal.materializations import build_cube_materialization
+from datajunction_server.internal.materializations import (
+    build_cube_materialization,
+    stop_cube_materialization_workflows,
+)
 from datajunction_server.internal.nodes import (
     get_all_cube_revisions_metadata,
     get_single_cube_revision_metadata,
@@ -888,48 +891,14 @@ async def deactivate_cube_materialization(
 
     mat = existing_mats[0]
 
-    # Extract stored workflow names from the materialization config
-    mat_config = mat.config if isinstance(mat.config, dict) else {}
-    workflow_names = mat_config.get("workflow_names", [])
-
-    # Deactivate workflows in the query service using stored names
-    request_headers = dict(request.headers)
-    if workflow_names:
-        try:
-            query_service_client.deactivate_workflows(
-                workflow_names=workflow_names,
-                request_headers=request_headers,
-            )
-            _logger.info(
-                "Deactivated workflows for cube=%s: %s",
-                name,
-                workflow_names,
-            )
-        except Exception as e:  # pragma: no cover
-            _logger.warning(
-                "Failed to deactivate workflows for cube=%s: %s (continuing with deletion)",
-                name,
-                str(e),
-            )
-    else:
-        # Fallback to old endpoint for backwards compatibility
-        try:
-            query_service_client.deactivate_cube_workflow(
-                name,
-                version=cube_revision.version,
-                request_headers=request_headers,
-            )
-            _logger.info(
-                "Deactivated workflow for cube=%s version=%s (legacy)",
-                name,
-                cube_revision.version,
-            )
-        except Exception as e:
-            _logger.warning(
-                "Failed to deactivate workflow for cube=%s: %s (continuing with deletion)",
-                name,
-                str(e),
-            )
+    # Deactivate workflows in the query service
+    stop_cube_materialization_workflows(
+        query_service_client=query_service_client,
+        cube_name=name,
+        cube_version=cube_revision.version,
+        materializations=[mat],
+        request_headers=dict(request.headers),
+    )
 
     # Delete the materialization record
     await session.delete(mat)
