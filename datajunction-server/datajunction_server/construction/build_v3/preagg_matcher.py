@@ -25,10 +25,14 @@ from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.decompose import Aggregability, MetricComponent
 from datajunction_server.models.preaggregation import TemporalPartitionColumn
 from datajunction_server.naming import SEPARATOR
-from datajunction_server.utils import get_settings
 
 if TYPE_CHECKING:
-    from datajunction_server.construction.build_v3.types import BuildContext, GrainGroup
+    from datajunction_server.construction.build_v3.types import (
+        BuildContext,
+        GrainGroup,
+        JoinPath,
+        ResolvedDimension,
+    )
     from datajunction_server.database.column import Column
     from datajunction_server.database.node import Node
 
@@ -95,46 +99,51 @@ class JoinBackCoverage:
     The pre-agg's grain holds a dimension's key rather than the attribute asked
     for, so the attribute is one join away: read the pre-agg, join the dimension
     on the retained key, and group by the attribute.
+
+    ``key_refs`` are the canonical grain entries holding that key -- the columns
+    the join reads on the pre-agg side.
     """
 
-    dimension_ref: str
+    dimension: ResolvedDimension
     key_refs: tuple[str, ...]
-    dimension_node: str
-    role: str
 
 
-def join_back_enabled() -> bool:
-    """Whether pre-aggregations may be joined back to a retained dimension key."""
-    return get_settings().preagg_join_back
+@dataclass(frozen=True)
+class PreaggMatch:
+    """
+    A pre-aggregation chosen for a grain group, with the joins it needs.
+
+    ``join_back`` is empty for the common case where the stored grain covers the
+    request outright.
+    """
+
+    preagg: PreAggregation
+    join_back: tuple[JoinBackCoverage, ...] = ()
 
 
-def is_join_back_safe(
-    ctx: BuildContext,
-    node_rev_id: int,
-    dim_node_name: str,
-    role: str,
-) -> bool:
+def is_join_back_safe(join_path: JoinPath | None) -> bool:
     """
     Whether joining a dimension onto a retained key is safe to re-aggregate over.
 
     A single link whose join is on the dimension's primary key is many-to-one, so
     it cannot multiply the measures. Multi-hop paths are refused for now: each
-    additional link is only safe if it too cannot fan out, and nothing declares
+    additional link is only safe if it too cannot fan out, and nothing checks
     that yet.
 
-    This is the seam for #2346, which adds a declared ``JoinCardinality`` to
-    dimension links. Once that lands, this should ask whether any link on the
-    path can fan out rather than counting hops -- which also lifts the single-hop
-    restriction.
+    This is the seam for asking each link on the path whether it can fan out --
+    ``DimensionLink.join_cardinality`` already records that, but it defaults to
+    ``MANY_TO_ONE`` for every link nobody annotated, so trusting it today would
+    assume safety rather than establish it. Once it is reliably populated this
+    should test the path's links rather than count them, which also lifts the
+    single-hop restriction.
     """
-    path = ctx.join_paths.get((node_rev_id, dim_node_name, role))
-    return path is not None and len(path) == 1
+    return join_path is not None and len(join_path.links) == 1
 
 
 def join_back_coverage(
     ctx: BuildContext,
     node_rev_id: int,
-    requested_grain_set: set[str],
+    resolved_dimensions: list[ResolvedDimension],
     preagg_grain_set: set[str],
 ) -> list[JoinBackCoverage] | None:
     """
@@ -150,55 +159,50 @@ def join_back_coverage(
     row and multiply the measures.
     """
     coverage: list[JoinBackCoverage] = []
-    for ref in sorted(requested_grain_set - preagg_grain_set):
-        try:
-            dim_ref = parse_dimension_ref(ref)
-        except DJInvalidInputException:
-            return None
+    for rdim in resolved_dimensions:
+        if (
+            canonical_dimension_ref(ctx, node_rev_id, rdim.original_ref)
+            in preagg_grain_set
+        ):
+            continue
 
-        dim_node = ctx.nodes.get(dim_ref.node_name)
+        # A locally-owned column has no dimension node to join, and neither does
+        # a reference that named no node at all.
+        dim_node = ctx.nodes.get(rdim.node_name)
         if not dim_node or not dim_node.current:
             return None
 
         primary_key = [col.name for col in dim_node.current.primary_key()]
-        if not primary_key or dim_ref.column_name in primary_key:
+        if not primary_key or rdim.column_name in primary_key:
             # No key to join on, or the request *is* the key -- which would have
             # matched directly, so reaching here means the grain lacks it.
             return None
 
-        role = dim_ref.role or ""
-        suffix = f"[{role}]" if role else ""
+        suffix = f"[{rdim.role}]" if rdim.role else ""
         key_refs = tuple(
             canonical_dimension_ref(
                 ctx,
                 node_rev_id,
-                f"{dim_ref.node_name}{SEPARATOR}{key_col}{suffix}",
+                f"{rdim.node_name}{SEPARATOR}{key_col}{suffix}",
             )
             for key_col in primary_key
         )
         if not set(key_refs).issubset(preagg_grain_set):
             return None
 
-        if not is_join_back_safe(ctx, node_rev_id, dim_ref.node_name, role):
+        if not is_join_back_safe(rdim.join_path):
             return None
 
-        coverage.append(
-            JoinBackCoverage(
-                dimension_ref=ref,
-                key_refs=key_refs,
-                dimension_node=dim_ref.node_name,
-                role=role,
-            ),
-        )
+        coverage.append(JoinBackCoverage(dimension=rdim, key_refs=key_refs))
     return coverage
 
 
 def find_matching_preagg(
     ctx: BuildContext,
     parent_node: Node,
-    requested_grain: list[str],
+    resolved_dimensions: list[ResolvedDimension],
     grain_group: GrainGroup,
-) -> PreAggregation | None:
+) -> PreaggMatch | None:
     """
     Find a pre-aggregation that can satisfy the grain group requirements.
 
@@ -211,11 +215,11 @@ def find_matching_preagg(
     Args:
         ctx: Build context with available_preaggs cache
         parent_node: The parent node for this grain group
-        requested_grain: List of dimension references requested
+        resolved_dimensions: The requested dimensions, resolved to join paths
         grain_group: The grain group with required components
 
     Returns:
-        Matching PreAggregation if found, None otherwise
+        The chosen ``PreaggMatch`` if one was found, None otherwise
     """
     if not ctx.use_materialized:
         return None
@@ -235,7 +239,8 @@ def find_matching_preagg(
         return None
 
     requested_grain_set = {
-        canonical_dimension_ref(ctx, node_rev_id, ref) for ref in requested_grain
+        canonical_dimension_ref(ctx, node_rev_id, rdim.original_ref)
+        for rdim in resolved_dimensions
     }
 
     # Non-additive measures (e.g. COUNT(DISTINCT ...), raw AVG components) cannot
@@ -251,7 +256,7 @@ def find_matching_preagg(
     # Find a matching pre-agg. Ranked by joins first, then grain size: a pre-agg
     # that covers the request directly always beats one needing a join back, even
     # when the joining one is at a coarser grain.
-    best_match: PreAggregation | None = None
+    best_match: PreaggMatch | None = None
     best_cost: tuple[int, float] = (sys.maxsize, float("inf"))
 
     for preagg in available:
@@ -278,16 +283,12 @@ def find_matching_preagg(
             preagg_grain_set,
         ):
             # The grain may still reach the request by joining a dimension whose
-            # key it retained. Nothing to try when the gate is off.
-            coverage = (
-                join_back_coverage(
-                    ctx,
-                    node_rev_id,
-                    requested_grain_set,
-                    preagg_grain_set,
-                )
-                if join_back_enabled()
-                else None
+            # key it retained.
+            coverage = join_back_coverage(
+                ctx,
+                node_rev_id,
+                resolved_dimensions,
+                preagg_grain_set,
             )
             if coverage is None:
                 logger.debug(
@@ -315,7 +316,7 @@ def find_matching_preagg(
         # (closest to requested grain = less roll-up work)
         cost = (len(join_back), float(len(preagg_grain_set)))
         if cost < best_cost:  # pragma: no branch
-            best_match = preagg
+            best_match = PreaggMatch(preagg=preagg, join_back=tuple(join_back))
             best_cost = cost
             logger.debug(
                 f"[BuildV3] Found matching pre-agg {preagg.id} "
@@ -325,8 +326,8 @@ def find_matching_preagg(
 
     if best_match:
         logger.info(
-            f"[BuildV3] Using pre-agg {best_match.id} for parent={parent_node.name} "
-            f"grain={requested_grain_set}",
+            f"[BuildV3] Using pre-agg {best_match.preagg.id} for "
+            f"parent={parent_node.name} grain={requested_grain_set}",
         )
 
     return best_match

@@ -247,12 +247,6 @@ class Settings(BaseSettings):  # pragma: no cover
     # enabling it can route queries away from pre-aggs that serve them today.
     preagg_freshness_gating: bool = False
 
-    # Allow a pre-aggregation to answer a query for an attribute it doesn't hold,
-    # by joining the dimension whose key it retained. Off by default: it widens
-    # what routes, and a wrong match would multiply the measures rather than
-    # error.
-    preagg_join_back: bool = False
-
     # Wall-clock staleness budget, in seconds, applied only when a query has no
     # discoverable upper bound on the pre-agg's temporal partition (such a query
     # implicitly asks for data through the present). When None, unbounded
