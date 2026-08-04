@@ -442,11 +442,15 @@ knowing about:
 - **Cross-fact metrics aren't supported for registration yet.** Registration assumes all the metrics and
   measures you're binding trace back to a single parent node, the same restriction pre-aggregation
   matching has generally.
-- **Dimension tables aren't joined onto an aggregate.** An aggregate's grain is a closed set of
-  dimensions: DJ won't join a dimension node onto a key the aggregate retained. So a daily aggregate that
-  keeps a date key still can't answer a weekly rollup, and one that keeps an account key can't answer a
-  query sliced by an account *attribute* — both fall back to the source. Slice by the retained key
-  itself to stay on the aggregate.
+- **A retained key reaches that dimension's attributes, but only its whole key.** An aggregate that
+  keeps a dimension's primary key can answer queries for *attributes* of that dimension: DJ joins the
+  dimension back on the retained key and groups by the attribute. This needs the **entire** primary key,
+  at the same role, over a single `LEFT` or `INNER` link. Retaining part of a composite key would match
+  several dimension rows per aggregated row and multiply the measures, so it is refused — a
+  daily-snapshot dimension keyed `(account_id, utc_date)` needs both columns registered, even when the
+  aggregate's date is already present as some other dimension's column. Nothing else is reached by
+  joining: a daily aggregate still can't answer a weekly rollup unless the week is in its grain or is an
+  attribute of a dimension whose key it retained.
 - **A single uncovered metric affects the whole grain group.** Metrics are matched per grain group, so
   asking for one metric no aggregate covers alongside several that are covered reverts all of them to the
   source. This is intentional rather than a missed optimization: the source scan is needed for the
