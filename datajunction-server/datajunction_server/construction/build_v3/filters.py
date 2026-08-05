@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from functools import reduce
+from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
 from datajunction_server.errors import (
@@ -138,7 +139,7 @@ def _raise_for_unresolved_filter_refs(
 
 def resolve_filter_references(
     filter_ast: ast.Expression,
-    column_aliases: dict[str, str],
+    column_aliases: Mapping[str, str | ast.Name],
     cte_alias: str | None = None,
     nodes: dict[str, Node] | None = None,
 ) -> ast.Expression:
@@ -147,6 +148,11 @@ def resolve_filter_references(
 
     This replaces references like "v3.product.category" with the appropriate
     table-qualified column reference like "t2.category".
+
+    A mapping value may be an ``ast.Name`` rather than a bare column name, in
+    which case it is used verbatim -- letting a caller qualify each reference
+    with its own table instead of sharing one ``cte_alias``. Names read off two
+    different relations can then collide without being confused.
 
     Also handles role-suffixed dimensions expressed as subscript syntax, e.g.:
     "v3.date.month[order] >= 2024" where [order] is the role indicator.
@@ -222,9 +228,13 @@ def resolve_filter_references(
                 # maps to the dimension's table alias. For skip-join (local) dimensions this is
                 # the FK column on the fact table (e.g., "utc_date_id").
                 col_name_for_replacement = alias_to_use
-            replacement = ast.Column(
-                name=ast.Name(col_name_for_replacement),
-                _table=ast.Table(ast.Name(cte_alias)) if cte_alias else None,
+            replacement = (
+                ast.Column(name=deepcopy(col_name_for_replacement))
+                if isinstance(col_name_for_replacement, ast.Name)
+                else ast.Column(
+                    name=ast.Name(col_name_for_replacement),
+                    _table=ast.Table(ast.Name(cte_alias)) if cte_alias else None,
+                )
             )
             already_resolved_ids.add(id(replacement))
             subscript.swap(replacement)
@@ -248,7 +258,9 @@ def resolve_filter_references(
             if full_ref in column_aliases:
                 col_alias = column_aliases[full_ref]
                 # Replace with table-aliased reference
-                if cte_alias:
+                if isinstance(col_alias, ast.Name):
+                    node.name = deepcopy(col_alias)
+                elif cte_alias:
                     node.name = ast.Name(col_alias, namespace=ast.Name(cte_alias))
                 else:
                     node.name = ast.Name(col_alias)
