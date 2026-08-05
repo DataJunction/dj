@@ -82,6 +82,13 @@ a finer-grained fallback when no whole cube fits. A pre-aggregation is eligible 
 3. It contains **all the measures** the requested metrics decompose into, and
 4. It has data available.
 
+A requested dimension that *isn't* in the grain can still be covered when the grain holds that
+dimension's **whole primary key**, at the same role, reachable over a single `LEFT` or `INNER` link: DJ
+joins the dimension back on the retained key and groups by the attribute. The whole key is required
+because retaining only part of a composite key would match several dimension rows per aggregated row and
+multiply the measures — so a daily-snapshot dimension keyed `(account_id, utc_date)` needs both columns
+registered, even when the aggregate's date is already present as another dimension's column.
+
 Measures are matched by **expression and aggregation**, not by name — two metrics that decompose to the
 same expression aggregated the same way share a pre-aggregation, while `SUM(x)` and `MAX(x)` are distinct
 measures that can't stand in for each other. As with cubes, when several pre-aggregations qualify, DJ
@@ -226,6 +233,11 @@ Two consequences when you register a table:
 So map each metric to the column that was built with *that metric's* aggregation. Mapping `MAX(price)`
 to a column holding sums is a modeling error DJ can't detect: the aggregation functions are compared,
 but the column's data isn't.
+
+One shape catches people out: a column backing `COUNT(DISTINCT x)` must hold the **raw values being
+counted** — one row per distinct value at that grain — not a pre-computed count. DJ re-applies
+`COUNT(DISTINCT ...)` to whatever the column holds, so mapping an already-counted `distinct_users`
+integer produces a count of counts.
 
 ### Registering a table
 
@@ -416,50 +428,3 @@ materialize or backfill an external pre-aggregation — there's no build SQL for
 table isn't DJ's to build. Ownership of the table's contents, refresh schedule, and correctness stays
 entirely with your external pipeline; DJ's role is limited to routing queries to it when it's a good
 match and staying out of its way otherwise.
-
-### Limitations
-
-External pre-aggregation registration covers the common case well, but there are some edges worth
-knowing about:
-
-- **Dimensions that live only in the aggregate table can't be introduced.** You can map a grain column
-  to a differently-named physical column with `dimension_columns` (see above), including a joined
-  attribute the table denormalized. But an attribute that exists *only* in the aggregate, with no link
-  path from the parent node, isn't a dimension DJ can route by — add the dimension link to the model
-  first, then map the column.
-- **Non-additive measures have a narrower routing window.** A column backing `COUNT(DISTINCT x)` can
-  only serve queries at the exact grain it was built at, since distinct counts can't be rolled up to a
-  coarser grain from a pre-aggregated table without the underlying row-level values. Note also that such
-  a column has to hold the *raw values being counted* — one row per distinct value at that grain — not a
-  pre-computed count. DJ re-applies `COUNT(DISTINCT ...)` to it.
-- **The table has to fully cover what you register.** Every component measure that your registered
-  metrics decompose into needs a column. DJ checks that the column exists, that its type is compatible,
-  and that the aggregation you're binding matches the metric's — but it can't check the column's
-  *data*, so a column of sums mapped to a `MAX` metric will be used as if it held maxima.
-- **Filtered or partial tables aren't supported yet.** A table that only covers a subset of rows (e.g.
-  a single region or a filtered cohort) can't be registered as a general-purpose pre-aggregation for the
-  unfiltered metric.
-- **Cross-fact metrics aren't supported for registration yet.** Registration assumes all the metrics and
-  measures you're binding trace back to a single parent node, the same restriction pre-aggregation
-  matching has generally.
-- **A retained key reaches that dimension's attributes, but only its whole key.** An aggregate that
-  keeps a dimension's primary key can answer queries for *attributes* of that dimension: DJ joins the
-  dimension back on the retained key and groups by the attribute. This needs the **entire** primary key,
-  at the same role, over a single `LEFT` or `INNER` link. Retaining part of a composite key would match
-  several dimension rows per aggregated row and multiply the measures, so it is refused — a
-  daily-snapshot dimension keyed `(account_id, utc_date)` needs both columns registered, even when the
-  aggregate's date is already present as some other dimension's column. Nothing else is reached by
-  joining: a daily aggregate still can't answer a weekly rollup unless the week is in its grain or is an
-  attribute of a dimension whose key it retained.
-- **A single uncovered metric affects the whole grain group.** Metrics are matched per grain group, so
-  asking for one metric no aggregate covers alongside several that are covered reverts all of them to the
-  source. This is intentional rather than a missed optimization: the source scan is needed for the
-  uncovered metric regardless, and computing the rest from that same scan is cheaper than a second scan
-  plus a join.
-- **Registrations are pinned to a node revision.** Any edit that creates a new revision of the parent
-  node — including changes that don't affect its query — strands existing registrations, and queries
-  quietly go back to the source. A YAML deployment re-registers in the same push, so it self-heals;
-  registrations made directly through `POST /preaggs/register` need to be repeated.
-- **Freshness doesn't gate routing yet.** DJ stores the `valid_through_ts` an external pipeline reports,
-  but it doesn't currently use it to decide whether an aggregate may answer a query. A query that routes
-  to an aggregate and the same query built from the source can therefore disagree for recent periods.
