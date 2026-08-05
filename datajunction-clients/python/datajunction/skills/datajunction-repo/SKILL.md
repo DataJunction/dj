@@ -3,8 +3,9 @@ name: datajunction-repo
 description: |
   Activate this skill when authoring DataJunction (DJ) nodes via YAML files
   in a git repository — the repo-backed workflow. Covers YAML schemas per
-  node type, branch-based development, temporal partitions on cubes, and
-  the full PR-driven deployment flow. For modeling decisions (how to
+  node type, branch-based development, temporal partitions on cubes,
+  registering pre-aggregations / aggregate awareness, and the full
+  PR-driven deployment flow. For modeling decisions (how to
   structure metrics, decomposition workflow), invoke `datajunction-semantic-model`.
   For direct API authoring, invoke `datajunction-api`. For concepts,
   invoke `datajunction`.
@@ -16,6 +17,13 @@ description: |
   - create metric, create dimension, create cube, build cube
   - temporal partition, partition pushdown
   - pre-commit, push.sh
+  - pre-aggregation, pre-agg, preagg, kind: preagg
+  - aggregate awareness, aggregate navigation, query routing
+  - external pre-aggregation, externally-built aggregate, registered aggregate
+  - multiple tables for a metric, fact table and agg table, fact/agg hierarchy
+  - summary table, rollup table, agg table, materialized aggregate
+  - measure_columns, dimension_columns, valid_through_ts, availability
+  - freshness, join back, retained key
 user-invocable: false
 ---
 
@@ -556,6 +564,63 @@ columns:
 **Result**: Queries with `include_temporal_filters=True` push `WHERE order_date >= X AND order_date <= Y` to the `orders` transform.
 
 ---
+
+## Pre-Aggregations / Aggregate Awareness
+
+One concept, many names — all of these mean the same thing: **aggregate awareness**,
+**aggregate navigation**, **query routing**, **pre-aggregations** / **pre-aggs**,
+**external** or **registered aggregates**, **multiple tables for a metric** (a raw
+fact table plus coarser aggregates), **summary tables**, **rollup tables**, **agg
+tables**, **materialized aggregates**, **fact/agg hierarchy**, **last-mile** and
+**intermediate aggregates**.
+
+A metric is defined once against its fact table; the same numbers often exist
+pre-summed in coarser tables. Register those tables and DJ picks per query which to
+read, falling back to the fact table when no aggregate can answer correctly.
+
+**The rules live in the docs, not here** — see
+[Query Routing & Aggregate Awareness](https://datajunction.io/docs/0.1.0/dj-concepts/query-routing-aggregate-awareness/)
+for the `kind: preagg` schema, `measure_columns` / `dimension_columns`, what makes a
+metric mappable, role-qualified dimension references, freshness reporting, and the
+current limitations. Read it before registering anything; the rules that decide
+whether your table actually gets used are not guessable.
+
+### The one thing to get right before you author metrics
+
+`measure_columns` maps a **metric to one column**, so a metric decomposing into more
+than one component can never be bound to an aggregate — and its components are
+auto-named with a hash suffix that YAML cannot address. `SUM(revenue) /
+COUNT(DISTINCT view_id)` as a single node is unmappable forever; fixing it means
+refactoring a node other teams may already query.
+
+So **give every aggregation primitive its own metric node** and compose ratios as
+derived metrics referencing them. Free if done from the start, expensive to retrofit,
+worth doing even before an aggregate table exists.
+
+### Repo-specific traps
+
+**Declare partitions in YAML, never through the API.** A temporal partition on the
+parent's date column is what lets DJ reason about when an aggregate's data ends:
+
+```yaml
+columns:
+  - name: activity_date
+    type: int
+    partition:
+      type: temporal
+      granularity: day
+      format: yyyyMMdd
+```
+
+`POST /nodes/{node}/columns/{col}/partition/` works, but the next deploy recreates
+the node from YAML and reverts it — and without a temporal partition column,
+freshness checks have no axis and silently do nothing.
+
+**A parent-node edit strands its aggregates.** Registrations are keyed by node
+revision, so even a description-only change re-registers them at a new revision. A
+repo deploy re-creates the binding, but **availability is not restored** — until the
+pipeline re-reports it, the aggregate is unused and every query silently reverts to
+the fact table.
 
 ## Complete Workflow Example
 
