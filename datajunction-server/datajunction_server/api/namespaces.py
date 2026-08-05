@@ -753,8 +753,12 @@ async def update_namespace_git_config(
     - git_path: Subdirectory in repo for node definitions (e.g., "definitions/")
     - parent_namespace: Parent namespace for branch namespaces (for PR targeting)
     - git_only: If True, UI edits are blocked; must edit via git deployments
+
+    Governed by MANAGE, not WRITE: this is control-plane configuration, so it can
+    repoint the namespace at another repo or block UI edits entirely, and it
+    auto-creates the namespace below.
     """
-    access_checker.add_namespace(namespace, ResourceAction.WRITE)
+    access_checker.add_namespace(namespace, ResourceAction.MANAGE)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     # Get or create the namespace - auto-create if it doesn't exist
@@ -982,7 +986,13 @@ async def delete_namespace_git_config(
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
 ):
-    access_checker.add_namespace(namespace, ResourceAction.WRITE)
+    """
+    Remove the git configuration for a namespace.
+
+    Governed by MANAGE, matching the update endpoint: unbinding a namespace from
+    its repo is control-plane configuration, not a content edit.
+    """
+    access_checker.add_namespace(namespace, ResourceAction.MANAGE)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     node_namespace = await get_node_namespace(session, namespace)
