@@ -255,6 +255,7 @@ class DeploymentExecuteResult:
 
     results: list  # list[DeploymentResult]
     downstream_impacts: list  # list[ImpactedNode]
+    warnings: list = field(default_factory=list)  # list[DJError]
 
 
 @dataclass
@@ -390,6 +391,11 @@ class DeploymentOrchestrator:
             # `else` only fires when no _DryRunRollback was raised, which
             # implies wet-run — commit the outer transaction.
             await self.session.commit()
+
+        # Warnings are only surfaced by the failure path (they ride along on
+        # DJInvalidDeploymentConfig), so hand them back here too — otherwise a
+        # deploy that succeeds with warnings silently drops them.
+        result.warnings = list(self.warnings)
 
         elapsed_ms = (time.perf_counter() - start_total) * 1000
         _metrics_tags = {
@@ -1112,15 +1118,27 @@ class DeploymentOrchestrator:
         # guard). This is the real footgun -- the fully-empty-spec case is
         # already refused upstream because a pre-agg's parent node is deleted too.
         if not specs and not self.deployment_spec.allow_empty:
+            message = (
+                f"{len(existing)} external pre-aggregation(s) in "
+                f"namespace '{namespace}' were left intact because the "
+                f"deployment declares none. Re-run with allow_empty to "
+                f"deregister them."
+            )
             self.warnings.append(
                 DJError(
                     code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
-                    message=(
-                        f"{len(existing)} external pre-aggregation(s) in "
-                        f"namespace '{namespace}' were left intact because the "
-                        f"deployment declares none. Re-run with allow_empty to "
-                        f"deregister them."
-                    ),
+                    message=message,
+                ),
+            )
+            # Also emit a per-item result: the deploy succeeds, and per-item
+            # results are what actually get rendered back to the user.
+            self.deployed_results.append(
+                DeploymentResult(
+                    name=namespace,
+                    deploy_type=DeploymentResult.Type.PREAGG,
+                    status=DeploymentResult.Status.WARNING,
+                    operation=DeploymentResult.Operation.NOOP,
+                    message=message,
                 ),
             )
             logger.info(
