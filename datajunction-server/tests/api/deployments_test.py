@@ -2394,6 +2394,87 @@ class TestDeployments:
         assert fetched["description"] == "Cube for analyzing repair orders, revised"
 
     @pytest.mark.asyncio
+    async def test_deploy_cube_partition_change_is_major(
+        self,
+        client,
+        default_hard_hats,
+        default_hard_hat,
+        default_us_states,
+        default_us_state,
+        default_avg_length_of_employment,
+    ):
+        """
+        A cube's partition config lives on its columns, which `diff()` does not
+        compare, so a partition-only edit would otherwise reach the update path with
+        nothing named as changed. It is reported as `columns` and earns a major
+        version: the partition decides how the cube is built and materialized.
+        """
+        namespace = "cube_partition_change"
+        cube = CubeSpec(
+            name="default.repairs_cube",
+            display_name="Repairs Cube",
+            description="""Cube for analyzing repair orders""",
+            dimensions=[
+                "${prefix}default.hard_hat.state",
+                "${prefix}default.hard_hat.birth_date",
+            ],
+            metrics=["${prefix}default.avg_length_of_employment"],
+            columns=[
+                ColumnSpec(
+                    name="${prefix}default.hard_hat.birth_date",
+                    partition={
+                        "type": "temporal",
+                        "granularity": "day",
+                        "format": "yyyyMMdd",
+                    },
+                ),
+            ],
+            owners=["dj"],
+        )
+        nodes_list = [
+            default_hard_hats,
+            default_hard_hat,
+            default_us_states,
+            default_us_state,
+            default_avg_length_of_employment,
+            cube,
+        ]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+        fetched = (await client.get(f"/nodes/{namespace}.default.repairs_cube/")).json()
+        assert fetched["version"] == "v1.0"
+
+        cube.columns[0].partition.format = "yyyy-MM-dd"
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+        assert [
+            result
+            for result in data["results"]
+            if result["name"] == f"{namespace}.default.repairs_cube"
+        ] == [
+            {
+                "deploy_type": "node",
+                "message": (
+                    "Updated cube (v2.0)\n"
+                    "└─ Set properties for 1 columns\n"
+                    "└─ Updated columns"
+                ),
+                "name": f"{namespace}.default.repairs_cube",
+                "operation": "update",
+                "changed_fields": ["columns"],
+                "status": "success",
+            },
+        ]
+        fetched = (await client.get(f"/nodes/{namespace}.default.repairs_cube/")).json()
+        assert fetched["version"] == "v2.0"
+
+    @pytest.mark.asyncio
     async def test_deploy_cube_dimension_reorder(
         self,
         client,

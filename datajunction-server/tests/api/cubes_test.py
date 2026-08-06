@@ -2630,6 +2630,39 @@ async def test_reordering_cube_filters_is_not_a_change(
 
 
 @pytest.mark.asyncio
+async def test_updating_cube_display_name_and_mode_are_minor(
+    client_with_repairs_cube: AsyncClient,
+):
+    """
+    Display name and mode are metadata: they leave the cube's metrics, dimensions
+    and filters alone, so each earns a minor version rather than a major one.
+    """
+    cube_name = "default.repairs_cube_metadata_update"
+    await make_a_test_cube(client_with_repairs_cube, cube_name)
+
+    response = await client_with_repairs_cube.patch(
+        f"/nodes/{cube_name}",
+        json={"display_name": "Repairs Cube, Renamed"},
+    )
+    assert response.status_code == 200, response.json()
+    assert response.json()["version"] == "v1.1"
+    assert response.json()["display_name"] == "Repairs Cube, Renamed"
+
+    response = await client_with_repairs_cube.patch(
+        f"/nodes/{cube_name}",
+        json={"mode": "draft"},
+    )
+    assert response.status_code == 200, response.json()
+    assert response.json()["version"] == "v1.2"
+    assert response.json()["mode"] == "draft"
+
+    revisions = (
+        await client_with_repairs_cube.get(f"/nodes/{cube_name}/revisions/")
+    ).json()
+    assert [revision["version"] for revision in revisions] == ["v1.0", "v1.1", "v1.2"]
+
+
+@pytest.mark.asyncio
 async def test_updating_cube_filters(
     client_with_repairs_cube: AsyncClient,
 ):
