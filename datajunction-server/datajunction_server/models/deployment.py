@@ -1,4 +1,5 @@
-from enum import Enum
+from collections.abc import Iterable
+from enum import Enum, IntEnum
 from typing import Annotated, Any, ClassVar, Literal
 
 from pydantic import (
@@ -36,7 +37,48 @@ from datajunction_server.models.unit import (
     legacy_unit_to_structured,
     unit_to_dict,
 )
-from datajunction_server.utils import SEPARATOR
+from datajunction_server.utils import SEPARATOR, Version
+
+
+class ChangeTier(IntEnum):
+    """
+    How significant a change to a node is, and so what kind of new version it earns.
+
+    A different question from `NodeSpec.__eq__`, which says only whether anything
+    changed at all. Both the deployment path and `PATCH /nodes/{name}` classify
+    significance through this enum, so the two cannot drift apart.
+
+    Values are spaced rather than consecutive so a future tier -- the node changed
+    but earns no new revision, which is what materialization config will need --
+    slots between two existing tiers without renumbering. Only the ordering matters:
+    `fold_change_tiers` takes a maximum and nothing reads the numbers.
+    """
+
+    NONE = 0
+    MINOR = 10
+    MAJOR = 20
+
+
+def fold_change_tiers(tiers: Iterable[ChangeTier]) -> ChangeTier:
+    """
+    Reduce the tiers of several individual changes to the tier of the change as a
+    whole: the most significant one wins, and no changes at all is NONE.
+    """
+    return max(tiers, default=ChangeTier.NONE)
+
+
+def bump_version(version: str, tier: ChangeTier) -> str:
+    """
+    Apply a change tier to a version string. NONE leaves the version alone, so
+    re-processing an unchanged node -- a forced re-deploy, or a re-deploy of a node
+    stuck in INVALID -- does not invent a version for it.
+    """
+    parsed = Version.parse(version)
+    if tier >= ChangeTier.MAJOR:
+        return str(parsed.next_major_version())
+    if tier >= ChangeTier.MINOR:
+        return str(parsed.next_minor_version())
+    return str(parsed)
 
 
 class DeploymentStatus(str, Enum):
@@ -363,6 +405,35 @@ class NodeSpec(NamespacedSpec):
     mode: NodeMode = NodeMode.PUBLISHED
     custom_metadata: dict | None = None
 
+    # How significant a change to each field is. Data rather than a chain of
+    # conditionals so that adding a field forces someone to classify it: a test
+    # walks `model_fields` on every subclass and fails on anything missing here.
+    # Each class declares only the fields it introduces; lookup walks the MRO.
+    # An unclassified field falls back to MAJOR, so the failure mode is an
+    # over-eager version bump rather than a silently swallowed change.
+    FIELD_CHANGE_TIERS: ClassVar[dict[str, ChangeTier]] = {
+        # Identity, not content: a different name is a different node. `diff()`
+        # ignores both fields, so neither ever reaches the classifier.
+        "name": ChangeTier.NONE,
+        "namespace": ChangeTier.NONE,
+        # Never changes in place; MAJOR so that if it somehow did, it could not
+        # slip through as a minor bump.
+        "node_type": ChangeTier.MAJOR,
+        # Metadata only: leaves the query, the columns and the built output alone.
+        "owners": ChangeTier.MINOR,
+        "display_name": ChangeTier.MINOR,
+        "description": ChangeTier.MINOR,
+        "tags": ChangeTier.MINOR,
+        "mode": ChangeTier.MINOR,
+        "custom_metadata": ChangeTier.MINOR,
+    }
+
+    # How significant it is to reorder a list field without adding or removing
+    # anything. Fields absent here are not order-sensitive, so reordering them is
+    # not a change at all. `diff()` compares list fields as sets and cannot see a
+    # reorder on its own, which is why `order_diff()` exists alongside it.
+    FIELD_ORDER_CHANGE_TIERS: ClassVar[dict[str, ChangeTier]] = {}
+
     _query_ast: Any | None = PrivateAttr(default=None)
     # Internal: marks specs from already-validated sources (e.g., branch copies)
     # that can skip expensive SQL parsing and validation
@@ -449,6 +520,98 @@ class NodeSpec(NamespacedSpec):
             ignore_fields=["name", "namespace", "query", "columns"],
         )
 
+    @classmethod
+    def _declared_tier(
+        cls,
+        mapping_name: str,
+        field: str,
+    ) -> ChangeTier | None:
+        """
+        Look a field up in one of the tier mappings, walking the MRO so that each
+        spec class only has to declare the fields it introduces. Returns None
+        when no class in the MRO classifies the field.
+        """
+        for klass in cls.__mro__:
+            mapping = klass.__dict__.get(mapping_name)
+            if mapping and field in mapping:
+                return mapping[field]
+        return None
+
+    @classmethod
+    def field_change_tier(cls, field: str) -> ChangeTier:
+        """
+        Tier of a change to `field`'s value. Unclassified fields are MAJOR so an
+        unclassified field can never be treated as trivial.
+        """
+        declared = cls._declared_tier("FIELD_CHANGE_TIERS", field)
+        return ChangeTier.MAJOR if declared is None else declared
+
+    @classmethod
+    def field_order_change_tier(cls, field: str) -> ChangeTier:
+        """
+        Tier of a reorder of `field` that leaves its contents intact. Fields that
+        no class classifies carry no meaning in their ordering.
+        """
+        declared = cls._declared_tier("FIELD_ORDER_CHANGE_TIERS", field)
+        return ChangeTier.NONE if declared is None else declared
+
+    @classmethod
+    def has_explicit_change_tier(cls, field: str) -> bool:
+        """Whether some class in the MRO classifies `field`."""
+        return cls._declared_tier("FIELD_CHANGE_TIERS", field) is not None
+
+    @classmethod
+    def unclassified_fields(cls) -> list[str]:
+        """Fields on this spec class that nobody classified. Should always be empty."""
+        return [
+            field
+            for field in cls.model_fields
+            if not cls.has_explicit_change_tier(field)
+        ]
+
+    @classmethod
+    def order_sensitive_fields(cls) -> list[str]:
+        """Fields for which some class in the MRO classifies a reorder."""
+        fields: dict[str, None] = {}
+        for klass in cls.__mro__:
+            for field in klass.__dict__.get("FIELD_ORDER_CHANGE_TIERS", {}):
+                fields.setdefault(field, None)
+        return list(fields)
+
+    @classmethod
+    def change_tier(
+        cls,
+        changed_fields: Iterable[str],
+        reordered_fields: Iterable[str] = (),
+    ) -> ChangeTier:
+        """
+        Classify how significant a set of changes is. `changed_fields` are fields
+        whose value differs; `reordered_fields` are fields whose contents are the
+        same but whose ordering differs.
+        """
+        return fold_change_tiers(
+            [cls.field_change_tier(field) for field in changed_fields]
+            + [cls.field_order_change_tier(field) for field in reordered_fields],
+        )
+
+    def order_diff(self, other: "NodeSpec") -> list[str]:
+        """
+        Return the order-sensitive fields whose ordering differs between this and
+        another NodeSpec while their contents stay the same.
+
+        `diff()` compares list fields as sets, so a pure reorder is invisible to
+        it. Renders `${prefix}` placeholders in `other` first, exactly as `diff()`
+        does, so unresolved prefixes don't produce false positives.
+        """
+        rendered = other.rendered_spec()
+        reordered = []
+        for field in self.order_sensitive_fields():
+            mine = list(getattr(self, field, None) or [])
+            theirs = list(getattr(rendered, field, None) or [])
+            if mine != theirs and set(mine) == set(theirs):
+                reordered.append(field)
+        return reordered
+
 
 class LinkableNodeSpec(NodeSpec):
     """
@@ -464,6 +627,13 @@ class LinkableNodeSpec(NodeSpec):
         ]
     ] = Field(default_factory=list)
     primary_key: list[str] = Field(default_factory=list)
+
+    # All three change the node's shape or how it joins, so all three are major.
+    FIELD_CHANGE_TIERS: ClassVar[dict[str, ChangeTier]] = {
+        "columns": ChangeTier.MAJOR,
+        "dimension_links": ChangeTier.MAJOR,
+        "primary_key": ChangeTier.MAJOR,
+    }
 
     @model_validator(mode="after")
     def set_namespaces(self):
@@ -515,6 +685,13 @@ class SourceSpec(LinkableNodeSpec):
     schema_: str | None = Field(alias="schema")
     table: str
 
+    # The source node points at a different physical table.
+    FIELD_CHANGE_TIERS: ClassVar[dict[str, ChangeTier]] = {
+        "catalog": ChangeTier.MAJOR,
+        "schema_": ChangeTier.MAJOR,
+        "table": ChangeTier.MAJOR,
+    }
+
     model_config = ConfigDict(populate_by_name=True)
 
     def __eq__(self, other: object) -> bool:
@@ -535,6 +712,10 @@ class TransformSpec(LinkableNodeSpec):
     node_type: Literal[NodeType.TRANSFORM] = NodeType.TRANSFORM
     query: str
 
+    FIELD_CHANGE_TIERS: ClassVar[dict[str, ChangeTier]] = {
+        "query": ChangeTier.MAJOR,
+    }
+
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, TransformSpec):
             return False
@@ -548,6 +729,10 @@ class DimensionSpec(LinkableNodeSpec):
 
     node_type: Literal[NodeType.DIMENSION] = NodeType.DIMENSION
     query: str
+
+    FIELD_CHANGE_TIERS: ClassVar[dict[str, ChangeTier]] = {
+        "query": ChangeTier.MAJOR,
+    }
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, DimensionSpec):
@@ -587,6 +772,22 @@ class MetricSpec(NodeSpec):
     significant_digits: int | None = None
     min_decimal_exponent: int | None = None
     max_decimal_exponent: int | None = None
+
+    FIELD_CHANGE_TIERS: ClassVar[dict[str, ChangeTier]] = {
+        "query": ChangeTier.MAJOR,
+        "columns": ChangeTier.MAJOR,
+        # Required dimensions constrain which queries the metric can answer.
+        "required_dimensions": ChangeTier.MAJOR,
+        # Everything below is presentation metadata on the metric's single output
+        # column -- the same set the PATCH path already treats as minor via
+        # `metric_metadata` in `create_new_revision_from_existing`.
+        "direction": ChangeTier.MINOR,
+        "unit_enum": ChangeTier.MINOR,
+        "unit_structured": ChangeTier.MINOR,
+        "significant_digits": ChangeTier.MINOR,
+        "min_decimal_exponent": ChangeTier.MINOR,
+        "max_decimal_exponent": ChangeTier.MINOR,
+    }
 
     # Class-level adapter used by __init__ to eagerly validate structured
     # unit input. `ClassVar` keeps Pydantic from treating it as a field.
@@ -713,6 +914,32 @@ class CubeSpec(NodeSpec):
     filters: list[str] | None = None
     columns: list[ColumnSpec] | None = None
 
+    FIELD_CHANGE_TIERS: ClassVar[dict[str, ChangeTier]] = {
+        # Adding or removing a metric or a dimension changes the cube's columns.
+        "metrics": ChangeTier.MAJOR,
+        "dimensions": ChangeTier.MAJOR,
+        # Filters decide which rows the cube contains, so a filter change
+        # invalidates any table materialized from the previous revision --
+        # `is_non_trivial_cube_change` already treats it that way, and it would be
+        # absurd for that to coexist with a mere minor version bump.
+        "filters": ChangeTier.MAJOR,
+        # Only user-authored partition config is compared here (see __eq__);
+        # everything else about cube columns is auto-derived.
+        "columns": ChangeTier.MAJOR,
+    }
+
+    FIELD_ORDER_CHANGE_TIERS: ClassVar[dict[str, ChangeTier]] = {
+        # Metric and dimension ordering determines the cube's column order via
+        # `NodeRevision.cube_dimensions()`, which is the shape of the result sets
+        # users see. A reorder is therefore a real change worth recording, just
+        # not one that moves any value -- so it earns a minor version.
+        "metrics": ChangeTier.MINOR,
+        "dimensions": ChangeTier.MINOR,
+        # Filters are ANDed together, so their ordering carries no meaning at all
+        # and reordering them is genuinely a no-op.
+        "filters": ChangeTier.NONE,
+    }
+
     @property
     def rendered_metrics(self) -> list[str]:
         return [render_prefixes(metric, self.namespace) for metric in self.metrics]
@@ -744,10 +971,15 @@ class CubeSpec(NodeSpec):
             return False
         if not super().__eq__(other):
             return False
+        # Metrics and dimensions are compared in order: their ordering sets the
+        # cube's column order, so a reorder is a change the deployment path has to
+        # be able to see (compared as sets, a YAML reorder was silently ignored).
+        # Filters are compared as sets: they are ANDed, so reordering them is
+        # cosmetic and must not trigger a redeploy.
         if not (
-            set(self.rendered_metrics) == set(other.rendered_metrics)
-            and set(self.rendered_dimensions) == set(other.rendered_dimensions)
-            and (self.rendered_filters or []) == (other.rendered_filters or [])
+            self.rendered_metrics == other.rendered_metrics
+            and self.rendered_dimensions == other.rendered_dimensions
+            and set(self.rendered_filters or []) == set(other.rendered_filters or [])
         ):
             return False
         # Compare only partition config for user-specified columns.
@@ -776,6 +1008,33 @@ def _norm(v: Any) -> Any:
     return v
 
 
+def _as_comparable_set(value: Any) -> set:
+    """Reduce a list field to a set of hashable, comparable items."""
+    return {
+        tuple(sorted(item.model_dump().items()))
+        if isinstance(item, BaseModel)
+        else item
+        for item in value or []
+    }
+
+
+def _values_differ(left: Any, right: Any) -> bool:
+    """
+    Whether two field values differ.
+
+    Dicts are compared by value: iterating a dict yields only its keys, so the
+    set comparison lists use would miss a changed value (`custom_metadata` going
+    from `{"tier": "1"}` to `{"tier": "2"}` looked identical). Lists are compared
+    as sets, so reordering one is not a difference -- see `NodeSpec.order_diff`
+    for the fields where ordering does carry meaning.
+    """
+    if isinstance(left or right, dict):
+        return (left or {}) != (right or {})
+    if isinstance(left or right, list):
+        return _as_comparable_set(left) != _as_comparable_set(right)
+    return _norm(left) != _norm(right)
+
+
 def diff(
     one: BaseModel,
     two: BaseModel,
@@ -784,35 +1043,14 @@ def diff(
     """
     Compare two Pydantic models and return a list of fields that have changed.
     """
-    changed_fields = [
+    return [
         field
         for field in one.model_fields.keys()
         if field not in (ignore_fields or [])
         and hasattr(one, field)
         and hasattr(two, field)
-        and (
-            (
-                isinstance(getattr(one, field) or getattr(two, field), (list, dict))
-                and {
-                    tuple(sorted(item.model_dump().items()))
-                    if isinstance(item, BaseModel)
-                    else item
-                    for item in getattr(one, field) or []
-                }
-                != {
-                    tuple(sorted(item.model_dump().items()))
-                    if isinstance(item, BaseModel)
-                    else item
-                    for item in getattr(two, field) or []
-                }
-            )
-            or (
-                not isinstance(getattr(one, field) or getattr(two, field), (list, dict))
-                and _norm(getattr(one, field)) != _norm(getattr(two, field))
-            )
-        )
+        and _values_differ(getattr(one, field), getattr(two, field))
     ]
-    return changed_fields
 
 
 class GitDeploymentSource(BaseModel):

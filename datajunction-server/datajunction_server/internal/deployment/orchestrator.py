@@ -67,6 +67,7 @@ from datajunction_server.internal.nodes import (
 from datajunction_server.models.access import ResourceAction
 from datajunction_server.models.base import labelize
 from datajunction_server.models.deployment import (
+    ChangeTier,
     ColumnSpec,
     CubeSpec,
     DeploymentResult,
@@ -79,6 +80,7 @@ from datajunction_server.models.deployment import (
     NodeSpec,
     SourceSpec,
     TagSpec,
+    bump_version,
     eq_or_fallback,
     render_prefixes,
 )
@@ -106,7 +108,6 @@ from datajunction_server.models.unit import (
 from datajunction_server.sql.dag import get_metric_parents_map
 from datajunction_server.utils import (
     SEPARATOR,
-    Version,
     get_namespace_from_name,
     get_settings,
 )
@@ -2805,11 +2806,14 @@ class DeploymentOrchestrator:
             # Get pre-computed validation data to avoid re-validation
             assert result._cube_validation_data is not None
             validation_data = result._cube_validation_data
-            changelog, changed_fields = await self._generate_changelog(result)
+            changelog, changed_fields, change_tier = await self._generate_changelog(
+                result,
+            )
             if existing:
                 new_node = existing
-                new_node.current_version = str(
-                    Version.parse(new_node.current_version).next_major_version(),
+                new_node.current_version = self._deployed_version(
+                    new_node.current_version,
+                    change_tier,
                 )
                 new_node.display_name = cube_spec.display_name
                 new_node.owners = [
@@ -3291,6 +3295,13 @@ class DeploymentOrchestrator:
         self,
         existing_nodes_map: dict[str, NodeSpec],
     ):
+        """Split the deployment's nodes into ones to process and ones to skip.
+
+        Decides only whether to process a node, not how significant its change was
+        -- `change_tier` decides that and `_deployed_version` turns it into a
+        version. So `force` and the INVALID re-deploy below can re-process a node
+        without that implying anything about what changed.
+        """
         to_create: list[NodeSpec] = []
         to_update: list[NodeSpec] = []
         to_skip: list[NodeSpec] = []
@@ -3808,8 +3819,8 @@ class DeploymentOrchestrator:
             if existing
             else DeploymentResult.Operation.CREATE
         )
-        changelog, changed_fields = await self._generate_changelog(result)
-        new_node = self._create_or_update_node(result.spec, existing)
+        changelog, changed_fields, change_tier = await self._generate_changelog(result)
+        new_node = self._create_or_update_node(result.spec, existing, change_tier)
         new_revision = await self._create_node_revision(
             new_node,
             result,
@@ -3857,12 +3868,16 @@ class DeploymentOrchestrator:
     async def _generate_changelog(
         self,
         result: NodeValidationResult,
-    ) -> tuple[list[str], list[str]]:
+    ) -> tuple[list[str], list[str], ChangeTier]:
         """Generate changelog entries for a node update.
 
-        Returns (changelog_lines, changed_fields) where changelog_lines are
-        human-readable strings for the deployment message and changed_fields
-        are the raw field names (for structured display in the dry-run impact response).
+        Returns (changelog_lines, changed_fields, change_tier) where changelog_lines
+        are human-readable strings for the deployment message, changed_fields are the
+        raw field names (for structured display in the dry-run impact response), and
+        change_tier says how significant the change is, i.e. what kind of version
+        bump it earns. The tier is computed here because this is where the full set
+        of changed fields is already known -- the same classification the PATCH path
+        uses, so the two paths cannot drift apart.
         """
         changelog: list[str] = []
         changed_fields: list[str] = []
@@ -3870,7 +3885,7 @@ class DeploymentOrchestrator:
         # No changes if the node is new
         existing = self.registry.nodes.get(result.spec.rendered_name)
         if not existing:
-            return changelog, changed_fields
+            return changelog, changed_fields, ChangeTier.NONE
 
         # Track changes to node columns
         old_revision = existing.current if existing else None
@@ -3921,8 +3936,35 @@ class DeploymentOrchestrator:
                 for note in col_change_notes:
                     changelog.append(f"└─ {note}")
 
+        # A cube's columns are derived from its metrics and dimensions; the only
+        # user-authored thing on them is partition config, which is exactly what
+        # CubeSpec.__eq__ compares. So a partition-only edit reaches the update path
+        # and has to be visible here too, or it would earn no version at all.
+        if isinstance(result.spec, CubeSpec) and isinstance(
+            existing_node_spec,
+            CubeSpec,
+        ):
+            incoming_partitions = {
+                col.name: col.partition
+                for col in result.spec.rendered_columns
+                if col.partition
+            }
+            existing_partitions = {
+                col.name: col.partition
+                for col in existing_node_spec.rendered_columns
+                if col.partition
+            }
+            if incoming_partitions != existing_partitions:
+                changed_fields = changed_fields + ["columns"]
+
         if changed_fields:
             changelog.append("└─ Updated " + ", ".join(changed_fields))
+
+        # Fields whose contents are unchanged but whose ordering moved. diff()
+        # compares list fields as sets and so cannot see these on its own.
+        reordered_fields = existing_node_spec.order_diff(result.spec)
+        if reordered_fields:
+            changelog.append("└─ Reordered " + ", ".join(reordered_fields))
 
         # If the node has dimension links and is being updated (even if link specs
         # didn't change), the links will be re-deployed — note this in the message.
@@ -3933,14 +3975,33 @@ class DeploymentOrchestrator:
         ):
             changelog.append("└─ Updated dimension_links")
 
-        return changelog, changed_fields
+        change_tier = type(result.spec).change_tier(changed_fields, reordered_fields)
+        return changelog, changed_fields, change_tier
+
+    @staticmethod
+    def _deployed_version(current_version: str, change_tier: ChangeTier) -> str:
+        """The version an updated node's new revision should carry.
+
+        Floored at MINOR because the deployment path always writes a new revision
+        for a node it processes, and (node_id, version) is unique, so the revision
+        needs a version of its own. A node re-processed without having changed --
+        a forced re-deploy, or one stuck in INVALID being revalidated -- therefore
+        earns a minor version rather than none. The PATCH path calls `bump_version`
+        unfloored, since there a NONE tier can write nothing at all.
+        """
+        return bump_version(current_version, max(change_tier, ChangeTier.MINOR))
 
     def _create_or_update_node(
         self,
         node_spec: NodeSpec,
         existing: Node | None,
+        change_tier: ChangeTier,
     ) -> Node:
-        """Create or update a Node object based on the spec and existing node"""
+        """Create or update a Node object based on the spec and existing node.
+
+        `change_tier` drives the version bump on an update, via `_deployed_version`:
+        a metadata-only edit earns a minor version rather than a major one.
+        """
         new_node = (
             Node(
                 name=node_spec.rendered_name,
@@ -3964,8 +4025,9 @@ class DeploymentOrchestrator:
             else existing
         )
         if existing:
-            new_node.current_version = str(
-                Version.parse(new_node.current_version).next_major_version(),
+            new_node.current_version = self._deployed_version(
+                new_node.current_version,
+                change_tier,
             )
             new_node.display_name = node_spec.display_name
             new_node.owners = [
