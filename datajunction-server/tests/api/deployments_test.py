@@ -2643,6 +2643,7 @@ class TestDeployments:
             ],
             "created_at": None,
             "created_by": None,
+            "warnings": [],
             "downstream_impacts": [],
             "source": None,
         }
@@ -2718,6 +2719,7 @@ class TestDeployments:
             ],
             "created_at": mock.ANY,
             "created_by": mock.ANY,
+            "warnings": [],
             "downstream_impacts": [],
             "source": mock.ANY,
         }
@@ -3489,6 +3491,7 @@ class TestDeployments:
             ],
             "created_at": mock.ANY,
             "created_by": mock.ANY,
+            "warnings": [],
             "downstream_impacts": [],
             "source": mock.ANY,
         }
@@ -6143,6 +6146,84 @@ class TestExternalPreAggDeploy:
             assert data["status"] == "success", data["results"]
             listing = await client.get("/preaggs/", params={"node_name": fact_node})
             assert listing.json()["items"] == []
+        finally:
+            _clear_query_service(client)
+
+    @pytest.mark.asyncio
+    async def test_preagg_kept_warning_is_surfaced(
+        self,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """The "left intact" warning is reported by the successful deploy that
+        skipped the deregistration -- both as a top-level warning and as a
+        per-item pre-aggregation result."""
+        _override_query_service(client, ["hard_hat_count", "state_name"])
+        try:
+            nodes = _hard_hat_deploy_nodes(
+                default_hard_hats,
+                default_us_states,
+                default_us_state,
+            )
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(
+                    namespace="preagg_warn",
+                    nodes=nodes,
+                    preaggregations=[
+                        _preagg_spec(
+                            "warn_me",
+                            "hh_warn",
+                            {"${prefix}default.count_hard_hats": "hard_hat_count"},
+                        ),
+                    ],
+                ),
+            )
+            assert data["status"] == "success", data["results"]
+            assert data["warnings"] == []
+
+            # Re-deploy with no pre-aggs declared: succeeds, keeps the pre-agg,
+            # and says so.
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(namespace="preagg_warn", nodes=nodes),
+            )
+            message = (
+                "1 external pre-aggregation(s) in namespace 'preagg_warn' were "
+                "left intact because the deployment declares none. Re-run with "
+                "allow_empty to deregister them."
+            )
+            assert data["status"] == "success", data["results"]
+            assert data["warnings"] == [
+                {
+                    "code": "INVALID_ARGUMENTS_TO_FUNCTION",
+                    "message": message,
+                    "debug": None,
+                    "context": "",
+                },
+            ]
+            assert [
+                result
+                for result in data["results"]
+                if result["deploy_type"] == "preaggregation"
+            ] == [
+                {
+                    "name": "preagg_warn",
+                    "deploy_type": "preaggregation",
+                    "status": "warning",
+                    "operation": "noop",
+                    "message": message,
+                    "changed_fields": [],
+                },
+            ]
+
+            listing = await client.get(
+                "/preaggs/",
+                params={"node_name": "preagg_warn.default.hard_hat_facts"},
+            )
+            assert len(listing.json()["items"]) == 1
         finally:
             _clear_query_service(client)
 

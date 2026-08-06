@@ -12,6 +12,7 @@ from pydantic import (
 )
 
 from datajunction_server.errors import (
+    DJError,
     DJInvalidDeploymentConfig,
     DJInvalidInputException,
 )
@@ -1006,6 +1007,7 @@ class DeploymentResult(BaseModel):
         FAILED = "failed"
         SKIPPED = "skipped"
         INVALID = "invalid"  # deployed but node status is INVALID
+        WARNING = "warning"  # deployed successfully, but something needs attention
 
     class Operation(str, Enum):
         CREATE = "create"
@@ -1039,6 +1041,7 @@ class DeploymentInfo(BaseModel):
     namespace: str
     status: DeploymentStatus
     results: list[DeploymentResult] = Field(default_factory=list)
+    warnings: list[DJError] = Field(default_factory=list)
     downstream_impacts: list[DownstreamImpact] = Field(default_factory=list)
     created_at: str | None = None  # ISO datetime
     created_by: str | None = None  # Username

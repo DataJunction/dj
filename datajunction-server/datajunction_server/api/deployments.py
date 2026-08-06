@@ -15,7 +15,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.database.deployment import Deployment
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.user import User
-from datajunction_server.errors import DJDoesNotExistException, DJInvalidInputException
+from datajunction_server.errors import (
+    DJDoesNotExistException,
+    DJError,
+    DJInvalidInputException,
+)
 from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
@@ -238,6 +242,7 @@ class InProcessExecutor(DeploymentExecutor):
         status: DeploymentStatus,
         results: list[DeploymentResult] | None = None,
         downstream_impacts: list | None = None,
+        warnings: list[DJError] | None = None,
     ):
         async with session_context() as session:
             deployment = await session.get(Deployment, deployment_uuid)
@@ -247,6 +252,8 @@ class InProcessExecutor(DeploymentExecutor):
             deployment.status = status
             if results is not None:
                 deployment.results = [r.model_dump() for r in results]
+            if warnings is not None:
+                deployment.deployment_warnings = warnings
             if downstream_impacts is not None:
                 deployment.downstream_impacts = [
                     d.model_dump() for d in downstream_impacts
@@ -278,6 +285,7 @@ class InProcessExecutor(DeploymentExecutor):
                             DeploymentResult.Status.SUCCESS,
                             DeploymentResult.Status.SKIPPED,
                             DeploymentResult.Status.INVALID,
+                            DeploymentResult.Status.WARNING,
                         )
                         for r in results
                     )
@@ -288,6 +296,7 @@ class InProcessExecutor(DeploymentExecutor):
                     final_status,
                     results,
                     downstream_impacts=execute_result.downstream_impacts,
+                    warnings=execute_result.warnings,
                 )
                 if final_status == DeploymentStatus.SUCCESS:
                     await _maybe_autolock_git_namespace(deployment_spec)
@@ -394,6 +403,7 @@ async def create_deployment(
         namespace=deployment.namespace,
         status=deployment.status.value,
         results=deployment.deployment_results,
+        warnings=deployment.deployment_warnings,
         downstream_impacts=deployment.deployment_downstream_impacts,
     )
 
@@ -413,6 +423,7 @@ async def get_deployment_status(
         namespace=deployment.namespace,
         status=deployment.status.value,
         results=deployment.deployment_results,
+        warnings=deployment.deployment_warnings,
         downstream_impacts=deployment.deployment_downstream_impacts,
     )
 
@@ -445,6 +456,7 @@ async def list_deployments(  # pragma: no cover
                 namespace=deployment.namespace,
                 status=deployment.status,
                 results=deployment.deployment_results,
+                warnings=deployment.deployment_warnings,
                 created_at=deployment.created_at.isoformat()
                 if deployment.created_at
                 else None,
@@ -514,5 +526,6 @@ async def preview_deployment_impact(
         namespace=deployment_spec.namespace,
         status=DeploymentStatus.SUCCESS,
         results=execute_result.results,
+        warnings=execute_result.warnings,
         downstream_impacts=execute_result.downstream_impacts,
     )
