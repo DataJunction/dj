@@ -24,6 +24,7 @@ from datajunction_server.models.dimensionlink import (
     SparkJoinStrategy,
 )
 from datajunction_server.models.impact import DownstreamImpact
+from datajunction_server.models.materialization import MaterializationStrategy
 from datajunction_server.models.node import (
     MetricDirection,
     MetricUnit,
@@ -222,6 +223,33 @@ class PartitionSpec(BaseModel):
     type: PartitionType
     granularity: Granularity | None = None
     format: str | None = None
+
+
+class MaterializationSpec(BaseModel):
+    """
+    Declarative materialization config for a cube.
+
+    Deliberately carries only what the author decides: when to build, how, and
+    how far back to look. The backend that runs it (and everything it derives --
+    the measures queries, combiner SQL, Druid spec, output tables) is DJ's
+    choice, so no `job` field is exposed here and the block stays portable if
+    that choice changes.
+    """
+
+    schedule: str
+    strategy: MaterializationStrategy = MaterializationStrategy.INCREMENTAL_TIME
+    lookback_window: str | None = "1 DAY"
+
+    @model_validator(mode="after")
+    def clear_lookback_for_full(self) -> "MaterializationSpec":
+        """
+        `lookback_window` only means something for INCREMENTAL_TIME. Normalize it
+        away for FULL so an ignored value can't make two equivalent specs compare
+        unequal and churn a live workflow on deploy.
+        """
+        if self.strategy != MaterializationStrategy.INCREMENTAL_TIME:
+            self.lookback_window = None
+        return self
 
 
 class ColumnSpec(BaseModel):
@@ -913,6 +941,7 @@ class CubeSpec(NodeSpec):
     dimensions: list[str] = Field(default_factory=list)
     filters: list[str] | None = None
     columns: list[ColumnSpec] | None = None
+    materialization: MaterializationSpec | None = None
 
     FIELD_CHANGE_TIERS: ClassVar[dict[str, ChangeTier]] = {
         # Adding or removing a metric or a dimension changes the cube's columns.
@@ -926,6 +955,19 @@ class CubeSpec(NodeSpec):
         # Only user-authored partition config is compared here (see __eq__);
         # everything else about cube columns is auto-derived.
         "columns": ChangeTier.MAJOR,
+        # Materialization is not part of a cube's definition. Configuring one
+        # through `POST /nodes/{name}/materialization/` has never created a node
+        # revision, and a YAML-declared schedule has to behave the same way, or
+        # the same edit would cut a version through one door and not the other.
+        # Because `materialization` is also excluded from `__eq__`, a
+        # materialization-only edit leaves the cube in the deployment's skip list
+        # and never reaches the classifier at all; NONE records that intent rather
+        # than describing a reachable code path. Nothing is lost by the exclusion:
+        # reconciling the declared block against the persisted config is a separate
+        # concern that runs over every declared cube whether or not the node
+        # changed, which is also what catches a materialization changed outside
+        # YAML.
+        "materialization": ChangeTier.NONE,
     }
 
     FIELD_ORDER_CHANGE_TIERS: ClassVar[dict[str, ChangeTier]] = {
@@ -939,6 +981,34 @@ class CubeSpec(NodeSpec):
         # and reordering them is genuinely a no-op.
         "filters": ChangeTier.NONE,
     }
+
+    @model_validator(mode="after")
+    def validate_materialization(self) -> "CubeSpec":
+        """
+        An INCREMENTAL_TIME materialization has nothing to increment over without a
+        temporal partition, so require one up front rather than failing later in the
+        build. The partition is read from the cube's own columns (see ColumnSpec.
+        partition) -- it is not restated on the materialization block, so that a cube
+        carrying the same dimension in two roles can say which role partitions it.
+        """
+        if (
+            self.materialization
+            and self.materialization.strategy
+            == MaterializationStrategy.INCREMENTAL_TIME
+            and not any(
+                col.partition and col.partition.type == PartitionType.TEMPORAL
+                for col in self.columns or []
+            )
+        ):
+            raise DJInvalidDeploymentConfig(
+                message=(
+                    f"Cube `{self.name}` declares an `incremental_time` "
+                    "materialization but no temporal partition. Add `partition: "
+                    "{type: temporal, ...}` to the cube column that partitions it, "
+                    "or use `strategy: full`."
+                ),
+            )
+        return self
 
     @property
     def rendered_metrics(self) -> list[str]:
@@ -982,6 +1052,14 @@ class CubeSpec(NodeSpec):
             and set(self.rendered_filters or []) == set(other.rendered_filters or [])
         ):
             return False
+        # `materialization` is deliberately absent from this comparison. Equality
+        # here decides whether the cube's definition changed, and any inequality
+        # routes the cube to the update path, which always writes a new revision and
+        # so mints at least a minor version. Rescheduling a build is not a definition
+        # change and must not mint one (nor trip the workflow stop that a material
+        # cube change triggers); see `materialization` in FIELD_CHANGE_TIERS. It is
+        # reconciled separately, against the persisted config rather than this spec.
+
         # Compare only partition config for user-specified columns.
         # Cube element columns (types, order, attributes) are auto-derived and ignored.
         incoming_partitions = {
