@@ -8,6 +8,7 @@ from sqlalchemy_utils import UUIDType
 
 from datajunction_server.database.base import Base
 from datajunction_server.database.user import User
+from datajunction_server.errors import DJError, ErrorCode
 from datajunction_server.models.deployment import (
     DeploymentResult,
     DeploymentSpec,
@@ -41,6 +42,7 @@ class Deployment(Base):
     )
     spec: Mapped[dict] = mapped_column(JSON, default={})
     results: Mapped[dict] = mapped_column(JSON, default={})
+    warnings: Mapped[list | None] = mapped_column(JSON, default=list)
     downstream_impacts: Mapped[list | None] = mapped_column(JSON, default=list)
 
     created_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
@@ -71,6 +73,19 @@ class Deployment(Base):
     @deployment_results.setter
     def deployment_results(self, value: list[DeploymentResult]):
         self.results = [result.model_dump() for result in value]  # pragma: no cover
+
+    @property
+    def deployment_warnings(self) -> list[DJError]:
+        # ``code`` is stored as the symbolic ErrorCode name (see
+        # DJError.serialize_code), so resolve it back to the enum member.
+        return [
+            DJError(**{**warning, "code": ErrorCode[warning["code"]]})
+            for warning in (self.warnings or [])
+        ]
+
+    @deployment_warnings.setter
+    def deployment_warnings(self, value: list[DJError]):
+        self.warnings = [warning.model_dump() for warning in value]
 
     @property
     def deployment_downstream_impacts(self) -> list[DownstreamImpact]:
