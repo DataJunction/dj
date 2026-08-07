@@ -1674,17 +1674,23 @@ async def test_getting_materializations_for_all_revisions(
         },
     )
 
+    materialization_name = (
+        "druid_measures_cube__incremental_time__default.repair_orders_fact.order_date"
+    )
     response = await client.get(
         f"/nodes/{cube_name}/materializations",
     )
-    assert len(response.json()) == 0
+    assert [mat["name"] for mat in response.json()] == [materialization_name]
 
     # Make sure both materializations show up when all materializations are requested
     response = await client.get(
         f"/nodes/{cube_name}/materializations"
         "?include_all_revisions=true&show_inactive=true",
     )
-    assert len(response.json()) == 1
+    assert [mat["name"] for mat in response.json()] == [
+        materialization_name,
+        materialization_name,
+    ]
 
 
 @pytest.mark.asyncio

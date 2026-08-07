@@ -2,13 +2,21 @@
 
 import logging
 import zlib
+from dataclasses import dataclass
+from datetime import UTC
 
 from pydantic import ValidationError
+from sqlalchemy import select
 from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.construction.build import get_default_criteria
 from datajunction_server.construction.build_v2 import QueryBuilder
+from datajunction_server.database.history import (
+    ActivityType,
+    EntityType,
+    History,
+)
 from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.node import NodeRevision
 from datajunction_server.database.user import User
@@ -25,6 +33,7 @@ from datajunction_server.materialization.jobs import MaterializationJob
 from datajunction_server.models.column import SemanticType
 from datajunction_server.models.cube_materialization import UpsertCubeMaterialization
 from datajunction_server.models.materialization import (
+    DruidCubeConfigInput,
     DruidMeasuresCubeConfig,
     DruidMetricsCubeConfig,
     GenericMaterializationConfig,
@@ -42,6 +51,7 @@ from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.sql.parsing.types import TimestampType
+from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import SEPARATOR, session_context
 
 MAX_COLUMN_NAME_LENGTH = 128
@@ -322,6 +332,210 @@ def _materialization_name(
         + (f"__{partition_names[0]}" if temporal_partitions else "")
         + ("__" if categorical_partitions else "")
         + ("__".join(partition_names[len(temporal_partitions) :]))
+    )
+
+
+def _upsert_from_materialization(
+    materialization: Materialization,
+) -> UpsertCubeMaterialization | UpsertMaterialization:
+    """
+    Recover the user's materialization intent from a persisted materialization.
+
+    Only the intent -- job type, strategy, schedule and lookback window -- is
+    carried over; everything else in a stored config is generated content derived
+    from the revision it was built against.
+    """
+    config = materialization.config if isinstance(materialization.config, dict) else {}
+    lookback_window = config.get("lookback_window")
+    job_type = MaterializationJobTypeEnum.find_match(materialization.job)
+    if job_type == MaterializationJobTypeEnum.DRUID_CUBE:
+        return UpsertCubeMaterialization(
+            job=job_type.value.name,  # type: ignore
+            strategy=materialization.strategy,
+            schedule=materialization.schedule,
+            lookback_window=lookback_window,
+        )
+    return UpsertMaterialization(
+        job=job_type.value.name,  # type: ignore
+        strategy=materialization.strategy,
+        schedule=materialization.schedule,
+        config=DruidCubeConfigInput(
+            spark=config.get("spark") or {},
+            lookback_window=lookback_window,
+        ),
+    )
+
+
+@dataclass
+class CubeMaterializationSwap:
+    """
+    The query service work a cube materialization swap still owes, once DJ's own
+    record of the swap is durable.
+    """
+
+    cube_name: str
+    previous_version: str
+    new_revision_id: int
+    new_version: str
+    rebuilt_names: list[str]
+    superseded: list[Materialization]
+
+
+async def swap_cube_materializations(
+    session: AsyncSession,
+    old_revision: NodeRevision,
+    new_revision: NodeRevision,
+    *,
+    access_checker: AccessChecker,
+    current_user: User,
+    previous_table_usable: bool,
+) -> CubeMaterializationSwap | None:
+    """
+    Rebuild a cube's materializations against a new revision and retire the old ones.
+
+    Materializations belong to a single `NodeRevision` and availability is scoped to
+    the revision encoded in the materialized table name, so without this a new cube
+    revision -- including a metadata-only one -- has neither: the cube silently falls
+    back to live queries while the superseded revision's workflow keeps posting
+    availability for a table built from the old definition. Every new revision
+    therefore swaps, no matter how insignificant the change was.
+
+    Rebuilt rather than copied: a stored config embeds the cube version plus combiner
+    SQL and a Druid spec derived from the old definition, so the new revision goes
+    back through `create_new_materialization`. The old materialization is the source
+    of the user's intent because it is the only record of it -- a cube materialized
+    through the UI has no YAML to read it from.
+
+    `previous_table_usable` is the caller's answer to whether the superseded
+    revision's materialized table is still valid (`is_non_trivial_cube_change`
+    inverted), recorded on the history event so an operator can tell whether the
+    rebuild can adopt the existing data or needs a fresh build and backfill.
+
+    Touches only DJ-side state, and returns the query service work still owed --
+    `None` when the cube had nothing materialized and there is no work at all. The
+    caller commits and then hands the result to `apply_cube_materialization_swap`, so
+    a query service that is slow or unreachable can neither hold the transaction open
+    nor leave DJ's record of what is active disagreeing with what was requested.
+    """
+    superseded = [
+        mat for mat in old_revision.materializations if not mat.deactivated_at
+    ]
+    if not superseded:
+        return None
+
+    # The rebuild reads the new revision's columns, partitions and cube elements.
+    # Neither caller is guaranteed to have those loaded -- the API path has just
+    # committed the revision -- and a lazy load from async code would fail, so pull
+    # them in up front.
+    await session.execute(
+        select(NodeRevision)
+        .where(NodeRevision.id == new_revision.id)
+        .options(*NodeRevision.cube_load_options()),
+    )
+
+    rebuilt: list[Materialization] = []
+    for materialization in superseded:
+        try:
+            new_materialization = await create_new_materialization(
+                session,
+                new_revision,
+                _upsert_from_materialization(materialization),
+                access_checker,
+                current_user=current_user,
+            )
+            # `create_new_materialization` only sets the backref, and `new_revision`
+            # is already persisted here, so nothing cascades the new row in for us.
+            session.add(new_materialization)
+            rebuilt.append(new_materialization)
+        except Exception as exc:
+            # A rebuild can become impossible -- e.g. the new revision no longer has
+            # the temporal partition a cube materialization needs. The superseded
+            # workflow still has to be stopped, and the cube edit that triggered the
+            # swap must not fail because its materialization could not be carried
+            # forward, so nothing here is allowed to propagate.
+            _logger.warning(
+                "Cannot rebuild materialization %s for cube=%s version=%s: %s",
+                materialization.name,
+                new_revision.name,
+                new_revision.version,
+                str(exc),
+            )
+    for materialization in superseded:
+        materialization.deactivated_at = UTCDatetime.now(UTC)  # type: ignore
+    session.add(
+        History(
+            entity_type=EntityType.MATERIALIZATION,
+            entity_name=old_revision.name,
+            node=old_revision.name,
+            activity_type=ActivityType.STATUS_CHANGE,
+            details={
+                "message": (
+                    f"Cube updated to {new_revision.version}. Materializations were "
+                    "rebuilt against the new version and the previous version's "
+                    "workflows were stopped."
+                ),
+                "previous_version": old_revision.version,
+                "new_version": new_revision.version,
+                "stopped_materializations": [mat.name for mat in superseded],
+                "rebuilt_materializations": [mat.name for mat in rebuilt],
+                "previous_table_usable": previous_table_usable,
+            },
+            user=current_user.username,
+        ),
+    )
+    await session.flush()
+    return CubeMaterializationSwap(
+        cube_name=old_revision.name,
+        previous_version=old_revision.version,
+        new_revision_id=new_revision.id,
+        new_version=new_revision.version,
+        rebuilt_names=[mat.name for mat in rebuilt],
+        superseded=superseded,
+    )
+
+
+async def apply_cube_materialization_swap(
+    session: AsyncSession,
+    swap: CubeMaterializationSwap,
+    query_service_client: QueryServiceClient | None,
+    request_headers: dict[str, str] | None = None,
+) -> None:
+    """
+    Hand a committed cube materialization swap to the query service.
+
+    The replacement is scheduled before the superseded workflow is stopped, so the
+    cube is never knowingly left with nothing running. The stop happens either way:
+    DJ has already recorded the superseded materializations as inactive, and leaving
+    their workflow running would keep posting availability for a table the current
+    revision cannot use.
+
+    Never raises. With no query service configured there is nothing to do at all.
+    """
+    if not query_service_client:
+        return
+    if swap.rebuilt_names:
+        try:
+            await schedule_materialization_jobs(
+                session,
+                node_revision_id=swap.new_revision_id,
+                materialization_names=swap.rebuilt_names,
+                query_service_client=query_service_client,
+                request_headers=request_headers,
+            )
+        except Exception as exc:
+            _logger.warning(
+                "Failed to schedule rebuilt materializations for cube=%s version=%s: "
+                "%s (continuing)",
+                swap.cube_name,
+                swap.new_version,
+                str(exc),
+            )
+    stop_cube_materialization_workflows(
+        query_service_client=query_service_client,
+        cube_name=swap.cube_name,
+        cube_version=swap.previous_version,
+        materializations=swap.superseded,
+        request_headers=request_headers,
     )
 
 

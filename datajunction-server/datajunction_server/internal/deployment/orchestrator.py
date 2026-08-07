@@ -61,8 +61,14 @@ from datajunction_server.internal.deployment.validation import (
 )
 from datajunction_server.internal.history import EntityType
 from datajunction_server.internal.impact import propagate_impact
+from datajunction_server.internal.materializations import (
+    CubeMaterializationSwap,
+    apply_cube_materialization_swap,
+    swap_cube_materializations,
+)
 from datajunction_server.internal.nodes import (
     derive_frozen_measures_bulk,
+    is_non_trivial_cube_change,
 )
 from datajunction_server.models.access import ResourceAction
 from datajunction_server.models.base import labelize
@@ -342,6 +348,7 @@ class DeploymentOrchestrator:
         self.warnings: list[DJError] = []
         self.deployed_results: list[DeploymentResult] = []
         self._timer = DeploymentTimer()
+        self._cube_materialization_swaps: list[CubeMaterializationSwap] = []
 
     @property
     def _history_user(self) -> str:
@@ -371,6 +378,10 @@ class DeploymentOrchestrator:
         Returned ``results`` and ``downstream_impacts`` are populated inside
         the SAVEPOINT; Python references stay live after rollback, so dry-run
         callers still get the full impact analysis.
+
+        Cube materialization swaps are the one piece of remote work deferred past
+        the commit, so a deploy that rolls back has asked the query service to
+        neither schedule nor stop anything.
         """
         start_total = time.perf_counter()
         self._timer = DeploymentTimer()
@@ -392,6 +403,7 @@ class DeploymentOrchestrator:
             # `else` only fires when no _DryRunRollback was raised, which
             # implies wet-run — commit the outer transaction.
             await self.session.commit()
+            await self._apply_cube_materialization_swaps()
 
         # Warnings are only surfaced by the failure path (they ride along on
         # DJInvalidDeploymentConfig), so hand them back here too — otherwise a
@@ -2208,6 +2220,14 @@ class DeploymentOrchestrator:
             else:
                 validation_results = await self._bulk_validate_cubes(cubes_to_deploy)
 
+        # The superseded revision of every cube this deploy updates, captured before
+        # `node.current` is repointed below.
+        old_revisions = {
+            spec.rendered_name: existing.current
+            for spec in cubes_to_deploy
+            if (existing := self.registry.nodes.get(spec.rendered_name)) is not None
+        }
+
         with timer.phase("    cubes: create ORM objects"):
             (
                 nodes,
@@ -2226,6 +2246,9 @@ class DeploymentOrchestrator:
             node_obj.current = revision
         self.registry.add_nodes({n.name: n for n in nodes})
 
+        with timer.phase("    cubes: swap materializations"):
+            await self._swap_cube_materializations(old_revisions, revisions)
+
         elapsed_ms = (time.perf_counter() - start) * 1000
         logger.info(
             "Deployed %d cubes in %.3fs",
@@ -2241,6 +2264,67 @@ class DeploymentOrchestrator:
             len(nodes),
         )
         return deployment_results
+
+    async def _swap_cube_materializations(
+        self,
+        old_revisions: dict[str, NodeRevision],
+        new_revisions: list[NodeRevision],
+    ) -> None:
+        """
+        Rebuild each updated cube's materializations against its new revision and
+        retire the old ones.
+
+        Shares `swap_cube_materializations` with `PATCH /nodes/{name}/` so a cube
+        edited through a deploy and the same edit applied through the API land on
+        identical materialization state. Only the DJ-side half runs here; the query
+        service calls are queued and made by `execute` once the deployment is
+        committed. Skipped entirely during dry runs, which must schedule nothing and
+        stop nothing.
+        """
+        if self.dry_run:
+            return
+        swappable = [
+            (old_revision, new_revision)
+            for new_revision in new_revisions
+            if (old_revision := old_revisions.get(new_revision.name)) is not None
+        ]
+        if not swappable:
+            return
+        access_checker = AccessChecker(
+            await AuthContext.from_user(self.session, self.context.current_user),
+        )
+        for old_revision, new_revision in swappable:
+            swap = await swap_cube_materializations(
+                self.session,
+                old_revision,
+                new_revision,
+                access_checker=access_checker,
+                current_user=self.context.current_user,
+                previous_table_usable=not await is_non_trivial_cube_change(
+                    self.session,
+                    old_revision,
+                    new_revision,
+                ),
+            )
+            if swap:
+                self._cube_materialization_swaps.append(swap)
+
+    async def _apply_cube_materialization_swaps(self) -> None:
+        """
+        Hand the deployment's committed cube materialization swaps to the query
+        service. Called only after the outer transaction commits, so a deploy that
+        rolls back has told the query service nothing.
+        """
+        request_headers = (
+            dict(self.context.request.headers) if self.context.request else {}
+        )
+        for swap in self._cube_materialization_swaps:
+            await apply_cube_materialization_swap(
+                self.session,
+                swap,
+                self.context.query_service_client,
+                request_headers=request_headers,
+            )
 
     async def _bulk_validate_cubes(
         self,
