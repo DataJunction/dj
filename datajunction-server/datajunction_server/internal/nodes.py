@@ -60,7 +60,9 @@ from datajunction_server.errors import (
 )
 from datajunction_server.internal.access.authorization import (
     AccessChecker,
+    AccessDenialMode,
 )
+from datajunction_server.internal.access.authorization.context import AuthContext
 from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.materializations import (
@@ -72,6 +74,11 @@ from datajunction_server.internal.validation import (
     NodeValidator,
     validate_node_data,
     validate_node_data_v2,
+)
+from datajunction_server.models.access import (
+    Resource,
+    ResourceAction,
+    ResourceRequest,
 )
 from datajunction_server.models.attribute import (
     AttributeTypeIdentifier,
@@ -160,6 +167,7 @@ async def create_a_source_node(
         access_checker=access_checker,
         background_tasks=background_tasks,
         save_history=save_history,
+        access_target=_create_access_target(data),
     ):
         return recreated_node
 
@@ -251,6 +259,8 @@ async def create_a_node(
 
     await raise_if_node_exists(session, data.name)
 
+    create_access_target = _create_access_target(data)
+
     # if the node previously existed and now is inactive
     if recreated_node := await create_node_from_inactive(
         new_node_type=node_type,
@@ -263,6 +273,7 @@ async def create_a_node(
         access_checker=access_checker,
         save_history=save_history,
         cache=cache,
+        access_target=create_access_target,
     ):
         return recreated_node  # pragma: no cover
 
@@ -311,11 +322,18 @@ async def create_a_node(
 
     # For metric nodes, derive the referenced frozen measures and save them
     if node.type == NodeType.METRIC:
-        background_tasks.add_task(derive_frozen_measures, node_revision.id)
+        background_tasks.add_task(
+            derive_frozen_measures,
+            node_revision.id,
+            current_user=current_user,
+            access_target=create_access_target,
+        )
 
     background_tasks.add_task(
         save_column_level_lineage,
         node_revision_id=node_revision.id,
+        current_user=current_user,
+        access_target=create_access_target,
     )
 
     return await Node.get_by_name(  # type: ignore
@@ -349,6 +367,7 @@ async def create_a_cube(
         background_tasks=background_tasks,
         access_checker=access_checker,
         save_history=save_history,
+        access_target=_create_access_target(data),
     ):
         return recreated_node  # pragma: no cover
 
@@ -711,7 +730,62 @@ async def create_cube_node_revision(
     return node_revision
 
 
-async def derive_frozen_measures(node_revision_id: int) -> list[FrozenMeasure]:
+def _create_access_target(
+    data: CreateSourceNode | CreateNode | CreateCubeNode,
+) -> Resource:
+    """
+    The resource a create endpoint governs: the node's target namespace.
+
+    Background work scheduled by a create re-authorizes this rather than the node
+    (see ``_background_write_allowed``), including on the re-creation path, which
+    routes through the update helper.
+    """
+    return Resource.from_namespace(data.namespace or get_namespace_from_name(data.name))
+
+
+async def _background_write_allowed(
+    session: AsyncSession,
+    access_target: Resource,
+    current_user: User,
+    action_description: str,
+) -> bool:
+    """
+    Whether ``current_user`` may WRITE ``access_target``.
+
+    Background tasks mutate after the response has returned, outside the request's
+    AccessChecker, so they re-authorize here instead of trusting the scheduling
+    caller. The target is supplied by that caller rather than derived here,
+    because the endpoints do not all govern the same resource: node creation
+    authorizes the target namespace while updates authorize the node. Deriving a
+    node request here would deny the create path, whose grant may be a namespace
+    scope that no node pattern matches.
+
+    Denials are logged and skip the mutation rather than raising, since the
+    callers swallow exceptions and an exception would be indistinguishable from
+    a failure.
+    """
+    access_checker = AccessChecker(await AuthContext.from_user(session, current_user))
+    access_checker.add_request(
+        ResourceRequest(verb=ResourceAction.WRITE, access_object=access_target),
+    )
+    decisions = await access_checker.check(on_denied=AccessDenialMode.RETURN)
+    if any(not decision.approved for decision in decisions):
+        _logger.warning(
+            "Skipping %s for %s %s: %s lacks WRITE",
+            action_description,
+            access_target.resource_type.value,
+            access_target.name,
+            current_user.username,
+        )
+        return False
+    return True
+
+
+async def derive_frozen_measures(
+    node_revision_id: int,
+    current_user: User,
+    access_target: Resource,
+) -> list[FrozenMeasure]:
     """
     Find or create frozen measures for a metric.
 
@@ -723,9 +797,20 @@ async def derive_frozen_measures(node_revision_id: int) -> list[FrozenMeasure]:
     the derivation runs asynchronously. Opens its own session and commits
     on completion. The deployment path uses ``derive_frozen_measures_bulk``
     instead to batch DB work across all metrics in a single transaction.
+
+    Runs after the response, so it authorizes ``current_user`` for WRITE on
+    ``access_target`` -- the resource the scheduling endpoint governed -- rather
+    than trusting that caller to have checked (#2234 step 0).
     """
     try:
         async with session_context() as session:
+            if not await _background_write_allowed(
+                session,
+                access_target,
+                current_user,
+                "deriving frozen measures",
+            ):
+                return []
             result = await _derive_frozen_measures_impl(node_revision_id, session)
             await session.commit()
             return result
@@ -1258,10 +1343,16 @@ async def update_node_with_query(
     access_checker: AccessChecker,
     save_history: Callable,
     cache: Cache | None = None,
+    access_target: Resource | None = None,
 ) -> Node:
     """
     Update the named node with the changes defined in the UpdateNode object.
     Propagate these changes to all of the node's downstream children.
+
+    ``access_target`` is the resource the calling endpoint authorized, used by the
+    background work scheduled below. It defaults to the node, which is what the
+    update endpoint governs; re-creating an inactive node routes here from the
+    create endpoint, which governs the target namespace instead.
 
     Note: this function works for both source nodes and nodes with query (transforms,
     dimensions, metrics). We should update it to separate out the logic for source nodes
@@ -1372,6 +1463,8 @@ async def update_node_with_query(
         background_tasks.add_task(
             save_column_level_lineage,
             node_revision_id=new_revision.id,
+            current_user=current_user,
+            access_target=access_target or Resource.from_node(new_revision),
         )
         # TODO: Do not save this until:
         #   1. We get to the bottom of why there are query building discrepancies
@@ -1866,6 +1959,16 @@ async def _propagate_update_downstream(
     - altered column names: may invalidate downstream nodes
     - altered column types: may invalidate downstream nodes
     - new columns: won't affect downstream nodes
+
+    Authorization: this revalidates nodes the updater may not hold WRITE on, and
+    that is deliberate (#2234 step 0). A node is only downstream because its own
+    owner pointed it at this upstream, so the blast radius is opt-in rather than
+    caller-controlled, and revalidation only makes stored status reflect reality.
+    Requiring WRITE here would either block owners from updating their own nodes
+    whenever another team depends on them, or skip the denied ones and leave the
+    graph asserting VALID for nodes that are now broken -- silently, since the
+    caller above swallows exceptions. Pinned by
+    tests/internal/nodes/background_authz_test.py.
     """
     _logger.info("Propagating update of node %s downstream", node.name)
     downstreams = await get_downstream_nodes(
@@ -2008,10 +2111,15 @@ async def create_node_from_inactive(
     background_tasks: BackgroundTasks = None,
     access_checker: AccessChecker | None = None,
     cache: Cache | None = None,
+    access_target: Resource | None = None,
 ) -> Node | None:
     """
     If the node existed and is inactive the re-creation takes different steps than
     creating it from scratch.
+
+    ``access_target`` is forwarded to the update path so background work
+    re-authorizes what the *create* endpoint governed (the namespace), not the
+    node that path would otherwise assume.
     """
     previous_inactive_node = await Node.get_by_name(
         session,
@@ -2059,6 +2167,7 @@ async def create_node_from_inactive(
                 access_checker=access_checker,  # type: ignore
                 save_history=save_history,
                 cache=cache,
+                access_target=access_target,
             )
         else:
             await update_cube_node(
@@ -2386,12 +2495,27 @@ async def create_new_revision_from_existing(
     return new_revision
 
 
-async def save_column_level_lineage(node_revision_id: int):
+async def save_column_level_lineage(
+    node_revision_id: int,
+    current_user: User,
+    access_target: Resource,
+):
     """
     Saves the column-level lineage for a node revision
+
+    Runs after the response, so it authorizes ``current_user`` for WRITE on
+    ``access_target`` -- the resource the scheduling endpoint governed -- rather
+    than trusting that caller to have checked (#2234 step 0).
     """
     try:
         async with session_context() as session:
+            if not await _background_write_allowed(
+                session,
+                access_target,
+                current_user,
+                "saving column-level lineage",
+            ):
+                return
             statement = (
                 select(NodeRevision)
                 .where(NodeRevision.id == node_revision_id)
@@ -3815,7 +3939,13 @@ async def revalidate_node(
     # For metric nodes, derive frozen measures (ensures they exist even for
     # metrics created via deployment or updated after initial creation)
     if current_node_revision.type == NodeType.METRIC and background_tasks:
-        background_tasks.add_task(derive_frozen_measures, node.current.id)  # type: ignore
+        background_tasks.add_task(
+            derive_frozen_measures,
+            node.current.id,  # type: ignore
+            current_user=current_user,
+            # Revalidation is governed on the node itself.
+            access_target=Resource.from_node(node),  # type: ignore
+        )
 
     return node_validator
 
