@@ -2336,6 +2336,309 @@ class TestDeployments:
         assert cube_result["status"] == "success"
 
     @pytest.mark.asyncio
+    async def test_deploy_cube_metadata_only_change_is_a_minor_bump(
+        self,
+        client,
+        default_hard_hats,
+        default_hard_hat,
+        default_us_states,
+        default_us_state,
+        default_avg_length_of_employment,
+    ):
+        """
+        A description-only edit re-deployed must earn a minor version, not a new
+        major one. Deploying such an edit used to mint v2.0 because every node that
+        reached the update path was given `next_major_version()` unconditionally.
+        """
+        namespace = "cube_metadata_only"
+        cube = CubeSpec(
+            name="default.repairs_cube",
+            display_name="Repairs Cube",
+            description="""Cube for analyzing repair orders""",
+            dimensions=["${prefix}default.hard_hat.state"],
+            metrics=["${prefix}default.avg_length_of_employment"],
+            owners=["dj"],
+        )
+        nodes_list = [
+            default_hard_hats,
+            default_hard_hat,
+            default_us_states,
+            default_us_state,
+            default_avg_length_of_employment,
+            cube,
+        ]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+        fetched = (await client.get(f"/nodes/{namespace}.default.repairs_cube/")).json()
+        assert fetched["version"] == "v1.0"
+
+        cube.description = "Cube for analyzing repair orders, revised"
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+        assert data["results"][-1] == {
+            "deploy_type": "node",
+            "message": "Updated cube (v1.1)\n└─ Updated description",
+            "name": f"{namespace}.default.repairs_cube",
+            "operation": "update",
+            "changed_fields": ["description"],
+            "status": "success",
+        }
+        fetched = (await client.get(f"/nodes/{namespace}.default.repairs_cube/")).json()
+        assert fetched["version"] == "v1.1"
+        assert fetched["description"] == "Cube for analyzing repair orders, revised"
+
+    @pytest.mark.asyncio
+    async def test_deploy_cube_partition_change_is_major(
+        self,
+        client,
+        default_hard_hats,
+        default_hard_hat,
+        default_us_states,
+        default_us_state,
+        default_avg_length_of_employment,
+    ):
+        """
+        A cube's partition config lives on its columns, which `diff()` does not
+        compare, so a partition-only edit would otherwise reach the update path with
+        nothing named as changed. It is reported as `columns` and earns a major
+        version: the partition decides how the cube is built and materialized.
+        """
+        namespace = "cube_partition_change"
+        cube = CubeSpec(
+            name="default.repairs_cube",
+            display_name="Repairs Cube",
+            description="""Cube for analyzing repair orders""",
+            dimensions=[
+                "${prefix}default.hard_hat.state",
+                "${prefix}default.hard_hat.birth_date",
+            ],
+            metrics=["${prefix}default.avg_length_of_employment"],
+            columns=[
+                ColumnSpec(
+                    name="${prefix}default.hard_hat.birth_date",
+                    partition={
+                        "type": "temporal",
+                        "granularity": "day",
+                        "format": "yyyyMMdd",
+                    },
+                ),
+            ],
+            owners=["dj"],
+        )
+        nodes_list = [
+            default_hard_hats,
+            default_hard_hat,
+            default_us_states,
+            default_us_state,
+            default_avg_length_of_employment,
+            cube,
+        ]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+        fetched = (await client.get(f"/nodes/{namespace}.default.repairs_cube/")).json()
+        assert fetched["version"] == "v1.0"
+
+        cube.columns[0].partition.format = "yyyy-MM-dd"
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+        assert [
+            result
+            for result in data["results"]
+            if result["name"] == f"{namespace}.default.repairs_cube"
+        ] == [
+            {
+                "deploy_type": "node",
+                "message": (
+                    "Updated cube (v2.0)\n"
+                    "└─ Set properties for 1 columns\n"
+                    "└─ Updated columns"
+                ),
+                "name": f"{namespace}.default.repairs_cube",
+                "operation": "update",
+                "changed_fields": ["columns"],
+                "status": "success",
+            },
+        ]
+        fetched = (await client.get(f"/nodes/{namespace}.default.repairs_cube/")).json()
+        assert fetched["version"] == "v2.0"
+
+    @pytest.mark.asyncio
+    async def test_deploy_cube_dimension_reorder(
+        self,
+        client,
+        default_hard_hats,
+        default_hard_hat,
+        default_us_states,
+        default_us_state,
+        default_avg_length_of_employment,
+    ):
+        """
+        Reordering a cube's dimensions in YAML is a real change: the ordering sets
+        the cube's column order. It used to be invisible to the deployment path,
+        which compared dimensions as sets and so skipped the node entirely; now it
+        earns a minor version and the new order persists. Reordering the filters at
+        the same time changes nothing, because filters are ANDed.
+        """
+        namespace = "cube_dimension_reorder"
+        dimensions = [
+            "${prefix}default.hard_hat.state",
+            "${prefix}default.hard_hat.city",
+        ]
+        filters = [
+            "${prefix}default.hard_hat.state='AZ'",
+            "${prefix}default.hard_hat.city='Phoenix'",
+        ]
+        cube = CubeSpec(
+            name="default.repairs_cube",
+            display_name="Repairs Cube",
+            description="""Cube for analyzing repair orders""",
+            dimensions=dimensions,
+            metrics=["${prefix}default.avg_length_of_employment"],
+            filters=filters,
+            owners=["dj"],
+        )
+        nodes_list = [
+            default_hard_hats,
+            default_hard_hat,
+            default_us_states,
+            default_us_state,
+            default_avg_length_of_employment,
+            cube,
+        ]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+
+        cube_url = f"/cubes/{namespace}.default.repairs_cube/"
+        assert (await client.get(cube_url)).json()["cube_node_dimensions"] == [
+            f"{namespace}.default.hard_hat.state",
+            f"{namespace}.default.hard_hat.city",
+        ]
+
+        cube.dimensions = list(reversed(dimensions))
+        cube.filters = list(reversed(filters))
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+        assert data["results"][-1] == {
+            "deploy_type": "node",
+            # The filter reorder is reported for the reader's benefit but earns no
+            # version of its own: v1.1 comes from the dimension reorder alone.
+            "message": "Updated cube (v1.1)\n└─ Reordered dimensions, filters",
+            "name": f"{namespace}.default.repairs_cube",
+            "operation": "update",
+            "changed_fields": [],
+            "status": "success",
+        }
+        fetched = (await client.get(cube_url)).json()
+        assert fetched["version"] == "v1.1"
+        assert fetched["cube_node_dimensions"] == [
+            f"{namespace}.default.hard_hat.city",
+            f"{namespace}.default.hard_hat.state",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_patch_and_deployment_agree_on_version(
+        self,
+        client,
+        default_hard_hats,
+        default_hard_hat,
+        default_us_states,
+        default_us_state,
+        default_avg_length_of_employment,
+    ):
+        """
+        The same edit, applied once through `PATCH /nodes/{name}` and once through a
+        deployment, must land on the same version. Both paths classify significance
+        through the one shared classifier, and this is the test that keeps that a
+        fact rather than an aspiration.
+        """
+        upstreams = [
+            default_hard_hats,
+            default_hard_hat,
+            default_us_states,
+            default_us_state,
+            default_avg_length_of_employment,
+        ]
+
+        def build_cube(**overrides) -> CubeSpec:
+            fields: dict = {
+                "name": "default.repairs_cube",
+                "display_name": "Repairs Cube",
+                "description": "Cube for analyzing repair orders",
+                "dimensions": ["${prefix}default.hard_hat.state"],
+                "metrics": ["${prefix}default.avg_length_of_employment"],
+                "filters": ["${prefix}default.hard_hat.state='AZ'"],
+                "owners": ["dj"],
+            }
+            return CubeSpec(**{**fields, **overrides})
+
+        async def deploy(namespace: str, cube: CubeSpec) -> None:
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(
+                    namespace=namespace,
+                    nodes=[spec.model_copy(deep=True) for spec in upstreams] + [cube],
+                ),
+            )
+            assert data["status"] == "success", data
+
+        async def version_of(namespace: str) -> str:
+            response = await client.get(f"/nodes/{namespace}.default.repairs_cube/")
+            return response.json()["version"]
+
+        patch_ns, deploy_ns = "cube_equivalence_patch", "cube_equivalence_deploy"
+        await deploy(patch_ns, build_cube())
+        await deploy(deploy_ns, build_cube())
+        assert await version_of(patch_ns) == "v1.0"
+        assert await version_of(deploy_ns) == "v1.0"
+
+        # A metadata-only edit is minor on both paths.
+        response = await client.patch(
+            f"/nodes/{patch_ns}.default.repairs_cube",
+            json={"description": "Cube for analyzing repair orders, revised"},
+        )
+        assert response.status_code == 200, response.json()
+        await deploy(
+            deploy_ns,
+            build_cube(description="Cube for analyzing repair orders, revised"),
+        )
+        assert await version_of(patch_ns) == "v1.1"
+        assert await version_of(deploy_ns) == "v1.1"
+
+        # A filters-only edit is major on both paths.
+        response = await client.patch(
+            f"/nodes/{patch_ns}.default.repairs_cube",
+            json={"filters": [f"{patch_ns}.default.hard_hat.state='CA'"]},
+        )
+        assert response.status_code == 200, response.json()
+        await deploy(
+            deploy_ns,
+            build_cube(
+                description="Cube for analyzing repair orders, revised",
+                filters=["${prefix}default.hard_hat.state='CA'"],
+            ),
+        )
+        assert await version_of(patch_ns) == "v2.0"
+        assert await version_of(deploy_ns) == "v2.0"
+
+    @pytest.mark.asyncio
     async def test_deploy_cube_with_custom_metadata(
         self,
         client,

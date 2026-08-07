@@ -2,7 +2,9 @@ import pytest
 
 from datajunction_server.errors import DJInvalidDeploymentConfig
 from datajunction_server.models.deployment import (
+    ChangeTier,
     ColumnSpec,
+    CubeSpec,
     DeploymentSpec,
     DimensionJoinLinkSpec,
     DimensionReferenceLinkSpec,
@@ -10,14 +12,17 @@ from datajunction_server.models.deployment import (
     Granularity,
     MetricSpec,
     NamespaceGitConfig,
+    NodeSpec,
     PartitionSpec,
     PartitionType,
     PreAggSpec,
     SourceSpec,
     TagSpec,
     TransformSpec,
+    bump_version,
     eq_columns,
     eq_or_fallback,
+    fold_change_tiers,
 )
 from datajunction_server.models.node import MetricUnit, NodeMode, NodeType
 
@@ -682,3 +687,154 @@ def test_tag_spec_metadata_aliases():
         "tag_type": "Maintenance",
         "tag_metadata": None,
     }
+
+
+def all_node_spec_classes() -> list[type[NodeSpec]]:
+    """Every NodeSpec class, including the abstract intermediate ones."""
+
+    def descendants(klass):
+        for subclass in klass.__subclasses__():
+            yield subclass
+            yield from descendants(subclass)
+
+    return [NodeSpec, *descendants(NodeSpec)]
+
+
+def test_every_spec_field_has_an_explicit_change_tier():
+    """
+    Every field on every NodeSpec class must be explicitly classified into a
+    ChangeTier. This is what turns "someone added a field and forgot to say how
+    significant a change to it is" into a red test instead of a silent fallback.
+    """
+    unclassified = {
+        spec_class.__name__: spec_class.unclassified_fields()
+        for spec_class in all_node_spec_classes()
+        if spec_class.unclassified_fields()
+    }
+    assert unclassified == {}
+
+
+def test_change_tier_lookup_walks_the_mro():
+    """
+    Each spec class declares only the fields it introduces; lookup finds inherited
+    classifications, and anything unclassified falls back to MAJOR (fail safe).
+    """
+    assert CubeSpec.field_change_tier("metrics") == ChangeTier.MAJOR
+    assert CubeSpec.field_change_tier("description") == ChangeTier.MINOR
+    assert CubeSpec.field_change_tier("name") == ChangeTier.NONE
+    assert CubeSpec.field_change_tier("a_field_nobody_classified") == ChangeTier.MAJOR
+
+    assert CubeSpec.field_order_change_tier("metrics") == ChangeTier.MINOR
+    assert CubeSpec.field_order_change_tier("dimensions") == ChangeTier.MINOR
+    assert CubeSpec.field_order_change_tier("filters") == ChangeTier.NONE
+    assert CubeSpec.field_order_change_tier("description") == ChangeTier.NONE
+
+    assert TransformSpec.field_change_tier("query") == ChangeTier.MAJOR
+    assert TransformSpec.field_change_tier("primary_key") == ChangeTier.MAJOR
+    assert TransformSpec.field_change_tier("tags") == ChangeTier.MINOR
+    assert TransformSpec.order_sensitive_fields() == []
+    assert CubeSpec.order_sensitive_fields() == ["metrics", "dimensions", "filters"]
+
+
+def test_fold_change_tiers():
+    """The most significant change wins; no changes at all is NONE."""
+    assert fold_change_tiers([]) == ChangeTier.NONE
+    assert fold_change_tiers([ChangeTier.NONE]) == ChangeTier.NONE
+    assert fold_change_tiers([ChangeTier.NONE, ChangeTier.MINOR]) == ChangeTier.MINOR
+    assert (
+        fold_change_tiers([ChangeTier.MINOR, ChangeTier.MAJOR, ChangeTier.NONE])
+        == ChangeTier.MAJOR
+    )
+    # The tiers are ordered, and spaced so a future tier fits between them.
+    assert ChangeTier.NONE < ChangeTier.MINOR < ChangeTier.MAJOR
+    assert ChangeTier.MINOR - ChangeTier.NONE > 1
+
+
+def test_change_tier_classification():
+    """The table of decisions, exercised through the shared classifier."""
+    assert CubeSpec.change_tier([], []) == ChangeTier.NONE
+    # metric / dimension / filter set changes are major
+    assert CubeSpec.change_tier(["metrics"]) == ChangeTier.MAJOR
+    assert CubeSpec.change_tier(["dimensions"]) == ChangeTier.MAJOR
+    assert CubeSpec.change_tier(["filters"]) == ChangeTier.MAJOR
+    # reordering metrics or dimensions is minor, reordering filters is nothing
+    assert CubeSpec.change_tier([], ["metrics"]) == ChangeTier.MINOR
+    assert CubeSpec.change_tier([], ["dimensions"]) == ChangeTier.MINOR
+    assert CubeSpec.change_tier([], ["filters"]) == ChangeTier.NONE
+    # metadata is minor
+    for field in ("description", "display_name", "mode", "custom_metadata"):
+        assert CubeSpec.change_tier([field]) == ChangeTier.MINOR
+    # a major change alongside a minor one is still major
+    assert CubeSpec.change_tier(["description", "filters"]) == ChangeTier.MAJOR
+    # query, columns, primary key and dimension links are major
+    assert TransformSpec.change_tier(["query"]) == ChangeTier.MAJOR
+    assert TransformSpec.change_tier(["columns"]) == ChangeTier.MAJOR
+    assert TransformSpec.change_tier(["primary_key"]) == ChangeTier.MAJOR
+    assert TransformSpec.change_tier(["dimension_links"]) == ChangeTier.MAJOR
+
+
+def test_bump_version():
+    """NONE keeps the version: an unchanged node must not be given a new one."""
+    assert bump_version("v1.3", ChangeTier.NONE) == "v1.3"
+    assert bump_version("v1.3", ChangeTier.MINOR) == "v1.4"
+    assert bump_version("v1.3", ChangeTier.MAJOR) == "v2.0"
+
+
+def a_cube(**kwargs) -> CubeSpec:
+    """A minimal cube spec, overridable field by field."""
+    defaults: dict = {
+        "name": "test_cube",
+        "metrics": ["ns.a", "ns.b"],
+        "dimensions": ["ns.d.one", "ns.d.two"],
+    }
+    return CubeSpec(**{**defaults, **kwargs})
+
+
+def test_cube_spec_eq_is_order_sensitive_for_metrics_and_dimensions():
+    """
+    Metric and dimension ordering sets the cube's column order, so a reorder is a
+    real difference the deployment path has to be able to see.
+    """
+    assert a_cube() == a_cube()
+    assert a_cube() != a_cube(metrics=["ns.b", "ns.a"])
+    assert a_cube() != a_cube(dimensions=["ns.d.two", "ns.d.one"])
+    assert a_cube() != a_cube(metrics=["ns.a"])
+
+
+def test_cube_spec_eq_treats_filters_as_a_set():
+    """Filters are ANDed, so reordering them is cosmetic and not a change."""
+    one = a_cube(filters=["x = 1", "y = 2"])
+    assert one == a_cube(filters=["y = 2", "x = 1"])
+    assert one != a_cube(filters=["x = 1"])
+    assert one != a_cube(filters=["x = 1", "y = 3"])
+
+
+def test_cube_spec_order_diff():
+    """
+    order_diff names the order-sensitive fields whose contents held still while
+    their ordering moved -- the changes diff()'s set comparison cannot see.
+    """
+    one = a_cube(filters=["x = 1", "y = 2"])
+    assert one.order_diff(a_cube(filters=["x = 1", "y = 2"])) == []
+    assert one.order_diff(
+        a_cube(metrics=["ns.b", "ns.a"], filters=["x = 1", "y = 2"]),
+    ) == ["metrics"]
+    assert one.order_diff(
+        a_cube(dimensions=["ns.d.two", "ns.d.one"], filters=["x = 1", "y = 2"]),
+    ) == ["dimensions"]
+    assert one.order_diff(a_cube(filters=["y = 2", "x = 1"])) == ["filters"]
+    # A set change is not a reorder — diff() reports that one instead.
+    assert one.order_diff(a_cube(metrics=["ns.a"], filters=["x = 1", "y = 2"])) == []
+    assert one.diff(a_cube(metrics=["ns.a"], filters=["x = 1", "y = 2"])) == ["metrics"]
+
+
+def test_diff_compares_dicts_by_value():
+    """
+    A dict field whose keys are unchanged but whose values moved is a change.
+    Iterating a dict yields only its keys, so the set comparison lists use missed
+    this and `custom_metadata` edits were reported as no change at all.
+    """
+    one = a_cube(custom_metadata={"tier": "1"})
+    assert one.diff(a_cube(custom_metadata={"tier": "2"})) == ["custom_metadata"]
+    assert one.diff(a_cube(custom_metadata={"tier": "1"})) == []
+    assert a_cube().diff(a_cube(custom_metadata={})) == []

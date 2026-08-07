@@ -33,6 +33,7 @@ from datajunction_server.internal.deployment.validation import (
     NodeValidationResult,
 )
 from datajunction_server.models.deployment import (
+    ChangeTier,
     ColumnSpec,
     CubeSpec,
     DeploymentResult,
@@ -1140,7 +1141,9 @@ class TestCubeDeployment:
         orchestrator._create_cube_node_revision_from_validation_data = AsyncMock(
             return_value=mock_revision,
         )
-        orchestrator._generate_changelog = AsyncMock(return_value=([], []))
+        orchestrator._generate_changelog = AsyncMock(
+            return_value=([], [], ChangeTier.NONE),
+        )
 
         with patch(
             "datajunction_server.internal.deployment.orchestrator.get_node_namespace",
@@ -2737,10 +2740,15 @@ class TestGenerateChangelog:
             dependencies=[],
         )
 
-        changelog, changed_fields = await orchestrator._generate_changelog(result)
+        (
+            changelog,
+            changed_fields,
+            change_tier,
+        ) = await orchestrator._generate_changelog(result)
 
         assert changed_fields == []
         assert changelog == ["└─ Updated dimension_links"]
+        assert change_tier == ChangeTier.NONE
 
     @pytest.mark.asyncio
     async def test_cube_column_change_uses_role_qualified_identity(
@@ -2789,10 +2797,15 @@ class TestGenerateChangelog:
             dependencies=[],
         )
 
-        changelog, changed_fields = await orchestrator._generate_changelog(result)
+        (
+            changelog,
+            changed_fields,
+            change_tier,
+        ) = await orchestrator._generate_changelog(result)
 
         assert changed_fields == []
         assert changelog == ["└─ Set properties for 1 columns"]
+        assert change_tier == ChangeTier.NONE
 
 
 @pytest.mark.asyncio
