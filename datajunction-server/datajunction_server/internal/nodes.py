@@ -88,7 +88,12 @@ from datajunction_server.models.attribute import (
 from datajunction_server.models.base import labelize
 from datajunction_server.models.cube import CubeRevisionMetadata
 from datajunction_server.models.cube_materialization import UpsertCubeMaterialization
-from datajunction_server.models.deployment import DeploymentResult
+from datajunction_server.models.deployment import (
+    ChangeTier,
+    CubeSpec,
+    DeploymentResult,
+    bump_version,
+)
 from datajunction_server.models.dimensionlink import (
     JoinLinkInput,
     JoinType,
@@ -1535,37 +1540,55 @@ async def update_owners(
     await session.commit()
 
 
-def has_minor_changes(
+def cube_changed_fields(
     old_revision: NodeRevision,
-    data: UpdateNode,
-):
+    new_cube: CreateCubeNode,
+) -> tuple[list[str], list[str]]:
     """
-    Whether the node has minor changes
+    Compare a cube's current revision against the fully resolved cube about to
+    replace it, returning the fields whose value changed and the fields whose
+    contents only moved. `CubeSpec.change_tier` turns those two into a version bump.
+
+    Compares against the resolved `CreateCubeNode`, not the raw `UpdateNode` payload,
+    because the resolved object is what gets persisted: a field the payload omitted,
+    or supplied a value that resolution then discarded, cannot be reported as changed.
+    That rules out guard bugs like `metrics: []` reading as "not supplied" under a
+    truthiness check.
     """
-    return (
-        (
-            data
-            and data.description
-            and old_revision.description
-            and (old_revision.description != data.description)
-        )
-        or (data and data.mode and old_revision.mode != data.mode)
-        or (
-            data
-            and data.display_name
-            and old_revision.display_name != data.display_name
-        )
-        or (
-            data
-            and data.filters is not None
-            and data.filters != (old_revision.cube_filters or [])
-        )
-        or (
-            data
-            and data.custom_metadata is not None
-            and old_revision.custom_metadata != data.custom_metadata
-        )
-    )
+    changed: list[str] = []
+    reordered: list[str] = []
+
+    old_metrics = [metric.name for metric in old_revision.cube_metrics()]
+    old_dimensions = old_revision.cube_dimensions()
+    old_filters = old_revision.cube_filters or []
+
+    # Metrics and dimensions: adding or removing one is major, reordering them is
+    # minor (it moves the cube's column order but no values). Both tiers live in
+    # CubeSpec, so all this has to do is say which of the two happened.
+    for field, new_value, old_value in (
+        ("metrics", list(new_cube.metrics or []), old_metrics),
+        ("dimensions", list(new_cube.dimensions or []), old_dimensions),
+    ):
+        if set(new_value) != set(old_value):
+            changed.append(field)
+        elif new_value != old_value:
+            reordered.append(field)
+
+    # Filters are compared as sets: they are ANDed, so their ordering carries no
+    # meaning, but which rows they keep does -- hence major, not minor.
+    if set(new_cube.filters or []) != set(old_filters):
+        changed.append("filters")
+
+    if new_cube.description != old_revision.description:
+        changed.append("description")
+    if new_cube.display_name != old_revision.display_name:
+        changed.append("display_name")
+    if new_cube.mode != old_revision.mode:
+        changed.append("mode")
+    if new_cube.custom_metadata != old_revision.custom_metadata:
+        changed.append("custom_metadata")
+
+    return changed, reordered
 
 
 def node_update_history_event(new_revision: NodeRevision, current_user: User):
@@ -1657,9 +1680,11 @@ async def is_non_trivial_cube_change(
     because filters are ANDed and dimension ordering does not affect the
     materialized table, so neither carries meaning through its ordering.
 
-    This is deliberately a different question from ``major_changes`` in
-    ``update_cube_node`` (which decides the version bump from the request payload):
-    here we ask whether the previously materialized table is still usable.
+    Deliberately a different question from the change tier that `cube_changed_fields`
+    and `CubeSpec.change_tier` compute: that one decides the version bump, this one
+    asks whether the previously materialized table is still usable. The two can and
+    do diverge -- reordering dimensions earns a minor bump but leaves the table
+    valid, while a filters change is major and invalidates it.
     """
     if set(old_revision.cube_dimensions()) != set(new_revision.cube_dimensions()):
         return True
@@ -1696,12 +1721,8 @@ async def update_cube_node(
     """
     node = await Node.get_cube_by_name(session, node_revision.name)
     node_revision = node.current  # type: ignore
-    minor_changes = has_minor_changes(node_revision, data)
     old_metrics = [m.name for m in node_revision.cube_metrics()]
     old_dimensions = node_revision.cube_dimensions()
-    major_changes = (data.metrics and data.metrics != old_metrics) or (
-        data.dimensions and data.dimensions != old_dimensions
-    )
     create_cube = CreateCubeNode(
         name=node_revision.name,
         display_name=data.display_name or node_revision.display_name,
@@ -1718,7 +1739,11 @@ async def update_cube_node(
         if data.custom_metadata is not None
         else node_revision.custom_metadata,
     )
-    if not major_changes and not minor_changes:
+    # "Did anything change?" and "how significant was it?" are one question here:
+    # the tier answers both, and it is the same classifier the deployment path uses.
+    changed_fields, reordered_fields = cube_changed_fields(node_revision, create_cube)
+    change_tier = CubeSpec.change_tier(changed_fields, reordered_fields)
+    if change_tier is ChangeTier.NONE:
         # If refresh_materialization requested but no other changes, refresh and return
         if refresh_materialization and query_service_client:
             _logger.info(
@@ -1779,13 +1804,7 @@ async def update_cube_node(
             current_user,
         )
 
-        old_version = Version.parse(node_revision.version)
-        if major_changes:
-            new_cube_revision.version = str(old_version.next_major_version())
-        else:
-            # Reaching here without major changes means there were minor ones:
-            # the "no changes at all" case returned above.
-            new_cube_revision.version = str(old_version.next_minor_version())
+        new_cube_revision.version = bump_version(node_revision.version, change_tier)
         new_cube_revision.node = node_revision.node
         new_cube_revision.node.current_version = new_cube_revision.version  # type: ignore
 

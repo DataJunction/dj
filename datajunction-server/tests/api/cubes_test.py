@@ -2539,12 +2539,137 @@ async def test_updating_cube(
 
 
 @pytest.mark.asyncio
+async def test_reordering_cube_dimensions(
+    client_with_repairs_cube: AsyncClient,
+):
+    """
+    Reordering a cube's dimensions without adding or removing any is a minor
+    version bump — the ordering determines the cube's column order, so it is a real
+    change, but no value moves. Crucially the reorder must actually persist: the
+    dimension set is compared as a set to decide "major", so if nothing checked the
+    ordering the PATCH would report success and quietly discard the edit.
+    """
+    cube_name = "default.repairs_cube_dimension_reorder"
+    await make_a_test_cube(client_with_repairs_cube, cube_name)
+
+    original = (await client_with_repairs_cube.get(f"/cubes/{cube_name}/")).json()
+    dimensions = original["cube_node_dimensions"]
+    reordered = list(reversed(dimensions))
+    assert reordered != dimensions
+
+    response = await client_with_repairs_cube.patch(
+        f"/nodes/{cube_name}",
+        json={"dimensions": reordered},
+    )
+    assert response.status_code == 200, response.json()
+    assert response.json()["version"] == "v1.1"
+
+    updated = (await client_with_repairs_cube.get(f"/cubes/{cube_name}/")).json()
+    assert updated["version"] == "v1.1"
+    assert updated["cube_node_dimensions"] == reordered
+
+
+@pytest.mark.asyncio
+async def test_reordering_cube_metrics(
+    client_with_repairs_cube: AsyncClient,
+):
+    """
+    Reordering a cube's metrics is a minor version bump, and the new order has to
+    persist — the same trap as the dimension reorder above.
+    """
+    cube_name = "default.repairs_cube_metric_reorder"
+    await make_a_test_cube(client_with_repairs_cube, cube_name)
+
+    original = (await client_with_repairs_cube.get(f"/cubes/{cube_name}/")).json()
+    metrics = original["cube_node_metrics"]
+    reordered = list(reversed(metrics))
+    assert reordered != metrics
+
+    response = await client_with_repairs_cube.patch(
+        f"/nodes/{cube_name}",
+        json={"metrics": reordered},
+    )
+    assert response.status_code == 200, response.json()
+    assert response.json()["version"] == "v1.1"
+
+    updated = (await client_with_repairs_cube.get(f"/cubes/{cube_name}/")).json()
+    assert updated["version"] == "v1.1"
+    assert updated["cube_node_metrics"] == reordered
+
+
+@pytest.mark.asyncio
+async def test_reordering_cube_filters_is_not_a_change(
+    client_with_repairs_cube: AsyncClient,
+):
+    """
+    Filters are ANDed together, so their ordering carries no meaning: reordering
+    them is not a change at all and earns no new revision.
+    """
+    cube_name = "default.repairs_cube_filter_reorder"
+    await make_a_test_cube(client_with_repairs_cube, cube_name)
+
+    filters = ["default.hard_hat.state='AZ'", "default.hard_hat.city='Phoenix'"]
+    response = await client_with_repairs_cube.patch(
+        f"/nodes/{cube_name}",
+        json={"filters": filters},
+    )
+    assert response.status_code == 200, response.json()
+    assert response.json()["version"] == "v2.0"
+
+    response = await client_with_repairs_cube.patch(
+        f"/nodes/{cube_name}",
+        json={"filters": list(reversed(filters))},
+    )
+    assert response.status_code == 200, response.json()
+    assert response.json()["version"] == "v2.0"
+
+    revisions = (
+        await client_with_repairs_cube.get(f"/nodes/{cube_name}/revisions/")
+    ).json()
+    assert [revision["version"] for revision in revisions] == ["v1.0", "v2.0"]
+
+
+@pytest.mark.asyncio
+async def test_updating_cube_display_name_and_mode_are_minor(
+    client_with_repairs_cube: AsyncClient,
+):
+    """
+    Display name and mode are metadata: they leave the cube's metrics, dimensions
+    and filters alone, so each earns a minor version rather than a major one.
+    """
+    cube_name = "default.repairs_cube_metadata_update"
+    await make_a_test_cube(client_with_repairs_cube, cube_name)
+
+    response = await client_with_repairs_cube.patch(
+        f"/nodes/{cube_name}",
+        json={"display_name": "Repairs Cube, Renamed"},
+    )
+    assert response.status_code == 200, response.json()
+    assert response.json()["version"] == "v1.1"
+    assert response.json()["display_name"] == "Repairs Cube, Renamed"
+
+    response = await client_with_repairs_cube.patch(
+        f"/nodes/{cube_name}",
+        json={"mode": "draft"},
+    )
+    assert response.status_code == 200, response.json()
+    assert response.json()["version"] == "v1.2"
+    assert response.json()["mode"] == "draft"
+
+    revisions = (
+        await client_with_repairs_cube.get(f"/nodes/{cube_name}/revisions/")
+    ).json()
+    assert [revision["version"] for revision in revisions] == ["v1.0", "v1.1", "v1.2"]
+
+
+@pytest.mark.asyncio
 async def test_updating_cube_filters(
     client_with_repairs_cube: AsyncClient,
 ):
     """
-    Verify that cube filters can be updated via the PATCH endpoint and
-    that the change is detected as a minor version bump.
+    Verify that cube filters can be updated via the PATCH endpoint and that the
+    change is detected as a major version bump: filters decide which rows the cube
+    contains, so changing them changes the cube's data.
     """
     cube_name = "default.repairs_cube_filters_update"
     await make_a_test_cube(
@@ -2564,7 +2689,7 @@ async def test_updating_cube_filters(
         },
     )
     data = response.json()
-    assert data["version"] == "v1.1"
+    assert data["version"] == "v2.0"
 
     # Verify the updated filters are returned from the /cubes/ endpoint
     response = await client_with_repairs_cube.get(f"/cubes/{cube_name}/")
@@ -2578,7 +2703,7 @@ async def test_updating_cube_filters(
         },
     )
     data = response.json()
-    assert data["version"] == "v1.2"
+    assert data["version"] == "v3.0"
 
     response = await client_with_repairs_cube.get(f"/cubes/{cube_name}/")
     assert response.json()["cube_filters"] is None
@@ -6308,8 +6433,9 @@ class TestStopStaleCubeMaterializationWorkflows:
         mocker,
     ):
         """
-        A filters-only change is only a minor version bump, but it still changes
-        which rows land in the materialized table, so it is non-trivial.
+        A filters-only change is a major version bump — it changes which rows the
+        cube contains — and for the same reason it is non-trivial, so the previous
+        version's workflows are stopped.
         """
         cube_name = "default.stop_workflows_filters_change"
         await self._make_materialized_cube(
@@ -6331,7 +6457,7 @@ class TestStopStaleCubeMaterializationWorkflows:
             json={"filters": ["default.hard_hat.state='CA'"]},
         )
         assert response.status_code == 200, response.json()
-        assert response.json()["version"] == "v1.1"
+        assert response.json()["version"] == "v2.0"
 
         mock_deactivate_cube_workflow.assert_called_once_with(
             cube_name,
