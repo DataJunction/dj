@@ -25,8 +25,12 @@ from datajunction_server.models.deployment import (
     DimensionReferenceLinkSpec,
     DimensionSpec,
     GitDeploymentSource,
+    Granularity,
     LocalDeploymentSource,
+    MaterializationSpec,
     MetricSpec,
+    PartitionSpec,
+    PartitionType,
     PreAggSpec,
     SourceSpec,
     TagSpec,
@@ -2637,6 +2641,112 @@ class TestDeployments:
         )
         assert await version_of(patch_ns) == "v2.0"
         assert await version_of(deploy_ns) == "v2.0"
+
+    @pytest.mark.asyncio
+    async def test_deploy_cube_with_materialization_block(
+        self,
+        session,
+        client,
+        default_hard_hats,
+        default_hard_hat,
+        default_us_states,
+        default_us_state,
+        default_avg_length_of_employment,
+    ):
+        """
+        A cube can declare `materialization:` alongside its definition, and the block
+        survives the deploy/export round trip so a repo-managed cube keeps it.
+
+        Nothing is scheduled yet -- the reconciler that turns the block into a
+        workflow lands separately. This pins that the spec parses, deploys, and
+        exports, and that a schedule edit alone does not mint a new cube version.
+        """
+        namespace = "cube_materialization"
+        cube = CubeSpec(
+            name="default.repairs_cube",
+            display_name="Repairs Cube",
+            description="""Cube for analyzing repair orders""",
+            dimensions=[
+                "${prefix}default.hard_hat.state",
+                "${prefix}default.hard_hat.birth_date",
+            ],
+            metrics=[
+                "${prefix}default.avg_length_of_employment",
+            ],
+            columns=[
+                ColumnSpec(
+                    name="${prefix}default.hard_hat.birth_date",
+                    partition=PartitionSpec(
+                        type=PartitionType.TEMPORAL,
+                        granularity=Granularity.DAY,
+                        format="yyyyMMdd",
+                    ),
+                ),
+            ],
+            materialization=MaterializationSpec(
+                schedule="0 6 * * *",
+                lookback_window="1 DAY",
+            ),
+            owners=["dj"],
+        )
+        nodes_list = [
+            default_hard_hats,
+            default_hard_hat,
+            default_us_states,
+            default_us_state,
+            default_avg_length_of_employment,
+            cube,
+        ]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+
+        deployed = await Node.get_by_name(
+            session,
+            f"{namespace}.default.repairs_cube",
+            options=Node.cube_load_options(),
+        )
+        assert deployed.current.version == "v1.0"
+
+        # The block is accepted but not yet acted on, so nothing is scheduled.
+        assert (await deployed.to_spec(session)).materialization is None
+
+        # Editing only the schedule is not a definition change: the cube compares
+        # equal, is skipped rather than updated, and so is never given a version.
+        cube.materialization = MaterializationSpec(
+            schedule="0 3 * * *",
+            lookback_window="1 DAY",
+        )
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+        cube_results = [
+            result
+            for result in data["results"]
+            if result["name"] == f"{namespace}.default.repairs_cube"
+        ]
+        assert cube_results == [
+            {
+                "deploy_type": "node",
+                "message": "Unchanged",
+                "name": f"{namespace}.default.repairs_cube",
+                "operation": "noop",
+                "changed_fields": [],
+                "status": "skipped",
+            },
+        ]
+
+        session.expire_all()
+        deployed = await Node.get_by_name(
+            session,
+            f"{namespace}.default.repairs_cube",
+            options=Node.cube_load_options(),
+        )
+        assert deployed.current.version == "v1.0"
 
     @pytest.mark.asyncio
     async def test_deploy_cube_with_custom_metadata(

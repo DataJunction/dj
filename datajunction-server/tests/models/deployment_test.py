@@ -10,6 +10,7 @@ from datajunction_server.models.deployment import (
     DimensionReferenceLinkSpec,
     DimensionSpec,
     Granularity,
+    MaterializationSpec,
     MetricSpec,
     NamespaceGitConfig,
     NodeSpec,
@@ -24,6 +25,7 @@ from datajunction_server.models.deployment import (
     eq_or_fallback,
     fold_change_tiers,
 )
+from datajunction_server.models.materialization import MaterializationStrategy
 from datajunction_server.models.node import MetricUnit, NodeMode, NodeType
 
 
@@ -838,3 +840,146 @@ def test_diff_compares_dicts_by_value():
     assert one.diff(a_cube(custom_metadata={"tier": "2"})) == ["custom_metadata"]
     assert one.diff(a_cube(custom_metadata={"tier": "1"})) == []
     assert a_cube().diff(a_cube(custom_metadata={})) == []
+
+
+def _partitioned_cube(**materialization) -> CubeSpec:
+    """A cube with a temporal partition, optionally carrying a materialization block."""
+    return CubeSpec(
+        namespace="test",
+        name="my_cube",
+        metrics=["${prefix}num_orders"],
+        dimensions=["${prefix}date_dim.dateint"],
+        columns=[
+            ColumnSpec(
+                name="${prefix}date_dim.dateint",
+                partition=PartitionSpec(
+                    type=PartitionType.TEMPORAL,
+                    granularity=Granularity.DAY,
+                    format="yyyyMMdd",
+                ),
+            ),
+        ],
+        materialization=MaterializationSpec(**materialization)
+        if materialization
+        else None,
+    )
+
+
+def test_materialization_spec_defaults():
+    """An author supplying only a schedule gets incremental daily-lookback defaults."""
+    spec = MaterializationSpec(schedule="0 6 * * *")
+    assert spec.model_dump() == {
+        "schedule": "0 6 * * *",
+        "strategy": MaterializationStrategy.INCREMENTAL_TIME,
+        "lookback_window": "1 DAY",
+    }
+
+
+def test_materialization_spec_full_strategy_drops_lookback():
+    """
+    ``lookback_window`` is meaningless for FULL, so it is normalized away -- otherwise
+    two equivalent specs could compare unequal and churn a live workflow on deploy.
+    """
+    declared = MaterializationSpec(
+        schedule="0 6 * * *",
+        strategy=MaterializationStrategy.FULL,
+        lookback_window="7 DAY",
+    )
+    assert declared.model_dump() == {
+        "schedule": "0 6 * * *",
+        "strategy": MaterializationStrategy.FULL,
+        "lookback_window": None,
+    }
+    assert declared == MaterializationSpec(
+        schedule="0 6 * * *",
+        strategy=MaterializationStrategy.FULL,
+    )
+
+
+def test_cube_spec_incremental_requires_temporal_partition():
+    """An incremental cube with no temporal partition has nothing to increment over."""
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        CubeSpec(
+            namespace="test",
+            name="my_cube",
+            metrics=["${prefix}num_orders"],
+            dimensions=["${prefix}date_dim.dateint"],
+            materialization=MaterializationSpec(schedule="0 6 * * *"),
+        )
+    assert exc_info.value.message == (
+        "Cube `my_cube` declares an `incremental_time` materialization but no "
+        "temporal partition. Add `partition: {type: temporal, ...}` to the cube "
+        "column that partitions it, or use `strategy: full`."
+    )
+
+
+def test_cube_spec_full_strategy_needs_no_partition():
+    """FULL rebuilds everything, so it carries no partition requirement."""
+    spec = CubeSpec(
+        namespace="test",
+        name="my_cube",
+        metrics=["${prefix}num_orders"],
+        dimensions=["${prefix}date_dim.dateint"],
+        materialization=MaterializationSpec(
+            schedule="0 6 * * *",
+            strategy=MaterializationStrategy.FULL,
+        ),
+    )
+    assert spec.materialization == MaterializationSpec(
+        schedule="0 6 * * *",
+        strategy=MaterializationStrategy.FULL,
+        lookback_window=None,
+    )
+
+
+def test_cube_spec_partition_satisfies_incremental():
+    """The partition is read off the cube's columns, not restated on the block."""
+    spec = _partitioned_cube(schedule="0 6 * * *", lookback_window="3 DAY")
+    assert spec.materialization == MaterializationSpec(
+        schedule="0 6 * * *",
+        strategy=MaterializationStrategy.INCREMENTAL_TIME,
+        lookback_window="3 DAY",
+    )
+
+
+def test_cube_spec_eq_ignores_materialization():
+    """
+    Equality decides whether the cube's *definition* changed, which gates a new node
+    revision. Rescheduling a build is not a definition change.
+    """
+    six_am = _partitioned_cube(schedule="0 6 * * *")
+    midnight = _partitioned_cube(schedule="0 0 * * *")
+    unscheduled = _partitioned_cube()
+
+    assert six_am == midnight
+    assert six_am == unscheduled
+
+    # ...while the definition itself still drives inequality.
+    renamed = _partitioned_cube(schedule="0 6 * * *")
+    renamed.metrics = ["${prefix}num_returns"]
+    assert six_am != renamed
+
+
+def test_materialization_change_tier_is_none():
+    """
+    `materialization` is explicitly classified, so the "every field is classified"
+    test stays green rather than falling back to MAJOR -- and it is classified NONE
+    because configuring a materialization has never cut a node revision.
+
+    A materialization-only edit is equal under `__eq__` and so never reaches the
+    classifier; this pins the tier that would apply if it ever did.
+    """
+    assert CubeSpec.has_explicit_change_tier("materialization") is True
+    assert CubeSpec.field_change_tier("materialization") == ChangeTier.NONE
+    assert CubeSpec.change_tier(["materialization"]) == ChangeTier.NONE
+
+    six_am = _partitioned_cube(schedule="0 6 * * *").rendered_spec()
+    assert six_am.diff(_partitioned_cube(schedule="0 0 * * *")) == ["materialization"]
+    assert CubeSpec.change_tier(six_am.diff(_partitioned_cube())) == ChangeTier.NONE
+
+
+def test_cube_spec_without_materialization_omits_it_from_export():
+    """Unmaterialized cubes must not gain a `materialization: null` key on export."""
+    spec = _partitioned_cube()
+    assert spec.materialization is None
+    assert "materialization" not in spec.model_dump(mode="json", exclude_none=True)

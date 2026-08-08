@@ -66,11 +66,13 @@ from datajunction_server.models.deployment import (
     CubeSpec,
     DimensionReferenceLinkSpec,
     DimensionSpec,
+    MaterializationSpec,
     MetricSpec,
     NodeSpec,
     SourceSpec,
     TransformSpec,
 )
+from datajunction_server.models.materialization import MaterializationJobTypeEnum
 from datajunction_server.models.node import (
     DEFAULT_DRAFT_VERSION,
     BuildCriteria,
@@ -98,6 +100,12 @@ if TYPE_CHECKING:
 
 
 _logger = logging.getLogger(__name__)
+
+# The job class behind a cube's Druid materialization. Stored on
+# `Materialization.job`, and the stable way to pick a cube's materialization out
+# of a revision -- unlike `name`, which encodes the strategy and partition and so
+# changes when either does.
+CUBE_MATERIALIZATION_JOB = MaterializationJobTypeEnum.DRUID_CUBE.value.job_class
 
 # Weights for the three searchable fields on NodeRevision. `name` is the
 # authoritative identifier and gets full weight; `display_name` is almost
@@ -668,10 +676,54 @@ class Node(Base):
                 metrics=self.current.cube_node_metrics,
                 dimensions=self.current.cube_node_dimensions,
                 filters=self.current.cube_filters or None,
+                materialization=await self._materialization_spec(session),
             )
 
         node_spec_cls = node_spec_class_map[self.type]
         return node_spec_cls(**base_kwargs, **extra_kwargs)
+
+    async def _materialization_spec(
+        self,
+        session: AsyncSession,
+    ) -> MaterializationSpec | None:
+        """
+        Project this cube's persisted materialization back into the declarative form.
+
+        Only the three authored fields round-trip. Everything else on the stored
+        config -- measures queries, combiner SQL, the Druid spec, output tables --
+        is derived by DJ on every build, so re-exporting it would put generated
+        artifacts into a hand-edited file and make the YAML churn on each rebuild.
+
+        Loaded lazily rather than through `export_load_options`: cubes are a small
+        minority of exported nodes, so paying a SELECT for every source and metric
+        to serve them is the wrong trade.
+        """
+        from sqlalchemy import inspect as sa_inspect
+
+        if "materializations" in sa_inspect(self.current).unloaded:
+            await session.refresh(self.current, ["materializations"])
+
+        cube_materializations = sorted(
+            (
+                materialization
+                for materialization in self.current.materializations
+                if materialization.job == CUBE_MATERIALIZATION_JOB
+                and materialization.deactivated_at is None
+            ),
+            key=lambda materialization: materialization.name,
+        )
+        if not cube_materializations:
+            return None
+
+        materialization = cube_materializations[0]
+        config = (
+            materialization.config if isinstance(materialization.config, dict) else {}
+        )
+        return MaterializationSpec(
+            schedule=materialization.schedule,
+            strategy=materialization.strategy,
+            lookback_window=config.get("lookback_window"),
+        )
 
     @classmethod
     def cube_load_options(cls) -> list[ExecutableOption]:

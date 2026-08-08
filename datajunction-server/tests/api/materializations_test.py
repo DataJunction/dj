@@ -1999,3 +1999,93 @@ async def test_list_node_availability_states_with_links_and_partitions(
     partition = state["partitions"][0]
     assert partition["value"] == ["US", "west"]
     assert partition["valid_through_ts"] == 20220115
+
+
+@pytest.mark.asyncio
+async def test_cube_materialization_round_trips_to_spec(
+    module__session,
+    client_with_repairs_cube: AsyncClient,
+    module__query_service_client: QueryServiceClient,
+    set_temporal_column,
+):
+    """
+    A cube materialized through the API exports as a declarative `materialization:`
+    block, so a repo-managed cube can be pulled and re-deployed without losing it.
+
+    Only the three authored fields come back. The stored config also holds the
+    measures queries, combiner SQL and Druid spec, all of which DJ regenerates on
+    every build -- re-exporting those would drop generated artifacts into a
+    hand-edited file.
+    """
+    from sqlalchemy import inspect as sa_inspect
+
+    from datajunction_server.database.node import Node
+    from datajunction_server.models.deployment import MaterializationSpec
+    from datajunction_server.models.materialization import MaterializationStrategy
+
+    cube_name = "default.repairs_cube__spec_round_trip"
+    client = await client_with_repairs_cube(cube_name=cube_name)  # type: ignore
+
+    # An unmaterialized cube exports no block at all, rather than an empty one.
+    cube = await Node.get_by_name(
+        module__session,
+        cube_name,
+        options=Node.cube_load_options(),
+    )
+    assert cube is not None
+    assert (await cube.to_spec(module__session)).materialization is None
+
+    await set_temporal_column(
+        client,
+        cube_name,
+        "default.repair_orders_fact.order_date",
+    )
+    response = await client.post(
+        f"/nodes/{cube_name}/materialization/",
+        json={
+            "job": "druid_cube",
+            "strategy": "incremental_time",
+            "schedule": "0 6 * * *",
+            "lookback_window": "7 DAY",
+        },
+    )
+    assert response.status_code in (200, 201)
+
+    module__session.expire_all()
+    cube = await Node.get_by_name(
+        module__session,
+        cube_name,
+        options=Node.cube_load_options(),
+    )
+    assert cube is not None
+    spec = await cube.to_spec(module__session)
+    assert spec.materialization == MaterializationSpec(
+        schedule="0 6 * * *",
+        strategy=MaterializationStrategy.INCREMENTAL_TIME,
+        lookback_window="7 DAY",
+    )
+
+    # The exported block is exactly the authored surface -- no derived config leaks.
+    assert spec.model_dump(mode="json", exclude_none=True)["materialization"] == {
+        "schedule": "0 6 * * *",
+        "strategy": "incremental_time",
+        "lookback_window": "7 DAY",
+    }
+
+    # The export path itself loads with `export_load_options`, which deliberately
+    # omits materializations so that exporting a source or metric does not pay a
+    # SELECT to serve the cube minority. The block still has to come back there, so
+    # the relationship is refreshed on demand rather than eagerly loaded.
+    module__session.expire_all()
+    cube = await Node.get_by_name(
+        module__session,
+        cube_name,
+        options=Node.export_load_options(),
+    )
+    assert cube is not None
+    assert "materializations" in sa_inspect(cube.current).unloaded
+    assert (await cube.to_spec(module__session)).materialization == MaterializationSpec(
+        schedule="0 6 * * *",
+        strategy=MaterializationStrategy.INCREMENTAL_TIME,
+        lookback_window="7 DAY",
+    )
