@@ -2527,6 +2527,12 @@ class DeploymentOrchestrator:
                     message=message,
                 ),
             )
+            # FAILED, not WARNING, even though every other node in the deployment
+            # still deploys and commits. `api/deployments.py` derives the aggregate
+            # status from these, so this is also what makes the deployment `failed`:
+            # a materialization the author asked for and did not get is exactly the
+            # silent gap this feature exists to close, and reporting `success` for it
+            # would reopen it.
             self.deployed_results.append(
                 DeploymentResult(
                     name=revision.name,
