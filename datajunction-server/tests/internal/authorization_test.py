@@ -112,36 +112,25 @@ class TestResourceMatching:
             "users.alice.*",
         )
 
-    def test_edge_case_patterns(self):
-        """Test edge case patterns that reach the fallback logic (line 167-168).
-
-        These patterns are unusual but should be handled gracefully:
-        - ".*" -> strips to empty string
-        - "**" -> strips to empty string
-        These are treated as global wildcards (match everything).
+    @pytest.mark.parametrize(
+        "pattern",
+        [".*", "**", "finance*", "finance.", ".finance", "finance..sub", "fin*ance"],
+    )
+    @pytest.mark.parametrize("resource", ["anything", "finance", "finance.revenue"])
+    def test_patterns_outside_the_grammar_match_nothing(self, pattern, resource):
         """
-        # ".*" pattern - after stripping "*" and ".", becomes empty
-        assert RBACAuthorizationService.resource_matches_pattern(
-            "anything",
-            ".*",
-        )
-        assert RBACAuthorizationService.resource_matches_pattern(
-            "finance.revenue",
-            ".*",
-        )
-        assert RBACAuthorizationService.resource_matches_pattern(
-            "",
-            ".*",
-        )
+        A value outside the supported grammar grants nothing.
 
-        # "**" pattern - after stripping "*", becomes empty
-        assert RBACAuthorizationService.resource_matches_pattern(
-            "anything",
-            "**",
-        )
-        assert RBACAuthorizationService.resource_matches_pattern(
-            "deeply.nested.resource.name",
-            "**",
+        The grammar is ``*``, an exact name, or a subtree ending in ``.*``; scope
+        input has been validated against it since #2339. Evaluation used to parse
+        separately and stripped stars, so ``.*`` and ``**`` collapsed to a global
+        match -- a silent grant of everything for any row predating that
+        validation or written outside the API. ``finance*`` was quietly read as
+        ``finance.*``, which is not what the syntax suggests either.
+        """
+        assert not RBACAuthorizationService.resource_matches_pattern(
+            resource,
+            pattern,
         )
 
     def test_wildcard_in_middle_not_supported(self):
