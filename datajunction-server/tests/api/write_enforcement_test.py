@@ -97,6 +97,22 @@ CASES = [
     # check fires before loading. The {preagg_id} endpoints check after loading a
     # real pre-agg, so they live in preaggregations_test.py with those fixtures.
     Case("DELETE", "/preaggs/workflows", query=f"?node_name={STUB}"),
+    # Git configuration is control-plane, not content: it can repoint a namespace
+    # at another repo or set git_only, so it is governed by MANAGE rather than the
+    # WRITE that ordinary node edits carry.
+    Case(
+        "PATCH",
+        "/namespaces/{namespace}/git",
+        {"github_repo_path": "owner/repo"},
+        resource=ResourceType.NAMESPACE,
+        action=ResourceAction.MANAGE,
+    ),
+    Case(
+        "DELETE",
+        "/namespaces/{namespace}/git",
+        resource=ResourceType.NAMESPACE,
+        action=ResourceAction.MANAGE,
+    ),
     # delete-governed endpoints
     Case("DELETE", "/nodes/{name}", action=ResourceAction.DELETE),
     Case("DELETE", "/nodes/{name}/hard", action=ResourceAction.DELETE),
@@ -156,8 +172,6 @@ PENDING_DENIAL_TESTS: dict[str, list[tuple[str, str]]] = {
     "git-backed namespace flow; needs repo fixtures": [
         ("POST", "/namespaces/{namespace}/branches"),
         ("DELETE", "/namespaces/{namespace}/branches/{branch_namespace}"),
-        ("PATCH", "/namespaces/{namespace}/git"),
-        ("DELETE", "/namespaces/{namespace}/git"),
         ("POST", "/namespaces/{namespace}/sync-to-git"),
         ("POST", "/namespaces/{namespace}/sync-from-git"),
         ("POST", "/namespaces/{namespace}/pull-request"),
