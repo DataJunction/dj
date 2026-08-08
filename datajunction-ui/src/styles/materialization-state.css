@@ -1,0 +1,116 @@
+/* Styles for MaterializationStatePanel (mockup A). */
+
+.mat-panel__head {
+  font-size: 0.85rem;
+  color: #57606a;
+  margin-bottom: 8px;
+}
+
+.mat-card {
+  border: 1px solid #e1e4e8;
+  border-radius: 6px;
+  padding: 16px;
+  margin-bottom: 16px;
+  background: #fff;
+}
+
+.mat-card__head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+/* The verdict leads, because it is the only line most readers need. */
+.mat-card__verdict {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.mat-card__label {
+  font-weight: 600;
+}
+
+.mat-card__detail {
+  margin: 6px 0 14px;
+  color: #24292f;
+}
+
+.coverage {
+  margin-bottom: 16px;
+}
+
+.coverage__scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: #57606a;
+  margin-bottom: 3px;
+}
+
+/* One cell per partition rather than a min-to-max bar, so a non-contiguous
+   backfill hole reads as a hole instead of as a shorter range. */
+.coverage__cells {
+  display: flex;
+  gap: 2px;
+}
+
+.coverage__cell {
+  flex: 1 1 0;
+  height: 18px;
+  border-radius: 2px;
+  min-width: 4px;
+}
+
+.coverage__cell--covered {
+  background: #2da44e;
+}
+
+.coverage__cell--missing {
+  background: #cf222e;
+}
+
+/* Distinct from missing: a partition that is not due yet is not a gap, and
+   colouring it like one would make every healthy cube look broken at its edge. */
+.coverage__cell--not-due {
+  background: #eaeef2;
+  border: 1px dashed #afb8c1;
+}
+
+.coverage__legend,
+.coverage--unknown {
+  font-size: 0.75rem;
+  margin-top: 4px;
+}
+
+.mat-card__cols {
+  display: flex;
+  gap: 32px;
+  flex-wrap: wrap;
+}
+
+.mat-col {
+  min-width: 220px;
+  flex: 1 1 220px;
+  font-size: 0.85rem;
+}
+
+.mat-col h5 {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #57606a;
+  margin: 0 0 6px;
+}
+
+.mat-col > div {
+  margin-bottom: 3px;
+}
+
+/* Serving tables carry names like
+   dj__shared_game_health_metrics_cloud_games_session_success_cube_v8_0_cd70304ced94ac2e,
+   which will blow out the column without this. */
+.mat-col .table__body {
+  word-break: break-all;
+  font-family: monospace;
+  font-size: 0.75rem;
+}

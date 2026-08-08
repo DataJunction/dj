@@ -11,6 +11,7 @@ import FontFaceObserver from 'fontfaceobserver';
 
 import 'sanitize.css/sanitize.css';
 import './styles/index.css';
+import './styles/materialization-state.css';
 import 'react-diff-view/style/index.css';
 
 import { App } from './app';
