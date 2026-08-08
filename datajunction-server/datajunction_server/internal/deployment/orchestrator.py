@@ -82,6 +82,7 @@ from datajunction_server.models.deployment import (
     DimensionJoinLinkSpec,
     DimensionReferenceLinkSpec,
     LinkableNodeSpec,
+    MaterializationSpec,
     MetricSpec,
     NodeSpec,
     SourceSpec,
@@ -2280,6 +2281,10 @@ class DeploymentOrchestrator:
         service calls are queued and made by `execute` once the deployment is
         committed. Skipped entirely during dry runs, which must schedule nothing and
         stop nothing.
+
+        A cube that declares `materialization:` supplies it as the rebuild's source of
+        intent, so one push that edits both the definition and the schedule rebuilds
+        once, with the new schedule.
         """
         if self.dry_run:
             return
@@ -2293,6 +2298,7 @@ class DeploymentOrchestrator:
         access_checker = AccessChecker(
             await AuthContext.from_user(self.session, self.context.current_user),
         )
+        declared_specs = self._declared_materializations()
         for old_revision, new_revision in swappable:
             swap = await swap_cube_materializations(
                 self.session,
@@ -2305,9 +2311,42 @@ class DeploymentOrchestrator:
                     old_revision,
                     new_revision,
                 ),
+                declared=declared_specs.get(new_revision.name),
             )
             if swap:
                 self._cube_materialization_swaps.append(swap)
+
+    def _declared_materializations(self) -> dict[str, MaterializationSpec]:
+        """
+        The materialization block each declared cube carries, keyed by rendered name.
+
+        A cube that declares no block is absent from the mapping, which is distinct
+        from one that declares `materialization: null` -- see
+        `_cubes_declaring_no_materialization`. Absence means "not managed here, leave
+        whatever exists alone"; an explicit null means "this cube should not be
+        materialized".
+        """
+        return {
+            spec.rendered_name: spec.materialization
+            for spec in self.deployment_spec.nodes
+            if isinstance(spec, CubeSpec) and spec.materialization is not None
+        }
+
+    def _cubes_declaring_no_materialization(self) -> set[str]:
+        """
+        Rendered names of cubes that explicitly declared `materialization: null`.
+
+        Pydantic keeps the distinction between a field left out and one set to null in
+        `model_fields_set`, which is what lets an author say "tear this down" without
+        every cube that never mentions materialization meaning the same thing.
+        """
+        return {
+            spec.rendered_name
+            for spec in self.deployment_spec.nodes
+            if isinstance(spec, CubeSpec)
+            and spec.materialization is None
+            and "materialization" in spec.model_fields_set
+        }
 
     async def _apply_cube_materialization_swaps(self) -> None:
         """

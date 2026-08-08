@@ -32,6 +32,7 @@ from datajunction_server.internal.sql import (
 from datajunction_server.materialization.jobs import MaterializationJob
 from datajunction_server.models.column import SemanticType
 from datajunction_server.models.cube_materialization import UpsertCubeMaterialization
+from datajunction_server.models.deployment import MaterializationSpec
 from datajunction_server.models.materialization import (
     DruidCubeConfigInput,
     DruidMeasuresCubeConfig,
@@ -381,6 +382,91 @@ class CubeMaterializationSwap:
     superseded: list[Materialization]
 
 
+def _apply_declared_spec(
+    upsert: UpsertCubeMaterialization | UpsertMaterialization,
+    declared: MaterializationSpec,
+) -> UpsertCubeMaterialization | UpsertMaterialization:
+    """
+    Let a cube's declared YAML block win over the intent recovered from the
+    persisted materialization.
+
+    A cube that declares `materialization:` has its config in the repo, so a rebuild
+    triggered by the same deploy must build what the YAML now says rather than what
+    the superseded revision happened to be built with -- otherwise editing a metric
+    and the schedule in one push would rebuild with the old schedule. Only cube
+    materializations can be declared; anything else keeps its recovered intent.
+    """
+    if isinstance(upsert, UpsertCubeMaterialization):
+        return upsert.model_copy(
+            update={
+                "schedule": declared.schedule,
+                "strategy": declared.strategy,
+                "lookback_window": declared.lookback_window,
+            },
+        )
+    return upsert  # pragma: no cover
+
+
+async def reconcile_declared_materialization(
+    session: AsyncSession,
+    revision: NodeRevision,
+    declared: MaterializationSpec,
+    *,
+    access_checker: AccessChecker,
+    current_user: User,
+) -> tuple[Materialization, bool]:
+    """
+    Bring a cube revision's materialization in line with its declared block.
+
+    Returns the materialization and whether anything actually changed, so a deploy
+    that re-declares what is already configured can skip the query service entirely.
+
+    Mirrors what `POST /nodes/{name}/materialization/` does -- build the config, then
+    update the row of the same name in place rather than inserting a second one,
+    since `(name, node_revision_id)` is unique -- with one deliberate difference. The
+    endpoint decides "unchanged" on `config` alone, but `schedule` and `strategy` are
+    columns rather than config keys, so by that test a schedule-only edit compares
+    equal and is silently dropped. Rescheduling is the whole point of a declared
+    block, so all three are compared here.
+    """
+    built = await create_new_materialization(
+        session,
+        revision,
+        UpsertCubeMaterialization(
+            job=MaterializationJobTypeEnum.DRUID_CUBE.value.name,  # type: ignore
+            strategy=declared.strategy,
+            schedule=declared.schedule,
+            lookback_window=declared.lookback_window,
+        ),
+        access_checker,
+        current_user=current_user,
+    )
+    existing = next(
+        (mat for mat in revision.materializations if mat.name == built.name),
+        None,
+    )
+    if existing is None:
+        session.add(built)
+        return built, True
+
+    # `create_new_materialization` sets the backref, which would insert a duplicate
+    # row alongside the one being updated.
+    built.node_revision = None  # type: ignore
+    unchanged = (
+        existing.config == built.config
+        and existing.schedule == built.schedule
+        and existing.strategy == built.strategy
+        and existing.deactivated_at is None
+    )
+    if unchanged:
+        return existing, False
+    existing.config = built.config
+    existing.schedule = built.schedule
+    existing.strategy = built.strategy
+    existing.deactivated_at = None
+    return existing, True
+
+
 async def swap_cube_materializations(
     session: AsyncSession,
     old_revision: NodeRevision,
@@ -389,6 +475,7 @@ async def swap_cube_materializations(
     access_checker: AccessChecker,
     current_user: User,
     previous_table_usable: bool,
+    declared: MaterializationSpec | None = None,
 ) -> CubeMaterializationSwap | None:
     """
     Rebuild a cube's materializations against a new revision and retire the old ones.
@@ -402,9 +489,11 @@ async def swap_cube_materializations(
 
     Rebuilt rather than copied: a stored config embeds the cube version plus combiner
     SQL and a Druid spec derived from the old definition, so the new revision goes
-    back through `create_new_materialization`. The old materialization is the source
-    of the user's intent because it is the only record of it -- a cube materialized
-    through the UI has no YAML to read it from.
+    back through `create_new_materialization`. The old materialization is the default
+    source of the user's intent because it is often the only record of it -- a cube
+    materialized through the UI has no YAML to read it from. A cube that does declare
+    `materialization:` passes it as `declared`, which wins, so a push that edits both
+    a metric and the schedule rebuilds with the new schedule rather than the old.
 
     `previous_table_usable` is the caller's answer to whether the superseded
     revision's materialized table is still valid (`is_non_trivial_cube_change`
@@ -436,10 +525,13 @@ async def swap_cube_materializations(
     rebuilt: list[Materialization] = []
     for materialization in superseded:
         try:
+            upsert = _upsert_from_materialization(materialization)
+            if declared:
+                upsert = _apply_declared_spec(upsert, declared)
             new_materialization = await create_new_materialization(
                 session,
                 new_revision,
-                _upsert_from_materialization(materialization),
+                upsert,
                 access_checker,
                 current_user=current_user,
             )
