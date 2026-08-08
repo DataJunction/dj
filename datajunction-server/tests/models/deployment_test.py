@@ -10,6 +10,7 @@ from datajunction_server.models.deployment import (
     DimensionReferenceLinkSpec,
     DimensionSpec,
     Granularity,
+    MaterializationAction,
     MaterializationSpec,
     MetricSpec,
     NamespaceGitConfig,
@@ -997,3 +998,53 @@ def test_cube_spec_without_materialization_omits_it_from_export():
     spec = _partitioned_cube()
     assert spec.materialization is None
     assert "materialization" not in spec.model_dump(mode="json", exclude_none=True)
+
+
+def test_cube_spec_teardown_survives_serialization():
+    """
+    The two ways a cube can decline to be materialized have to stay distinguishable
+    after a round trip. `model_dump` emits every optional field explicitly, so a
+    teardown carried by a key's presence alone would be indistinguishable from every
+    cube that never mentioned `materialization:` -- and the round-tripped spec would
+    read as a request to tear down the whole namespace.
+    """
+    torn_down = CubeSpec.model_validate(
+        {**_partitioned_cube().model_dump(), "materialization": "none"},
+    )
+    assert torn_down.materialization == MaterializationAction.NONE
+    assert (
+        CubeSpec.model_validate(torn_down.model_dump()).materialization
+        == MaterializationAction.NONE
+    )
+
+    unmanaged = CubeSpec.model_validate(_partitioned_cube().model_dump())
+    assert unmanaged.materialization is None
+    assert CubeSpec.model_validate(unmanaged.model_dump()).materialization is None
+
+    # `rendered_spec` round-trips through JSON too, and preserved neither before.
+    assert torn_down.rendered_spec().materialization == MaterializationAction.NONE
+    assert unmanaged.rendered_spec().materialization is None
+
+
+def test_cube_spec_teardown_sentinel_is_case_insensitive():
+    """`None` is what a Python author writes and `NONE` what a YAML one does."""
+    for spelling in ("none", "None", "NONE"):
+        spec = CubeSpec.model_validate(
+            {**_partitioned_cube().model_dump(), "materialization": spelling},
+        )
+        assert spec.materialization == MaterializationAction.NONE
+
+
+def test_cube_spec_teardown_needs_no_temporal_partition():
+    """
+    The partition requirement is a property of an incremental block, so a cube being
+    torn down is exempt -- it may well be losing the partition in the same push.
+    """
+    spec = CubeSpec(
+        namespace="test",
+        name="my_cube",
+        metrics=["${prefix}num_orders"],
+        dimensions=["${prefix}date_dim.dateint"],
+        materialization=MaterializationAction.NONE,
+    )
+    assert spec.materialization == MaterializationAction.NONE

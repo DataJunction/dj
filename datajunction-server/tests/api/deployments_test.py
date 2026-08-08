@@ -31,6 +31,7 @@ from datajunction_server.models.deployment import (
     GitDeploymentSource,
     Granularity,
     LocalDeploymentSource,
+    MaterializationAction,
     MaterializationSpec,
     MetricSpec,
     PartitionSpec,
@@ -1302,20 +1303,14 @@ def _mock_materializing_query_service() -> MagicMock:
 
 def deployment_payload(deployment_spec: DeploymentSpec) -> dict:
     """
-    The spec as `dj push` would send it, as far as `materialization:` is concerned.
+    The spec as a serializing caller would send it.
 
-    `dj push` posts the YAML files as parsed, so a key nobody wrote is absent.
-    `model_dump` instead emits every optional field explicitly null, which would make
-    a cube that never mentioned `materialization:` indistinguishable from one that
-    set it to null and means "tear this down". Only that key is dropped: the rest of
-    the payload stays as-is, since several nested unions are discriminated on fields
-    that carry defaults and would vanish under a blanket `exclude_unset`.
+    Deliberately a plain `model_dump`, which emits every optional field explicitly
+    null. Nothing in the deployment path may read a key's mere presence as intent --
+    `materialization: none` is a value for exactly that reason -- so posting the
+    lossiest payload shape keeps every test below honest about it.
     """
-    payload = deployment_spec.model_dump()
-    for node_payload, node_spec in zip(payload["nodes"], deployment_spec.nodes):
-        if "materialization" not in node_spec.model_fields_set:
-            node_payload.pop("materialization", None)
-    return payload
+    return deployment_spec.model_dump()
 
 
 async def deploy_and_wait(client, deployment_spec: DeploymentSpec):
@@ -5292,7 +5287,7 @@ class TestDeclaredCubeMaterializations:
             del client.app.dependency_overrides[get_query_service_client]
 
     @pytest.mark.asyncio
-    async def test_explicit_null_removes_the_materialization(
+    async def test_explicit_none_removes_the_materialization(
         self,
         client,
         default_hard_hats,
@@ -5302,7 +5297,7 @@ class TestDeclaredCubeMaterializations:
         default_avg_length_of_employment,
     ):
         """
-        `materialization: null` is the one thing that tears a materialization down:
+        `materialization: none` is the one thing that tears a materialization down:
         the row is deactivated and its workflow stopped.
         """
         namespace = "cube_mat_removed"
@@ -5331,7 +5326,7 @@ class TestDeclaredCubeMaterializations:
             assert data["status"] == "success", data
 
             mock_qs.reset_mock()
-            cube.materialization = None
+            cube.materialization = MaterializationAction.NONE
             data = await deploy_and_wait(
                 client,
                 DeploymentSpec(namespace=namespace, nodes=nodes),
@@ -5342,7 +5337,7 @@ class TestDeclaredCubeMaterializations:
                     cube_name,
                     "delete",
                     "success",
-                    "cube materialization removed by `materialization: null`",
+                    "cube materialization removed by `materialization: none`",
                 ),
             ]
             assert mock_qs.materialize_cube.call_count == 0
@@ -5362,7 +5357,7 @@ class TestDeclaredCubeMaterializations:
             del client.app.dependency_overrides[get_query_service_client]
 
     @pytest.mark.asyncio
-    async def test_explicit_null_without_a_materialization_is_a_noop(
+    async def test_explicit_none_without_a_materialization_is_a_noop(
         self,
         client,
         default_hard_hats,
@@ -5372,7 +5367,7 @@ class TestDeclaredCubeMaterializations:
         default_avg_length_of_employment,
     ):
         """
-        A cube that says `materialization: null` and never had one reports a no-op
+        A cube that says `materialization: none` and never had one reports a no-op
         and asks the query service to stop nothing.
         """
         namespace = "cube_mat_null_noop"
@@ -5383,7 +5378,7 @@ class TestDeclaredCubeMaterializations:
             default_us_states,
             default_us_state,
             default_avg_length_of_employment,
-            self._cube(materialization=None),
+            self._cube(materialization=MaterializationAction.NONE),
         ]
         mock_qs = _mock_materializing_query_service()
         client.app.dependency_overrides[get_query_service_client] = lambda: mock_qs
@@ -5461,7 +5456,7 @@ class TestDeclaredCubeMaterializations:
                 f"Cube `{cube_name}` is materialized but its spec declares no "
                 "`materialization:` block, so the existing materialization was "
                 "left running. Run `dj pull` to adopt it into YAML, or add "
-                "`materialization: null` to remove it."
+                "`materialization: none` to remove it."
             )
             assert self._materialization_results(data) == [
                 (cube_name, "noop", "warning", warning),
@@ -5477,6 +5472,115 @@ class TestDeclaredCubeMaterializations:
                     True,
                 ),
             ]
+        finally:
+            del client.app.dependency_overrides[get_query_service_client]
+
+    @pytest.mark.asyncio
+    async def test_serialized_spec_tears_nothing_down(
+        self,
+        client,
+        default_hard_hats,
+        default_hard_hat,
+        default_us_states,
+        default_us_state,
+        default_avg_length_of_employment,
+    ):
+        """
+        A caller that serializes a spec and re-posts it gets the deploy it asked for,
+        not a mass teardown.
+
+        `model_dump` emits every optional field explicitly, so a spec round-tripped
+        through it says `materialization: null` for every cube -- which, read as
+        "the author wrote that key", is a request to stop every workflow in the
+        namespace. Teardown is a value (`materialization: none`) so that a round trip
+        preserves what the cube actually declared, whether that is a schedule or
+        nothing at all.
+        """
+        namespace = "cube_mat_round_trip"
+        cube_name = f"{namespace}.default.repairs_cube"
+        block = MaterializationSpec(schedule="0 6 * * *", lookback_window="1 DAY")
+        nodes = [
+            default_hard_hats,
+            default_hard_hat,
+            default_us_states,
+            default_us_state,
+            default_avg_length_of_employment,
+        ]
+        materialized = [
+            (
+                f"druid_cube__incremental_time__{namespace}.default.hard_hat.hire_date",
+                "0 6 * * *",
+                "incremental_time",
+                True,
+            ),
+        ]
+        mock_qs = _mock_materializing_query_service()
+        client.app.dependency_overrides[get_query_service_client] = lambda: mock_qs
+        try:
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(
+                    namespace=namespace,
+                    nodes=[*nodes, self._cube(materialization=block)],
+                ),
+            )
+            assert data["status"] == "success", data
+            assert await self._persisted_materializations(client, cube_name) == (
+                materialized
+            )
+
+            # A re-declare that has been through `model_dump` and back is still a
+            # re-declare: the schedule stands, unchanged.
+            mock_qs.reset_mock()
+            declared = DeploymentSpec(
+                namespace=namespace,
+                nodes=[*nodes, self._cube(materialization=block)],
+            )
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec.model_validate(declared.model_dump()),
+            )
+            assert data["status"] == "success", data
+            assert self._materialization_results(data) == [
+                (
+                    cube_name,
+                    "noop",
+                    "success",
+                    "cube materialization on schedule 0 6 * * *",
+                ),
+            ]
+            assert mock_qs.method_calls == []
+            assert await self._persisted_materializations(client, cube_name) == (
+                materialized
+            )
+
+            # And a cube that never mentioned `materialization:` keeps its
+            # materialization once serialized, rather than losing it to the null the
+            # dump invents.
+            undeclared = DeploymentSpec(
+                namespace=namespace,
+                nodes=[*nodes, self._cube()],
+            )
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec.model_validate(undeclared.model_dump()),
+            )
+            assert data["status"] == "success", data
+            assert self._materialization_results(data) == [
+                (
+                    cube_name,
+                    "noop",
+                    "warning",
+                    f"Cube `{cube_name}` is materialized but its spec declares no "
+                    "`materialization:` block, so the existing materialization was "
+                    "left running. Run `dj pull` to adopt it into YAML, or add "
+                    "`materialization: none` to remove it.",
+                ),
+            ]
+            assert mock_qs.method_calls == []
+            assert await self._persisted_materializations(client, cube_name) == (
+                materialized
+            )
         finally:
             del client.app.dependency_overrides[get_query_service_client]
 
@@ -5647,7 +5751,7 @@ class TestDeclaredCubeMaterializations:
             ]
 
             # A planned teardown is reported and equally not carried out.
-            cube.materialization = None
+            cube.materialization = MaterializationAction.NONE
             response = await client.post(
                 "/deployments/impact",
                 json=deployment_payload(
@@ -5660,7 +5764,7 @@ class TestDeclaredCubeMaterializations:
                     cube_name,
                     "delete",
                     "success",
-                    "cube materialization removed by `materialization: null`",
+                    "cube materialization removed by `materialization: none`",
                 ),
             ]
             assert mock_qs.method_calls == []

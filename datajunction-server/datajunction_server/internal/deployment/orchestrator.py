@@ -84,6 +84,7 @@ from datajunction_server.models.deployment import (
     DimensionJoinLinkSpec,
     DimensionReferenceLinkSpec,
     LinkableNodeSpec,
+    MaterializationAction,
     MaterializationSpec,
     MetricSpec,
     NodeSpec,
@@ -2337,31 +2338,32 @@ class DeploymentOrchestrator:
         The materialization block each declared cube carries, keyed by rendered name.
 
         A cube that declares no block is absent from the mapping, which is distinct
-        from one that declares `materialization: null` -- see
+        from one that declares `materialization: none` -- see
         `_cubes_declaring_no_materialization`. Absence means "not managed here, leave
-        whatever exists alone"; an explicit null means "this cube should not be
+        whatever exists alone"; the sentinel means "this cube should not be
         materialized".
         """
         return {
             spec.rendered_name: spec.materialization
             for spec in self.deployment_spec.nodes
-            if isinstance(spec, CubeSpec) and spec.materialization is not None
+            if isinstance(spec, CubeSpec)
+            and isinstance(spec.materialization, MaterializationSpec)
         }
 
     def _cubes_declaring_no_materialization(self) -> set[str]:
         """
-        Rendered names of cubes that explicitly declared `materialization: null`.
+        Rendered names of cubes that declared `materialization: none`.
 
-        Pydantic keeps the distinction between a field left out and one set to null in
-        `model_fields_set`, which is what lets an author say "tear this down" without
-        every cube that never mentions materialization meaning the same thing.
+        Teardown is keyed on that sentinel rather than on the `materialization` key
+        being present and null, so that it survives serialization: `model_dump` emits
+        every optional field explicitly, and a spec round-tripped through it would
+        otherwise read as every cube in the namespace asking to be torn down.
         """
         return {
             spec.rendered_name
             for spec in self.deployment_spec.nodes
             if isinstance(spec, CubeSpec)
-            and spec.materialization is None
-            and "materialization" in spec.model_fields_set
+            and spec.materialization is MaterializationAction.NONE
         }
 
     async def _reconcile_cube_materializations(self, plan: DeploymentPlan) -> None:
@@ -2376,7 +2378,7 @@ class DeploymentOrchestrator:
         Iterating every declared cube also corrects a materialization that was
         changed outside YAML.
 
-        Only an explicit `materialization: null` removes anything. A cube that
+        Only an explicit `materialization: none` removes anything. A cube that
         declares no block but has one materialized keeps it and earns a warning:
         the repo may simply not have caught up yet, and a live workflow must not be
         torn down by omission.
@@ -2402,7 +2404,7 @@ class DeploymentOrchestrator:
         # has already had its materialization rebuilt onto it by
         # `_swap_cube_materializations`, and a dry run skips that rebuild entirely --
         # reading the revision would make the two disagree.
-        persisted: dict[str, MaterializationSpec | None] = {
+        persisted: dict[str, MaterializationSpec | MaterializationAction | None] = {
             name: existing.materialization
             for name in cube_names
             if isinstance(existing := plan.existing_specs.get(name), CubeSpec)
@@ -2471,7 +2473,7 @@ class DeploymentOrchestrator:
         self,
         revision: NodeRevision,
         block: MaterializationSpec,
-        persisted: MaterializationSpec | None,
+        persisted: MaterializationSpec | MaterializationAction | None,
         access_checker: AccessChecker | None,
     ) -> None:
         """
@@ -2590,7 +2592,7 @@ class DeploymentOrchestrator:
     ) -> None:
         """
         Tear down one cube's materialization because it declared
-        `materialization: null`.
+        `materialization: none`.
 
         A revision is only loaded for a cube that has something to tear down, so
         `None` here is the cube that declared null and was never materialized.
@@ -2615,7 +2617,7 @@ class DeploymentOrchestrator:
                 deploy_type=DeploymentResult.Type.MATERIALIZATION,
                 status=DeploymentResult.Status.SUCCESS,
                 operation=DeploymentResult.Operation.DELETE,
-                message="cube materialization removed by `materialization: null`",
+                message="cube materialization removed by `materialization: none`",
             ),
         )
         if self.dry_run:
@@ -2631,7 +2633,7 @@ class DeploymentOrchestrator:
                 activity_type=ActivityType.DELETE,
                 details={
                     "message": (
-                        "Cube materialization removed by `materialization: null` and "
+                        "Cube materialization removed by `materialization: none` and "
                         "its workflows stopped."
                     ),
                     "deactivated_materializations": [mat.name for mat in active],
@@ -2663,7 +2665,7 @@ class DeploymentOrchestrator:
             f"Cube `{name}` is materialized but its spec declares no "
             "`materialization:` block, so the existing materialization was left "
             "running. Run `dj pull` to adopt it into YAML, or add "
-            "`materialization: null` to remove it."
+            "`materialization: none` to remove it."
         )
         self.warnings.append(
             DJError(
