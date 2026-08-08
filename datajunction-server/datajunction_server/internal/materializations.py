@@ -429,6 +429,10 @@ async def reconcile_declared_materialization(
     equal and is silently dropped. Rescheduling is the whole point of a declared
     block, so all three are compared here.
     """
+    # Snapshotted before the build, which sets the new materialization's backref and
+    # so appends it to this very collection -- searching afterwards would find the
+    # build itself, call it unchanged, and then detach it.
+    before = list(revision.materializations)
     built = await create_new_materialization(
         session,
         revision,
@@ -442,7 +446,7 @@ async def reconcile_declared_materialization(
         current_user=current_user,
     )
     existing = next(
-        (mat for mat in revision.materializations if mat.name == built.name),
+        (mat for mat in before if mat.name == built.name),
         None,
     )
     if existing is None:

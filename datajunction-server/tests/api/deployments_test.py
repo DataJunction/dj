@@ -7,13 +7,17 @@ from unittest import mock
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from sqlalchemy import select
 
+import datajunction_server.internal.materializations
 from datajunction_server.api.deployments import (
     InProcessExecutor,
     _normalize_repo_path,
 )
+from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.node import Node, NodeRelationship
 from datajunction_server.database.tag import Tag
+from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.internal.git.github_service import GitHubServiceError
 from datajunction_server.models import access
 from datajunction_server.models.deployment import (
@@ -37,6 +41,10 @@ from datajunction_server.models.deployment import (
     TransformSpec,
 )
 from datajunction_server.models.dimensionlink import JoinType
+from datajunction_server.models.materialization import (
+    MaterializationInfo,
+    MaterializationStrategy,
+)
 from datajunction_server.models.node import (
     MetricDirection,
     MetricUnit,
@@ -1277,10 +1285,43 @@ def roads_nodes(
     ]
 
 
+def _mock_materializing_query_service() -> MagicMock:
+    """
+    A query service that accepts everything a cube materialization asks of it.
+
+    Plain `MagicMock` rather than a spec'd double so `method_calls` records the whole
+    sequence in order, which is what the materialization tests below compare against.
+    """
+    query_service = MagicMock()
+    query_service.materialize_cube.return_value = MaterializationInfo(
+        urls=["http://fake.url/job"],
+        output_tables=[],
+    )
+    return query_service
+
+
+def deployment_payload(deployment_spec: DeploymentSpec) -> dict:
+    """
+    The spec as `dj push` would send it, as far as `materialization:` is concerned.
+
+    `dj push` posts the YAML files as parsed, so a key nobody wrote is absent.
+    `model_dump` instead emits every optional field explicitly null, which would make
+    a cube that never mentioned `materialization:` indistinguishable from one that
+    set it to null and means "tear this down". Only that key is dropped: the rest of
+    the payload stays as-is, since several nested unions are discriminated on fields
+    that carry defaults and would vanish under a blanket `exclude_unset`.
+    """
+    payload = deployment_spec.model_dump()
+    for node_payload, node_spec in zip(payload["nodes"], deployment_spec.nodes):
+        if "materialization" not in node_spec.model_fields_set:
+            node_payload.pop("materialization", None)
+    return payload
+
+
 async def deploy_and_wait(client, deployment_spec: DeploymentSpec):
     response = await client.post(
         "/deployments",
-        json=deployment_spec.model_dump(),
+        json=deployment_payload(deployment_spec),
     )
     data = response.json()
     deployment_uuid = data["uuid"]
@@ -2902,7 +2943,9 @@ class TestDeployments:
             cube.description = "Cube for analyzing repair orders, revised"
             response = await client.post(
                 "/deployments/impact",
-                json=DeploymentSpec(namespace=namespace, nodes=nodes).model_dump(),
+                json=deployment_payload(
+                    DeploymentSpec(namespace=namespace, nodes=nodes),
+                ),
             )
             assert response.status_code == 200, response.json()
             assert mock_qs.method_calls == []
@@ -2928,12 +2971,13 @@ class TestDeployments:
         default_avg_length_of_employment,
     ):
         """
-        A cube can declare `materialization:` alongside its definition, and the block
-        survives the deploy/export round trip so a repo-managed cube keeps it.
+        A cube can declare `materialization:` alongside its definition, the block
+        survives the deploy/export round trip, and it is what gets scheduled.
 
-        Nothing is scheduled yet -- the reconciler that turns the block into a
-        workflow lands separately. This pins that the spec parses, deploys, and
-        exports, and that a schedule edit alone does not mint a new cube version.
+        The second push is the case the reconciler exists for and the one an
+        implementation keyed off the deploy's change list would drop: editing only
+        the schedule leaves the cube comparing equal, so it is skipped as a node --
+        and still rescheduled, without earning a version.
         """
         namespace = "cube_materialization"
         cube = CubeSpec(
@@ -2971,56 +3015,117 @@ class TestDeployments:
             default_avg_length_of_employment,
             cube,
         ]
-        data = await deploy_and_wait(
-            client,
-            DeploymentSpec(namespace=namespace, nodes=nodes_list),
-        )
-        assert data["status"] == "success"
+        cube_name = f"{namespace}.default.repairs_cube"
+        mock_qs = _mock_materializing_query_service()
+        client.app.dependency_overrides[get_query_service_client] = lambda: mock_qs
+        try:
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(namespace=namespace, nodes=nodes_list),
+            )
+            assert data["status"] == "success"
+            assert [
+                result for result in data["results"] if result["name"] == cube_name
+            ] == [
+                {
+                    "deploy_type": "node",
+                    "message": "Created cube (v1.0)",
+                    "name": cube_name,
+                    "operation": "create",
+                    "changed_fields": [],
+                    "status": "success",
+                },
+                {
+                    "deploy_type": "materialization",
+                    "message": "cube materialization on schedule 0 6 * * *",
+                    "name": cube_name,
+                    "operation": "create",
+                    "changed_fields": [],
+                    "status": "success",
+                },
+            ]
 
-        deployed = await Node.get_by_name(
-            session,
-            f"{namespace}.default.repairs_cube",
-            options=Node.cube_load_options(),
-        )
-        assert deployed.current.version == "v1.0"
+            session.expire_all()
+            deployed = await Node.get_by_name(
+                session,
+                cube_name,
+                options=Node.cube_load_options(),
+            )
+            assert deployed.current.version == "v1.0"
+            assert (await deployed.to_spec(session)).materialization == (
+                MaterializationSpec(
+                    schedule="0 6 * * *",
+                    strategy=MaterializationStrategy.INCREMENTAL_TIME,
+                    lookback_window="1 DAY",
+                )
+            )
 
-        # The block is accepted but not yet acted on, so nothing is scheduled.
-        assert (await deployed.to_spec(session)).materialization is None
+            # Editing only the schedule is not a definition change: the cube compares
+            # equal, is skipped rather than updated, and never earns a version. The
+            # reconciler runs off the spec rather than the change list, so the new
+            # schedule still reaches the query service.
+            mock_qs.reset_mock()
+            cube.materialization = MaterializationSpec(
+                schedule="0 3 * * *",
+                lookback_window="1 DAY",
+            )
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(namespace=namespace, nodes=nodes_list),
+            )
+            assert data["status"] == "success"
+            assert [
+                result for result in data["results"] if result["name"] == cube_name
+            ] == [
+                {
+                    "deploy_type": "node",
+                    "message": "Unchanged",
+                    "name": cube_name,
+                    "operation": "noop",
+                    "changed_fields": [],
+                    "status": "skipped",
+                },
+                {
+                    "deploy_type": "materialization",
+                    "message": "cube materialization on schedule 0 3 * * *",
+                    "name": cube_name,
+                    "operation": "update",
+                    "changed_fields": [],
+                    "status": "success",
+                },
+            ]
 
-        # Editing only the schedule is not a definition change: the cube compares
-        # equal, is skipped rather than updated, and so is never given a version.
-        cube.materialization = MaterializationSpec(
-            schedule="0 3 * * *",
-            lookback_window="1 DAY",
-        )
-        data = await deploy_and_wait(
-            client,
-            DeploymentSpec(namespace=namespace, nodes=nodes_list),
-        )
-        assert data["status"] == "success"
-        cube_results = [
-            result
-            for result in data["results"]
-            if result["name"] == f"{namespace}.default.repairs_cube"
-        ]
-        assert cube_results == [
-            {
-                "deploy_type": "node",
-                "message": "Unchanged",
-                "name": f"{namespace}.default.repairs_cube",
-                "operation": "noop",
-                "changed_fields": [],
-                "status": "skipped",
-            },
-        ]
-
-        session.expire_all()
-        deployed = await Node.get_by_name(
-            session,
-            f"{namespace}.default.repairs_cube",
-            options=Node.cube_load_options(),
-        )
-        assert deployed.current.version == "v1.0"
+            session.expire_all()
+            deployed = await Node.get_by_name(
+                session,
+                cube_name,
+                options=Node.cube_load_options(),
+            )
+            assert deployed.current.version == "v1.0"
+            assert (await deployed.to_spec(session)).materialization == (
+                MaterializationSpec(
+                    schedule="0 3 * * *",
+                    strategy=MaterializationStrategy.INCREMENTAL_TIME,
+                    lookback_window="1 DAY",
+                )
+            )
+            assert mock_qs.materialize_cube.call_count == 1
+            assert mock_qs.deactivate_workflows.call_count == 0
+            assert mock_qs.deactivate_cube_workflow.call_count == 0
+            scheduled = mock_qs.materialize_cube.call_args.kwargs[
+                "materialization_input"
+            ]
+            assert (
+                scheduled.cube.name,
+                scheduled.cube.version,
+                scheduled.schedule,
+            ) == (
+                cube_name,
+                "v1.0",
+                "0 3 * * *",
+            )
+        finally:
+            del client.app.dependency_overrides[get_query_service_client]
 
     @pytest.mark.asyncio
     async def test_deploy_cube_with_custom_metadata(
@@ -4964,6 +5069,701 @@ async def test_print_roads_spec(roads_nodes):
     )
     print("Roads Spec:", json.dumps(spec.model_dump()))
     assert 1 == 2
+
+
+@pytest.mark.xdist_group(name="deployments")
+class TestDeclaredCubeMaterializations:
+    """
+    Reconciling a cube's `materialization:` block against what is materialized.
+    """
+
+    @staticmethod
+    def _cube(**overrides) -> CubeSpec:
+        """A partitioned cube, ready to declare a materialization."""
+        fields: dict = {
+            "name": "default.repairs_cube",
+            "display_name": "Repairs Cube",
+            "description": "Cube for analyzing repair orders",
+            "dimensions": [
+                "${prefix}default.hard_hat.state",
+                "${prefix}default.hard_hat.hire_date",
+            ],
+            "metrics": ["${prefix}default.avg_length_of_employment"],
+            "owners": ["dj"],
+            "columns": [
+                ColumnSpec(
+                    name="${prefix}default.hard_hat.hire_date",
+                    partition=PartitionSpec(
+                        type=PartitionType.TEMPORAL,
+                        granularity=Granularity.DAY,
+                        format="yyyyMMdd",
+                    ),
+                ),
+            ],
+        }
+        return CubeSpec(**{**fields, **overrides})
+
+    @staticmethod
+    def _materialization_results(data: dict) -> list[tuple]:
+        """The reconciler's own results, as (name, operation, status, message)."""
+        return [
+            (
+                result["name"],
+                result["operation"],
+                result["status"],
+                result["message"],
+            )
+            for result in data["results"]
+            if result["deploy_type"] == "materialization"
+        ]
+
+    @staticmethod
+    async def _persisted_materializations(client, cube_name: str) -> list[tuple]:
+        """The cube's materializations, as (name, schedule, strategy, active)."""
+        body = (await client.get(f"/nodes/{cube_name}/")).json()
+        return [
+            (
+                materialization["name"],
+                materialization["schedule"],
+                materialization["strategy"],
+                materialization["deactivated_at"] is None,
+            )
+            for materialization in body["materializations"]
+        ]
+
+    @pytest.mark.asyncio
+    async def test_unchanged_declaration_touches_nothing(
+        self,
+        client,
+        default_hard_hats,
+        default_hard_hat,
+        default_us_states,
+        default_us_state,
+        default_avg_length_of_employment,
+    ):
+        """
+        Re-pushing an unchanged repo must not churn a live workflow: the second
+        deploy reports a no-op and makes no query service call at all.
+        """
+        namespace = "cube_mat_unchanged"
+        cube_name = f"{namespace}.default.repairs_cube"
+        cube = self._cube(
+            materialization=MaterializationSpec(
+                schedule="0 6 * * *",
+                lookback_window="1 DAY",
+            ),
+        )
+        nodes = [
+            default_hard_hats,
+            default_hard_hat,
+            default_us_states,
+            default_us_state,
+            default_avg_length_of_employment,
+            cube,
+        ]
+        mock_qs = _mock_materializing_query_service()
+        client.app.dependency_overrides[get_query_service_client] = lambda: mock_qs
+        try:
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(namespace=namespace, nodes=nodes),
+            )
+            assert data["status"] == "success", data
+            assert mock_qs.materialize_cube.call_count == 1
+
+            mock_qs.reset_mock()
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(namespace=namespace, nodes=nodes),
+            )
+            assert data["status"] == "success", data
+            assert self._materialization_results(data) == [
+                (
+                    cube_name,
+                    "noop",
+                    "success",
+                    "cube materialization on schedule 0 6 * * *",
+                ),
+            ]
+            assert mock_qs.method_calls == []
+            assert await self._persisted_materializations(client, cube_name) == [
+                (
+                    f"druid_cube__incremental_time__{namespace}"
+                    ".default.hard_hat.hire_date",
+                    "0 6 * * *",
+                    "incremental_time",
+                    True,
+                ),
+            ]
+        finally:
+            del client.app.dependency_overrides[get_query_service_client]
+
+    @pytest.mark.asyncio
+    async def test_definition_and_schedule_edit_rebuilds_once(
+        self,
+        client,
+        default_hard_hats,
+        default_hard_hat,
+        default_us_states,
+        default_us_state,
+        default_avg_length_of_employment,
+        default_num_repair_orders,
+    ):
+        """
+        Editing the cube's metrics and its schedule in one push must rebuild once.
+
+        The new revision's swap already builds from the declared block, so the
+        reconciler that follows has to find the result matching and stand down --
+        otherwise the query service is asked to schedule the same cube twice.
+        """
+        namespace = "cube_mat_one_rebuild"
+        cube_name = f"{namespace}.default.repairs_cube"
+        cube = self._cube(
+            materialization=MaterializationSpec(
+                schedule="0 6 * * *",
+                lookback_window="1 DAY",
+            ),
+        )
+        nodes = [
+            default_hard_hats,
+            default_hard_hat,
+            default_us_states,
+            default_us_state,
+            default_avg_length_of_employment,
+            default_num_repair_orders,
+            cube,
+        ]
+        mock_qs = _mock_materializing_query_service()
+        client.app.dependency_overrides[get_query_service_client] = lambda: mock_qs
+        try:
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(namespace=namespace, nodes=nodes),
+            )
+            assert data["status"] == "success", data
+
+            mock_qs.reset_mock()
+            cube.metrics = [
+                "${prefix}default.avg_length_of_employment",
+                "${prefix}default.num_repair_orders",
+            ]
+            cube.materialization = MaterializationSpec(
+                schedule="0 3 * * *",
+                lookback_window="1 DAY",
+            )
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(namespace=namespace, nodes=nodes),
+            )
+            assert data["status"] == "success", data
+            assert self._materialization_results(data) == [
+                (
+                    cube_name,
+                    "update",
+                    "success",
+                    "cube materialization on schedule 0 3 * * *",
+                ),
+            ]
+
+            # One schedule call, for the new revision and the new schedule, and one
+            # stop for the superseded revision's workflow.
+            assert mock_qs.materialize_cube.call_count == 1
+            scheduled = mock_qs.materialize_cube.call_args.kwargs[
+                "materialization_input"
+            ]
+            assert (
+                scheduled.cube.name,
+                scheduled.cube.version,
+                scheduled.schedule,
+            ) == (cube_name, "v2.0", "0 3 * * *")
+            assert mock_qs.deactivate_cube_workflow.call_args_list == [
+                mock.call(cube_name, version="v1.0", request_headers=mock.ANY),
+            ]
+            assert await self._persisted_materializations(client, cube_name) == [
+                (
+                    f"druid_cube__incremental_time__{namespace}"
+                    ".default.hard_hat.hire_date",
+                    "0 3 * * *",
+                    "incremental_time",
+                    True,
+                ),
+            ]
+        finally:
+            del client.app.dependency_overrides[get_query_service_client]
+
+    @pytest.mark.asyncio
+    async def test_explicit_null_removes_the_materialization(
+        self,
+        client,
+        default_hard_hats,
+        default_hard_hat,
+        default_us_states,
+        default_us_state,
+        default_avg_length_of_employment,
+    ):
+        """
+        `materialization: null` is the one thing that tears a materialization down:
+        the row is deactivated and its workflow stopped.
+        """
+        namespace = "cube_mat_removed"
+        cube_name = f"{namespace}.default.repairs_cube"
+        cube = self._cube(
+            materialization=MaterializationSpec(
+                schedule="0 6 * * *",
+                lookback_window="1 DAY",
+            ),
+        )
+        nodes = [
+            default_hard_hats,
+            default_hard_hat,
+            default_us_states,
+            default_us_state,
+            default_avg_length_of_employment,
+            cube,
+        ]
+        mock_qs = _mock_materializing_query_service()
+        client.app.dependency_overrides[get_query_service_client] = lambda: mock_qs
+        try:
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(namespace=namespace, nodes=nodes),
+            )
+            assert data["status"] == "success", data
+
+            mock_qs.reset_mock()
+            cube.materialization = None
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(namespace=namespace, nodes=nodes),
+            )
+            assert data["status"] == "success", data
+            assert self._materialization_results(data) == [
+                (
+                    cube_name,
+                    "delete",
+                    "success",
+                    "cube materialization removed by `materialization: null`",
+                ),
+            ]
+            assert mock_qs.materialize_cube.call_count == 0
+            assert mock_qs.deactivate_cube_workflow.call_args_list == [
+                mock.call(cube_name, version="v1.0", request_headers=mock.ANY),
+            ]
+            assert await self._persisted_materializations(client, cube_name) == [
+                (
+                    f"druid_cube__incremental_time__{namespace}"
+                    ".default.hard_hat.hire_date",
+                    "0 6 * * *",
+                    "incremental_time",
+                    False,
+                ),
+            ]
+        finally:
+            del client.app.dependency_overrides[get_query_service_client]
+
+    @pytest.mark.asyncio
+    async def test_explicit_null_without_a_materialization_is_a_noop(
+        self,
+        client,
+        default_hard_hats,
+        default_hard_hat,
+        default_us_states,
+        default_us_state,
+        default_avg_length_of_employment,
+    ):
+        """
+        A cube that says `materialization: null` and never had one reports a no-op
+        and asks the query service to stop nothing.
+        """
+        namespace = "cube_mat_null_noop"
+        cube_name = f"{namespace}.default.repairs_cube"
+        nodes = [
+            default_hard_hats,
+            default_hard_hat,
+            default_us_states,
+            default_us_state,
+            default_avg_length_of_employment,
+            self._cube(materialization=None),
+        ]
+        mock_qs = _mock_materializing_query_service()
+        client.app.dependency_overrides[get_query_service_client] = lambda: mock_qs
+        try:
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(namespace=namespace, nodes=nodes),
+            )
+            assert data["status"] == "success", data
+            assert self._materialization_results(data) == [
+                (
+                    cube_name,
+                    "noop",
+                    "success",
+                    "cube declares no materialization",
+                ),
+            ]
+            assert mock_qs.method_calls == []
+            assert await self._persisted_materializations(client, cube_name) == []
+        finally:
+            del client.app.dependency_overrides[get_query_service_client]
+
+    @pytest.mark.asyncio
+    async def test_undeclared_materialization_is_left_running(
+        self,
+        client,
+        default_hard_hats,
+        default_hard_hat,
+        default_us_states,
+        default_us_state,
+        default_avg_length_of_employment,
+    ):
+        """
+        Omitting the block is not the same as removing it. A cube materialized
+        outside YAML keeps running, and the deploy says so and names both ways out.
+        """
+        namespace = "cube_mat_undeclared"
+        cube_name = f"{namespace}.default.repairs_cube"
+        nodes = [
+            default_hard_hats,
+            default_hard_hat,
+            default_us_states,
+            default_us_state,
+            default_avg_length_of_employment,
+            self._cube(),
+        ]
+        mock_qs = _mock_materializing_query_service()
+        client.app.dependency_overrides[get_query_service_client] = lambda: mock_qs
+        try:
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(namespace=namespace, nodes=nodes),
+            )
+            assert data["status"] == "success", data
+            assert self._materialization_results(data) == []
+
+            response = await client.post(
+                f"/nodes/{cube_name}/materialization/",
+                json={
+                    "job": "druid_cube",
+                    "strategy": "incremental_time",
+                    "schedule": "@daily",
+                    "lookback_window": "1 DAY",
+                },
+            )
+            assert response.status_code == 200, response.json()
+
+            mock_qs.reset_mock()
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(namespace=namespace, nodes=nodes),
+            )
+            assert data["status"] == "success", data
+            warning = (
+                f"Cube `{cube_name}` is materialized but its spec declares no "
+                "`materialization:` block, so the existing materialization was "
+                "left running. Run `dj pull` to adopt it into YAML, or add "
+                "`materialization: null` to remove it."
+            )
+            assert self._materialization_results(data) == [
+                (cube_name, "noop", "warning", warning),
+            ]
+            assert [item["message"] for item in data["warnings"]] == [warning]
+            assert mock_qs.method_calls == []
+            assert await self._persisted_materializations(client, cube_name) == [
+                (
+                    f"druid_cube__incremental_time__{namespace}"
+                    ".default.hard_hat.hire_date",
+                    "@daily",
+                    "incremental_time",
+                    True,
+                ),
+            ]
+        finally:
+            del client.app.dependency_overrides[get_query_service_client]
+
+    @pytest.mark.asyncio
+    async def test_config_drift_under_an_unchanged_block_is_corrected(
+        self,
+        session,
+        client,
+        default_hard_hats,
+        default_hard_hat,
+        default_us_states,
+        default_us_state,
+        default_avg_length_of_employment,
+    ):
+        """
+        The block is only three fields; the built config is much more. When the two
+        disagree -- something reconfigured the materialization outside YAML -- the
+        repo wins, even though the block itself did not change.
+        """
+        namespace = "cube_mat_drift"
+        cube_name = f"{namespace}.default.repairs_cube"
+        materialization_name = (
+            f"druid_cube__incremental_time__{namespace}.default.hard_hat.hire_date"
+        )
+        cube = self._cube(
+            materialization=MaterializationSpec(
+                schedule="0 6 * * *",
+                lookback_window="1 DAY",
+            ),
+        )
+        nodes = [
+            default_hard_hats,
+            default_hard_hat,
+            default_us_states,
+            default_us_state,
+            default_avg_length_of_employment,
+            cube,
+        ]
+        mock_qs = _mock_materializing_query_service()
+        client.app.dependency_overrides[get_query_service_client] = lambda: mock_qs
+        try:
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(namespace=namespace, nodes=nodes),
+            )
+            assert data["status"] == "success", data
+
+            materialization = (
+                (
+                    await session.execute(
+                        select(Materialization).where(
+                            Materialization.name == materialization_name,
+                        ),
+                    )
+                )
+                .scalars()
+                .one()
+            )
+            materialization.config = {
+                **materialization.config,
+                "workflow_names": ["configured-elsewhere"],
+            }
+            await session.commit()
+
+            mock_qs.reset_mock()
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(namespace=namespace, nodes=nodes),
+            )
+            assert data["status"] == "success", data
+            assert self._materialization_results(data) == [
+                (
+                    cube_name,
+                    "update",
+                    "success",
+                    "cube materialization on schedule 0 6 * * *",
+                ),
+            ]
+            assert mock_qs.materialize_cube.call_count == 1
+            # Read from the database rather than through `GET /nodes/{name}/`: the
+            # revision did not change, so that response is still cached.
+            session.expire_all()
+            assert [
+                (row.name, row.config.get("workflow_names"), row.deactivated_at)
+                for row in (
+                    (
+                        await session.execute(
+                            select(Materialization).where(
+                                Materialization.name == materialization_name,
+                            ),
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+            ] == [(materialization_name, None, None)]
+        finally:
+            del client.app.dependency_overrides[get_query_service_client]
+
+    @pytest.mark.asyncio
+    async def test_dry_run_plans_the_change_without_making_it(
+        self,
+        client,
+        default_hard_hats,
+        default_hard_hat,
+        default_us_states,
+        default_us_state,
+        default_avg_length_of_employment,
+    ):
+        """
+        A dry run reports the operation the wet run would perform, and performs none
+        of it: nothing scheduled, nothing stopped, the persisted schedule untouched.
+        """
+        namespace = "cube_mat_dry_run"
+        cube_name = f"{namespace}.default.repairs_cube"
+        cube = self._cube(
+            materialization=MaterializationSpec(
+                schedule="0 6 * * *",
+                lookback_window="1 DAY",
+            ),
+        )
+        nodes = [
+            default_hard_hats,
+            default_hard_hat,
+            default_us_states,
+            default_us_state,
+            default_avg_length_of_employment,
+            cube,
+        ]
+        mock_qs = _mock_materializing_query_service()
+        client.app.dependency_overrides[get_query_service_client] = lambda: mock_qs
+        try:
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(namespace=namespace, nodes=nodes),
+            )
+            assert data["status"] == "success", data
+
+            mock_qs.reset_mock()
+            cube.materialization = MaterializationSpec(
+                schedule="0 3 * * *",
+                lookback_window="1 DAY",
+            )
+            response = await client.post(
+                "/deployments/impact",
+                json=deployment_payload(
+                    DeploymentSpec(namespace=namespace, nodes=nodes),
+                ),
+            )
+            assert response.status_code == 200, response.json()
+            assert self._materialization_results(response.json()) == [
+                (
+                    cube_name,
+                    "update",
+                    "success",
+                    "cube materialization on schedule 0 3 * * *",
+                ),
+            ]
+            assert mock_qs.method_calls == []
+            assert await self._persisted_materializations(client, cube_name) == [
+                (
+                    f"druid_cube__incremental_time__{namespace}"
+                    ".default.hard_hat.hire_date",
+                    "0 6 * * *",
+                    "incremental_time",
+                    True,
+                ),
+            ]
+
+            # A planned teardown is reported and equally not carried out.
+            cube.materialization = None
+            response = await client.post(
+                "/deployments/impact",
+                json=deployment_payload(
+                    DeploymentSpec(namespace=namespace, nodes=nodes),
+                ),
+            )
+            assert response.status_code == 200, response.json()
+            assert self._materialization_results(response.json()) == [
+                (
+                    cube_name,
+                    "delete",
+                    "success",
+                    "cube materialization removed by `materialization: null`",
+                ),
+            ]
+            assert mock_qs.method_calls == []
+            assert await self._persisted_materializations(client, cube_name) == [
+                (
+                    f"druid_cube__incremental_time__{namespace}"
+                    ".default.hard_hat.hire_date",
+                    "0 6 * * *",
+                    "incremental_time",
+                    True,
+                ),
+            ]
+        finally:
+            del client.app.dependency_overrides[get_query_service_client]
+
+    @pytest.mark.asyncio
+    async def test_unmaterializable_cube_fails_alone(
+        self,
+        client,
+        mocker,
+        default_hard_hats,
+        default_hard_hat,
+        default_us_states,
+        default_us_state,
+        default_avg_length_of_employment,
+        default_num_repair_orders,
+    ):
+        """
+        A cube DJ cannot build a materialization for -- measures queries at different
+        grains, say -- fails with an error naming it, and does not take the other
+        declared cube in the same push down with it.
+        """
+        namespace = "cube_mat_ungrainable"
+        broken_name = f"{namespace}.default.broken_cube"
+        working_name = f"{namespace}.default.repairs_cube"
+        grain_error = (
+            "DJ cannot manage materializations for cubes that have underlying "
+            "measures queries at different grains"
+        )
+        real_build = (
+            datajunction_server.internal.materializations.build_cube_materialization
+        )
+
+        async def build(*args, **kwargs):
+            if kwargs["current_revision"].name == broken_name:
+                raise DJInvalidInputException(grain_error)
+            return await real_build(*args, **kwargs)
+
+        mocker.patch(
+            "datajunction_server.internal.materializations.build_cube_materialization",
+            side_effect=build,
+        )
+        nodes = [
+            default_hard_hats,
+            default_hard_hat,
+            default_us_states,
+            default_us_state,
+            default_avg_length_of_employment,
+            default_num_repair_orders,
+            self._cube(
+                materialization=MaterializationSpec(
+                    schedule="0 6 * * *",
+                    lookback_window="1 DAY",
+                ),
+            ),
+            self._cube(
+                name="default.broken_cube",
+                metrics=["${prefix}default.num_repair_orders"],
+                materialization=MaterializationSpec(
+                    schedule="0 7 * * *",
+                    lookback_window="1 DAY",
+                ),
+            ),
+        ]
+        mock_qs = _mock_materializing_query_service()
+        client.app.dependency_overrides[get_query_service_client] = lambda: mock_qs
+        try:
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(namespace=namespace, nodes=nodes),
+            )
+            assert self._materialization_results(data) == [
+                (
+                    working_name,
+                    "create",
+                    "success",
+                    "cube materialization on schedule 0 6 * * *",
+                ),
+                (
+                    broken_name,
+                    "unknown",
+                    "failed",
+                    f"Cube `{broken_name}`: {grain_error}",
+                ),
+            ]
+            assert mock_qs.materialize_cube.call_count == 1
+            scheduled = mock_qs.materialize_cube.call_args.kwargs[
+                "materialization_input"
+            ]
+            assert scheduled.cube.name == working_name
+            assert await self._persisted_materializations(client, broken_name) == []
+        finally:
+            del client.app.dependency_overrides[get_query_service_client]
 
 
 @pytest.mark.xdist_group(name="deployments")
