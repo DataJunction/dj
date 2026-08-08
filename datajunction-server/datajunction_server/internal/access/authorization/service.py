@@ -265,23 +265,26 @@ class RBACAuthorizationService(AuthorizationService):
         resource_matches_pattern("marketing.revenue", "finance.*") --> False
         resource_matches_pattern("anything", "*") --> True
         resource_matches_pattern("finance", "finance.*") --> False
+        resource_matches_pattern("anything", ".*") --> False (outside the grammar)
+
+        Parsing is shared with scope input validation, so a scope means the same
+        thing when it is written and when it is evaluated. A value outside the
+        grammar grants nothing: evaluation used to strip stars and read ``.*`` or
+        ``**`` as a global match, so a row predating that validation, or written
+        outside the API, could silently grant everything.
         """
-        if pattern == "*":
-            return True  # Match everything
+        parsed = parse_scope_pattern(pattern)
+        if parsed is None:
+            return False
 
-        if "*" not in pattern:
-            return resource_name == pattern  # Exact match
-
-        # Wildcard pattern: finance.* matches finance.revenue and finance.quarterly.revenue
-        # But NOT just "finance" (must have something after the dot)
-        pattern_prefix = pattern.rstrip("*").rstrip(SEPARATOR)
-
-        if not pattern_prefix:
-            return True  # Pattern was just "*"
-
-        # Resource must start with pattern_prefix followed by a dot
-        # (not an exact match to pattern_prefix, that would be handled by exact pattern)
-        return resource_name.startswith(pattern_prefix + SEPARATOR)
+        kind, prefix = parsed
+        if kind == "global":
+            return True
+        if kind == "exact":
+            return resource_name == prefix
+        # Subtree: finance.* covers finance.revenue and finance.quarterly.revenue,
+        # but not finance itself.
+        return resource_name.startswith(prefix + SEPARATOR)
 
     @classmethod
     def has_permission(
