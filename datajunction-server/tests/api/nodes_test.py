@@ -23,6 +23,7 @@ from datajunction_server.errors import DJDoesNotExistException
 from datajunction_server.internal.materializations import decompose_expression
 from datajunction_server.models.node import NodeStatus
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.table_metadata import TableMetadata, TableOwner
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import get_upstream_nodes
 from datajunction_server.sql.parsing import ast, types
@@ -2379,6 +2380,227 @@ class TestNodeCRUD:
             ("refresh", "node"),
             ("create", "node"),
         ]
+
+    @pytest.mark.asyncio
+    async def test_refresh_sets_owner_from_table(
+        self,
+        module__client_with_roads,
+        module__query_service_client: QueryServiceClient,
+        mocker: MockerFixture,
+    ):
+        """An owner reported by the query service becomes the node's only owner."""
+        columns = await module__query_service_client.get_columns_for_table(
+            "default",
+            "roads",
+            "repair_orders",
+            request_headers={},
+        )
+
+        async def _with_owner(*args, **kwargs):
+            return TableMetadata(
+                columns=columns,
+                owner=TableOwner(
+                    email="owner@example.com",
+                    full_name="Example Owner",
+                ),
+            )
+
+        mocker.patch.object(
+            module__query_service_client,
+            "get_table_metadata",
+            _with_owner,
+        )
+        before = (
+            await module__client_with_roads.get("/nodes/default.repair_orders/")
+        ).json()
+        response = await module__client_with_roads.post(
+            "/nodes/default.repair_orders/refresh/",
+        )
+        assert response.status_code in (200, 201)
+
+        after = (
+            await module__client_with_roads.get("/nodes/default.repair_orders/")
+        ).json()
+        assert after["owners"] == [{"username": "owner@example.com"}]
+        # The columns are unchanged, so this is an ownership-only refresh: owners
+        # live on Node rather than NodeRevision, so no revision may be forked.
+        assert after["version"] == before["version"]
+        assert after["node_revision_id"] == before["node_revision_id"]
+
+        # The change is recorded, naming both the old and the new owners
+        history = (
+            await module__client_with_roads.get(
+                "/history?node=default.repair_orders",
+            )
+        ).json()
+        assert history[0]["details"] == {
+            "old_owners": ["dj"],
+            "new_owners": ["owner@example.com"],
+        }
+        assert history[0]["activity_type"] == "update"
+
+    @pytest.mark.asyncio
+    async def test_refresh_with_no_owner_leaves_owners_untouched(
+        self,
+        module__client_with_roads,
+        module__query_service_client: QueryServiceClient,
+        mocker: MockerFixture,
+    ):
+        """owner=None must never clear an existing owner."""
+        columns = await module__query_service_client.get_columns_for_table(
+            "default",
+            "roads",
+            "repair_orders",
+            request_headers={},
+        )
+
+        async def _without_owner(*args, **kwargs):
+            return TableMetadata(columns=columns, owner=None)
+
+        mocker.patch.object(
+            module__query_service_client,
+            "get_table_metadata",
+            _without_owner,
+        )
+        before = (
+            await module__client_with_roads.get("/nodes/default.repair_orders/")
+        ).json()
+        assert before["owners"] == [{"username": "owner@example.com"}]
+
+        await module__client_with_roads.post(
+            "/nodes/default.repair_orders/refresh/",
+        )
+        after = (
+            await module__client_with_roads.get("/nodes/default.repair_orders/")
+        ).json()
+        assert after["owners"] == before["owners"]
+        assert after["version"] == before["version"]
+
+    @pytest.mark.asyncio
+    async def test_refresh_repeating_the_same_owner_is_a_noop(
+        self,
+        module__client_with_roads,
+        module__query_service_client: QueryServiceClient,
+        mocker: MockerFixture,
+    ):
+        """Refreshing with the owner the node already has records no history."""
+        columns = await module__query_service_client.get_columns_for_table(
+            "default",
+            "roads",
+            "repair_orders",
+            request_headers={},
+        )
+
+        async def _same_owner(*args, **kwargs):
+            return TableMetadata(
+                columns=columns,
+                owner=TableOwner(email="owner@example.com", full_name="Example Owner"),
+            )
+
+        mocker.patch.object(
+            module__query_service_client,
+            "get_table_metadata",
+            _same_owner,
+        )
+        before = (
+            await module__client_with_roads.get(
+                "/history?node=default.repair_orders",
+            )
+        ).json()
+        await module__client_with_roads.post(
+            "/nodes/default.repair_orders/refresh/",
+        )
+        after = (
+            await module__client_with_roads.get(
+                "/history?node=default.repair_orders",
+            )
+        ).json()
+        assert len(after) == len(before)
+
+    @pytest.mark.asyncio
+    async def test_refresh_owner_change_with_column_changes(
+        self,
+        module__client_with_roads,
+        module__query_service_client: QueryServiceClient,
+        mocker: MockerFixture,
+    ):
+        """
+        An owner change lands alongside a column change, in the same refresh, and
+        the new user row is created on the fly since usernames are emails.
+        """
+        columns = await module__query_service_client.get_columns_for_table(
+            "default",
+            "roads",
+            "repair_orders",
+            request_headers={},
+        )
+
+        async def _new_owner_and_columns(*args, **kwargs):
+            return TableMetadata(
+                columns=[
+                    *columns,
+                    Column(name="reviewer", type=StringType(), order=len(columns)),
+                ],
+                owner=TableOwner(email="new.owner@example.com"),
+            )
+
+        mocker.patch.object(
+            module__query_service_client,
+            "get_table_metadata",
+            _new_owner_and_columns,
+        )
+        before = (
+            await module__client_with_roads.get("/nodes/default.repair_orders/")
+        ).json()
+        await module__client_with_roads.post(
+            "/nodes/default.repair_orders/refresh/",
+        )
+        after = (
+            await module__client_with_roads.get("/nodes/default.repair_orders/")
+        ).json()
+        assert after["owners"] == [{"username": "new.owner@example.com"}]
+        assert [col["name"] for col in after["columns"]] == [
+            *[col["name"] for col in before["columns"]],
+            "reviewer",
+        ]
+        assert after["version"] != before["version"]
+
+    @pytest.mark.asyncio
+    async def test_refresh_reassigns_owner_to_an_existing_user(
+        self,
+        module__client_with_roads,
+        module__query_service_client: QueryServiceClient,
+        mocker: MockerFixture,
+    ):
+        """An owner who already has a DJ user row is reused, not recreated."""
+        columns = await module__query_service_client.get_columns_for_table(
+            "default",
+            "roads",
+            "repair_orders",
+            request_headers={},
+        )
+
+        async def _known_owner(*args, **kwargs):
+            return TableMetadata(
+                columns=[
+                    *columns,
+                    Column(name="reviewer", type=StringType(), order=len(columns)),
+                ],
+                owner=TableOwner(email="owner@example.com", full_name="Example Owner"),
+            )
+
+        mocker.patch.object(
+            module__query_service_client,
+            "get_table_metadata",
+            _known_owner,
+        )
+        await module__client_with_roads.post(
+            "/nodes/default.repair_orders/refresh/",
+        )
+        after = (
+            await module__client_with_roads.get("/nodes/default.repair_orders/")
+        ).json()
+        assert after["owners"] == [{"username": "owner@example.com"}]
 
     @pytest.mark.asyncio
     async def test_create_update_source_node(

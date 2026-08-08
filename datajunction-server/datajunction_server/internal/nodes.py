@@ -49,7 +49,7 @@ from datajunction_server.database.preaggregation import (
     compute_expression_hash,
     measure_identity_token,
 )
-from datajunction_server.database.user import User
+from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.errors import (
     DJDoesNotExistException,
     DJError,
@@ -118,6 +118,7 @@ from datajunction_server.models.node import (
 )
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import QueryCreate
+from datajunction_server.models.table_metadata import TableOwner
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import (
     get_downstream_nodes,
@@ -1538,6 +1539,54 @@ async def update_owners(
         session=session,
     )
     await session.commit()
+
+
+async def apply_table_owner(
+    session: AsyncSession,
+    node: Node,
+    owner: TableOwner,
+    save_history: Callable,
+) -> bool:
+    """
+    Set the node's owners to exactly the table's owner.
+
+    Returns True when a change was made. Creates the user if absent -- usernames
+    are emails, so the owner's email is its username. Never clears owners: the
+    caller only invokes this with a resolved owner.
+
+    Owners live on ``Node`` rather than ``NodeRevision``, so this never forks a
+    revision. The caller is responsible for committing.
+    """
+    await session.refresh(node, ["owners"])
+    old_owners = [existing.username for existing in node.owners]
+    if old_owners == [owner.email]:
+        return False
+
+    user = await User.get_by_username(session, owner.email)
+    if user is None:
+        user = User(
+            username=owner.email,
+            email=owner.email,
+            name=owner.full_name or owner.email,
+            oauth_provider=OAuthProvider.BASIC,
+        )
+        session.add(user)
+        await session.flush()
+
+    node.owners = [user]
+    session.add(node)
+    await save_history(
+        event=History(
+            entity_type=EntityType.NODE,
+            entity_name=node.name,
+            node=node.name,
+            activity_type=ActivityType.UPDATE,
+            details={"old_owners": old_owners, "new_owners": [owner.email]},
+            user=owner.email,
+        ),
+        session=session,
+    )
+    return True
 
 
 def cube_changed_fields(
@@ -4104,10 +4153,11 @@ async def refresh_source(
         )
         new_query = current_revision.query
 
-    # Get the latest columns for the source node's table from the query service
+    # Get the latest columns and owner for the source node's table from the query service
+    table_metadata = None
     new_columns = []
     try:
-        new_columns = await query_service_client.get_columns_for_table(
+        table_metadata = await query_service_client.get_table_metadata(
             current_revision.catalog.name,
             current_revision.schema_,  # type: ignore
             current_revision.table,  # type: ignore
@@ -4116,9 +4166,22 @@ async def refresh_source(
             if len(current_revision.catalog.engines) >= 1
             else None,
         )
+        new_columns = table_metadata.columns
     except DJDoesNotExistException:
         # continue with the update, if the table was not found
         pass
+
+    # Apply the table's owner before the column comparison below, so that an
+    # ownership-only change still takes effect on the two short-circuit paths.
+    # ``owner is None`` means "no ownership information", never "no owner", so it
+    # leaves the node's existing owners alone.
+    if table_metadata is not None and table_metadata.owner is not None:
+        await apply_table_owner(
+            session,
+            source_node,  # type: ignore
+            table_metadata.owner,
+            save_history,
+        )
 
     refresh_details = {}
     if new_columns:
@@ -4131,6 +4194,8 @@ async def refresh_source(
         # if the columns haven't changed and the node has a table, we can skip the update
         if not column_changes:
             if not source_node.missing_table:  # type: ignore
+                # Commits any ownership change made above; a no-op otherwise
+                await session.commit()
                 return source_node  # type: ignore
             # if the columns haven't changed but the node has a missing table, we should fix it
             source_node.missing_table = False  # type: ignore
@@ -4139,6 +4204,7 @@ async def refresh_source(
         # since we don't see any columns, we assume the table is gone
         if source_node.missing_table:  # type: ignore
             # but if the node already has a missing table, we can skip the update
+            await session.commit()
             return source_node  # type: ignore
         source_node.missing_table = True  # type: ignore
         new_columns = current_revision.columns
