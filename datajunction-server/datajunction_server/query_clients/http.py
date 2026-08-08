@@ -18,6 +18,7 @@ from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionBackfill
 from datajunction_server.models.preaggregation import PreAggMaterializationInput
 from datajunction_server.models.query import QueryCreate, QueryWithResults
+from datajunction_server.models.table_metadata import TableMetadata
 from datajunction_server.query_clients.base import BaseQueryServiceClient
 from datajunction_server.service_clients import QueryServiceClient
 
@@ -58,6 +59,23 @@ class HttpQueryServiceClient(BaseQueryServiceClient):
     ) -> list[Column]:
         """Retrieves columns for a table via HTTP query service."""
         return await self._client.get_columns_for_table(
+            catalog=catalog,
+            schema=schema,
+            table=table,
+            request_headers=request_headers,
+            engine=engine,
+        )
+
+    async def get_table_metadata(
+        self,
+        catalog: str,
+        schema: str,
+        table: str,
+        request_headers: dict[str, str] | None = None,
+        engine: Engine | None = None,
+    ) -> TableMetadata:
+        """Retrieves columns plus the owner for a table via HTTP query service."""
+        return await self._client.get_table_metadata(
             catalog=catalog,
             schema=schema,
             table=table,

@@ -32,6 +32,7 @@ from datajunction_server.models.materialization import (
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionBackfill
 from datajunction_server.models.query import QueryCreate, QueryWithResults
+from datajunction_server.models.table_metadata import TableMetadata, TableOwner
 from datajunction_server.sql.parsing.types import ColumnType
 
 if TYPE_CHECKING:
@@ -247,6 +248,63 @@ class QueryServiceClient:
             Column(name=column["name"], type=ColumnType(column["type"]), order=idx)
             for idx, column in enumerate(table_columns)
         ]
+
+    async def get_table_metadata(
+        self,
+        catalog: str,
+        schema: str,
+        table: str,
+        request_headers: dict[str, str] | None = None,
+        engine: Engine | None = None,
+    ) -> TableMetadata:
+        """
+        Retrieves columns plus any extra table metadata, including the owner.
+
+        Falls back to ``get_columns_for_table`` when the query service predates
+        the ``/metadata/`` endpoint, so refresh keeps working mid-rollout.
+        """
+        params = (
+            {"engine": engine.name, "engine_version": engine.version}
+            if engine
+            else None
+        )
+        # ``request_headers`` is intentionally not forwarded to DJQS — see
+        # ``get_columns_for_table`` for the reason.
+        response = await self._arequest(
+            "GET",
+            f"/table/{catalog}.{schema}.{table}/metadata/",
+            params=params,
+        )
+        if response.status_code == HTTPStatus.NOT_FOUND:
+            # Either the query service has no such endpoint, or the table is
+            # genuinely missing. The columns call answers both: it returns
+            # columns for the former and raises DJDoesNotExistException for
+            # the latter, which is what the caller already expects.
+            return TableMetadata(
+                columns=await self.get_columns_for_table(
+                    catalog,
+                    schema,
+                    table,
+                    request_headers,
+                    engine,
+                ),
+            )
+        if response.status_code not in (200, 201):
+            raise DJQueryServiceClientException(
+                message=f"Error response from query service: {response.text}",
+            )
+        metadata = response.json()
+        owner = metadata.get("owner")
+        return TableMetadata(
+            columns=[
+                Column(name=column["name"], type=ColumnType(column["type"]), order=idx)
+                for idx, column in enumerate(metadata.get("columns") or [])
+            ],
+            owner=TableOwner(**owner) if owner else None,
+            partitions=metadata.get("partitions") or [],
+            broken_ref=metadata.get("broken_ref"),
+            valid_through=metadata.get("valid_through"),
+        )
 
     async def get_columns_for_tables_batch(
         self,
