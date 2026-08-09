@@ -270,6 +270,20 @@ function InactiveBadge({ mat }) {
 }
 
 /** A -- one row per materialization, scannable down the status column. */
+/** Coverage in a table cell: fixed-size squares fit a column; a stretched bar does not. */
+function TableCoverage({ outcome }) {
+  const squares = coverageSquares(outcome);
+  if (!squares.length) {
+    return <span className="coverage--unknown">no watermarks</span>;
+  }
+  return (
+    <span className="mat-table__coverage">
+      <SquaresRun squares={squares} />
+      <span className="mat-dim">→ {outcome.target.through}</span>
+    </span>
+  );
+}
+
 function LayoutTable({ mats }) {
   return (
     <div className="mat-table" role="table" aria-label="Materialization state">
@@ -307,7 +321,7 @@ function LayoutTable({ mats }) {
               <ScheduleCell intent={mat.intent} />
             </span>
             <span role="cell">
-              <CoverageBar outcome={mat.outcome} labels="trailing" />
+              <TableCoverage outcome={mat.outcome} />
             </span>
             <span role="cell" className="mat-dim">
               {mat.execution ? 'reported' : 'unknown'}
@@ -460,6 +474,28 @@ const SQUARE_CLASS = {
   notDue: 'not-due',
 };
 
+/**
+ * The squares themselves. A list rather than one labelled image, so a reader can reach
+ * an individual behind bucket instead of only a "Coverage" summary.
+ */
+function SquaresRun({ squares }) {
+  return (
+    <span className="mat-squares" role="list" aria-label="Coverage">
+      {squares.map(square => (
+        <span
+          key={square.from}
+          role="listitem"
+          className={`mat-squares__cell mat-squares__cell--${
+            SQUARE_CLASS[square.state]
+          }`}
+          title={square.label}
+          aria-label={square.label}
+        />
+      ))}
+    </span>
+  );
+}
+
 function CoverageSquares({ outcome, partition }) {
   const squares = coverageSquares(outcome);
   const note = partition
@@ -478,19 +514,7 @@ function CoverageSquares({ outcome, partition }) {
     <div className="mat-stack__coverage">
       {/* A list rather than one labelled image: each bucket's meaning lives in its own
           label, so a reader can reach the behind ones instead of a "Coverage" summary. */}
-      <span className="mat-squares" role="list" aria-label="Coverage">
-        {squares.map(square => (
-          <span
-            key={square.from}
-            role="listitem"
-            className={`mat-squares__cell mat-squares__cell--${
-              SQUARE_CLASS[square.state]
-            }`}
-            title={square.label}
-            aria-label={square.label}
-          />
-        ))}
-      </span>
+      <SquaresRun squares={squares} />
       <span className="mat-dim">
         {outcome.target.from} → {outcome.target.through}
       </span>

@@ -451,3 +451,12 @@
   color: var(--planner-text-muted);
   line-height: 1.5;
 }
+
+/* Squares in a table cell. Fixed-size squares sit inline in a column; the earlier
+   stretched bar collapsed to ~180px here and became unreadable. */
+.mat-table__coverage {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
