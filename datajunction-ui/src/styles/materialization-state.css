@@ -169,6 +169,71 @@
   color: var(--planner-text-dim);
 }
 
+/* --- Serving line (layouts A and C) --------------------------------------- */
+
+/* Table, freshness and links on one line. The block this replaced spent four lines
+   on the same three facts, three of them on an 85-character name and a GMT
+   timestamp -- neither of which is read at that length. Both keep a `title`. */
+.mat-serving {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.mat-serving__sep {
+  color: var(--planner-text-dim);
+}
+
+.mat-serving__links {
+  display: flex;
+  gap: 12px;
+  margin-left: 4px;
+}
+
+/* Reads as a copyable object rather than as prose, which is what it is. */
+.mat-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 1px 4px 1px 8px;
+  border: 1px solid var(--planner-border);
+  border-radius: var(--radius-sm);
+  background: #f8fafc;
+}
+
+.mat-chip__catalog,
+.mat-chip__sep {
+  color: var(--planner-text-muted);
+}
+
+.mat-chip__copy {
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  font: inherit;
+  line-height: 1;
+  color: var(--planner-text-muted);
+  cursor: pointer;
+}
+
+.mat-chip__copy:hover {
+  color: var(--planner-text);
+}
+
+.mat-chip__flash {
+  font-size: 11px;
+  color: var(--accent-success);
+}
+
+/* An empty live region still reserves its gap in the flex row, so the chip would
+   twitch sideways the moment it filled. */
+.mat-chip__flash:empty {
+  display: none;
+}
+
 /* --- Coverage bar --------------------------------------------------------- */
 
 /* A range bar, not a calendar. DJ records only min/max watermarks --
@@ -253,6 +318,19 @@
 
 .mat-table__row .badge {
   margin-left: 6px;
+}
+
+/* Engine, strategy badge and any inactive badge on one baseline, as layout C
+   sets them. */
+.mat-table__label {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.mat-table__label .badge {
+  margin-left: 0;
 }
 
 /* --- Layout B: master/detail ---------------------------------------------- */

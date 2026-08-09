@@ -29,6 +29,7 @@ export const materializationStateStale = {
   node: {
     name: 'shared.game_health_metrics.cloud_games_session_success_cube',
     displayName: 'Cloud Games Session Success',
+    type: 'cube',
     version: 'v8.0',
     isCurrentVersion: true,
   },

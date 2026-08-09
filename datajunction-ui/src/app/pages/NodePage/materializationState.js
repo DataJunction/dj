@@ -456,6 +456,9 @@ export function toMaterializationState({
     node: {
       name: node?.name ?? null,
       displayName: node?.display_name ?? null,
+      // Carried because the header's Preview link targets the query planner, and
+      // which planner parameter to use depends on the node type.
+      type: node?.type ?? null,
       version: node?.version ?? null,
       isCurrentVersion: node?.version === node?.current_version,
     },

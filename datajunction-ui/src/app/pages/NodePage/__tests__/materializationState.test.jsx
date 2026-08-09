@@ -1,4 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import {
   toMaterializationState,
   dayPartitionsBetween,
@@ -6,7 +9,9 @@ import {
   coverageSquares,
   strategyBadge,
 } from '../materializationState';
-import { summarize } from '../MaterializationStatePanel';
+import MaterializationStatePanel, {
+  summarize,
+} from '../MaterializationStatePanel';
 
 // Shapes below are trimmed copies of live responses from
 // shared.game_health_metrics.cloud_games_session_success_cube; the config bodies
@@ -15,6 +20,7 @@ import { summarize } from '../MaterializationStatePanel';
 const NODE = {
   name: 'shared.game_health_metrics.cloud_games_session_success_cube',
   display_name: 'Cloud Games Session Success',
+  type: 'cube',
   version: 'v8.0',
   current_version: 'v8.0',
   columns: [
@@ -75,6 +81,7 @@ const NOW = new Date('2026-08-09T12:00:00Z');
 const NODE_SUMMARY = {
   name: 'shared.game_health_metrics.cloud_games_session_success_cube',
   displayName: 'Cloud Games Session Success',
+  type: 'cube',
   version: 'v8.0',
   isCurrentVersion: true,
 };
@@ -428,8 +435,7 @@ describe('summarize', () => {
     ).toEqual({
       verdict: 'unknown',
       headline: 'Coverage unknown',
-      detail:
-        'No partition watermarks reported, so coverage cannot be checked against the schedule.',
+      detail: "This materialization doesn't report which dates it covers.",
     });
   });
 
@@ -448,7 +454,7 @@ describe('summarize', () => {
       verdict: 'unknown',
       headline: 'Coverage unknown',
       detail:
-        'No partition watermarks reported, so coverage cannot be checked against the schedule. Run status unknown.',
+        "This materialization doesn't report which dates it covers. Run status unknown.",
     });
   });
 
@@ -708,5 +714,174 @@ describe('strategyBadge', () => {
 
   it('has nothing to show when no strategy is declared', () => {
     expect(strategyBadge({ ...intent('full'), strategy: null })).toBeNull();
+  });
+});
+
+const FULL_NAME = `druid.datajunction.${AVAILABILITY.table}`;
+const ELIDED = 'druid.datajunction/dj__…cube_v8_0_cd70304ced94ac2e';
+
+const renderPanel = state =>
+  render(
+    <MemoryRouter>
+      <MaterializationStatePanel state={state} />
+    </MemoryRouter>,
+  );
+
+const panelState = (materializations, availability) =>
+  toMaterializationState({
+    node: NODE,
+    materializations,
+    availabilityStates: availability,
+    now: NOW,
+  });
+
+describe('MaterializationStatePanel serving line', () => {
+  // Freshness is relative, so the clock has to be pinned or the assertion rots.
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(NOW);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('collapses table, freshness and links onto one line', () => {
+    const { container } = renderPanel(
+      panelState([INCREMENTAL], [AVAILABILITY]),
+    );
+
+    expect(container.querySelector('.mat-serving').textContent).toEqual(
+      `${ELIDED}⧉·updated 2d agoPreview →Data Explorer ↗`,
+    );
+    // Elided on screen, whole in `title` and on the clipboard.
+    expect(container.querySelector('.mat-chip').getAttribute('title')).toEqual(
+      FULL_NAME,
+    );
+    expect(screen.getByText('updated 2d ago').getAttribute('title')).toEqual(
+      'valid through Fri 07 Aug 2026 20:00 GMT',
+    );
+  });
+
+  // Preview leads: it is the reason a reader is looking at the serving table at all.
+  it('links Preview at the node page’s own planner target, ahead of Data Explorer', () => {
+    const { container } = renderPanel(
+      panelState([INCREMENTAL], [AVAILABILITY]),
+    );
+
+    expect(
+      [...container.querySelectorAll('.mat-serving__links a')].map(link => [
+        link.textContent,
+        link.getAttribute('href'),
+      ]),
+    ).toEqual([
+      [
+        'Preview →',
+        '/planner?cube=shared.game_health_metrics.cloud_games_session_success_cube',
+      ],
+      ['Data Explorer ↗', 'https://explorer.prod.netflix.net/cube/?cube=x'],
+    ]);
+  });
+
+  it('copies the fully qualified name and confirms it', async () => {
+    // `userEvent.setup` installs its own `navigator.clipboard` stub, so the
+    // component's write is read back rather than spied on.
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderPanel(panelState([INCREMENTAL], [AVAILABILITY]));
+
+    await user.click(
+      screen.getByRole('button', { name: `Copy table name ${FULL_NAME}` }),
+    );
+
+    expect(await navigator.clipboard.readText()).toEqual(FULL_NAME);
+    await waitFor(() =>
+      expect(screen.getByRole('status').textContent).toEqual('Copied'),
+    );
+  });
+
+  it('says the update time is unknown when the availability row carries none', () => {
+    const { container } = renderPanel(
+      panelState([INCREMENTAL], [{ ...AVAILABILITY, valid_through_ts: null }]),
+    );
+
+    expect(container.querySelector('.mat-serving').textContent).toEqual(
+      `${ELIDED}⧉·update time unknownPreview →Data Explorer ↗`,
+    );
+    expect(
+      screen.getByText('update time unknown').getAttribute('title'),
+    ).toBeNull();
+  });
+
+  it('says nothing is built when there is no availability row at all', () => {
+    const { container } = renderPanel(panelState([INCREMENTAL], []));
+
+    expect(container.querySelector('.mat-serving')).toBeNull();
+    expect(container.querySelector('.mat-header__note').textContent).toEqual(
+      'nothing built for this revision yet',
+    );
+  });
+});
+
+describe('MaterializationStatePanel copy', () => {
+  it('names a table row by engine and strategy badge, not by the folded label', () => {
+    const { container } = renderPanel(
+      panelState([INCREMENTAL, FULL], [AVAILABILITY]),
+    );
+
+    expect(
+      [...container.querySelectorAll('.mat-table__label')].map(
+        row => row.textContent,
+      ),
+    ).toEqual([
+      'Druid cubeincremental · 3d lookback',
+      'Druid cubefullinactive',
+    ]);
+  });
+
+  // "No watermarks" named an internal concept; a reader only needs to know DJ cannot
+  // tell them what is covered.
+  it('calls unjudgeable coverage unknown in both A and C', async () => {
+    const user = userEvent.setup();
+    const { container } = renderPanel(
+      panelState(
+        [INCREMENTAL],
+        [
+          {
+            ...AVAILABILITY,
+            min_temporal_partition: [],
+            max_temporal_partition: [],
+          },
+        ],
+      ),
+    );
+
+    expect(container.querySelector('.coverage--unknown').textContent).toEqual(
+      'coverage unknown',
+    );
+    await user.click(screen.getByTitle('Stacked rows'));
+    expect(container.querySelector('.coverage--unknown').textContent).toEqual(
+      'coverage unknown',
+    );
+    expect(container.querySelector('.mat-stack__verdict').textContent).toEqual(
+      "This materialization doesn't report which dates it covers. Run status unknown.",
+    );
+  });
+
+  it('reports an absent run without mentioning the query service', async () => {
+    const user = userEvent.setup();
+    const { container } = renderPanel(
+      panelState([INCREMENTAL], [AVAILABILITY]),
+    );
+
+    await user.click(screen.getByTitle('Master / detail'));
+
+    expect(
+      [...container.querySelectorAll('.mat-block')].map(
+        block => block.querySelector('h5').textContent,
+      ),
+    ).toEqual(['Declared', 'Last run']);
+    expect(container.querySelectorAll('.mat-block')[1].textContent).toEqual(
+      'Last runno run information',
+    );
   });
 });

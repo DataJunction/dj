@@ -16,6 +16,7 @@
  *    verdict; it does not replace it, because DJ still knows the coverage.
  */
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   coverageSquares,
   dayPartitionsBetween,
@@ -73,7 +74,7 @@ export function summarize(mat) {
     return {
       verdict: 'unknown',
       headline: 'Coverage unknown',
-      detail: `No partition watermarks reported, so coverage cannot be checked against the schedule.${qualifier}`,
+      detail: `This materialization doesn't report which dates it covers.${qualifier}`,
     };
   }
   if (missing?.length) {
@@ -110,6 +111,48 @@ function formatUtc(iso) {
     .replace(/:\d{2} GMT$/, ' GMT');
 }
 
+/**
+ * "2d ago". Thresholds follow moment's `fromNow`, which rounds rather than floors, so
+ * a 41-hour-old build reads "2d ago" instead of understating it as "1d ago".
+ */
+function relativeTime(iso, now = new Date()) {
+  const ms = new Date(iso).getTime();
+  if (!Number.isFinite(ms)) {
+    return null;
+  }
+  const seconds = Math.abs(now.getTime() - ms) / 1000;
+  const suffix = now.getTime() >= ms ? ' ago' : ' from now';
+  const [value, unit] =
+    seconds < 45
+      ? [0, '']
+      : seconds < 2700
+      ? [seconds / 60, 'm']
+      : seconds < 79200
+      ? [seconds / 3600, 'h']
+      : seconds < 2246400
+      ? [seconds / 86400, 'd']
+      : seconds < 28512000
+      ? [seconds / 2629800, 'mo']
+      : [seconds / 31557600, 'y'];
+  return unit ? `${Math.round(value)}${unit}${suffix}` : 'just now';
+}
+
+/**
+ * Middle-elided table name. Serving tables run to ~85 characters, of which the head is
+ * a constant `dj__` prefix and the tail is the node suffix, version and hash that
+ * actually distinguish one from another; the namespace in between is already on the
+ * page. The tail is sized to clear `_cube_v<version>_<16 hex>` whole.
+ */
+const NAME_HEAD = 4;
+const NAME_TAIL = 26;
+
+function elideTableName(name) {
+  const text = String(name || '');
+  return text.length <= NAME_HEAD + NAME_TAIL + 1
+    ? text
+    : `${text.slice(0, NAME_HEAD)}…${text.slice(-NAME_TAIL)}`;
+}
+
 /** "20260809" -> "0809", for the cramped end-label on the table layout's bar. */
 function shortDay(partition) {
   return String(partition || '').slice(4);
@@ -128,7 +171,7 @@ function CoverageBar({ outcome, labels = 'ends' }) {
   if (!outcome.coverageKnown) {
     return (
       <div className="coverage coverage--unknown" aria-label="Coverage unknown">
-        no watermarks
+        coverage unknown
       </div>
     );
   }
@@ -194,13 +237,156 @@ function CoverageBar({ outcome, labels = 'ends' }) {
 }
 
 /**
+ * The serving table as a chip you copy rather than read. Nobody parses
+ * `dj__shared_game_health_metrics_cloud_games_session_success_cube_v8_0_cd70304ced94ac2e`
+ * off the screen; they paste it into a query, so the full name lives in `title` and on
+ * the clipboard and only the ends are rendered.
+ */
+function TableChip({ catalog, table }) {
+  const [copied, setCopied] = useState(false);
+  const fullName = [catalog, table].filter(Boolean).join('.');
+
+  const copy = () => {
+    // Absent outside a secure context; the chip still shows the name via `title`.
+    navigator.clipboard?.writeText(fullName).then(
+      () => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      },
+      () => {},
+    );
+  };
+
+  return (
+    <span className="mat-chip" title={fullName}>
+      {catalog ? (
+        <>
+          <span className="mat-chip__catalog">{catalog}</span>
+          <span className="mat-chip__sep">/</span>
+        </>
+      ) : null}
+      <span className="mat-chip__name mat-mono">{elideTableName(table)}</span>
+      <button
+        type="button"
+        className="mat-chip__copy"
+        aria-label={`Copy table name ${fullName}`}
+        onClick={copy}
+      >
+        {copied ? '✓' : '⧉'}
+      </button>
+      {/* Announced as well as shown: the glyph swap alone is invisible to a reader
+          who is not looking at the button. */}
+      <span role="status" className="mat-chip__flash">
+        {copied ? 'Copied' : ''}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * The node page's Preview tab renders nothing of its own -- `onClickTab` in
+ * NodePage/index.jsx navigates to the query planner instead -- so the link reproduces
+ * that target. `/nodes/<name>/preview` would fall through to the info tab.
+ */
+const PLANNER_PARAM = { cube: 'cube', metric: 'metrics' };
+
+function previewUrl(node) {
+  const param = PLANNER_PARAM[node?.type];
+  return param && node.name
+    ? `/planner?${param}=${encodeURIComponent(node.name)}`
+    : null;
+}
+
+/**
+ * Serving on one line: where the data is, how fresh it is, and where to go look at it.
+ *
+ * The four-line block this replaced spent three of them on a table name and a GMT
+ * timestamp, neither of which anyone reads at that length. Both survive in `title`.
+ */
+function ServingLine({ node, serving }) {
+  const preview = previewUrl(node);
+  const freshness = serving.validThrough
+    ? `updated ${relativeTime(serving.validThrough)}`
+    : 'update time unknown';
+
+  return (
+    <div className="mat-serving">
+      <TableChip
+        catalog={serving.servingCatalog}
+        table={serving.servingTable}
+      />
+      <span className="mat-serving__sep">·</span>
+      <span
+        className="mat-dim"
+        title={
+          serving.validThrough
+            ? `valid through ${formatUtc(serving.validThrough)}`
+            : undefined
+        }
+      >
+        {freshness}
+      </span>
+      <span className="mat-serving__links">
+        {preview ? (
+          <Link className="mat-header__link" to={preview}>
+            Preview →
+          </Link>
+        ) : null}
+        {serving.links?.map(link => (
+          <a
+            key={link.label}
+            href={link.url}
+            target="_blank"
+            rel="noreferrer"
+            className="mat-header__link"
+          >
+            {link.label} ↗
+          </a>
+        ))}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * The serving block as layout B renders it, kept verbatim so B stays the control the
+ * one-line treatment in A and C is judged against. Delete with B.
+ */
+function ServingBlockLegacy({ serving }) {
+  return (
+    <div>
+      <div className="mat-header__table">
+        <span className="mat-header__catalog">{serving.servingCatalog}</span>
+        <span className="mat-header__mono">{serving.servingTable}</span>
+        {serving.links?.map(link => (
+          <a
+            key={link.label}
+            href={link.url}
+            target="_blank"
+            rel="noreferrer"
+            className="mat-header__link"
+          >
+            {link.label} ↗
+          </a>
+        ))}
+      </div>
+      {serving.validThrough ? (
+        <div className="mat-header__note">
+          valid through {formatUtc(serving.validThrough)}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
  * Serving, hoisted out of the materializations.
  *
  * `nodeavailabilitystate.node_id` points at a node revision; `Materialization` carries
  * no availability link at all. Rendering the same table and valid-through inside each
  * card claimed an attribution the schema cannot make.
  */
-function CubeHeader({ state, mats, serving }) {
+function CubeHeader({ state, mats, serving, layout }) {
   return (
     <div className="mat-header">
       <div className="mat-header__title">
@@ -210,44 +396,18 @@ function CubeHeader({ state, mats, serving }) {
           {state.node.version ? ` · ${state.node.version}` : ''}
         </span>
       </div>
-      {serving ? (
-        <div className="mat-header__serving">
-          <span className="mat-header__key">Serving</span>
-          <div>
-            <div className="mat-header__table">
-              <span className="mat-header__catalog">
-                {serving.servingCatalog}
-              </span>
-              <span className="mat-header__mono">{serving.servingTable}</span>
-              {serving.links?.map(link => (
-                <a
-                  key={link.label}
-                  href={link.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mat-header__link"
-                >
-                  {link.label} ↗
-                </a>
-              ))}
-            </div>
-            <div className="mat-header__note">
-              {serving.validThrough
-                ? `valid through ${formatUtc(serving.validThrough)} · `
-                : ''}
-              availability is recorded per cube revision, not per
-              materialization
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="mat-header__serving">
-          <span className="mat-header__key">Serving</span>
+      <div className="mat-header__serving">
+        <span className="mat-header__key">Serving</span>
+        {!serving ? (
           <div className="mat-header__note">
             nothing built for this revision yet
           </div>
-        </div>
-      )}
+        ) : layout === 'B' ? (
+          <ServingBlockLegacy serving={serving} />
+        ) : (
+          <ServingLine node={state.node} serving={serving} />
+        )}
+      </div>
     </div>
   );
 }
@@ -274,7 +434,7 @@ function InactiveBadge({ mat }) {
 function TableCoverage({ outcome }) {
   const squares = coverageSquares(outcome);
   if (!squares.length) {
-    return <span className="coverage--unknown">no watermarks</span>;
+    return <span className="coverage--unknown">coverage unknown</span>;
   }
   return (
     <span className="mat-table__coverage">
@@ -307,15 +467,13 @@ function LayoutTable({ mats }) {
               <span className="mat-glyph">{tone.glyph}</span> {headline}
             </span>
             <span role="cell">
-              <div>
-                {mat.label}
+              {/* Engine plus badge, as layout C renders it: `label` folded the
+                  strategy into the name and then repeated it. */}
+              <div className="mat-table__label">
+                {mat.engine || mat.label}
+                <StrategyBadge intent={mat.intent} />
                 <InactiveBadge mat={mat} />
               </div>
-              {mat.intent.lookbackWindow ? (
-                <div className="mat-dim">
-                  lookback {mat.intent.lookbackWindow.toLowerCase()}
-                </div>
-              ) : null}
             </span>
             <span role="cell">
               <ScheduleCell intent={mat.intent} />
@@ -361,9 +519,7 @@ function LastRunBlock({ execution }) {
     return (
       <div className="mat-block">
         <h5>Last run</h5>
-        <div className="mat-dim">
-          unknown — the query service reported nothing
-        </div>
+        <div className="mat-dim">no run information</div>
       </div>
     );
   }
@@ -505,7 +661,7 @@ function CoverageSquares({ outcome, partition }) {
   if (!squares.length) {
     return (
       <div className="mat-stack__coverage">
-        <span className="coverage--unknown">no watermarks</span>
+        <span className="coverage--unknown">coverage unknown</span>
         <span className="mat-dim mat-stack__partition">{note}</span>
       </div>
     );
@@ -596,7 +752,7 @@ export default function MaterializationStatePanel({ state }) {
           </button>
         ))}
       </div>
-      <CubeHeader state={state} mats={mats} serving={serving} />
+      <CubeHeader state={state} mats={mats} serving={serving} layout={layout} />
       {/* Keyed by index as well: the same materialization name recurs across cube
           revisions, so the name alone is not unique within a node. */}
       <Layout mats={mats} />
