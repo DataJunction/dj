@@ -274,6 +274,15 @@ const outcome = overrides => ({
   ...overrides,
 });
 
+const intent = strategy => ({
+  schedule: '0 6 * * *',
+  scheduleHuman: 'At 06:00 AM',
+  timezone: null,
+  strategy,
+  lookbackWindow: strategy === 'full' ? null : '3 DAYS',
+  partition: PARTITION,
+});
+
 const execution = overrides => ({
   lastRun: {
     status: 'succeeded',
@@ -291,15 +300,40 @@ const execution = overrides => ({
 
 describe('summarize', () => {
   it('calls a materialization healthy when coverage meets target', () => {
-    expect(summarize({ outcome: outcome(), execution: execution() })).toEqual({
+    expect(
+      summarize({
+        intent: intent('incremental_time'),
+        outcome: outcome(),
+        execution: execution(),
+      }),
+    ).toEqual({
       verdict: 'healthy',
+      headline: 'On target',
       detail: 'Covered through 20260808, matching target.',
     });
   });
 
-  it('calls it stale when partitions are missing', () => {
+  it('stays healthy while the trailing days are still inside the lookback', () => {
     expect(
       summarize({
+        intent: intent('incremental_time'),
+        outcome: outcome({
+          covered: { from: '20260806', through: '20260806' },
+          notDueYet: ['20260807', '20260808'],
+        }),
+        execution: execution(),
+      }),
+    ).toEqual({
+      verdict: 'healthy',
+      headline: 'On target',
+      detail: 'Covered through 20260806, target 20260808 — 2 days not due yet.',
+    });
+  });
+
+  it('describes an incremental shortfall as partitions to backfill', () => {
+    expect(
+      summarize({
+        intent: intent('incremental_time'),
         outcome: outcome({
           covered: { from: '20260806', through: '20260806' },
           missing: ['20260807'],
@@ -309,14 +343,53 @@ describe('summarize', () => {
       }),
     ).toEqual({
       verdict: 'stale',
+      headline: '1 partition to backfill',
       detail:
-        'Covered through 20260806, target 20260808 — 1 partition(s) missing.',
+        'Covered through 20260806, target 20260808 — 1 partition to backfill.',
+    });
+  });
+
+  // A full rebuild replaces the table wholesale, so there is no per-day hole to
+  // backfill and the only remedy is another run.
+  it('describes a full shortfall as days behind, not partitions', () => {
+    expect(
+      summarize({
+        intent: intent('full'),
+        outcome: outcome({
+          covered: { from: '20260806', through: '20260806' },
+          missing: ['20260807', '20260808'],
+        }),
+        execution: execution(),
+      }),
+    ).toEqual({
+      verdict: 'stale',
+      headline: '2 days behind',
+      detail: 'Covered through 20260806, target 20260808 — 2 days behind.',
+    });
+  });
+
+  it('qualifies the verdict rather than replacing it when no run was reported', () => {
+    expect(
+      summarize({
+        intent: intent('full'),
+        outcome: outcome({
+          covered: { from: '20260806', through: '20260806' },
+          missing: ['20260807', '20260808'],
+        }),
+        execution: null,
+      }),
+    ).toEqual({
+      verdict: 'stale',
+      headline: '2 days behind',
+      detail:
+        'Covered through 20260806, target 20260808 — 2 days behind. Run status unknown.',
     });
   });
 
   it('calls it failing when the last run failed, ahead of any coverage gap', () => {
     expect(
       summarize({
+        intent: intent('incremental_time'),
         outcome: outcome({ missing: ['20260807'] }),
         execution: execution({
           lastRun: {
@@ -331,25 +404,15 @@ describe('summarize', () => {
       }),
     ).toEqual({
       verdict: 'failing',
+      headline: 'Last run failed',
       detail: 'Last run failed on partition 20260807, attempt 3 of 3.',
-    });
-  });
-
-  it('calls it unknown when the query service reported nothing', () => {
-    expect(
-      summarize({
-        outcome: outcome({ missing: ['20260807'] }),
-        execution: null,
-      }),
-    ).toEqual({
-      verdict: 'unknown',
-      detail: 'The query service did not report on this materialization.',
     });
   });
 
   it('calls it unknown when coverage cannot be judged', () => {
     expect(
       summarize({
+        intent: intent('incremental_time'),
         outcome: outcome({
           target: null,
           covered: null,
@@ -359,22 +422,55 @@ describe('summarize', () => {
       }),
     ).toEqual({
       verdict: 'unknown',
+      headline: 'Coverage unknown',
       detail:
-        'No watermarks reported, so coverage cannot be checked against the schedule.',
+        'No partition watermarks reported, so coverage cannot be checked against the schedule.',
     });
   });
 
-  it('reports every adapter output as unknown, since execution is never populated', () => {
+  it('carries the run qualifier through an unknown coverage verdict too', () => {
+    expect(
+      summarize({
+        intent: intent('incremental_time'),
+        outcome: outcome({
+          target: null,
+          covered: null,
+          coverageKnown: false,
+        }),
+        execution: null,
+      }),
+    ).toEqual({
+      verdict: 'unknown',
+      headline: 'Coverage unknown',
+      detail:
+        'No partition watermarks reported, so coverage cannot be checked against the schedule. Run status unknown.',
+    });
+  });
+
+  // The regression that motivated the reordering: with `execution` null on every
+  // real materialization, leading with run status made both cards read "Unknown"
+  // and discarded the coverage DJ had already computed.
+  it('judges real adapter output on coverage despite execution being null', () => {
     const state = toMaterializationState({
       node: NODE,
-      materializations: [INCREMENTAL],
+      materializations: [INCREMENTAL, FULL],
       availabilityStates: [AVAILABILITY],
       now: NOW,
     });
 
-    expect(summarize(state.materializations[0])).toEqual({
-      verdict: 'unknown',
-      detail: 'The query service did not report on this materialization.',
-    });
+    expect(state.materializations.map(summarize)).toEqual([
+      {
+        verdict: 'healthy',
+        headline: 'On target',
+        detail:
+          'Covered through 20260807, target 20260809 — 2 days not due yet. Run status unknown.',
+      },
+      {
+        verdict: 'stale',
+        headline: '2 days behind',
+        detail:
+          'Covered through 20260807, target 20260809 — 2 days behind. Run status unknown.',
+      },
+    ]);
   });
 });

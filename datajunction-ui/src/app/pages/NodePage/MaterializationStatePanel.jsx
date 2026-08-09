@@ -1,143 +1,334 @@
 /**
- * Mockup A: health first.
+ * Proposed materialization panel, in three candidate layouts behind an A/B/C switcher.
  *
  * Renders a `MaterializationState` (see src/mocks/materializationState.js) rather
  * than stitching `materializations()` and `availabilityStates()` together in the
  * component, which is why the current tab can show an empty "Output Tables" while
  * an output dataset sits at the bottom of the same page.
  *
- * Three rules this layout exists to enforce:
+ * Rules all three layouts enforce:
  *
  *  - Coverage is always shown against a target. A bare "20260806 to 20260806" is
  *    uninterpretable; "covered through 20260806, target 20260808" is not.
- *  - Anything the engine reports is labelled as such, and absent engine data reads
- *    `unknown` rather than falling back to what DJ asked for. DJ's own record of
- *    what it requested is not evidence that it happened.
- *  - Per-run detail is a link out, never mirrored into DJ.
+ *  - Serving is a property of the cube revision, not of a materialization, so it is
+ *    rendered once above them rather than repeated (and misattributed) per card.
+ *  - Anything the engine reports is labelled as such. Absent run data qualifies the
+ *    verdict; it does not replace it, because DJ still knows the coverage.
  */
-import TableIcon from '../../icons/TableIcon';
+import { useState } from 'react';
 import { dayPartitionsBetween } from './materializationState';
 
+// Glyphs and semantic classes follow the planner's `getStatusInfo`
+// (QueryPlannerPage/PreAggDetailsPanel.jsx), so the two panels read as one product.
 const VERDICT = {
-  healthy: { label: 'Healthy', tone: '#1a7f37', glyph: '●' },
-  stale: { label: 'Stale', tone: '#9a6700', glyph: '▲' },
-  failing: { label: 'Failing', tone: '#cf222e', glyph: '■' },
-  unknown: { label: 'Unknown', tone: '#57606a', glyph: '○' },
+  healthy: { glyph: '●', className: 'mat-verdict--healthy' },
+  stale: { glyph: '◐', className: 'mat-verdict--stale' },
+  failing: { glyph: '■', className: 'mat-verdict--failing' },
+  unknown: { glyph: '○', className: 'mat-verdict--unknown' },
 };
 
+const LAYOUTS = [
+  { id: 'A', title: 'Table' },
+  { id: 'B', title: 'Master / detail' },
+  { id: 'C', title: 'Stacked rows' },
+];
+
+/** Run data is absent for every materialization today; say so without burying coverage. */
+const RUN_UNKNOWN = 'Run status unknown.';
+
+function plural(count, noun) {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`;
+}
+
 /**
- * One honest sentence about a materialization.
+ * One honest sentence about a materialization, plus the two-or-three word form the
+ * table layout puts in its status column.
  *
- * Ordered by what the reader most needs to act on: a failed run outranks a
- * coverage gap, because the gap is usually the failure's consequence.
+ * Ordered by what DJ actually knows. Coverage comes from availability watermarks and
+ * is available today; run data comes from the query service and is not. Leading with
+ * the run therefore rendered every materialization `unknown` and threw away the one
+ * judgement DJ can make. A *failed* run still outranks coverage, because the gap is
+ * then the failure's consequence — but only when a run was actually reported.
  */
 export function summarize(mat) {
   const run = mat.execution?.lastRun;
-  const { covered, target, coverageKnown, missing } = mat.outcome;
+  const { covered, target, coverageKnown, missing, notDueYet } = mat.outcome;
+  // `full` rebuilds the table wholesale, so there is no per-day hole to backfill;
+  // the shortfall is how far behind the whole table is and the fix is another run.
+  const isFull = mat.intent?.strategy === 'full';
+  const qualifier = mat.execution ? '' : ` ${RUN_UNKNOWN}`;
 
-  if (!mat.execution) {
-    return {
-      verdict: 'unknown',
-      detail: 'The query service did not report on this materialization.',
-    };
-  }
   if (run?.status === 'failed') {
     return {
       verdict: 'failing',
+      headline: 'Last run failed',
       detail: `Last run failed on partition ${run.processingPartition}, attempt ${run.attempt} of ${run.maxAttempts}.`,
     };
   }
   if (!coverageKnown) {
     return {
       verdict: 'unknown',
-      detail:
-        'No watermarks reported, so coverage cannot be checked against the schedule.',
+      headline: 'Coverage unknown',
+      detail: `No partition watermarks reported, so coverage cannot be checked against the schedule.${qualifier}`,
     };
   }
   if (missing?.length) {
+    const shortfall = isFull
+      ? `${plural(missing.length, 'day')} behind`
+      : `${plural(missing.length, 'partition')} to backfill`;
     return {
       verdict: 'stale',
-      detail: `Covered through ${covered.through}, target ${target.through} — ${missing.length} partition(s) missing.`,
+      headline: shortfall,
+      detail: `Covered through ${covered.through}, target ${target.through} — ${shortfall}.${qualifier}`,
+    };
+  }
+  if (notDueYet?.length) {
+    return {
+      verdict: 'healthy',
+      headline: 'On target',
+      detail: `Covered through ${covered.through}, target ${
+        target.through
+      } — ${plural(notDueYet.length, 'day')} not due yet.${qualifier}`,
     };
   }
   return {
     verdict: 'healthy',
-    detail: `Covered through ${covered.through}, matching target.`,
+    headline: 'On target',
+    detail: `Covered through ${covered.through}, matching target.${qualifier}`,
   };
 }
 
+/** "2026-08-07T20:00:00.000Z" -> "Fri 07 Aug 2026 20:00 GMT". Seconds are noise here. */
+function formatUtc(iso) {
+  return new Date(iso)
+    .toUTCString()
+    .replace(',', '')
+    .replace(/:\d{2} GMT$/, ' GMT');
+}
+
+/** "20260809" -> "0809", for the cramped end-label on the table layout's bar. */
+function shortDay(partition) {
+  return String(partition || '').slice(4);
+}
+
 /**
- * Coverage as a row of partition cells.
+ * Coverage as a proportional range bar.
  *
- * Deliberately partition-level rather than a min-to-max bar: a backfill hole is not
- * contiguous, and a bar would render it as though it were.
+ * Was one cell per partition, to make an interior backfill hole read as a hole.
+ * Real availability rows carry only `min_temporal_partition` and
+ * `max_temporal_partition` -- `partitions` is empty -- so DJ cannot see interior
+ * holes at all and coverage is always a contiguous prefix. Per-partition cells
+ * therefore claimed a fidelity the data does not have.
  */
-function CoverageStrip({ outcome }) {
+function CoverageBar({ outcome, labels = 'ends' }) {
   if (!outcome.coverageKnown) {
     return (
       <div className="coverage coverage--unknown" aria-label="Coverage unknown">
-        <span className="text-gray-400">
-          Coverage unknown — this materialization reports no partition
-          watermarks.
-        </span>
+        no watermarks
       </div>
     );
   }
 
-  const missing = new Set(outcome.missing);
-  const notDue = new Set(outcome.notDueYet);
-  const cells = dayPartitionsBetween(
+  const span = dayPartitionsBetween(
     outcome.target.from,
     outcome.target.through,
-  ).map(key => ({
-    key,
-    state: missing.has(key)
-      ? 'missing'
-      : notDue.has(key)
-      ? 'not-due'
-      : 'covered',
-  }));
+  );
+  const missing = new Set(outcome.missing);
+  const notDue = new Set(outcome.notDueYet);
+  const counts = span.reduce(
+    (acc, key) => {
+      const state = missing.has(key)
+        ? 'missing'
+        : notDue.has(key)
+        ? 'notDue'
+        : 'covered';
+      acc[state] += 1;
+      return acc;
+    },
+    { covered: 0, missing: 0, notDue: 0 },
+  );
 
+  const segments = [
+    ['covered', counts.covered],
+    ['missing', counts.missing],
+    ['not-due', counts.notDue],
+  ].filter(([, count]) => count > 0);
+
+  const track = (
+    <div className="coverage__track">
+      {segments.map(([state, count]) => (
+        <span
+          key={state}
+          className={`coverage__seg coverage__seg--${state}`}
+          style={{ flexGrow: count }}
+          aria-label={`${count} ${state}`}
+          title={`${plural(count, 'day')} ${state}`}
+        />
+      ))}
+    </div>
+  );
+
+  if (labels === 'trailing') {
+    return (
+      <div className="coverage coverage--inline" aria-label="Coverage">
+        {track}
+        <span className="coverage__tick">
+          → {shortDay(outcome.target.through)}
+        </span>
+      </div>
+    );
+  }
   return (
     <div className="coverage" aria-label="Coverage">
       <div className="coverage__scale">
-        <span>{outcome.target.from}</span>
-        <span>{outcome.target.through}</span>
+        <span>from {outcome.target.from}</span>
+        <span>through {outcome.target.through}</span>
       </div>
-      <div className="coverage__cells" role="list">
-        {cells.map(cell => (
-          <span
-            key={cell.key}
-            role="listitem"
-            aria-label={`${cell.key}: ${cell.state}`}
-            title={`${cell.key} — ${cell.state}`}
-            className={`coverage__cell coverage__cell--${cell.state}`}
-          />
-        ))}
+      {track}
+    </div>
+  );
+}
+
+/**
+ * Serving, hoisted out of the materializations.
+ *
+ * `nodeavailabilitystate.node_id` points at a node revision; `Materialization` carries
+ * no availability link at all. Rendering the same table and valid-through inside each
+ * card claimed an attribution the schema cannot make.
+ */
+function CubeHeader({ state, mats, serving }) {
+  return (
+    <div className="mat-header">
+      <div className="mat-header__title">
+        <h4>Materializations</h4>
+        <span className="mat-header__count">
+          {plural(mats.length, 'materialization')} configured
+          {state.node.version ? ` · ${state.node.version}` : ''}
+        </span>
       </div>
-      <div className="coverage__legend text-gray-400">
-        covered · missing · not due yet
+      {serving ? (
+        <div className="mat-header__serving">
+          <span className="mat-header__key">Serving</span>
+          <div>
+            <div className="mat-header__table">
+              <span className="mat-header__catalog">
+                {serving.servingCatalog}
+              </span>
+              <span className="mat-header__mono">{serving.servingTable}</span>
+              {serving.links?.map(link => (
+                <a
+                  key={link.label}
+                  href={link.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mat-header__link"
+                >
+                  {link.label} ↗
+                </a>
+              ))}
+            </div>
+            <div className="mat-header__note">
+              {serving.validThrough
+                ? `valid through ${formatUtc(serving.validThrough)} · `
+                : ''}
+              availability is recorded per cube revision, not per
+              materialization
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="mat-header__serving">
+          <span className="mat-header__key">Serving</span>
+          <div className="mat-header__note">
+            nothing built for this revision yet
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ScheduleCell({ intent }) {
+  return (
+    <>
+      <div>{intent.scheduleHuman || intent.schedule}</div>
+      {intent.scheduleHuman ? (
+        <div className="mat-dim mat-mono">{intent.schedule}</div>
+      ) : null}
+    </>
+  );
+}
+
+function InactiveBadge({ mat }) {
+  return mat.active ? null : (
+    <span className="badge partition_value">inactive</span>
+  );
+}
+
+/** A -- one row per materialization, scannable down the status column. */
+function LayoutTable({ mats }) {
+  return (
+    <div className="mat-table" role="table" aria-label="Materialization state">
+      <div className="mat-table__row mat-table__row--head" role="row">
+        <span role="columnheader">Status</span>
+        <span role="columnheader">Materialization</span>
+        <span role="columnheader">Schedule</span>
+        <span role="columnheader">Coverage</span>
+        <span role="columnheader">Last run</span>
       </div>
+      {mats.map((mat, index) => {
+        const { verdict, headline } = summarize(mat);
+        const tone = VERDICT[verdict];
+        return (
+          <div
+            className="mat-table__row"
+            role="row"
+            key={`${mat.name}-${index}`}
+          >
+            <span role="cell" className={tone.className}>
+              <span className="mat-glyph">{tone.glyph}</span> {headline}
+            </span>
+            <span role="cell">
+              <div>
+                {mat.label}
+                <InactiveBadge mat={mat} />
+              </div>
+              {mat.intent.lookbackWindow ? (
+                <div className="mat-dim">
+                  lookback {mat.intent.lookbackWindow.toLowerCase()}
+                </div>
+              ) : null}
+            </span>
+            <span role="cell">
+              <ScheduleCell intent={mat.intent} />
+            </span>
+            <span role="cell">
+              <CoverageBar outcome={mat.outcome} labels="trailing" />
+            </span>
+            <span role="cell" className="mat-dim">
+              {mat.execution ? 'reported' : 'unknown'}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
 
 /** Declared intent. DJ owns this outright, so it is never `unknown`. */
-function DeclaredColumn({ intent }) {
+function DeclaredBlock({ intent }) {
   return (
-    <div className="mat-col">
+    <div className="mat-block">
       <h5>Declared</h5>
-      <div>
-        {intent.scheduleHuman} {intent.timezone}
-      </div>
-      <div className="text-gray-400">{intent.schedule}</div>
+      <div>{intent.scheduleHuman}</div>
+      <div className="mat-dim mat-mono">{intent.schedule}</div>
       <div>{intent.strategy}</div>
       {intent.lookbackWindow ? (
-        <div>lookback {intent.lookbackWindow}</div>
+        <div>lookback {intent.lookbackWindow.toLowerCase()}</div>
       ) : null}
       {/* Cubes with no temporal partition column exist; they simply have no
           partition to declare, and inventing one would misreport the cube. */}
-      <div className="text-gray-400">
+      <div className="mat-dim">
         {intent.partition
           ? `partition ${intent.partition.column} (${intent.partition.granularity})`
           : 'no temporal partition'}
@@ -147,12 +338,12 @@ function DeclaredColumn({ intent }) {
 }
 
 /** Engine-reported execution. Absent means absent — never backfilled from intent. */
-function LastRunColumn({ execution }) {
+function LastRunBlock({ execution }) {
   if (!execution) {
     return (
-      <div className="mat-col">
+      <div className="mat-block">
         <h5>Last run</h5>
-        <div className="text-gray-400">
+        <div className="mat-dim">
           unknown — the query service reported nothing
         </div>
       </div>
@@ -160,26 +351,24 @@ function LastRunColumn({ execution }) {
   }
   const run = execution.lastRun;
   return (
-    <div className="mat-col">
+    <div className="mat-block">
       <h5>Last run</h5>
       {run ? (
         <>
           <div>
-            {run.status} {new Date(run.endedAt).toUTCString()}
+            {run.status} {formatUtc(run.endedAt)}
           </div>
-          <div className="text-gray-400">
+          <div className="mat-dim">
             attempt {run.attempt} of {run.maxAttempts}
           </div>
-          <div className="text-gray-400">
-            processing {run.processingPartition}
-          </div>
+          <div className="mat-dim">processing {run.processingPartition}</div>
         </>
       ) : (
-        <div className="text-gray-400">no runs recorded</div>
+        <div className="mat-dim">no runs recorded</div>
       )}
       {execution.nextScheduledAt ? (
-        <div className="text-gray-400">
-          next {new Date(execution.nextScheduledAt).toUTCString()}
+        <div className="mat-dim">
+          next {formatUtc(execution.nextScheduledAt)}
         </div>
       ) : null}
       {execution.workflows?.map(wf => (
@@ -193,82 +382,139 @@ function LastRunColumn({ execution }) {
   );
 }
 
-/** What consumers actually read from. */
-function ServingColumn({ outcome }) {
-  if (!outcome.servingTable) {
-    return (
-      <div className="mat-col">
-        <h5>Serving</h5>
-        <div className="text-gray-400">nothing built yet</div>
-      </div>
-    );
+/**
+ * B -- planner-style master/detail. This is the one layout that keeps the planner's
+ * 11px scale, because it is the planner's selection-panel idiom: a narrow rail of
+ * choices beside a detail pane, both bounded rather than page-wide.
+ */
+function LayoutMasterDetail({ mats }) {
+  const [selected, setSelected] = useState(0);
+  const mat = mats[Math.min(selected, mats.length - 1)];
+  if (!mat) {
+    return null;
   }
-  return (
-    <div className="mat-col">
-      <h5>Serving</h5>
-      <div className="table__header">
-        <TableIcon />{' '}
-        <span className="entity-info">{outcome.servingCatalog}</span>
-      </div>
-      <div className="table__body upstream_tables">{outcome.servingTable}</div>
-      {outcome.validThrough ? (
-        <div className="text-gray-400">
-          valid through {new Date(outcome.validThrough).toUTCString()}
-        </div>
-      ) : null}
-      {outcome.links?.map(link => (
-        <div key={link.label}>
-          <a href={link.url} target="_blank" rel="noreferrer">
-            {link.label} ↗
-          </a>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function MaterializationCard({ mat }) {
   const { verdict, detail } = summarize(mat);
-  const tone = VERDICT[verdict];
 
   return (
-    <div className="mat-card" aria-label={`Materialization ${mat.name}`}>
-      <div className="mat-card__head">
-        <span className="mat-card__verdict" style={{ color: tone.tone }}>
-          {tone.glyph} {tone.label}
-        </span>
-        <span className="mat-card__label">{mat.label}</span>
-        {!mat.active ? (
-          <span className="badge partition_value">inactive</span>
-        ) : null}
+    <div className="mat-split">
+      <div
+        className="mat-split__rail"
+        role="listbox"
+        aria-label="Materializations"
+      >
+        {mats.map((candidate, index) => {
+          const tone = VERDICT[summarize(candidate).verdict];
+          return (
+            <button
+              type="button"
+              role="option"
+              aria-selected={index === selected}
+              key={`${candidate.name}-${index}`}
+              className={`mat-split__item ${
+                index === selected ? 'mat-split__item--active' : ''
+              }`}
+              onClick={() => setSelected(index)}
+            >
+              <span className={`mat-glyph ${tone.className}`}>
+                {tone.glyph}
+              </span>
+              <span className="mat-split__item-text">
+                <span className="mat-split__item-label">{candidate.label}</span>
+                <span className="mat-dim">{summarize(candidate).headline}</span>
+              </span>
+            </button>
+          );
+        })}
       </div>
-      <div className="mat-card__detail">{detail}</div>
-
-      <CoverageStrip outcome={mat.outcome} />
-
-      <div className="mat-card__cols">
-        <DeclaredColumn intent={mat.intent} />
-        <LastRunColumn execution={mat.execution} />
-        <ServingColumn outcome={mat.outcome} />
+      <div className="mat-split__detail">
+        <div className="mat-split__head">
+          <span className={`mat-glyph ${VERDICT[verdict].className}`}>
+            {VERDICT[verdict].glyph}
+          </span>
+          <span className="mat-split__head-label">{mat.label}</span>
+          <InactiveBadge mat={mat} />
+        </div>
+        <div className="mat-split__verdict">{detail}</div>
+        <CoverageBar outcome={mat.outcome} />
+        <div className="mat-split__blocks">
+          <DeclaredBlock intent={mat.intent} />
+          <LastRunBlock execution={mat.execution} />
+        </div>
       </div>
     </div>
   );
 }
+
+/** C -- full-width rows, no columns; the coverage bar gets the whole page width. */
+function LayoutStacked({ mats }) {
+  return (
+    <div className="mat-stack">
+      {mats.map((mat, index) => {
+        const { verdict, detail } = summarize(mat);
+        const tone = VERDICT[verdict];
+        return (
+          <div className="mat-stack__row" key={`${mat.name}-${index}`}>
+            <div className="mat-stack__head">
+              <span className={`mat-glyph ${tone.className}`}>
+                {tone.glyph}
+              </span>
+              <span className="mat-stack__label">{mat.label}</span>
+              {mat.intent.lookbackWindow ? (
+                <span className="mat-dim">
+                  lookback {mat.intent.lookbackWindow.toLowerCase()}
+                </span>
+              ) : null}
+              <InactiveBadge mat={mat} />
+              <span className="mat-stack__schedule">
+                {mat.intent.scheduleHuman || mat.intent.schedule}
+                <span className="mat-dim mat-mono"> {mat.intent.schedule}</span>
+              </span>
+            </div>
+            <div className="mat-stack__verdict">{detail}</div>
+            <CoverageBar outcome={mat.outcome} />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+const LAYOUT_COMPONENTS = {
+  A: LayoutTable,
+  B: LayoutMasterDetail,
+  C: LayoutStacked,
+};
 
 export default function MaterializationStatePanel({ state }) {
+  const [layout, setLayout] = useState('A');
   const mats = state.materializations || [];
+  // Every card previously repeated this; all of them are the same row, because
+  // availability keys off the revision the materializations share.
+  const serving = mats.find(mat => mat.outcome.servingTable)?.outcome ?? null;
+  const Layout = LAYOUT_COMPONENTS[layout];
+
   return (
-    <div className="mat-panel">
-      <div className="mat-panel__head">
-        <span>
-          {mats.length} materialization{mats.length === 1 ? '' : 's'} configured
-        </span>
+    <div className={`mat-panel mat-panel--${layout.toLowerCase()}`}>
+      <div className="mat-switcher" role="group" aria-label="Panel layout">
+        {LAYOUTS.map(option => (
+          <button
+            type="button"
+            key={option.id}
+            title={option.title}
+            aria-pressed={layout === option.id}
+            className={`mat-switcher__btn ${
+              layout === option.id ? 'mat-switcher__btn--active' : ''
+            }`}
+            onClick={() => setLayout(option.id)}
+          >
+            {option.id}
+          </button>
+        ))}
       </div>
+      <CubeHeader state={state} mats={mats} serving={serving} />
       {/* Keyed by index as well: the same materialization name recurs across cube
           revisions, so the name alone is not unique within a node. */}
-      {mats.map((mat, index) => (
-        <MaterializationCard key={`${mat.name}-${index}`} mat={mat} />
-      ))}
+      <Layout mats={mats} />
     </div>
   );
 }

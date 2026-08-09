@@ -1,116 +1,392 @@
-/* Styles for MaterializationStatePanel (mockup A). */
+/*
+ * Styles for MaterializationStatePanel.
+ *
+ * Colour tokens and the status-glyph idiom come from the query planner (see
+ * app/pages/QueryPlannerPage/styles.css), which already solves this problem for
+ * pre-aggs in `PreAggDetailsPanel`: a muted three-step text ramp, and status
+ * carried by a glyph plus a semantic colour class rather than by blocks of
+ * colour. The tokens are redeclared here so this panel does not depend on the
+ * planner page being mounted.
+ *
+ * The planner's *type scale* is deliberately not inherited. It is sized for a
+ * ~320px sidebar; the node page gives this panel the full content column, where
+ * 10--11px body text is unreadable. Layouts A and C use 13px, matching the rest
+ * of the node page. Layout B keeps 11px because it reproduces the planner's
+ * bounded master/detail idiom.
+ */
 
-.mat-panel__head {
-  font-size: 0.85rem;
-  color: #57606a;
-  margin-bottom: 8px;
+.mat-panel {
+  --planner-surface: #ffffff;
+  --planner-border: #e2e8f0;
+  --planner-text: #1e293b;
+  --planner-text-muted: #64748b;
+  --planner-text-dim: #94a3b8;
+  --accent-success: #059669;
+  --accent-warning: #d97706;
+  --accent-error: #dc2626;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+
+  position: relative;
+  margin-top: 8px;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 13px;
+  color: var(--planner-text);
 }
 
-.mat-card {
-  border: 1px solid #e1e4e8;
-  border-radius: 6px;
-  padding: 16px;
-  margin-bottom: 16px;
-  background: #fff;
+.mat-dim {
+  color: var(--planner-text-muted);
 }
 
-.mat-card__head {
+.mat-mono {
+  font-family: 'JetBrains Mono', 'SF Mono', monospace;
+  font-size: 0.85em;
+}
+
+.mat-glyph {
+  font-size: 0.8em;
+  line-height: 1;
+}
+
+.mat-verdict--healthy {
+  color: var(--accent-success);
+}
+.mat-verdict--stale {
+  color: var(--accent-warning);
+}
+.mat-verdict--failing {
+  color: var(--accent-error);
+}
+.mat-verdict--unknown {
+  color: var(--planner-text-dim);
+}
+
+/* Layout switcher, parked top-right of the panel so it never competes with the
+   cube header for the reading position. */
+.mat-switcher {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  gap: 2px;
+}
+
+.mat-switcher__btn {
+  width: 24px;
+  padding: 2px 0;
+  border: 1px solid var(--planner-border);
+  background: var(--planner-surface);
+  color: var(--planner-text-muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.mat-switcher__btn:first-child {
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+.mat-switcher__btn:last-child {
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.mat-switcher__btn--active {
+  background: var(--planner-text);
+  border-color: var(--planner-text);
+  color: #ffffff;
+}
+
+/* --- Cube-level header ---------------------------------------------------- */
+
+.mat-header {
+  border-bottom: 1px solid var(--planner-border);
+  padding-bottom: 10px;
+  margin-bottom: 12px;
+}
+
+.mat-header__title {
   display: flex;
   align-items: baseline;
-  gap: 10px;
+  justify-content: space-between;
+  gap: 12px;
 }
 
-/* The verdict leads, because it is the only line most readers need. */
-.mat-card__verdict {
-  font-weight: 600;
-  font-size: 0.95rem;
-}
-
-.mat-card__label {
+.mat-header__title h4 {
+  margin: 0;
+  font-size: 15px;
   font-weight: 600;
 }
 
-.mat-card__detail {
-  margin: 6px 0 14px;
-  color: #24292f;
+.mat-header__count {
+  font-size: 12px;
+  color: var(--planner-text-muted);
 }
 
+.mat-header__serving {
+  display: flex;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.mat-header__key {
+  flex: 0 0 60px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--planner-text-dim);
+  padding-top: 2px;
+}
+
+.mat-header__table {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mat-header__catalog {
+  color: var(--planner-text-muted);
+}
+
+/* Serving tables are named like
+   dj__shared_game_health_metrics_cloud_games_session_success_cube_v8_0_cd70304ced94ac2e;
+   at full page width they fit on one line, but wrap rather than overflow. */
+.mat-header__mono {
+  font-family: 'JetBrains Mono', 'SF Mono', monospace;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.mat-header__link {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.mat-header__note {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--planner-text-dim);
+}
+
+/* --- Coverage bar --------------------------------------------------------- */
+
+/* A range bar, not a calendar. DJ records only min/max watermarks --
+   `partitions` is empty on every availability row -- so coverage is always a
+   contiguous prefix and per-partition cells would imply a fidelity the data
+   does not have. */
 .coverage {
-  margin-bottom: 16px;
+  min-width: 0;
+}
+
+.coverage--inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.coverage--inline .coverage__track {
+  flex: 1 1 auto;
+}
+
+.coverage__tick {
+  font-size: 12px;
+  color: var(--planner-text-muted);
+  white-space: nowrap;
 }
 
 .coverage__scale {
   display: flex;
   justify-content: space-between;
-  font-size: 0.75rem;
-  color: #57606a;
-  margin-bottom: 3px;
+  font-size: 11px;
+  color: var(--planner-text-dim);
+  margin-bottom: 4px;
 }
 
-/* One cell per partition rather than a min-to-max bar, so a non-contiguous
-   backfill hole reads as a hole instead of as a shorter range. */
-.coverage__cells {
+.coverage__track {
   display: flex;
-  gap: 2px;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: #f1f5f9;
 }
 
-.coverage__cell {
-  flex: 1 1 0;
-  height: 18px;
-  border-radius: 2px;
-  min-width: 4px;
+.coverage__seg--covered {
+  background: var(--accent-success);
+}
+.coverage__seg--missing {
+  background: var(--accent-error);
+}
+.coverage__seg--not-due {
+  background: #e2e8f0;
 }
 
-.coverage__cell--covered {
-  background: #2da44e;
-}
-
-.coverage__cell--missing {
-  background: #cf222e;
-}
-
-/* Distinct from missing: a partition that is not due yet is not a gap, and
-   colouring it like one would make every healthy cube look broken at its edge. */
-.coverage__cell--not-due {
-  background: #eaeef2;
-  border: 1px dashed #afb8c1;
-}
-
-.coverage__legend,
 .coverage--unknown {
-  font-size: 0.75rem;
-  margin-top: 4px;
+  font-size: 12px;
+  color: var(--planner-text-dim);
 }
 
-.mat-card__cols {
-  display: flex;
-  gap: 32px;
-  flex-wrap: wrap;
+/* --- Layout A: table ------------------------------------------------------ */
+
+.mat-table__row {
+  display: grid;
+  grid-template-columns: 200px minmax(220px, 1.4fr) 200px minmax(180px, 1fr) 110px;
+  gap: 20px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--planner-border);
+  line-height: 1.5;
 }
 
-.mat-col {
-  min-width: 220px;
-  flex: 1 1 220px;
-  font-size: 0.85rem;
-}
-
-.mat-col h5 {
-  font-size: 0.7rem;
+.mat-table__row--head {
+  padding: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: #57606a;
-  margin: 0 0 6px;
+  color: var(--planner-text-dim);
 }
 
-.mat-col > div {
-  margin-bottom: 3px;
+.mat-table__row:last-child {
+  border-bottom: none;
 }
 
-/* Serving tables carry names like
-   dj__shared_game_health_metrics_cloud_games_session_success_cube_v8_0_cd70304ced94ac2e,
-   which will blow out the column without this. */
-.mat-col .table__body {
-  word-break: break-all;
-  font-family: monospace;
-  font-size: 0.75rem;
+.mat-table__row .badge {
+  margin-left: 6px;
+}
+
+/* --- Layout B: master/detail ---------------------------------------------- */
+
+/* The planner's 11px scale is appropriate here and only here: a bounded rail
+   beside a bounded detail pane, exactly `SelectionPanel` + `PreAggDetailsPanel`. */
+.mat-panel--b {
+  font-size: 11px;
+}
+
+.mat-split {
+  display: flex;
+  gap: 16px;
+  align-items: stretch;
+}
+
+.mat-split__rail {
+  flex: 0 0 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mat-split__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 10px;
+  text-align: left;
+  border: 1px solid var(--planner-border);
+  border-radius: var(--radius-sm);
+  background: var(--planner-surface);
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.mat-split__item--active {
+  border-color: #3b82f6;
+  background: rgba(59, 130, 246, 0.06);
+}
+
+.mat-split__item-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.mat-split__item-label {
+  font-weight: 600;
+}
+
+.mat-split__detail {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 1px solid var(--planner-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  background: var(--planner-surface);
+  padding: 12px 14px;
+}
+
+.mat-split__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mat-split__head-label {
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.mat-split__verdict {
+  margin: 4px 0 10px;
+  color: var(--planner-text-muted);
+  line-height: 1.5;
+}
+
+.mat-split__blocks {
+  display: flex;
+  gap: 28px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.mat-block {
+  min-width: 190px;
+  flex: 1 1 190px;
+  line-height: 1.6;
+}
+
+.mat-block h5 {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--planner-text-dim);
+  margin: 0 0 4px;
+}
+
+/* --- Layout C: stacked full-width rows ------------------------------------ */
+
+.mat-stack__row {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--planner-border);
+}
+
+.mat-stack__row:last-child {
+  border-bottom: none;
+}
+
+.mat-stack__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.mat-stack__label {
+  font-weight: 600;
+}
+
+/* Schedule to the right edge; the row is the full content column, so anchoring
+   it left would leave it stranded mid-whitespace. */
+.mat-stack__schedule {
+  margin-left: auto;
+  text-align: right;
+  color: var(--planner-text-muted);
+}
+
+.mat-stack__verdict {
+  margin: 4px 0 10px;
+  color: var(--planner-text-muted);
+  line-height: 1.5;
 }
