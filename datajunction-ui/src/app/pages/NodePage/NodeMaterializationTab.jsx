@@ -8,6 +8,8 @@ import NodeMaterializationDelete from '../../components/NodeMaterializationDelet
 import Tab from '../../components/Tab';
 import NodeRevisionMaterializationTab from './NodeRevisionMaterializationTab';
 import AvailabilityStateBlock from './AvailabilityStateBlock';
+import MaterializationStatePanel from './MaterializationStatePanel';
+import { toMaterializationState } from './materializationState';
 import cronstrue from 'cronstrue';
 import {
   decodeColumnIdentifier,
@@ -28,6 +30,7 @@ export default function NodeMaterializationTab({
   const [selectedRevisionTab, setSelectedRevisionTab] = useState(null);
   const [showInactive, setShowInactive] = useState(false);
   const [availabilityStates, setAvailabilityStates] = useState([]);
+  const [showProposedPanel, setShowProposedPanel] = useState(true);
   const [availabilityStatesByRevision, setAvailabilityStatesByRevision] =
     useState({});
   const [isRebuilding, setIsRebuilding] = useState(() => {
@@ -495,13 +498,34 @@ export default function NodeMaterializationTab({
       </div>
     ));
   };
-  const currentRevisionMaterializations = selectedRevisionTab
-    ? materializationsByRevision[selectedRevisionTab] || []
-    : filteredMaterializations;
+  const currentRevisionMaterializations = useMemo(
+    () =>
+      selectedRevisionTab
+        ? materializationsByRevision[selectedRevisionTab] || []
+        : filteredMaterializations,
+    [selectedRevisionTab, materializationsByRevision, filteredMaterializations],
+  );
 
-  const currentRevisionAvailability = selectedRevisionTab
-    ? availabilityStatesByRevision[selectedRevisionTab] || []
-    : availabilityStates;
+  const currentRevisionAvailability = useMemo(
+    () =>
+      selectedRevisionTab
+        ? availabilityStatesByRevision[selectedRevisionTab] || []
+        : availabilityStates,
+    [selectedRevisionTab, availabilityStatesByRevision, availabilityStates],
+  );
+
+  // Side-by-side evaluation of the proposed state panel against the existing tree
+  // view, fed from the same two responses. Delete this block and its toggle to
+  // remove the panel; nothing below depends on it.
+  const proposedState = useMemo(
+    () =>
+      toMaterializationState({
+        node,
+        materializations: currentRevisionMaterializations,
+        availabilityStates: currentRevisionAvailability,
+      }),
+    [node, currentRevisionMaterializations, currentRevisionAvailability],
+  );
 
   const renderMaterializedDatasets = availabilityStates => {
     if (!availabilityStates || availabilityStates.length === 0) {
@@ -571,6 +595,27 @@ export default function NodeMaterializationTab({
 
         <div>
           {buildRevisionTabs()}
+          <div style={{ marginBottom: '20px' }}>
+            <label
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                fontSize: '14px',
+              }}
+            >
+              <input
+                type="checkbox"
+                aria-label="Show proposed materialization state panel"
+                checked={showProposedPanel}
+                onChange={e => setShowProposedPanel(e.target.checked)}
+              />
+              Proposed state panel
+            </label>
+            {showProposedPanel && (
+              <MaterializationStatePanel state={proposedState} />
+            )}
+          </div>
           {currentRevisionMaterializations.length > 0 ? (
             <div
               className="card-inner-table table"

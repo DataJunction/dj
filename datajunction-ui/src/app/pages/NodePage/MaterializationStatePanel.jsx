@@ -16,6 +16,7 @@
  *  - Per-run detail is a link out, never mirrored into DJ.
  */
 import TableIcon from '../../icons/TableIcon';
+import { dayPartitionsBetween } from './materializationState';
 
 const VERDICT = {
   healthy: { label: 'Healthy', tone: '#1a7f37', glyph: '●' },
@@ -76,7 +77,8 @@ function CoverageStrip({ outcome }) {
     return (
       <div className="coverage coverage--unknown" aria-label="Coverage unknown">
         <span className="text-gray-400">
-          Coverage unknown — this materialization reports no partition watermarks.
+          Coverage unknown — this materialization reports no partition
+          watermarks.
         </span>
       </div>
     );
@@ -84,20 +86,17 @@ function CoverageStrip({ outcome }) {
 
   const missing = new Set(outcome.missing);
   const notDue = new Set(outcome.notDueYet);
-  const cells = [];
-  for (
-    let day = Number(outcome.target.from);
-    day <= Number(outcome.target.through);
-    day++
-  ) {
-    const key = String(day);
-    const state = missing.has(key)
+  const cells = dayPartitionsBetween(
+    outcome.target.from,
+    outcome.target.through,
+  ).map(key => ({
+    key,
+    state: missing.has(key)
       ? 'missing'
       : notDue.has(key)
-        ? 'not-due'
-        : 'covered';
-    cells.push({ key, state });
-  }
+      ? 'not-due'
+      : 'covered',
+  }));
 
   return (
     <div className="coverage" aria-label="Coverage">
@@ -136,8 +135,12 @@ function DeclaredColumn({ intent }) {
       {intent.lookbackWindow ? (
         <div>lookback {intent.lookbackWindow}</div>
       ) : null}
+      {/* Cubes with no temporal partition column exist; they simply have no
+          partition to declare, and inventing one would misreport the cube. */}
       <div className="text-gray-400">
-        partition {intent.partition.column} ({intent.partition.granularity})
+        {intent.partition
+          ? `partition ${intent.partition.column} (${intent.partition.granularity})`
+          : 'no temporal partition'}
       </div>
     </div>
   );
@@ -204,7 +207,8 @@ function ServingColumn({ outcome }) {
     <div className="mat-col">
       <h5>Serving</h5>
       <div className="table__header">
-        <TableIcon /> <span className="entity-info">{outcome.servingCatalog}</span>
+        <TableIcon />{' '}
+        <span className="entity-info">{outcome.servingCatalog}</span>
       </div>
       <div className="table__body upstream_tables">{outcome.servingTable}</div>
       {outcome.validThrough ? (
@@ -260,8 +264,10 @@ export default function MaterializationStatePanel({ state }) {
           {mats.length} materialization{mats.length === 1 ? '' : 's'} configured
         </span>
       </div>
-      {mats.map(mat => (
-        <MaterializationCard key={mat.name} mat={mat} />
+      {/* Keyed by index as well: the same materialization name recurs across cube
+          revisions, so the name alone is not unique within a node. */}
+      {mats.map((mat, index) => (
+        <MaterializationCard key={`${mat.name}-${index}`} mat={mat} />
       ))}
     </div>
   );
