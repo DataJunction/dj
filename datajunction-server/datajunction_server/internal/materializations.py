@@ -382,31 +382,6 @@ class CubeMaterializationSwap:
     superseded: list[Materialization]
 
 
-def _apply_declared_spec(
-    upsert: UpsertCubeMaterialization | UpsertMaterialization,
-    declared: MaterializationSpec,
-) -> UpsertCubeMaterialization | UpsertMaterialization:
-    """
-    Let a cube's declared YAML block win over the intent recovered from the
-    persisted materialization.
-
-    A cube that declares `materialization:` has its config in the repo, so a rebuild
-    triggered by the same deploy must build what the YAML now says rather than what
-    the superseded revision happened to be built with -- otherwise editing a metric
-    and the schedule in one push would rebuild with the old schedule. Only cube
-    materializations can be declared; anything else keeps its recovered intent.
-    """
-    if isinstance(upsert, UpsertCubeMaterialization):
-        return upsert.model_copy(
-            update={
-                "schedule": declared.schedule,
-                "strategy": declared.strategy,
-                "lookback_window": declared.lookback_window,
-            },
-        )
-    return upsert  # pragma: no cover
-
-
 async def reconcile_declared_materialization(
     session: AsyncSession,
     revision: NodeRevision,
@@ -530,8 +505,19 @@ async def swap_cube_materializations(
     for materialization in superseded:
         try:
             upsert = _upsert_from_materialization(materialization)
-            if declared:
-                upsert = _apply_declared_spec(upsert, declared)
+            if declared and isinstance(upsert, UpsertCubeMaterialization):
+                # The declared block wins over the recovered intent: a cube that
+                # declares `materialization:` has its config in the repo, so a
+                # rebuild triggered by the same deploy must build what the YAML now
+                # says. Only cube materializations can be declared; anything else
+                # keeps what was recovered.
+                upsert = upsert.model_copy(
+                    update={
+                        "schedule": declared.schedule,
+                        "strategy": declared.strategy,
+                        "lookback_window": declared.lookback_window,
+                    },
+                )
             new_materialization = await create_new_materialization(
                 session,
                 new_revision,
@@ -548,13 +534,15 @@ async def swap_cube_materializations(
             # the temporal partition a cube materialization needs. The superseded
             # workflow still has to be stopped, and the cube edit that triggered the
             # swap must not fail because its materialization could not be carried
-            # forward, so nothing here is allowed to propagate.
+            # forward, so nothing here is allowed to propagate. Logged with the
+            # traceback, since this is also where a genuine bug would land silently.
             _logger.warning(
                 "Cannot rebuild materialization %s for cube=%s version=%s: %s",
                 materialization.name,
                 new_revision.name,
                 new_revision.version,
                 str(exc),
+                exc_info=True,
             )
     for materialization in superseded:
         materialization.deactivated_at = UTCDatetime.now(UTC)  # type: ignore
@@ -625,6 +613,7 @@ async def apply_cube_materialization_swap(
                 swap.cube_name,
                 swap.new_version,
                 str(exc),
+                exc_info=True,
             )
     stop_cube_materialization_workflows(
         query_service_client=query_service_client,

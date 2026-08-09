@@ -2493,94 +2493,83 @@ class DeploymentOrchestrator:
             if persisted != block
             else DeploymentResult.Operation.NOOP
         )
-        if self.dry_run:
-            self.deployed_results.append(
-                DeploymentResult(
-                    name=revision.name,
-                    deploy_type=DeploymentResult.Type.MATERIALIZATION,
-                    status=DeploymentResult.Status.SUCCESS,
-                    operation=operation,
-                    message=f"cube materialization on schedule {block.schedule}",
-                ),
-            )
-            return
-
-        # A declared block outside a dry run always comes with a checker; the assert
-        # narrows the Optional for mypy.
-        assert access_checker is not None
-        try:
-            materialization, changed = await reconcile_declared_materialization(
-                self.session,
-                revision,
-                block,
-                access_checker=access_checker,
-                current_user=self.context.current_user,
-            )
-        except DJException as exc:
-            # A cube whose measures queries sit at different grains cannot be
-            # materialized at all. That is this cube's failure, not the
-            # deployment's, so it is recorded and the remaining cubes go on.
-            message = f"Cube `{revision.name}`: {exc.message}"
-            self.errors.append(
-                DJError(
-                    code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
-                    message=message,
-                ),
-            )
-            # FAILED, not WARNING, even though every other node in the deployment
-            # still deploys and commits. `api/deployments.py` derives the aggregate
-            # status from these, so this is also what makes the deployment `failed`:
-            # a materialization the author asked for and did not get is exactly the
-            # silent gap this feature exists to close, and reporting `success` for it
-            # would reopen it.
-            self.deployed_results.append(
-                DeploymentResult(
-                    name=revision.name,
-                    deploy_type=DeploymentResult.Type.MATERIALIZATION,
-                    status=DeploymentResult.Status.FAILED,
-                    operation=DeploymentResult.Operation.UNKNOWN,
-                    message=message,
-                ),
-            )
-            return
-
-        if changed:
-            # The block can be unchanged while the built config is not -- a cube
-            # materialized outside YAML, or one whose definition moved underneath an
-            # untouched schedule.
-            if operation == DeploymentResult.Operation.NOOP:
-                operation = DeploymentResult.Operation.UPDATE
-            self.session.add(
-                History(
-                    entity_type=EntityType.MATERIALIZATION,
-                    entity_name=materialization.name,
-                    node=revision.name,
-                    activity_type=(
-                        ActivityType.CREATE
-                        if operation == DeploymentResult.Operation.CREATE
-                        else ActivityType.UPDATE
+        if not self.dry_run:
+            # A declared block outside a dry run always comes with a checker; the
+            # assert narrows the Optional for mypy.
+            assert access_checker is not None
+            try:
+                materialization, changed = await reconcile_declared_materialization(
+                    self.session,
+                    revision,
+                    block,
+                    access_checker=access_checker,
+                    current_user=self.context.current_user,
+                )
+            except DJException as exc:
+                # A cube whose measures queries sit at different grains cannot be
+                # materialized at all. That is this cube's failure, not the
+                # deployment's, so it is recorded and the remaining cubes go on.
+                message = f"Cube `{revision.name}`: {exc.message}"
+                self.errors.append(
+                    DJError(
+                        code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                        message=message,
                     ),
-                    details={
-                        "materialization": materialization.name,
-                        "schedule": block.schedule,
-                        "strategy": block.strategy.value,
-                        "lookback_window": block.lookback_window,
-                    },
-                    user=self._history_user,
-                ),
-            )
-            # Nothing is superseded: the row was updated in place, so the workflow it
-            # names is replaced by scheduling it again rather than stopped.
-            self._cube_materialization_swaps.append(
-                CubeMaterializationSwap(
-                    cube_name=revision.name,
-                    previous_version=revision.version,
-                    new_revision_id=revision.id,
-                    new_version=revision.version,
-                    rebuilt_names=[materialization.name],
-                    superseded=[],
-                ),
-            )
+                )
+                # FAILED, not WARNING, even though every other node in the deployment
+                # still deploys and commits. `api/deployments.py` derives the
+                # aggregate status from these, so this is also what makes the
+                # deployment `failed`: a materialization the author asked for and did
+                # not get is exactly the silent gap this feature exists to close, and
+                # reporting `success` for it would reopen it.
+                self.deployed_results.append(
+                    DeploymentResult(
+                        name=revision.name,
+                        deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                        status=DeploymentResult.Status.FAILED,
+                        operation=DeploymentResult.Operation.UNKNOWN,
+                        message=message,
+                    ),
+                )
+                return
+
+            if changed:
+                # The block can be unchanged while the built config is not -- a cube
+                # materialized outside YAML, or one whose definition moved underneath
+                # an untouched schedule.
+                if operation == DeploymentResult.Operation.NOOP:
+                    operation = DeploymentResult.Operation.UPDATE
+                self.session.add(
+                    History(
+                        entity_type=EntityType.MATERIALIZATION,
+                        entity_name=materialization.name,
+                        node=revision.name,
+                        activity_type=(
+                            ActivityType.CREATE
+                            if operation == DeploymentResult.Operation.CREATE
+                            else ActivityType.UPDATE
+                        ),
+                        details={
+                            "materialization": materialization.name,
+                            "schedule": block.schedule,
+                            "strategy": block.strategy.value,
+                            "lookback_window": block.lookback_window,
+                        },
+                        user=self._history_user,
+                    ),
+                )
+                # Nothing is superseded: the row was updated in place, so the workflow
+                # it names is replaced by scheduling it again rather than stopped.
+                self._cube_materialization_swaps.append(
+                    CubeMaterializationSwap(
+                        cube_name=revision.name,
+                        previous_version=revision.version,
+                        new_revision_id=revision.id,
+                        new_version=revision.version,
+                        rebuilt_names=[materialization.name],
+                        superseded=[],
+                    ),
+                )
         self.deployed_results.append(
             DeploymentResult(
                 name=revision.name,
