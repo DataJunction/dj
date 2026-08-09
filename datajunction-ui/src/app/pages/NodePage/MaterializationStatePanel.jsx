@@ -16,7 +16,11 @@
  *    verdict; it does not replace it, because DJ still knows the coverage.
  */
 import { useState } from 'react';
-import { dayPartitionsBetween } from './materializationState';
+import {
+  coverageSquares,
+  dayPartitionsBetween,
+  strategyBadge,
+} from './materializationState';
 
 // Glyphs and semantic classes follow the planner's `getStatusInfo`
 // (QueryPlannerPage/PreAggDetailsPanel.jsx), so the two panels read as one product.
@@ -445,7 +449,63 @@ function LayoutMasterDetail({ mats }) {
   );
 }
 
-/** C -- full-width rows, no columns; the coverage bar gets the whole page width. */
+/**
+ * Coverage as a short run of fixed-size squares, bucketed by `coverageSquares` so the
+ * strip stays scannable at a year or at hourly grain. Deliberately not stretched: a
+ * 2000px bar across four days reads as precision this data does not have.
+ */
+const SQUARE_CLASS = {
+  covered: 'covered',
+  behind: 'behind',
+  notDue: 'not-due',
+};
+
+function CoverageSquares({ outcome, partition }) {
+  const squares = coverageSquares(outcome);
+  const note = partition
+    ? `${partition.column} (${partition.granularity})`
+    : 'no temporal partition';
+
+  if (!squares.length) {
+    return (
+      <div className="mat-stack__coverage">
+        <span className="coverage--unknown">no watermarks</span>
+        <span className="mat-dim mat-stack__partition">{note}</span>
+      </div>
+    );
+  }
+  return (
+    <div className="mat-stack__coverage">
+      {/* A list rather than one labelled image: each bucket's meaning lives in its own
+          label, so a reader can reach the behind ones instead of a "Coverage" summary. */}
+      <span className="mat-squares" role="list" aria-label="Coverage">
+        {squares.map(square => (
+          <span
+            key={square.from}
+            role="listitem"
+            className={`mat-squares__cell mat-squares__cell--${
+              SQUARE_CLASS[square.state]
+            }`}
+            title={square.label}
+            aria-label={square.label}
+          />
+        ))}
+      </span>
+      <span className="mat-dim">
+        {outcome.target.from} → {outcome.target.through}
+      </span>
+      <span className="mat-dim mat-stack__partition">{note}</span>
+    </div>
+  );
+}
+
+/** Strategy, neutral by design: the status glyph is the row's only coloured element. */
+function StrategyBadge({ intent }) {
+  const text = strategyBadge(intent);
+  return text ? <span className="mat-badge">{text}</span> : null;
+}
+
+/** C -- full-width rows, no columns; the header carries the scannable facts. */
 function LayoutStacked({ mats }) {
   return (
     <div className="mat-stack">
@@ -458,12 +518,10 @@ function LayoutStacked({ mats }) {
               <span className={`mat-glyph ${tone.className}`}>
                 {tone.glyph}
               </span>
-              <span className="mat-stack__label">{mat.label}</span>
-              {mat.intent.lookbackWindow ? (
-                <span className="mat-dim">
-                  lookback {mat.intent.lookbackWindow.toLowerCase()}
-                </span>
-              ) : null}
+              <span className="mat-stack__label">
+                {mat.engine || mat.label}
+              </span>
+              <StrategyBadge intent={mat.intent} />
               <InactiveBadge mat={mat} />
               <span className="mat-stack__schedule">
                 {mat.intent.scheduleHuman || mat.intent.schedule}
@@ -471,7 +529,10 @@ function LayoutStacked({ mats }) {
               </span>
             </div>
             <div className="mat-stack__verdict">{detail}</div>
-            <CoverageBar outcome={mat.outcome} />
+            <CoverageSquares
+              outcome={mat.outcome}
+              partition={mat.intent.partition}
+            />
           </div>
         );
       })}

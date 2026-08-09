@@ -38,6 +38,8 @@ export const materializationStateStale = {
       // "Druid Cube" today is why the current page is unreadable.
       name: 'druid_cube__incremental_time__utc_date',
       label: 'Druid cube (incremental)',
+      // Engine alone; layout C carries the strategy in a badge instead.
+      engine: 'Druid cube',
       active: true,
 
       intent: {
@@ -46,11 +48,16 @@ export const materializationStateStale = {
         timezone: 'UTC',
         strategy: 'incremental_time',
         lookbackWindow: '1 DAY',
-        partition: { column: 'utc_date', granularity: 'day', format: 'yyyyMMdd' },
+        partition: {
+          column: 'utc_date',
+          granularity: 'day',
+          format: 'yyyyMMdd',
+        },
       },
 
       outcome: {
-        servingTable: 'dj__shared_game_health_metrics_cloud_games_session_success_cube_v8_0_cd70304ced94ac2e',
+        servingTable:
+          'dj__shared_game_health_metrics_cloud_games_session_success_cube_v8_0_cd70304ced94ac2e',
         servingCatalog: 'druid.datajunction',
         validThrough: '2026-08-06T22:00:00.000Z',
         // Derived by DJ from intent + logical date, not reported by anyone. This is
@@ -88,6 +95,7 @@ export const materializationStateStale = {
       // point -- today it renders identically to a healthy one.
       name: 'druid_cube__full',
       label: 'Druid cube (full)',
+      engine: 'Druid cube',
       active: false,
       intent: {
         schedule: '0 6 * * *',
@@ -95,7 +103,11 @@ export const materializationStateStale = {
         timezone: 'UTC',
         strategy: 'full',
         lookbackWindow: null,
-        partition: { column: 'utc_date', granularity: 'day', format: 'yyyyMMdd' },
+        partition: {
+          column: 'utc_date',
+          granularity: 'day',
+          format: 'yyyyMMdd',
+        },
       },
       outcome: {
         servingTable: null,
@@ -170,6 +182,94 @@ export const materializationStateCoverageUnknown = {
         coverageKnown: false,
       },
     },
+  ],
+};
+
+/**
+ * Ranges past anything the live cube can show, so layout C's coverage strip can be
+ * checked where it actually has to bucket. Real availability rows are day-grain and a
+ * fortnight long; the strip has to survive a year of them, and hour-grain partitions
+ * that DJ will report once `computeCoverage` handles sub-day granularity.
+ */
+function syntheticMat({
+  name,
+  strategy,
+  lookbackWindow,
+  granularity,
+  outcome,
+}) {
+  return {
+    name,
+    label: `Druid cube (${strategy})`,
+    engine: 'Druid cube',
+    active: true,
+    intent: {
+      schedule: granularity === 'hour' ? '0 * * * *' : '0 6 * * *',
+      scheduleHuman: granularity === 'hour' ? 'hourly' : 'daily at 06:00',
+      timezone: 'UTC',
+      strategy,
+      lookbackWindow,
+      partition: {
+        column: 'utc_date',
+        granularity,
+        format: granularity === 'hour' ? 'yyyyMMddHH' : 'yyyyMMdd',
+      },
+    },
+    outcome: {
+      servingTable: 'dj__synthetic_cube',
+      servingCatalog: 'druid.datajunction',
+      validThrough: null,
+      coverageKnown: true,
+      links: [],
+      ...outcome,
+    },
+    execution: null,
+  };
+}
+
+// 371 daily partitions -> weekly buckets. The behind days sit inside one bucket
+// alongside covered days, which must still render the bucket as behind.
+export const materializationStateYearOfDays = {
+  ...materializationStateStale,
+  materializations: [
+    syntheticMat({
+      name: 'druid_cube__incremental_time__year',
+      strategy: 'incremental_time',
+      lookbackWindow: '3 DAYS',
+      granularity: 'day',
+      outcome: {
+        target: { from: '20250801', through: '20260806' },
+        covered: { from: '20250801', through: '20260802' },
+        missing: ['20260803', '20260804'],
+        notDueYet: ['20260805', '20260806'],
+      },
+    }),
+  ],
+};
+
+// 721 hourly partitions -> daily buckets. A single behind hour has to survive being
+// bucketed with 23 covered ones.
+export const materializationStateHourly = {
+  ...materializationStateStale,
+  materializations: [
+    syntheticMat({
+      name: 'druid_cube__incremental_time__hourly',
+      strategy: 'incremental_time',
+      lookbackWindow: '6 HOURS',
+      granularity: 'hour',
+      outcome: {
+        target: { from: '2026070800', through: '2026080700' },
+        covered: { from: '2026070800', through: '2026080618' },
+        missing: ['2026080619'],
+        notDueYet: [
+          '2026080620',
+          '2026080621',
+          '2026080622',
+          '2026080623',
+          '2026080700',
+        ],
+      },
+    }),
   ],
 };
 

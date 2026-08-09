@@ -17,6 +17,8 @@ import {
   materializationStateHealthy,
   materializationStateEngineUnknown,
   materializationStateCoverageUnknown,
+  materializationStateYearOfDays,
+  materializationStateHourly,
 } from '../../../mocks/materializationState';
 
 const SCENARIOS = [
@@ -44,6 +46,18 @@ const SCENARIOS = [
     state: materializationStateCoverageUnknown,
     note: 'Coverage cannot be judged. Same blind spot that makes the freshness gate pass unwatermarked pre-aggs.',
   },
+  {
+    key: 'year',
+    label: 'A year of daily partitions',
+    state: materializationStateYearOfDays,
+    note: "Layout C's coverage strip past the point where one square per partition works: 371 days bucket to 53 weekly squares, and the two behind days colour their whole week.",
+  },
+  {
+    key: 'hourly',
+    label: 'Hourly partitions',
+    state: materializationStateHourly,
+    note: 'A month of hourly partitions: 721 buckets to 31 daily squares, and the one behind hour still shows.',
+  },
 ];
 
 export default function MaterializationStatePreview() {
@@ -53,9 +67,7 @@ export default function MaterializationStatePreview() {
   return (
     <div className="card" style={{ margin: '20px', padding: '20px' }}>
       <h4>Materialization state — preview</h4>
-      <p className="text-gray-400">
-        Fixture-driven. Not wired to the API.
-      </p>
+      <p className="text-gray-400">Fixture-driven. Not wired to the API.</p>
 
       <div style={{ display: 'flex', gap: '8px', margin: '12px 0' }}>
         {SCENARIOS.map(s => (

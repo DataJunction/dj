@@ -358,6 +358,64 @@
 
 /* --- Layout C: stacked full-width rows ------------------------------------ */
 
+/* Neutral by design. The status glyph is the row's only semantically coloured
+   element; a second coloured chip beside it competes for the same read. Shape is
+   the planner's `.status-bar-badge` pill (QueryPlannerPage/styles.css), sized up
+   from 10px to sit with 13px body text. */
+.mat-badge {
+  padding: 1px 8px;
+  border: 1px solid var(--planner-border);
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--planner-text-muted);
+  white-space: nowrap;
+}
+
+/* Discrete squares, fixed size, left-aligned -- an Airflow recent-runs strip, not
+   a bar. `coverageSquares` keeps the count under 60 by bucketing, so the strip
+   never needs to stretch or scroll. */
+.mat-squares {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  align-items: center;
+}
+
+.mat-squares__cell {
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+}
+
+.mat-squares__cell--covered {
+  background: var(--accent-success);
+}
+
+.mat-squares__cell--behind {
+  background: var(--accent-error);
+}
+
+/* Not-due is the trailing edge of a healthy cube, so it reads as absence rather
+   than as fault: an empty outline, nowhere near the behind red. */
+.mat-squares__cell--not-due {
+  background: #f8fafc;
+  box-shadow: inset 0 0 0 1px var(--planner-border);
+}
+
+.mat-stack__coverage {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 12px;
+}
+
+/* Still worth seeing, not worth a column of whitespace. */
+.mat-stack__partition {
+  margin-left: auto;
+}
+
 .mat-stack__row {
   padding: 12px 0;
   border-bottom: 1px solid var(--planner-border);
@@ -385,8 +443,11 @@
   color: var(--planner-text-muted);
 }
 
+/* Bounded to a readable measure. The row is the full content column; a sentence
+   run to that width is a line the eye loses. */
 .mat-stack__verdict {
   margin: 4px 0 10px;
+  max-width: 78ch;
   color: var(--planner-text-muted);
   line-height: 1.5;
 }

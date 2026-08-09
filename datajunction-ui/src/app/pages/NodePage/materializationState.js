@@ -24,6 +24,7 @@ import cronstrue from 'cronstrue';
 const EXECUTION_UNAVAILABLE = null;
 
 const MS_PER_DAY = 86400000;
+const MS_PER_HOUR = 3600000;
 
 /** Cron minute/hour, when both are plain numbers. Anything else fires at midnight. */
 function scheduleTimeOfDay(schedule) {
@@ -74,6 +75,176 @@ export function dayPartitionsBetween(from, through) {
     days.push(formatDayPartition(day));
   }
   return days;
+}
+
+/**
+ * Partition keys are `yyyyMMdd` at day grain and `yyyyMMddHH` at hour grain, and the
+ * coverage strip has to enumerate either. Grain is read off the key length rather than
+ * off `intent.partition.granularity` so the strip cannot disagree with the watermarks
+ * it is drawing.
+ */
+const GRAINS = {
+  8: {
+    grain: 'day',
+    step: MS_PER_DAY,
+    format: ms => new Date(ms).toISOString().slice(0, 10).replace(/-/g, ''),
+  },
+  10: {
+    grain: 'hour',
+    step: MS_PER_HOUR,
+    format: ms => new Date(ms).toISOString().slice(0, 13).replace(/[-T]/g, ''),
+  },
+};
+
+function parsePartition(value) {
+  const text = String(value);
+  const spec = GRAINS[text.length];
+  if (!spec || !/^\d+$/.test(text)) {
+    return null;
+  }
+  return {
+    spec,
+    ms: Date.UTC(
+      Number(text.slice(0, 4)),
+      Number(text.slice(4, 6)) - 1,
+      Number(text.slice(6, 8)),
+      Number(text.slice(8, 10) || 0),
+    ),
+  };
+}
+
+/** Inclusive list of partition keys at whichever grain `from` and `through` share. */
+export function partitionsBetween(from, through) {
+  const start = parsePartition(from);
+  const end = parsePartition(through);
+  if (!start || !end || start.spec !== end.spec) {
+    return [];
+  }
+  const keys = [];
+  for (let ms = start.ms; ms <= end.ms; ms += start.spec.step) {
+    keys.push(start.spec.format(ms));
+  }
+  return keys;
+}
+
+/** Squares per strip. Above this the strip stops being scannable and starts being a bar. */
+const MAX_SQUARES = 60;
+
+/**
+ * Bucket sizes to try, in partitions, coarsest-last. Day grain steps partition -> week
+ * -> month; hour grain gets quarter-day and day rungs first so a fortnight of hourly
+ * partitions does not collapse straight to a fortnight of squares.
+ */
+const BUCKET_LADDER = {
+  day: [1, 7, 30],
+  hour: [1, 6, 24, 24 * 7, 24 * 30],
+};
+
+/**
+ * Smallest rung that fits the strip. Past the coarsest rung — decades of days — the
+ * count is divided down directly, because an unbounded strip is worse than a bucket
+ * with no calendar meaning.
+ *
+ * Counts only dip below ~30 immediately after a rung change (61 days becomes 9 weekly
+ * squares). That is the price of buckets a reader can name; a size chosen purely to
+ * land in 30–60 would label squares "5.1 days".
+ */
+function bucketSize(count, grain) {
+  const ladder = BUCKET_LADDER[grain] || BUCKET_LADDER.day;
+  return (
+    ladder.find(size => Math.ceil(count / size) <= MAX_SQUARES) ??
+    Math.ceil(count / MAX_SQUARES)
+  );
+}
+
+const STATE_WORD = {
+  covered: 'covered',
+  behind: 'behind',
+  notDue: 'not due yet',
+};
+
+/**
+ * Coverage as a bounded run of discrete squares.
+ *
+ * A bucket takes the worst state it holds — one behind partition makes the whole bucket
+ * behind — so aggregation can hide a healthy trailing edge but never a problem.
+ *
+ * What the squares cannot show: an interior hole. Availability rows carry only
+ * `min_temporal_partition` and `max_temporal_partition` (`partitions` comes back empty),
+ * so coverage is by construction a contiguous prefix and nothing in DJ reports a gap
+ * inside it. The squares are honest about covered/behind/not-due; do not read the
+ * absence of an interior gap as evidence that there is none.
+ */
+export function coverageSquares(outcome) {
+  if (!outcome?.coverageKnown || !outcome.target) {
+    return [];
+  }
+  const keys = partitionsBetween(outcome.target.from, outcome.target.through);
+  if (!keys.length) {
+    return [];
+  }
+  const behind = new Set(outcome.missing);
+  const notDue = new Set(outcome.notDueYet);
+  const size = bucketSize(keys.length, parsePartition(keys[0]).spec.grain);
+
+  const squares = [];
+  for (let start = 0; start < keys.length; start += size) {
+    const bucket = keys.slice(start, start + size);
+    const counts = { covered: 0, behind: 0, notDue: 0 };
+    for (const key of bucket) {
+      counts[
+        behind.has(key) ? 'behind' : notDue.has(key) ? 'notDue' : 'covered'
+      ] += 1;
+    }
+    const state = counts.behind
+      ? 'behind'
+      : counts.notDue
+      ? 'notDue'
+      : 'covered';
+    const from = bucket[0];
+    const through = bucket[bucket.length - 1];
+    squares.push({
+      state,
+      from,
+      through,
+      count: counts[state],
+      label: `${from === through ? from : `${from}–${through}`}: ${
+        counts[state]
+      } ${STATE_WORD[state]}`,
+    });
+  }
+  return squares;
+}
+
+/** `"3 DAYS"` -> `"3d"`. The badge has no room for the word. */
+function shortLookback(lookbackWindow) {
+  const match = /^(\d+)\s*(SECOND|MINUTE|HOUR|DAY|WEEK|MONTH|YEAR)S?$/i.exec(
+    String(lookbackWindow || '').trim(),
+  );
+  if (!match) {
+    return String(lookbackWindow || '').toLowerCase();
+  }
+  const unit = match[2].toLowerCase();
+  return `${match[1]}${unit === 'month' ? 'mo' : unit[0]}`;
+}
+
+/**
+ * Strategy as a short neutral chip: `full`, or `incremental · 3d lookback`.
+ *
+ * The lookback folds in here because it only means anything for an incremental
+ * strategy, and a `lookback 3 DAYS` line sitting apart from `incremental_time` made a
+ * reader join two facts that are one fact.
+ */
+export function strategyBadge(intent) {
+  const strategy = String(intent?.strategy || '').trim();
+  if (!strategy) {
+    return null;
+  }
+  const label = strategy.replace(/_time$/, '').replace(/_/g, ' ');
+  const lookback = intent.lookbackWindow
+    ? ` · ${shortLookback(intent.lookbackWindow)} lookback`
+    : '';
+  return strategy === 'full' ? label : `${label}${lookback}`;
 }
 
 /**
@@ -188,11 +359,24 @@ function toOutcome({ availability, partition, schedule, lookbackWindow, now }) {
  * strategy is what actually differs.
  */
 function toLabel(materialization) {
-  const engine = String(materialization.job || 'Materialization')
+  const strategy = String(materialization.strategy || '').replace(/_/g, ' ');
+  const engine = titleCaseEngine(materialization);
+  return strategy ? `${engine} (${strategy})` : engine;
+}
+
+function titleCaseEngine(materialization) {
+  return String(materialization.job || 'Materialization')
     .replace('MaterializationJob', '')
     .replace(/([a-z])([A-Z])/g, '$1 $2');
-  const strategy = String(materialization.strategy || '').replace(/_/g, ' ');
-  return strategy ? `${engine} (${strategy})` : engine;
+}
+
+/**
+ * The engine alone, sentence-cased: `"Druid cube"`. Kept apart from `label` because the
+ * strategy now travels as a badge, and "Druid Cube (incremental time)" then repeated it.
+ */
+function toEngine(materialization) {
+  const [first, ...rest] = titleCaseEngine(materialization).split(' ');
+  return [first, ...rest.map(word => word.toLowerCase())].join(' ');
 }
 
 function humanizeSchedule(schedule) {
@@ -284,6 +468,7 @@ export function toMaterializationState({
       return {
         name: materialization.name,
         label: toLabel(materialization),
+        engine: toEngine(materialization),
         active: !materialization.deactivated_at,
         intent: toIntent({ materialization, partitionColumn: partition }),
         outcome: toOutcome({

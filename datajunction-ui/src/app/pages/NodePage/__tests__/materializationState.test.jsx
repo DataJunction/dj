@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
   toMaterializationState,
   dayPartitionsBetween,
+  partitionsBetween,
+  coverageSquares,
+  strategyBadge,
 } from '../materializationState';
 import { summarize } from '../MaterializationStatePanel';
 
@@ -97,6 +100,7 @@ describe('toMaterializationState', () => {
         {
           name: INCREMENTAL.name,
           label: 'Druid Cube (incremental time)',
+          engine: 'Druid cube',
           active: true,
           intent: {
             schedule: '59 11 * * *',
@@ -129,6 +133,7 @@ describe('toMaterializationState', () => {
         {
           name: FULL.name,
           label: 'Druid Cube (full)',
+          engine: 'Druid cube',
           active: false,
           intent: {
             schedule: '0 6 * * *',
@@ -472,5 +477,236 @@ describe('summarize', () => {
           'Covered through 20260807, target 20260809 — 2 days behind. Run status unknown.',
       },
     ]);
+  });
+});
+
+describe('partitionsBetween', () => {
+  it('steps by hour when the keys carry an hour', () => {
+    expect(partitionsBetween('2026073122', '2026080101')).toEqual([
+      '2026073122',
+      '2026073123',
+      '2026080100',
+      '2026080101',
+    ]);
+  });
+
+  it('refuses to enumerate across grains', () => {
+    expect(partitionsBetween('20260731', '2026080101')).toEqual([]);
+  });
+});
+
+/** A coverage outcome whose target spans `from`..`through`, everything else covered. */
+const coverage = (from, through, overrides = {}) => ({
+  ...outcome({
+    target: { from, through },
+    covered: { from, through },
+    ...overrides,
+  }),
+});
+
+describe('coverageSquares', () => {
+  it('draws one square per partition at the four-day scale the live cube reports', () => {
+    expect(
+      coverageSquares(
+        coverage('20260806', '20260810', {
+          covered: { from: '20260806', through: '20260807' },
+          missing: ['20260808'],
+          notDueYet: ['20260809', '20260810'],
+        }),
+      ),
+    ).toEqual([
+      {
+        state: 'covered',
+        from: '20260806',
+        through: '20260806',
+        count: 1,
+        label: '20260806: 1 covered',
+      },
+      {
+        state: 'covered',
+        from: '20260807',
+        through: '20260807',
+        count: 1,
+        label: '20260807: 1 covered',
+      },
+      {
+        state: 'behind',
+        from: '20260808',
+        through: '20260808',
+        count: 1,
+        label: '20260808: 1 behind',
+      },
+      {
+        state: 'notDue',
+        from: '20260809',
+        through: '20260809',
+        count: 1,
+        label: '20260809: 1 not due yet',
+      },
+      {
+        state: 'notDue',
+        from: '20260810',
+        through: '20260810',
+        count: 1,
+        label: '20260810: 1 not due yet',
+      },
+    ]);
+  });
+
+  // 61 is the first day count that will not fit one square per partition.
+  it('switches to weekly buckets one partition past the per-partition limit', () => {
+    const squares = coverageSquares(coverage('20260601', '20260731'));
+
+    expect(squares).toHaveLength(9);
+    expect(squares[0]).toEqual({
+      state: 'covered',
+      from: '20260601',
+      through: '20260607',
+      count: 7,
+      label: '20260601–20260607: 7 covered',
+    });
+    // The remainder bucket is short rather than padded; 61 is not a multiple of 7.
+    expect(squares[8]).toEqual({
+      state: 'covered',
+      from: '20260727',
+      through: '20260731',
+      count: 5,
+      label: '20260727–20260731: 5 covered',
+    });
+  });
+
+  // Worst-state-wins. DJ cannot report an interior hole today -- coverage is always a
+  // contiguous prefix -- but the aggregation must not be the reason one stays hidden.
+  it('lets a single behind partition colour its whole bucket', () => {
+    const squares = coverageSquares(
+      coverage('20260601', '20260731', { missing: ['20260610'] }),
+    );
+
+    expect(squares[1]).toEqual({
+      state: 'behind',
+      from: '20260608',
+      through: '20260614',
+      count: 1,
+      label: '20260608–20260614: 1 behind',
+    });
+  });
+
+  it('keeps a year of daily partitions inside the strip', () => {
+    const squares = coverageSquares(
+      coverage('20250801', '20260806', {
+        covered: { from: '20250801', through: '20260802' },
+        missing: ['20260803', '20260804'],
+        notDueYet: ['20260805', '20260806'],
+      }),
+    );
+
+    // 371 days at one square per week.
+    expect(squares).toHaveLength(53);
+    expect(squares[0]).toEqual({
+      state: 'covered',
+      from: '20250801',
+      through: '20250807',
+      count: 7,
+      label: '20250801–20250807: 7 covered',
+    });
+    // The trailing week holds three covered days, two behind and two not due; behind
+    // outranks both, and the count reports the behind days rather than the bucket size.
+    expect(squares[52]).toEqual({
+      state: 'behind',
+      from: '20260731',
+      through: '20260806',
+      count: 2,
+      label: '20260731–20260806: 2 behind',
+    });
+  });
+
+  it('buckets hourly partitions by day', () => {
+    const squares = coverageSquares(
+      coverage('2026070800', '2026080700', {
+        covered: { from: '2026070800', through: '2026080618' },
+        missing: ['2026080619'],
+        notDueYet: [
+          '2026080620',
+          '2026080621',
+          '2026080622',
+          '2026080623',
+          '2026080700',
+        ],
+      }),
+    );
+
+    // 721 hours at one square per day.
+    expect(squares).toHaveLength(31);
+    expect(squares[0]).toEqual({
+      state: 'covered',
+      from: '2026070800',
+      through: '2026070823',
+      count: 24,
+      label: '2026070800–2026070823: 24 covered',
+    });
+    // One behind hour out of twenty-four still reads as a behind day.
+    expect(squares[29]).toEqual({
+      state: 'behind',
+      from: '2026080600',
+      through: '2026080623',
+      count: 1,
+      label: '2026080600–2026080623: 1 behind',
+    });
+    expect(squares[30]).toEqual({
+      state: 'notDue',
+      from: '2026080700',
+      through: '2026080700',
+      count: 1,
+      label: '2026080700: 1 not due yet',
+    });
+  });
+
+  // Past the coarsest rung the bucket loses its calendar name, but the strip stays
+  // bounded -- which is the property the layout depends on.
+  it('stays bounded past the end of the bucket ladder', () => {
+    const squares = coverageSquares(coverage('20000101', '20260101'));
+
+    expect(squares.length).toBeLessThanOrEqual(60);
+    expect(squares.length).toBeGreaterThan(30);
+  });
+
+  it('draws nothing when coverage cannot be judged', () => {
+    expect(
+      coverageSquares(
+        outcome({ target: null, covered: null, coverageKnown: false }),
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe('strategyBadge', () => {
+  it('folds the lookback into the incremental badge', () => {
+    expect(strategyBadge(intent('incremental_time'))).toEqual(
+      'incremental · 3d lookback',
+    );
+  });
+
+  // A lookback is meaningless for a full rebuild, so the badge stays a single word.
+  it('renders a full strategy as one word', () => {
+    expect(strategyBadge(intent('full'))).toEqual('full');
+  });
+
+  it('drops the lookback clause when none is declared', () => {
+    expect(
+      strategyBadge({ ...intent('incremental_time'), lookbackWindow: null }),
+    ).toEqual('incremental');
+  });
+
+  it('abbreviates a sub-day lookback', () => {
+    expect(
+      strategyBadge({
+        ...intent('incremental_time'),
+        lookbackWindow: '12 HOURS',
+      }),
+    ).toEqual('incremental · 12h lookback');
+  });
+
+  it('has nothing to show when no strategy is declared', () => {
+    expect(strategyBadge({ ...intent('full'), strategy: null })).toBeNull();
   });
 });
