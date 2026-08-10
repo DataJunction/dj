@@ -177,22 +177,6 @@ function relativeTime(iso, now = new Date()) {
 }
 
 /**
- * Middle-elided table name. Serving tables run to ~85 characters, of which the head is
- * a constant `dj__` prefix and the tail is the node suffix, version and hash that
- * actually distinguish one from another; the namespace in between is already on the
- * page. The tail is sized to clear `_cube_v<version>_<16 hex>` whole.
- */
-const NAME_HEAD = 4;
-const NAME_TAIL = 26;
-
-function elideTableName(name) {
-  const text = String(name || '');
-  return text.length <= NAME_HEAD + NAME_TAIL + 1
-    ? text
-    : `${text.slice(0, NAME_HEAD)}…${text.slice(-NAME_TAIL)}`;
-}
-
-/**
  * The serving table as a chip you copy rather than read. Nobody parses
  * `dj__shared_game_health_metrics_cloud_games_session_success_cube_v8_0_cd70304ced94ac2e`
  * off the screen; they paste it into a query, so the full name lives in `title` and on
@@ -221,7 +205,7 @@ function TableChip({ catalog, table }) {
           <span className="mat-chip__sep">/</span>
         </>
       ) : null}
-      <span className="mat-chip__name mat-mono">{elideTableName(table)}</span>
+      <span className="mat-chip__name mat-mono">{table}</span>
       <button
         type="button"
         className="mat-chip__copy"
@@ -436,7 +420,7 @@ function WorkflowRuns({ workflows }) {
         const tone = VERDICT[(run && RUN_VERDICT[run.status]) || 'unknown'];
         return (
           <Fragment key={wf.url}>
-            <dt>
+            <dt className="mat-activity__workflow">
               <a
                 href={wf.url}
                 target="_blank"

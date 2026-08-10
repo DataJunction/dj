@@ -730,7 +730,9 @@ describe('strategyBadge', () => {
 });
 
 const FULL_NAME = `druid.datajunction.${AVAILABILITY.table}`;
-const ELIDED = 'druid.datajunction/dj__…cube_v8_0_cd70304ced94ac2e';
+// Shown whole. Elided it read `dj__…cube_v8_0_cd70304ced94ac2e`, which is not a name
+// anyone can check against a query they are writing.
+const CHIP = `druid.datajunction/${AVAILABILITY.table}`;
 
 const renderPanel = state =>
   render(
@@ -770,7 +772,7 @@ describe('MaterializationStatePanel summary cards', () => {
         card => card.textContent,
       ),
     ).toEqual([
-      `Serving${ELIDED}⧉updated 2d agoPreview →Data Explorer ↗`,
+      `Serving${CHIP}⧉updated 2d agoPreview →Data Explorer ↗`,
       // One card however many materializations feed the cube: availability is keyed
       // to the revision, so both of these report the same watermarks. On target
       // rather than behind because a trailing partition is only a gap once every
@@ -829,7 +831,7 @@ describe('MaterializationStatePanel summary cards', () => {
     );
 
     expect(container.querySelector('.mat-summary__item').textContent).toEqual(
-      `Serving${ELIDED}⧉update time unknownPreview →Data Explorer ↗`,
+      `Serving${CHIP}⧉update time unknownPreview →Data Explorer ↗`,
     );
     expect(
       screen.getByText('update time unknown').getAttribute('title'),
