@@ -353,6 +353,12 @@ async def get_node(
     access_checker.add_request_by_node_name(name, ResourceAction.READ)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
+    # Answer from the database, not from the identity map: SQLAlchemy hands back an
+    # instance the session already holds without re-applying the load options below,
+    # which would serve a superseded revision, or one loaded without the relationships
+    # this response needs. A request's session is its own, so nothing is expired here
+    # that this request did not load itself.
+    session.expire_all()
     node = await Node.get_by_name(
         session,
         name,

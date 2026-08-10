@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 import datajunction_server.internal.materializations
 from datajunction_server.api.deployments import (
@@ -2681,6 +2682,56 @@ class TestDeployments:
         )
         assert await version_of(patch_ns) == "v2.0"
         assert await version_of(deploy_ns) == "v2.0"
+
+    @pytest.mark.asyncio
+    async def test_get_node_reads_past_a_stale_session_copy(
+        self,
+        client,
+        session,
+        default_hard_hats,
+    ):
+        """
+        `GET /nodes/{name}/` must answer from the database once a deployment has moved
+        the node on to a new revision in a session of its own.
+
+        The test client shares one session across requests, so a node an earlier
+        request left in that session's identity map is what the next request gets --
+        SQLAlchemy leaves an already-loaded relationship alone no matter what load
+        options the next query carries. That served a superseded revision, and where
+        the earlier request had no use for `parents` it served one that could not be
+        serialized at all. Holding the node here makes it deterministic; in CI it
+        depended on whether the earlier request's node had been collected yet.
+        """
+        namespace = "stale_session_copy"
+
+        async def deploy(**overrides) -> None:
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(
+                    namespace=namespace,
+                    nodes=[default_hard_hats.model_copy(deep=True, update=overrides)],
+                ),
+            )
+            assert data["status"] == "success", data
+
+        await deploy()
+        name = f"{namespace}.default.hard_hats"
+        assert (await client.get(f"/nodes/{name}/")).json()["version"] == "v1.0"
+
+        # An earlier request's view of the node, kept alive in the session with its
+        # revision loaded but not that revision's parents.
+        held = await Node.get_by_name(
+            session,
+            name,
+            options=[selectinload(Node.current)],
+        )
+        assert "parents" not in held.current.__dict__
+
+        await deploy(description="Hard hats, revised")
+        response = await client.get(f"/nodes/{name}/")
+        assert response.status_code == 200, response.json()
+        assert response.json()["version"] == "v2.0"
+        assert response.json()["description"] == "Hard hats, revised"
 
     @pytest.mark.asyncio
     async def test_patch_and_deployment_agree_on_materialization_state(
