@@ -255,6 +255,12 @@ async def create_new_materialization(
 ) -> Materialization:
     """
     Create a new materialization based on the input values.
+
+    Returns an unpersisted row whose `node_revision` backref is set but which is not
+    added to the session. Callers depend on both halves of that: they `session.add()`
+    the ones they mean to keep, and clear `node_revision` on the ones they do not, to
+    keep the backref from cascading in a row they are about to discard or fold into an
+    existing one. Adding the row here would insert those too.
     """
     generic_config = None
     try:
@@ -527,12 +533,21 @@ async def swap_cube_materializations(
     # The rebuild reads the new revision's columns, partitions and cube elements.
     # Neither caller is guaranteed to have those loaded -- the API path has just
     # committed the revision -- and a lazy load from async code would fail, so pull
-    # them in up front.
-    await session.execute(
-        select(NodeRevision)
-        .where(NodeRevision.id == new_revision.id)
-        .options(*NodeRevision.cube_load_options()),
+    # them in up front. The result is reassigned rather than discarded: the query
+    # would otherwise look dead, when what it is doing is populating the very
+    # instance the rest of this function walks.
+    loaded = (
+        (
+            await session.execute(
+                select(NodeRevision)
+                .where(NodeRevision.id == new_revision.id)
+                .options(*NodeRevision.cube_load_options()),
+            )
+        )
+        .unique()
+        .scalar_one_or_none()
     )
+    new_revision = loaded or new_revision
 
     rebuilt: list[Materialization] = []
     for materialization in superseded:

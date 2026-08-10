@@ -114,6 +114,10 @@ class Materialization(Base):
         persists the same `DruidCubeMaterializationJob` the fused path derives. What
         separates them is the row name the planner writes and the version
         discriminator its config carries, either of which is enough to recognize.
+
+        The name is the authoritative signal, since the planner is the only writer of
+        it. The `version` check is a fallback for rows written before that name
+        settled, so a row matching either one is treated as the planner's.
         """
         config = self.config if isinstance(self.config, dict) else {}
         return (
