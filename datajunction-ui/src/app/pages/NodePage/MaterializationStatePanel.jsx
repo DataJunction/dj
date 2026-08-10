@@ -390,24 +390,42 @@ function ServingLine({ node, serving }) {
 function CoverageLine({ coverage }) {
   const verdict = coverageVerdict(coverage);
   return (
-    <div className="mat-serving">
+    <div className="mat-serving mat-serving--coverage">
       <span className={verdict.className}>
         <span className="mat-glyph">{VERDICT[verdict.verdict].glyph}</span>{' '}
         {verdict.headline}
       </span>
-      {coverage?.coverageKnown ? (
-        <>
-          <SquaresRun squares={coverageSquares(coverage)} />
-          {/* The dates sit beside the squares because a bare `20260810` is
-              uninterpretable without the range it closes. */}
-          <span className="mat-dim">
-            {coverage.covered.from}–{coverage.covered.through} covered
-          </span>
-          <span className="mat-serving__sep">·</span>
-          <span className="mat-dim">target {coverage.target.through}</span>
-        </>
-      ) : null}
+      {coverage?.coverageKnown ? <LabelledSquares coverage={coverage} /> : null}
     </div>
+  );
+}
+
+/**
+ * The strip with its range written under the ends it labels.
+ *
+ * The dates are what make the squares mean anything -- a run of colour says "behind"
+ * without saying since when -- so they sit under the squares they describe rather than
+ * trailing off to the right as a sentence, which put the reader's eye past the strip
+ * to find out what it spanned.
+ *
+ * Only the ends are labelled. Every bucket carries its own range in `title`, and 25
+ * dates written out would be a table, not an axis.
+ */
+function LabelledSquares({ coverage }) {
+  const squares = coverageSquares(coverage);
+  if (!squares.length) {
+    return null;
+  }
+  const first = squares[0].from;
+  const last = squares[squares.length - 1].through;
+  return (
+    <span className="mat-squares-axis">
+      <SquaresRun squares={squares} />
+      <span className="mat-squares-axis__ends">
+        <span>{first}</span>
+        {first === last ? null : <span>{last}</span>}
+      </span>
+    </span>
   );
 }
 

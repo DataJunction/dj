@@ -196,6 +196,28 @@
   color: var(--planner-text-dim);
 }
 
+/* The verdict aligns with the squares, not with the two-line block as a whole, so it
+   does not float between the strip and its date labels. */
+.mat-serving--coverage {
+  align-items: flex-start;
+}
+
+/* The strip and the dates under its ends move as one block, so the labels stay
+   pinned to the squares they describe however wide the strip gets. */
+.mat-squares-axis {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.mat-squares-axis__ends {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--planner-text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Pushed to the far edge so the table name, which is the long part, keeps the room. */
 .mat-serving__links {
   display: flex;

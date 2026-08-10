@@ -857,6 +857,34 @@ describe('MaterializationStatePanel copy', () => {
     ]);
   });
 
+  // The strip's range belongs under the strip. Written as a trailing sentence it sent
+  // the reader past the squares to find out what they spanned.
+  it('labels the ends of the coverage strip with its range', () => {
+    const { container } = renderPanel(
+      panelState([INCREMENTAL, FULL], [AVAILABILITY]),
+    );
+
+    expect(
+      [...container.querySelectorAll('.mat-squares-axis__ends span')].map(
+        end => end.textContent,
+      ),
+    ).toEqual(['20260806', '20260809']);
+    // One strip, stated once at cube scope, however many materializations feed it.
+    expect(container.querySelectorAll('.mat-squares-axis')).toHaveLength(1);
+    // Each square still carries its own range, so the ends are an axis and not the
+    // only way to read a bucket.
+    expect(
+      [...container.querySelectorAll('.mat-squares__cell')].map(cell =>
+        cell.getAttribute('title'),
+      ),
+    ).toEqual([
+      '20260806: 1 covered',
+      '20260807: 1 covered',
+      '20260808: 1 not due yet',
+      '20260809: 1 not due yet',
+    ]);
+  });
+
   // "No watermarks" named an internal concept; a reader only needs to know DJ cannot
   // tell them what is covered.
   it('calls unjudgeable coverage unknown in both A and C', async () => {
