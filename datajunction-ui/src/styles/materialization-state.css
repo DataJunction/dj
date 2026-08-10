@@ -130,40 +130,37 @@
   color: var(--planner-text-muted);
 }
 
-/* Serving and coverage as two cards, matching the materialization blocks below, so
-   every card on the page holds a left/right pair. */
+/* Serving and coverage side by side, but unboxed: the materializations below are the
+   objects on this page and are what carry a border. Boxing the summary too gave four
+   panels of identical weight, and nothing then distinguished a summary of the cube
+   from one materialization in it. The rule under this header is the separator. */
 .mat-summary {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 10px;
+  gap: 10px 32px;
   margin-top: 8px;
 }
 
-.mat-card {
+.mat-summary__item {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 5px;
   min-width: 0;
-  padding: 10px 14px 12px;
-  border: 1px solid var(--planner-border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-sm);
-  background: var(--planner-surface);
 }
 
 /* Sentence case at text weight, as the blocks' labels are: caps-and-letterspaced
    made the cube summary shout over the content it summarises. */
-.mat-card__label {
+.mat-summary__label {
   margin: 0;
   font-size: 1em;
   font-weight: 400;
   color: var(--planner-text-muted);
 }
 
-/* Links on their own line, pushed to the bottom of the card so two cards of unequal
-   height still align along their base. */
-.mat-card__links {
+/* Links on their own line, pushed to the base so the two columns still align along
+   the bottom when one runs a line longer than the other. */
+.mat-summary__links {
   display: flex;
   flex-wrap: wrap;
   gap: 14px;
@@ -333,8 +330,10 @@
    the scheduler reports what it ran. */
 .mat-item__cols {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 8px 32px;
+  /* The declared side sizes to its content rather than taking half the card, so the
+     workflows sit next to it instead of across a gutter of whitespace. */
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  gap: 8px 48px;
   align-items: start;
 }
 

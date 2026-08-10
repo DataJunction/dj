@@ -766,7 +766,7 @@ describe('MaterializationStatePanel summary cards', () => {
     );
 
     expect(
-      [...container.querySelectorAll('.mat-card')].map(
+      [...container.querySelectorAll('.mat-summary__item')].map(
         card => card.textContent,
       ),
     ).toEqual([
@@ -794,7 +794,7 @@ describe('MaterializationStatePanel summary cards', () => {
     );
 
     expect(
-      [...container.querySelectorAll('.mat-card__links a')].map(link => [
+      [...container.querySelectorAll('.mat-summary__links a')].map(link => [
         link.textContent,
         link.getAttribute('href'),
       ]),
@@ -828,7 +828,7 @@ describe('MaterializationStatePanel summary cards', () => {
       panelState([INCREMENTAL], [{ ...AVAILABILITY, valid_through_ts: null }]),
     );
 
-    expect(container.querySelector('.mat-card').textContent).toEqual(
+    expect(container.querySelector('.mat-summary__item').textContent).toEqual(
       `Serving${ELIDED}⧉update time unknownPreview →Data Explorer ↗`,
     );
     expect(
@@ -842,7 +842,7 @@ describe('MaterializationStatePanel summary cards', () => {
     expect(container.querySelector('.mat-chip')).toBeNull();
     expect(container.querySelector('.mat-squares')).toBeNull();
     expect(
-      [...container.querySelectorAll('.mat-card')].map(
+      [...container.querySelectorAll('.mat-summary__item')].map(
         card => card.textContent,
       ),
     ).toEqual([

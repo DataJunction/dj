@@ -254,12 +254,13 @@ function previewUrl(node) {
 }
 
 /**
- * Serving and coverage as two cards side by side.
+ * Serving and coverage side by side.
  *
  * They answer two different questions from two different systems -- "where is the
- * data" and "how much of it is there" -- so they get a card each rather than two rows
- * of one block. That also gives the tab one grammar: every card on the page holds a
- * left/right pair, the header included.
+ * data" and "how much of it is there" -- so they sit apart rather than as two rows of
+ * one block. Unboxed, though: the materializations below are the objects on this page
+ * and are what carry a border, and boxing this too gave four panels of identical
+ * weight with nothing to say which was the summary.
  *
  * Both are cube-scoped. Availability is keyed to the node revision, so every
  * materialization on it reports the same table and the same watermarks; stating either
@@ -269,16 +270,16 @@ function previewUrl(node) {
 function SummaryCards({ node, serving, coverage }) {
   return (
     <div className="mat-summary">
-      <section className="mat-card">
-        <h5 className="mat-card__label">Serving</h5>
+      <section className="mat-summary__item">
+        <h5 className="mat-summary__label">Serving</h5>
         {serving ? (
           <ServingCard node={node} serving={serving} />
         ) : (
           <div className="mat-dim">nothing built for this revision yet</div>
         )}
       </section>
-      <section className="mat-card">
-        <h5 className="mat-card__label">Coverage</h5>
+      <section className="mat-summary__item">
+        <h5 className="mat-summary__label">Coverage</h5>
         {serving ? (
           <CoverageCard coverage={coverage} />
         ) : (
@@ -311,7 +312,7 @@ function ServingCard({ node, serving }) {
       </div>
       {/* On their own line: alongside the freshness they read as belonging to it
           rather than to the cube. */}
-      <div className="mat-card__links">
+      <div className="mat-summary__links">
         {preview ? (
           <Link className="mat-header__link" to={preview}>
             Preview →
