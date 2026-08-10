@@ -5705,6 +5705,107 @@ class TestDeclaredCubeMaterializations:
         ]
 
     @pytest.mark.asyncio
+    async def test_cube_planner_materialization_is_left_alone(
+        self,
+        session,
+        client,
+        upstreams,
+        default_num_repair_orders,
+        mock_qs,
+    ):
+        """
+        A cube materialized by the cube planner is not adopted into the fused dialect.
+
+        The two dialects are indistinguishable by job -- `POST
+        /cubes/{name}/materialize` stores the same `DruidCubeMaterializationJob` the
+        fused path derives -- so a planner row read as intent to rebuild recovers as a
+        fused materialization: the planner's workflow stopped and a fused one
+        scheduled in its place. It is left exactly where it is instead, and the
+        warning the cube earns says something true about it.
+        """
+        namespace = "cube_mat_planner"
+        cube_name = f"{namespace}.default.repairs_cube"
+        nodes = [
+            *upstreams,
+            default_num_repair_orders,
+            self._cube(),
+        ]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert data["status"] == "success", data
+
+        cube = await Node.get_by_name(session, cube_name)
+        session.add(
+            Materialization(
+                node_revision_id=cube.current.id,
+                name="druid_cube_v3",
+                strategy=MaterializationStrategy.INCREMENTAL_TIME,
+                schedule="@daily",
+                config={"version": "v3", "workflow_names": ["planner-workflow"]},
+                job="DruidCubeMaterializationJob",
+            ),
+        )
+        await session.commit()
+        planner_row = ("druid_cube_v3", "@daily", "incremental_time", True)
+
+        # An unchanged push leaves it running, and says so in terms that apply to it:
+        # `dj pull` cannot write a block that describes a planner materialization.
+        mock_qs.reset_mock()
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert data["status"] == "success", data
+        warning = (
+            f"Cube `{cube_name}` is materialized by the cube planner, which a "
+            "`materialization:` block cannot describe, so the existing "
+            "materialization was left running. Add `materialization: none` to "
+            "remove it."
+        )
+        assert self._materialization_results(data) == [
+            (cube_name, "noop", "warning", warning),
+        ]
+        assert [item["message"] for item in data["warnings"]] == [warning]
+        assert mock_qs.method_calls == []
+        assert await self._persisted_materializations(client, cube_name) == [
+            planner_row,
+        ]
+
+        # And so does a push that gives the cube a new revision, which would
+        # otherwise carry the planner's row over as a fused one.
+        nodes[-1] = self._cube(
+            metrics=[
+                "${prefix}default.avg_length_of_employment",
+                "${prefix}default.num_repair_orders",
+            ],
+        )
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert data["status"] == "success", data
+        assert self._materialization_results(data) == []
+        assert mock_qs.method_calls == []
+        assert await self._persisted_materializations(client, cube_name) == []
+        session.expire_all()
+        assert [
+            (row.name, row.deactivated_at)
+            for row in (
+                (
+                    await session.execute(
+                        select(Materialization).where(
+                            Materialization.name == "druid_cube_v3",
+                        ),
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        ] == [("druid_cube_v3", None)]
+
+    @pytest.mark.asyncio
     async def test_serialized_spec_tears_nothing_down(
         self,
         client,

@@ -2456,7 +2456,7 @@ class DeploymentOrchestrator:
                     active.get(name, []),
                 )
             elif name in active:
-                self._warn_undeclared_materialization(name)
+                self._warn_undeclared_materialization(name, active[name])
 
     async def _active_cube_materializations(
         self,
@@ -2660,6 +2660,11 @@ class DeploymentOrchestrator:
         a workflow running against the author's stated wish. No active rows -- and no
         revision, for a cube that never deployed -- is the only no-op.
 
+        A cube planner row comes down here too, though nothing else in the deployment
+        path touches one. Everywhere else the reason to leave it alone is that DJ
+        cannot rebuild what it stops; a teardown asks for nothing to be rebuilt, and
+        the row records the workflow names needed to stop it cleanly.
+
         The rows are deactivated and their workflows stopped after the commit, by the
         same drain that applies a revision swap: a swap with nothing rebuilt is
         exactly a teardown.
@@ -2715,20 +2720,35 @@ class DeploymentOrchestrator:
             ),
         )
 
-    def _warn_undeclared_materialization(self, name: str) -> None:
+    def _warn_undeclared_materialization(
+        self,
+        name: str,
+        active: list[Materialization],
+    ) -> None:
         """
         Flag a cube that is materialized but says nothing about it in YAML.
 
         Left running on purpose. The materialization may predate the repo, or have
         been configured through the UI, and a push that has not caught up yet must
-        not silently stop a live workflow -- so the warning names both ways out
-        instead.
+        not silently stop a live workflow -- so the warning names the ways out
+        instead. Which ways those are depends on the dialect: a cube materialized
+        only by the cube planner cannot be adopted into YAML at all, since a
+        `materialization:` block has no way to describe one.
         """
         message = (
-            f"Cube `{name}` is materialized but its spec declares no "
-            "`materialization:` block, so the existing materialization was left "
-            "running. Run `dj pull` to adopt it into YAML, or add "
-            "`materialization: none` to remove it."
+            (
+                f"Cube `{name}` is materialized but its spec declares no "
+                "`materialization:` block, so the existing materialization was left "
+                "running. Run `dj pull` to adopt it into YAML, or add "
+                "`materialization: none` to remove it."
+            )
+            if any(not materialization.is_cube_planner for materialization in active)
+            else (
+                f"Cube `{name}` is materialized by the cube planner, which a "
+                "`materialization:` block cannot describe, so the existing "
+                "materialization was left running. Add `materialization: none` to "
+                "remove it."
+            )
         )
         self.warnings.append(
             DJError(

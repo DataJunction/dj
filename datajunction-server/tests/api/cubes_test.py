@@ -24,6 +24,10 @@ from datajunction_server.errors import (
     DJQueryServiceClientException,
 )
 from datajunction_server.models.cube import CubeElementMetadata
+from datajunction_server.models.materialization import (
+    MaterializationInfo,
+    MaterializationStrategy,
+)
 from datajunction_server.models.node import ColumnOutput
 from datajunction_server.models.query import ColumnMetadata, V3ColumnMetadata
 from datajunction_server.service_clients import QueryServiceClient
@@ -6831,3 +6835,118 @@ class TestStopStaleCubeMaterializationWorkflows:
             ("v1.0", self.MATERIALIZATION_NAME, True),
             ("v1.1", self.MATERIALIZATION_NAME, False),
         ]
+
+    @pytest.mark.asyncio
+    async def test_cube_planner_materialization_is_not_swapped(
+        self,
+        client_with_repairs_cube: AsyncClient,
+        module__session: AsyncSession,
+        mocker,
+    ):
+        """
+        A cube planner materialization is not carried onto the new revision.
+
+        The two cube dialects are indistinguishable by job -- `POST
+        /cubes/{name}/materialize` stores the same `DruidCubeMaterializationJob` the
+        fused path derives -- so a planner row read as intent to rebuild recovers as
+        a fused materialization. On a cube that has both, the two rebuilds derive one
+        name and the edit dies on `name_node_revision_uniq`, after the new revision
+        has already been committed. The planner's row is left where it is instead,
+        still active, and the fused one swaps as it always did.
+        """
+        cube_name = "default.stop_workflows_cube_planner"
+        response = await client_with_repairs_cube.post(
+            "/nodes/cube/",
+            json={
+                "metrics": list(self.METRICS),
+                "dimensions": list(self.DIMENSIONS),
+                "description": "Cube of repair metrics",
+                "mode": "published",
+                "name": cube_name,
+            },
+        )
+        assert response.status_code < 400, response.json()
+        response = await client_with_repairs_cube.post(
+            f"/nodes/{cube_name}/columns/default.hard_hat.hire_date/partition",
+            json={"type_": "temporal", "granularity": "day", "format": "yyyyMMdd"},
+        )
+        assert response.status_code < 400, response.json()
+
+        qs_client = client_with_repairs_cube.app.dependency_overrides[
+            get_query_service_client
+        ]()
+        mocker.patch.object(
+            qs_client,
+            "materialize_cube",
+            return_value=MaterializationInfo(
+                urls=["http://fake.url/job"],
+                output_tables=[],
+            ),
+        )
+        response = await client_with_repairs_cube.post(
+            f"/nodes/{cube_name}/materialization/",
+            json={
+                "job": "druid_cube",
+                "strategy": "incremental_time",
+                "schedule": "@daily",
+                "lookback_window": "1 DAY",
+            },
+        )
+        assert response.status_code < 400, response.json()
+
+        # The planner's row is written directly: its own endpoint needs pre-agg
+        # tables that this fixture's cube does not have.
+        revision_id = (
+            await module__session.execute(
+                select(NodeRevision.id).where(NodeRevision.name == cube_name),
+            )
+        ).scalar_one()
+        module__session.add(
+            Materialization(
+                node_revision_id=revision_id,
+                name="druid_cube_v3",
+                strategy=MaterializationStrategy.INCREMENTAL_TIME,
+                schedule="@daily",
+                config={"version": "v3", "workflow_names": ["planner-workflow"]},
+                job="DruidCubeMaterializationJob",
+            ),
+        )
+        await module__session.commit()
+
+        mock_deactivate_cube_workflow = mocker.patch.object(
+            qs_client,
+            "deactivate_cube_workflow",
+            return_value={"status": "deactivated"},
+        )
+        mock_deactivate_workflows = mocker.patch.object(
+            qs_client,
+            "deactivate_workflows",
+            return_value={"status": "deactivated"},
+        )
+
+        response = await client_with_repairs_cube.patch(
+            f"/nodes/{cube_name}",
+            json={
+                "dimensions": [
+                    "default.hard_hat.state",
+                    "default.hard_hat.hire_date",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["version"] == "v2.0"
+
+        fused_name = "druid_cube__incremental_time__default.hard_hat.hire_date"
+        assert await self._materialization_states(module__session, cube_name) == [
+            ("v1.0", fused_name, True),
+            ("v1.0", "druid_cube_v3", False),
+            ("v2.0", fused_name, False),
+        ]
+        # The planner's workflow is not among those stopped: only the fused row is
+        # superseded, and it carries no workflow names of its own.
+        assert mock_deactivate_workflows.call_args_list == []
+        mock_deactivate_cube_workflow.assert_called_once_with(
+            cube_name,
+            version="v1.0",
+            request_headers=mock.ANY,
+        )

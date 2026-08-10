@@ -415,6 +415,10 @@ async def reconcile_declared_materialization(
     derived from job, strategy and partition, so declaring a strategy the cube was
     not already materialized with builds a differently named row, and without this
     the cube ends up with two live workflows deleting each other's data.
+
+    A cube planner row is the one thing left alone. It writes a datasource of its own
+    and DJ cannot rebuild it from a declared block, so superseding it would stop a
+    workflow nothing here can replace.
     """
     # Snapshotted before the build, which sets the new materialization's backref and
     # so appends it to this very collection -- searching afterwards would find the
@@ -437,7 +441,9 @@ async def reconcile_declared_materialization(
         None,
     )
     superseded = [
-        mat for mat in before if mat.name != built.name and not mat.deactivated_at
+        mat
+        for mat in before
+        if mat.name != built.name and not mat.deactivated_at and not mat.is_cube_planner
     ]
     for materialization in superseded:
         materialization.deactivated_at = UTCDatetime.now(UTC)  # type: ignore
@@ -503,8 +509,17 @@ async def swap_cube_materializations(
     a query service that is slow or unreachable can neither hold the transaction open
     nor leave DJ's record of what is active disagreeing with what was requested.
     """
+    # A cube planner row is not swapped. It is written by `POST
+    # /cubes/{name}/materialize` in a dialect this rebuild cannot produce -- and,
+    # since both dialects are stored under the same job class, feeding one through
+    # here recovers it as a fused materialization: the planner's workflow stopped, a
+    # fused one scheduled in its place, and a name that collides with the fused row
+    # of a cube that has both. Left where it is until the planner is asked to rebuild
+    # it, which is the only thing that can.
     superseded = [
-        mat for mat in old_revision.materializations if not mat.deactivated_at
+        mat
+        for mat in old_revision.materializations
+        if not mat.deactivated_at and not mat.is_cube_planner
     ]
     if not superseded:
         return None

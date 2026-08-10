@@ -19,7 +19,10 @@ from sqlalchemy.orm import Mapped, joinedload, mapped_column, relationship
 from datajunction_server.database.backfill import Backfill
 from datajunction_server.database.base import Base
 from datajunction_server.database.column import Column
-from datajunction_server.models.cube_materialization import DruidCubeV3Config
+from datajunction_server.models.cube_materialization import (
+    DRUID_CUBE_V3_MATERIALIZATION_NAME,
+    DruidCubeV3Config,
+)
 from datajunction_server.models.materialization import (
     DruidMeasuresCubeConfig,
     GenericMaterializationConfig,
@@ -100,6 +103,23 @@ class Materialization(Base):
         cascade="all, delete",
         lazy="selectin",
     )
+
+    @property
+    def is_cube_planner(self) -> bool:
+        """
+        Whether this row was written by the cube planner (v3) rather than by the
+        fused cube materialization path.
+
+        The two dialects are indistinguishable by job: `POST /cubes/{name}/materialize`
+        persists the same `DruidCubeMaterializationJob` the fused path derives. What
+        separates them is the row name the planner writes and the version
+        discriminator its config carries, either of which is enough to recognize.
+        """
+        config = self.config if isinstance(self.config, dict) else {}
+        return (
+            self.name == DRUID_CUBE_V3_MATERIALIZATION_NAME
+            or config.get("version") == "v3"
+        )
 
     @classmethod
     async def get_by_names(
