@@ -105,29 +105,28 @@
 
 .mat-header {
   border-bottom: 1px solid var(--planner-border);
-  padding-bottom: 10px;
-  margin-bottom: 12px;
+  padding-bottom: 12px;
+  margin-bottom: 14px;
 }
 
-.mat-header__title {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  /* Clears the absolutely-positioned layout switcher, which was overlapping and
-     clipping the count. Goes with the switcher when it goes. */
+/* Names each group. Without these the panel was headed `Materializations` with
+   serving and coverage under it -- neither of which is a materialization -- and the
+   materializations themselves had no heading at all. */
+.mat-section {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--planner-text-dim);
+  /* Clears the absolutely-positioned layout switcher. Goes with it. */
   padding-right: 90px;
 }
 
-.mat-header__title h4 {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.mat-header__count {
-  font-size: 13px;
-  color: var(--planner-text-muted);
+.mat-section__count {
+  margin-left: 4px;
+  color: var(--planner-text-dim);
+  font-weight: 400;
 }
 
 /* Serving and coverage side by side, but unboxed: the materializations below are the
@@ -593,4 +592,25 @@
   max-width: 78ch;
   color: var(--planner-text-muted);
   line-height: 1.5;
+}
+
+/* --- Revision selector ----------------------------------------------------- */
+
+.mat-version-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--planner-text-dim, #94a3b8);
+}
+
+.mat-version-select {
+  padding: 3px 8px;
+  border: 1px solid var(--planner-border, #e2e8f0);
+  border-radius: 4px;
+  background: #ffffff;
+  font: inherit;
+  font-size: 13px;
+  color: inherit;
+  cursor: pointer;
 }

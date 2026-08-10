@@ -377,16 +377,18 @@ function CoverageCard({ coverage }) {
   );
 }
 
-function CubeHeader({ state, mats, serving, coverage }) {
+/**
+ * The cube's output, above the builds that produce it.
+ *
+ * The panel used to be headed `Materializations` with serving and coverage directly
+ * beneath it -- naming the wrong group, since neither is a materialization, and
+ * leaving the actual materializations below with no heading at all. The heading is
+ * also redundant: this panel only ever renders inside a tab called Materializations.
+ */
+function CubeHeader({ state, serving, coverage }) {
   return (
     <div className="mat-header">
-      <div className="mat-header__title">
-        <h4>Materializations</h4>
-        <span className="mat-header__count">
-          {plural(mats.length, 'materialization')} configured
-          {state.node.version ? ` · ${state.node.version}` : ''}
-        </span>
-      </div>
+      <h4 className="mat-section">Output</h4>
       <SummaryCards node={state.node} serving={serving} coverage={coverage} />
     </div>
   );
@@ -796,12 +798,11 @@ export default function MaterializationStatePanel({ state }) {
           </button>
         ))}
       </div>
-      <CubeHeader
-        state={state}
-        mats={mats}
-        serving={serving}
-        coverage={coverage}
-      />
+      <CubeHeader state={state} serving={serving} coverage={coverage} />
+      <h4 className="mat-section">
+        Materializations{' '}
+        <span className="mat-section__count">{mats.length}</span>
+      </h4>
       {/* Keyed by index as well: the same materialization name recurs across cube
           revisions, so the name alone is not unique within a node. */}
       <Layout mats={mats} />

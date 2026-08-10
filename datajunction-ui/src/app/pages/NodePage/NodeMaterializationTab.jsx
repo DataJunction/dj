@@ -5,8 +5,6 @@ import * as React from 'react';
 import AddBackfillPopover from './AddBackfillPopover';
 import { labelize } from '../../../utils/form';
 import NodeMaterializationDelete from '../../components/NodeMaterializationDelete';
-import Tab from '../../components/Tab';
-import NodeRevisionMaterializationTab from './NodeRevisionMaterializationTab';
 import AvailabilityStateBlock from './AvailabilityStateBlock';
 import MaterializationStatePanel from './MaterializationStatePanel';
 import { toMaterializationState } from './materializationState';
@@ -257,29 +255,35 @@ export default function NodeMaterializationTab({
           marginBottom: '20px',
         }}
       >
-        {/* Not a `.row`: `.row > *` is Bootstrap's grid rule and forces every child
-            to `width: 100%`, so inside a wrapping flex container each version tab
-            took a whole line and four revisions became a 250px vertical list. */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            flexWrap: 'wrap',
-            gap: '4px',
-          }}
+        {/* A select, not a tab strip. As tabs these were the same blue-underline
+            control as the page's own Info/Columns/... nav, sitting directly beneath
+            it, so neither row read as the primary navigation. */}
+        <label
+          style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+          htmlFor="materialization-version"
         >
-          {sortedVersions.map(version => (
-            <NodeRevisionMaterializationTab
-              key={version}
-              version={version}
-              node={node}
-              selectedRevisionTab={selectedRevisionTab}
-              onClickRevisionTab={onClickRevisionTab}
-              showInactive={showInactive}
-              versionHasOnlyInactive={versionHasOnlyInactive}
-            />
-          ))}
-        </div>
+          <span className="mat-version-label">Version</span>
+          <select
+            id="materialization-version"
+            className="mat-version-select"
+            value={selectedRevisionTab || ''}
+            onChange={event => onClickRevisionTab(event.target.value)()}
+          >
+            {sortedVersions.map(version => {
+              const info = versionHasOnlyInactive[version];
+              // Inactive-only versions were drawn as a grey pill; a select has no
+              // room for that, so the state is said rather than styled.
+              const isOnlyInactive =
+                info && !info.hasActive && info.hasInactive;
+              return (
+                <option key={version} value={version}>
+                  {version === node?.version ? `${version} (latest)` : version}
+                  {isOnlyInactive && showInactive ? ' — inactive only' : ''}
+                </option>
+              );
+            })}
+          </select>
+        </label>
         <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
           <label
             style={{
