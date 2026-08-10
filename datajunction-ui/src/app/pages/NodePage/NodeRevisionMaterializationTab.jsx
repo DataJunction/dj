@@ -14,35 +14,31 @@ export default function NodeRevisionMaterializationTab({
   const isOnlyInactive =
     versionInfo && !versionInfo.hasActive && versionInfo.hasInactive;
 
-  // For inactive-only versions, render with oval styling
+  // For inactive-only versions, render with oval styling.
+  //
+  // A bare button, as `Tab` renders below: the `.col` and nav-tabs wrappers this sat
+  // in carried `padding: 1.5rem` plus their own tab chrome, so one version chip
+  // became a 24px-padded block sitting out of line with its neighbours.
   if (isOnlyInactive && showInactive) {
     return (
-      <div
+      <button
         key={version}
-        className={selectedRevisionTab === version ? 'col active' : 'col'}
+        id={version}
+        className={
+          selectedRevisionTab === version ? 'dj-tab dj-tab--active' : 'dj-tab'
+        }
+        tabIndex="0"
+        onClick={onClickRevisionTab(version)}
+        aria-label={tabName}
+        aria-hidden="false"
+        style={{
+          borderRadius: '12px',
+          backgroundColor: '#f5f5f5',
+          border: '1px solid #ddd',
+        }}
       >
-        <div className="header-tabs nav-overflow nav nav-tabs">
-          <div className="nav-item">
-            <button
-              id={version}
-              className="nav-link"
-              tabIndex="0"
-              onClick={onClickRevisionTab(version)}
-              aria-label={tabName}
-              aria-hidden="false"
-              style={{
-                padding: '4px 8px',
-                borderRadius: '12px',
-                backgroundColor: '#f5f5f5',
-                border: '1px solid #ddd',
-                margin: '0 2px',
-              }}
-            >
-              {tabName}
-            </button>
-          </div>
-        </div>
-      </div>
+        {tabName}
+      </button>
     );
   }
 

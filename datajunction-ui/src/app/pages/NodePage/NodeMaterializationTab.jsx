@@ -257,7 +257,17 @@ export default function NodeMaterializationTab({
           marginBottom: '20px',
         }}
       >
-        <div className="align-items-center row">
+        {/* Not a `.row`: `.row > *` is Bootstrap's grid rule and forces every child
+            to `width: 100%`, so inside a wrapping flex container each version tab
+            took a whole line and four revisions became a 250px vertical list. */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '4px',
+          }}
+        >
           {sortedVersions.map(version => (
             <NodeRevisionMaterializationTab
               key={version}
