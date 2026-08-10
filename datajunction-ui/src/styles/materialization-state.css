@@ -113,12 +113,15 @@
    serving and coverage under it -- neither of which is a materialization -- and the
    materializations themselves had no heading at all. */
 .mat-section {
-  margin: 0 0 8px;
+  margin: 0 0 10px;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--planner-text-dim);
+  letter-spacing: 0.08em;
+  /* Darker than a field label. At the same dim grey, `Output` and `Serving` were the
+     same size, weight and colour, so the group read as a sibling of its own contents
+     rather than as their heading. */
+  color: var(--planner-text-muted);
   /* Clears the absolutely-positioned layout switcher. Goes with it. */
   padding-right: 90px;
 }
@@ -135,9 +138,13 @@
    from one materialization in it. The rule under this header is the separator. */
 .mat-summary {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  /* The same template and the same left offset as a card's `.mat-item__cols`, so
+     Coverage starts where Workflows starts and the page has one second column
+     instead of one per region. */
+  grid-template-columns: 360px minmax(0, 1fr);
   gap: 10px 32px;
   margin-top: 8px;
+  padding-left: 14px;
 }
 
 .mat-summary__item {
@@ -336,10 +343,11 @@
    the scheduler reports what it ran. */
 .mat-item__cols {
   display: grid;
-  /* The declared side sizes to its content rather than taking half the card, so the
-     workflows sit next to it instead of across a gutter of whitespace. */
-  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
-  gap: 8px 48px;
+  /* Fixed, not `auto`. Sized to content, each card measured its own left column, so a
+     card with a Lookback row and a wider cron pushed its workflows further right than
+     the card above it -- two cards of the same shape that did not line up. */
+  grid-template-columns: 360px minmax(0, 1fr);
+  gap: 8px 32px;
   align-items: start;
 }
 
@@ -348,10 +356,18 @@
    labels put more weight on the labels than on the five short values they name. */
 .mat-facts {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  /* Also fixed, for the same reason one level down: `Lookback` is wider than
+     `Partition`, so an incremental card indented its values past a full one's. */
+  grid-template-columns: 84px minmax(0, 1fr);
   gap: 3px 14px;
   margin: 0;
   line-height: 1.5;
+}
+
+/* `backfill` is wider than `main`, which otherwise moved the run states of a card
+   with two workflows out of line with a card that has one. */
+.mat-activity .mat-facts {
+  grid-template-columns: 96px minmax(0, 1fr);
 }
 
 .mat-facts dt {
