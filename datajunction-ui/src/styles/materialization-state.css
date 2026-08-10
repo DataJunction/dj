@@ -149,13 +149,20 @@
   min-width: 0;
 }
 
-/* Sentence case at text weight, as the blocks' labels are: caps-and-letterspaced
-   made the cube summary shout over the content it summarises. */
-.mat-summary__label {
+/* One label treatment for the whole panel: small caps, letterspaced, dim. At the
+   13px body size this read as shouting; at 14px it reads as a label, and a label that
+   looks like body text is not doing its job -- `Serving` sat at the same size and
+   weight as the table name it named. */
+.mat-summary__label,
+.mat-facts dt,
+.mat-activity__label {
   margin: 0;
-  font-size: 1em;
-  font-weight: 400;
-  color: var(--planner-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--planner-text-dim);
+  white-space: nowrap;
 }
 
 /* Links on their own line, pushed to the base so the two columns still align along
@@ -349,8 +356,9 @@
 }
 
 .mat-facts dt {
-  color: var(--planner-text-muted);
-  white-space: nowrap;
+  /* Nudged onto the value's baseline: 11px caps beside 14px text otherwise ride
+     high enough to look like a different row. */
+  padding-top: 3px;
 }
 
 .mat-facts dd {
@@ -361,8 +369,7 @@
 /* Matches a `dt`, so the heading reads as one more label rather than as a section
    title competing with the materialization's own name. */
 .mat-activity__label {
-  color: var(--planner-text-muted);
-  margin-bottom: 3px;
+  margin-bottom: 5px;
 }
 
 /* A rounded rect rather than the strategy badge's pill, so the two do not read as
