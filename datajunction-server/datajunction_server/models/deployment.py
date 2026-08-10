@@ -24,7 +24,10 @@ from datajunction_server.models.dimensionlink import (
     SparkJoinStrategy,
 )
 from datajunction_server.models.impact import DownstreamImpact
-from datajunction_server.models.materialization import MaterializationStrategy
+from datajunction_server.models.materialization import (
+    DEFAULT_CUBE_RETENTION,
+    MaterializationStrategy,
+)
 from datajunction_server.models.node import (
     MetricDirection,
     MetricUnit,
@@ -229,16 +232,20 @@ class MaterializationSpec(BaseModel):
     """
     Declarative materialization config for a cube.
 
-    Deliberately carries only what the author decides: when to build, how, and
-    how far back to look. The backend that runs it (and everything it derives --
-    the measures queries, combiner SQL, Druid spec, output tables) is DJ's
-    choice, so no `job` field is exposed here and the block stays portable if
-    that choice changes.
+    Deliberately carries only what the author decides: when to build, how, how
+    far back to look, and how long the result is kept. The backend that runs it
+    (and everything it derives -- the measures queries, combiner SQL, Druid spec,
+    output tables) is DJ's choice, so no `job` field is exposed here and the
+    block stays portable if that choice changes.
     """
 
     schedule: str
     strategy: MaterializationStrategy = MaterializationStrategy.INCREMENTAL_TIME
     lookback_window: str | None = "1 DAY"
+
+    # Unlike `lookback_window`, this is meaningful under both strategies: a full
+    # rebuild is exactly the case that loads the widest span of history.
+    retention: str | None = DEFAULT_CUBE_RETENTION
 
     @model_validator(mode="after")
     def clear_lookback_for_full(self) -> "MaterializationSpec":

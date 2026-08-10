@@ -14,6 +14,7 @@ from datajunction_server.models.decompose import (
     MetricComponent,
 )
 from datajunction_server.models.materialization import (
+    DEFAULT_CUBE_RETENTION,
     DRUID_AGG_MAPPING,
     MaterializationJobTypeEnum,
     MaterializationStrategy,
@@ -274,6 +275,9 @@ class UpsertCubeMaterialization(BaseModel):
     # Lookback window, only relevant if materialization strategy is INCREMENTAL_TIME
     lookback_window: str | None = "1 DAY"
 
+    # How long the Druid datasource keeps ingested data. Applies under both strategies.
+    retention: str | None = DEFAULT_CUBE_RETENTION
+
     @field_validator("job")
     def validate_job(
         cls,
@@ -465,6 +469,10 @@ class DruidCubeConfig(BaseModel):
     # Lookback window, only relevant if materialization strategy is INCREMENTAL_TIME
     lookback_window: str | None = "1 DAY"
 
+    # How long the Druid datasource keeps ingested data. Applies under both strategies.
+    # Configs persisted before this field existed pick up the default on their next build.
+    retention: str | None = DEFAULT_CUBE_RETENTION
+
 
 class DruidCubeMaterializationInput(BaseModel):
     """
@@ -483,6 +491,10 @@ class DruidCubeMaterializationInput(BaseModel):
     schedule: str
     job: str
     lookback_window: str | None = "1 DAY"
+
+    # Retention for the target Druid datasource, applied by the query service through
+    # Druid's coordinator API.
+    retention: str | None = DEFAULT_CUBE_RETENTION
 
     # List of measures materializations
     measures_materializations: list[MeasuresMaterialization]

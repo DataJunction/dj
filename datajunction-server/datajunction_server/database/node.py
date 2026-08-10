@@ -72,7 +72,10 @@ from datajunction_server.models.deployment import (
     SourceSpec,
     TransformSpec,
 )
-from datajunction_server.models.materialization import MaterializationJobTypeEnum
+from datajunction_server.models.materialization import (
+    DEFAULT_CUBE_RETENTION,
+    MaterializationJobTypeEnum,
+)
 from datajunction_server.models.node import (
     DEFAULT_DRAFT_VERSION,
     BuildCriteria,
@@ -689,7 +692,7 @@ class Node(Base):
         """
         Project this cube's persisted materialization back into the declarative form.
 
-        Only the three authored fields round-trip. Everything else on the stored
+        Only the authored fields round-trip. Everything else on the stored
         config -- measures queries, combiner SQL, the Druid spec, output tables --
         is derived by DJ on every build, so re-exporting it would put generated
         artifacts into a hand-edited file and make the YAML churn on each rebuild.
@@ -723,6 +726,9 @@ class Node(Base):
             schedule=materialization.schedule,
             strategy=materialization.strategy,
             lookback_window=config.get("lookback_window"),
+            # Configs persisted before `retention` existed will be built with the
+            # default on their next run, so that is what the export should show.
+            retention=config.get("retention", DEFAULT_CUBE_RETENTION),
         )
 
     @classmethod

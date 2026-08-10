@@ -341,6 +341,7 @@ async def cube_materialization_info(
         strategy=upsert.strategy,
         schedule=upsert.schedule,
         job=upsert.job.name,  # type: ignore
+        retention=cube_config.retention,
         measures_materializations=cube_config.measures_materializations,
         combiners=cube_config.combiners,
     )
