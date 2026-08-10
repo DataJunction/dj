@@ -114,7 +114,16 @@ class TestResourceMatching:
 
     @pytest.mark.parametrize(
         "pattern",
-        [".*", "**", "finance*", "finance.", ".finance", "finance..sub", "fin*ance"],
+        [
+            "",
+            ".*",
+            "**",
+            "finance*",
+            "finance.",
+            ".finance",
+            "finance..sub",
+            "fin*ance",
+        ],
     )
     @pytest.mark.parametrize("resource", ["anything", "finance", "finance.revenue"])
     def test_patterns_outside_the_grammar_match_nothing(self, pattern, resource):
@@ -158,7 +167,9 @@ class TestScopeContainment:
         "granted_type,granted_value,delegated_type,delegated_value,expected",
         [
             (ResourceType.NAMESPACE, "*", ResourceType.NAMESPACE, "*", True),
-            (ResourceType.NAMESPACE, "", ResourceType.NAMESPACE, "finance", True),
+            # Blank is outside the grammar, so it delegates nothing -- the global
+            # grant is spelled "*".
+            (ResourceType.NAMESPACE, "", ResourceType.NAMESPACE, "finance", False),
             (ResourceType.NAMESPACE, "finance.*", ResourceType.NAMESPACE, "*", False),
             (ResourceType.NODE, "*", ResourceType.NODE, "*", True),
             (ResourceType.NODE, "finance.*", ResourceType.NODE, "*", False),
@@ -1444,14 +1455,19 @@ class TestCrossResourceTypePermissions:
 class TestGlobalAccessScope:
     """Tests for global access (empty or * scope_value)."""
 
-    async def test_empty_scope_grants_global_access(
+    async def test_empty_scope_grants_nothing(
         self,
-        # client_with_basic: AsyncClient,
         session: AsyncSession,
         default_user: User,
     ):
-        """Test that empty scope_value grants access to all resources of that type."""
-        # Create role with empty scope_value (global)
+        """
+        A blank scope_value grants nothing, through the full has_permission path.
+
+        Blank is outside the grammar -- the global scope is spelled "*", which
+        scope input has required since #2339. Evaluation used to read blanks as
+        global, so a legacy or out-of-band row granted every resource of its
+        type; the API rejects such a value, so nothing can create one now.
+        """
         role = Role(name="global-reader", created_by_id=default_user.id)
         session.add(role)
         await session.flush()
@@ -1460,7 +1476,7 @@ class TestGlobalAccessScope:
             role_id=role.id,
             action=ResourceAction.READ,
             scope_type=ResourceType.NAMESPACE,
-            scope_value="",  # Global! (empty string)
+            scope_value="",  # Outside the grammar; written directly, not via the API
         )
         session.add(scope)
 
@@ -1476,31 +1492,17 @@ class TestGlobalAccessScope:
         await session.refresh(default_user)
         user = await get_user(username=default_user.username, session=session)
 
-        # Should grant for any namespace
-        result1 = RBACAuthorizationService.has_permission(
-            assignments=user.role_assignments,
-            action=ResourceAction.READ,
-            resource_type=ResourceType.NAMESPACE,
-            resource_name="finance.revenue",
-        )
-        assert result1 is True
-
-        result2 = RBACAuthorizationService.has_permission(
-            assignments=user.role_assignments,
-            action=ResourceAction.READ,
-            resource_type=ResourceType.NAMESPACE,
-            resource_name="marketing.anything",
-        )
-        assert result2 is True
-
-        # Should NOT grant for different resource type
-        result3 = RBACAuthorizationService.has_permission(
-            assignments=user.role_assignments,
-            action=ResourceAction.READ,
-            resource_type=ResourceType.NODE,  # Different type
-            resource_name="finance.revenue",
-        )
-        assert result3 is False
+        for resource_type in (ResourceType.NAMESPACE, ResourceType.NODE):
+            for resource_name in ("finance.revenue", "marketing.anything", "finance"):
+                assert (
+                    RBACAuthorizationService.has_permission(
+                        assignments=user.role_assignments,
+                        action=ResourceAction.READ,
+                        resource_type=resource_type,
+                        resource_name=resource_name,
+                    )
+                    is False
+                ), f"blank scope granted {resource_type.value} {resource_name}"
 
     async def test_star_scope_grants_global_access(
         self,

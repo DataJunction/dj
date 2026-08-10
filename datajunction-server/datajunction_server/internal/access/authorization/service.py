@@ -406,17 +406,20 @@ class RBACAuthorizationService(AuthorizationService):
 
         Handles:
         1. Permission hierarchy (MANAGE > DELETE > WRITE > READ, EXECUTE > READ)
-        2. Empty/None scope_value or "*" = global access
+        2. "*" scope_value = global access, within the scope's own resource type
         3. Wildcard pattern matching (finance.*)
         4. Cross-resource-type: namespace scope covers nodes in that namespace
+
+        Values outside the supported grammar, blanks included, grant nothing.
         """
         # Check permission hierarchy: does scope.action grant the requested action?
         granted_actions = cls.PERMISSION_HIERARCHY.get(scope.action, {scope.action})
         if action not in granted_actions:
             return False
 
-        # Handle global access (empty string, None, or "*" scope_value)
-        if not scope.scope_value or scope.scope_value == "" or scope.scope_value == "*":
+        # Handle global access. Blank is not global -- it is outside the grammar,
+        # so it falls through to the matcher below and grants nothing.
+        if scope.scope_value == "*":
             # Global scope matches any resource of the same type
             return scope.scope_type == resource_type
 
