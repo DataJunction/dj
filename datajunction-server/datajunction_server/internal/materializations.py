@@ -389,12 +389,13 @@ async def reconcile_declared_materialization(
     *,
     access_checker: AccessChecker,
     current_user: User,
-) -> tuple[Materialization, bool]:
+) -> tuple[Materialization, bool, list[Materialization]]:
     """
     Bring a cube revision's materialization in line with its declared block.
 
-    Returns the materialization and whether anything actually changed, so a deploy
-    that re-declares what is already configured can skip the query service entirely.
+    Returns the materialization, whether anything actually changed -- so a deploy
+    that re-declares what is already configured can skip the query service entirely
+    -- and the materializations the block superseded.
 
     Mirrors what `POST /nodes/{name}/materialization/` does -- build the config, then
     update the row of the same name in place rather than inserting a second one,
@@ -403,6 +404,17 @@ async def reconcile_declared_materialization(
     columns rather than config keys, so by that test a schedule-only edit compares
     equal and is silently dropped. Rescheduling is the whole point of a declared
     block, so all three are compared here.
+
+    A declared block describes *the* materialization for its cube, so every other
+    active row on the revision is deactivated. The rule is "any active row whose name
+    the block did not build" rather than "any row of the same job type", because a
+    cube's materializations are all writing one Druid datasource and a full rebuild
+    replaces that datasource wholesale -- so a legacy `druid_measures_cube` row is
+    just as much a competing writer as a second `druid_cube` row, and matching on job
+    type would leave it running. The name is what carries the difference: it is
+    derived from job, strategy and partition, so declaring a strategy the cube was
+    not already materialized with builds a differently named row, and without this
+    the cube ends up with two live workflows deleting each other's data.
     """
     # Snapshotted before the build, which sets the new materialization's backref and
     # so appends it to this very collection -- searching afterwards would find the
@@ -424,9 +436,14 @@ async def reconcile_declared_materialization(
         (mat for mat in before if mat.name == built.name),
         None,
     )
+    superseded = [
+        mat for mat in before if mat.name != built.name and not mat.deactivated_at
+    ]
+    for materialization in superseded:
+        materialization.deactivated_at = UTCDatetime.now(UTC)  # type: ignore
     if existing is None:
         session.add(built)
-        return built, True
+        return built, True, superseded
 
     # `create_new_materialization` sets the backref, which would insert a duplicate
     # row alongside the one being updated.
@@ -436,14 +453,15 @@ async def reconcile_declared_materialization(
         and existing.schedule == built.schedule
         and existing.strategy == built.strategy
         and existing.deactivated_at is None
+        and not superseded
     )
     if unchanged:
-        return existing, False
+        return existing, False, superseded
     existing.config = built.config
     existing.schedule = built.schedule
     existing.strategy = built.strategy
     existing.deactivated_at = None
-    return existing, True
+    return existing, True, superseded
 
 
 async def swap_cube_materializations(
@@ -525,6 +543,14 @@ async def swap_cube_materializations(
                 access_checker,
                 current_user=current_user,
             )
+            if new_materialization.name in {mat.name for mat in rebuilt}:
+                # Two superseded rows can rebuild to one name -- a cube left with both
+                # a `full` and an `incremental_time` materialization, rebuilt under a
+                # declared block that names one strategy for both. `(name,
+                # node_revision_id)` is unique, so the second is dropped rather than
+                # failing the whole cube edit on an integrity error.
+                new_materialization.node_revision = None  # type: ignore
+                continue
             # `create_new_materialization` only sets the backref, and `new_revision`
             # is already persisted here, so nothing cascades the new row in for us.
             session.add(new_materialization)

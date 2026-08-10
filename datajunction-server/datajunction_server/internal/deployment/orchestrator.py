@@ -2539,7 +2539,11 @@ class DeploymentOrchestrator:
             # assert narrows the Optional for mypy.
             assert access_checker is not None
             try:
-                materialization, changed = await reconcile_declared_materialization(
+                (
+                    materialization,
+                    changed,
+                    superseded,
+                ) = await reconcile_declared_materialization(
                     self.session,
                     revision,
                     block,
@@ -2595,12 +2599,31 @@ class DeploymentOrchestrator:
                             "schedule": block.schedule,
                             "strategy": block.strategy.value,
                             "lookback_window": block.lookback_window,
+                            "superseded_materializations": [
+                                mat.name for mat in superseded
+                            ],
                         },
                         user=self._history_user,
                     ),
                 )
-                # Nothing is superseded: the row was updated in place, so the workflow
-                # it names is replaced by scheduling it again rather than stopped.
+                if superseded:
+                    # Stopped before the declared materialization is scheduled, and as
+                    # its own unit of work, because both sit on the same cube version:
+                    # a superseded row with no workflow names of its own falls back to
+                    # the stop-by-cube-and-version endpoint, which would take the
+                    # replacement down with it if that had already been scheduled.
+                    self._cube_materialization_swaps.append(
+                        CubeMaterializationSwap(
+                            cube_name=revision.name,
+                            previous_version=revision.version,
+                            new_revision_id=revision.id,
+                            new_version=revision.version,
+                            rebuilt_names=[],
+                            superseded=superseded,
+                        ),
+                    )
+                # The row itself was updated in place, so the workflow it names is
+                # replaced by scheduling it again rather than stopped.
                 self._cube_materialization_swaps.append(
                     CubeMaterializationSwap(
                         cube_name=revision.name,
