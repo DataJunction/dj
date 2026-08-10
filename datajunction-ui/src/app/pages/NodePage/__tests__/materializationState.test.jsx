@@ -747,7 +747,7 @@ const panelState = (materializations, availability) =>
     now: NOW,
   });
 
-describe('MaterializationStatePanel serving line', () => {
+describe('MaterializationStatePanel summary cards', () => {
   // Freshness is relative, so the clock has to be pinned or the assertion rots.
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -758,14 +758,26 @@ describe('MaterializationStatePanel serving line', () => {
     vi.useRealTimers();
   });
 
-  it('collapses table, freshness and links onto one line', () => {
+  // Two cards, because they answer two questions from two systems: where the data is,
+  // and how much of it is there.
+  it('states serving and coverage as two cube-scoped cards', () => {
     const { container } = renderPanel(
-      panelState([INCREMENTAL], [AVAILABILITY]),
+      panelState([INCREMENTAL, FULL], [AVAILABILITY]),
     );
 
-    expect(container.querySelector('.mat-serving').textContent).toEqual(
-      `${ELIDED}⧉·updated 2d agoPreview →Data Explorer ↗`,
-    );
+    expect(
+      [...container.querySelectorAll('.mat-card')].map(
+        card => card.textContent,
+      ),
+    ).toEqual([
+      `Serving${ELIDED}⧉updated 2d agoPreview →Data Explorer ↗`,
+      // One card however many materializations feed the cube: availability is keyed
+      // to the revision, so both of these report the same watermarks. On target
+      // rather than behind because a trailing partition is only a gap once every
+      // materialization has had its last chance at it, and the incremental build's
+      // 3 DAY lookback still gives it one.
+      'Coverage● On target20260806→20260809',
+    ]);
     // Elided on screen, whole in `title` and on the clipboard.
     expect(container.querySelector('.mat-chip').getAttribute('title')).toEqual(
       FULL_NAME,
@@ -782,7 +794,7 @@ describe('MaterializationStatePanel serving line', () => {
     );
 
     expect(
-      [...container.querySelectorAll('.mat-serving__links a')].map(link => [
+      [...container.querySelectorAll('.mat-card__links a')].map(link => [
         link.textContent,
         link.getAttribute('href'),
       ]),
@@ -816,8 +828,8 @@ describe('MaterializationStatePanel serving line', () => {
       panelState([INCREMENTAL], [{ ...AVAILABILITY, valid_through_ts: null }]),
     );
 
-    expect(container.querySelector('.mat-serving').textContent).toEqual(
-      `${ELIDED}⧉·update time unknownPreview →Data Explorer ↗`,
+    expect(container.querySelector('.mat-card').textContent).toEqual(
+      `Serving${ELIDED}⧉update time unknownPreview →Data Explorer ↗`,
     );
     expect(
       screen.getByText('update time unknown').getAttribute('title'),
@@ -827,10 +839,16 @@ describe('MaterializationStatePanel serving line', () => {
   it('says nothing is built when there is no availability row at all', () => {
     const { container } = renderPanel(panelState([INCREMENTAL], []));
 
-    expect(container.querySelector('.mat-serving')).toBeNull();
-    expect(container.querySelector('.mat-header__note').textContent).toEqual(
-      'nothing built for this revision yet',
-    );
+    expect(container.querySelector('.mat-chip')).toBeNull();
+    expect(container.querySelector('.mat-squares')).toBeNull();
+    expect(
+      [...container.querySelectorAll('.mat-card')].map(
+        card => card.textContent,
+      ),
+    ).toEqual([
+      'Servingnothing built for this revision yet',
+      'Coveragenothing built yet',
+    ]);
   });
 });
 

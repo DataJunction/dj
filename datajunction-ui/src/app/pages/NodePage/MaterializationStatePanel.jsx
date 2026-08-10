@@ -254,25 +254,50 @@ function previewUrl(node) {
 }
 
 /**
- * Serving on one line: where the data is, how fresh it is, and where to go look at it.
+ * Serving and coverage as two cards side by side.
  *
- * The four-line block this replaced spent three of them on a table name and a GMT
- * timestamp, neither of which anyone reads at that length. Both survive in `title`.
+ * They answer two different questions from two different systems -- "where is the
+ * data" and "how much of it is there" -- so they get a card each rather than two rows
+ * of one block. That also gives the tab one grammar: every card on the page holds a
+ * left/right pair, the header included.
+ *
+ * Both are cube-scoped. Availability is keyed to the node revision, so every
+ * materialization on it reports the same table and the same watermarks; stating either
+ * per materialization would print one fact once per row and invite reading two rows as
+ * two problems.
  */
-function ServingLine({ node, serving }) {
-  const preview = previewUrl(node);
-  const freshness = serving.validThrough
-    ? `updated ${relativeTime(serving.validThrough)}`
-    : 'update time unknown';
-
+function SummaryCards({ node, serving, coverage }) {
   return (
-    <div className="mat-serving">
+    <div className="mat-summary">
+      <section className="mat-card">
+        <h5 className="mat-card__label">Serving</h5>
+        {serving ? (
+          <ServingCard node={node} serving={serving} />
+        ) : (
+          <div className="mat-dim">nothing built for this revision yet</div>
+        )}
+      </section>
+      <section className="mat-card">
+        <h5 className="mat-card__label">Coverage</h5>
+        {serving ? (
+          <CoverageCard coverage={coverage} />
+        ) : (
+          <div className="mat-dim">nothing built yet</div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function ServingCard({ node, serving }) {
+  const preview = previewUrl(node);
+  return (
+    <>
       <TableChip
         catalog={serving.servingCatalog}
         table={serving.servingTable}
       />
-      <span className="mat-serving__sep">·</span>
-      <span
+      <div
         className="mat-dim"
         title={
           serving.validThrough
@@ -280,9 +305,13 @@ function ServingLine({ node, serving }) {
             : undefined
         }
       >
-        {freshness}
-      </span>
-      <span className="mat-serving__links">
+        {serving.validThrough
+          ? `updated ${relativeTime(serving.validThrough)}`
+          : 'update time unknown'}
+      </div>
+      {/* On their own line: alongside the freshness they read as belonging to it
+          rather than to the cube. */}
+      <div className="mat-card__links">
         {preview ? (
           <Link className="mat-header__link" to={preview}>
             Preview →
@@ -299,42 +328,17 @@ function ServingLine({ node, serving }) {
             {link.label} ↗
           </a>
         ))}
-      </span>
-    </div>
+      </div>
+    </>
   );
 }
 
 /**
- * Coverage on its own labelled row, beneath serving.
- *
- * It sits at cube scope because that is the scope of the fact -- availability is keyed
- * to the node revision, so every materialization on it reports the same watermarks --
- * but it is a different question from "where is the data", and trailing it onto the
- * serving line squeezed four separate things onto one row.
- */
-function CoverageLine({ coverage }) {
-  const verdict = coverageVerdict(coverage);
-  return (
-    <div className="mat-serving mat-serving--coverage">
-      <span className={verdict.className}>
-        <span className="mat-glyph">{VERDICT[verdict.verdict].glyph}</span>{' '}
-        {verdict.headline}
-      </span>
-      {coverage?.coverageKnown ? <LabelledSquares coverage={coverage} /> : null}
-    </div>
-  );
-}
-
-/**
- * The strip with its range written under the ends it labels.
+ * The strip with its range written under it.
  *
  * The dates are what make the squares mean anything -- a run of colour says "behind"
- * without saying since when -- so they sit under the squares they describe rather than
- * trailing off to the right as a sentence, which put the reader's eye past the strip
- * to find out what it spanned.
- *
- * Only the ends are labelled. Every bucket carries its own range in `title`, and 25
- * dates written out would be a table, not an axis.
+ * without saying since when. Only the ends are named: every bucket carries its own
+ * range in `title`, and 25 dates written out would be a table, not an axis.
  */
 function LabelledSquares({ coverage }) {
   const squares = coverageSquares(coverage);
@@ -344,7 +348,7 @@ function LabelledSquares({ coverage }) {
   const first = squares[0].from;
   const last = squares[squares.length - 1].through;
   return (
-    <span className="mat-squares-axis">
+    <div className="mat-squares-axis">
       <SquaresRun squares={squares} />
       <span className="mat-squares-axis__ends">
         <span>{first}</span>
@@ -355,17 +359,23 @@ function LabelledSquares({ coverage }) {
           </>
         )}
       </span>
-    </span>
+    </div>
   );
 }
 
-/**
- * Serving, hoisted out of the materializations.
- *
- * `nodeavailabilitystate.node_id` points at a node revision; `Materialization` carries
- * no availability link at all. Rendering the same table and valid-through inside each
- * card claimed an attribution the schema cannot make.
- */
+function CoverageCard({ coverage }) {
+  const verdict = coverageVerdict(coverage);
+  return (
+    <>
+      <div className={verdict.className}>
+        <span className="mat-glyph">{VERDICT[verdict.verdict].glyph}</span>{' '}
+        {verdict.headline}
+      </div>
+      {coverage?.coverageKnown ? <LabelledSquares coverage={coverage} /> : null}
+    </>
+  );
+}
+
 function CubeHeader({ state, mats, serving, coverage }) {
   return (
     <div className="mat-header">
@@ -376,22 +386,7 @@ function CubeHeader({ state, mats, serving, coverage }) {
           {state.node.version ? ` · ${state.node.version}` : ''}
         </span>
       </div>
-      <div className="mat-header__serving">
-        <span className="mat-header__key">Serving</span>
-        {!serving ? (
-          <div className="mat-header__note">
-            nothing built for this revision yet
-          </div>
-        ) : (
-          <ServingLine node={state.node} serving={serving} />
-        )}
-      </div>
-      {serving ? (
-        <div className="mat-header__serving">
-          <span className="mat-header__key">Coverage</span>
-          <CoverageLine coverage={coverage} />
-        </div>
-      ) : null}
+      <SummaryCards node={state.node} serving={serving} coverage={coverage} />
     </div>
   );
 }
