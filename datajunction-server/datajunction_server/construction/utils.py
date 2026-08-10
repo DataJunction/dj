@@ -2,8 +2,9 @@
 Utilities used around construction
 """
 
+import decimal
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +16,91 @@ from datajunction_server.errors import DJError, DJErrorException, ErrorCode
 from datajunction_server.models.node_type import NodeType
 
 if TYPE_CHECKING:
-    from datajunction_server.sql.parsing.ast import Name
+    from datajunction_server.sql.parsing.ast import Name, Value
+
+
+NUMERIC_COLUMN_TYPES = {
+    "bigint",
+    "decimal",
+    "double",
+    "float",
+    "int",
+    "integer",
+    "long",
+    "number",
+    "numeric",
+    "smallint",
+    "tinyint",
+}
+BOOLEAN_COLUMN_TYPES = {"bool", "boolean"}
+STRING_COLUMN_TYPES = {"char", "string", "text", "varchar"}
+
+
+def _base_column_type(column_type: str | None) -> str | None:
+    """Return a simple comparable type name from a DJ column type string."""
+    if not column_type:
+        return None
+    return column_type.lower().split("(", maxsplit=1)[0].strip()
+
+
+def _string_literal(value: Any) -> "Value":
+    """Build a quoted SQL string literal."""
+    from datajunction_server.sql.parsing import ast
+
+    escaped = str(value).replace("'", "''")
+    return ast.String(f"'{escaped}'")
+
+
+def _number_literal(value: Any) -> "Value":
+    """Build a numeric SQL literal."""
+    from datajunction_server.sql.parsing import ast
+
+    if isinstance(value, bool):
+        raise ValueError("Boolean values cannot be used as numeric defaults")
+    return ast.Number(value)
+
+
+def _boolean_literal(value: Any) -> "Value":
+    """Build a boolean SQL literal."""
+    from datajunction_server.sql.parsing import ast
+
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "false"}:
+            return ast.Boolean(normalized == "true")
+        raise ValueError(f"Invalid boolean default value: {value}")
+    return ast.Boolean(bool(value))
+
+
+def dimension_link_default_literal(
+    default_value: Any,
+    column_type: str | None = None,
+) -> "Value":
+    """
+    Build an AST literal for a dimension link default value.
+
+    When the target dimension column type is known, it wins over the Python
+    value type so legacy string-authored numeric defaults like ``"0"`` render
+    as numeric SQL for numeric columns.
+    """
+    from datajunction_server.sql.parsing import ast
+
+    base_type = _base_column_type(column_type)
+    if default_value is None:
+        return ast.Null()
+
+    if base_type in STRING_COLUMN_TYPES:
+        return _string_literal(default_value)
+    if base_type in NUMERIC_COLUMN_TYPES:
+        return _number_literal(default_value)
+    if base_type in BOOLEAN_COLUMN_TYPES:
+        return _boolean_literal(default_value)
+
+    if isinstance(default_value, bool):
+        return ast.Boolean(default_value)
+    if isinstance(default_value, (int, float, decimal.Decimal)):
+        return ast.Number(default_value)
+    return _string_literal(default_value)
 
 
 async def get_dj_node(

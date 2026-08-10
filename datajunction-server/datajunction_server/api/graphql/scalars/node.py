@@ -211,7 +211,7 @@ class DimensionLink:
     join_cardinality: JoinCardinality | None  # type: ignore
     role: str | None
     foreign_keys: JSON
-    default_value: str | None
+    default_value: JSON | None
 
 
 @strawberry.type

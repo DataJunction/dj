@@ -5,7 +5,10 @@ Tests for building nodes and extracting dependencies
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from datajunction_server.construction.utils import get_dj_node
+from datajunction_server.construction.utils import (
+    dimension_link_default_literal,
+    get_dj_node,
+)
 from datajunction_server.errors import DJErrorException
 from datajunction_server.models.node_type import NodeType
 
@@ -44,4 +47,16 @@ async def test_get_dj_node_raise_unknown_node_exception(session: AsyncSession):
 
     assert "No node `event_type` exists of kind transform" in str(
         exc_info.value,
+    )
+
+
+def test_dimension_link_default_literal_uses_column_type():
+    """
+    Dimension link defaults should render according to target column type when known.
+    """
+    assert str(dimension_link_default_literal("0", "int")) == "0"
+    assert str(dimension_link_default_literal(0, "string")) == "'0'"
+    assert str(dimension_link_default_literal("false", "boolean")) == "False"
+    assert str(dimension_link_default_literal("Bob's Team", "string")) == (
+        "'Bob''s Team'"
     )

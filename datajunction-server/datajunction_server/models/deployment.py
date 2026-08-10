@@ -19,6 +19,7 @@ from datajunction_server.errors import (
 )
 from datajunction_server.models.base import labelize
 from datajunction_server.models.dimensionlink import (
+    DimensionLinkDefault,
     JoinType,
     LinkType,
     SparkJoinStrategy,
@@ -317,7 +318,7 @@ class DimensionJoinLinkSpec(DimensionLinkSpec):
     node_column: str | None = None
     join_type: JoinType = JoinType.LEFT
     join_on: str | None = None
-    default_value: str | None = None
+    default_value: DimensionLinkDefault | None = None
     spark_hints: SparkJoinStrategy | None = None
 
     @property
