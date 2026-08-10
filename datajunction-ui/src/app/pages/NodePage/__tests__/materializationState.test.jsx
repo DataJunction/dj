@@ -857,44 +857,53 @@ describe('MaterializationStatePanel copy', () => {
     ]);
   });
 
-  // Every materialization is shown in full. The disclosure this replaced was
-  // machinery for a case most cubes do not have -- they carry one materialization --
-  // and what it opened restated the columns it sat under.
-  it('states every fact once, for every materialization, with nothing hidden', () => {
+  // Declaration and activity are separate regions because they come from separate
+  // systems: availability reports what is in the table, the scheduler reports what it
+  // ran, and a run can succeed having written nothing.
+  it('states what was declared beside what each workflow did', () => {
     const { container } = renderPanel(
       panelState([INCREMENTAL, FULL], [AVAILABILITY]),
     );
 
-    const block = index => {
-      const facts = [
-        ...container.querySelectorAll('.mat-item__facts')[index].children,
-      ];
-      const pairs = [];
-      for (let i = 0; i < facts.length; i += 2) {
-        pairs.push([facts[i].textContent, facts[i + 1].textContent]);
+    const pairs = element => {
+      const nodes = [...element.children];
+      const out = [];
+      for (let i = 0; i < nodes.length; i += 2) {
+        out.push([nodes[i].textContent, nodes[i + 1].textContent]);
       }
-      return pairs;
+      return out;
+    };
+    const block = index => {
+      const [declared, activity] = [
+        ...container.querySelectorAll('.mat-item__cols')[index].children,
+      ];
+      return { declared: pairs(declared), activity: pairs(activity) };
     };
 
-    expect(block(0)).toEqual([
-      ['Schedule', 'At 11:59 AM 59 11 * * *'],
-      ['Lookback', '3 days'],
-      ['Partition', 'Utc Date (day)'],
-      ['Workflows', 'main ↗backfill ↗'],
-      ['Last run', 'no run information'],
-      ['Name', INCREMENTAL.name],
-    ]);
+    expect(block(0)).toEqual({
+      declared: [
+        ['Schedule', 'At 11:59 AM 59 11 * * *'],
+        ['Partition', 'Utc Date (day)'],
+        ['Lookback', '3 days'],
+      ],
+      // One row per workflow: `main` fires daily and `backfill` may not have run in
+      // months, so a single run state for the materialization would drop one of them.
+      activity: [
+        ['main ↗', '○ no runs reported'],
+        ['backfill ↗', '○ no runs reported'],
+      ],
+    });
     // The full build declares no lookback, so it has no Lookback row at all rather
-    // than a row reading "none" -- an absent window is not a window of zero.
-    expect(block(1)).toEqual([
-      ['Schedule', 'At 06:00 AM 0 6 * * *'],
-      ['Partition', 'Utc Date (day)'],
+    // than one reading "none" -- an absent window is not a window of zero.
+    expect(block(1)).toEqual({
+      declared: [
+        ['Schedule', 'At 06:00 AM 0 6 * * *'],
+        ['Partition', 'Utc Date (day)'],
+      ],
       // Labelled from the trailing segment of the workflow id, so the full build's
       // workflow reads `full` rather than being assumed to be `main`.
-      ['Workflows', 'full ↗'],
-      ['Last run', 'no run information'],
-      ['Name', FULL.name],
-    ]);
+      activity: [['full ↗', '○ no runs reported']],
+    });
   });
 
   // The strip's range belongs under the strip. Written as a trailing sentence it sent
@@ -971,7 +980,7 @@ describe('MaterializationStatePanel copy', () => {
       ),
     ).toEqual(['Declared', 'Workflows', 'Last run']);
     expect(container.querySelectorAll('.mat-block')[1].textContent).toEqual(
-      'Workflowsmain ↗backfill ↗',
+      'Workflowsmain ↗○ no runs reportedbackfill ↗○ no runs reported',
     );
     expect(container.querySelectorAll('.mat-block')[2].textContent).toEqual(
       'Last runno run information',

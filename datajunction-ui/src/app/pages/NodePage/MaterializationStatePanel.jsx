@@ -17,7 +17,7 @@
  *  - Anything the engine reports is labelled as such. Absent run data qualifies the
  *    verdict; it does not replace it, because DJ still knows the coverage.
  */
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   coverageSquares,
@@ -42,6 +42,13 @@ const LAYOUTS = [
 
 /** Run data is absent for every materialization today; say so without burying coverage. */
 const RUN_UNKNOWN = 'Run status unknown.';
+
+/** Engine run states, mapped onto the panel's four verdict tones. */
+const RUN_VERDICT = {
+  succeeded: 'healthy',
+  running: 'healthy',
+  failed: 'failing',
+};
 
 function plural(count, noun) {
   return `${count} ${noun}${count === 1 ? '' : 's'}`;
@@ -396,48 +403,69 @@ function InactiveBadge({ mat }) {
 }
 
 /**
- * The workflow links, as a first-class column rather than a footnote.
+ * What the workflows did, one row each.
  *
- * This is the one thing on the row a reader can act on: everything else describes the
- * build, and these are how you go look at it. They were buried at the bottom of the
- * old tree view, three levels into a disclosure nobody opened.
+ * `main` and `backfill` are separate workflows with separate histories -- `main` fires
+ * daily, `backfill` may not have run since March -- so a single "last run" for the
+ * materialization would have to pick one and silently drop the other. Run state
+ * belongs on the workflow it describes.
+ *
+ * The link is the label, because the workflow is the thing you go and look at. Run
+ * state is absent for every workflow today: it needs `MaterializationInfo` extended
+ * and a query-service implementation, and inferring it from DJ's own records would
+ * report a workflow that was *requested* as one that had *succeeded*.
  */
-function WorkflowLinks({ workflows }) {
+function WorkflowActivity({ workflows }) {
   if (!workflows?.length) {
-    return <span className="mat-dim">none</span>;
+    return <div className="mat-dim">no workflows</div>;
   }
   return (
-    <span className="mat-workflows">
-      {workflows.map(wf => (
-        <a
-          key={wf.url}
-          href={wf.url}
-          target="_blank"
-          rel="noreferrer"
-          className="mat-workflow-link"
-          title={wf.url}
-        >
-          {wf.label} ↗
-        </a>
-      ))}
-    </span>
+    <dl className="mat-facts">
+      {workflows.map(wf => {
+        const run = wf.lastRun ?? null;
+        const tone = VERDICT[(run && RUN_VERDICT[run.status]) || 'unknown'];
+        return (
+          <Fragment key={wf.url}>
+            <dt>
+              <a
+                href={wf.url}
+                target="_blank"
+                rel="noreferrer"
+                className="mat-workflow-link"
+                title={wf.url}
+              >
+                {wf.label} ↗
+              </a>
+            </dt>
+            <dd className={run ? tone.className : 'mat-dim'}>
+              <span className="mat-glyph">{tone.glyph}</span>{' '}
+              {run
+                ? `${run.status} ${relativeTime(run.endedAt)}`
+                : 'no runs reported'}
+            </dd>
+          </Fragment>
+        );
+      })}
+    </dl>
   );
 }
 
 /**
- * A -- one block per materialization, everything shown.
+ * A -- one block per materialization: what was declared, beside what ran.
  *
- * Was a table of columns with the rest behind a disclosure. Two problems: most cubes
- * carry exactly one materialization, so the disclosure was machinery for a case that
- * rarely arrives; and what it opened restated the columns it sat under, printing the
- * schedule and the run twice for one new fact.
+ * The two sides come from different systems and can disagree in both directions. A run
+ * can succeed and write nothing (Maestro green, coverage flat -- which is how a
+ * FATALLY_FAILED ingest step hid under a SUCCEEDED parent), a run can fail after
+ * writing, and data can arrive with no run at all. Neither side may stand in for the
+ * other, so they are separate regions rather than one merged list.
  *
- * So there is no split. Each materialization states each fact once, as a labelled
- * pair, and every block is open. Blocks read down the same key column, which is what
- * makes a full and an incremental build comparable -- the case that brings anyone to
- * this tab -- without either being hidden.
+ * Both sides are label-to-value. On the right the label is the workflow itself, which
+ * is why neither side needs a heading over it: `Schedule` and `main` are each already
+ * saying what their value is.
  *
- * No coverage here: it belongs to the cube revision and is stated once in the header.
+ * No coverage here, and no internal name. Coverage belongs to the cube revision and is
+ * stated once in the header; the materialization's name identifies it to the API, not
+ * to a reader.
  */
 function MaterializationBlock({ mat }) {
   const { intent } = mat;
@@ -448,67 +476,39 @@ function MaterializationBlock({ mat }) {
         <StrategyBadge intent={intent} />
         <InactiveBadge mat={mat} />
       </div>
-      <dl className="mat-item__facts">
-        <dt>Schedule</dt>
-        <dd>
-          {intent.scheduleHuman || intent.schedule}
-          {intent.scheduleHuman ? (
-            <span className="mat-dim mat-mono"> {intent.schedule}</span>
+      <div className="mat-item__cols">
+        <dl className="mat-facts">
+          <dt>Schedule</dt>
+          <dd>
+            {intent.scheduleHuman || intent.schedule}
+            {intent.scheduleHuman ? (
+              <span className="mat-dim mat-mono"> {intent.schedule}</span>
+            ) : null}
+          </dd>
+
+          {/* Cubes with no temporal partition column exist; they simply have none to
+              declare, and inventing one would misreport the cube. */}
+          <dt>Partition</dt>
+          <dd>
+            {intent.partition ? (
+              `${intent.partition.column} (${intent.partition.granularity})`
+            ) : (
+              <span className="mat-dim">none</span>
+            )}
+          </dd>
+
+          {/* Omitted rather than rendered as "none": an absent window is not a window
+              of zero, and a full rebuild has none to speak of. */}
+          {intent.lookbackWindow ? (
+            <>
+              <dt>Lookback</dt>
+              <dd>{intent.lookbackWindow.toLowerCase()}</dd>
+            </>
           ) : null}
-        </dd>
-
-        {intent.lookbackWindow ? (
-          <>
-            <dt>Lookback</dt>
-            <dd>{intent.lookbackWindow.toLowerCase()}</dd>
-          </>
-        ) : null}
-
-        {/* Cubes with no temporal partition column exist; they simply have none to
-            declare, and inventing one would misreport the cube. */}
-        <dt>Partition</dt>
-        <dd>
-          {intent.partition ? (
-            `${intent.partition.column} (${intent.partition.granularity})`
-          ) : (
-            <span className="mat-dim">none</span>
-          )}
-        </dd>
-
-        <dt>Workflows</dt>
-        <dd>
-          <WorkflowLinks workflows={mat.workflows} />
-        </dd>
-
-        <dt>Last run</dt>
-        <dd>
-          <RunFacts execution={mat.execution} />
-        </dd>
-
-        {/* Identifies this materialization to the API and to a YAML deployment, and
-            appears nowhere else on the page. */}
-        <dt>Name</dt>
-        <dd className="mat-mono mat-item__id">{mat.name}</dd>
-      </dl>
+        </dl>
+        <WorkflowActivity workflows={mat.workflows} />
+      </div>
     </div>
-  );
-}
-
-/** Engine-reported execution. Absent means absent -- never backfilled from intent. */
-function RunFacts({ execution }) {
-  const run = execution?.lastRun;
-  if (!run) {
-    return <span className="mat-dim">no run information</span>;
-  }
-  return (
-    <>
-      {run.status} {formatUtc(run.endedAt)}
-      <span className="mat-dim">
-        {' '}
-        · attempt {run.attempt} of {run.maxAttempts} · partition{' '}
-        {run.processingPartition}
-      </span>
-    </>
   );
 }
 
@@ -641,7 +641,7 @@ function LayoutMasterDetail({ mats }) {
           <DeclaredBlock intent={mat.intent} />
           <div className="mat-block">
             <h5>Workflows</h5>
-            <WorkflowLinks workflows={mat.workflows} />
+            <WorkflowActivity workflows={mat.workflows} />
           </div>
           <LastRunBlock execution={mat.execution} />
         </div>
@@ -738,7 +738,7 @@ function LayoutStacked({ mats }) {
                 {mat.intent.scheduleHuman || mat.intent.schedule}
                 <span className="mat-dim mat-mono"> {mat.intent.schedule}</span>
               </span>
-              <WorkflowLinks workflows={mat.workflows} />
+              <WorkflowActivity workflows={mat.workflows} />
             </div>
             <div className="mat-stack__verdict">{detail}</div>
             <CoverageSquares

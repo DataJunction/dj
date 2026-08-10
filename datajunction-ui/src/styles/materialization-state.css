@@ -368,41 +368,35 @@
   margin-left: 0;
 }
 
-/* Labels in one narrow column so blocks read down against each other: comparing a
-   full build with an incremental one is comparing two values on the same line. */
-.mat-item__facts {
+/* Declaration beside activity. The gap does the work of saying these come from
+   different systems and can disagree: availability reports what is in the table,
+   the scheduler reports what it ran. */
+.mat-item__cols {
   display: grid;
-  grid-template-columns: 90px minmax(0, 1fr);
-  gap: 3px 16px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px 32px;
+  align-items: start;
+}
+
+/* Both sides are label-to-value on the same grid, so they sit on shared baselines.
+   Labels are sentence case at text weight: five stacked caps-and-letterspaced
+   labels put more weight on the labels than on the five short values they name. */
+.mat-facts {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 3px 14px;
   margin: 0;
   line-height: 1.5;
 }
 
-.mat-item__facts dt {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--planner-text-dim);
-  padding-top: 2px;
+.mat-facts dt {
+  color: var(--planner-text-muted);
+  white-space: nowrap;
 }
 
-.mat-item__facts dd {
+.mat-facts dd {
   margin: 0;
   min-width: 0;
-}
-
-.mat-item__id {
-  color: var(--planner-text-muted);
-  word-break: break-all;
-}
-
-/* Workflow links read as the block's actions, so they sit on one line and are the
-   only thing in it weighted like a link. */
-.mat-workflows {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
 }
 
 .mat-workflow-link {
