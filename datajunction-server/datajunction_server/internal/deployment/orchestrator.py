@@ -26,6 +26,7 @@ from datajunction_server.database.column import Column, ColumnAttribute
 from datajunction_server.database.dimensionlink import DimensionLink, JoinType
 from datajunction_server.database.hierarchy import Hierarchy, HierarchyLevel
 from datajunction_server.database.history import History
+from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.metricmetadata import MetricMetadata
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import MissingParent, NodeRelationship
@@ -2383,6 +2384,12 @@ class DeploymentOrchestrator:
         the repo may simply not have caught up yet, and a live workflow must not be
         torn down by omission.
 
+        What a cube has materialized is read from its rows, not from the declarative
+        projection of them. `to_spec` only projects the fused cube dialect, so a cube
+        materialized by any other job -- a legacy `druid_measures_cube`, say -- reads
+        there as unmaterialized, and both the teardown and the warning would then
+        answer for a workflow that is very much running.
+
         Remote work is queued onto `self._cube_materialization_swaps` and handed to
         the query service by `execute` after the commit, so a deploy that rolls back
         -- every dry run -- has asked it to schedule nothing and stop nothing.
@@ -2399,7 +2406,8 @@ class DeploymentOrchestrator:
         removing = self._cubes_declaring_no_materialization()
 
         # What each cube's materialization looked like before this deploy, in the
-        # same declarative shape the block is written in. Taken from the plan rather
+        # same declarative shape the block is written in. Only ever used to report
+        # the operation a declared block performs, and taken from the plan rather
         # than from the revision because a cube that got a new revision this deploy
         # has already had its materialization rebuilt onto it by
         # `_swap_cube_materializations`, and a dry run skips that rebuild entirely --
@@ -2409,16 +2417,20 @@ class DeploymentOrchestrator:
             for name in cube_names
             if isinstance(existing := plan.existing_specs.get(name), CubeSpec)
         }
-        # A cube that neither declares a block nor has one to tear down needs no
-        # revision loaded, which keeps a no-change push over a namespace full of
-        # cubes free of extra work.
-        revisions = await self._cube_revisions_to_reconcile(
-            [
-                name
-                for name in cube_names
-                if name in declared
-                or (name in removing and persisted.get(name) is not None)
-            ],
+        # A cube absent from the registry never made it into the deployment -- it
+        # failed validation, say.
+        revisions = {
+            name: node.current
+            for name in cube_names
+            if (node := self.registry.nodes.get(name)) is not None
+            and node.current is not None
+        }
+        active = await self._active_cube_materializations(revisions)
+        # Only a rebuild reads a revision's columns, partitions and cube elements, so
+        # only a declared cube pays for loading them. That keeps a no-change push over
+        # a namespace full of cubes free of extra work.
+        await self._load_cube_rebuild_state(
+            [revisions[name] for name in declared if name in revisions],
         )
         access_checker = (
             AccessChecker(
@@ -2438,36 +2450,65 @@ class DeploymentOrchestrator:
                         access_checker,
                     )
             elif name in removing:
-                self._remove_cube_materialization(name, revision)
-            elif persisted.get(name) is not None:
+                self._remove_cube_materialization(
+                    name,
+                    revision,
+                    active.get(name, []),
+                )
+            elif name in active:
                 self._warn_undeclared_materialization(name)
 
-    async def _cube_revisions_to_reconcile(
+    async def _active_cube_materializations(
         self,
-        cube_names: list[str],
-    ) -> dict[str, NodeRevision]:
+        revisions: dict[str, NodeRevision],
+    ) -> dict[str, list[Materialization]]:
         """
-        The current revision of each named cube that exists, with everything a
-        rebuild reads eagerly loaded.
+        The active materializations of each named cube that has any.
 
-        A cube absent from the registry never made it into the deployment -- it
-        failed validation, say -- and one whose revision was created moments ago has
-        nothing loaded on it, so the identity map is warmed in a single query rather
-        than lazy-loading per cube from async code.
+        One query for the whole deployment, and a cheap one: what the teardown and
+        the warning need to know is which rows exist, not what any revision they hang
+        off looks like.
         """
-        revisions = {
-            name: node.current
-            for name in cube_names
-            if (node := self.registry.nodes.get(name)) is not None
-            and node.current is not None
+        rows = (
+            (
+                await self.session.execute(
+                    select(Materialization).where(
+                        Materialization.node_revision_id.in_(
+                            [revision.id for revision in revisions.values()],
+                        ),
+                        Materialization.deactivated_at.is_(None),
+                    ),
+                )
+            )
+            .scalars()
+            .all()
+        )
+        by_revision: dict[int, list[Materialization]] = {}
+        for row in rows:
+            by_revision.setdefault(row.node_revision_id, []).append(row)
+        return {
+            name: by_revision[revision.id]
+            for name, revision in revisions.items()
+            if revision.id in by_revision
         }
+
+    async def _load_cube_rebuild_state(
+        self,
+        revisions: list[NodeRevision],
+    ) -> None:
+        """
+        Warm everything a materialization rebuild reads off the given revisions.
+
+        A revision created moments ago has nothing loaded on it, and a lazy load from
+        async code would fail, so the identity map is filled in a single query rather
+        than one per cube.
+        """
         if revisions:
             await self.session.execute(
                 select(NodeRevision)
-                .where(NodeRevision.id.in_([rev.id for rev in revisions.values()]))
+                .where(NodeRevision.id.in_([rev.id for rev in revisions]))
                 .options(*NodeRevision.cube_load_options()),
             )
-        return revisions
 
     async def _declare_cube_materialization(
         self,
@@ -2584,18 +2625,23 @@ class DeploymentOrchestrator:
         self,
         name: str,
         revision: NodeRevision | None,
+        active: list[Materialization],
     ) -> None:
         """
         Tear down one cube's materialization because it declared
         `materialization: none`.
 
-        A revision is only loaded for a cube that has something to tear down, so
-        `None` here is the cube that declared null and was never materialized.
-        Otherwise the rows are deactivated and their workflows stopped after the
-        commit, by the same drain that applies a revision swap -- a swap with nothing
-        rebuilt is exactly a teardown.
+        Whatever the cube has active is what comes down, whichever job wrote it: the
+        author asked for this cube not to be materialized, and answering that with a
+        no-op because the rows happen to be of a dialect YAML cannot describe leaves
+        a workflow running against the author's stated wish. No active rows -- and no
+        revision, for a cube that never deployed -- is the only no-op.
+
+        The rows are deactivated and their workflows stopped after the commit, by the
+        same drain that applies a revision swap: a swap with nothing rebuilt is
+        exactly a teardown.
         """
-        if revision is None:
+        if revision is None or not active:
             self.deployed_results.append(
                 DeploymentResult(
                     name=name,
@@ -2617,7 +2663,6 @@ class DeploymentOrchestrator:
         )
         if self.dry_run:
             return
-        active = [mat for mat in revision.materializations if not mat.deactivated_at]
         for materialization in active:
             materialization.deactivated_at = UTCDatetime.now(UTC)  # type: ignore
         self.session.add(

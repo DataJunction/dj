@@ -1297,10 +1297,12 @@ def mock_qs(client):
     sequence in order, which is what the materialization tests below compare against.
     """
     query_service = MagicMock()
-    query_service.materialize_cube.return_value = MaterializationInfo(
+    materialized = MaterializationInfo(
         urls=["http://fake.url/job"],
         output_tables=[],
     )
+    query_service.materialize_cube.return_value = materialized
+    query_service.materialize.return_value = materialized
     client.app.dependency_overrides[get_query_service_client] = lambda: query_service
     yield query_service
     del client.app.dependency_overrides[get_query_service_client]
@@ -5385,6 +5387,71 @@ class TestDeclaredCubeMaterializations:
                 "incremental_time",
                 False,
             ),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_explicit_none_removes_a_materialization_of_any_job(
+        self,
+        client,
+        upstreams,
+        mock_qs,
+    ):
+        """
+        A teardown takes down whatever the cube actually has, not only what a
+        `materialization:` block could have described.
+
+        Only the fused Druid cube job projects back into declarative form, so a cube
+        materialized by the older `druid_measures_cube` job reads there as
+        unmaterialized -- and answering `materialization: none` from that projection
+        reported a green no-op while the workflow kept running.
+        """
+        namespace = "cube_mat_legacy_removed"
+        cube_name = f"{namespace}.default.repairs_cube"
+        materialization_name = (
+            f"druid_measures_cube__incremental_time__"
+            f"{namespace}.default.hard_hat.hire_date"
+        )
+        nodes = [
+            *upstreams,
+            self._cube(),
+        ]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert data["status"] == "success", data
+
+        response = await client.post(
+            f"/nodes/{cube_name}/materialization/",
+            json={
+                "job": "druid_measures_cube",
+                "strategy": "incremental_time",
+                "schedule": "@daily",
+                "config": {"spark": {}, "lookback_window": "1 DAY"},
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        mock_qs.reset_mock()
+        nodes[-1] = self._cube(materialization=MaterializationAction.NONE)
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert data["status"] == "success", data
+        assert self._materialization_results(data) == [
+            (
+                cube_name,
+                "delete",
+                "success",
+                "cube materialization removed by `materialization: none`",
+            ),
+        ]
+        assert mock_qs.deactivate_cube_workflow.call_args_list == [
+            mock.call(cube_name, version="v1.0", request_headers=mock.ANY),
+        ]
+        assert await self._persisted_materializations(client, cube_name) == [
+            (materialization_name, "@daily", "incremental_time", False),
         ]
 
     @pytest.mark.asyncio
