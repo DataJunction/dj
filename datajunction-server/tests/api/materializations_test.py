@@ -812,6 +812,10 @@ async def test_druid_cube_incremental(
     )
     assert mat.job == "DruidCubeMaterializationJob"
     assert mat.lookback_window == "7 DAY"
+    # Retention was not authored, so the default has to reach the query service: a
+    # Druid datasource with no rule of its own inherits a cluster default unrelated
+    # to the span of data the cube holds.
+    assert mat.retention == "400 DAYS"
     assert mat.cube == NodeNameVersion(
         name="default.repairs_cube__default_incremental",
         version="v1.0",
@@ -973,6 +977,9 @@ async def test_druid_cube_full(
     _, kwargs = module__query_service_client.materialize_cube.call_args_list[-1]  # type: ignore
     mat = kwargs["materialization_input"]
     assert mat.job == "DruidCubeMaterializationJob"
+    # `lookback_window` is dropped for FULL, but retention is not -- a full rebuild
+    # is exactly the case that loads the widest span of history.
+    assert (mat.lookback_window, mat.retention) == (None, "400 DAYS")
     measures_query = mat.measures_materializations[0].query
     assert "DJ_LOGICAL_TIMESTAMP" not in measures_query
     assert "dj_logical_timestamp" not in measures_query.lower()
@@ -2012,7 +2019,7 @@ async def test_cube_materialization_round_trips_to_spec(
     A cube materialized through the API exports as a declarative `materialization:`
     block, so a repo-managed cube can be pulled and re-deployed without losing it.
 
-    Only the three authored fields come back. The stored config also holds the
+    Only the authored fields come back. The stored config also holds the
     measures queries, combiner SQL and Druid spec, all of which DJ regenerates on
     every build -- re-exporting those would drop generated artifacts into a
     hand-edited file.
@@ -2047,9 +2054,14 @@ async def test_cube_materialization_round_trips_to_spec(
             "strategy": "incremental_time",
             "schedule": "0 6 * * *",
             "lookback_window": "7 DAY",
+            "retention": "90 DAYS",
         },
     )
     assert response.status_code in (200, 201)
+
+    # An authored retention rides all the way to the query service.
+    _, kwargs = module__query_service_client.materialize_cube.call_args_list[-1]  # type: ignore
+    assert kwargs["materialization_input"].retention == "90 DAYS"
 
     module__session.expire_all()
     cube = await Node.get_by_name(
@@ -2063,6 +2075,7 @@ async def test_cube_materialization_round_trips_to_spec(
         schedule="0 6 * * *",
         strategy=MaterializationStrategy.INCREMENTAL_TIME,
         lookback_window="7 DAY",
+        retention="90 DAYS",
     )
 
     # The exported block is exactly the authored surface -- no derived config leaks.
@@ -2070,6 +2083,7 @@ async def test_cube_materialization_round_trips_to_spec(
         "schedule": "0 6 * * *",
         "strategy": "incremental_time",
         "lookback_window": "7 DAY",
+        "retention": "90 DAYS",
     }
 
     # The export path itself loads with `export_load_options`, which deliberately
@@ -2088,4 +2102,5 @@ async def test_cube_materialization_round_trips_to_spec(
         schedule="0 6 * * *",
         strategy=MaterializationStrategy.INCREMENTAL_TIME,
         lookback_window="7 DAY",
+        retention="90 DAYS",
     )

@@ -52,6 +52,12 @@ DRUID_AGG_MAPPING = {
 # Aggregation types that need special handling (extra config parameters)
 DRUID_SKETCH_TYPES = {"HLLSketchMerge"}
 
+# How long ingested cube data is kept in Druid. Without an explicit rule a datasource
+# inherits the cluster default, which is unrelated to the span the cube holds, so an
+# ingest reaching further back fails at load time with a retention rule violation.
+# 400 days covers a full year of history plus room for late-arriving restatements.
+DEFAULT_CUBE_RETENTION = "400 DAYS"
+
 
 class MaterializationStrategy(StrEnum):
     """

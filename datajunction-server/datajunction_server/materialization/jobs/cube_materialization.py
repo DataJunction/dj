@@ -156,6 +156,7 @@ class DruidCubeMaterializationJob(DruidMaterializationJob, MaterializationJob):
                 schedule=materialization.schedule,
                 job=materialization.job,
                 lookback_window=cube_config.lookback_window,
+                retention=cube_config.retention,
                 measures_materializations=cube_config.measures_materializations,
                 combiners=cube_config.combiners,
             ),
