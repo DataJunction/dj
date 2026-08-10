@@ -10,8 +10,10 @@
  *
  *  - Coverage is always shown against a target. A bare "20260806 to 20260806" is
  *    uninterpretable; "covered through 20260806, target 20260808" is not.
- *  - Serving is a property of the cube revision, not of a materialization, so it is
- *    rendered once above them rather than repeated (and misattributed) per card.
+ *  - Serving and coverage are properties of the cube revision, not of a
+ *    materialization, so both are rendered once above them rather than repeated
+ *    (and misattributed) per card. Availability is keyed to the revision, so a
+ *    per-materialization verdict would be the cube's verdict wearing another name.
  *  - Anything the engine reports is labelled as such. Absent run data qualifies the
  *    verdict; it does not replace it, because DJ still knows the coverage.
  */
@@ -19,7 +21,6 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   coverageSquares,
-  dayPartitionsBetween,
   mergeCoverage,
   strategyBadge,
 } from './materializationState';
@@ -184,89 +185,6 @@ function elideTableName(name) {
     : `${text.slice(0, NAME_HEAD)}…${text.slice(-NAME_TAIL)}`;
 }
 
-/** "20260809" -> "0809", for the cramped end-label on the table layout's bar. */
-function shortDay(partition) {
-  return String(partition || '').slice(4);
-}
-
-/**
- * Coverage as a proportional range bar.
- *
- * Was one cell per partition, to make an interior backfill hole read as a hole.
- * Real availability rows carry only `min_temporal_partition` and
- * `max_temporal_partition` -- `partitions` is empty -- so DJ cannot see interior
- * holes at all and coverage is always a contiguous prefix. Per-partition cells
- * therefore claimed a fidelity the data does not have.
- */
-function CoverageBar({ outcome, labels = 'ends' }) {
-  if (!outcome.coverageKnown) {
-    return (
-      <div className="coverage coverage--unknown" aria-label="Coverage unknown">
-        coverage unknown
-      </div>
-    );
-  }
-
-  const span = dayPartitionsBetween(
-    outcome.target.from,
-    outcome.target.through,
-  );
-  const missing = new Set(outcome.missing);
-  const notDue = new Set(outcome.notDueYet);
-  const counts = span.reduce(
-    (acc, key) => {
-      const state = missing.has(key)
-        ? 'missing'
-        : notDue.has(key)
-        ? 'notDue'
-        : 'covered';
-      acc[state] += 1;
-      return acc;
-    },
-    { covered: 0, missing: 0, notDue: 0 },
-  );
-
-  const segments = [
-    ['covered', counts.covered],
-    ['missing', counts.missing],
-    ['not-due', counts.notDue],
-  ].filter(([, count]) => count > 0);
-
-  const track = (
-    <div className="coverage__track">
-      {segments.map(([state, count]) => (
-        <span
-          key={state}
-          className={`coverage__seg coverage__seg--${state}`}
-          style={{ flexGrow: count }}
-          aria-label={`${count} ${state}`}
-          title={`${plural(count, 'day')} ${state}`}
-        />
-      ))}
-    </div>
-  );
-
-  if (labels === 'trailing') {
-    return (
-      <div className="coverage coverage--inline" aria-label="Coverage">
-        {track}
-        <span className="coverage__tick">
-          → {shortDay(outcome.target.through)}
-        </span>
-      </div>
-    );
-  }
-  return (
-    <div className="coverage" aria-label="Coverage">
-      <div className="coverage__scale">
-        <span>from {outcome.target.from}</span>
-        <span>through {outcome.target.through}</span>
-      </div>
-      {track}
-    </div>
-  );
-}
-
 /**
  * The serving table as a chip you copy rather than read. Nobody parses
  * `dj__shared_game_health_metrics_cloud_games_session_success_cube_v8_0_cd70304ced94ac2e`
@@ -423,40 +341,14 @@ function LabelledSquares({ coverage }) {
       <SquaresRun squares={squares} />
       <span className="mat-squares-axis__ends">
         <span>{first}</span>
-        {first === last ? null : <span>{last}</span>}
+        {first === last ? null : (
+          <>
+            <span>→</span>
+            <span>{last}</span>
+          </>
+        )}
       </span>
     </span>
-  );
-}
-
-/**
- * The serving block as layout B renders it, kept verbatim so B stays the control the
- * one-line treatment in A and C is judged against. Delete with B.
- */
-function ServingBlockLegacy({ serving }) {
-  return (
-    <div>
-      <div className="mat-header__table">
-        <span className="mat-header__catalog">{serving.servingCatalog}</span>
-        <span className="mat-header__mono">{serving.servingTable}</span>
-        {serving.links?.map(link => (
-          <a
-            key={link.label}
-            href={link.url}
-            target="_blank"
-            rel="noreferrer"
-            className="mat-header__link"
-          >
-            {link.label} ↗
-          </a>
-        ))}
-      </div>
-      {serving.validThrough ? (
-        <div className="mat-header__note">
-          valid through {formatUtc(serving.validThrough)}
-        </div>
-      ) : null}
-    </div>
   );
 }
 
@@ -467,7 +359,7 @@ function ServingBlockLegacy({ serving }) {
  * no availability link at all. Rendering the same table and valid-through inside each
  * card claimed an attribution the schema cannot make.
  */
-function CubeHeader({ state, mats, serving, coverage, layout }) {
+function CubeHeader({ state, mats, serving, coverage }) {
   return (
     <div className="mat-header">
       <div className="mat-header__title">
@@ -483,15 +375,11 @@ function CubeHeader({ state, mats, serving, coverage, layout }) {
           <div className="mat-header__note">
             nothing built for this revision yet
           </div>
-        ) : layout === 'B' ? (
-          <ServingBlockLegacy serving={serving} />
         ) : (
           <ServingLine node={state.node} serving={serving} />
         )}
       </div>
-      {/* Layout B keeps its per-card coverage, so it stays the control the cube-scoped
-          treatment in A and C is judged against. */}
-      {serving && layout !== 'B' ? (
+      {serving ? (
         <div className="mat-header__serving">
           <span className="mat-header__key">Coverage</span>
           <CoverageLine coverage={coverage} />
@@ -649,9 +537,15 @@ function LastRunBlock({ execution }) {
 }
 
 /**
- * B -- planner-style master/detail. This is the one layout that keeps the planner's
- * 11px scale, because it is the planner's selection-panel idiom: a narrow rail of
- * choices beside a detail pane, both bounded rather than page-wide.
+ * B -- master/detail: a rail of materializations beside a pane describing the selected
+ * one. The planner's selection-panel idiom, at this tab's type scale rather than the
+ * planner's 11px, which is sized for a bounded sidebar and not for a full-width tab.
+ *
+ * The rail deliberately carries no status glyph and no coverage. Availability is keyed
+ * to the node revision, so a per-materialization verdict here would be the cube's
+ * verdict wearing a materialization's name, and clicking between the two entries would
+ * appear to change a number that never moved. Coverage is stated once in the header;
+ * the rail distinguishes entries by what actually differs, which is how they build.
  */
 function LayoutMasterDetail({ mats }) {
   const [selected, setSelected] = useState(0);
@@ -659,7 +553,6 @@ function LayoutMasterDetail({ mats }) {
   if (!mat) {
     return null;
   }
-  const { verdict, detail } = summarize(mat);
 
   return (
     <div className="mat-split">
@@ -668,47 +561,45 @@ function LayoutMasterDetail({ mats }) {
         role="listbox"
         aria-label="Materializations"
       >
-        {mats.map((candidate, index) => {
-          const tone = VERDICT[summarize(candidate).verdict];
-          return (
-            <button
-              type="button"
-              role="option"
-              aria-selected={index === selected}
-              key={`${candidate.name}-${index}`}
-              className={`mat-split__item ${
-                index === selected ? 'mat-split__item--active' : ''
-              }`}
-              onClick={() => setSelected(index)}
-            >
-              <span className={`mat-glyph ${tone.className}`}>
-                {tone.glyph}
+        {mats.map((candidate, index) => (
+          <button
+            type="button"
+            role="option"
+            aria-selected={index === selected}
+            key={`${candidate.name}-${index}`}
+            className={`mat-split__item ${
+              index === selected ? 'mat-split__item--active' : ''
+            }`}
+            onClick={() => setSelected(index)}
+          >
+            <span className="mat-split__item-text">
+              <span className="mat-split__item-label">
+                {candidate.engine || candidate.label}
+                <StrategyBadge intent={candidate.intent} />
+                <InactiveBadge mat={candidate} />
               </span>
-              <span className="mat-split__item-text">
-                <span className="mat-split__item-label">{candidate.label}</span>
-                <span className="mat-dim">{summarize(candidate).headline}</span>
+              <span className="mat-dim">
+                {candidate.intent.scheduleHuman || candidate.intent.schedule}
               </span>
-            </button>
-          );
-        })}
+            </span>
+          </button>
+        ))}
       </div>
       <div className="mat-split__detail">
         <div className="mat-split__head">
-          <span className={`mat-glyph ${VERDICT[verdict].className}`}>
-            {VERDICT[verdict].glyph}
+          <span className="mat-split__head-label">
+            {mat.engine || mat.label}
           </span>
-          <span className="mat-split__head-label">{mat.label}</span>
+          <StrategyBadge intent={mat.intent} />
           <InactiveBadge mat={mat} />
         </div>
-        <div className="mat-split__verdict">{detail}</div>
-        <CoverageBar outcome={mat.outcome} />
         <div className="mat-split__blocks">
           <DeclaredBlock intent={mat.intent} />
-          <LastRunBlock execution={mat.execution} />
           <div className="mat-block">
             <h5>Workflows</h5>
             <WorkflowLinks workflows={mat.workflows} />
           </div>
+          <LastRunBlock execution={mat.execution} />
         </div>
       </div>
     </div>
@@ -824,7 +715,7 @@ const LAYOUT_COMPONENTS = {
 };
 
 export default function MaterializationStatePanel({ state }) {
-  const [layout, setLayout] = useState('A');
+  const [layout, setLayout] = useState('B');
   const mats = state.materializations || [];
   // Every card previously repeated this; all of them are the same row, because
   // availability keys off the revision the materializations share.
@@ -856,7 +747,6 @@ export default function MaterializationStatePanel({ state }) {
         mats={mats}
         serving={serving}
         coverage={coverage}
-        layout={layout}
       />
       {/* Keyed by index as well: the same materialization name recurs across cube
           revisions, so the name alone is not unique within a node. */}

@@ -842,11 +842,13 @@ describe('MaterializationStatePanel serving line', () => {
 });
 
 describe('MaterializationStatePanel copy', () => {
-  it('names a table row by engine and strategy badge, not by the folded label', () => {
+  it('names a table row by engine and strategy badge, not by the folded label', async () => {
+    const user = userEvent.setup();
     const { container } = renderPanel(
       panelState([INCREMENTAL, FULL], [AVAILABILITY]),
     );
 
+    await user.click(screen.getByTitle('Table'));
     expect(
       [...container.querySelectorAll('.mat-table__label')].map(
         row => row.textContent,
@@ -868,7 +870,7 @@ describe('MaterializationStatePanel copy', () => {
       [...container.querySelectorAll('.mat-squares-axis__ends span')].map(
         end => end.textContent,
       ),
-    ).toEqual(['20260806', '20260809']);
+    ).toEqual(['20260806', '→', '20260809']);
     // One strip, stated once at cube scope, however many materializations feed it.
     expect(container.querySelectorAll('.mat-squares-axis')).toHaveLength(1);
     // Each square still carries its own range, so the ends are an axis and not the
@@ -929,8 +931,11 @@ describe('MaterializationStatePanel copy', () => {
       [...container.querySelectorAll('.mat-block')].map(
         block => block.querySelector('h5').textContent,
       ),
-    ).toEqual(['Declared', 'Last run', 'Workflows']);
+    ).toEqual(['Declared', 'Workflows', 'Last run']);
     expect(container.querySelectorAll('.mat-block')[1].textContent).toEqual(
+      'Workflowsmain ↗backfill ↗',
+    );
+    expect(container.querySelectorAll('.mat-block')[2].textContent).toEqual(
       'Last runno run information',
     );
   });

@@ -8,11 +8,11 @@
  * colour. The tokens are redeclared here so this panel does not depend on the
  * planner page being mounted.
  *
- * The planner's *type scale* is deliberately not inherited. It is sized for a
- * ~320px sidebar; the node page gives this panel the full content column, where
- * 10--11px body text is unreadable. Layouts A and C use 13px, matching the rest
- * of the node page. Layout B keeps 11px because it reproduces the planner's
- * bounded master/detail idiom.
+ * The planner's *type scale* is deliberately not inherited by any layout. It is
+ * sized for a ~320px sidebar; the node page gives this panel the full content
+ * column, where 10--11px body text is unreadable. All three layouts use 13px,
+ * matching the rest of the node page -- including B, which reproduces the
+ * planner's master/detail idiom but not at the planner's width.
  */
 
 .mat-panel {
@@ -204,35 +204,24 @@
 
 /* The strip and the dates under its ends move as one block, so the labels stay
    pinned to the squares they describe however wide the strip gets. */
-/* Fixed width, wide enough for two 8-digit dates side by side. At natural size a
-   five-square strip is 63px, so `space-between` had nowhere to put the labels and
-   ran them together into one unreadable 16-digit number. */
+/* The strip keeps its natural size -- stretching the cells to fit the labels made
+   five buckets read as a chunky segmented bar rather than as a run of days. */
 .mat-squares-axis {
   display: inline-flex;
   flex-direction: column;
   gap: 3px;
-  width: 15rem;
 }
 
-/* Cells divide the fixed width instead of setting it, so the strip keeps one
-   footprint whether it holds five buckets or twenty-five and the labels always
-   land under the ends they name. */
-.mat-squares-axis .mat-squares {
-  flex-wrap: nowrap;
-}
-
-.mat-squares-axis .mat-squares__cell {
-  flex: 1 1 0;
-  width: auto;
-  min-width: 3px;
-}
-
+/* The range is one line rather than a label pinned under each end: a five-square
+   strip is 63px and two 8-digit dates are twice that, so pinning them to the ends
+   ran them together into one unreadable 16-digit number. */
 .mat-squares-axis__ends {
   display: flex;
-  justify-content: space-between;
+  gap: 4px;
   font-size: 11px;
   color: var(--planner-text-dim);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 /* Pushed to the far edge so the table name, which is the long part, keeps the room. */
@@ -404,12 +393,6 @@
 
 /* --- Layout B: master/detail ---------------------------------------------- */
 
-/* The planner's 11px scale is appropriate here and only here: a bounded rail
-   beside a bounded detail pane, exactly `SelectionPanel` + `PreAggDetailsPanel`. */
-.mat-panel--b {
-  font-size: 11px;
-}
-
 .mat-split {
   display: flex;
   gap: 16px;
@@ -451,7 +434,16 @@
 }
 
 .mat-split__item-label {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
   font-weight: 600;
+}
+
+.mat-split__item-label .badge,
+.mat-split__item-label .mat-badge {
+  margin-left: 0;
 }
 
 .mat-split__detail {
@@ -472,7 +464,6 @@
 
 .mat-split__head-label {
   font-weight: 600;
-  font-size: 12px;
 }
 
 .mat-split__verdict {
