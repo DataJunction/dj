@@ -436,44 +436,87 @@ function WorkflowLinks({ workflows }) {
 }
 
 /**
- * A -- one row per materialization.
+ * A -- one row per materialization, each expandable in place.
  *
- * No coverage column: coverage is a property of the cube, not of a materialization,
- * and it now sits once on the serving line. What is left here is what genuinely
- * differs between the rows -- strategy, schedule, workflows, run -- which is also
- * what frees the width to give the workflow links a column of their own.
+ * Every materialization stays visible and comparable. The case that brings anyone to
+ * this tab is a cube carrying both a full and an incremental build that disagree, and
+ * answering "do these two agree?" means seeing them side by side rather than clicking
+ * between them and holding one in memory.
+ *
+ * The row carries what differs and what you can act on; the rest opens underneath, on
+ * demand, which is also where the execution block goes once the query service reports
+ * one. Rows open independently, so two can be compared open at once.
+ *
+ * No coverage column: coverage belongs to the cube revision and is stated once in the
+ * header. Per-row it would be the same watermarks printed twice.
  */
 function LayoutTable({ mats }) {
+  const [expanded, setExpanded] = useState(() => new Set());
+  const toggle = index =>
+    setExpanded(previous => {
+      const next = new Set(previous);
+      if (!next.delete(index)) {
+        next.add(index);
+      }
+      return next;
+    });
+
   return (
-    <div className="mat-table" role="table" aria-label="Materialization state">
-      <div className="mat-table__row mat-table__row--head" role="row">
-        <span role="columnheader">Materialization</span>
-        <span role="columnheader">Schedule</span>
-        <span role="columnheader">Workflows</span>
-        <span role="columnheader">Last run</span>
+    <div className="mat-table">
+      <div className="mat-table__row mat-table__row--head">
+        <span>Materialization</span>
+        <span>Schedule</span>
+        <span>Workflows</span>
+        <span>Last run</span>
       </div>
-      {mats.map((mat, index) => (
-        <div className="mat-table__row" role="row" key={`${mat.name}-${index}`}>
-          <span role="cell">
-            {/* Engine plus badge, as layout C renders it: `label` folded the
-                strategy into the name and then repeated it. */}
-            <div className="mat-table__label">
-              {mat.engine || mat.label}
-              <StrategyBadge intent={mat.intent} />
-              <InactiveBadge mat={mat} />
+      {mats.map((mat, index) => {
+        const open = expanded.has(index);
+        const panelId = `mat-detail-${index}`;
+        return (
+          <div className="mat-table__group" key={`${mat.name}-${index}`}>
+            <div className="mat-table__row">
+              {/* Only the name is the disclosure control. Making the whole row one
+                  would have nested the workflow links inside a button, which is
+                  invalid and would swallow their clicks. */}
+              <button
+                type="button"
+                className="mat-table__disclosure"
+                aria-expanded={open}
+                aria-controls={panelId}
+                onClick={() => toggle(index)}
+              >
+                <span className="mat-table__caret" aria-hidden="true">
+                  {open ? '▾' : '▸'}
+                </span>
+                <span className="mat-table__label">
+                  {mat.engine || mat.label}
+                  <StrategyBadge intent={mat.intent} />
+                  <InactiveBadge mat={mat} />
+                </span>
+              </button>
+              <span>
+                <ScheduleCell intent={mat.intent} />
+              </span>
+              <span>
+                <WorkflowLinks workflows={mat.workflows} />
+              </span>
+              <span className="mat-dim">
+                {mat.execution ? 'reported' : 'unknown'}
+              </span>
             </div>
-          </span>
-          <span role="cell">
-            <ScheduleCell intent={mat.intent} />
-          </span>
-          <span role="cell">
-            <WorkflowLinks workflows={mat.workflows} />
-          </span>
-          <span role="cell" className="mat-dim">
-            {mat.execution ? 'reported' : 'unknown'}
-          </span>
-        </div>
-      ))}
+            <div id={panelId} hidden={!open} className="mat-table__detail">
+              <DeclaredBlock intent={mat.intent} />
+              <LastRunBlock execution={mat.execution} />
+              {/* The name is what identifies this materialization to the API and to
+                  a YAML deployment, and nothing else on the page shows it. */}
+              <div className="mat-block">
+                <h5>Name</h5>
+                <div className="mat-mono mat-table__name">{mat.name}</div>
+              </div>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -715,7 +758,7 @@ const LAYOUT_COMPONENTS = {
 };
 
 export default function MaterializationStatePanel({ state }) {
-  const [layout, setLayout] = useState('B');
+  const [layout, setLayout] = useState('A');
   const mats = state.materializations || [];
   // Every card previously repeated this; all of them are the same row, because
   // availability keys off the revision the materializations share.

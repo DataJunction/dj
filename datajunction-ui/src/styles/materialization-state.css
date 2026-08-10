@@ -338,8 +338,54 @@
   gap: 20px;
   align-items: center;
   padding: 10px 0;
-  border-bottom: 1px solid var(--planner-border);
   line-height: 1.5;
+}
+
+/* The rule belongs to the group, so an open row and its detail stay inside one
+   band rather than being cut apart by a border between them. */
+.mat-table__group {
+  border-bottom: 1px solid var(--planner-border);
+}
+
+.mat-table__group:last-child {
+  border-bottom: none;
+}
+
+/* A disclosure, not a button: no chrome, so the row still reads as a row. */
+.mat-table__disclosure {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mat-table__caret {
+  color: var(--planner-text-dim);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.mat-table__disclosure:hover .mat-table__caret {
+  color: var(--planner-text);
+}
+
+/* Indented to the caret's column so the detail reads as belonging to the row above
+   it rather than as a new row. */
+.mat-table__detail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 28px;
+  padding: 4px 0 14px 18px;
+}
+
+.mat-table__name {
+  word-break: break-all;
 }
 
 .mat-table__row--head {
@@ -349,10 +395,6 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--planner-text-dim);
-}
-
-.mat-table__row:last-child {
-  border-bottom: none;
 }
 
 .mat-table__row .badge {

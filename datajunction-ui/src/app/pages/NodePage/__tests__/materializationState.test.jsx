@@ -859,6 +859,52 @@ describe('MaterializationStatePanel copy', () => {
     ]);
   });
 
+  // Both materializations stay visible and comparable; the detail opens in place.
+  // The case that brings anyone here is a full and an incremental build disagreeing,
+  // which cannot be judged one at a time.
+  it('expands a row in place without collapsing its neighbour', async () => {
+    const user = userEvent.setup();
+    const { container } = renderPanel(
+      panelState([INCREMENTAL, FULL], [AVAILABILITY]),
+    );
+
+    const rows = () => [
+      ...container.querySelectorAll('.mat-table__disclosure'),
+    ];
+    const openPanels = () =>
+      [...container.querySelectorAll('.mat-table__detail')]
+        .filter(panel => !panel.hidden)
+        .map(panel => panel.getAttribute('id'));
+
+    expect(rows().map(row => row.getAttribute('aria-expanded'))).toEqual([
+      'false',
+      'false',
+    ]);
+    expect(openPanels()).toEqual([]);
+
+    await user.click(rows()[0]);
+    await user.click(rows()[1]);
+    expect(rows().map(row => row.getAttribute('aria-expanded'))).toEqual([
+      'true',
+      'true',
+    ]);
+    expect(openPanels()).toEqual(['mat-detail-0', 'mat-detail-1']);
+
+    // Closing one leaves the other open: two rows compared side by side is the
+    // point of expanding in place rather than selecting.
+    await user.click(rows()[0]);
+    expect(rows().map(row => row.getAttribute('aria-expanded'))).toEqual([
+      'false',
+      'true',
+    ]);
+    expect(openPanels()).toEqual(['mat-detail-1']);
+
+    // The open row's detail names the materialization, which nothing else shows.
+    expect(
+      container.querySelector('#mat-detail-1 .mat-table__name').textContent,
+    ).toEqual(FULL.name);
+  });
+
   // The strip's range belongs under the strip. Written as a trailing sentence it sent
   // the reader past the squares to find out what they spanned.
   it('labels the ends of the coverage strip with its range', () => {
