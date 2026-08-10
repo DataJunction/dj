@@ -705,30 +705,23 @@ describe('coverageSquares', () => {
 });
 
 describe('strategyBadge', () => {
-  it('folds the lookback into the incremental badge', () => {
-    expect(strategyBadge(intent('incremental_time'))).toEqual(
-      'incremental · 3d lookback',
-    );
-  });
-
-  // A lookback is meaningless for a full rebuild, so the badge stays a single word.
-  it('renders a full strategy as one word', () => {
-    expect(strategyBadge(intent('full'))).toEqual('full');
-  });
-
-  it('drops the lookback clause when none is declared', () => {
-    expect(
-      strategyBadge({ ...intent('incremental_time'), lookbackWindow: null }),
-    ).toEqual('incremental');
-  });
-
-  it('abbreviates a sub-day lookback', () => {
+  // The badge names a category. The lookback used to fold in here, before the block
+  // gave it a labelled row of its own; keeping it would state the window twice.
+  it('names the strategy and nothing else', () => {
+    expect(strategyBadge(intent('incremental_time'))).toEqual('incremental');
     expect(
       strategyBadge({
         ...intent('incremental_time'),
         lookbackWindow: '12 HOURS',
       }),
-    ).toEqual('incremental · 12h lookback');
+    ).toEqual('incremental');
+    expect(
+      strategyBadge({ ...intent('incremental_time'), lookbackWindow: null }),
+    ).toEqual('incremental');
+  });
+
+  it('renders a full strategy as one word', () => {
+    expect(strategyBadge(intent('full'))).toEqual('full');
   });
 
   it('has nothing to show when no strategy is declared', () => {
@@ -851,10 +844,7 @@ describe('MaterializationStatePanel copy', () => {
       [...container.querySelectorAll('.mat-item__head')].map(
         head => head.textContent,
       ),
-    ).toEqual([
-      'Druid cubeincremental · 3d lookback',
-      'Druid cubefullinactive',
-    ]);
+    ).toEqual(['Druid cubeincremental', 'Druid cubefullinactive']);
   });
 
   // Declaration and activity are separate regions because they come from separate

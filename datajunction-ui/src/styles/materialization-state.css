@@ -36,7 +36,7 @@
      should be too. */
   max-width: 880px;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--planner-text);
 }
 
@@ -121,12 +121,12 @@
 
 .mat-header__title h4 {
   margin: 0;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
 }
 
 .mat-header__count {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--planner-text-muted);
 }
 
@@ -144,8 +144,8 @@
 }
 
 .mat-header__key {
-  flex: 0 0 60px;
-  font-size: 11px;
+  flex: 0 0 70px;
+  font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -174,7 +174,7 @@
 }
 
 .mat-header__link {
-  font-size: 12px;
+  font-size: 13px;
   white-space: nowrap;
 }
 
@@ -194,7 +194,7 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .mat-serving__sep {
@@ -223,7 +223,7 @@
 .mat-squares-axis__ends {
   display: flex;
   gap: 4px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--planner-text-dim);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -543,7 +543,7 @@
   padding: 1px 8px;
   border: 1px solid var(--planner-border);
   border-radius: 10px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--planner-text-muted);
   white-space: nowrap;

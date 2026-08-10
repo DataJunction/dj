@@ -225,35 +225,16 @@ export function coverageSquares(outcome) {
   return squares;
 }
 
-/** `"3 DAYS"` -> `"3d"`. The badge has no room for the word. */
-function shortLookback(lookbackWindow) {
-  const match = /^(\d+)\s*(SECOND|MINUTE|HOUR|DAY|WEEK|MONTH|YEAR)S?$/i.exec(
-    String(lookbackWindow || '').trim(),
-  );
-  if (!match) {
-    return String(lookbackWindow || '').toLowerCase();
-  }
-  const unit = match[2].toLowerCase();
-  return `${match[1]}${unit === 'month' ? 'mo' : unit[0]}`;
-}
-
 /**
- * Strategy as a short neutral chip: `full`, or `incremental · 3d lookback`.
+ * Strategy as a short neutral chip: `full`, or `incremental`.
  *
- * The lookback folds in here because it only means anything for an incremental
- * strategy, and a `lookback 3 DAYS` line sitting apart from `incremental_time` made a
- * reader join two facts that are one fact.
+ * The lookback used to fold in here, back when nothing else on the row carried it.
+ * The block now gives it its own labelled row, so folding it in states it twice --
+ * and the badge is a category, which a window length is not.
  */
 export function strategyBadge(intent) {
   const strategy = String(intent?.strategy || '').trim();
-  if (!strategy) {
-    return null;
-  }
-  const label = strategy.replace(/_time$/, '').replace(/_/g, ' ');
-  const lookback = intent.lookbackWindow
-    ? ` · ${shortLookback(intent.lookbackWindow)} lookback`
-    : '';
-  return strategy === 'full' ? label : `${label}${lookback}`;
+  return strategy ? strategy.replace(/_time$/, '').replace(/_/g, ' ') : null;
 }
 
 /**
