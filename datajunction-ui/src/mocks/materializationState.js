@@ -42,6 +42,12 @@ export const materializationStateStale = {
       // Engine alone; layout C carries the strategy in a badge instead.
       engine: 'Druid cube',
       active: true,
+      // DJ's record of the workflows it asked the query service to create. Present
+      // today (`MaterializationInfo.urls`), unlike everything under `execution`.
+      workflows: [
+        { label: 'main', url: 'https://example/maestro/main' },
+        { label: 'backfill', url: 'https://example/maestro/backfill' },
+      ],
 
       intent: {
         schedule: '0 6 * * *',
@@ -84,10 +90,6 @@ export const materializationStateStale = {
         },
         nextScheduledAt: '2026-08-08T06:00:00.000Z',
         inFlight: null,
-        workflows: [
-          { label: 'main', url: 'https://example/maestro/main' },
-          { label: 'backfill', url: 'https://example/maestro/backfill' },
-        ],
       },
     },
     {
@@ -98,6 +100,7 @@ export const materializationStateStale = {
       label: 'Druid cube (full)',
       engine: 'Druid cube',
       active: false,
+      workflows: [{ label: 'main', url: 'https://example/maestro/full-main' }],
       intent: {
         schedule: '0 6 * * *',
         scheduleHuman: 'daily at 06:00',
@@ -204,6 +207,7 @@ function syntheticMat({
     label: `Druid cube (${strategy})`,
     engine: 'Druid cube',
     active: true,
+    workflows: [{ label: 'main', url: 'https://example/maestro/synthetic' }],
     intent: {
       schedule: granularity === 'hour' ? '0 * * * *' : '0 6 * * *',
       scheduleHuman: granularity === 'hour' ? 'hourly' : 'daily at 06:00',

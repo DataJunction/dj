@@ -127,8 +127,17 @@ export function partitionsBetween(from, through) {
   return keys;
 }
 
-/** Squares per strip. Above this the strip stops being scannable and starts being a bar. */
-const MAX_SQUARES = 60;
+/**
+ * Squares per strip. Above this the strip stops being scannable and starts being a bar.
+ *
+ * 25 follows Airflow's grid, which shows the last 25 runs by default. It is a cap on
+ * the count, not a window onto the recent tail: the strip still spans the whole target
+ * range and buckets to fit, so a year of days reads as months rather than as the last
+ * 25 days. Windowing instead would be the closer analogue, but coverage here is a
+ * contiguous prefix derived from two watermarks, so the left of the strip is green by
+ * construction and there is nothing in the tail that the range does not already say.
+ */
+const MAX_SQUARES = 25;
 
 /**
  * Bucket sizes to try, in partitions, coarsest-last. Day grain steps partition -> week
@@ -423,6 +432,77 @@ function temporalPartition(node, availability) {
 }
 
 /**
+ * Workflow deep links, labelled by the trailing segment of the workflow id:
+ * `.../maestro/prod/dj.<node>.v8.0.main` -> `main`.
+ *
+ * `workflow_names` comes back empty in practice, so the URL is the only place the
+ * label exists. A link here is DJ's record of a workflow it asked the query service
+ * to create -- it says the workflow exists, not that it ran.
+ */
+function workflowLinks(materialization) {
+  return (materialization.urls || []).map((url, index) => {
+    const text = String(url);
+    const tail = text.split('?')[0].replace(/\/+$/, '').split('/').pop() || '';
+    const segment = tail.split('.').pop();
+    return {
+      label: /^[a-z][a-z0-9_-]*$/i.test(segment)
+        ? segment
+        : `workflow ${index + 1}`,
+      url: text,
+    };
+  });
+}
+
+/**
+ * One cube, one coverage.
+ *
+ * Availability is recorded per node revision, so every materialization on a revision
+ * is handed the same watermarks and reports the same covered range. Rendering the
+ * squares once per row therefore multiplied a single gap into one apparent problem
+ * per materialization, and the rows then disagreed with each other -- a cube two days
+ * short read as "3 days behind" on one row and "1 partition to backfill" on the next,
+ * from identical input.
+ *
+ * They disagree only about which trailing partitions are still due, because that
+ * follows each materialization's lookback. A partition is behind only once every
+ * configured materialization has had its last chance to write it, so the not-due sets
+ * union and what remains is the real shortfall.
+ */
+export function mergeCoverage(mats) {
+  const known = mats.filter(mat => mat.outcome.coverageKnown);
+  if (!known.length) {
+    return {
+      target: null,
+      covered: null,
+      missing: [],
+      notDueYet: [],
+      coverageKnown: false,
+    };
+  }
+  const notDueYet = new Set();
+  const trailing = new Set();
+  for (const { outcome } of known) {
+    for (const day of outcome.notDueYet) {
+      notDueYet.add(day);
+      trailing.add(day);
+    }
+    for (const day of outcome.missing) {
+      trailing.add(day);
+    }
+  }
+  const target = known
+    .map(mat => mat.outcome.target)
+    .reduce((a, b) => (b.through > a.through ? b : a));
+  return {
+    target,
+    covered: known[0].outcome.covered,
+    missing: [...trailing].filter(day => !notDueYet.has(day)).sort(),
+    notDueYet: [...notDueYet].sort(),
+    coverageKnown: true,
+  };
+}
+
+/**
  * Map the two responses the tab already fetches into a `MaterializationState`.
  *
  * Pure: `now` is injected so coverage is testable and so two calls in the same render
@@ -452,6 +532,33 @@ export function toMaterializationState({
     }
   }
 
+  const mats = materializations.map(materialization => {
+    const availability =
+      availabilityByRevision.get(materialization.node_revision_id) ??
+      availabilityByRevision.get(materialization.config?.cube?.version) ??
+      null;
+    const partition = temporalPartition(node, availability);
+    return {
+      name: materialization.name,
+      label: toLabel(materialization),
+      engine: toEngine(materialization),
+      active: !materialization.deactivated_at,
+      // Neither declared intent nor observed execution: DJ's own record of the
+      // workflows it asked for. Kept at the top level so it still renders when
+      // `execution` is null, which is every materialization today.
+      workflows: workflowLinks(materialization),
+      intent: toIntent({ materialization, partitionColumn: partition }),
+      outcome: toOutcome({
+        availability,
+        partition,
+        schedule: materialization.schedule,
+        lookbackWindow: materialization.config?.lookback_window,
+        now,
+      }),
+      execution: EXECUTION_UNAVAILABLE,
+    };
+  });
+
   return {
     node: {
       name: node?.name ?? null,
@@ -462,28 +569,9 @@ export function toMaterializationState({
       version: node?.version ?? null,
       isCurrentVersion: node?.version === node?.current_version,
     },
-    materializations: materializations.map(materialization => {
-      const availability =
-        availabilityByRevision.get(materialization.node_revision_id) ??
-        availabilityByRevision.get(materialization.config?.cube?.version) ??
-        null;
-      const partition = temporalPartition(node, availability);
-      return {
-        name: materialization.name,
-        label: toLabel(materialization),
-        engine: toEngine(materialization),
-        active: !materialization.deactivated_at,
-        intent: toIntent({ materialization, partitionColumn: partition }),
-        outcome: toOutcome({
-          availability,
-          partition,
-          schedule: materialization.schedule,
-          lookbackWindow: materialization.config?.lookback_window,
-          now,
-        }),
-        execution: EXECUTION_UNAVAILABLE,
-      };
-    }),
+    // Cube-scoped, alongside the serving table it is a property of.
+    coverage: mergeCoverage(mats),
+    materializations: mats,
   };
 }
 

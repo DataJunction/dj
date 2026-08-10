@@ -46,6 +46,11 @@ const INCREMENTAL = {
   strategy: 'incremental_time',
   deactivated_at: null,
   config: { cube: { version: 'v8.0' }, lookback_window: '3 DAYS' },
+  urls: [
+    'https://data.netflix.net/maestro/prod/dj.shared.game_health_metrics.cloud_games_session_success_cube.v8.0.main',
+    'https://data.netflix.net/maestro/prod/dj.shared.game_health_metrics.cloud_games_session_success_cube.v8.0.backfill',
+  ],
+  workflow_names: [],
 };
 
 const FULL = {
@@ -56,6 +61,10 @@ const FULL = {
   strategy: 'full',
   deactivated_at: '2026-08-01T00:00:00+00:00',
   config: { cube: { version: 'v8.0' }, lookback_window: null },
+  urls: [
+    'https://data.netflix.net/maestro/prod/dj.shared.game_health_metrics.cloud_games_session_success_cube.v8.0.full',
+  ],
+  workflow_names: [],
 };
 
 const AVAILABILITY = {
@@ -103,12 +112,27 @@ describe('toMaterializationState', () => {
       }),
     ).toEqual({
       node: NODE_SUMMARY,
+      // One availability row, so one coverage. A trailing day is only a gap once
+      // every materialization has had its last chance at it, so the incremental's
+      // 3 DAY lookback keeps both trailing days out of `missing` even though the
+      // full materialization on its own would call them behind.
+      coverage: {
+        target: { from: '20260806', through: '20260809' },
+        covered: { from: '20260806', through: '20260807' },
+        missing: [],
+        notDueYet: ['20260808', '20260809'],
+        coverageKnown: true,
+      },
       materializations: [
         {
           name: INCREMENTAL.name,
           label: 'Druid Cube (incremental time)',
           engine: 'Druid cube',
           active: true,
+          workflows: [
+            { label: 'main', url: INCREMENTAL.urls[0] },
+            { label: 'backfill', url: INCREMENTAL.urls[1] },
+          ],
           intent: {
             schedule: '59 11 * * *',
             scheduleHuman: 'At 11:59 AM',
@@ -142,6 +166,7 @@ describe('toMaterializationState', () => {
           label: 'Druid Cube (full)',
           engine: 'Druid cube',
           active: false,
+          workflows: [{ label: 'full', url: FULL.urls[0] }],
           intent: {
             schedule: '0 6 * * *',
             scheduleHuman: 'At 06:00 AM',
@@ -606,23 +631,24 @@ describe('coverageSquares', () => {
       }),
     );
 
-    // 371 days at one square per week.
-    expect(squares).toHaveLength(53);
+    // 371 days at one square per month: the weekly rung would need 53 squares, which
+    // is past the 25 cap.
+    expect(squares).toHaveLength(13);
     expect(squares[0]).toEqual({
       state: 'covered',
       from: '20250801',
-      through: '20250807',
-      count: 7,
-      label: '20250801–20250807: 7 covered',
+      through: '20250830',
+      count: 30,
+      label: '20250801–20250830: 30 covered',
     });
-    // The trailing week holds three covered days, two behind and two not due; behind
+    // The trailing bucket holds nine covered days, two behind and two not due; behind
     // outranks both, and the count reports the behind days rather than the bucket size.
-    expect(squares[52]).toEqual({
+    expect(squares[12]).toEqual({
       state: 'behind',
-      from: '20260731',
+      from: '20260727',
       through: '20260806',
       count: 2,
-      label: '20260731–20260806: 2 behind',
+      label: '20260727–20260806: 2 behind',
     });
   });
 
@@ -641,29 +667,23 @@ describe('coverageSquares', () => {
       }),
     );
 
-    // 721 hours at one square per day.
-    expect(squares).toHaveLength(31);
+    // 721 hours at one square per week: the daily rung needs 31 squares, past the cap.
+    expect(squares).toHaveLength(5);
     expect(squares[0]).toEqual({
       state: 'covered',
       from: '2026070800',
-      through: '2026070823',
-      count: 24,
-      label: '2026070800–2026070823: 24 covered',
+      through: '2026071423',
+      count: 168,
+      label: '2026070800–2026071423: 168 covered',
     });
-    // One behind hour out of twenty-four still reads as a behind day.
-    expect(squares[29]).toEqual({
+    // One behind hour out of forty-nine still reads as a behind bucket, which is the
+    // property that matters: coarsening can hide a healthy edge, never a problem.
+    expect(squares[4]).toEqual({
       state: 'behind',
-      from: '2026080600',
-      through: '2026080623',
-      count: 1,
-      label: '2026080600–2026080623: 1 behind',
-    });
-    expect(squares[30]).toEqual({
-      state: 'notDue',
-      from: '2026080700',
+      from: '2026080500',
       through: '2026080700',
       count: 1,
-      label: '2026080700: 1 not due yet',
+      label: '2026080500–2026080700: 1 behind',
     });
   });
 
@@ -672,8 +692,7 @@ describe('coverageSquares', () => {
   it('stays bounded past the end of the bucket ladder', () => {
     const squares = coverageSquares(coverage('20000101', '20260101'));
 
-    expect(squares.length).toBeLessThanOrEqual(60);
-    expect(squares.length).toBeGreaterThan(30);
+    expect(squares).toHaveLength(25);
   });
 
   it('draws nothing when coverage cannot be judged', () => {
@@ -855,9 +874,12 @@ describe('MaterializationStatePanel copy', () => {
       ),
     );
 
-    expect(container.querySelector('.coverage--unknown').textContent).toEqual(
-      'coverage unknown',
-    );
+    // A states it once, on the cube's Coverage row, and draws no strip beside it:
+    // an empty strip reads as "nothing is covered" rather than "this is not known".
+    expect(
+      container.querySelector('.mat-verdict--unknown').textContent,
+    ).toEqual('○ Coverage unknown');
+    expect(container.querySelector('.mat-squares')).toEqual(null);
     await user.click(screen.getByTitle('Stacked rows'));
     expect(container.querySelector('.coverage--unknown').textContent).toEqual(
       'coverage unknown',
@@ -879,7 +901,7 @@ describe('MaterializationStatePanel copy', () => {
       [...container.querySelectorAll('.mat-block')].map(
         block => block.querySelector('h5').textContent,
       ),
-    ).toEqual(['Declared', 'Last run']);
+    ).toEqual(['Declared', 'Last run', 'Workflows']);
     expect(container.querySelectorAll('.mat-block')[1].textContent).toEqual(
       'Last runno run information',
     );

@@ -109,6 +109,9 @@
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
+  /* Clears the absolutely-positioned layout switcher, which was overlapping and
+     clipping the count. Goes with the switcher when it goes. */
+  padding-right: 90px;
 }
 
 .mat-header__title h4 {
@@ -122,10 +125,17 @@
   color: var(--planner-text-muted);
 }
 
+/* Serving and Coverage are two labelled rows sharing one key column, so the values
+   line up under each other. */
 .mat-header__serving {
   display: flex;
   gap: 12px;
   margin-top: 6px;
+}
+
+.mat-header__serving .mat-serving {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .mat-header__key {
@@ -186,10 +196,11 @@
   color: var(--planner-text-dim);
 }
 
+/* Pushed to the far edge so the table name, which is the long part, keeps the room. */
 .mat-serving__links {
   display: flex;
   gap: 12px;
-  margin-left: 4px;
+  margin-left: auto;
 }
 
 /* Reads as a copyable object rather than as prose, which is what it is. */
@@ -295,7 +306,7 @@
 
 .mat-table__row {
   display: grid;
-  grid-template-columns: 200px minmax(220px, 1.4fr) 200px minmax(180px, 1fr) 110px;
+  grid-template-columns: minmax(220px, 1.4fr) 200px minmax(180px, 1fr) 110px;
   gap: 20px;
   align-items: center;
   padding: 10px 0;
@@ -331,6 +342,25 @@
 
 .mat-table__label .badge {
   margin-left: 0;
+}
+
+/* Workflow links read as the row's actions, so they sit on one line and are the
+   only thing in the row weighted like a link. */
+.mat-workflows {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.mat-workflow-link {
+  color: var(--planner-accent, #0b6b73);
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.mat-workflow-link:hover {
+  text-decoration: underline;
 }
 
 /* --- Layout B: master/detail ---------------------------------------------- */

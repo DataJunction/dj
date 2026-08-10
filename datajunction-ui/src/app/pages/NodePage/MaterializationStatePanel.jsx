@@ -20,6 +20,7 @@ import { Link } from 'react-router-dom';
 import {
   coverageSquares,
   dayPartitionsBetween,
+  mergeCoverage,
   strategyBadge,
 } from './materializationState';
 
@@ -100,6 +101,36 @@ export function summarize(mat) {
     verdict: 'healthy',
     headline: 'On target',
     detail: `Covered through ${covered.through}, matching target.${qualifier}`,
+  };
+}
+
+/**
+ * The cube's coverage in three words, for the serving line.
+ *
+ * Deliberately not `summarize`: that judges a materialization and mixes in run status.
+ * This judges the built table, which is the thing coverage is actually about, and says
+ * nothing about how many materializations feed it or which of them is behind -- DJ
+ * cannot attribute a watermark to a materialization, so neither can this.
+ */
+function coverageVerdict(coverage) {
+  if (!coverage?.coverageKnown) {
+    return {
+      verdict: 'unknown',
+      headline: 'Coverage unknown',
+      className: VERDICT.unknown.className,
+    };
+  }
+  if (coverage.missing?.length) {
+    return {
+      verdict: 'stale',
+      headline: `${plural(coverage.missing.length, 'day')} behind`,
+      className: VERDICT.stale.className,
+    };
+  }
+  return {
+    verdict: 'healthy',
+    headline: 'On target',
+    className: VERDICT.healthy.className,
   };
 }
 
@@ -349,6 +380,38 @@ function ServingLine({ node, serving }) {
 }
 
 /**
+ * Coverage on its own labelled row, beneath serving.
+ *
+ * It sits at cube scope because that is the scope of the fact -- availability is keyed
+ * to the node revision, so every materialization on it reports the same watermarks --
+ * but it is a different question from "where is the data", and trailing it onto the
+ * serving line squeezed four separate things onto one row.
+ */
+function CoverageLine({ coverage }) {
+  const verdict = coverageVerdict(coverage);
+  return (
+    <div className="mat-serving">
+      <span className={verdict.className}>
+        <span className="mat-glyph">{VERDICT[verdict.verdict].glyph}</span>{' '}
+        {verdict.headline}
+      </span>
+      {coverage?.coverageKnown ? (
+        <>
+          <SquaresRun squares={coverageSquares(coverage)} />
+          {/* The dates sit beside the squares because a bare `20260810` is
+              uninterpretable without the range it closes. */}
+          <span className="mat-dim">
+            {coverage.covered.from}–{coverage.covered.through} covered
+          </span>
+          <span className="mat-serving__sep">·</span>
+          <span className="mat-dim">target {coverage.target.through}</span>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+/**
  * The serving block as layout B renders it, kept verbatim so B stays the control the
  * one-line treatment in A and C is judged against. Delete with B.
  */
@@ -386,7 +449,7 @@ function ServingBlockLegacy({ serving }) {
  * no availability link at all. Rendering the same table and valid-through inside each
  * card claimed an attribution the schema cannot make.
  */
-function CubeHeader({ state, mats, serving, layout }) {
+function CubeHeader({ state, mats, serving, coverage, layout }) {
   return (
     <div className="mat-header">
       <div className="mat-header__title">
@@ -408,6 +471,14 @@ function CubeHeader({ state, mats, serving, layout }) {
           <ServingLine node={state.node} serving={serving} />
         )}
       </div>
+      {/* Layout B keeps its per-card coverage, so it stays the control the cube-scoped
+          treatment in A and C is judged against. */}
+      {serving && layout !== 'B' ? (
+        <div className="mat-header__serving">
+          <span className="mat-header__key">Coverage</span>
+          <CoverageLine coverage={coverage} />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -429,64 +500,74 @@ function InactiveBadge({ mat }) {
   );
 }
 
-/** A -- one row per materialization, scannable down the status column. */
-/** Coverage in a table cell: fixed-size squares fit a column; a stretched bar does not. */
-function TableCoverage({ outcome }) {
-  const squares = coverageSquares(outcome);
-  if (!squares.length) {
-    return <span className="coverage--unknown">coverage unknown</span>;
+/**
+ * The workflow links, as a first-class column rather than a footnote.
+ *
+ * This is the one thing on the row a reader can act on: everything else describes the
+ * build, and these are how you go look at it. They were buried at the bottom of the
+ * old tree view, three levels into a disclosure nobody opened.
+ */
+function WorkflowLinks({ workflows }) {
+  if (!workflows?.length) {
+    return <span className="mat-dim">none</span>;
   }
   return (
-    <span className="mat-table__coverage">
-      <SquaresRun squares={squares} />
-      <span className="mat-dim">→ {outcome.target.through}</span>
+    <span className="mat-workflows">
+      {workflows.map(wf => (
+        <a
+          key={wf.url}
+          href={wf.url}
+          target="_blank"
+          rel="noreferrer"
+          className="mat-workflow-link"
+          title={wf.url}
+        >
+          {wf.label} ↗
+        </a>
+      ))}
     </span>
   );
 }
 
+/**
+ * A -- one row per materialization.
+ *
+ * No coverage column: coverage is a property of the cube, not of a materialization,
+ * and it now sits once on the serving line. What is left here is what genuinely
+ * differs between the rows -- strategy, schedule, workflows, run -- which is also
+ * what frees the width to give the workflow links a column of their own.
+ */
 function LayoutTable({ mats }) {
   return (
     <div className="mat-table" role="table" aria-label="Materialization state">
       <div className="mat-table__row mat-table__row--head" role="row">
-        <span role="columnheader">Status</span>
         <span role="columnheader">Materialization</span>
         <span role="columnheader">Schedule</span>
-        <span role="columnheader">Coverage</span>
+        <span role="columnheader">Workflows</span>
         <span role="columnheader">Last run</span>
       </div>
-      {mats.map((mat, index) => {
-        const { verdict, headline } = summarize(mat);
-        const tone = VERDICT[verdict];
-        return (
-          <div
-            className="mat-table__row"
-            role="row"
-            key={`${mat.name}-${index}`}
-          >
-            <span role="cell" className={tone.className}>
-              <span className="mat-glyph">{tone.glyph}</span> {headline}
-            </span>
-            <span role="cell">
-              {/* Engine plus badge, as layout C renders it: `label` folded the
-                  strategy into the name and then repeated it. */}
-              <div className="mat-table__label">
-                {mat.engine || mat.label}
-                <StrategyBadge intent={mat.intent} />
-                <InactiveBadge mat={mat} />
-              </div>
-            </span>
-            <span role="cell">
-              <ScheduleCell intent={mat.intent} />
-            </span>
-            <span role="cell">
-              <TableCoverage outcome={mat.outcome} />
-            </span>
-            <span role="cell" className="mat-dim">
-              {mat.execution ? 'reported' : 'unknown'}
-            </span>
-          </div>
-        );
-      })}
+      {mats.map((mat, index) => (
+        <div className="mat-table__row" role="row" key={`${mat.name}-${index}`}>
+          <span role="cell">
+            {/* Engine plus badge, as layout C renders it: `label` folded the
+                strategy into the name and then repeated it. */}
+            <div className="mat-table__label">
+              {mat.engine || mat.label}
+              <StrategyBadge intent={mat.intent} />
+              <InactiveBadge mat={mat} />
+            </div>
+          </span>
+          <span role="cell">
+            <ScheduleCell intent={mat.intent} />
+          </span>
+          <span role="cell">
+            <WorkflowLinks workflows={mat.workflows} />
+          </span>
+          <span role="cell" className="mat-dim">
+            {mat.execution ? 'reported' : 'unknown'}
+          </span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -545,13 +626,6 @@ function LastRunBlock({ execution }) {
           next {formatUtc(execution.nextScheduledAt)}
         </div>
       ) : null}
-      {execution.workflows?.map(wf => (
-        <div key={wf.label}>
-          <a href={wf.url} target="_blank" rel="noreferrer">
-            {wf.label} workflow ↗
-          </a>
-        </div>
-      ))}
     </div>
   );
 }
@@ -613,6 +687,10 @@ function LayoutMasterDetail({ mats }) {
         <div className="mat-split__blocks">
           <DeclaredBlock intent={mat.intent} />
           <LastRunBlock execution={mat.execution} />
+          <div className="mat-block">
+            <h5>Workflows</h5>
+            <WorkflowLinks workflows={mat.workflows} />
+          </div>
         </div>
       </div>
     </div>
@@ -707,6 +785,7 @@ function LayoutStacked({ mats }) {
                 {mat.intent.scheduleHuman || mat.intent.schedule}
                 <span className="mat-dim mat-mono"> {mat.intent.schedule}</span>
               </span>
+              <WorkflowLinks workflows={mat.workflows} />
             </div>
             <div className="mat-stack__verdict">{detail}</div>
             <CoverageSquares
@@ -732,6 +811,8 @@ export default function MaterializationStatePanel({ state }) {
   // Every card previously repeated this; all of them are the same row, because
   // availability keys off the revision the materializations share.
   const serving = mats.find(mat => mat.outcome.servingTable)?.outcome ?? null;
+  // The adapter supplies this; fixtures that predate it are merged here instead.
+  const coverage = state.coverage ?? mergeCoverage(mats);
   const Layout = LAYOUT_COMPONENTS[layout];
 
   return (
@@ -752,7 +833,13 @@ export default function MaterializationStatePanel({ state }) {
           </button>
         ))}
       </div>
-      <CubeHeader state={state} mats={mats} serving={serving} layout={layout} />
+      <CubeHeader
+        state={state}
+        mats={mats}
+        serving={serving}
+        coverage={coverage}
+        layout={layout}
+      />
       {/* Keyed by index as well: the same materialization name recurs across cube
           revisions, so the name alone is not unique within a node. */}
       <Layout mats={mats} />
