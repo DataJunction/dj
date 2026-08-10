@@ -872,6 +872,18 @@ def test_materialization_spec_defaults():
         "schedule": "0 6 * * *",
         "strategy": MaterializationStrategy.INCREMENTAL_TIME,
         "lookback_window": "1 DAY",
+        "retention": "400 DAYS",
+    }
+
+
+def test_materialization_spec_retention_override():
+    """An author can widen or narrow how long Druid keeps the ingested data."""
+    spec = MaterializationSpec(schedule="0 6 * * *", retention="30 DAYS")
+    assert spec.model_dump() == {
+        "schedule": "0 6 * * *",
+        "strategy": MaterializationStrategy.INCREMENTAL_TIME,
+        "lookback_window": "1 DAY",
+        "retention": "30 DAYS",
     }
 
 
@@ -879,6 +891,7 @@ def test_materialization_spec_full_strategy_drops_lookback():
     """
     ``lookback_window`` is meaningless for FULL, so it is normalized away -- otherwise
     two equivalent specs could compare unequal and churn a live workflow on deploy.
+    ``retention`` is not: a full rebuild loads the widest span of history there is.
     """
     declared = MaterializationSpec(
         schedule="0 6 * * *",
@@ -889,6 +902,7 @@ def test_materialization_spec_full_strategy_drops_lookback():
         "schedule": "0 6 * * *",
         "strategy": MaterializationStrategy.FULL,
         "lookback_window": None,
+        "retention": "400 DAYS",
     }
     assert declared == MaterializationSpec(
         schedule="0 6 * * *",

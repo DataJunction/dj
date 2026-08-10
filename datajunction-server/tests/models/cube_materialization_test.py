@@ -73,6 +73,49 @@ def test_druid_cube_materialization_job_passes_lookback_window():
     assert materialization_input.lookback_window == "7 DAY"
 
 
+def test_druid_cube_materialization_job_defaults_retention():
+    """
+    A config with no retention -- including one persisted before the field existed --
+    still hands the query service the default, which is what keeps Druid from
+    rejecting an ingest that reaches further back than the cluster default allows.
+    """
+    cube = NodeNameVersion(name="default.repairs_cube", version="v1.0")
+    config = DruidCubeConfig(
+        cube=cube,
+        dimensions=[],
+        metrics=[],
+        measures_materializations=[],
+        combiners=[],
+    ).model_dump()
+    del config["retention"]
+    materialization = SimpleNamespace(
+        name="druid_cube__full",
+        config=config,
+        strategy=MaterializationStrategy.FULL,
+        schedule="@daily",
+        job="DruidCubeMaterializationJob",
+    )
+    query_service_client = Mock()
+
+    DruidCubeMaterializationJob().schedule(materialization, query_service_client)
+
+    assert query_service_client.materialize_cube.call_args.kwargs[
+        "materialization_input"
+    ] == DruidCubeMaterializationInput(
+        name="druid_cube__full",
+        cube=cube,
+        dimensions=[],
+        metrics=[],
+        strategy=MaterializationStrategy.FULL,
+        schedule="@daily",
+        job="DruidCubeMaterializationJob",
+        lookback_window="1 DAY",
+        retention="400 DAYS",
+        measures_materializations=[],
+        combiners=[],
+    )
+
+
 class TestDruidCubeV3ConfigDruidCubeConfigCompatibility:
     """Test DruidCubeConfig compatibility computed properties."""
 
