@@ -204,10 +204,27 @@
 
 /* The strip and the dates under its ends move as one block, so the labels stay
    pinned to the squares they describe however wide the strip gets. */
+/* Fixed width, wide enough for two 8-digit dates side by side. At natural size a
+   five-square strip is 63px, so `space-between` had nowhere to put the labels and
+   ran them together into one unreadable 16-digit number. */
 .mat-squares-axis {
   display: inline-flex;
   flex-direction: column;
   gap: 3px;
+  width: 15rem;
+}
+
+/* Cells divide the fixed width instead of setting it, so the strip keeps one
+   footprint whether it holds five buckets or twenty-five and the labels always
+   land under the ends they name. */
+.mat-squares-axis .mat-squares {
+  flex-wrap: nowrap;
+}
+
+.mat-squares-axis .mat-squares__cell {
+  flex: 1 1 0;
+  width: auto;
+  min-width: 3px;
 }
 
 .mat-squares-axis__ends {
