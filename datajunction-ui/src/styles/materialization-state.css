@@ -340,15 +340,18 @@
 .mat-items {
   display: flex;
   flex-direction: column;
+  gap: 10px;
 }
 
+/* A card, matching `.mat-split__detail`: a rule between blocks left the two sides of
+   each block floating in the page with nothing bounding them, so the column gap and
+   the gap between materializations read as the same kind of space. */
 .mat-item {
-  padding: 12px 0;
-  border-bottom: 1px solid var(--planner-border);
-}
-
-.mat-item:last-child {
-  border-bottom: none;
+  border: 1px solid var(--planner-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  background: var(--planner-surface);
+  padding: 12px 14px;
 }
 
 .mat-item__head {
@@ -356,7 +359,7 @@
   align-items: baseline;
   flex-wrap: wrap;
   gap: 8px;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 
 .mat-item__name {
