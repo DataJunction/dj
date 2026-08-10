@@ -389,17 +389,6 @@ function CubeHeader({ state, mats, serving, coverage }) {
   );
 }
 
-function ScheduleCell({ intent }) {
-  return (
-    <>
-      <div>{intent.scheduleHuman || intent.schedule}</div>
-      {intent.scheduleHuman ? (
-        <div className="mat-dim mat-mono">{intent.schedule}</div>
-      ) : null}
-    </>
-  );
-}
-
 function InactiveBadge({ mat }) {
   return mat.active ? null : (
     <span className="badge partition_value">inactive</span>
@@ -436,87 +425,99 @@ function WorkflowLinks({ workflows }) {
 }
 
 /**
- * A -- one row per materialization, each expandable in place.
+ * A -- one block per materialization, everything shown.
  *
- * Every materialization stays visible and comparable. The case that brings anyone to
- * this tab is a cube carrying both a full and an incremental build that disagree, and
- * answering "do these two agree?" means seeing them side by side rather than clicking
- * between them and holding one in memory.
+ * Was a table of columns with the rest behind a disclosure. Two problems: most cubes
+ * carry exactly one materialization, so the disclosure was machinery for a case that
+ * rarely arrives; and what it opened restated the columns it sat under, printing the
+ * schedule and the run twice for one new fact.
  *
- * The row carries what differs and what you can act on; the rest opens underneath, on
- * demand, which is also where the execution block goes once the query service reports
- * one. Rows open independently, so two can be compared open at once.
+ * So there is no split. Each materialization states each fact once, as a labelled
+ * pair, and every block is open. Blocks read down the same key column, which is what
+ * makes a full and an incremental build comparable -- the case that brings anyone to
+ * this tab -- without either being hidden.
  *
- * No coverage column: coverage belongs to the cube revision and is stated once in the
- * header. Per-row it would be the same watermarks printed twice.
+ * No coverage here: it belongs to the cube revision and is stated once in the header.
  */
-function LayoutTable({ mats }) {
-  const [expanded, setExpanded] = useState(() => new Set());
-  const toggle = index =>
-    setExpanded(previous => {
-      const next = new Set(previous);
-      if (!next.delete(index)) {
-        next.add(index);
-      }
-      return next;
-    });
-
+function MaterializationBlock({ mat }) {
+  const { intent } = mat;
   return (
-    <div className="mat-table">
-      <div className="mat-table__row mat-table__row--head">
-        <span>Materialization</span>
-        <span>Schedule</span>
-        <span>Workflows</span>
-        <span>Last run</span>
+    <div className="mat-item">
+      <div className="mat-item__head">
+        <span className="mat-item__name">{mat.engine || mat.label}</span>
+        <StrategyBadge intent={intent} />
+        <InactiveBadge mat={mat} />
       </div>
-      {mats.map((mat, index) => {
-        const open = expanded.has(index);
-        const panelId = `mat-detail-${index}`;
-        return (
-          <div className="mat-table__group" key={`${mat.name}-${index}`}>
-            <div className="mat-table__row">
-              {/* Only the name is the disclosure control. Making the whole row one
-                  would have nested the workflow links inside a button, which is
-                  invalid and would swallow their clicks. */}
-              <button
-                type="button"
-                className="mat-table__disclosure"
-                aria-expanded={open}
-                aria-controls={panelId}
-                onClick={() => toggle(index)}
-              >
-                <span className="mat-table__caret" aria-hidden="true">
-                  {open ? '▾' : '▸'}
-                </span>
-                <span className="mat-table__label">
-                  {mat.engine || mat.label}
-                  <StrategyBadge intent={mat.intent} />
-                  <InactiveBadge mat={mat} />
-                </span>
-              </button>
-              <span>
-                <ScheduleCell intent={mat.intent} />
-              </span>
-              <span>
-                <WorkflowLinks workflows={mat.workflows} />
-              </span>
-              <span className="mat-dim">
-                {mat.execution ? 'reported' : 'unknown'}
-              </span>
-            </div>
-            <div id={panelId} hidden={!open} className="mat-table__detail">
-              <DeclaredBlock intent={mat.intent} />
-              <LastRunBlock execution={mat.execution} />
-              {/* The name is what identifies this materialization to the API and to
-                  a YAML deployment, and nothing else on the page shows it. */}
-              <div className="mat-block">
-                <h5>Name</h5>
-                <div className="mat-mono mat-table__name">{mat.name}</div>
-              </div>
-            </div>
-          </div>
-        );
-      })}
+      <dl className="mat-item__facts">
+        <dt>Schedule</dt>
+        <dd>
+          {intent.scheduleHuman || intent.schedule}
+          {intent.scheduleHuman ? (
+            <span className="mat-dim mat-mono"> {intent.schedule}</span>
+          ) : null}
+        </dd>
+
+        {intent.lookbackWindow ? (
+          <>
+            <dt>Lookback</dt>
+            <dd>{intent.lookbackWindow.toLowerCase()}</dd>
+          </>
+        ) : null}
+
+        {/* Cubes with no temporal partition column exist; they simply have none to
+            declare, and inventing one would misreport the cube. */}
+        <dt>Partition</dt>
+        <dd>
+          {intent.partition ? (
+            `${intent.partition.column} (${intent.partition.granularity})`
+          ) : (
+            <span className="mat-dim">none</span>
+          )}
+        </dd>
+
+        <dt>Workflows</dt>
+        <dd>
+          <WorkflowLinks workflows={mat.workflows} />
+        </dd>
+
+        <dt>Last run</dt>
+        <dd>
+          <RunFacts execution={mat.execution} />
+        </dd>
+
+        {/* Identifies this materialization to the API and to a YAML deployment, and
+            appears nowhere else on the page. */}
+        <dt>Name</dt>
+        <dd className="mat-mono mat-item__id">{mat.name}</dd>
+      </dl>
+    </div>
+  );
+}
+
+/** Engine-reported execution. Absent means absent -- never backfilled from intent. */
+function RunFacts({ execution }) {
+  const run = execution?.lastRun;
+  if (!run) {
+    return <span className="mat-dim">no run information</span>;
+  }
+  return (
+    <>
+      {run.status} {formatUtc(run.endedAt)}
+      <span className="mat-dim">
+        {' '}
+        · attempt {run.attempt} of {run.maxAttempts} · partition{' '}
+        {run.processingPartition}
+      </span>
+    </>
+  );
+}
+
+function LayoutTable({ mats }) {
+  return (
+    <div className="mat-items">
+      {mats.map((mat, index) => (
+        <MaterializationBlock key={`${mat.name}-${index}`} mat={mat} />
+      ))}
     </div>
   );
 }

@@ -842,16 +842,14 @@ describe('MaterializationStatePanel serving line', () => {
 });
 
 describe('MaterializationStatePanel copy', () => {
-  it('names a table row by engine and strategy badge, not by the folded label', async () => {
-    const user = userEvent.setup();
+  it('names a block by engine and strategy badge, not by the folded label', () => {
     const { container } = renderPanel(
       panelState([INCREMENTAL, FULL], [AVAILABILITY]),
     );
 
-    await user.click(screen.getByTitle('Table'));
     expect(
-      [...container.querySelectorAll('.mat-table__label')].map(
-        row => row.textContent,
+      [...container.querySelectorAll('.mat-item__head')].map(
+        head => head.textContent,
       ),
     ).toEqual([
       'Druid cubeincremental · 3d lookback',
@@ -859,50 +857,44 @@ describe('MaterializationStatePanel copy', () => {
     ]);
   });
 
-  // Both materializations stay visible and comparable; the detail opens in place.
-  // The case that brings anyone here is a full and an incremental build disagreeing,
-  // which cannot be judged one at a time.
-  it('expands a row in place without collapsing its neighbour', async () => {
-    const user = userEvent.setup();
+  // Every materialization is shown in full. The disclosure this replaced was
+  // machinery for a case most cubes do not have -- they carry one materialization --
+  // and what it opened restated the columns it sat under.
+  it('states every fact once, for every materialization, with nothing hidden', () => {
     const { container } = renderPanel(
       panelState([INCREMENTAL, FULL], [AVAILABILITY]),
     );
 
-    const rows = () => [
-      ...container.querySelectorAll('.mat-table__disclosure'),
-    ];
-    const openPanels = () =>
-      [...container.querySelectorAll('.mat-table__detail')]
-        .filter(panel => !panel.hidden)
-        .map(panel => panel.getAttribute('id'));
+    const block = index => {
+      const facts = [
+        ...container.querySelectorAll('.mat-item__facts')[index].children,
+      ];
+      const pairs = [];
+      for (let i = 0; i < facts.length; i += 2) {
+        pairs.push([facts[i].textContent, facts[i + 1].textContent]);
+      }
+      return pairs;
+    };
 
-    expect(rows().map(row => row.getAttribute('aria-expanded'))).toEqual([
-      'false',
-      'false',
+    expect(block(0)).toEqual([
+      ['Schedule', 'At 11:59 AM 59 11 * * *'],
+      ['Lookback', '3 days'],
+      ['Partition', 'Utc Date (day)'],
+      ['Workflows', 'main ↗backfill ↗'],
+      ['Last run', 'no run information'],
+      ['Name', INCREMENTAL.name],
     ]);
-    expect(openPanels()).toEqual([]);
-
-    await user.click(rows()[0]);
-    await user.click(rows()[1]);
-    expect(rows().map(row => row.getAttribute('aria-expanded'))).toEqual([
-      'true',
-      'true',
+    // The full build declares no lookback, so it has no Lookback row at all rather
+    // than a row reading "none" -- an absent window is not a window of zero.
+    expect(block(1)).toEqual([
+      ['Schedule', 'At 06:00 AM 0 6 * * *'],
+      ['Partition', 'Utc Date (day)'],
+      // Labelled from the trailing segment of the workflow id, so the full build's
+      // workflow reads `full` rather than being assumed to be `main`.
+      ['Workflows', 'full ↗'],
+      ['Last run', 'no run information'],
+      ['Name', FULL.name],
     ]);
-    expect(openPanels()).toEqual(['mat-detail-0', 'mat-detail-1']);
-
-    // Closing one leaves the other open: two rows compared side by side is the
-    // point of expanding in place rather than selecting.
-    await user.click(rows()[0]);
-    expect(rows().map(row => row.getAttribute('aria-expanded'))).toEqual([
-      'false',
-      'true',
-    ]);
-    expect(openPanels()).toEqual(['mat-detail-1']);
-
-    // The open row's detail names the materialization, which nothing else shows.
-    expect(
-      container.querySelector('#mat-detail-1 .mat-table__name').textContent,
-    ).toEqual(FULL.name);
   });
 
   // The strip's range belongs under the strip. Written as a trailing sentence it sent

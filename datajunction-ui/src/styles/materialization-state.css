@@ -30,6 +30,11 @@
 
   position: relative;
   margin-top: 8px;
+  /* The node page hands this panel the full content column, which on a wide monitor
+     is ~2000px. Stretched to it, four short values sat marooned at opposite edges of
+     the screen and a row could not be read across. Facts here are short; the measure
+     should be too. */
+  max-width: 880px;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   font-size: 13px;
   color: var(--planner-text);
@@ -224,11 +229,11 @@
   white-space: nowrap;
 }
 
-/* Pushed to the far edge so the table name, which is the long part, keeps the room. */
+/* Following the freshness, not pinned to the right edge: at full page width `auto`
+   put them a screen away from the row they belong to. */
 .mat-serving__links {
   display: flex;
   gap: 12px;
-  margin-left: auto;
 }
 
 /* Reads as a copyable object rather than as prose, which is what it is. */
@@ -330,92 +335,70 @@
   color: var(--planner-text-dim);
 }
 
-/* --- Layout A: table ------------------------------------------------------ */
+/* --- Layout A: one block per materialization ------------------------------ */
 
-.mat-table__row {
-  display: grid;
-  grid-template-columns: minmax(220px, 1.4fr) 200px minmax(180px, 1fr) 110px;
-  gap: 20px;
-  align-items: center;
-  padding: 10px 0;
-  line-height: 1.5;
+.mat-items {
+  display: flex;
+  flex-direction: column;
 }
 
-/* The rule belongs to the group, so an open row and its detail stay inside one
-   band rather than being cut apart by a border between them. */
-.mat-table__group {
+.mat-item {
+  padding: 12px 0;
   border-bottom: 1px solid var(--planner-border);
 }
 
-.mat-table__group:last-child {
+.mat-item:last-child {
   border-bottom: none;
 }
 
-/* A disclosure, not a button: no chrome, so the row still reads as a row. */
-.mat-table__disclosure {
+.mat-item__head {
   display: flex;
   align-items: baseline;
-  gap: 6px;
-  padding: 0;
-  border: 0;
-  background: none;
-  font: inherit;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.mat-table__caret {
-  color: var(--planner-text-dim);
-  font-size: 10px;
-  line-height: 1.6;
-}
-
-.mat-table__disclosure:hover .mat-table__caret {
-  color: var(--planner-text);
-}
-
-/* Indented to the caret's column so the detail reads as belonging to the row above
-   it rather than as a new row. */
-.mat-table__detail {
-  display: flex;
   flex-wrap: wrap;
-  gap: 28px;
-  padding: 4px 0 14px 18px;
+  gap: 8px;
+  margin-bottom: 6px;
 }
 
-.mat-table__name {
-  word-break: break-all;
+.mat-item__name {
+  font-weight: 600;
 }
 
-.mat-table__row--head {
-  padding: 0 0 6px;
+.mat-item__head .badge,
+.mat-item__head .mat-badge {
+  margin-left: 0;
+}
+
+/* Labels in one narrow column so blocks read down against each other: comparing a
+   full build with an incremental one is comparing two values on the same line. */
+.mat-item__facts {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr);
+  gap: 3px 16px;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.mat-item__facts dt {
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--planner-text-dim);
+  padding-top: 2px;
 }
 
-.mat-table__row .badge {
-  margin-left: 6px;
+.mat-item__facts dd {
+  margin: 0;
+  min-width: 0;
 }
 
-/* Engine, strategy badge and any inactive badge on one baseline, as layout C
-   sets them. */
-.mat-table__label {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 6px;
+.mat-item__id {
+  color: var(--planner-text-muted);
+  word-break: break-all;
 }
 
-.mat-table__label .badge {
-  margin-left: 0;
-}
-
-/* Workflow links read as the row's actions, so they sit on one line and are the
-   only thing in the row weighted like a link. */
+/* Workflow links read as the block's actions, so they sit on one line and are the
+   only thing in it weighted like a link. */
 .mat-workflows {
   display: flex;
   flex-wrap: wrap;
@@ -630,13 +613,4 @@
   max-width: 78ch;
   color: var(--planner-text-muted);
   line-height: 1.5;
-}
-
-/* Squares in a table cell. Fixed-size squares sit inline in a column; the earlier
-   stretched bar collapsed to ~180px here and became unreadable. */
-.mat-table__coverage {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  white-space: nowrap;
 }
