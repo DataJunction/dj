@@ -416,8 +416,20 @@ function InactiveBadge({ mat }) {
  * report a workflow that was *requested* as one that had *succeeded*.
  */
 function WorkflowActivity({ workflows }) {
+  return (
+    <div className="mat-activity">
+      {/* The left column's items label themselves -- `Schedule`, `Partition` -- but
+          `main` and `backfill` do not say what kind of thing they are, so this side
+          needs the heading that side does not. */}
+      <div className="mat-activity__label">Workflows</div>
+      <WorkflowRuns workflows={workflows} />
+    </div>
+  );
+}
+
+function WorkflowRuns({ workflows }) {
   if (!workflows?.length) {
-    return <div className="mat-dim">no workflows</div>;
+    return <div className="mat-dim">none</div>;
   }
   return (
     <dl className="mat-facts">
@@ -481,8 +493,10 @@ function MaterializationBlock({ mat }) {
           <dt>Schedule</dt>
           <dd>
             {intent.scheduleHuman || intent.schedule}
+            {/* The cron reads as the machine-readable form of the sentence beside
+                it, so it is set apart rather than trailing it as more prose. */}
             {intent.scheduleHuman ? (
-              <span className="mat-dim mat-mono"> {intent.schedule}</span>
+              <span className="mat-cron">{intent.schedule}</span>
             ) : null}
           </dd>
 

@@ -399,6 +399,26 @@
   min-width: 0;
 }
 
+/* Matches a `dt`, so the heading reads as one more label rather than as a section
+   title competing with the materialization's own name. */
+.mat-activity__label {
+  color: var(--planner-text-muted);
+  margin-bottom: 3px;
+}
+
+/* A rounded rect rather than the strategy badge's pill, so the two do not read as
+   the same kind of thing: one is a value you could paste, the other is a category. */
+.mat-cron {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: #f1f5f9;
+  font-family: 'JetBrains Mono', 'SF Mono', monospace;
+  font-size: 0.85em;
+  color: var(--planner-text-muted);
+  white-space: nowrap;
+}
+
 .mat-workflow-link {
   color: var(--planner-accent, #0b6b73);
   font-weight: 500;

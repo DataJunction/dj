@@ -874,15 +874,21 @@ describe('MaterializationStatePanel copy', () => {
       return out;
     };
     const block = index => {
-      const [declared, activity] = [
-        ...container.querySelectorAll('.mat-item__cols')[index].children,
-      ];
-      return { declared: pairs(declared), activity: pairs(activity) };
+      const col = container.querySelectorAll('.mat-item__cols')[index];
+      const [declared, activity] = col.querySelectorAll('.mat-facts');
+      return {
+        heading: col.querySelector('.mat-activity__label').textContent,
+        declared: pairs(declared),
+        activity: pairs(activity),
+      };
     };
 
     expect(block(0)).toEqual({
+      heading: 'Workflows',
       declared: [
-        ['Schedule', 'At 11:59 AM 59 11 * * *'],
+        // No space between them: the cron is a badge with a CSS gap, not trailing
+        // prose, so `textContent` runs them together.
+        ['Schedule', 'At 11:59 AM59 11 * * *'],
         ['Partition', 'Utc Date (day)'],
         ['Lookback', '3 days'],
       ],
@@ -896,8 +902,9 @@ describe('MaterializationStatePanel copy', () => {
     // The full build declares no lookback, so it has no Lookback row at all rather
     // than one reading "none" -- an absent window is not a window of zero.
     expect(block(1)).toEqual({
+      heading: 'Workflows',
       declared: [
-        ['Schedule', 'At 06:00 AM 0 6 * * *'],
+        ['Schedule', 'At 06:00 AM0 6 * * *'],
         ['Partition', 'Utc Date (day)'],
       ],
       // Labelled from the trailing segment of the workflow id, so the full build's
@@ -980,7 +987,7 @@ describe('MaterializationStatePanel copy', () => {
       ),
     ).toEqual(['Declared', 'Workflows', 'Last run']);
     expect(container.querySelectorAll('.mat-block')[1].textContent).toEqual(
-      'Workflowsmain ↗○ no runs reportedbackfill ↗○ no runs reported',
+      'WorkflowsWorkflowsmain ↗○ no runs reportedbackfill ↗○ no runs reported',
     );
     expect(container.querySelectorAll('.mat-block')[2].textContent).toEqual(
       'Last runno run information',
