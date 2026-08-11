@@ -195,8 +195,10 @@ async def test_find_existing_cube_matches_dimension_role():
 @patch("datajunction_server.internal.sql.find_existing_cube")
 @patch("datajunction_server.internal.sql.get_catalog_by_name")
 @patch("datajunction_server.internal.sql.build_materialized_cube_node")
+@patch("datajunction_server.internal.sql.resolve_routeable_metrics")
 @patch("datajunction_server.internal.sql.TranslatedSQL.create", MagicMock)
 async def test_build_sql_for_multiple_metrics(
+    mock_resolve_routeable_metrics,
     mock_build_materialized_cube_node,
     mock_get_catalog_by_name,
     mock_find_existing_cube,
@@ -227,6 +229,7 @@ async def test_build_sql_for_multiple_metrics(
         [None, None],
         _,
     )
+    mock_resolve_routeable_metrics.return_value = (["m1", "m2"], {})
     mock_session = AsyncMock()
 
     built_sql = await sql.build_sql_for_multiple_metrics(

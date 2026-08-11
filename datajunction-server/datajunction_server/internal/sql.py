@@ -34,6 +34,7 @@ from datajunction_server.construction.build_v2 import (
 )
 from datajunction_server.database import Engine
 from datajunction_server.database.catalog import Catalog
+from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.errors import DJException, DJInvalidInputException
 from datajunction_server.instrumentation.provider import get_metrics_provider
@@ -51,12 +52,68 @@ from datajunction_server.models.node import BuildCriteria
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.models.sql import GeneratedSQL
-from datajunction_server.naming import LOOKUP_CHARS, from_amenable_name
+from datajunction_server.naming import LOOKUP_CHARS, amenable_name, from_amenable_name
+from datajunction_server.sql.dag import resolve_routeable_metrics
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.utils import SEPARATOR, refresh_if_needed
 
 logger = logging.getLogger(__name__)
+
+
+def _apply_routeable_metric_aliases(
+    query_ast: ast.Query,
+    selected_to_public: dict[str, str],
+) -> None:
+    """
+    Rewrite final metric projection aliases from implementation names to public names.
+    """
+    if not selected_to_public:
+        return
+
+    projection_map = {
+        f"{selected}.{amenable_name(selected)}": (
+            public,
+            f"{public}.{amenable_name(public)}",
+            amenable_name(public),
+        )
+        for selected, public in selected_to_public.items()
+    }
+    for projection in query_ast.select.projection:
+        semantic_entity = getattr(projection, "semantic_entity", None)
+        projection_alias = projection.alias_or_name.identifier(False)
+        public_info = projection_map.get(semantic_entity) or projection_map.get(
+            projection_alias,
+        )
+        if not public_info:
+            continue
+        _, public_semantic_entity, public_alias = public_info
+        projection.set_alias(ast.Name(public_alias))
+        projection.set_semantic_entity(public_semantic_entity)
+
+
+def _routeable_metric_column_metadata(
+    col: Column,
+    selected_to_public: dict[str, str],
+) -> ColumnMetadata:
+    """
+    Build legacy metric metadata, preserving public names for routeable metrics.
+    """
+    selected_metric = col.node_revision.name  # type: ignore
+    if public_metric := selected_to_public.get(selected_metric):
+        public_column = amenable_name(public_metric)
+        return ColumnMetadata(
+            name=public_column,
+            type=str(col.type),
+            column=public_column,
+            node=public_metric,
+        )
+    return ColumnMetadata(
+        name=col.name,
+        type=str(col.type),
+        column=col.name,
+        node=selected_metric,
+    )
 
 
 def _v3_to_model_column(col) -> ColumnMetadata:
@@ -199,9 +256,7 @@ async def generate_metrics_sql(
       - If a cube revision is in play, prepend its stored ``cube_filters`` to the
         request filters (and fall back to the cube's full metric/dimension set for
         a bare cube query with no explicit metrics/dimensions).
-      - If ``dialect`` is None, auto-resolve it via
-        ``resolve_dialect_and_engine_for_metrics``; adopt that resolver's cube only
-        when no cube was otherwise provided (mirrors the canonical endpoint).
+      - Let ``build_metrics_sql`` resolve the dialect when ``dialect`` is None.
       - Call and return the raw ``build_metrics_sql`` result; callers map it to
         their own response models.
       - Emit the build-latency metrics and ``[SQL]`` log here (tagged with
@@ -211,7 +266,6 @@ async def generate_metrics_sql(
     # import cycle: build_v3 pulls in modules that import this one.
     from datajunction_server.construction.build_v3 import (
         build_metrics_sql,
-        resolve_dialect_and_engine_for_metrics,
         validate_pinned_cube_covers_filters,
     )
 
@@ -243,22 +297,6 @@ async def generate_metrics_sql(
                 merged_filters,
             )
 
-    # Auto-resolve dialect if not explicitly provided.
-    resolved_dialect = dialect
-    if resolved_dialect is None:
-        execution_ctx = await resolve_dialect_and_engine_for_metrics(
-            session=session,
-            metrics=metrics,
-            dimensions=dimensions,
-            use_materialized=use_materialized,
-            matched_cube=matched_cube,
-            filters=merged_filters,
-        )
-        resolved_dialect = execution_ctx.dialect
-        # Only reuse the resolved cube if the caller didn't provide one.
-        if matched_cube is None:
-            matched_cube = execution_ctx.cube
-
     result = await build_metrics_sql(
         session=session,
         metrics=metrics,
@@ -266,7 +304,7 @@ async def generate_metrics_sql(
         filters=merged_filters,
         orderby=orderby,
         limit=limit,
-        dialect=resolved_dialect,
+        dialect=dialect,
         use_materialized=use_materialized,
         matched_cube=matched_cube,
         query_parameters=query_parameters,
@@ -318,6 +356,12 @@ async def build_sql_for_multiple_metrics(
         filters = []
     if not orderby:
         orderby = []
+    metrics, metric_aliases = await resolve_routeable_metrics(
+        session,
+        metrics,
+        dimensions,
+        filters,
+    )
 
     (
         metric_columns,
@@ -402,13 +446,9 @@ async def build_sql_for_multiple_metrics(
             orderby,
             limit,
         )
+        _apply_routeable_metric_aliases(query_ast, metric_aliases)
         query_metric_columns = [
-            ColumnMetadata(
-                name=col.name,
-                type=str(col.type),
-                column=col.name,
-                node=col.node_revision.name,  # type: ignore
-            )
+            _routeable_metric_column_metadata(col, metric_aliases)
             for col in metric_columns
         ]
         query_dimension_columns = [
@@ -445,6 +485,7 @@ async def build_sql_for_multiple_metrics(
         ignore_errors=ignore_errors,
         query_parameters=query_parameters,
     )
+    _apply_routeable_metric_aliases(query_ast, metric_aliases)
 
     # Check authorization for all discovered nodes
     if access_checker:  # pragma: no cover
@@ -508,6 +549,12 @@ async def get_measures_query(
     if not filters:
         filters = []
 
+    metrics, metric_aliases = await resolve_routeable_metrics(
+        session,
+        metrics,
+        dimensions,
+        filters,
+    )
     metrics_sorting_order = {val: idx for idx, val in enumerate(metrics)}
     metric_nodes = await check_metrics_exist(session, metrics)
     await check_dimension_attributes_exist(session, dimensions)
@@ -621,6 +668,7 @@ async def get_measures_query(
             if preaggregate
             else parent_ast
         )
+        _apply_routeable_metric_aliases(final_query, metric_aliases)
 
         # Build translated SQL object
         columns_metadata = [

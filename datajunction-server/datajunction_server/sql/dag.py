@@ -26,7 +26,12 @@ from datajunction_server.database.node import (
     NodeRelationship,
     NodeRevision,
 )
-from datajunction_server.errors import DJGraphCycleException
+from datajunction_server.errors import (
+    DJError,
+    DJGraphCycleException,
+    DJInvalidInputException,
+    ErrorCode,
+)
 from datajunction_server.models.attribute import ColumnAttributes
 from datajunction_server.models.node import DimensionAttributeOutput
 from datajunction_server.models.node_type import (
@@ -35,10 +40,221 @@ from datajunction_server.models.node_type import (
     NodeType,
     NodeTypeDisplay,
 )
+from datajunction_server.sql.parsing import ast
+from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.utils import SEPARATOR, get_settings, refresh_if_needed
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+
+def _unwrap_alias(expr: ast.Node) -> ast.Node:
+    """
+    Return the underlying expression for an aliased projection.
+    """
+    return expr.child if isinstance(expr, ast.Alias) else expr
+
+
+def _collect_routeable_metric_refs(expr: ast.Node) -> list[str] | None:
+    """
+    Collect metric refs from a `metric_a | metric_b | ...` expression.
+
+    Returns None when the expression is not exclusively a bitwise-or chain whose
+    leaves are column refs.
+    """
+    expr = _unwrap_alias(expr)
+    if isinstance(expr, ast.BinaryOp) and expr.op == ast.BinaryOpKind.BitwiseOr:
+        left = _collect_routeable_metric_refs(expr.left)
+        right = _collect_routeable_metric_refs(expr.right)
+        if left is None or right is None:
+            return None
+        return left + right
+    if isinstance(expr, ast.Column):
+        ref = expr.identifier(False)
+        return [ref] if ref and SEPARATOR in ref else None
+    return None
+
+
+def routeable_metric_references_from_query(query_text: str | None) -> list[str]:
+    """
+    Return ordered implementation metric names for a routeable derived metric.
+
+    A routeable derived metric is intentionally narrow: a metric with a no-FROM
+    query whose only projection is a `|` chain of metric references, such as:
+    `SELECT media.watch_hours_by_device | media.watch_hours_by_title`.
+    """
+    if not query_text:
+        return []
+
+    try:
+        query = parse(query_text)
+    except Exception:  # pragma: no cover
+        return []
+
+    if query.select.from_ is not None or len(query.select.projection) != 1:
+        return []
+
+    refs = _collect_routeable_metric_refs(query.select.projection[0])
+    if not refs or len(refs) < 2:
+        return []
+
+    ordered_refs = []
+    seen = set()
+    for ref in refs:
+        if ref not in seen:
+            ordered_refs.append(ref)
+            seen.add(ref)
+    return ordered_refs
+
+
+def routeable_metric_references(node: Node) -> list[str]:
+    """
+    Return ordered implementation metric names for a routeable metric node.
+    """
+    if node.type != NodeType.METRIC or not node.current:
+        return []
+    return routeable_metric_references_from_query(node.current.query)
+
+
+def routeable_metric_output_columns(
+    query_text: str,
+    parent_columns_map: dict,
+    query_ast: ast.Query,
+) -> list[tuple[str, object]] | None:
+    """
+    Infer a routeable metric's output from its first implementation metric.
+    """
+    for ref in routeable_metric_references_from_query(query_text):
+        columns = parent_columns_map.get(ref)
+        if columns:
+            output_name = query_ast.select.projection[0].alias_or_name.name
+            return [(output_name, next(iter(columns.values())))]
+    return None
+
+
+def _dimension_refs_from_filters(filters: list[str] | None) -> list[str]:
+    """
+    Extract namespaced dimension-like references from filter predicates.
+
+    Routeable metrics need to choose an implementation that can satisfy both
+    projected dimensions and filter-only dimensions. This helper stays local to
+    the DAG layer to avoid importing the v3 builder package from here.
+    """
+    refs: list[str] = []
+    seen: set[str] = set()
+
+    for filter_str in filters or []:
+        try:
+            query = parse(f"SELECT 1 WHERE {filter_str}")
+        except Exception:
+            continue
+
+        for col in query.find_all(ast.Column):
+            ref = col.identifier(False)
+            if ref and SEPARATOR in ref and ref not in seen:
+                refs.append(ref)
+                seen.add(ref)
+
+    return refs
+
+
+async def resolve_routeable_metrics(
+    session: AsyncSession,
+    metric_names: list[str],
+    requested_dimensions: list[str],
+    filters: list[str] | None = None,
+) -> tuple[list[str], dict[str, str]]:
+    """
+    Replace routeable derived metric names with the first eligible implementation.
+
+    Eligibility is evaluated in the metric query's pipe order. An implementation
+    is eligible when it can satisfy every requested or filtered dimension.
+    Returns the resolved metric names and a selected-implementation ->
+    public-metric map.
+    """
+    if not metric_names:
+        return metric_names, {}
+
+    metric_nodes = {
+        node.name: node
+        for node in await Node.get_by_names(
+            session,
+            metric_names,
+            options=[joinedload(Node.current)],
+            include_inactive=False,
+        )
+    }
+    implementation_cache: dict[str, Node] = {}
+    dimensions_cache: dict[str, set[str]] = {}
+
+    resolved: list[str] = []
+    selected_to_public: dict[str, str] = {}
+    required = set(requested_dimensions) | set(_dimension_refs_from_filters(filters))
+
+    for metric_name in metric_names:
+        metric_node = metric_nodes.get(metric_name)
+        implementation_names = (
+            routeable_metric_references(metric_node) if metric_node else []
+        )
+        if not implementation_names:
+            resolved.append(metric_name)
+            continue
+
+        missing = [
+            name for name in implementation_names if name not in implementation_cache
+        ]
+        if missing:
+            implementation_nodes = await Node.get_by_names(
+                session,
+                missing,
+                options=[joinedload(Node.current)],
+                include_inactive=False,
+            )
+            implementation_cache.update(
+                {node.name: node for node in implementation_nodes},
+            )
+
+        selected_name = None
+        implementation_capabilities: dict[str, set[str]] = {}
+        for implementation_name in implementation_names:
+            implementation = implementation_cache.get(implementation_name)
+            if not implementation:
+                continue
+            if implementation_name not in dimensions_cache:
+                dimensions = await get_dimensions(
+                    session,
+                    implementation,
+                    with_attributes=True,
+                )
+                dimensions_cache[implementation_name] = {dim.name for dim in dimensions}
+            implementation_capabilities[implementation_name] = dimensions_cache[
+                implementation_name
+            ]
+            if required <= dimensions_cache[implementation_name]:
+                selected_name = implementation_name
+                break
+
+        if selected_name is None:
+            capability_lines = [
+                f"{name} supports: {', '.join(sorted(dims)) or '(no dimensions)'}"
+                for name, dims in implementation_capabilities.items()
+            ]
+            message = (
+                f"Cannot plan routeable metric `{metric_name}` for dimensions: "
+                f"{', '.join(sorted(required)) or '(none)'}. "
+                "No implementation can satisfy all requested dimensions."
+            )
+            if capability_lines:
+                message += "\n" + "\n".join(capability_lines)
+            raise DJInvalidInputException(
+                message,
+                errors=[DJError(code=ErrorCode.INVALID_DIMENSION, message=message)],
+            )
+
+        resolved.append(selected_name)
+        selected_to_public[selected_name] = metric_name
+
+    return resolved, selected_to_public
 
 
 def _dag_timed(operation: str):
@@ -857,6 +1073,32 @@ async def get_dimensions(
     For metrics, returns the intersection of dimensions available from
     all non-metric parents.
     """
+    routeable_refs = routeable_metric_references(node)
+    if routeable_refs:
+        implementation_nodes = await Node.get_by_names(
+            session,
+            routeable_refs,
+            options=[joinedload(Node.current)],
+            include_inactive=False,
+        )
+        implementation_by_name = {impl.name: impl for impl in implementation_nodes}
+        dimensions_by_name: dict[str, DimensionAttributeOutput | Node] = {}
+        for implementation_name in routeable_refs:
+            implementation = implementation_by_name.get(implementation_name)
+            if not implementation:
+                continue
+            for dim in await get_dimensions(
+                session,
+                implementation,
+                with_attributes=with_attributes,
+                depth=depth,
+            ):
+                dimensions_by_name.setdefault(dim.name, dim)
+        return sorted(
+            dimensions_by_name.values(),
+            key=lambda dim: (dim.name, ",".join(getattr(dim, "path", []))),
+        )
+
     if node.type != NodeType.METRIC:
         node_revision = (
             (

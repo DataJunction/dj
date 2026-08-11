@@ -778,6 +778,42 @@ class TestDerivedMetricsIntegration:
         )
 
     @pytest.mark.asyncio
+    async def test_routeable_derived_metric_with_no_shared_dimensions_succeeds(
+        self,
+        client_example_loader: Callable[
+            [list[str] | None],
+            Coroutine[Any, Any, AsyncClient],
+        ],
+    ):
+        """
+        Routeable derived metrics can point at implementations with disjoint
+        dimensions because planning selects one implementation instead of
+        joining the implementation facts.
+        """
+        client = await client_example_loader(["DERIVED_METRICS"])
+
+        response = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "default.dm_routeable_revenue",
+                "description": "Routes to revenue or inventory by requested dimensions",
+                "query": "SELECT default.dm_revenue | default.dm_total_inventory",
+                "mode": "published",
+            },
+        )
+
+        assert response.status_code in (200, 201), (
+            f"Expected success for routeable metric with no shared dims, "
+            f"got {response.status_code}: {response.json()}"
+        )
+
+        response = await client.get("/nodes/default.dm_routeable_revenue/dimensions/")
+        assert response.status_code == 200
+        dimensions = {dim["name"] for dim in response.json()}
+        assert "default.customer.customer_id" in dimensions
+        assert "default.warehouse.warehouse_id" in dimensions
+
+    @pytest.mark.asyncio
     async def test_nested_derived_metric_succeeds(
         self,
         client_example_loader: Callable[

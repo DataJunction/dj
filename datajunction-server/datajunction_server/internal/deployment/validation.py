@@ -28,7 +28,11 @@ from datajunction_server.models.deployment import (
     NodeSpec,
 )
 from datajunction_server.models.node import NodeStatus, NodeType
-from datajunction_server.sql.dag import get_dimensions
+from datajunction_server.sql.dag import (
+    get_dimensions,
+    routeable_metric_output_columns,
+    routeable_metric_references_from_query,
+)
 from datajunction_server.sql.parsing.ast import fast_parse_mode
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse_rule
 from datajunction_server.sql.parsing.types import ListType, MapType, StructType
@@ -446,6 +450,13 @@ class NodeSpecBulkValidator:
                     parent_columns_map,
                     pre_parsed=spec.query_ast,
                 )
+                if routeable_output_cols := routeable_metric_output_columns(
+                    query_str,
+                    parent_columns_map,
+                    spec.query_ast,
+                ):
+                    validation.output_columns = routeable_output_cols
+                    validation.errors = []
                 type_inference_errors = [
                     DJError(
                         code=ErrorCode.TYPE_INFERENCE,
@@ -752,6 +763,8 @@ class NodeSpecBulkValidator:
         for spec in specs:
             if spec.node_type != NodeType.METRIC:
                 continue
+            if routeable_metric_references_from_query(spec.rendered_query):
+                continue
             dep_names = self.context.node_graph.get(spec.rendered_name, [])
             metric_parents = [
                 name
@@ -781,6 +794,8 @@ class NodeSpecBulkValidator:
         calling get_dimensions per node.
         """
         if spec.node_type != NodeType.METRIC:
+            return None
+        if routeable_metric_references_from_query(spec.rendered_query):
             return None
 
         dep_names = self.context.node_graph.get(spec.rendered_name, [])

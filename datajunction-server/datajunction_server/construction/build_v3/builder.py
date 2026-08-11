@@ -384,6 +384,15 @@ async def build_measures_sql(
         GeneratedMeasuresSQL with one GrainGroupSQL per aggregation level,
         plus context and decomposed metrics for efficient reuse by build_metrics_sql
     """
+    from datajunction_server.sql.dag import resolve_routeable_metrics
+
+    metrics, _ = await resolve_routeable_metrics(
+        session,
+        metrics,
+        dimensions,
+        filters,
+    )
+
     # Setup context (loads nodes, decomposes metrics, adds dimensions from expressions)
     ctx = await setup_build_context(
         session=session,
@@ -523,6 +532,15 @@ async def build_metrics_sql(
     Layer 3: Derived Metrics
         Computes derived metrics that reference other metrics.
     """
+    from datajunction_server.sql.dag import resolve_routeable_metrics
+
+    metrics, metric_aliases = await resolve_routeable_metrics(
+        session,
+        metrics,
+        dimensions,
+        filters,
+    )
+
     # Auto-detect dialect when none specified: probe for a materialized Druid cube,
     # fall back to Trino. Callers (resolve_dialect_and_engine_for_metrics) are
     # expected to pass an already-resolved dialect, so this path is a safety net.
@@ -568,6 +586,7 @@ async def build_metrics_sql(
         use_materialized=use_materialized,
         lookback_window=lookback_window,
     )
+    ctx.metric_aliases = metric_aliases
 
     # Frame-aware live window lookback: when a requested metric carries a row/
     # range window frame and a filter narrows the order dimension, expand the

@@ -13,7 +13,7 @@ from datajunction_server.database.database import Database
 from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User
-from datajunction_server.errors import DJException
+from datajunction_server.errors import DJException, DJInvalidInputException
 from datajunction_server.models.node import DimensionAttributeOutput, NodeType
 from datajunction_server.sql.dag import (
     build_reference_link,
@@ -26,6 +26,7 @@ from datajunction_server.sql.dag import (
     get_metric_parents_map,
     get_nodes_with_common_dimensions,
     get_shared_dimensions,
+    resolve_routeable_metrics,
     topological_sort,
 )
 from datajunction_server.sql.parsing.types import IntegerType, StringType
@@ -1860,6 +1861,7 @@ class TestGetSharedDimensions:
         - revenue_per_order: revenue / orders_count (same source - full dim intersection)
         - revenue_per_pageview: revenue / page_views (cross-source with shared dims)
         - derived_from_inventory: inventory_total * 2 (different dims than orders/events)
+        - routeable_revenue: revenue | inventory_total (routes by requested dims)
         """
         # Create dimension nodes
         dim_date = Node(
@@ -2179,6 +2181,25 @@ class TestGetSharedDimensions:
         )
         derived_from_inventory.current = derived_from_inventory_rev
 
+        routeable_revenue = Node(
+            name="shared_dims.routeable_revenue",
+            type=NodeType.METRIC,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        routeable_revenue_rev = NodeRevision(
+            node=routeable_revenue,
+            type=routeable_revenue.type,
+            name=routeable_revenue.name,
+            version="1",
+            display_name="Routeable Revenue",
+            query="SELECT shared_dims.revenue | shared_dims.inventory_total",
+            parents=[revenue, inventory_total],
+            created_by_id=current_user.id,
+            columns=[Column(name="routeable_revenue", type=IntegerType(), order=0)],
+        )
+        routeable_revenue.current = routeable_revenue_rev
+
         session.add_all(
             [
                 revenue_per_order,
@@ -2187,6 +2208,8 @@ class TestGetSharedDimensions:
                 revenue_per_pageview_rev,
                 derived_from_inventory,
                 derived_from_inventory_rev,
+                routeable_revenue,
+                routeable_revenue_rev,
             ],
         )
         await session.flush()
@@ -2205,6 +2228,7 @@ class TestGetSharedDimensions:
             "revenue_per_order": revenue_per_order,
             "revenue_per_pageview": revenue_per_pageview,
             "derived_inventory": derived_from_inventory,
+            "routeable_revenue": routeable_revenue,
         }
 
     @pytest.mark.asyncio
@@ -2397,6 +2421,100 @@ class TestGetSharedDimensions:
         # No date or customer
         assert "shared_dims.dim_date.id" not in dim_names
         assert "shared_dims.dim_customer.id" not in dim_names
+
+    @pytest.mark.asyncio
+    async def test_routeable_metric_dimensions_are_implementation_union(
+        self,
+        session: AsyncSession,
+        shared_dims_test_graph,
+    ):
+        """
+        Routeable derived metrics expose the union of implementation dimensions.
+        """
+        graph = shared_dims_test_graph
+        dimensions = await get_dimensions(session, graph["routeable_revenue"])
+
+        dim_names = {dim.name for dim in dimensions}
+        assert "shared_dims.dim_date.id" in dim_names
+        assert "shared_dims.dim_customer.id" in dim_names
+        assert "shared_dims.dim_warehouse.id" in dim_names
+
+    @pytest.mark.asyncio
+    async def test_routeable_metric_resolves_by_requested_dimensions(
+        self,
+        session: AsyncSession,
+        shared_dims_test_graph,
+    ):
+        """
+        Routeable derived metrics choose the first implementation that satisfies
+        the requested dimensions.
+        """
+        _ = shared_dims_test_graph
+
+        metrics, aliases = await resolve_routeable_metrics(
+            session,
+            ["shared_dims.routeable_revenue"],
+            [],
+        )
+        assert metrics == ["shared_dims.revenue"]
+        assert aliases == {"shared_dims.revenue": "shared_dims.routeable_revenue"}
+
+        metrics, aliases = await resolve_routeable_metrics(
+            session,
+            ["shared_dims.routeable_revenue"],
+            ["shared_dims.dim_warehouse.id"],
+        )
+        assert metrics == ["shared_dims.inventory_total"]
+        assert aliases == {
+            "shared_dims.inventory_total": "shared_dims.routeable_revenue",
+        }
+
+    @pytest.mark.asyncio
+    async def test_routeable_metric_resolves_by_filtered_dimensions(
+        self,
+        session: AsyncSession,
+        shared_dims_test_graph,
+    ):
+        """
+        Routeable derived metrics include filter-only dimensions when selecting
+        the implementation metric.
+        """
+        _ = shared_dims_test_graph
+
+        metrics, aliases = await resolve_routeable_metrics(
+            session,
+            ["shared_dims.routeable_revenue"],
+            [],
+            ["shared_dims.dim_warehouse.id = 1"],
+        )
+
+        assert metrics == ["shared_dims.inventory_total"]
+        assert aliases == {
+            "shared_dims.inventory_total": "shared_dims.routeable_revenue",
+        }
+
+    @pytest.mark.asyncio
+    async def test_routeable_metric_rejects_unsupported_dimension_combination(
+        self,
+        session: AsyncSession,
+        shared_dims_test_graph,
+    ):
+        """
+        Routeable derived metrics do not combine implementation facts when no
+        single implementation can satisfy the full requested dimensional grain.
+        """
+        _ = shared_dims_test_graph
+
+        with pytest.raises(DJInvalidInputException) as exc_info:
+            await resolve_routeable_metrics(
+                session,
+                ["shared_dims.routeable_revenue"],
+                ["shared_dims.dim_customer.id", "shared_dims.dim_warehouse.id"],
+            )
+
+        assert "No implementation can satisfy all requested dimensions" in str(
+            exc_info.value,
+        )
 
     @pytest.mark.asyncio
     async def test_get_common_dimensions_no_overlap_returns_empty(

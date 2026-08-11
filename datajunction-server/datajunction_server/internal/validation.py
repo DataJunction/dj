@@ -137,6 +137,13 @@ async def validate_node_data(
             else validated_node.query
         )
         query_ast = parse(formatted_query)  # type: ignore
+        from datajunction_server.sql.dag import routeable_metric_references_from_query
+
+        routeable_refs = (
+            routeable_metric_references_from_query(formatted_query)
+            if validated_node.type == NodeType.METRIC
+            else []
+        )
 
         # Collect table/subquery aliases and CTE names before bake_ctes() destroys them.
         # Both Table nodes (regular tables) and Query nodes (inline subqueries) can
@@ -210,7 +217,7 @@ async def validate_node_data(
         if metric_parents:
             # This is a derived metric - nested derived metrics are supported
             # via inline expansion during decomposition
-            if len(metric_parents) > 1:
+            if len(metric_parents) > 1 and not routeable_refs:
                 # For cross-fact derived metrics, validate that there are shared dimensions
                 # between all referenced base metrics
                 from datajunction_server.sql.dag import get_dimensions
@@ -297,6 +304,17 @@ async def validate_node_data(
         column_mapping = {}  # pragma: no cover
     node_validator.columns = []
     type_inference_failures = {}
+    from datajunction_server.sql.dag import routeable_metric_output_columns
+
+    routeable_output_cols = routeable_metric_output_columns(
+        formatted_query,
+        {
+            parent.name: {col.name: col.type for col in parent.columns}
+            for parent in dependencies_map.keys()
+        },
+        query_ast,
+    )
+    routeable_types_by_name = dict(routeable_output_cols or [])
     for idx, col in enumerate(query_ast.select.projection):  # type: ignore
         column = None
         column_name = col.alias_or_name.name  # type: ignore
@@ -304,7 +322,11 @@ async def validate_node_data(
         try:
             # Use the parsed ColumnType object directly instead of converting to string
             # This ensures proper type information (MapType, ListType, etc.) is preserved
-            column_type = col.type  # type: ignore
+            column_type = (
+                routeable_types_by_name[column_name]
+                if column_name in routeable_types_by_name
+                else col.type  # type: ignore
+            )
             column = Column(
                 name=column_name.lower()
                 if validated_node.type != NodeType.METRIC
@@ -529,6 +551,17 @@ async def validate_node_data_v2(
         )
         return node_validator
 
+    from datajunction_server.sql.dag import (
+        routeable_metric_output_columns,
+        routeable_metric_references_from_query,
+    )
+
+    routeable_refs = (
+        routeable_metric_references_from_query(formatted_query)
+        if validated_node.type == NodeType.METRIC
+        else []
+    )
+
     # Stable col{n} names for unnamed projections (matches legacy behavior)
     query_ast.select.add_aliases_to_unnamed_columns()
 
@@ -578,6 +611,13 @@ async def validate_node_data_v2(
         parent_columns_map,
         pre_parsed=query_ast,
     )
+    if routeable_output_cols := routeable_metric_output_columns(
+        formatted_query,
+        parent_columns_map,
+        query_ast,
+    ):
+        validation.output_columns = routeable_output_cols
+        validation.errors = []
 
     # --- Step 7: surface every validate_node_query error directly. Same code
     # and no filtering as bulk_validate_node_data does for deployment — this is
@@ -609,7 +649,11 @@ async def validate_node_data_v2(
             if parent.type != NodeType.METRIC
         ]
 
-        if metric_parents and len(metric_parents) > 1:
+        if (
+            metric_parents
+            and len(metric_parents) > 1
+            and not routeable_refs
+        ):
             # Cross-fact derived metric: all base metrics must share >=1 dimension
             from datajunction_server.sql.dag import get_dimensions
 

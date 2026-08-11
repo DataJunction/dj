@@ -917,8 +917,10 @@ def build_metric_projection(
         if metric_name not in metric_expr_asts:  # pragma: no cover
             continue
 
+        public_metric_name = ctx.metric_aliases.get(metric_name, metric_name)
+        public_short_name = get_short_name(public_metric_name)
         info = metric_expr_asts[metric_name]
-        aliased_expr = info.expr_ast.set_alias(ast.Name(info.short_name))  # type: ignore
+        aliased_expr = info.expr_ast.set_alias(ast.Name(public_short_name))  # type: ignore
         aliased_expr.set_as(True)
         projection_items.append(aliased_expr)
 
@@ -927,8 +929,8 @@ def build_metric_projection(
         metric_type = str(metric_node.current.columns[0].type)
         columns_metadata.append(
             ColumnMetadata(
-                name=info.short_name,
-                semantic_name=metric_name,
+                name=public_short_name,
+                semantic_name=public_metric_name,
                 type=metric_type,
                 semantic_type="metric",
             ),

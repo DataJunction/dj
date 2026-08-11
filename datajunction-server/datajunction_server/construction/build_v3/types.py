@@ -44,6 +44,10 @@ class BuildContext:
     dialect: Dialect = Dialect.SPARK
     alias_registry: AliasRegistry = field(default_factory=AliasRegistry)
 
+    # Routeable derived metrics are planned as their selected implementation
+    # metrics, while final output columns retain the public metric name.
+    metric_aliases: dict[str, str] = field(default_factory=dict)
+
     # Filter classification (populated early in setup)
     # Dimension filters are applied in WHERE clauses (before aggregation)
     # Metric filters are applied in HAVING clauses (after aggregation)
