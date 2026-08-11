@@ -6,10 +6,22 @@ from datajunction_server.database.column import Column
 
 
 class TableOwner(BaseModel):
-    """A resolved, current human owner of a warehouse table."""
+    """
+    The principal that owns a warehouse table.
 
-    email: str
-    full_name: str = ""
+    ``username`` is what DJ keys on, and the query service decides it: DJ
+    usernames are not universally emails (the GitHub auth path uses a login,
+    basic auth uses an arbitrary name), so the mapping from a warehouse
+    identity to a DJ username belongs to whichever query service knows its own
+    catalog's identity model.
+
+    Not necessarily a person -- a Snowflake owner is a role, and a BigQuery one
+    can be a group or a service account.
+    """
+
+    username: str
+    email: str | None = None
+    display_name: str = ""
 
 
 class TableMetadata(BaseModel):
@@ -27,5 +39,7 @@ class TableMetadata(BaseModel):
     columns: list[Column] = []
     owner: TableOwner | None = None
     partitions: list[str] = []
-    broken_ref: bool | None = None
-    valid_through: str | None = None
+    # The table's own comment/description. Every major catalog has one
+    # (Snowflake COMMENT, BigQuery description, Iceberg/Hive comment). Per-column
+    # descriptions ride along on ``columns``, which already has the field.
+    description: str | None = None

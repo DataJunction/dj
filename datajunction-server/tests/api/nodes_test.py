@@ -2400,7 +2400,7 @@ class TestNodeCRUD:
             return TableMetadata(
                 columns=columns,
                 owner=TableOwner(
-                    email="owner@example.com",
+                    username="owner@example.com",
                     full_name="Example Owner",
                 ),
             )
@@ -2494,7 +2494,10 @@ class TestNodeCRUD:
         async def _same_owner(*args, **kwargs):
             return TableMetadata(
                 columns=columns,
-                owner=TableOwner(email="owner@example.com", full_name="Example Owner"),
+                owner=TableOwner(
+                    username="owner@example.com",
+                    display_name="Example Owner",
+                ),
             )
 
         mocker.patch.object(
@@ -2541,7 +2544,7 @@ class TestNodeCRUD:
                     *columns,
                     Column(name="reviewer", type=StringType(), order=len(columns)),
                 ],
-                owner=TableOwner(email="new.owner@example.com"),
+                owner=TableOwner(username="new.owner@example.com"),
             )
 
         mocker.patch.object(
@@ -2586,7 +2589,10 @@ class TestNodeCRUD:
                     *columns,
                     Column(name="reviewer", type=StringType(), order=len(columns)),
                 ],
-                owner=TableOwner(email="owner@example.com", full_name="Example Owner"),
+                owner=TableOwner(
+                    username="owner@example.com",
+                    display_name="Example Owner",
+                ),
             )
 
         mocker.patch.object(
@@ -2601,6 +2607,97 @@ class TestNodeCRUD:
             await module__client_with_roads.get("/nodes/default.repair_orders/")
         ).json()
         assert after["owners"] == [{"username": "owner@example.com"}]
+
+    @pytest.mark.asyncio
+    async def test_refresh_fills_empty_descriptions_from_the_table(
+        self,
+        module__client_with_roads: AsyncClient,
+        module__query_service_client: QueryServiceClient,
+        mocker: MockerFixture,
+    ):
+        """A table comment fills a node description that DJ does not have."""
+        # A dedicated node with an empty description: the shared roads fixture
+        # already has one, and fill-when-empty would (correctly) decline.
+        response = await module__client_with_roads.post(
+            "/nodes/source/",
+            json={
+                "name": "default.undocumented_table",
+                "description": "",
+                "columns": [{"name": "id", "type": "int"}],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "roads",
+                "table": "undocumented_table",
+            },
+        )
+        assert response.status_code in (200, 201)
+
+        async def _with_descriptions(*args, **kwargs):
+            return TableMetadata(
+                columns=[
+                    Column(
+                        name="id",
+                        type=IntegerType(),
+                        order=0,
+                        description="described id",
+                    ),
+                ],
+                description="Table comment from the warehouse",
+            )
+
+        mocker.patch.object(
+            module__query_service_client,
+            "get_table_metadata",
+            _with_descriptions,
+        )
+        await module__client_with_roads.post(
+            "/nodes/default.undocumented_table/refresh/",
+        )
+        after = (
+            await module__client_with_roads.get("/nodes/default.undocumented_table/")
+        ).json()
+        assert after["description"] == "Table comment from the warehouse"
+        described_columns = {
+            column["name"]: column.get("description") for column in after["columns"]
+        }
+        assert described_columns["id"] == "described id"
+
+    @pytest.mark.asyncio
+    async def test_refresh_does_not_overwrite_existing_descriptions(
+        self,
+        module__client_with_roads: AsyncClient,
+        module__query_service_client: QueryServiceClient,
+        mocker: MockerFixture,
+    ):
+        """Curated prose in DJ wins over the warehouse comment."""
+        columns = await module__query_service_client.get_columns_for_table(
+            "default",
+            "roads",
+            "repair_orders",
+            request_headers={},
+        )
+
+        async def _with_descriptions(*args, **kwargs):
+            return TableMetadata(
+                columns=columns,
+                description="Should not replace what DJ already has",
+            )
+
+        mocker.patch.object(
+            module__query_service_client,
+            "get_table_metadata",
+            _with_descriptions,
+        )
+        before = (
+            await module__client_with_roads.get("/nodes/default.repair_orders/")
+        ).json()
+        await module__client_with_roads.post(
+            "/nodes/default.repair_orders/refresh/",
+        )
+        after = (
+            await module__client_with_roads.get("/nodes/default.repair_orders/")
+        ).json()
+        assert after["description"] == before["description"]
 
     @pytest.mark.asyncio
     async def test_create_update_source_node(

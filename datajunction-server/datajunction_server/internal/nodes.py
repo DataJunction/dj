@@ -118,7 +118,7 @@ from datajunction_server.models.node import (
 )
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import QueryCreate
-from datajunction_server.models.table_metadata import TableOwner
+from datajunction_server.models.table_metadata import TableMetadata, TableOwner
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import (
     get_downstream_nodes,
@@ -1550,24 +1550,26 @@ async def apply_table_owner(
     """
     Set the node's owners to exactly the table's owner.
 
-    Returns True when a change was made. Creates the user if absent -- usernames
-    are emails, so the owner's email is its username. Never clears owners: the
-    caller only invokes this with a resolved owner.
+    Returns True when a change was made. Creates the user if absent, keyed on
+    ``owner.username`` -- the query service is responsible for mapping its
+    catalog's identity to a DJ username, since DJ usernames are not universally
+    emails. Never clears owners: the caller only invokes this with a resolved
+    owner.
 
     Owners live on ``Node`` rather than ``NodeRevision``, so this never forks a
     revision. The caller is responsible for committing.
     """
     await session.refresh(node, ["owners"])
     old_owners = [existing.username for existing in node.owners]
-    if old_owners == [owner.email]:
+    if old_owners == [owner.username]:
         return False
 
-    user = await User.get_by_username(session, owner.email)
+    user = await User.get_by_username(session, owner.username)
     if user is None:
         user = User(
-            username=owner.email,
+            username=owner.username,
             email=owner.email,
-            name=owner.full_name or owner.email,
+            name=owner.display_name or owner.username,
             oauth_provider=OAuthProvider.BASIC,
         )
         session.add(user)
@@ -1581,12 +1583,49 @@ async def apply_table_owner(
             entity_name=node.name,
             node=node.name,
             activity_type=ActivityType.UPDATE,
-            details={"old_owners": old_owners, "new_owners": [owner.email]},
-            user=owner.email,
+            details={"old_owners": old_owners, "new_owners": [owner.username]},
+            user=owner.username,
         ),
         session=session,
     )
     return True
+
+
+def apply_table_descriptions(
+    session: AsyncSession,
+    revision: NodeRevision,
+    table_metadata: TableMetadata,
+) -> bool:
+    """
+    Fill in the node's and columns' descriptions from the warehouse table.
+
+    Fill-when-empty, never overwrite: a description is curated prose that
+    someone may have written in DJ, and the table's comment is not automatically
+    the better one. This only closes the gap where DJ has nothing.
+
+    Applied in place rather than by forking a revision -- a comment is not a
+    schema change, and the caller commits.
+    """
+    changed = False
+
+    if table_metadata.description and not revision.description:
+        revision.description = table_metadata.description
+        changed = True
+
+    incoming = {
+        column.name: column.description
+        for column in table_metadata.columns
+        if column.description
+    }
+    for column in revision.columns:
+        description = incoming.get(column.name)
+        if description and not column.description:
+            column.description = description
+            changed = True
+
+    if changed:
+        session.add(revision)
+    return changed
 
 
 def cube_changed_fields(
@@ -4182,6 +4221,9 @@ async def refresh_source(
             table_metadata.owner,
             save_history,
         )
+
+    if table_metadata is not None:
+        apply_table_descriptions(session, current_revision, table_metadata)
 
     refresh_details = {}
     if new_columns:

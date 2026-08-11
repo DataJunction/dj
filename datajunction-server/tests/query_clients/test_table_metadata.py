@@ -66,16 +66,15 @@ async def test_base_default_returns_columns_and_no_owner():
         columns=cols,
         owner=None,
         partitions=[],
-        broken_ref=None,
-        valid_through=None,
     )
 
 
-def test_table_owner_defaults_full_name():
-    """``full_name`` is optional, since not every source reports one."""
-    assert TableOwner(email="someone@example.com") == TableOwner(
-        email="someone@example.com",
-        full_name="",
+def test_table_owner_defaults():
+    """Only ``username`` is required; not every catalog reports the rest."""
+    assert TableOwner(username="someone@example.com") == TableOwner(
+        username="someone@example.com",
+        email=None,
+        display_name="",
     )
 
 
@@ -95,9 +94,10 @@ async def test_query_service_client_returns_owner(mocker: MockerFixture):
                     {"name": "flavor", "type": "string"},
                 ],
                 "partitions": ["dateint"],
-                "broken_ref": False,
-                "valid_through": "20260808",
-                "owner": {"email": "owner@example.com", "full_name": "Example Owner"},
+                "owner": {
+                    "username": "owner@example.com",
+                    "display_name": "Example Owner",
+                },
             },
         ),
     )
@@ -115,10 +115,8 @@ async def test_query_service_client_returns_owner(mocker: MockerFixture):
     ]
     assert result.model_copy(update={"columns": []}) == TableMetadata(
         columns=[],
-        owner=TableOwner(email="owner@example.com", full_name="Example Owner"),
+        owner=TableOwner(username="owner@example.com", display_name="Example Owner"),
         partitions=["dateint"],
-        broken_ref=False,
-        valid_through="20260808",
     )
     request.assert_called_once_with(
         "GET",
@@ -150,8 +148,6 @@ async def test_query_service_client_metadata_without_owner(mocker: MockerFixture
         columns=[],
         owner=None,
         partitions=[],
-        broken_ref=None,
-        valid_through=None,
     )
     request.assert_called_once_with(
         "GET",
@@ -186,8 +182,6 @@ async def test_query_service_client_falls_back_on_404(mocker: MockerFixture):
         columns=columns,
         owner=None,
         partitions=[],
-        broken_ref=None,
-        valid_through=None,
     )
     fallback.assert_called_once_with(
         "hive",
@@ -235,7 +229,7 @@ async def test_http_query_client_delegates(mocker: MockerFixture):
     client = HttpQueryServiceClient(uri="http://queryservice:8001")
     expected = TableMetadata(
         columns=[Column(name="id", type=IntegerType(), order=0)],
-        owner=TableOwner(email="owner@example.com", full_name="Example Owner"),
+        owner=TableOwner(username="owner@example.com", display_name="Example Owner"),
     )
     delegate = mocker.patch.object(
         client._client,

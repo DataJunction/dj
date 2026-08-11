@@ -297,13 +297,17 @@ class QueryServiceClient:
         owner = metadata.get("owner")
         return TableMetadata(
             columns=[
-                Column(name=column["name"], type=ColumnType(column["type"]), order=idx)
+                Column(
+                    name=column["name"],
+                    type=ColumnType(column["type"]),
+                    order=idx,
+                    description=column.get("description"),
+                )
                 for idx, column in enumerate(metadata.get("columns") or [])
             ],
             owner=TableOwner(**owner) if owner else None,
             partitions=metadata.get("partitions") or [],
-            broken_ref=metadata.get("broken_ref"),
-            valid_through=metadata.get("valid_through"),
+            description=metadata.get("description"),
         )
 
     async def get_columns_for_tables_batch(
