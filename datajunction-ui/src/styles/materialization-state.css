@@ -8,6 +8,16 @@
  * colour. The tokens are redeclared here so this panel does not depend on the
  * planner page being mounted.
  *
+ * Vertical spacing scale (4px steps): 4 / 8 / 12 / 16 / 20. It is applied by
+ * relationship, not by eye, so the hierarchy survives edits:
+ *   4px   within a pair -- a label and the value it names
+ *   8px   within a run of one-line rows (the workflow grid)
+ *   12px  a section label and the content it heads
+ *   16px  between sibling pairs, and between cards
+ *   20px  card padding, and either side of the header rule
+ * The contrast between the within-pair step and the between-pair step is what
+ * makes a fact list scan; at 1px and 8px it had none and nothing grouped.
+ *
  * The planner's *type scale* is deliberately not inherited by any layout. It is
  * sized for a ~320px sidebar; the node page gives this panel the full content
  * column, where 10--11px body text is unreadable. All three layouts use 13px,
@@ -105,15 +115,15 @@
 
 .mat-header {
   border-bottom: 1px solid var(--planner-border);
-  padding-bottom: 12px;
-  margin-bottom: 14px;
+  padding-bottom: 20px;
+  margin-bottom: 20px;
 }
 
 /* Names each group. Without these the panel was headed `Materializations` with
    serving and coverage under it -- neither of which is a materialization -- and the
    materializations themselves had no heading at all. */
 .mat-section {
-  margin: 0 0 10px;
+  margin: 0 0 12px;
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
@@ -146,8 +156,8 @@
      gutter of whitespace the fixed width was introduced to close. The cards still
      align with each other, which is the comparison that matters. */
   grid-template-columns: max-content minmax(0, 1fr);
-  gap: 10px 32px;
-  margin-top: 8px;
+  gap: 16px 32px;
+  margin-top: 12px;
   padding-left: 14px;
 }
 
@@ -155,7 +165,7 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 5px;
+  gap: 4px;
   min-width: 0;
 }
 
@@ -314,7 +324,7 @@
 .mat-items {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 16px;
 }
 
 /* A card, matching `.mat-split__detail`: a rule between blocks left the two sides of
@@ -325,7 +335,9 @@
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
   background: var(--planner-surface);
-  padding: 12px 14px;
+  /* Horizontal padding is unchanged: the summary above is offset by the same 14px,
+     which is what keeps Coverage over Workflows. Only the vertical grows. */
+  padding: 20px 14px;
 }
 
 .mat-item__head {
@@ -333,7 +345,7 @@
   align-items: baseline;
   flex-wrap: wrap;
   gap: 8px;
-  margin-bottom: 8px;
+  margin-bottom: 16px;
 }
 
 .mat-item__name {
@@ -354,7 +366,7 @@
      card with a Lookback row and a wider cron pushed its workflows further right than
      the card above it -- two cards of the same shape that did not line up. */
   grid-template-columns: 440px minmax(0, 1fr);
-  gap: 8px 32px;
+  gap: 16px 32px;
   align-items: start;
 }
 
@@ -370,8 +382,10 @@
   line-height: 1.5;
 }
 
+/* Four times the within-pair step. Anything closer and a label reads as belonging
+   to the value above it as much as to the one below. */
 .mat-facts dd + dt {
-  margin-top: 8px;
+  margin-top: 16px;
 }
 
 /* Workflow rows keep the pair on one line: the label there is a name, not a field
@@ -379,7 +393,7 @@
 .mat-activity .mat-facts {
   display: grid;
   grid-template-columns: 110px minmax(0, 1fr);
-  gap: 3px 14px;
+  gap: 8px 14px;
 }
 
 .mat-activity .mat-facts dd + dt {
@@ -391,7 +405,7 @@
 }
 
 .mat-facts dt {
-  margin-bottom: 1px;
+  margin-bottom: 4px;
 }
 
 .mat-facts dd {
@@ -402,7 +416,7 @@
 /* Matches a `dt`, so the heading reads as one more label rather than as a section
    title competing with the materialization's own name. */
 .mat-activity__label {
-  margin-bottom: 5px;
+  margin-bottom: 12px;
 }
 
 /* A rounded rect rather than the strategy badge's pill, so the two do not read as
