@@ -1434,19 +1434,19 @@ async def test_dimension_link_numeric_default_value(
     )
     query = response.json()["sql"]
     expected_sql = """
-    WITH default_events AS (
+    WITH default_countries AS (
+      SELECT  country_code,
+        name,
+        population
+      FROM default.examples.countries
+    ),
+    default_events AS (
       SELECT  user_id,
         event_start_date,
         event_end_date,
         elapsed_secs,
         user_registration_country
       FROM default.examples.events
-    ),
-    default_countries AS (
-      SELECT  country_code,
-        name,
-        population
-      FROM default.examples.countries
     )
     SELECT  t1.user_id,
       t1.event_start_date,
@@ -1469,13 +1469,13 @@ async def test_dimension_link_numeric_default_value(
     assert response.status_code == 200
     v3_measures_sql = response.json()["grain_groups"][0]["sql"]
     expected_v3_measures_sql = """
-    WITH default_events AS (
-      SELECT user_registration_country, elapsed_secs
-      FROM default.examples.events
-    ),
-    default_countries AS (
+    WITH default_countries AS (
       SELECT country_code, population
       FROM default.examples.countries
+    ),
+    default_events AS (
+      SELECT elapsed_secs, user_registration_country
+      FROM default.examples.events
     )
     SELECT
       COALESCE(t2.population, 0) AS population,

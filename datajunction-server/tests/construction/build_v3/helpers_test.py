@@ -150,6 +150,34 @@ def test_build_dimension_col_expr_uses_numeric_default_for_numeric_column():
     assert str(expr) == "COALESCE(t2.population, 0) AS population"
 
 
+def test_build_dimension_col_expr_handles_missing_context_node():
+    """
+    v3 dimension projections should still render defaults if ctx lacks the dim node.
+    """
+    resolved_dim = ResolvedDimension(
+        original_ref="default.countries.population",
+        node_name="default.countries",
+        column_name="population",
+        role=None,
+        join_path=JoinPath(
+            links=[SimpleNamespace(default_value=0, role=None)],
+            target_dimension=SimpleNamespace(name="default.countries"),
+        ),
+        is_local=False,
+    )
+    ctx = SimpleNamespace(nodes={})
+
+    expr = build_dimension_col_expr(
+        resolved_dim,
+        main_alias="t1",
+        dim_aliases={("default.countries", ""): "t2"},
+        clean_alias="population",
+        ctx=ctx,  # type: ignore[arg-type]
+    )
+
+    assert str(expr) == "COALESCE(t2.population, 0) AS population"
+
+
 def _make_ref_column(
     name: str,
     dimension_id: int | None,

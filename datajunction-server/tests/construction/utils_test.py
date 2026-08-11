@@ -60,3 +60,23 @@ def test_dimension_link_default_literal_uses_column_type():
     assert str(dimension_link_default_literal("Bob's Team", "string")) == (
         "'Bob''s Team'"
     )
+
+
+def test_dimension_link_default_literal_validation_edges():
+    """
+    Dimension link defaults should reject invalid typed literals.
+    """
+    with pytest.raises(ValueError, match="Boolean values cannot be used"):
+        dimension_link_default_literal(True, "int")
+
+    with pytest.raises(ValueError, match="Invalid boolean default value"):
+        dimension_link_default_literal("maybe", "boolean")
+
+
+def test_dimension_link_default_literal_fallbacks():
+    """
+    Dimension link defaults should render fallback literals from Python values.
+    """
+    assert str(dimension_link_default_literal(None)) == "NULL"
+    assert str(dimension_link_default_literal(True)) == "True"
+    assert str(dimension_link_default_literal(0, "boolean")) == "False"

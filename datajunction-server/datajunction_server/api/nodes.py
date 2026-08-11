@@ -1200,6 +1200,7 @@ async def update_node(
         session,
         name,
         options=NodeOutput.load_options(),
+        populate_existing=True,
     )
 
     # Update views if this is a cube (non-blocking)

@@ -751,6 +751,7 @@ class Node(Base):
         raise_if_not_exists: bool = False,
         include_inactive: bool = False,
         for_update: bool = False,
+        populate_existing: bool = False,
     ) -> Node | None:
         """
         Get a node by name
@@ -768,6 +769,8 @@ class Node(Base):
             statement = statement.with_for_update().execution_options(
                 populate_existing=True,
             )
+        elif populate_existing:
+            statement = statement.execution_options(populate_existing=True)
         result = await session.execute(statement)
         node = result.unique().scalar_one_or_none()
         if not node and raise_if_not_exists:
