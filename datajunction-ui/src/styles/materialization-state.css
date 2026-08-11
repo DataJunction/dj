@@ -45,6 +45,9 @@
      the screen and a row could not be read across. Facts here are short; the measure
      should be too. */
   max-width: 1100px;
+  /* Indented to the page's tab labels, which `.dj-tab` insets by 20px. At zero the
+     panel started left of every heading above it and leaned out of the column. */
+  padding-left: 20px;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   font-size: 14px;
   color: var(--planner-text);
@@ -159,12 +162,11 @@
   /* The same template and the same left offset as a card's `.mat-item__cols`, so
      Coverage starts where Workflows starts and the page has one second column
      instead of one per region. */
-  /* Sized to the serving name rather than to the cards' column: shown whole it runs
-     to ~760px, and a column that wide in a card would put the workflows across the
-     gutter of whitespace the fixed width was introduced to close. The cards still
-     align with each other, which is the comparison that matters. */
-  grid-template-columns: max-content minmax(0, 1fr);
-  gap: 16px 32px;
+  /* One column. Side by side, coverage sat under the panel's own controls and a long
+     serving name pushed it into a narrow strip; stacked, each gets the width it
+     wants and the summary reads top to bottom like the cards below it. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
   margin-top: 12px;
   padding-left: 14px;
 }
