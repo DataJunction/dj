@@ -754,7 +754,7 @@ const LAYOUT_COMPONENTS = {
   C: LayoutStacked,
 };
 
-export default function MaterializationStatePanel({ state }) {
+export default function MaterializationStatePanel({ state, versionSelect }) {
   const [layout, setLayout] = useState('A');
   const mats = state.materializations || [];
   // Every card previously repeated this; all of them are the same row, because
@@ -766,21 +766,27 @@ export default function MaterializationStatePanel({ state }) {
 
   return (
     <div className={`mat-panel mat-panel--${layout.toLowerCase()}`}>
-      <div className="mat-switcher" role="group" aria-label="Panel layout">
-        {LAYOUTS.map(option => (
-          <button
-            type="button"
-            key={option.id}
-            title={option.title}
-            aria-pressed={layout === option.id}
-            className={`mat-switcher__btn ${
-              layout === option.id ? 'mat-switcher__btn--active' : ''
-            }`}
-            onClick={() => setLayout(option.id)}
-          >
-            {option.id}
-          </button>
-        ))}
+      {/* The version scopes everything below it -- the serving table and the
+          materializations alike -- so it belongs at the top of the panel rather than
+          floating above it as neither page chrome nor panel content. */}
+      <div className="mat-controls">
+        {versionSelect}
+        <div className="mat-switcher" role="group" aria-label="Panel layout">
+          {LAYOUTS.map(option => (
+            <button
+              type="button"
+              key={option.id}
+              title={option.title}
+              aria-pressed={layout === option.id}
+              className={`mat-switcher__btn ${
+                layout === option.id ? 'mat-switcher__btn--active' : ''
+              }`}
+              onClick={() => setLayout(option.id)}
+            >
+              {option.id}
+            </button>
+          ))}
+        </div>
       </div>
       <CubeHeader state={state} serving={serving} coverage={coverage} />
       <h4 className="mat-section">

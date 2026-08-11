@@ -77,12 +77,19 @@
   color: var(--planner-text-dim);
 }
 
-/* Layout switcher, parked top-right of the panel so it never competes with the
-   cube header for the reading position. */
-.mat-switcher {
+/* The panel's controls, parked top-right so they never compete with the cube header
+   for the reading position. The version select lives here because it scopes the whole
+   panel; the layout switcher is scaffolding and goes when B and C do. */
+.mat-controls {
   position: absolute;
-  top: 0;
+  top: -2px;
   right: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.mat-switcher {
   display: flex;
   gap: 2px;
 }
@@ -132,8 +139,9 @@
      same size, weight and colour, so the group read as a sibling of its own contents
      rather than as their heading. */
   color: var(--planner-text-muted);
-  /* Clears the absolutely-positioned layout switcher. Goes with it. */
-  padding-right: 90px;
+  /* Clears the absolutely-positioned control group, which is now the version select
+     as well as the switcher. */
+  padding-right: 340px;
 }
 
 .mat-section__count {

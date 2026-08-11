@@ -129,6 +129,42 @@ export default function NodeMaterializationTab({
     setSelectedRevisionTab(revisionId);
   };
 
+  /**
+   * The revision picker. A select rather than a tab strip: as tabs it was the same
+   * blue-underline control as the page's own Info/Columns/... nav, sitting directly
+   * beneath it, so neither row read as the primary navigation.
+   */
+  const renderVersionSelect = () => {
+    const versions = Object.keys(materializationsByRevision).sort((a, b) => {
+      if (a === node?.version) return -1;
+      if (b === node?.version) return 1;
+      return b.localeCompare(a);
+    });
+    if (!versions.length) {
+      return null;
+    }
+    return (
+      <label
+        style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+        htmlFor="materialization-version"
+      >
+        <span className="mat-version-label">Version</span>
+        <select
+          id="materialization-version"
+          className="mat-version-select"
+          value={selectedRevisionTab || ''}
+          onChange={event => onClickRevisionTab(event.target.value)()}
+        >
+          {versions.map(version => (
+            <option key={version} value={version}>
+              {version === node?.version ? `${version} (latest)` : version}
+            </option>
+          ))}
+        </select>
+      </label>
+    );
+  };
+
   const buildRevisionTabs = () => {
     const versions = Object.keys(materializationsByRevision);
 
@@ -194,16 +230,6 @@ export default function NodeMaterializationTab({
       );
     }
 
-    // Sort versions: current version first, then by version string (most recent first)
-    const sortedVersions = versions.sort((a, b) => {
-      // Current node version always comes first
-      if (a === node?.version) return -1;
-      if (b === node?.version) return 1;
-
-      // Then sort by version string (descending)
-      return b.localeCompare(a);
-    });
-
     // Check if latest version has any materializations (including inactive ones)
     const hasLatestVersionMaterialization = rawMaterializations.some(mat => {
       const matVersion = mat.config?.cube?.version || node?.version;
@@ -255,35 +281,9 @@ export default function NodeMaterializationTab({
           marginBottom: '20px',
         }}
       >
-        {/* A select, not a tab strip. As tabs these were the same blue-underline
-            control as the page's own Info/Columns/... nav, sitting directly beneath
-            it, so neither row read as the primary navigation. */}
-        <label
-          style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-          htmlFor="materialization-version"
-        >
-          <span className="mat-version-label">Version</span>
-          <select
-            id="materialization-version"
-            className="mat-version-select"
-            value={selectedRevisionTab || ''}
-            onChange={event => onClickRevisionTab(event.target.value)()}
-          >
-            {sortedVersions.map(version => {
-              const info = versionHasOnlyInactive[version];
-              // Inactive-only versions were drawn as a grey pill; a select has no
-              // room for that, so the state is said rather than styled.
-              const isOnlyInactive =
-                info && !info.hasActive && info.hasInactive;
-              return (
-                <option key={version} value={version}>
-                  {version === node?.version ? `${version} (latest)` : version}
-                  {isOnlyInactive && showInactive ? ' — inactive only' : ''}
-                </option>
-              );
-            })}
-          </select>
-        </label>
+        {/* The panel renders this in its own header, where the version's scope
+            actually is. Kept here only for when the panel is switched off. */}
+        {showProposedPanel ? <span /> : renderVersionSelect()}
         <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
           <label
             style={{
@@ -627,7 +627,10 @@ export default function NodeMaterializationTab({
               Proposed state panel
             </label>
             {showProposedPanel && (
-              <MaterializationStatePanel state={proposedState} />
+              <MaterializationStatePanel
+                state={proposedState}
+                versionSelect={renderVersionSelect()}
+              />
             )}
           </div>
           {currentRevisionMaterializations.length > 0 ? (
