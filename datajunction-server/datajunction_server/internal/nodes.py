@@ -66,9 +66,10 @@ from datajunction_server.internal.access.authorization.context import AuthContex
 from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.materializations import (
+    apply_cube_materialization_swap,
     create_new_materialization,
     schedule_materialization_jobs_bg,
-    stop_cube_materialization_workflows,
+    swap_cube_materializations,
 )
 from datajunction_server.internal.validation import (
     NodeValidator,
@@ -1685,6 +1686,13 @@ async def is_non_trivial_cube_change(
     asks whether the previously materialized table is still usable. The two can and
     do diverge -- reordering dimensions earns a minor bump but leaves the table
     valid, while a filters change is major and invalidates it.
+
+    It no longer decides whether the superseded revision's workflows are stopped:
+    `swap_cube_materializations` does that on every new revision, because a revision
+    that keeps neither its materialization nor its availability cannot be left
+    pointing at another revision's running workflow. What remains is the
+    adopt-or-backfill question -- whether the rebuilt materialization can reuse the
+    previous revision's data -- which the swap records on its history event.
     """
     if set(old_revision.cube_dimensions()) != set(new_revision.cube_dimensions()):
         return True
@@ -1844,74 +1852,36 @@ async def update_cube_node(
                     granularity=col.partition.granularity,
                 )
 
-        # Materializations are not migrated to the new revision. When the new
-        # revision is non-trivially different, the previous revision's workflows are
-        # also stopped: left running, they keep posting fresh availability for a
-        # table built from the old definition, and that stale-but-live availability
-        # record can then be used to route queries against the new revision,
-        # producing column-not-found errors.
-        #
-        # "default"-named materializations are included: they are legacy Druid
-        # materializations that post availability just like any other, so leaving
-        # them running reproduces exactly the failure we are preventing.
-        active_materializations = [
-            mat for mat in node_revision.materializations if not mat.deactivated_at
-        ]
-        materializations_to_stop = (
-            active_materializations
-            if active_materializations
-            and await is_non_trivial_cube_change(
-                session,
-                node_revision,
-                new_cube_revision,
-            )
-            else []
-        )
-        if materializations_to_stop:
-            for mat in materializations_to_stop:
-                mat.deactivated_at = UTCDatetime.now(UTC)  # type: ignore
-            await save_history(
-                event=History(
-                    entity_type=EntityType.MATERIALIZATION,
-                    entity_name=node_revision.name,
-                    node=node_revision.name,
-                    activity_type=ActivityType.STATUS_CHANGE,
-                    details={
-                        "message": (
-                            f"Cube updated to {new_cube_revision.version}. "
-                            "Materializations from the previous version were stopped "
-                            "because the cube changed non-trivially. Please set up "
-                            "materializations again if you want to continue "
-                            "materializing this cube."
-                        ),
-                        "previous_version": node_revision.version,
-                        "new_version": new_cube_revision.version,
-                        "stopped_materializations": [
-                            mat.name for mat in materializations_to_stop
-                        ],
-                    },
-                    user=current_user.username,
-                ),
-                session=session,
-            )
-
         session.add(new_cube_revision)
         session.add(new_cube_revision.node)
         await session.commit()
 
-    # Stop the remote workflows only once DJ's own state is committed, so a slow or
-    # failing query service can neither hold the transaction open nor leave DJ
-    # claiming the old materializations are still active. The call is batched rather
-    # than per-materialization: these are blocking HTTP requests, so a loop would
-    # stall the event loop once per materialization. The helper swallows query
-    # service errors: a stop that can't be delivered must not abort a legitimate
-    # cube edit, and the History event above records what we attempted.
-    if query_service_client and materializations_to_stop:
-        stop_cube_materialization_workflows(
-            query_service_client=query_service_client,
-            cube_name=node_revision.name,
-            cube_version=node_revision.version,
-            materializations=materializations_to_stop,
+    # Swap the materializations onto the new revision only once it is committed: the
+    # rebuild reads the new revision's columns and partitions back out of the DB.
+    swap = await swap_cube_materializations(
+        session,
+        node_revision,
+        new_cube_revision,
+        access_checker=access_checker,
+        current_user=current_user,
+        previous_table_usable=not await is_non_trivial_cube_change(
+            session,
+            node_revision,
+            new_cube_revision,
+        ),
+    )
+    if swap:
+        # Talk to the query service only once DJ's own record of the swap is
+        # committed, so a slow or failing query service can neither hold the
+        # transaction open nor leave DJ claiming the superseded materializations are
+        # still active. The call never raises: a stop or a schedule that cannot be
+        # delivered must not abort a legitimate cube edit, and the History event
+        # recorded above says what we attempted.
+        await session.commit()
+        await apply_cube_materialization_swap(
+            session,
+            swap,
+            query_service_client,
             request_headers=request_headers,
         )
 

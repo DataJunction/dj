@@ -48,6 +48,7 @@ from datajunction_server.models.cube import (
     ViewDDLResponse,
 )
 from datajunction_server.models.cube_materialization import (
+    DRUID_CUBE_V3_MATERIALIZATION_NAME,
     CubeMaterializationV2Input,
     CubeMaterializeRequest,
     CubeMaterializeResponse,
@@ -762,7 +763,7 @@ async def materialize_cube(
     )
 
     # Persist materialization record on the cube's node revision
-    materialization_name = "druid_cube_v3"
+    materialization_name = DRUID_CUBE_V3_MATERIALIZATION_NAME
     existing_mats = await Materialization.get_by_names(
         session,
         cube_revision.id,
@@ -877,7 +878,7 @@ async def deactivate_cube_materialization(
     cube_revision = node.current
 
     # Find and delete the druid_cube_v3 materialization
-    materialization_name = "druid_cube_v3"
+    materialization_name = DRUID_CUBE_V3_MATERIALIZATION_NAME
     existing_mats = await Materialization.get_by_names(
         session,
         cube_revision.id,
@@ -954,7 +955,7 @@ async def run_cube_backfill(
 
     # Verify cube has a materialization
     cube_revision = node.current
-    materialization_name = "druid_cube_v3"
+    materialization_name = DRUID_CUBE_V3_MATERIALIZATION_NAME
     existing_mats = await Materialization.get_by_names(
         session,
         cube_revision.id,

@@ -9,6 +9,7 @@ from pydantic import (
     Field,
     PrivateAttr,
     TypeAdapter,
+    field_validator,
     model_validator,
 )
 
@@ -257,6 +258,20 @@ class MaterializationSpec(BaseModel):
         if self.strategy != MaterializationStrategy.INCREMENTAL_TIME:
             self.lookback_window = None
         return self
+
+
+class MaterializationAction(str, Enum):
+    """
+    What a cube's `materialization:` block can say instead of naming a schedule.
+
+    `NONE` asks for whatever the cube has materialized to be torn down. It is a
+    value rather than an absent key on purpose: "not managed in YAML" and "should
+    not be materialized" have to stay distinguishable after a round trip through
+    `model_dump`, which emits every optional field explicitly and so cannot
+    preserve which keys an author actually wrote.
+    """
+
+    NONE = "none"
 
 
 class ColumnSpec(BaseModel):
@@ -948,7 +963,13 @@ class CubeSpec(NodeSpec):
     dimensions: list[str] = Field(default_factory=list)
     filters: list[str] | None = None
     columns: list[ColumnSpec] | None = None
-    materialization: MaterializationSpec | None = None
+    # Tri-state. A spec materializes the cube on the schedule it names; the `none`
+    # sentinel tears down whatever the cube has materialized; absent -- and null,
+    # which is what serializing an absent field produces -- means the cube's
+    # materialization is not managed here and whatever exists is left alone. Only a
+    # value can carry intent through serialization, so removal is spelled
+    # `materialization: none` rather than inferred from a key being present.
+    materialization: MaterializationSpec | MaterializationAction | None = None
 
     FIELD_CHANGE_TIERS: ClassVar[dict[str, ChangeTier]] = {
         # Adding or removing a metric or a dimension changes the cube's columns.
@@ -989,6 +1010,15 @@ class CubeSpec(NodeSpec):
         "filters": ChangeTier.NONE,
     }
 
+    @field_validator("materialization", mode="before")
+    @classmethod
+    def normalize_materialization_sentinel(cls, value: Any) -> Any:
+        """
+        Case-fold the sentinel, since `None` is what a Python author reaches for and
+        `NONE` what a YAML one does, and both mean `none`.
+        """
+        return value.lower() if isinstance(value, str) else value
+
     @model_validator(mode="after")
     def validate_materialization(self) -> "CubeSpec":
         """
@@ -999,7 +1029,7 @@ class CubeSpec(NodeSpec):
         carrying the same dimension in two roles can say which role partitions it.
         """
         if (
-            self.materialization
+            isinstance(self.materialization, MaterializationSpec)
             and self.materialization.strategy
             == MaterializationStrategy.INCREMENTAL_TIME
             and not any(
@@ -1345,6 +1375,7 @@ class DeploymentResult(BaseModel):
         TAG = "tag"
         NAMESPACE = "namespace"
         PREAGG = "preaggregation"
+        MATERIALIZATION = "materialization"
         GENERAL = "general"
 
     name: str

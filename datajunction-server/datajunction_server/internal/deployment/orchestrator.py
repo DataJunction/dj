@@ -4,6 +4,7 @@ import time
 from collections import Counter
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from datetime import UTC
 from typing import cast
 
 from sqlalchemy import func, or_, select, text
@@ -25,6 +26,7 @@ from datajunction_server.database.column import Column, ColumnAttribute
 from datajunction_server.database.dimensionlink import DimensionLink, JoinType
 from datajunction_server.database.hierarchy import Hierarchy, HierarchyLevel
 from datajunction_server.database.history import History
+from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.metricmetadata import MetricMetadata
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import MissingParent, NodeRelationship
@@ -61,8 +63,15 @@ from datajunction_server.internal.deployment.validation import (
 )
 from datajunction_server.internal.history import EntityType
 from datajunction_server.internal.impact import propagate_impact
+from datajunction_server.internal.materializations import (
+    CubeMaterializationSwap,
+    apply_cube_materialization_swap,
+    reconcile_declared_materialization,
+    swap_cube_materializations,
+)
 from datajunction_server.internal.nodes import (
     derive_frozen_measures_bulk,
+    is_non_trivial_cube_change,
 )
 from datajunction_server.models.access import ResourceAction
 from datajunction_server.models.base import labelize
@@ -76,6 +85,8 @@ from datajunction_server.models.deployment import (
     DimensionJoinLinkSpec,
     DimensionReferenceLinkSpec,
     LinkableNodeSpec,
+    MaterializationAction,
+    MaterializationSpec,
     MetricSpec,
     NodeSpec,
     SourceSpec,
@@ -106,6 +117,7 @@ from datajunction_server.models.unit import (
     structured_to_legacy_unit,
 )
 from datajunction_server.sql.dag import get_metric_parents_map
+from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import (
     SEPARATOR,
     get_namespace_from_name,
@@ -342,6 +354,7 @@ class DeploymentOrchestrator:
         self.warnings: list[DJError] = []
         self.deployed_results: list[DeploymentResult] = []
         self._timer = DeploymentTimer()
+        self._cube_materialization_swaps: list[CubeMaterializationSwap] = []
 
     @property
     def _history_user(self) -> str:
@@ -371,6 +384,10 @@ class DeploymentOrchestrator:
         Returned ``results`` and ``downstream_impacts`` are populated inside
         the SAVEPOINT; Python references stay live after rollback, so dry-run
         callers still get the full impact analysis.
+
+        Cube materialization swaps are the one piece of remote work deferred past
+        the commit, so a deploy that rolls back has asked the query service to
+        neither schedule nor stop anything.
         """
         start_total = time.perf_counter()
         self._timer = DeploymentTimer()
@@ -392,6 +409,7 @@ class DeploymentOrchestrator:
             # `else` only fires when no _DryRunRollback was raised, which
             # implies wet-run — commit the outer transaction.
             await self.session.commit()
+            await self._apply_cube_materialization_swaps()
 
         # Warnings are only surfaced by the failure path (they ride along on
         # DJInvalidDeploymentConfig), so hand them back here too — otherwise a
@@ -468,7 +486,14 @@ class DeploymentOrchestrator:
                     self.deployment_spec.namespace,
                 ),
             )
-            if not needs_preagg_reconcile:
+            # Cube materializations still need reconciling too. A push that edits
+            # only a `materialization:` block leaves every cube comparing equal, so
+            # the plan this short-circuit is testing is exactly the one such a push
+            # produces.
+            declares_cube = any(
+                isinstance(spec, CubeSpec) for spec in self.deployment_spec.nodes
+            )
+            if not needs_preagg_reconcile and not declares_cube:
                 return DeploymentExecuteResult(
                     results=await self._handle_no_changes(),
                     downstream_impacts=[],
@@ -1735,6 +1760,12 @@ class DeploymentOrchestrator:
         with timer.phase("reconcile preaggregations"):
             await self._reconcile_preaggregations()
 
+        # Reconcile declared cube materializations. Runs unconditionally, for the
+        # same reason hierarchies do: a push that edits only a schedule deploys no
+        # nodes at all.
+        with timer.phase("reconcile cube materializations"):
+            await self._reconcile_cube_materializations(plan)
+
         # Run impact propagation before deletions so deleted nodes'
         # children are still reachable via NodeRelationship.
         changed_names = {
@@ -2208,6 +2239,14 @@ class DeploymentOrchestrator:
             else:
                 validation_results = await self._bulk_validate_cubes(cubes_to_deploy)
 
+        # The superseded revision of every cube this deploy updates, captured before
+        # `node.current` is repointed below.
+        old_revisions = {
+            spec.rendered_name: existing.current
+            for spec in cubes_to_deploy
+            if (existing := self.registry.nodes.get(spec.rendered_name)) is not None
+        }
+
         with timer.phase("    cubes: create ORM objects"):
             (
                 nodes,
@@ -2226,6 +2265,9 @@ class DeploymentOrchestrator:
             node_obj.current = revision
         self.registry.add_nodes({n.name: n for n in nodes})
 
+        with timer.phase("    cubes: swap materializations"):
+            await self._swap_cube_materializations(old_revisions, revisions)
+
         elapsed_ms = (time.perf_counter() - start) * 1000
         logger.info(
             "Deployed %d cubes in %.3fs",
@@ -2241,6 +2283,505 @@ class DeploymentOrchestrator:
             len(nodes),
         )
         return deployment_results
+
+    async def _swap_cube_materializations(
+        self,
+        old_revisions: dict[str, NodeRevision],
+        new_revisions: list[NodeRevision],
+    ) -> None:
+        """
+        Rebuild each updated cube's materializations against its new revision and
+        retire the old ones.
+
+        Shares `swap_cube_materializations` with `PATCH /nodes/{name}/` so a cube
+        edited through a deploy and the same edit applied through the API land on
+        identical materialization state. Only the DJ-side half runs here; the query
+        service calls are queued and made by `execute` once the deployment is
+        committed. Skipped entirely during dry runs, which must schedule nothing and
+        stop nothing.
+
+        A cube that declares `materialization:` supplies it as the rebuild's source of
+        intent, so one push that edits both the definition and the schedule rebuilds
+        once, with the new schedule.
+        """
+        if self.dry_run:
+            return
+        swappable = [
+            (old_revision, new_revision)
+            for new_revision in new_revisions
+            if (old_revision := old_revisions.get(new_revision.name)) is not None
+        ]
+        if not swappable:
+            return
+        access_checker = AccessChecker(
+            await AuthContext.from_user(self.session, self.context.current_user),
+        )
+        declared_specs = self._declared_materializations()
+        for old_revision, new_revision in swappable:
+            swap = await swap_cube_materializations(
+                self.session,
+                old_revision,
+                new_revision,
+                access_checker=access_checker,
+                current_user=self.context.current_user,
+                previous_table_usable=not await is_non_trivial_cube_change(
+                    self.session,
+                    old_revision,
+                    new_revision,
+                ),
+                declared=declared_specs.get(new_revision.name),
+            )
+            if swap:
+                self._cube_materialization_swaps.append(swap)
+
+    def _declared_materializations(self) -> dict[str, MaterializationSpec]:
+        """
+        The materialization block each declared cube carries, keyed by rendered name.
+
+        A cube that declares no block is absent from the mapping, which is distinct
+        from one that declares `materialization: none` -- see
+        `_cubes_declaring_no_materialization`. Absence means "not managed here, leave
+        whatever exists alone"; the sentinel means "this cube should not be
+        materialized".
+        """
+        return {
+            spec.rendered_name: spec.materialization
+            for spec in self.deployment_spec.nodes
+            if isinstance(spec, CubeSpec)
+            and isinstance(spec.materialization, MaterializationSpec)
+        }
+
+    def _cubes_declaring_no_materialization(self) -> set[str]:
+        """
+        Rendered names of cubes that declared `materialization: none`.
+
+        Teardown is keyed on that sentinel rather than on the `materialization` key
+        being present and null, so that it survives serialization: `model_dump` emits
+        every optional field explicitly, and a spec round-tripped through it would
+        otherwise read as every cube in the namespace asking to be torn down.
+        """
+        return {
+            spec.rendered_name
+            for spec in self.deployment_spec.nodes
+            if isinstance(spec, CubeSpec)
+            and spec.materialization is MaterializationAction.NONE
+        }
+
+    async def _reconcile_cube_materializations(self, plan: DeploymentPlan) -> None:
+        """
+        Bring every declared cube's materialization in line with its
+        `materialization:` block.
+
+        Driven off `deployment_spec.nodes` rather than the deploy's change list.
+        `materialization` is excluded from `CubeSpec.__eq__`, so a push that edits
+        only the schedule leaves the cube in the plan's skip list, and a reconciler
+        keyed on updated nodes would drop exactly the edit this exists to support.
+        Iterating every declared cube also corrects a materialization that was
+        changed outside YAML.
+
+        Only an explicit `materialization: none` removes anything. A cube that
+        declares no block but has one materialized keeps it and earns a warning:
+        the repo may simply not have caught up yet, and a live workflow must not be
+        torn down by omission.
+
+        What a cube has materialized is read from its rows, not from the declarative
+        projection of them. `to_spec` only projects the fused cube dialect, so a cube
+        materialized by any other job -- a legacy `druid_measures_cube`, say -- reads
+        there as unmaterialized, and both the teardown and the warning would then
+        answer for a workflow that is very much running.
+
+        Remote work is queued onto `self._cube_materialization_swaps` and handed to
+        the query service by `execute` after the commit, so a deploy that rolls back
+        -- every dry run -- has asked it to schedule nothing and stop nothing.
+        """
+        cube_names = [
+            spec.rendered_name
+            for spec in self.deployment_spec.nodes
+            if isinstance(spec, CubeSpec)
+        ]
+        if not cube_names:
+            return
+
+        declared = self._declared_materializations()
+        removing = self._cubes_declaring_no_materialization()
+
+        # What each cube's materialization looked like before this deploy, in the
+        # same declarative shape the block is written in. Only ever used to report
+        # the operation a declared block performs, and taken from the plan rather
+        # than from the revision because a cube that got a new revision this deploy
+        # has already had its materialization rebuilt onto it by
+        # `_swap_cube_materializations`, and a dry run skips that rebuild entirely --
+        # reading the revision would make the two disagree.
+        persisted: dict[str, MaterializationSpec | MaterializationAction | None] = {
+            name: existing.materialization
+            for name in cube_names
+            if isinstance(existing := plan.existing_specs.get(name), CubeSpec)
+        }
+        # A cube absent from the registry never made it into the deployment -- it
+        # failed validation, say.
+        revisions = {
+            name: node.current
+            for name in cube_names
+            if (node := self.registry.nodes.get(name)) is not None
+            and node.current is not None
+        }
+        active = await self._active_cube_materializations(revisions)
+        # Only a rebuild reads a revision's columns, partitions and cube elements, so
+        # only a declared cube pays for loading them. That keeps a no-change push over
+        # a namespace full of cubes free of extra work.
+        await self._load_cube_rebuild_state(
+            [revisions[name] for name in declared if name in revisions],
+        )
+        access_checker = (
+            AccessChecker(
+                await AuthContext.from_user(self.session, self.context.current_user),
+            )
+            if declared and not self.dry_run
+            else None
+        )
+        for name in cube_names:
+            revision = revisions.get(name)
+            if name in declared:
+                if revision is not None:  # pragma: no branch
+                    await self._declare_cube_materialization(
+                        revision,
+                        declared[name],
+                        persisted.get(name),
+                        access_checker,
+                    )
+            elif name in removing:
+                self._remove_cube_materialization(
+                    name,
+                    revision,
+                    active.get(name, []),
+                )
+            elif name in active:
+                self._warn_undeclared_materialization(name, active[name])
+
+    async def _active_cube_materializations(
+        self,
+        revisions: dict[str, NodeRevision],
+    ) -> dict[str, list[Materialization]]:
+        """
+        The active materializations of each named cube that has any.
+
+        One query for the whole deployment, and a cheap one: what the teardown and
+        the warning need to know is which rows exist, not what any revision they hang
+        off looks like.
+        """
+        rows = (
+            (
+                await self.session.execute(
+                    select(Materialization).where(
+                        Materialization.node_revision_id.in_(
+                            [revision.id for revision in revisions.values()],
+                        ),
+                        Materialization.deactivated_at.is_(None),
+                    ),
+                )
+            )
+            .scalars()
+            .all()
+        )
+        by_revision: dict[int, list[Materialization]] = {}
+        for row in rows:
+            by_revision.setdefault(row.node_revision_id, []).append(row)
+        return {
+            name: by_revision[revision.id]
+            for name, revision in revisions.items()
+            if revision.id in by_revision
+        }
+
+    async def _load_cube_rebuild_state(
+        self,
+        revisions: list[NodeRevision],
+    ) -> None:
+        """
+        Warm everything a materialization rebuild reads off the given revisions.
+
+        A revision created moments ago has nothing loaded on it, and a lazy load from
+        async code would fail, so the identity map is filled in a single query rather
+        than one per cube.
+        """
+        if revisions:
+            await self.session.execute(
+                select(NodeRevision)
+                .where(NodeRevision.id.in_([rev.id for rev in revisions]))
+                .options(*NodeRevision.cube_load_options()),
+            )
+
+    async def _declare_cube_materialization(
+        self,
+        revision: NodeRevision,
+        block: MaterializationSpec,
+        persisted: MaterializationSpec | MaterializationAction | None,
+        access_checker: AccessChecker | None,
+    ) -> None:
+        """
+        Configure one cube's materialization from its declared block.
+
+        The reported operation compares the block against what the cube declared
+        before this deploy, so it says the same thing on a dry run as on the wet run
+        that follows. `reconcile_declared_materialization` decides separately whether
+        any DJ-side state actually moved, and only then is the query service asked to
+        schedule anything -- an unchanged re-declare, or a block a revision swap has
+        already built from, costs no remote call at all.
+        """
+        operation = (
+            DeploymentResult.Operation.CREATE
+            if persisted is None
+            else DeploymentResult.Operation.UPDATE
+            if persisted != block
+            else DeploymentResult.Operation.NOOP
+        )
+        if not self.dry_run:
+            # A declared block outside a dry run always comes with a checker; the
+            # assert narrows the Optional for mypy.
+            assert access_checker is not None
+            try:
+                (
+                    materialization,
+                    changed,
+                    superseded,
+                ) = await reconcile_declared_materialization(
+                    self.session,
+                    revision,
+                    block,
+                    access_checker=access_checker,
+                    current_user=self.context.current_user,
+                )
+            except DJException as exc:
+                # A cube whose measures queries sit at different grains cannot be
+                # materialized at all. That is this cube's failure, not the
+                # deployment's, so it is recorded and the remaining cubes go on.
+                message = f"Cube `{revision.name}`: {exc.message}"
+                self.errors.append(
+                    DJError(
+                        code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                        message=message,
+                    ),
+                )
+                # FAILED, not WARNING, even though every other node in the deployment
+                # still deploys and commits. `api/deployments.py` derives the
+                # aggregate status from these, so this is also what makes the
+                # deployment `failed`: a materialization the author asked for and did
+                # not get is exactly the silent gap this feature exists to close, and
+                # reporting `success` for it would reopen it.
+                self.deployed_results.append(
+                    DeploymentResult(
+                        name=revision.name,
+                        deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                        status=DeploymentResult.Status.FAILED,
+                        operation=DeploymentResult.Operation.UNKNOWN,
+                        message=message,
+                    ),
+                )
+                return
+
+            if changed:
+                # The block can be unchanged while the built config is not -- a cube
+                # materialized outside YAML, or one whose definition moved underneath
+                # an untouched schedule.
+                if operation == DeploymentResult.Operation.NOOP:
+                    operation = DeploymentResult.Operation.UPDATE
+                self.session.add(
+                    History(
+                        entity_type=EntityType.MATERIALIZATION,
+                        entity_name=materialization.name,
+                        node=revision.name,
+                        activity_type=(
+                            ActivityType.CREATE
+                            if operation == DeploymentResult.Operation.CREATE
+                            else ActivityType.UPDATE
+                        ),
+                        details={
+                            "materialization": materialization.name,
+                            "schedule": block.schedule,
+                            "strategy": block.strategy.value,
+                            "lookback_window": block.lookback_window,
+                            "superseded_materializations": [
+                                mat.name for mat in superseded
+                            ],
+                        },
+                        user=self._history_user,
+                    ),
+                )
+                if superseded:
+                    # Stopped before the declared materialization is scheduled, and as
+                    # its own unit of work, because both sit on the same cube version:
+                    # a superseded row with no workflow names of its own falls back to
+                    # the stop-by-cube-and-version endpoint, which would take the
+                    # replacement down with it if that had already been scheduled.
+                    self._cube_materialization_swaps.append(
+                        CubeMaterializationSwap(
+                            cube_name=revision.name,
+                            previous_version=revision.version,
+                            new_revision_id=revision.id,
+                            new_version=revision.version,
+                            rebuilt_names=[],
+                            superseded=superseded,
+                        ),
+                    )
+                # The row itself was updated in place, so the workflow it names is
+                # replaced by scheduling it again rather than stopped.
+                self._cube_materialization_swaps.append(
+                    CubeMaterializationSwap(
+                        cube_name=revision.name,
+                        previous_version=revision.version,
+                        new_revision_id=revision.id,
+                        new_version=revision.version,
+                        rebuilt_names=[materialization.name],
+                        superseded=[],
+                    ),
+                )
+        self.deployed_results.append(
+            DeploymentResult(
+                name=revision.name,
+                deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                status=DeploymentResult.Status.SUCCESS,
+                operation=operation,
+                message=f"cube materialization on schedule {block.schedule}",
+            ),
+        )
+
+    def _remove_cube_materialization(
+        self,
+        name: str,
+        revision: NodeRevision | None,
+        active: list[Materialization],
+    ) -> None:
+        """
+        Tear down one cube's materialization because it declared
+        `materialization: none`.
+
+        Whatever the cube has active is what comes down, whichever job wrote it: the
+        author asked for this cube not to be materialized, and answering that with a
+        no-op because the rows happen to be of a dialect YAML cannot describe leaves
+        a workflow running against the author's stated wish. No active rows -- and no
+        revision, for a cube that never deployed -- is the only no-op.
+
+        A cube planner row comes down here too, though nothing else in the deployment
+        path touches one. Everywhere else the reason to leave it alone is that DJ
+        cannot rebuild what it stops; a teardown asks for nothing to be rebuilt, and
+        the row records the workflow names needed to stop it cleanly.
+
+        The rows are deactivated and their workflows stopped after the commit, by the
+        same drain that applies a revision swap: a swap with nothing rebuilt is
+        exactly a teardown.
+        """
+        if revision is None or not active:
+            self.deployed_results.append(
+                DeploymentResult(
+                    name=name,
+                    deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                    status=DeploymentResult.Status.SUCCESS,
+                    operation=DeploymentResult.Operation.NOOP,
+                    message="cube declares no materialization",
+                ),
+            )
+            return
+        self.deployed_results.append(
+            DeploymentResult(
+                name=name,
+                deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                status=DeploymentResult.Status.SUCCESS,
+                operation=DeploymentResult.Operation.DELETE,
+                message="cube materialization removed by `materialization: none`",
+            ),
+        )
+        if self.dry_run:
+            return
+        for materialization in active:
+            materialization.deactivated_at = UTCDatetime.now(UTC)  # type: ignore
+        self.session.add(
+            History(
+                entity_type=EntityType.MATERIALIZATION,
+                entity_name=revision.name,
+                node=revision.name,
+                activity_type=ActivityType.DELETE,
+                details={
+                    "message": (
+                        "Cube materialization removed by `materialization: none` and "
+                        "its workflows stopped."
+                    ),
+                    "deactivated_materializations": [mat.name for mat in active],
+                },
+                user=self._history_user,
+            ),
+        )
+        self._cube_materialization_swaps.append(
+            CubeMaterializationSwap(
+                cube_name=revision.name,
+                previous_version=revision.version,
+                new_revision_id=revision.id,
+                new_version=revision.version,
+                rebuilt_names=[],
+                superseded=active,
+            ),
+        )
+
+    def _warn_undeclared_materialization(
+        self,
+        name: str,
+        active: list[Materialization],
+    ) -> None:
+        """
+        Flag a cube that is materialized but says nothing about it in YAML.
+
+        Left running on purpose. The materialization may predate the repo, or have
+        been configured through the UI, and a push that has not caught up yet must
+        not silently stop a live workflow -- so the warning names the ways out
+        instead. Which ways those are depends on the dialect: a cube materialized
+        only by the cube planner cannot be adopted into YAML at all, since a
+        `materialization:` block has no way to describe one.
+        """
+        message = (
+            (
+                f"Cube `{name}` is materialized but its spec declares no "
+                "`materialization:` block, so the existing materialization was left "
+                "running. Run `dj pull` to adopt it into YAML, or add "
+                "`materialization: none` to remove it."
+            )
+            if any(not materialization.is_cube_planner for materialization in active)
+            else (
+                f"Cube `{name}` is materialized by the cube planner, which a "
+                "`materialization:` block cannot describe, so the existing "
+                "materialization was left running. Add `materialization: none` to "
+                "remove it."
+            )
+        )
+        self.warnings.append(
+            DJError(
+                code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                message=message,
+            ),
+        )
+        self.deployed_results.append(
+            DeploymentResult(
+                name=name,
+                deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                status=DeploymentResult.Status.WARNING,
+                operation=DeploymentResult.Operation.NOOP,
+                message=message,
+            ),
+        )
+
+    async def _apply_cube_materialization_swaps(self) -> None:
+        """
+        Hand the deployment's committed cube materialization swaps to the query
+        service. Called only after the outer transaction commits, so a deploy that
+        rolls back has told the query service nothing.
+        """
+        request_headers = (
+            dict(self.context.request.headers) if self.context.request else {}
+        )
+        for swap in self._cube_materialization_swaps:
+            await apply_cube_materialization_swap(
+                self.session,
+                swap,
+                self.context.query_service_client,
+                request_headers=request_headers,
+            )
 
     async def _bulk_validate_cubes(
         self,
