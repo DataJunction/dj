@@ -176,7 +176,10 @@
 .mat-summary__label,
 .mat-facts dt:not(.mat-activity__workflow),
 .mat-activity__label {
-  margin: 0;
+  /* Typography only. This selector scores (0,2,1) -- `:not()` lends it a second
+     class -- so a `margin` shorthand here outranks `.mat-facts dt` (0,1,1) and
+     `.mat-facts dd + dt` (0,1,2), and silently flattened both gaps to zero. Spacing
+     belongs to the rules that know the context. */
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
@@ -187,6 +190,10 @@
 
 /* Links on their own line, pushed to the base so the two columns still align along
    the bottom when one runs a line longer than the other. */
+.mat-summary__label {
+  margin: 0 0 4px;
+}
+
 .mat-summary__links {
   display: flex;
   flex-wrap: wrap;
@@ -400,12 +407,18 @@
   margin-top: 0;
 }
 
+/* The workflow grid spaces its own rows, so the stacked-pair margins would add to
+   its gap rather than replace it. */
+.mat-activity .mat-facts dt {
+  margin: 0;
+}
+
 .mat-activity__workflow {
   white-space: nowrap;
 }
 
 .mat-facts dt {
-  margin-bottom: 4px;
+  margin: 0 0 4px;
 }
 
 .mat-facts dd {
