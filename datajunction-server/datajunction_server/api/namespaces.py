@@ -47,13 +47,14 @@ from datajunction_server.internal.namespaces import (
     mark_namespace_deactivated,
     mark_namespace_restored,
     namespaces_to_authorize,
+    provision_namespace_boundary,
     resolve_git_config,
     validate_git_path,
     validate_sibling_relationship,
 )
 from datajunction_server.internal.nodes import activate_node, deactivate_node
 from datajunction_server.models import access
-from datajunction_server.models.access import ResourceAction
+from datajunction_server.models.access import ResourceAction, ResourceType
 from datajunction_server.models.deployment import (
     BulkNamespaceSourcesRequest,
     BulkNamespaceSourcesResponse,
@@ -61,7 +62,11 @@ from datajunction_server.models.deployment import (
     NamespaceGitConfig,
     NamespaceSourcesResponse,
 )
-from datajunction_server.models.namespace import NamespaceWriteStatus
+from datajunction_server.models.namespace import (
+    NamespaceProvisionRequest,
+    NamespaceProvisionResponse,
+    NamespaceWriteStatus,
+)
 from datajunction_server.models.node import (
     NamespaceOutput,
     NodeMinimumDetail,
@@ -138,6 +143,46 @@ async def create_node_namespace(
                 + ", ".join(result.namespaces)
             ),
         },
+    )
+
+
+@router.post(
+    "/namespaces/{namespace}/provision",
+    response_model=NamespaceProvisionResponse,
+    status_code=HTTPStatus.CREATED,
+)
+async def provision_node_namespace(
+    namespace: str,
+    provisioning: NamespaceProvisionRequest,
+    *,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    access_checker: AccessChecker = Depends(get_access_checker),
+) -> NamespaceProvisionResponse:
+    """
+    Provision a governed namespace boundary for an owner group and deployers.
+    """
+    boundary_scopes = [
+        (ResourceType.NAMESPACE, namespace),
+        (ResourceType.NAMESPACE, f"{namespace}.*"),
+        (ResourceType.NODE, f"{namespace}.*"),
+    ]
+    for scope_type, scope_value in boundary_scopes:
+        access_checker.add_scope(
+            scope_type,
+            scope_value,
+            ResourceAction.MANAGE,
+        )
+    await access_checker.check(
+        on_denied=AccessDenialMode.RAISE,
+        require_explicit_grant=True,
+    )
+    return await provision_namespace_boundary(
+        session=session,
+        namespace=namespace,
+        current_user=current_user,
+        owner_group=provisioning.owner_group,
+        deployer_service_accounts=provisioning.deployer_service_accounts,
     )
 
 

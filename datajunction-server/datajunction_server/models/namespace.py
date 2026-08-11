@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from datajunction_server.typing import StrEnum
 
@@ -58,3 +58,18 @@ class NamespaceWriteResult(BaseModel):
 
     status: NamespaceWriteStatus
     namespaces: list[str]
+
+
+class NamespaceProvisionRequest(BaseModel):
+    """Principals that receive roles when a namespace boundary is provisioned."""
+
+    owner_group: str = Field(min_length=1)
+    deployer_service_accounts: list[str] = Field(default_factory=list)
+
+
+class NamespaceProvisionResponse(BaseModel):
+    """Roles created for a provisioned namespace boundary."""
+
+    namespace: str
+    owner_role: str
+    deployer_role: str | None

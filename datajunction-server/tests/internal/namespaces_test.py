@@ -2,16 +2,22 @@
 Tests for internal namespace functions
 """
 
+import pytest
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
 
-from datajunction_server.database.user import User
+from datajunction_server.database.namespace import NodeNamespace
+from datajunction_server.database.rbac import Role, RoleAssignment
+from datajunction_server.database.user import OAuthProvider, PrincipalKind, User
+from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.internal.namespaces import (
     _merge_list_with_key,
     _merge_yaml_preserving_comments,
     create_or_reactivate_namespace,
     node_spec_to_yaml,
+    provision_namespace_boundary,
 )
+from datajunction_server.models.access import ResourceAction, ResourceType
 from datajunction_server.models.deployment import MetricSpec, TransformSpec
 from datajunction_server.models.namespace import NamespaceWriteStatus
 from datajunction_server.models.node_type import NodeType
@@ -43,6 +49,105 @@ async def test_create_or_reactivate_namespace_reports_already_exists(
 
     assert (await create()).status == NamespaceWriteStatus.CREATED
     assert (await create()).status == NamespaceWriteStatus.ALREADY_EXISTS
+
+
+async def test_provision_namespace_boundary_creates_owner_and_deployer_roles(
+    session,
+    current_user: User,
+):
+    owner_group = User(
+        username="analytics-owners",
+        password=None,
+        email=None,
+        name="Analytics owners",
+        oauth_provider=OAuthProvider.BASIC,
+        kind=PrincipalKind.GROUP,
+    )
+    deployer = User(
+        username="analytics-deployer",
+        password=None,
+        email=None,
+        name="Analytics deployer",
+        oauth_provider=OAuthProvider.BASIC,
+        kind=PrincipalKind.SERVICE_ACCOUNT,
+    )
+    session.add_all([owner_group, deployer])
+    await session.commit()
+
+    result = await provision_namespace_boundary(
+        session=session,
+        namespace="analytics",
+        current_user=current_user,
+        owner_group=owner_group.username,
+        deployer_service_accounts=[deployer.username],
+    )
+
+    assert result.namespace == "analytics"
+    assert result.owner_role == "namespace:analytics:owners"
+    assert result.deployer_role == "namespace:analytics:deployers"
+    assert await NodeNamespace.get(session, "analytics") is not None
+
+    owner_role = await Role.get_by_name(session, result.owner_role)
+    deployer_role = await Role.get_by_name(session, result.deployer_role)
+    assert owner_role is not None
+    assert deployer_role is not None
+    assert {
+        (scope.action, scope.scope_type, scope.scope_value)
+        for scope in owner_role.scopes
+    } == {
+        (ResourceAction.MANAGE, ResourceType.NAMESPACE, "analytics"),
+        (ResourceAction.MANAGE, ResourceType.NAMESPACE, "analytics.*"),
+        (ResourceAction.MANAGE, ResourceType.NODE, "analytics.*"),
+    }
+    assert {
+        (scope.action, scope.scope_type, scope.scope_value)
+        for scope in deployer_role.scopes
+    } == {
+        (ResourceAction.DELETE, ResourceType.NAMESPACE, "analytics"),
+        (ResourceAction.DELETE, ResourceType.NAMESPACE, "analytics.*"),
+        (ResourceAction.DELETE, ResourceType.NODE, "analytics.*"),
+    }
+    assert await RoleAssignment.find(
+        session,
+        principal_id=owner_group.id,
+        role_id=owner_role.id,
+    )
+    assert await RoleAssignment.find(
+        session,
+        principal_id=deployer.id,
+        role_id=deployer_role.id,
+    )
+
+
+async def test_provision_namespace_boundary_rejects_non_service_deployer(
+    session,
+    current_user: User,
+):
+    owner_group = User(
+        username="governed-owners",
+        password=None,
+        email=None,
+        name="Governed owners",
+        oauth_provider=OAuthProvider.BASIC,
+        kind=PrincipalKind.GROUP,
+    )
+    session.add(owner_group)
+    await session.commit()
+
+    with pytest.raises(DJInvalidInputException):
+        await provision_namespace_boundary(
+            session=session,
+            namespace="governed",
+            current_user=current_user,
+            owner_group=owner_group.username,
+            deployer_service_accounts=[current_user.username],
+        )
+
+    assert await NodeNamespace.get(
+        session,
+        "governed",
+        raise_if_not_exists=False,
+    ) is None
 
 
 class TestMergeListWithKey:
