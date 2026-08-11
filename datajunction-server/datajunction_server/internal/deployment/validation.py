@@ -35,7 +35,12 @@ from datajunction_server.sql.dag import (
 )
 from datajunction_server.sql.parsing.ast import fast_parse_mode
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse_rule
-from datajunction_server.sql.parsing.types import ListType, MapType, StructType
+from datajunction_server.sql.parsing.types import (
+    ColumnType,
+    ListType,
+    MapType,
+    StructType,
+)
 from datajunction_server.utils import SEPARATOR
 
 logger = logging.getLogger(__name__)
@@ -450,10 +455,12 @@ class NodeSpecBulkValidator:
                     parent_columns_map,
                     pre_parsed=spec.query_ast,
                 )
-                if routeable_output_cols := routeable_metric_output_columns(
-                    query_str,
-                    parent_columns_map,
-                    spec.query_ast,
+                if spec.node_type == NodeType.METRIC and (
+                    routeable_output_cols := routeable_metric_output_columns(
+                        query_str,
+                        parent_columns_map,
+                        spec.query_ast,
+                    )
                 ):
                     validation.output_columns = routeable_output_cols
                     validation.errors = []
@@ -519,8 +526,6 @@ class NodeSpecBulkValidator:
 
     def _build_parent_columns_map(self, spec: NodeSpec) -> dict:
         """Build parent_columns_map for validate_node_query from dependency nodes."""
-        from datajunction_server.sql.parsing.types import ColumnType
-
         parent_map: dict[str, dict[str, ColumnType]] = {}
         for parent_name in self.context.node_graph.get(spec.rendered_name, []):
             parent_node = self.context.dependency_nodes.get(parent_name)
@@ -818,10 +823,7 @@ class NodeSpecBulkValidator:
         if len(dim_sets) < 2:
             return None
 
-        shared = dim_sets[0]
-        for ds in dim_sets[1:]:
-            shared = shared & ds
-
+        shared = set.intersection(*dim_sets)
         if shared:
             return None
 
@@ -835,9 +837,7 @@ class NodeSpecBulkValidator:
         ]
         reachable = [nodes for nodes in reachable if nodes]
         if len(reachable) >= 2:
-            common = reachable[0]
-            for nodes in reachable[1:]:
-                common = common & nodes
+            common = set.intersection(*reachable)
             if common:
                 return None
 

@@ -58,6 +58,7 @@ from datajunction_server.errors import DJError, DJInvalidInputException, ErrorCo
 from datajunction_server.instrumentation import events
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.partition import PartitionType
+from datajunction_server.sql.dag import resolve_routeable_metrics
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 
@@ -384,8 +385,6 @@ async def build_measures_sql(
         GeneratedMeasuresSQL with one GrainGroupSQL per aggregation level,
         plus context and decomposed metrics for efficient reuse by build_metrics_sql
     """
-    from datajunction_server.sql.dag import resolve_routeable_metrics
-
     metrics, _ = await resolve_routeable_metrics(
         session,
         metrics,
@@ -532,8 +531,6 @@ async def build_metrics_sql(
     Layer 3: Derived Metrics
         Computes derived metrics that reference other metrics.
     """
-    from datajunction_server.sql.dag import resolve_routeable_metrics
-
     metrics, metric_aliases = await resolve_routeable_metrics(
         session,
         metrics,

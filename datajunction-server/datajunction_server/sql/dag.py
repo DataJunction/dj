@@ -227,10 +227,9 @@ async def resolve_routeable_metrics(
                     with_attributes=True,
                 )
                 dimensions_cache[implementation_name] = {dim.name for dim in dimensions}
-            implementation_capabilities[implementation_name] = dimensions_cache[
-                implementation_name
-            ]
-            if required <= dimensions_cache[implementation_name]:
+            dimensions = dimensions_cache[implementation_name]
+            implementation_capabilities[implementation_name] = dimensions
+            if required <= dimensions:
                 selected_name = implementation_name
                 break
 

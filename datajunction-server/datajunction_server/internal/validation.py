@@ -23,10 +23,24 @@ from datajunction_server.internal.deployment.utils import (
 from datajunction_server.models.base import labelize
 from datajunction_server.models.node import NodeRevisionBase, NodeStatus
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.sql.dag import (
+    get_dimensions,
+    routeable_metric_output_columns,
+    routeable_metric_references_from_query,
+)
 from datajunction_server.sql.parsing import ast
-from datajunction_server.sql.parsing.backends.antlr4 import SqlSyntaxError, parse
+from datajunction_server.sql.parsing.backends.antlr4 import (
+    SqlSyntaxError,
+    parse,
+    parse_rule,
+)
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
-from datajunction_server.sql.parsing.types import ListType, MapType, StructType
+from datajunction_server.sql.parsing.types import (
+    ListType,
+    MapType,
+    StructType,
+    UnknownType,
+)
 
 
 def _reparse_parent_column_types(dependencies_map: dict) -> None:
@@ -37,8 +51,6 @@ def _reparse_parent_column_types(dependencies_map: dict) -> None:
     ensures those types are fully parsed before the AST type-inference walk.
     If a type string is unparseable, the original value is left unchanged.
     """
-    from datajunction_server.sql.parsing.backends.antlr4 import parse_rule
-
     for parent in dependencies_map:
         for col in parent.columns:
             if isinstance(col.type, str) or (
@@ -137,8 +149,6 @@ async def validate_node_data(
             else validated_node.query
         )
         query_ast = parse(formatted_query)  # type: ignore
-        from datajunction_server.sql.dag import routeable_metric_references_from_query
-
         routeable_refs = (
             routeable_metric_references_from_query(formatted_query)
             if validated_node.type == NodeType.METRIC
@@ -220,8 +230,6 @@ async def validate_node_data(
             if len(metric_parents) > 1 and not routeable_refs:
                 # For cross-fact derived metrics, validate that there are shared dimensions
                 # between all referenced base metrics
-                from datajunction_server.sql.dag import get_dimensions
-
                 # Get dimensions for each base metric
                 all_dimension_sets: list[set[str]] = []
                 for base_metric in metric_parents:
@@ -235,10 +243,7 @@ async def validate_node_data(
 
                 # Compute intersection of all dimension sets
                 if all_dimension_sets:  # pragma: no branch
-                    shared_dimensions = all_dimension_sets[0]
-                    for dim_set in all_dimension_sets[1:]:
-                        shared_dimensions = shared_dimensions & dim_set
-
+                    shared_dimensions = set.intersection(*all_dimension_sets)
                     if not shared_dimensions:
                         metric_names = [m.name for m in metric_parents]
                         node_validator.status = NodeStatus.INVALID
@@ -304,15 +309,17 @@ async def validate_node_data(
         column_mapping = {}  # pragma: no cover
     node_validator.columns = []
     type_inference_failures = {}
-    from datajunction_server.sql.dag import routeable_metric_output_columns
-
-    routeable_output_cols = routeable_metric_output_columns(
-        formatted_query,
-        {
-            parent.name: {col.name: col.type for col in parent.columns}
-            for parent in dependencies_map.keys()
-        },
-        query_ast,
+    routeable_output_cols = (
+        routeable_metric_output_columns(
+            formatted_query,
+            {
+                parent.name: {col.name: col.type for col in parent.columns}
+                for parent in dependencies_map.keys()
+            },
+            query_ast,
+        )
+        if routeable_refs
+        else None
     )
     routeable_types_by_name = dict(routeable_output_cols or [])
     for idx, col in enumerate(query_ast.select.projection):  # type: ignore
@@ -478,8 +485,6 @@ def _build_columns_from_output(
     Missing types fall back to UnknownType so downstream consumers still see the
     column entry.
     """
-    from datajunction_server.sql.parsing.types import UnknownType
-
     column_mapping = {col.name: col for col in validated_node.columns}
     types_by_name = {name: col_type for name, col_type in output_columns}
 
@@ -551,11 +556,6 @@ async def validate_node_data_v2(
         )
         return node_validator
 
-    from datajunction_server.sql.dag import (
-        routeable_metric_output_columns,
-        routeable_metric_references_from_query,
-    )
-
     routeable_refs = (
         routeable_metric_references_from_query(formatted_query)
         if validated_node.type == NodeType.METRIC
@@ -611,10 +611,12 @@ async def validate_node_data_v2(
         parent_columns_map,
         pre_parsed=query_ast,
     )
-    if routeable_output_cols := routeable_metric_output_columns(
-        formatted_query,
-        parent_columns_map,
-        query_ast,
+    if routeable_refs and (
+        routeable_output_cols := routeable_metric_output_columns(
+            formatted_query,
+            parent_columns_map,
+            query_ast,
+        )
     ):
         validation.output_columns = routeable_output_cols
         validation.errors = []
@@ -655,8 +657,6 @@ async def validate_node_data_v2(
             and not routeable_refs
         ):
             # Cross-fact derived metric: all base metrics must share >=1 dimension
-            from datajunction_server.sql.dag import get_dimensions
-
             all_dimension_sets: list[set[str]] = []
             for base_metric in metric_parents:
                 dims = await get_dimensions(
@@ -667,9 +667,7 @@ async def validate_node_data_v2(
                 all_dimension_sets.append({d.name for d in dims})
 
             if all_dimension_sets:  # pragma: no branch
-                shared = all_dimension_sets[0]
-                for ds in all_dimension_sets[1:]:
-                    shared = shared & ds
+                shared = set.intersection(*all_dimension_sets)
                 if not shared:
                     names = [m.name for m in metric_parents]
                     node_validator.status = NodeStatus.INVALID
