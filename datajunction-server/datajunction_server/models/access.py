@@ -31,8 +31,17 @@ class ResourceAction(StrEnum):
 
 
 def parse_scope_pattern(value: str) -> tuple[str, str] | None:
-    """Parse exact, trailing-wildcard, and global scope patterns."""
-    if not value or value == "*":
+    """
+    Parse exact, trailing-wildcard, and global scope patterns.
+
+    A blank value is outside the grammar rather than a global scope: the global
+    scope is spelled ``*``, which is what scope input has required since #2339.
+    Reading blanks as global would let a legacy or out-of-band row grant every
+    resource of its type.
+    """
+    if not value:
+        return None
+    if value == "*":
         return ("global", "")
     if (
         value.startswith(SEPARATOR)
