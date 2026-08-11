@@ -1202,9 +1202,11 @@ async def update_node(
         options=NodeOutput.load_options(),
         populate_existing=True,
     )
+    assert node is not None
+    await session.refresh(node.current, attribute_names=["columns", "parents"])
 
     # Update views if this is a cube (non-blocking)
-    if node and node.type == NodeType.CUBE:  # type: ignore
+    if node.type == NodeType.CUBE:
         background_tasks.add_task(
             create_cube_views,
             cube_name=name,
