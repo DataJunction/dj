@@ -225,6 +225,72 @@ class TestExternalPreAggRouting:
         assert "default.analytics.orders_by_status" not in sql
 
     @pytest.mark.asyncio
+    async def test_external_preagg_serves_unregistered_derived_metric(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        A derived metric is served by a table registered against its underlying
+        measures, without ever being named at registration.
+
+        This is what makes the pre-agg spec workable now that every declared
+        metric must name a physical column: a ratio has no column of its own, so
+        it cannot be declared -- but registration and matching both work on
+        decomposed measure identities rather than metric names, so declaring the
+        measures is enough. Here `avg_items_per_order` is
+        `total_quantity / order_count`, and neither the registration call nor the
+        stored pre-agg mentions it.
+        """
+        response = await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.total_quantity", "v3.order_count"],
+            dimensions=["v3.order_details.status"],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "qty_orders_by_status",
+                "valid_through_ts": 20250101,
+            },
+            measure_columns={
+                "v3.total_quantity": "qty_sum",
+                "v3.order_count": "order_id_col",
+            },
+            table_columns={
+                "status": "string",
+                "qty_sum": "double",
+                "order_id_col": "int",
+            },
+        )
+        # The two measures land in one pre-agg at the finer grain the distinct
+        # count needs -- the same grain group the derived metric decomposes to.
+        assert len(response.json()["preaggs"]) == 1
+
+        metrics_response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.avg_items_per_order"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+        assert metrics_response.status_code == 200, metrics_response.text
+        assert_sql_equal(
+            metrics_response.json()["sql"],
+            """
+            WITH order_details_0 AS (
+                SELECT status, SUM(qty_sum) qty_sum, order_id_col
+                FROM default.analytics.qty_orders_by_status
+                GROUP BY status, order_id_col
+            )
+            SELECT order_details_0.status AS status,
+                   SUM(order_details_0.qty_sum)
+                     / NULLIF(COUNT(DISTINCT order_details_0.order_id_col), 0)
+                     AS avg_items_per_order
+            FROM order_details_0
+            GROUP BY order_details_0.status
+            """,
+        )
+
+    @pytest.mark.asyncio
     async def test_external_preagg_not_used_for_incompatible_aggregation(
         self,
         client_with_build_v3,

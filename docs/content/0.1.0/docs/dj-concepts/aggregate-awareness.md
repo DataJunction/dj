@@ -324,31 +324,32 @@ metrics:
   ${prefix}session_count: session_cnt
 dimensions:
   ${prefix}page_d.page_id: page
-  ${prefix}geo_country_d.country_iso_code:
+  ${prefix}geo_country_d.country_iso_code: country_iso_code
 ```
 
-Each metric and each dimension is written together with the physical column that holds it, so the
-reference and its binding never drift apart. What you list under `metrics` are the *measures* the table
-stores — `view_rate` doesn't appear at all, and doesn't need to: DJ resolves its dependency on
-`view_secs` and `session_count`, sees both are covered, and considers `view_rate` covered as a result.
-A measure always needs an explicit column, because its DJ-side name is generated with an
-expression-hash suffix and so is not something the table can be assumed to have matched.
+Every metric and every dimension is written together with the physical column that holds it, so a
+reference and its binding can never drift apart, and reading the file tells you what the table looks
+like. Both maps require a value for every key. `page_d.page_id` is stored as `page`, so it says so;
+`geo_country_d.country_iso_code` happens to be stored under the same name DJ uses, and it says that
+too rather than leaving the value off. That is deliberate — a trailing colon is easy to write by
+accident, and an optional value would make the map not really a mapping. Each binding is validated
+the same way — the column must exist and be type-compatible — and only changes how the table is read,
+not how it's matched. A bound dimension can even be a joined attribute the table has denormalized (say
+it stores `country` directly rather than an account key you'd otherwise join through), which DJ then
+reads straight from the table with no join.
 
-Dimensions are more forgiving. `page_d.page_id` is stored in the table as `page`, so it says so, while
-`geo_country_d.country_iso_code` is left empty — that's how you say the table already calls the column
-by DJ's own name, and it is what the majority of grain columns will look like. A binding is validated
-the same way a measure's is — the column must exist and be type-compatible — and only changes how the
-table is read, not how it's matched. A bound dimension can even be a joined attribute the table has
-denormalized (say it stores `country` directly rather than an account key you'd otherwise join
-through), which DJ then reads straight from the table with no join.
+Notice that `view_rate` doesn't appear in the file at all. What you declare under `metrics` are the
+*measures* the table physically stores, and a derived metric has no column of its own to name, so it
+can't be listed. It doesn't need to be: both registration and query-time routing work on decomposed
+measures rather than metric names, so any metric that resolves to `view_secs` and `session_count` — the
+ratio `view_rate` among them — is served by this table automatically. Declare the measures and the
+metrics built on them follow.
 
-If you have existing pre-aggregation files, note that the older four-field form — `metrics` and
-`dimensions` as plain lists, with the columns declared separately under `measure_columns` and
-`dimension_columns` — still parses exactly as it always did, and is still the way to name a derived
-metric like `view_rate` in the spec itself. There is no migration to do; the two forms mean the same
-thing to DJ. What you can't do is mix them within one file, since a map-form `metrics` alongside a
-`measure_columns` block would be declaring the same bindings twice, and DJ rejects that rather than
-guess which one you meant.
+The earlier form of this file, where `metrics` and `dimensions` were plain lists and the columns lived
+in separate `measure_columns` and `dimension_columns` blocks, is no longer accepted; a file still using
+it is rejected with a message describing what to write instead. If you have one, move each column up
+next to the reference it belongs to, and write out the columns for any dimensions that were previously
+left unmapped and relied on DJ's column name.
 
 On deploy, DJ registers any pre-aggregation specs it finds. Because deployments are the source of truth,
 it also removes a previously-registered pre-aggregation once you drop its spec from a deploy that still

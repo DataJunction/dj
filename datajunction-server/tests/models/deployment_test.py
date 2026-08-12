@@ -624,14 +624,12 @@ def test_deployment_spec_preserves_explicit_preagg_namespace():
                 catalog="c",
                 schema="s",
                 table="t",
-                measure_columns={},
             ),
             PreAggSpec(
                 name="unscoped",
                 catalog="c",
                 schema="s",
                 table="t",
-                measure_columns={},
             ),
         ],
     )
@@ -639,34 +637,16 @@ def test_deployment_spec_preserves_explicit_preagg_namespace():
     assert spec.preaggregations[1].namespace == "ns"
 
 
-def test_preagg_spec_renders_dimension_columns():
-    """dimension_columns keys are prefix-rendered against the namespace, like
-    measure_columns; values (physical columns) are left as-is."""
-    spec = PreAggSpec(
-        name="p",
-        namespace="ns",
-        metrics=["${prefix}count"],
-        dimensions=["${prefix}d.attr"],
-        catalog="c",
-        schema="s",
-        table="t",
-        measure_columns={"${prefix}count": "cnt"},
-        dimension_columns={"${prefix}d.attr": "phys_attr"},
-    )
-    assert spec.rendered_dimension_columns == {"ns.d.attr": "phys_attr"}
-    assert spec.rendered_measure_columns == {"ns.count": "cnt"}
-
-
-def _preagg_two_map_form() -> dict:
-    """The two-map form: each metric/dimension carries its physical column."""
+def _preagg_spec_dict() -> dict:
+    """Each metric and dimension declared with the column that holds it."""
     return {
         "name": "p",
         "namespace": "ns",
         "metrics": {"${prefix}count": "cnt"},
         "dimensions": {
             "${prefix}d.attr": "phys_attr",
-            # No explicit column: falls back to the DJ column name.
-            "${prefix}d.unmapped": None,
+            # The physical column matches the DJ column name, and says so anyway.
+            "${prefix}d.same": "same",
         },
         "catalog": "c",
         "schema": "s",
@@ -675,130 +655,128 @@ def _preagg_two_map_form() -> dict:
     }
 
 
-def _preagg_four_field_form() -> dict:
-    """The older form, saying exactly the same thing as `_preagg_two_map_form`."""
-    return {
-        "name": "p",
-        "namespace": "ns",
-        "metrics": ["${prefix}count"],
-        "dimensions": ["${prefix}d.attr", "${prefix}d.unmapped"],
-        "catalog": "c",
-        "schema": "s",
-        "table": "t",
-        "valid_through_ts": 1700000000,
-        "measure_columns": {"${prefix}count": "cnt"},
-        "dimension_columns": {"${prefix}d.attr": "phys_attr"},
+def test_preagg_spec_renders_column_bindings():
+    """
+    The maps are split back into the references-plus-bindings shape the
+    registration internals take, with every reference prefix-rendered against
+    the namespace and the physical columns left as-is.
+    """
+    spec = PreAggSpec.model_validate(_preagg_spec_dict())
+    assert spec.rendered_metrics == ["ns.count"]
+    assert spec.rendered_dimensions == ["ns.d.attr", "ns.d.same"]
+    assert spec.rendered_measure_columns == {"ns.count": "cnt"}
+    assert spec.rendered_dimension_columns == {
+        "ns.d.attr": "phys_attr",
+        "ns.d.same": "same",
     }
 
 
-def test_preagg_spec_two_map_form_matches_four_field_form():
+def test_preagg_spec_round_trips_through_model_dump():
     """
-    The two-map form and the older list-plus-map form normalize to the same
-    fields, so everything downstream (the `rendered_*` properties the deploy
-    path reads) sees identical values and the two specs compare equal.
+    A dumped spec is what crosses the wire from the client, so re-validating a
+    dump has to land on an equal spec.
     """
-    two_map = PreAggSpec.model_validate(_preagg_two_map_form())
-    four_field = PreAggSpec.model_validate(_preagg_four_field_form())
-
-    assert two_map.rendered_metrics == ["ns.count"]
-    assert two_map.rendered_dimensions == ["ns.d.attr", "ns.d.unmapped"]
-    assert two_map.rendered_measure_columns == {"ns.count": "cnt"}
-    # `ns.d.unmapped` is absent, which is how "no explicit binding" is spelled
-    # downstream: registration falls back to the DJ column name for it.
-    assert two_map.rendered_dimension_columns == {"ns.d.attr": "phys_attr"}
-
-    assert two_map.rendered_metrics == four_field.rendered_metrics
-    assert two_map.rendered_dimensions == four_field.rendered_dimensions
-    assert two_map.rendered_measure_columns == four_field.rendered_measure_columns
-    assert two_map.rendered_dimension_columns == four_field.rendered_dimension_columns
-    assert two_map == four_field
-    assert two_map.model_dump() == four_field.model_dump()
-
-
-def test_preagg_spec_two_map_form_round_trips_through_model_dump():
-    """
-    A dumped spec is the list-plus-map form, which is what crosses the wire from
-    the client, so re-validating a dump has to land on an equal spec.
-    """
-    two_map = PreAggSpec.model_validate(_preagg_two_map_form())
+    spec = PreAggSpec.model_validate(_preagg_spec_dict())
     # `namespace` is excluded from the dump (the deployment re-injects it), so
     # the comparison is on the dumped fields.
-    assert PreAggSpec.model_validate(two_map.model_dump()).model_dump() == (
-        two_map.model_dump()
+    assert (
+        PreAggSpec.model_validate(spec.model_dump()).model_dump() == spec.model_dump()
     )
-
-
-def test_preagg_spec_allows_one_axis_at_a_time():
-    """
-    The two axes are independent: a file may declare its metrics inline while
-    still listing dimensions the old way, and vice versa. Only restating the
-    same axis twice is a conflict.
-    """
-    expected = PreAggSpec.model_validate(_preagg_four_field_form())
-
-    map_metrics = _preagg_four_field_form()
-    map_metrics["metrics"] = {"${prefix}count": "cnt"}
-    del map_metrics["measure_columns"]
-    assert PreAggSpec.model_validate(map_metrics) == expected
-
-    map_dimensions = _preagg_four_field_form()
-    map_dimensions["dimensions"] = {
-        "${prefix}d.attr": "phys_attr",
-        "${prefix}d.unmapped": None,
+    assert spec.model_dump() == {
+        "name": "p",
+        "metrics": {"${prefix}count": "cnt"},
+        "dimensions": {"${prefix}d.attr": "phys_attr", "${prefix}d.same": "same"},
+        "catalog": "c",
+        "schema_": "s",
+        "table": "t",
+        "valid_through_ts": 1700000000,
     }
-    del map_dimensions["dimension_columns"]
-    assert PreAggSpec.model_validate(map_dimensions) == expected
 
 
-def test_preagg_spec_rejects_mixed_metric_forms():
-    """A map-form `metrics` plus a `measure_columns` block says it twice."""
-    spec = _preagg_two_map_form()
-    spec["measure_columns"] = {"${prefix}count": "other_cnt"}
+def test_preagg_spec_rejects_measure_columns_block():
+    """
+    The four-field form is gone: `measure_columns` would otherwise be ignored as
+    an unknown key, silently dropping every binding it declared.
+    """
+    spec = _preagg_spec_dict()
+    spec["metrics"] = ["${prefix}count"]
+    spec["measure_columns"] = {"${prefix}count": "cnt"}
     with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
         PreAggSpec.model_validate(spec)
     assert exc_info.value.message == (
-        "Pre-aggregation 'p' mixes two forms: `metrics` is already a map of "
-        "metric to physical column, so a separate `measure_columns` block "
-        "cannot also apply. Drop `measure_columns`, or write `metrics` as a "
-        "plain list."
+        "Pre-aggregation 'p' declares `measure_columns`, which is no longer a "
+        "pre-aggregation field. Declare the physical column alongside what it "
+        "holds instead, as `metrics: {<reference>: <column>}`, and drop the "
+        "`measure_columns` block."
     )
 
 
-def test_preagg_spec_rejects_mixed_dimension_forms():
-    """Same for a map-form `dimensions` plus a `dimension_columns` block."""
-    spec = _preagg_two_map_form()
-    spec["dimension_columns"] = {"${prefix}d.attr": "other_attr"}
+def test_preagg_spec_rejects_dimension_columns_block():
+    """Same for `dimension_columns`, the other half of the retired form."""
+    spec = _preagg_spec_dict()
+    spec["dimensions"] = ["${prefix}d.attr"]
+    spec["dimension_columns"] = {"${prefix}d.attr": "phys_attr"}
     with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
         PreAggSpec.model_validate(spec)
     assert exc_info.value.message == (
-        "Pre-aggregation 'p' mixes two forms: `dimensions` is already a map of "
-        "dimension to physical column, so a separate `dimension_columns` block "
-        "cannot also apply. Drop `dimension_columns`, or write `dimensions` as "
-        "a plain list."
+        "Pre-aggregation 'p' declares `dimension_columns`, which is no longer a "
+        "pre-aggregation field. Declare the physical column alongside what it "
+        "holds instead, as `dimensions: {<reference>: <column>}`, and drop the "
+        "`dimension_columns` block."
+    )
+
+
+def test_preagg_spec_rejects_list_of_references():
+    """
+    A bare list of references carries no bindings at all, so it is refused with
+    the shape to write instead rather than a pydantic type error.
+    """
+    spec = _preagg_spec_dict()
+    spec["metrics"] = ["${prefix}count"]
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        PreAggSpec.model_validate(spec)
+    assert exc_info.value.message == (
+        "Pre-aggregation 'p' declares `metrics` as a list. `metrics` is a map "
+        "from each reference to the physical column of the external table that "
+        "holds it, e.g. `metrics: {<reference>: <column>}`."
     )
 
 
 def test_preagg_spec_rejects_metric_without_column():
-    """
-    A dimension may be left unbound, but a measure may not: its DJ-side name
-    carries an expression-hash suffix, so there is nothing to fall back on.
-    """
-    spec = _preagg_two_map_form()
+    """A measure's DJ-side name is hashed, so there is nothing to default to."""
+    spec = _preagg_spec_dict()
     spec["metrics"] = {"${prefix}count": None, "${prefix}total": "total_sum"}
     with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
         PreAggSpec.model_validate(spec)
     assert exc_info.value.message == (
-        "Pre-aggregation 'p' leaves the physical column empty for "
-        "['${prefix}count']. A measure always needs an explicit column: its "
-        "DJ-side name is auto-generated with an expression-hash suffix, so "
-        "there is no name to fall back on. Only dimensions may be left empty."
+        "Pre-aggregation 'p' leaves the physical column empty under `metrics` "
+        "for ['${prefix}count']. A measure's DJ-side name is auto-generated "
+        "with an expression-hash suffix, so there is no name to fall back on."
+    )
+
+
+def test_preagg_spec_rejects_dimension_without_column():
+    """
+    A dimension is held to the same rule, even though its DJ column name would
+    be a plausible default: a trailing colon is too easy to write by accident,
+    and the written-out name documents the table.
+    """
+    spec = _preagg_spec_dict()
+    spec["dimensions"] = {"${prefix}d.attr": "phys_attr", "${prefix}d.same": None}
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        PreAggSpec.model_validate(spec)
+    assert exc_info.value.message == (
+        "Pre-aggregation 'p' leaves the physical column empty under "
+        "`dimensions` for ['${prefix}d.same']. Write the column out even when "
+        "it matches the DJ column name, so the file says what the table "
+        "actually holds."
     )
 
 
 def test_preagg_spec_rejects_non_mapping_input():
     """
-    Input that isn't a mapping at all falls through the form normalization and
-    gets pydantic's own error, rather than blowing up inside the validator.
+    Input that isn't a mapping at all falls through the binding checks and gets
+    pydantic's own error, rather than blowing up inside the validator.
     """
     with pytest.raises(ValidationError) as exc_info:
         PreAggSpec.model_validate(["not", "a", "spec"])

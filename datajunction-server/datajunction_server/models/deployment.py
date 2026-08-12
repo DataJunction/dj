@@ -182,105 +182,110 @@ class PreAggSpec(NamespacedSpec):
     use ``${prefix}`` or be fully qualified; they are rendered against the
     deployment namespace.
 
-    A metric or dimension and the physical column it is stored in are declared
-    together, as a map from the reference to the column::
+    Every metric and every dimension is declared together with the physical
+    column of the external table that holds it, as a map::
 
         metrics:
           ${prefix}paid_members: paid_members_sum
         dimensions:
           ${prefix}country_dim.country_iso: country
-          ${prefix}date_dim.utc_date:
+          ${prefix}date_dim.utc_date: utc_date
 
-    A dimension whose value is left empty (YAML ``null``) has no explicit binding
-    and falls back to its DJ column name, which is what the physical table is
-    assumed to have called it. A metric may not be left empty: a measure's DJ-side
-    name is auto-generated with an expression-hash suffix, so there is no stable
-    name to fall back on and the column must be spelled out.
+    Both maps require a value for every key -- including a dimension whose
+    physical column happens to match its DJ column name, which is written out
+    rather than left empty. An optional value would make the map not really a
+    mapping, a trailing colon is easy to write by accident, and spelling the
+    physical name out documents the table in the file that declares it.
 
-    The older four-field form -- ``metrics``/``dimensions`` as lists alongside
-    separate ``measure_columns``/``dimension_columns`` maps -- is still accepted
-    and normalizes to exactly the same fields, so the two forms compare equal.
-    Mixing the two (a map-form ``metrics`` together with a ``measure_columns``
-    block) is rejected rather than silently resolved one way.
+    What goes under ``metrics`` are the measures the table stores. A derived
+    metric (a ratio of two others, say) is not listed and cannot be: it has no
+    column of its own. It is covered anyway, because both registration and
+    query-time matching work on decomposed measure identities rather than metric
+    names, so any metric that decomposes into the stored measures resolves to
+    this table.
+
+    The earlier four-field form -- ``metrics``/``dimensions`` as lists alongside
+    separate ``measure_columns``/``dimension_columns`` maps -- is no longer
+    accepted, and a spec still using it is rejected with a message describing
+    what to write instead.
     """
 
-    metrics: list[str] = Field(default_factory=list)
-    dimensions: list[str] = Field(default_factory=list)
+    # Metric/dimension reference -> the physical column of the external table
+    # holding it. The `rendered_*` properties below split these back into the
+    # references-plus-bindings shape the registration internals take.
+    metrics: dict[str, str] = Field(default_factory=dict)
+    dimensions: dict[str, str] = Field(default_factory=dict)
     catalog: str
     schema_: str = Field(alias="schema")
     table: str
     valid_through_ts: int | None = None
-    measure_columns: dict[str, str] = Field(default_factory=dict)
-    # Physical-column binding for dimensions, keyed by dimension reference.
-    # Unmapped dimensions default to their DJ column name.
-    dimension_columns: dict[str, str] = Field(default_factory=dict)
 
     model_config = ConfigDict(populate_by_name=True)
 
+    # Each removed field and the map that replaced it.
+    _REPLACED_FIELDS: ClassVar[dict[str, str]] = {
+        "measure_columns": "metrics",
+        "dimension_columns": "dimensions",
+    }
+
+    # Why a missing column can't be defaulted, per axis.
+    _UNBOUND_REASONS: ClassVar[dict[str, str]] = {
+        "metrics": (
+            "A measure's DJ-side name is auto-generated with an expression-hash "
+            "suffix, so there is no name to fall back on."
+        ),
+        "dimensions": (
+            "Write the column out even when it matches the DJ column name, so "
+            "the file says what the table actually holds."
+        ),
+    }
+
     @model_validator(mode="before")
     @classmethod
-    def split_inline_column_bindings(cls, data: Any) -> Any:
+    def require_column_bindings(cls, data: Any) -> Any:
         """
-        Normalize the two-map form onto the list-plus-map fields the rest of the
-        codebase reads, so only the parser knows there are two spellings.
-
-        Everything downstream -- the `rendered_*` properties, the orchestrator,
-        `register_external_preaggregations` -- keeps seeing a list of references
-        and a separate binding map, and equality between the two forms falls out
-        of them normalizing to identical field values.
+        Hold the author to the map form: every metric and dimension names the
+        physical column that holds it, and the fields that used to carry those
+        bindings separately are gone.
         """
         if not isinstance(data, dict):
             return data
 
-        metrics, dimensions = data.get("metrics"), data.get("dimensions")
-        if not isinstance(metrics, dict) and not isinstance(dimensions, dict):
-            return data
-
         name = data.get("name")
-        data = dict(data)
-        if isinstance(metrics, dict):
-            if "measure_columns" in data:
+        for removed, replacement in cls._REPLACED_FIELDS.items():
+            if removed in data:
                 raise DJInvalidDeploymentConfig(
                     message=(
-                        f"Pre-aggregation '{name}' mixes two forms: `metrics` is "
-                        "already a map of metric to physical column, so a separate "
-                        "`measure_columns` block cannot also apply. Drop "
-                        "`measure_columns`, or write `metrics` as a plain list."
+                        f"Pre-aggregation '{name}' declares `{removed}`, which is no "
+                        f"longer a pre-aggregation field. Declare the physical column "
+                        f"alongside what it holds instead, as `{replacement}: "
+                        f"{{<reference>: <column>}}`, and drop the `{removed}` block."
                     ),
                 )
-            unbound = [metric for metric, column in metrics.items() if column is None]
+
+        for field, reason in cls._UNBOUND_REASONS.items():
+            value = data.get(field)
+            if value is None:
+                continue
+            if not isinstance(value, dict):
+                raise DJInvalidDeploymentConfig(
+                    message=(
+                        f"Pre-aggregation '{name}' declares `{field}` as a "
+                        f"{type(value).__name__}. `{field}` is a map from each "
+                        f"reference to the physical column of the external table "
+                        f"that holds it, e.g. `{field}: {{<reference>: <column>}}`."
+                    ),
+                )
+            unbound = [
+                reference for reference, column in value.items() if column is None
+            ]
             if unbound:
                 raise DJInvalidDeploymentConfig(
                     message=(
                         f"Pre-aggregation '{name}' leaves the physical column empty "
-                        f"for {unbound}. A measure always needs an explicit column: "
-                        "its DJ-side name is auto-generated with an expression-hash "
-                        "suffix, so there is no name to fall back on. Only "
-                        "dimensions may be left empty."
+                        f"under `{field}` for {unbound}. {reason}"
                     ),
                 )
-            data["metrics"] = list(metrics)
-            data["measure_columns"] = dict(metrics)
-
-        if isinstance(dimensions, dict):
-            if "dimension_columns" in data:
-                raise DJInvalidDeploymentConfig(
-                    message=(
-                        f"Pre-aggregation '{name}' mixes two forms: `dimensions` is "
-                        "already a map of dimension to physical column, so a separate "
-                        "`dimension_columns` block cannot also apply. Drop "
-                        "`dimension_columns`, or write `dimensions` as a plain list."
-                    ),
-                )
-            data["dimensions"] = list(dimensions)
-            # An empty value means "no explicit binding": leaving it out of the
-            # map is exactly how the list form spells the same thing, and the
-            # dimension falls back to its DJ column name downstream.
-            data["dimension_columns"] = {
-                dimension: column
-                for dimension, column in dimensions.items()
-                if column is not None
-            }
         return data
 
     @property
@@ -295,14 +300,14 @@ class PreAggSpec(NamespacedSpec):
     def rendered_measure_columns(self) -> dict[str, str]:
         return {
             render_prefixes(metric, self.namespace): column
-            for metric, column in self.measure_columns.items()
+            for metric, column in self.metrics.items()
         }
 
     @property
     def rendered_dimension_columns(self) -> dict[str, str]:
         return {
             render_prefixes(dimension, self.namespace): column
-            for dimension, column in self.dimension_columns.items()
+            for dimension, column in self.dimensions.items()
         }
 
 
