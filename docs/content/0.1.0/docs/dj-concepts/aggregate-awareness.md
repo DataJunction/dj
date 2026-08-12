@@ -239,6 +239,39 @@ counted** — one row per distinct value at that grain — not a pre-computed co
 `COUNT(DISTINCT ...)` to whatever the column holds, so mapping an already-counted `distinct_users`
 integer produces a count of counts.
 
+### A table can only serve dimensions its parent node can reach
+
+The dimensions you declare at registration are references into DJ's dimension graph, not a
+description of what the table holds. They're resolved against **the node your metrics are defined
+on**, so a table can store a dimension as a real, populated column and still be rejected, because
+the parent node has no path to that dimension. A pre-aggregation spec has no way to declare a
+dimension link either — it binds existing references to physical columns, it doesn't extend the
+model — so registration only accepts a dimension it could already resolve for that parent.
+
+Nearly every time this comes up it's a missing dimension link rather than something DJ can't
+express, and the fix is a link you wanted anyway. If your aggregate has `plan_name` denormalized in
+at account grain, then `plan_name` is an attribute of the account, your parent already carries
+`account_id`, and linking the plan dimension on that key is all that's needed. Once the link exists
+the registration is accepted, the column binding still keeps DJ reading `plan_name` straight out of
+your table with no join at query time, and every other query against that parent can now ask for the
+plan's attributes too. So if registration turns a dimension down, start by asking whether the parent
+should have been linked to it in the first place.
+
+Joining back doesn't loosen this. When routing reaches a dimension's attributes that aren't in the
+grain, it joins the dimension on a primary key the grain retained, using the parent's own link — so
+join-back stays inside the parent's dimension graph rather than reaching outside it.
+
+Two shapes a link genuinely can't fix, because there's nothing on the fact side to link from:
+
+- **Attributes that only exist after aggregating.** A spend tier bucketed from an aggregated measure
+  is a property of the aggregated row, not of any fact row, so no join from the parent reaches it —
+  the fact grain simply doesn't have the value yet.
+- **Period-scoped snapshot attributes.** A value denormalized as of a point in time — the plan an
+  account was on during that month — depends on both the account and the period, and if the fact has
+  no period key there's nothing to model the foreign key against. This is the usual as-of /
+  slowly-changing-dimension problem, and it has to be solved in the model before a binding can refer
+  to it.
+
 ### Registering a table
 
 There are two ways to tell DJ about an externally-built table: a one-off REST call, or a declarative
@@ -336,14 +369,8 @@ accident, and an optional value would make the map not really a mapping. Each bi
 the same way — the column must exist and be type-compatible — and only changes how the table is read,
 not how it's matched. A bound dimension can even be a joined attribute the table has denormalized (say
 it stores `country` directly rather than an account key you'd otherwise join through), which DJ then
-reads straight from the table with no join.
-
-Notice that `view_rate` doesn't appear in the file at all. What you declare under `metrics` are the
-*measures* the table physically stores, and a derived metric has no column of its own to name, so it
-can't be listed. It doesn't need to be: both registration and query-time routing work on decomposed
-measures rather than metric names, so any metric that resolves to `view_secs` and `session_count` — the
-ratio `view_rate` among them — is served by this table automatically. Declare the measures and the
-metrics built on them follow.
+reads straight from the table with no join — provided the parent node can reach that dimension in the
+first place, since the binding only says which column holds it, not that it exists.
 
 The earlier form of this file, where `metrics` and `dimensions` were plain lists and the columns lived
 in separate `measure_columns` and `dimension_columns` blocks, is no longer accepted; a file still using
@@ -357,6 +384,18 @@ declares others — the same way removing a node file deletes that node. As a sa
 accidental or partial push wiping externally-managed tables, a deploy that declares *no* pre-aggregations
 at all never mass-deregisters the existing ones; removing your last one is an explicit action, done by
 passing `allow_empty` on the deploy.
+
+#### Do I need to declare a metric if I've already declared its measures?
+
+No. Notice that `view_rate` doesn't appear in the spec above at all. What you declare under `metrics`
+are the *measures* the table physically stores, and a derived metric has no column of its own to name,
+so it can't be listed there — nor does it need to be. Both registration and query-time routing work on
+decomposed measure identities rather than metric names, so any metric that decomposes into
+`view_secs` and `session_count` is served by this table, the ratio `view_rate` among them, and so is a
+metric someone authors next year that nobody thought to mention here. Declare the measures the table
+stores and the metrics built on them follow; the same holds for the `metrics` list in a
+`/preaggs/register` call, where naming a derived metric asks DJ to check that its components are
+covered but doesn't add anything to what the table can serve.
 
 ### Freshness is reported separately from the binding
 
