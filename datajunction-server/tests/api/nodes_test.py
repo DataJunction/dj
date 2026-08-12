@@ -28,7 +28,12 @@ from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import get_upstream_nodes
 from datajunction_server.sql.parsing import ast, types
 from datajunction_server.sql.parsing.backends.antlr4 import parse
-from datajunction_server.sql.parsing.types import IntegerType, StringType, TimestampType
+from datajunction_server.sql.parsing.types import (
+    DoubleType,
+    IntegerType,
+    StringType,
+    TimestampType,
+)
 from datajunction_server.models.access import ResourceAction
 from tests.authz import VALIDATOR_AUTH_SERVICE, deny
 from tests.sql.utils import compare_query_strings
@@ -2661,6 +2666,59 @@ class TestNodeCRUD:
             column["name"]: column.get("description") for column in after["columns"]
         }
         assert described_columns["id"] == "described id"
+
+    @pytest.mark.asyncio
+    async def test_refresh_records_column_type_changes(
+        self,
+        module__client_with_roads: AsyncClient,
+        module__query_service_client: QueryServiceClient,
+        mocker: MockerFixture,
+    ):
+        """
+        A column changing type is recorded in the refresh event.
+
+        This is the part of a refresh worth auditing: a source column changing
+        type can change the value of a metric computed from it, so a version bump
+        with no explanation leaves no way to account for a number that moved.
+        """
+        response = await module__client_with_roads.post(
+            "/nodes/source/",
+            json={
+                "name": "default.retyped_table",
+                "description": "A table whose column type changes",
+                "columns": [{"name": "amount", "type": "int"}],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "roads",
+                "table": "retyped_table",
+            },
+        )
+        assert response.status_code in (200, 201)
+
+        async def _retyped(*args, **kwargs):
+            return TableMetadata(
+                columns=[Column(name="amount", type=DoubleType(), order=0)],
+            )
+
+        mocker.patch.object(
+            module__query_service_client,
+            "get_table_metadata",
+            _retyped,
+        )
+        await module__client_with_roads.post(
+            "/nodes/default.retyped_table/refresh/",
+        )
+
+        history = (
+            await module__client_with_roads.get(
+                "/history?node=default.retyped_table",
+            )
+        ).json()
+        refreshes = [event for event in history if event["activity_type"] == "refresh"]
+        assert refreshes, "the refresh should be recorded"
+        assert refreshes[0]["details"]["type_changes"] == [
+            {"column": "amount", "from": "int", "to": "double"},
+        ]
 
     @pytest.mark.asyncio
     async def test_refresh_does_not_overwrite_existing_descriptions(

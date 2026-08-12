@@ -1546,6 +1546,7 @@ async def apply_table_owner(
     node: Node,
     owner: TableOwner,
     save_history: Callable,
+    current_user: User,
 ) -> bool:
     """
     Set the node's owners to exactly the table's owner.
@@ -1584,11 +1585,56 @@ async def apply_table_owner(
             node=node.name,
             activity_type=ActivityType.UPDATE,
             details={"old_owners": old_owners, "new_owners": [owner.username]},
-            user=owner.username,
+            # The actor is whoever ran the refresh, not the new owner -- the new
+            # owner is the object of the change. `get_node_creator`-style callers
+            # read this field, so it has to name a real actor.
+            user=current_user.username,
         ),
         session=session,
     )
     return True
+
+
+def describe_column_changes(
+    existing: list[Column],
+    incoming: list[Column],
+) -> dict:
+    """
+    Describe how a table's columns changed, for the audit trail.
+
+    Returns the same keys ``revalidate`` already records -- ``type_changes``,
+    ``added_columns``, ``removed_columns`` -- so a version bump is explained the
+    same way however it was triggered. Empty when nothing changed, so the result
+    doubles as the "did anything change" test.
+
+    Type changes matter beyond documentation: a source column changing type can
+    change the value of a metric computed from it, so a refresh that silently
+    bumps a version leaves no way to explain a number that moved.
+    """
+    existing_by_name = {column.name: column for column in existing}
+    incoming_by_name = {column.name: column for column in incoming}
+
+    changes: dict = {}
+    type_changes = [
+        {
+            "column": name,
+            "from": str(existing_by_name[name].type),
+            "to": str(column.type),
+        }
+        for name, column in incoming_by_name.items()
+        if name in existing_by_name
+        and str(existing_by_name[name].type) != str(column.type)
+    ]
+    added = sorted(set(incoming_by_name) - set(existing_by_name))
+    removed = sorted(set(existing_by_name) - set(incoming_by_name))
+
+    if type_changes:
+        changes["type_changes"] = type_changes
+    if added:
+        changes["added_columns"] = added
+    if removed:
+        changes["removed_columns"] = removed
+    return changes
 
 
 def apply_table_descriptions(
@@ -4220,8 +4266,11 @@ async def refresh_source(
             source_node,  # type: ignore
             table_metadata.owner,
             save_history,
+            current_user,
         )
 
+    # Descriptions are deliberately not recorded in the audit trail: a comment is
+    # documentation, not something a reported number can turn on.
     if table_metadata is not None:
         apply_table_descriptions(session, current_revision, table_metadata)
 
@@ -4236,7 +4285,9 @@ async def refresh_source(
         # if the columns haven't changed and the node has a table, we can skip the update
         if not column_changes:
             if not source_node.missing_table:  # type: ignore
-                # Commits any ownership change made above; a no-op otherwise
+                # No revision to fork. An ownership change is already recorded by
+                # apply_table_owner above, and descriptions are deliberately not
+                # audited, so there is nothing further to record here.
                 await session.commit()
                 return source_node  # type: ignore
             # if the columns haven't changed but the node has a missing table, we should fix it
@@ -4303,6 +4354,12 @@ async def refresh_source(
     session.add(source_node)
 
     refresh_details["version"] = new_revision.version
+    # Explain the bump the same way `revalidate` does. A source column changing
+    # type can change a metric computed from it, so "which columns and how" is
+    # the part of a refresh worth auditing.
+    refresh_details.update(
+        describe_column_changes(current_revision.columns, new_columns),
+    )
     await save_history(
         event=History(
             entity_type=EntityType.NODE,
