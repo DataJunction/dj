@@ -201,3 +201,43 @@ async def test_add_multiple_node_owners(
     # Confirm ownership types
     types = {assoc.ownership_type for assoc in transform_node.owner_associations}
     assert types == {"domain", "technical"}
+
+
+@pytest.mark.asyncio
+async def test_apply_table_owner_records_a_group_principal(
+    session: AsyncSession,
+    user: User,
+    transform_node: Node,
+):
+    """
+    A table owned by a group creates a GROUP principal, not a USER.
+
+    Some catalogs only name a group for a table. Recording it as a USER would
+    misstate what it is, and would collide with the group principal that group
+    membership sync creates under the same username.
+    """
+    from datajunction_server.database.user import PrincipalKind
+    from datajunction_server.internal.nodes import apply_table_owner
+    from datajunction_server.models.table_metadata import TableOwner
+
+    async def save_history(event, session):  # pylint: disable=redefined-outer-name
+        session.add(event)
+
+    changed = await apply_table_owner(
+        session,
+        transform_node,
+        TableOwner(
+            username="data-eng@example.com",
+            email="data-eng@example.com",
+            display_name="Data Engineering",
+            is_group=True,
+        ),
+        save_history,
+        user,
+    )
+    assert changed is True
+
+    owner = await User.get_by_username(session, "data-eng@example.com")
+    assert owner is not None
+    assert owner.kind == PrincipalKind.GROUP
+    assert owner.name == "Data Engineering"

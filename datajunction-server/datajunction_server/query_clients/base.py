@@ -19,6 +19,7 @@ from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionBackfill
 from datajunction_server.models.preaggregation import PreAggMaterializationInput
 from datajunction_server.models.query import QueryCreate, QueryWithResults
+from datajunction_server.models.table_metadata import TableMetadata
 
 if TYPE_CHECKING:
     from datajunction_server.database.engine import Engine
@@ -48,6 +49,30 @@ class BaseQueryServiceClient(ABC):
         engine: Engine | None = None,
     ) -> list[Column]:
         """Retrieves columns for a table."""
+
+    async def get_table_metadata(
+        self,
+        catalog: str,
+        schema: str,
+        table: str,
+        request_headers: dict[str, str] | None = None,
+        engine: Engine | None = None,
+    ) -> TableMetadata:
+        """
+        Retrieve columns plus any extra table metadata.
+
+        Default implementation: columns only. Clients with an ownership source
+        override this; the rest inherit correct behaviour with owner=None.
+        """
+        return TableMetadata(
+            columns=await self.get_columns_for_table(
+                catalog,
+                schema,
+                table,
+                request_headers,
+                engine,
+            ),
+        )
 
     async def get_columns_for_tables_batch(
         self,

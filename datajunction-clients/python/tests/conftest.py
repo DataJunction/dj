@@ -28,6 +28,7 @@ from datajunction_server.models.query import (
     QueryCreate,
     QueryWithResults,
 )
+from datajunction_server.models.table_metadata import TableMetadata
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.typing import QueryState
 from datajunction_server.utils import (
@@ -208,6 +209,32 @@ def module__query_service_client(
         qs_client,
         "get_columns_for_table",
         mock_get_columns_for_table,
+    )
+
+    async def mock_get_table_metadata(
+        catalog: str,
+        schema: str,
+        table: str,
+        request_headers: dict[str, str] | None = None,
+        engine: Engine | None = None,
+    ) -> TableMetadata:
+        # Resolved through get_columns_for_table above rather than duplicating the
+        # mapping, and stubbed at all so that refresh does not fall through to the
+        # HTTP implementation and issue a real request to the scheme-less test URI.
+        return TableMetadata(
+            columns=await qs_client.get_columns_for_table(
+                catalog,
+                schema,
+                table,
+                request_headers,
+                engine,
+            ),
+        )
+
+    module_mocker.patch.object(
+        qs_client,
+        "get_table_metadata",
+        mock_get_table_metadata,
     )
 
     async def mock_submit_query(

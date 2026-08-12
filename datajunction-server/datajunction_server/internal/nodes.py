@@ -49,7 +49,7 @@ from datajunction_server.database.preaggregation import (
     compute_expression_hash,
     measure_identity_token,
 )
-from datajunction_server.database.user import User
+from datajunction_server.database.user import OAuthProvider, PrincipalKind, User
 from datajunction_server.errors import (
     DJDoesNotExistException,
     DJError,
@@ -119,6 +119,7 @@ from datajunction_server.models.node import (
 )
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import QueryCreate
+from datajunction_server.models.table_metadata import TableMetadata, TableOwner
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import (
     get_downstream_nodes,
@@ -1539,6 +1540,140 @@ async def update_owners(
         session=session,
     )
     await session.commit()
+
+
+async def apply_table_owner(
+    session: AsyncSession,
+    node: Node,
+    owner: TableOwner,
+    save_history: Callable,
+    current_user: User,
+) -> bool:
+    """
+    Set the node's owners to exactly the table's owner.
+
+    Returns True when a change was made. Creates the user if absent, keyed on
+    ``owner.username`` -- the query service is responsible for mapping its
+    catalog's identity to a DJ username, since DJ usernames are not universally
+    emails. Never clears owners: the caller only invokes this with a resolved
+    owner.
+
+    Owners live on ``Node`` rather than ``NodeRevision``, so this never forks a
+    revision. The caller is responsible for committing.
+    """
+    await session.refresh(node, ["owners"])
+    old_owners = [existing.username for existing in node.owners]
+    if old_owners == [owner.username]:
+        return False
+
+    user = await User.get_by_username(session, owner.username)
+    if user is None:
+        user = User(
+            username=owner.username,
+            email=owner.email,
+            name=owner.display_name or owner.username,
+            oauth_provider=OAuthProvider.BASIC,
+            kind=PrincipalKind.GROUP if owner.is_group else PrincipalKind.USER,
+        )
+        session.add(user)
+        await session.flush()
+
+    node.owners = [user]
+    session.add(node)
+    await save_history(
+        event=History(
+            entity_type=EntityType.NODE,
+            entity_name=node.name,
+            node=node.name,
+            activity_type=ActivityType.UPDATE,
+            details={"old_owners": old_owners, "new_owners": [owner.username]},
+            # The actor is whoever ran the refresh, not the new owner -- the new
+            # owner is the object of the change. `get_node_creator`-style callers
+            # read this field, so it has to name a real actor.
+            user=current_user.username,
+        ),
+        session=session,
+    )
+    return True
+
+
+def describe_column_changes(
+    existing: list[Column],
+    incoming: list[Column],
+) -> dict:
+    """
+    Describe how a table's columns changed, for the audit trail.
+
+    Returns the same keys ``revalidate`` already records -- ``type_changes``,
+    ``added_columns``, ``removed_columns`` -- so a version bump is explained the
+    same way however it was triggered. Empty when nothing changed, so the result
+    doubles as the "did anything change" test.
+
+    Type changes matter beyond documentation: a source column changing type can
+    change the value of a metric computed from it, so a refresh that silently
+    bumps a version leaves no way to explain a number that moved.
+    """
+    existing_by_name = {column.name: column for column in existing}
+    incoming_by_name = {column.name: column for column in incoming}
+
+    changes: dict = {}
+    type_changes = [
+        {
+            "column": name,
+            "from": str(existing_by_name[name].type),
+            "to": str(column.type),
+        }
+        for name, column in incoming_by_name.items()
+        if name in existing_by_name
+        and str(existing_by_name[name].type) != str(column.type)
+    ]
+    added = sorted(set(incoming_by_name) - set(existing_by_name))
+    removed = sorted(set(existing_by_name) - set(incoming_by_name))
+
+    if type_changes:
+        changes["type_changes"] = type_changes
+    if added:
+        changes["added_columns"] = added
+    if removed:
+        changes["removed_columns"] = removed
+    return changes
+
+
+def apply_table_descriptions(
+    session: AsyncSession,
+    revision: NodeRevision,
+    table_metadata: TableMetadata,
+) -> bool:
+    """
+    Fill in the node's and columns' descriptions from the warehouse table.
+
+    Fill-when-empty, never overwrite: a description is curated prose that
+    someone may have written in DJ, and the table's comment is not automatically
+    the better one. This only closes the gap where DJ has nothing.
+
+    Applied in place rather than by forking a revision -- a comment is not a
+    schema change, and the caller commits.
+    """
+    changed = False
+
+    if table_metadata.description and not revision.description:
+        revision.description = table_metadata.description
+        changed = True
+
+    incoming = {
+        column.name: column.description
+        for column in table_metadata.columns
+        if column.description
+    }
+    for column in revision.columns:
+        description = incoming.get(column.name)
+        if description and not column.description:
+            column.description = description
+            changed = True
+
+    if changed:
+        session.add(revision)
+    return changed
 
 
 def cube_changed_fields(
@@ -4074,10 +4209,11 @@ async def refresh_source(
         )
         new_query = current_revision.query
 
-    # Get the latest columns for the source node's table from the query service
+    # Get the latest columns and owner for the source node's table from the query service
+    table_metadata = None
     new_columns = []
     try:
-        new_columns = await query_service_client.get_columns_for_table(
+        table_metadata = await query_service_client.get_table_metadata(
             current_revision.catalog.name,
             current_revision.schema_,  # type: ignore
             current_revision.table,  # type: ignore
@@ -4086,9 +4222,28 @@ async def refresh_source(
             if len(current_revision.catalog.engines) >= 1
             else None,
         )
+        new_columns = table_metadata.columns
     except DJDoesNotExistException:
         # continue with the update, if the table was not found
         pass
+
+    # Apply the table's owner before the column comparison below, so that an
+    # ownership-only change still takes effect on the two short-circuit paths.
+    # ``owner is None`` means "no ownership information", never "no owner", so it
+    # leaves the node's existing owners alone.
+    if table_metadata is not None and table_metadata.owner is not None:
+        await apply_table_owner(
+            session,
+            source_node,  # type: ignore
+            table_metadata.owner,
+            save_history,
+            current_user,
+        )
+
+    # Descriptions are deliberately not recorded in the audit trail: a comment is
+    # documentation, not something a reported number can turn on.
+    if table_metadata is not None:
+        apply_table_descriptions(session, current_revision, table_metadata)
 
     refresh_details = {}
     if new_columns:
@@ -4101,6 +4256,10 @@ async def refresh_source(
         # if the columns haven't changed and the node has a table, we can skip the update
         if not column_changes:
             if not source_node.missing_table:  # type: ignore
+                # No revision to fork. An ownership change is already recorded by
+                # apply_table_owner above, and descriptions are deliberately not
+                # audited, so there is nothing further to record here.
+                await session.commit()
                 return source_node  # type: ignore
             # if the columns haven't changed but the node has a missing table, we should fix it
             source_node.missing_table = False  # type: ignore
@@ -4109,6 +4268,7 @@ async def refresh_source(
         # since we don't see any columns, we assume the table is gone
         if source_node.missing_table:  # type: ignore
             # but if the node already has a missing table, we can skip the update
+            await session.commit()
             return source_node  # type: ignore
         source_node.missing_table = True  # type: ignore
         new_columns = current_revision.columns
@@ -4165,6 +4325,12 @@ async def refresh_source(
     session.add(source_node)
 
     refresh_details["version"] = new_revision.version
+    # Explain the bump the same way `revalidate` does. A source column changing
+    # type can change a metric computed from it, so "which columns and how" is
+    # the part of a refresh worth auditing.
+    refresh_details.update(
+        describe_column_changes(current_revision.columns, new_columns),
+    )
     await save_history(
         event=History(
             entity_type=EntityType.NODE,
