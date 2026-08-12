@@ -246,6 +246,11 @@ YAML file that lives alongside your other node definitions in a deployment. The 
 for anything you intend to keep around, since it's versioned with the rest of your semantic model and
 gets reconciled on every deploy.
 
+The two describe the same binding but spell it differently. The REST body lists the metrics and
+dimensions the table covers and carries the physical columns in a separate `measure_columns` map; a
+YAML spec binds each metric and dimension to its column inline. Read whichever section applies to the
+path you're using rather than translating between them.
+
 #### REST: `POST /preaggs/register`
 
 Send DJ the metrics and dimensions the table covers, where the table lives, and which physical column
@@ -269,7 +274,9 @@ backs each measure metric:
 
 Notice that `view_rate`, a ratio metric, is listed under `metrics` but doesn't appear in
 `measure_columns` — it doesn't need a column, because it's derived from `view_secs` and
-`session_count`, which are the two measures that do have columns.
+`session_count`, which are the two measures that do have columns. In this request shape a derived
+metric can be named even though nothing binds it; the YAML spec below has no way to name one, and
+doesn't need one for the same reason.
 
 On registration DJ decomposes every metric you listed, then validates the binding: it confirms each key
 in `measure_columns` really is a measure, checks (via query-service introspection) that every column you
