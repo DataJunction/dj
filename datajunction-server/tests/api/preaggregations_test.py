@@ -12,6 +12,7 @@ from sqlalchemy.orm import joinedload
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.partition import Partition
 from datajunction_server.database.preaggregation import PreAggregation
+from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.materialization import MaterializationStrategy
 from datajunction_server.models.partition import Granularity, PartitionType
 from datajunction_server.models.preaggregation import WorkflowUrl
@@ -2916,5 +2917,324 @@ class TestPreaggWriteEnforcement:
             )
             assert response.status_code == 403, response.text
             assert "Access denied" in response.json()["message"]
+        finally:
+            del client_with_build_v3.app.dependency_overrides[get_query_service_client]
+
+
+def _session_for(client: AsyncClient) -> AsyncSession:
+    """The very session the API handlers use, so registrations are visible."""
+    from datajunction_server.utils import get_session
+
+    return client.app.dependency_overrides[get_session]()
+
+
+async def _availability_id(session: AsyncSession, preagg_id: int) -> int | None:
+    """
+    Read a pre-agg's availability_id straight from the row, bypassing the
+    identity map so a value written by a request is not read back stale.
+    """
+    result = await session.execute(
+        select(PreAggregation.availability_id).where(PreAggregation.id == preagg_id),
+    )
+    return result.scalar_one()
+
+
+async def _count_availability_states(session: AsyncSession) -> int:
+    """How many AvailabilityState rows exist right now."""
+    from sqlalchemy import func
+
+    from datajunction_server.database.availabilitystate import AvailabilityState
+
+    result = await session.execute(select(func.count()).select_from(AvailabilityState))
+    return result.scalar_one()
+
+
+async def _register_aov(
+    client: AsyncClient,
+    table: str,
+    valid_through_ts: int | None = None,
+) -> dict:
+    """Register avg_order_value by category against ``table``."""
+    table_spec: dict = {
+        "catalog": "default",
+        "schema": "analytics",
+        "table": table,
+    }
+    if valid_through_ts is not None:
+        table_spec["valid_through_ts"] = valid_through_ts
+    response = await client.post(
+        "/preaggs/register",
+        json={
+            "metrics": ["v3.avg_order_value"],
+            "dimensions": ["v3.product.category"],
+            "table": table_spec,
+            "measure_columns": {
+                "v3.total_revenue": "revenue_total",
+                "v3.order_count": "order_cnt",
+            },
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response.json()["preaggs"][0]
+
+
+async def _revise_order_details(client: AsyncClient, description: str) -> None:
+    """Edit the parent transform, which gives it a fresh node revision."""
+    response = await client.patch(
+        "/nodes/v3.order_details/",
+        json={"description": description},
+    )
+    assert response.status_code == 200, response.text
+
+
+class TestRegisteredPreAggAvailabilityInheritance:
+    """
+    A registered pre-agg keeps its availability across a parent node revision.
+
+    A new revision re-keys the grain group, so re-registration inserts a new row
+    rather than updating one; starting that row at NULL availability drops the
+    external table out of routing with no error reported anywhere.
+    """
+
+    @pytest.mark.asyncio
+    async def test_availability_survives_parent_revision(
+        self,
+        client_with_build_v3: AsyncClient,
+    ):
+        """
+        The row inserted for the new revision reuses the predecessor's
+        availability, and routes again.
+        """
+        _mock_query_service(
+            client_with_build_v3,
+            ["revenue_total", "order_cnt", "category"],
+        )
+        session = _session_for(client_with_build_v3)
+        try:
+            first = await _register_aov(
+                client_with_build_v3,
+                "inherit_agg",
+                valid_through_ts=1700000000,
+            )
+            availability_report = await client_with_build_v3.post(
+                f"/preaggs/{first['id']}/availability/",
+                json={
+                    "catalog": "default",
+                    "schema_": "analytics",
+                    "table": "inherit_agg",
+                    "valid_through_ts": 1700100000,
+                },
+            )
+            assert availability_report.status_code == 200, availability_report.text
+            inherited_id = await _availability_id(session, first["id"])
+
+            await _revise_order_details(client_with_build_v3, "revised for preaggs")
+
+            second = await _register_aov(client_with_build_v3, "inherit_agg")
+            assert second["id"] != first["id"]
+            assert await _availability_id(session, second["id"]) == inherited_id
+            assert second["status"] == "active"
+
+            measures = await build_measures_sql(
+                session=session,
+                metrics=["v3.avg_order_value"],
+                dimensions=["v3.product.category"],
+                dialect=Dialect.SPARK,
+                use_materialized=True,
+            )
+            routed = {
+                preagg.id
+                for candidates in measures.ctx.available_preaggs.values()
+                for preagg in candidates
+            }
+            assert routed == {second["id"]}
+        finally:
+            del client_with_build_v3.app.dependency_overrides[get_query_service_client]
+
+    @pytest.mark.asyncio
+    async def test_inheritance_skips_other_declarations_on_the_node(
+        self,
+        client_with_build_v3: AsyncClient,
+    ):
+        """
+        The node-scoped lookup sees every pre-agg on the node, so it has to walk
+        past the ones at another grain and the ones that cover only some of the
+        required measures before it reaches the real predecessor.
+        """
+        _mock_query_service(
+            client_with_build_v3,
+            ["revenue_total", "order_cnt", "up_max", "category", "status"],
+        )
+        session = _session_for(client_with_build_v3)
+        try:
+            predecessor = await _register_aov(
+                client_with_build_v3,
+                "scan_target_agg",
+                valid_through_ts=1700000000,
+            )
+            inherited_id = await _availability_id(session, predecessor["id"])
+            assert inherited_id is not None
+
+            # Same node and grain, but none of the required measures.
+            other_measures = await client_with_build_v3.post(
+                "/preaggs/register",
+                json={
+                    "metrics": ["v3.max_unit_price"],
+                    "dimensions": ["v3.product.category"],
+                    "table": {
+                        "catalog": "default",
+                        "schema": "analytics",
+                        "table": "scan_other_measures_agg",
+                    },
+                    "measure_columns": {"v3.max_unit_price": "up_max"},
+                },
+            )
+            assert other_measures.status_code == 201, other_measures.text
+
+            # Same node, different grain.
+            other_grain = await client_with_build_v3.post(
+                "/preaggs/register",
+                json={
+                    "metrics": ["v3.total_revenue"],
+                    "dimensions": ["v3.order_details.status"],
+                    "table": {
+                        "catalog": "default",
+                        "schema": "analytics",
+                        "table": "scan_other_grain_agg",
+                    },
+                    "measure_columns": {"v3.total_revenue": "revenue_total"},
+                },
+            )
+            assert other_grain.status_code == 201, other_grain.text
+
+            await _revise_order_details(client_with_build_v3, "revised for scanning")
+
+            reregistered = await _register_aov(client_with_build_v3, "scan_target_agg")
+            assert reregistered["id"] != predecessor["id"]
+            assert await _availability_id(session, reregistered["id"]) == inherited_id
+        finally:
+            del client_with_build_v3.app.dependency_overrides[get_query_service_client]
+
+    @pytest.mark.asyncio
+    async def test_repointed_table_does_not_inherit(
+        self,
+        client_with_build_v3: AsyncClient,
+    ):
+        """
+        Freshness describes one physical table, so a spec pointed at a different
+        table starts pending rather than borrowing it.
+        """
+        _mock_query_service(
+            client_with_build_v3,
+            ["revenue_total", "order_cnt", "category"],
+        )
+        session = _session_for(client_with_build_v3)
+        try:
+            first = await _register_aov(
+                client_with_build_v3,
+                "repoint_before",
+                valid_through_ts=1700000000,
+            )
+            assert await _availability_id(session, first["id"]) is not None
+
+            await _revise_order_details(client_with_build_v3, "revised for repointing")
+
+            second = await _register_aov(client_with_build_v3, "repoint_after")
+            assert second["id"] != first["id"]
+            assert await _availability_id(session, second["id"]) is None
+            assert second["status"] == "pending"
+        finally:
+            del client_with_build_v3.app.dependency_overrides[get_query_service_client]
+
+    @pytest.mark.asyncio
+    async def test_no_predecessor_stays_pending(
+        self,
+        client_with_build_v3: AsyncClient,
+    ):
+        """A first registration with no freshness has nothing to inherit."""
+        _mock_query_service(
+            client_with_build_v3,
+            ["revenue_total", "order_cnt", "category"],
+        )
+        session = _session_for(client_with_build_v3)
+        try:
+            registered = await _register_aov(client_with_build_v3, "no_predecessor_agg")
+            assert await _availability_id(session, registered["id"]) is None
+            assert registered["status"] == "pending"
+        finally:
+            del client_with_build_v3.app.dependency_overrides[get_query_service_client]
+
+    @pytest.mark.asyncio
+    async def test_same_revision_reregistration_keeps_availability(
+        self,
+        client_with_build_v3: AsyncClient,
+    ):
+        """
+        Without a revision in between, re-registration still updates the same row
+        and leaves its availability alone.
+        """
+        _mock_query_service(
+            client_with_build_v3,
+            ["revenue_total", "order_cnt", "category"],
+        )
+        session = _session_for(client_with_build_v3)
+        try:
+            first = await _register_aov(
+                client_with_build_v3,
+                "same_revision_agg",
+                valid_through_ts=1700000000,
+            )
+            original = await _availability_id(session, first["id"])
+            assert original is not None
+
+            second = await _register_aov(client_with_build_v3, "same_revision_agg")
+            assert second["id"] == first["id"]
+            assert await _availability_id(session, second["id"]) == original
+            assert second["status"] == "active"
+        finally:
+            del client_with_build_v3.app.dependency_overrides[get_query_service_client]
+
+    @pytest.mark.asyncio
+    async def test_one_availability_state_per_registration(
+        self,
+        client_with_build_v3: AsyncClient,
+    ):
+        """
+        Every grain group in a registration reads the same physical table, so they
+        share one AvailabilityState rather than getting one apiece.
+        """
+        _mock_query_service(
+            client_with_build_v3,
+            ["revenue_total", "view_cnt", "category"],
+        )
+        session = _session_for(client_with_build_v3)
+        try:
+            before = await _count_availability_states(session)
+            response = await client_with_build_v3.post(
+                "/preaggs/register",
+                json={
+                    "metrics": ["v3.total_revenue", "v3.page_view_count"],
+                    "dimensions": ["v3.product.category"],
+                    "table": {
+                        "catalog": "default",
+                        "schema": "analytics",
+                        "table": "cross_fact_agg",
+                        "valid_through_ts": 1700000000,
+                    },
+                    "measure_columns": {
+                        "v3.total_revenue": "revenue_total",
+                        "v3.page_view_count": "view_cnt",
+                    },
+                },
+            )
+            assert response.status_code == 201, response.text
+            preaggs = response.json()["preaggs"]
+            assert len(preaggs) == 2
+            assert {preagg["status"] for preagg in preaggs} == {"active"}
+            availability_ids = {
+                await _availability_id(session, preagg["id"]) for preagg in preaggs
+            }
+            assert len(availability_ids) == 1
+            assert await _count_availability_states(session) == before + 1
         finally:
             del client_with_build_v3.app.dependency_overrides[get_query_service_client]

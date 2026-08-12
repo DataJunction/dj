@@ -115,6 +115,54 @@ def assert_dimension_refs_are_role_qualified(
             )
 
 
+async def _inherit_availability(
+    session: AsyncSession,
+    preagg: PreAggregation,
+    *,
+    node_name: str,
+    grain_columns: list[str],
+    grain_measures: list[PreAggMeasure],
+    table: ExternalPreAggTable,
+) -> None:
+    """
+    Carry a predecessor's availability onto a freshly inserted pre-agg.
+
+    A new revision of the parent node gives the same declaration a new
+    ``grain_group_hash``, so re-registration inserts rather than updates. The
+    physical table coordinates live only on the AvailabilityState row (see
+    ``PreAggregation.materialized_table_ref``), and the query planner only
+    considers pre-aggs that have one, so an insert that starts at NULL silently
+    drops the table out of routing -- queries fall back to the source tables
+    with no error anywhere.
+
+    The predecessor's availability is only inherited when it describes the same
+    physical table. A spec repointed at a different table is a genuinely
+    different table, and its freshness would be describing the old one.
+    """
+    predecessor = await PreAggregation.find_latest_for_node(
+        session,
+        node_name=node_name,
+        grain_columns=grain_columns,
+        measure_identities=get_measure_identities(grain_measures),
+    )
+    if predecessor is None or predecessor.availability is None:
+        return
+    previous = predecessor.availability
+    if (previous.catalog, previous.schema_, previous.table) != (
+        table.catalog,
+        table.schema_,
+        table.table,
+    ):
+        return
+    # Reuse the row rather than clone it. The FK has no ``ondelete`` and the
+    # relationship no ``cascade``, so deleting the superseded pre-agg (as deploy
+    # reconciliation does) cannot take the shared availability with it; sharing
+    # also stops every revision stranding an orphaned AvailabilityState; and a
+    # pipeline still posting freshness against the OLD pre-agg id lands on the
+    # very row the live pre-agg reads.
+    preagg.availability_id = predecessor.availability_id
+
+
 async def register_external_preaggregations(
     session: AsyncSession,
     query_service_client: QueryServiceClient,
@@ -226,7 +274,23 @@ async def register_external_preaggregations(
             ),
         )
 
-    # 4. For each grain group: verify measure coverage, bind source columns,
+    # 4. Every grain group in one registration points at the same physical
+    #    table, so they share one availability row -- built once here rather
+    #    than once (plus a flush) per grain group. Freshness is still only
+    #    recorded when the caller supplies it; otherwise the pre-agg stays
+    #    pending for the availability callback to report.
+    availability: AvailabilityState | None = None
+    if table.valid_through_ts is not None:
+        availability = AvailabilityState(
+            catalog=table.catalog,
+            schema_=table.schema_,
+            table=table.table,
+            valid_through_ts=table.valid_through_ts,
+        )
+        session.add(availability)
+        await session.flush()
+
+    # 5. For each grain group: verify measure coverage, bind source columns,
     #    and upsert the pre-aggregation.
     created_preaggs: list[PreAggregation] = []
     for grain_group in measures_result.grain_groups:
@@ -336,20 +400,21 @@ async def register_external_preaggregations(
                 strategy=MaterializationStrategy.EXTERNAL,
                 name=name,
             )
+            # Before adding it to the session: the lookup below autoflushes, and
+            # a pending row would come back as its own predecessor.
+            if availability is None:
+                await _inherit_availability(
+                    session,
+                    preagg,
+                    node_name=grain_group.parent_name,
+                    grain_columns=grain_columns,
+                    grain_measures=grain_measures,
+                    table=table,
+                )
             session.add(preagg)
         created_preaggs.append(preagg)
 
-        # 5. Set availability immediately when freshness is provided; otherwise
-        #    leave it pending for the availability callback to report.
-        if table.valid_through_ts is not None:
-            availability = AvailabilityState(
-                catalog=table.catalog,
-                schema_=table.schema_,
-                table=table.table,
-                valid_through_ts=table.valid_through_ts,
-            )
-            session.add(availability)
-            await session.flush()
+        if availability is not None:
             preagg.availability_id = availability.id
 
     await session.flush()

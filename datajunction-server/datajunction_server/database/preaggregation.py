@@ -461,6 +461,52 @@ class PreAggregation(Base):
 
         return None
 
+    @classmethod
+    async def find_latest_for_node(
+        cls,
+        session: AsyncSession,
+        node_name: str,
+        grain_columns: list[str],
+        measure_identities: set[str],
+    ) -> PreAggregation | None:
+        """
+        Find the most recent pre-agg for the same declaration on ANY revision of
+        the node, i.e. the predecessor of the one about to be inserted.
+
+        There are two lookups because there are two different questions.
+        ``find_matching`` is revision-scoped and asks "is this the same row?" --
+        it decides whether to update in place, so it keys on
+        ``grain_group_hash``, which embeds ``node_revision_id``. This one is
+        node-scoped and asks "what did this declaration look like before?" --
+        the answer has to survive a new revision, so it cannot use that hash at
+        all and instead joins through ``NodeRevision`` to ``Node`` to match on
+        node name. Matching is otherwise identical: same grain columns, and
+        measures that are a superset of the ones required.
+
+        Returns:
+            The newest matching PreAggregation, or None
+        """
+        from sqlalchemy.orm import joinedload
+
+        from datajunction_server.database.node import Node
+
+        statement = (
+            select(cls)
+            .join(NodeRevision, cls.node_revision_id == NodeRevision.id)
+            .join(Node, NodeRevision.node_id == Node.id)
+            .options(joinedload(cls.availability))
+            .where(Node.name == node_name)
+            .order_by(cls.id.desc())
+        )
+        result = await session.execute(statement)
+        wanted_grain = sorted(grain_columns)
+        for candidate in result.scalars().unique().all():
+            if sorted(candidate.grain_columns) != wanted_grain:
+                continue
+            if measure_identities <= get_measure_identities(candidate.measures):
+                return candidate
+        return None
+
     # TODO: Remove this once we have a way to test pre-aggregations
     def get_column_type(  # pragma: no cover
         self,
