@@ -1850,15 +1850,12 @@ class TestDeployments:
         try:
             preagg_spec = PreAggSpec(
                 name="hard_hats_by_state",
-                metrics=["${prefix}default.count_hard_hats"],
-                dimensions=["${prefix}default.us_state.state_name"],
+                metrics={"${prefix}default.count_hard_hats": "hard_hat_count"},
+                dimensions={"${prefix}default.us_state.state_name": "state_name"},
                 catalog="default",
                 schema="analytics",
                 table="hard_hats_agg",
                 valid_through_ts=1700000000,
-                measure_columns={
-                    "${prefix}default.count_hard_hats": "hard_hat_count",
-                },
             )
             data = await deploy_and_wait(
                 client,
@@ -1957,20 +1954,15 @@ class TestDeployments:
         try:
             preagg = PreAggSpec(
                 name="dimcol_agg",
-                metrics=["${prefix}default.dimcol_count"],
-                dimensions=[
-                    "${prefix}default.us_state.state_short",
-                    "${prefix}default.dimcol_facts.hard_hat_id",
-                ],
+                metrics={"${prefix}default.dimcol_count": "cnt"},
+                dimensions={
+                    "${prefix}default.us_state.state_short": "st_code",
+                    "${prefix}default.dimcol_facts.hard_hat_id": "hh_id_col",
+                },
                 catalog="default",
                 schema="analytics",
                 table="dimcol_agg_tbl",
                 valid_through_ts=1700000000,
-                measure_columns={"${prefix}default.dimcol_count": "cnt"},
-                dimension_columns={
-                    "${prefix}default.us_state.state_short": "st_code",
-                    "${prefix}default.dimcol_facts.hard_hat_id": "hh_id_col",
-                },
             )
             data = await deploy_and_wait(
                 client,
@@ -7669,17 +7661,15 @@ def _clear_query_service(client):
     client.app.dependency_overrides.pop(get_query_service_client, None)
 
 
-def _preagg_spec(name, table, measure_columns, dimensions=None, dimension_columns=None):
+def _preagg_spec(name, table, metrics, dimensions=None):
     return PreAggSpec(
         name=name,
-        metrics=["${prefix}default.count_hard_hats"],
-        dimensions=dimensions or ["${prefix}default.us_state.state_name"],
+        metrics=metrics,
+        dimensions=dimensions or {"${prefix}default.us_state.state_name": "state_name"},
         catalog="default",
         schema="analytics",
         table=table,
         valid_through_ts=1700000000,
-        measure_columns=measure_columns,
-        dimension_columns=dimension_columns or {},
     )
 
 
@@ -7696,7 +7686,10 @@ class TestExternalPreAggDeploy:
     ):
         """A pre-agg whose measure_columns key is not a valid measure fails the
         whole deploy and rolls it back -- no nodes or pre-aggs are left behind."""
-        _override_query_service(client, ["hard_hat_count", "state_name"])
+        _override_query_service(
+            client,
+            {"hard_hat_count": "bigint", "state_name": "string"},
+        )
         try:
             bad = _preagg_spec(
                 "bad_preagg",
@@ -7773,7 +7766,10 @@ class TestExternalPreAggDeploy:
         default_us_state,
     ):
         """A dry-run reports the planned pre-agg register without persisting it."""
-        _override_query_service(client, ["hard_hat_count", "state_name"])
+        _override_query_service(
+            client,
+            {"hard_hat_count": "bigint", "state_name": "string"},
+        )
         try:
             nodes = _hard_hat_deploy_nodes(
                 default_hard_hats,
@@ -7856,7 +7852,10 @@ class TestExternalPreAggDeploy:
         default_us_state,
     ):
         """A deploy to one namespace does not remove pre-aggs in another."""
-        _override_query_service(client, ["hard_hat_count", "state_name"])
+        _override_query_service(
+            client,
+            {"hard_hat_count": "bigint", "state_name": "string"},
+        )
         try:
             nodes = _hard_hat_deploy_nodes(
                 default_hard_hats,
@@ -7909,7 +7908,10 @@ class TestExternalPreAggDeploy:
             default_us_state,
         )
         try:
-            _override_query_service(client, ["hh_count_v1", "state_name"])
+            _override_query_service(
+                client,
+                {"hh_count_v1": "bigint", "state_name": "string"},
+            )
             data = await deploy_and_wait(
                 client,
                 DeploymentSpec(
@@ -7926,7 +7928,10 @@ class TestExternalPreAggDeploy:
             )
             assert data["status"] == "success", data["results"]
 
-            _override_query_service(client, ["hh_count_v2", "state_name"])
+            _override_query_service(
+                client,
+                {"hh_count_v2": "bigint", "state_name": "string"},
+            )
             data = await deploy_and_wait(
                 client,
                 DeploymentSpec(
@@ -7964,7 +7969,10 @@ class TestExternalPreAggDeploy:
     ):
         """A content-ful deploy that declares no pre-aggs leaves existing
         external pre-aggs intact; allow_empty is required to deregister them."""
-        _override_query_service(client, ["hard_hat_count", "state_name"])
+        _override_query_service(
+            client,
+            {"hard_hat_count": "bigint", "state_name": "string"},
+        )
         try:
             nodes = _hard_hat_deploy_nodes(
                 default_hard_hats,
@@ -8024,7 +8032,10 @@ class TestExternalPreAggDeploy:
         """The "left intact" warning is reported by the successful deploy that
         skipped the deregistration -- both as a top-level warning and as a
         per-item pre-aggregation result."""
-        _override_query_service(client, ["hard_hat_count", "state_name"])
+        _override_query_service(
+            client,
+            {"hard_hat_count": "bigint", "state_name": "string"},
+        )
         try:
             nodes = _hard_hat_deploy_nodes(
                 default_hard_hats,
@@ -8121,7 +8132,7 @@ class TestExternalPreAggDeploy:
                             "hh_by_state",
                             "hh_by_state_agg",
                             {"${prefix}default.count_hard_hats": "hard_hat_count"},
-                            dimension_columns={
+                            dimensions={
                                 "${prefix}default.us_state.state_name": "hh_state",
                             },
                         ),

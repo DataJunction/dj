@@ -6287,9 +6287,22 @@ class TestCubeRefreshMaterialization:
         mat_names = [m["name"] for m in call_kwargs["materializations"]]
         assert "deactivated_mat" in mat_names
 
-        # Verify the materialization was re-activated in the DB
-        await module__session.refresh(deactivated_mat)
-        assert deactivated_mat.deactivated_at is None
+        # Verify the materialization was re-activated in the DB. Re-select it
+        # rather than refreshing the instance built above: the request cleared
+        # the identity map, as it does in production, so that instance is no
+        # longer attached to this session.
+        reactivated_mat = (
+            (
+                await module__session.execute(
+                    select(Materialization).where(
+                        Materialization.id == deactivated_mat.id,
+                    ),
+                )
+            )
+            .scalars()
+            .one()
+        )
+        assert reactivated_mat.deactivated_at is None
 
         # Verify version didn't change
         response = await client_with_repairs_cube.get(f"/nodes/{cube_name}/")

@@ -1465,6 +1465,15 @@ async def module__client(
                     if asyncio.iscoroutine(result):
                         await result
                 module__background_tasks.clear()
+                # Empty the identity map between requests, the way production
+                # does by handing each request its own session. Sharing one
+                # session across a module leaves partially-loaded instances
+                # (from a `load_only` query) reachable by later requests, and
+                # touching a column they didn't load issues a lazy primary-key
+                # fetch. In a synchronous frame -- the v2 builder, for one --
+                # that raises MissingGreenlet, and which test it lands on
+                # depends on how xdist happened to pack modules onto workers.
+                module__session.expunge_all()
                 return response
 
             test_client.request = wrapped_request
@@ -1812,6 +1821,9 @@ async def module__clean_client(
                     if asyncio.iscoroutine(result):
                         await result
                 module__background_tasks.clear()
+                # See the note above: production gives each request its own
+                # session, so clear the identity map to match.
+                session.expunge_all()
                 return response
 
             test_client.request = wrapped_request
