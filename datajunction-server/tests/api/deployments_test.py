@@ -17,6 +17,7 @@ from datajunction_server.api.deployments import (
 )
 from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.node import Node, NodeRelationship
+from datajunction_server.database.preaggregation import PreAggregation
 from datajunction_server.database.tag import Tag
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.internal.git.github_service import GitHubServiceError
@@ -1849,7 +1850,6 @@ class TestDeployments:
         fact_node = "preagg_deploy.default.hard_hat_facts"
         try:
             preagg_spec = PreAggSpec(
-                name="hard_hats_by_state",
                 metrics=["${prefix}default.count_hard_hats"],
                 dimensions=["${prefix}default.us_state.state_name"],
                 catalog="default",
@@ -1870,13 +1870,33 @@ class TestDeployments:
             )
             assert data["status"] == "success", data["results"]
 
+            # The deploy result labels the pre-agg by what identifies it: the
+            # external table it adopts, plus the grain it covers.
+            assert [
+                result
+                for result in data["results"]
+                if result["deploy_type"] == "preaggregation"
+            ] == [
+                {
+                    "name": "default.analytics.hard_hats_agg "
+                    "[preagg_deploy.default.us_state.state_name]",
+                    "deploy_type": "preaggregation",
+                    "status": "success",
+                    "operation": "create",
+                    "message": "externally-built pre-aggregation",
+                    "changed_fields": [],
+                },
+            ]
+
             # The external pre-agg was registered against the fact node.
             listing = await client.get("/preaggs/", params={"node_name": fact_node})
             assert listing.status_code == 200, listing.text
             items = listing.json()["items"]
             assert len(items) == 1
             preagg = items[0]
-            assert preagg["name"] == "preagg_deploy.hard_hats_by_state"
+            # Registration no longer records a handle -- the row is identified
+            # by the table it is bound to and the grain it covers.
+            assert preagg["name"] is None
             assert preagg["strategy"] == "external"
             assert any(
                 measure["source_column"] == "hard_hat_count"
@@ -1956,7 +1976,6 @@ class TestDeployments:
         client.app.dependency_overrides[get_query_service_client] = lambda: mock_qs
         try:
             preagg = PreAggSpec(
-                name="dimcol_agg",
                 metrics=["${prefix}default.dimcol_count"],
                 dimensions=[
                     "${prefix}default.us_state.state_short",
@@ -7669,9 +7688,8 @@ def _clear_query_service(client):
     client.app.dependency_overrides.pop(get_query_service_client, None)
 
 
-def _preagg_spec(name, table, measure_columns, dimensions=None, dimension_columns=None):
+def _preagg_spec(table, measure_columns, dimensions=None, dimension_columns=None):
     return PreAggSpec(
-        name=name,
         metrics=["${prefix}default.count_hard_hats"],
         dimensions=dimensions or ["${prefix}default.us_state.state_name"],
         catalog="default",
@@ -7699,7 +7717,6 @@ class TestExternalPreAggDeploy:
         _override_query_service(client, ["hard_hat_count", "state_name"])
         try:
             bad = _preagg_spec(
-                "bad_preagg",
                 "hh_bad",
                 {"${prefix}default.does_not_exist": "hard_hat_count"},
             )
@@ -7738,7 +7755,6 @@ class TestExternalPreAggDeploy:
         client.app.dependency_overrides[get_query_service_client] = lambda: None
         try:
             spec = _preagg_spec(
-                "needs_qs",
                 "hh_qs",
                 {"${prefix}default.count_hard_hats": "hard_hat_count"},
             )
@@ -7788,7 +7804,6 @@ class TestExternalPreAggDeploy:
             assert data["status"] == "success", data["results"]
 
             spec = _preagg_spec(
-                "dry_preagg",
                 "hh_dry",
                 {"${prefix}default.count_hard_hats": "hard_hat_count"},
             )
@@ -7811,9 +7826,17 @@ class TestExternalPreAggDeploy:
 
             # Not yet registered -> planned CREATE, nothing persisted.
             results = await _impact_preagg_results([spec])
-            assert len(results) == 1
-            assert results[0]["name"] == "preagg_dry.dry_preagg"
-            assert results[0]["operation"] == "create"
+            assert results == [
+                {
+                    "name": "default.analytics.hh_dry "
+                    "[preagg_dry.default.us_state.state_name]",
+                    "deploy_type": "preaggregation",
+                    "status": "success",
+                    "operation": "create",
+                    "message": "externally-built pre-aggregation",
+                    "changed_fields": [],
+                },
+            ]
             listing = await client.get(
                 "/preaggs/",
                 params={"node_name": "preagg_dry.default.hard_hat_facts"},
@@ -7831,19 +7854,270 @@ class TestExternalPreAggDeploy:
             )
             assert data["status"] == "success", data["results"]
 
-            # Re-declaring it -> planned UPDATE.
+            # Re-declaring it -> planned UPDATE, under the same label.
             results = await _impact_preagg_results([spec])
-            assert [r["operation"] for r in results] == ["update"]
+            assert results == [
+                {
+                    "name": "default.analytics.hh_dry "
+                    "[preagg_dry.default.us_state.state_name]",
+                    "deploy_type": "preaggregation",
+                    "status": "success",
+                    "operation": "update",
+                    "message": "externally-built pre-aggregation",
+                    "changed_fields": [],
+                },
+            ]
 
             # Dropping it (allow_empty) -> planned DELETE, still there afterward.
             results = await _impact_preagg_results([], allow_empty=True)
-            assert len(results) == 1
-            assert results[0]["operation"] == "delete"
+            assert results == [
+                {
+                    "name": "default.analytics.hh_dry "
+                    "[preagg_dry.default.us_state.state_name]",
+                    "deploy_type": "preaggregation",
+                    "status": "success",
+                    "operation": "delete",
+                    "message": "dropped from spec",
+                    "changed_fields": [],
+                },
+            ]
             listing = await client.get(
                 "/preaggs/",
                 params={"node_name": "preagg_dry.default.hard_hat_facts"},
             )
             assert len(listing.json()["items"]) == 1
+        finally:
+            _clear_query_service(client)
+
+    @pytest.mark.asyncio
+    async def test_dry_run_matches_apply_when_the_grain_changes(
+        self,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """Widening a pre-aggregation's grain is a create plus a delete, because
+        the old row no longer covers the requested grain. The dry run resolves
+        each spec to the rows it lands on -- the same key the apply reconciles
+        by -- so preview and apply now report exactly the same operations."""
+        _override_query_service(client, ["hard_hat_count", "state_name"])
+        try:
+            nodes = _hard_hat_deploy_nodes(
+                default_hard_hats,
+                default_us_states,
+                default_us_state,
+            )
+            measure_columns = {"${prefix}default.count_hard_hats": "hard_hat_count"}
+            by_state = _preagg_spec("hh_grain", measure_columns)
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(
+                    namespace="preagg_grain",
+                    nodes=nodes,
+                    preaggregations=[by_state],
+                ),
+            )
+            assert data["status"] == "success", data["results"]
+
+            # Same table, new grain: the pre-agg is rebuilt per hard hat too.
+            by_state_and_hat = _preagg_spec(
+                "hh_grain",
+                measure_columns,
+                dimensions=[
+                    "${prefix}default.us_state.state_name",
+                    "${prefix}default.hard_hat_facts.hard_hat_id",
+                ],
+            )
+            regrained = DeploymentSpec(
+                namespace="preagg_grain",
+                nodes=nodes,
+                preaggregations=[by_state_and_hat],
+            )
+            impact = await client.post(
+                "/deployments/impact",
+                json=regrained.model_dump(),
+            )
+            previewed = [
+                (result["name"], result["operation"])
+                for result in impact.json()["results"]
+                if result["deploy_type"] == "preaggregation"
+            ]
+            data = await deploy_and_wait(client, regrained)
+            assert data["status"] == "success", data["results"]
+            applied = [
+                (result["name"], result["operation"])
+                for result in data["results"]
+                if result["deploy_type"] == "preaggregation"
+            ]
+
+            assert previewed == [
+                (
+                    "default.analytics.hh_grain "
+                    "[preagg_grain.default.hard_hat_facts.hard_hat_id, "
+                    "preagg_grain.default.us_state.state_name]",
+                    "create",
+                ),
+                (
+                    "default.analytics.hh_grain "
+                    "[preagg_grain.default.us_state.state_name]",
+                    "delete",
+                ),
+            ]
+            assert applied == previewed
+        finally:
+            _clear_query_service(client)
+
+    @pytest.mark.asyncio
+    async def test_dry_run_is_coarse_when_a_spec_cannot_be_resolved(
+        self,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """A first deploy is also what creates the metrics a pre-agg refers to,
+        so the dry run cannot resolve the spec to rows yet. It says so, once,
+        instead of guessing -- and, since the unresolved spec might still have
+        claimed the pre-agg already registered here, that one is reported as
+        uncertain rather than promised for deletion."""
+        _override_query_service(client, ["hard_hat_count", "state_name"])
+        try:
+            nodes = _hard_hat_deploy_nodes(
+                default_hard_hats,
+                default_us_states,
+                default_us_state,
+            )
+            measure_columns = {"${prefix}default.count_hard_hats": "hard_hat_count"}
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(
+                    namespace="preagg_unres",
+                    nodes=nodes,
+                    preaggregations=[_preagg_spec("hh_unres", measure_columns)],
+                ),
+            )
+            assert data["status"] == "success", data["results"]
+
+            # A pre-agg on metrics this deployment has not created (and this dry
+            # run will not create) cannot be resolved to rows.
+            unresolvable = PreAggSpec(
+                metrics=["${prefix}default.not_yet_deployed"],
+                dimensions=["${prefix}default.us_state.state_name"],
+                catalog="default",
+                schema="analytics",
+                table="hh_future",
+                measure_columns={
+                    "${prefix}default.not_yet_deployed": "hard_hat_count",
+                },
+            )
+            impact = await client.post(
+                "/deployments/impact",
+                json=DeploymentSpec(
+                    namespace="preagg_unres",
+                    nodes=nodes,
+                    preaggregations=[unresolvable],
+                ).model_dump(),
+            )
+            results = [
+                result
+                for result in impact.json()["results"]
+                if result["deploy_type"] == "preaggregation"
+            ]
+            assert [(result["name"], result["operation"]) for result in results] == [
+                ("default.analytics.hh_future", "unknown"),
+                (
+                    "default.analytics.hh_unres "
+                    "[preagg_unres.default.us_state.state_name]",
+                    "unknown",
+                ),
+            ]
+            assert results[1]["message"] == (
+                "may be dropped from spec, depending on the pre-aggregation(s) "
+                "that could not be previewed"
+            )
+            assert results[0]["message"].startswith(
+                "cannot be previewed until its metrics and dimensions exist: ",
+            )
+        finally:
+            _clear_query_service(client)
+
+    @pytest.mark.asyncio
+    async def test_legacy_named_preagg_still_reconciles(
+        self,
+        session,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """Rows written before the handle was retired keep their ``name`` in the
+        database. Reconciliation never read it -- it matches on revision, grain
+        and measures -- so such a row still loads, updates in place rather than
+        being duplicated, and is labelled by its table and grain like any
+        other."""
+        _override_query_service(client, ["hard_hat_count", "state_name"])
+        try:
+            nodes = _hard_hat_deploy_nodes(
+                default_hard_hats,
+                default_us_states,
+                default_us_state,
+            )
+            spec = _preagg_spec(
+                "hh_legacy",
+                {"${prefix}default.count_hard_hats": "hard_hat_count"},
+            )
+            deployment = DeploymentSpec(
+                namespace="preagg_legacy",
+                nodes=nodes,
+                preaggregations=[spec],
+            )
+            data = await deploy_and_wait(client, deployment)
+            assert data["status"] == "success", data["results"]
+
+            # Back-date the row to what an older DJ would have written.
+            fact_node = "preagg_legacy.default.hard_hat_facts"
+            listing = await client.get("/preaggs/", params={"node_name": fact_node})
+            preagg_id = listing.json()["items"][0]["id"]
+            legacy = await session.get(PreAggregation, preagg_id)
+            legacy.name = "preagg_legacy.hard_hats_by_state"
+            await session.commit()
+
+            expected = [
+                {
+                    "name": "default.analytics.hh_legacy "
+                    "[preagg_legacy.default.us_state.state_name]",
+                    "deploy_type": "preaggregation",
+                    "status": "success",
+                    "operation": "update",
+                    "message": "externally-built pre-aggregation",
+                    "changed_fields": [],
+                },
+            ]
+            impact = await client.post(
+                "/deployments/impact",
+                json=deployment.model_dump(),
+            )
+            assert [
+                result
+                for result in impact.json()["results"]
+                if result["deploy_type"] == "preaggregation"
+            ] == expected
+
+            data = await deploy_and_wait(client, deployment)
+            assert data["status"] == "success", data["results"]
+            assert [
+                result
+                for result in data["results"]
+                if result["deploy_type"] == "preaggregation"
+            ] == expected
+
+            # Updated in place: still one row, still carrying its legacy handle.
+            listing = await client.get("/preaggs/", params={"node_name": fact_node})
+            items = listing.json()["items"]
+            assert [(item["id"], item["name"]) for item in items] == [
+                (preagg_id, "preagg_legacy.hard_hats_by_state"),
+            ]
         finally:
             _clear_query_service(client)
 
@@ -7864,7 +8138,6 @@ class TestExternalPreAggDeploy:
                 default_us_state,
             )
             spec = _preagg_spec(
-                "keep_me",
                 "hh_keep",
                 {"${prefix}default.count_hard_hats": "hard_hat_count"},
             )
@@ -7917,7 +8190,6 @@ class TestExternalPreAggDeploy:
                     nodes=nodes,
                     preaggregations=[
                         _preagg_spec(
-                            "hh_agg",
                             "hh_agg_v1",
                             {"${prefix}default.count_hard_hats": "hh_count_v1"},
                         ),
@@ -7934,7 +8206,6 @@ class TestExternalPreAggDeploy:
                     nodes=nodes,
                     preaggregations=[
                         _preagg_spec(
-                            "hh_agg",
                             "hh_agg_v2",
                             {"${prefix}default.count_hard_hats": "hh_count_v2"},
                         ),
@@ -7979,7 +8250,6 @@ class TestExternalPreAggDeploy:
                     nodes=nodes,
                     preaggregations=[
                         _preagg_spec(
-                            "keep_me2",
                             "hh_keep2",
                             {"${prefix}default.count_hard_hats": "hard_hat_count"},
                         ),
@@ -8038,7 +8308,6 @@ class TestExternalPreAggDeploy:
                     nodes=nodes,
                     preaggregations=[
                         _preagg_spec(
-                            "warn_me",
                             "hh_warn",
                             {"${prefix}default.count_hard_hats": "hard_hat_count"},
                         ),
@@ -8118,7 +8387,6 @@ class TestExternalPreAggDeploy:
                     nodes=nodes,
                     preaggregations=[
                         _preagg_spec(
-                            "hh_by_state",
                             "hh_by_state_agg",
                             {"${prefix}default.count_hard_hats": "hard_hat_count"},
                             dimension_columns={

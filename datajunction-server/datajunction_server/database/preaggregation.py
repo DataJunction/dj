@@ -264,8 +264,12 @@ class PreAggregation(Base):
         unique=True,
     )
 
-    # Optional stable, human-supplied handle for externally-registered pre-aggs.
-    # Used by YAML deploy reconciliation and availability-by-name callbacks.
+    # Legacy human-supplied handle for externally-registered pre-aggs. Retired:
+    # registration no longer accepts a name and nothing reads this column. It
+    # was never load-bearing -- reconciliation matches on revision + grain +
+    # measure identity, and the availability callback is addressed by id
+    # (POST /preaggs/{preagg_id}/availability/). Kept nullable so rows written
+    # before it was retired still load.
     name: Mapped[str | None] = mapped_column(String, nullable=True)
 
     # === Materialization Config ===

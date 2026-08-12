@@ -771,7 +771,6 @@ async def register_preaggregations(
         session,
         query_service_client,
         request_headers,
-        name=data.name,
         metrics=data.metrics,
         dimensions=data.dimensions,
         table=data.table,

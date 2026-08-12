@@ -31,6 +31,7 @@ from datajunction_server.database.metricmetadata import MetricMetadata
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import MissingParent, NodeRelationship
 from datajunction_server.database.partition import Partition
+from datajunction_server.database.preaggregation import PreAggregation
 from datajunction_server.database.tag import Tag
 from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.errors import (
@@ -89,6 +90,7 @@ from datajunction_server.models.deployment import (
     MaterializationSpec,
     MetricSpec,
     NodeSpec,
+    PreAggSpec,
     SourceSpec,
     TagSpec,
     bump_version,
@@ -125,6 +127,32 @@ from datajunction_server.utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def preagg_label(table_ref: str, grain_columns: list[str]) -> str:
+    """
+    How a pre-aggregation is named in deployment results: the external table it
+    adopts, plus the grain it covers.
+
+    The table alone would be ambiguous, since one registration can produce
+    several pre-aggregations on the same table -- one per grain group -- and the
+    two together are what reconciliation actually matches on. Grain columns are
+    sorted so the label is stable no matter how the spec ordered them.
+    """
+    return f"{table_ref} [{', '.join(sorted(grain_columns))}]"
+
+
+def existing_preagg_label(preagg: PreAggregation) -> str:
+    """
+    The same label for a pre-aggregation already in the database. Its table
+    comes from availability, which a pre-aggregation registered without a
+    ``valid_through_ts`` does not have yet; those fall back to naming the node
+    they roll up.
+    """
+    return preagg_label(
+        preagg.materialized_table_ref or preagg.node_revision.name,
+        preagg.grain_columns,
+    )
 
 
 def _extract_dimension_refs_from_filters(
@@ -476,8 +504,6 @@ class DeploymentOrchestrator:
             # Pre-aggregations still need reconciling on an otherwise-empty
             # deploy: to register specs, or to delete external pre-aggs that were
             # dropped from the spec.
-            from datajunction_server.database.preaggregation import PreAggregation
-
             needs_preagg_reconcile = bool(
                 self.deployment_spec.preaggregations,
             ) or bool(
@@ -1118,10 +1144,11 @@ class DeploymentOrchestrator:
         remove EXTERNAL pre-aggs in this namespace that were dropped from it.
 
         Runs after nodes/links/cubes so the referenced metrics and dimensions
-        exist. Skipped during dry runs (registration introspects the external
-        table and mutates state). Reuses the same core as POST /preaggs/register.
+        exist. A dry run registers nothing (registration introspects the
+        external table and mutates state) and previews instead, see
+        ``_preview_preaggregations``. Reuses the same core as
+        POST /preaggs/register.
         """
-        from datajunction_server.database.preaggregation import PreAggregation
         from datajunction_server.internal.preaggregations import (
             register_external_preaggregations,
         )
@@ -1175,39 +1202,11 @@ class DeploymentOrchestrator:
             )
             return
 
-        declared_names = {spec.rendered_name for spec in specs}
         existing_ids = {preagg.id for preagg in existing}
-        existing_names = {preagg.name for preagg in existing}
 
-        # Dry run: report the planned register/delete without mutating anything
-        # (no registration, so no external-table introspection either). Delete
-        # planning is name-level here; the wet run below deletes by row identity.
+        # Dry run: report the planned register/delete without mutating anything.
         if self.dry_run:
-            for spec in specs:
-                self.deployed_results.append(
-                    DeploymentResult(
-                        name=spec.rendered_name,
-                        deploy_type=DeploymentResult.Type.PREAGG,
-                        status=DeploymentResult.Status.SUCCESS,
-                        operation=(
-                            DeploymentResult.Operation.UPDATE
-                            if spec.rendered_name in existing_names
-                            else DeploymentResult.Operation.CREATE
-                        ),
-                        message="externally-built pre-aggregation",
-                    ),
-                )
-            for preagg in existing:
-                if preagg.name not in declared_names:
-                    self.deployed_results.append(
-                        DeploymentResult(
-                            name=preagg.name or f"preaggregation:{preagg.id}",
-                            deploy_type=DeploymentResult.Type.PREAGG,
-                            status=DeploymentResult.Status.SUCCESS,
-                            operation=DeploymentResult.Operation.DELETE,
-                            message="dropped from spec",
-                        ),
-                    )
+            await self._preview_preaggregations(specs, existing)
             return
 
         query_service_client = self.context.query_service_client
@@ -1238,7 +1237,6 @@ class DeploymentOrchestrator:
                         self.session,
                         query_service_client,
                         request_headers,
-                        name=spec.rendered_name,
                         metrics=spec.rendered_metrics,
                         dimensions=spec.rendered_dimensions,
                         table=ExternalPreAggTable(
@@ -1254,7 +1252,10 @@ class DeploymentOrchestrator:
                     for preagg in created:
                         self.deployed_results.append(
                             DeploymentResult(
-                                name=spec.rendered_name,
+                                name=preagg_label(
+                                    spec.table_ref,
+                                    preagg.grain_columns,
+                                ),
                                 deploy_type=DeploymentResult.Type.PREAGG,
                                 status=DeploymentResult.Status.SUCCESS,
                                 operation=(
@@ -1270,7 +1271,7 @@ class DeploymentOrchestrator:
                         DJError(
                             code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
                             message=(
-                                f"Pre-aggregation '{spec.rendered_name}': {exc.message}"
+                                f"Pre-aggregation on '{spec.table_ref}': {exc.message}"
                             ),
                         ),
                     )
@@ -1291,7 +1292,7 @@ class DeploymentOrchestrator:
             if preagg.id not in upserted_ids:
                 self.deployed_results.append(
                     DeploymentResult(
-                        name=preagg.name or f"preaggregation:{preagg.id}",
+                        name=existing_preagg_label(preagg),
                         deploy_type=DeploymentResult.Type.PREAGG,
                         status=DeploymentResult.Status.SUCCESS,
                         operation=DeploymentResult.Operation.DELETE,
@@ -1302,6 +1303,96 @@ class DeploymentOrchestrator:
 
         await self.session.flush()
         logger.info("Reconciled %d pre-aggregation spec(s)", len(specs))
+
+    async def _preview_preaggregations(
+        self,
+        specs: list[PreAggSpec],
+        existing: list[PreAggregation],
+    ) -> None:
+        """
+        Report what pre-aggregation reconciliation would do, keyed exactly as the
+        apply keys it: the rows each spec resolves to.
+
+        The apply only learns those rows by registering, which a dry run cannot
+        do -- registration introspects the external table through the query
+        service. Everything the row identity depends on is pure decomposition,
+        though, so the preview resolves each spec to its grain groups and their
+        matching rows itself and reports the same creates and updates the apply
+        will perform, rather than diffing user-supplied handles (which reported a
+        single update where the apply did a create plus a delete).
+
+        A spec that cannot be resolved yet -- most often because this very deploy
+        is what creates its metrics -- is reported once as UNKNOWN instead of
+        being guessed at. Because such a spec might still have claimed an
+        existing row, the leftover rows are then reported as UNKNOWN too: a
+        preview must never promise a delete the apply will not perform.
+        """
+        from datajunction_server.internal.preaggregations import (
+            resolve_external_preagg_targets,
+        )
+
+        claimed_ids: set[int] = set()
+        unresolved = False
+        for spec in specs:
+            try:
+                targets = await resolve_external_preagg_targets(
+                    self.session,
+                    metrics=spec.rendered_metrics,
+                    dimensions=spec.rendered_dimensions,
+                )
+            except DJException as exc:
+                unresolved = True
+                self.deployed_results.append(
+                    DeploymentResult(
+                        name=spec.table_ref,
+                        deploy_type=DeploymentResult.Type.PREAGG,
+                        status=DeploymentResult.Status.SUCCESS,
+                        operation=DeploymentResult.Operation.UNKNOWN,
+                        message=(
+                            f"cannot be previewed until its metrics and "
+                            f"dimensions exist: {exc.message}"
+                        ),
+                    ),
+                )
+                continue
+            for target in targets:
+                if target.existing:
+                    claimed_ids.add(target.existing.id)
+                self.deployed_results.append(
+                    DeploymentResult(
+                        name=preagg_label(spec.table_ref, target.grain_columns),
+                        deploy_type=DeploymentResult.Type.PREAGG,
+                        status=DeploymentResult.Status.SUCCESS,
+                        operation=(
+                            DeploymentResult.Operation.UPDATE
+                            if target.existing
+                            else DeploymentResult.Operation.CREATE
+                        ),
+                        message="externally-built pre-aggregation",
+                    ),
+                )
+
+        for preagg in existing:
+            if preagg.id in claimed_ids:
+                continue
+            self.deployed_results.append(
+                DeploymentResult(
+                    name=existing_preagg_label(preagg),
+                    deploy_type=DeploymentResult.Type.PREAGG,
+                    status=DeploymentResult.Status.SUCCESS,
+                    operation=(
+                        DeploymentResult.Operation.UNKNOWN
+                        if unresolved
+                        else DeploymentResult.Operation.DELETE
+                    ),
+                    message=(
+                        "may be dropped from spec, depending on the "
+                        "pre-aggregation(s) that could not be previewed"
+                        if unresolved
+                        else "dropped from spec"
+                    ),
+                ),
+            )
 
     async def _setup_owners(self):
         """

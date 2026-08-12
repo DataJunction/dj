@@ -315,7 +315,6 @@ like this:
 ```yaml
 # views_by_page.yaml
 kind: preagg
-name: views_by_page
 metrics:
   - ${prefix}view_rate
 dimensions:
@@ -344,6 +343,13 @@ and be type-compatible — and only changes how the table is read, not how it's 
 dimension can even be a joined attribute the table has denormalized (say it stores `country` directly
 rather than an account key you'd otherwise join through), which DJ then reads straight from the table
 with no join.
+
+You'll notice the spec has no name of its own. It doesn't need one: a pre-aggregation is identified by
+the table it is bound to together with the grain it covers, which is exactly what DJ matches on when it
+reconciles a deploy, and that's how you'll see it referred to in deployment results (something like
+`warehouse.analytics.views_by_page_daily [geo_country_d.country_iso_code, page_d.page_id]`). Earlier
+versions asked for a `name` here; supplying one now is an error, so that a spec carrying a field nothing
+reads gets fixed rather than deployed.
 
 On deploy, DJ registers any pre-aggregation specs it finds. Because deployments are the source of truth,
 it also removes a previously-registered pre-aggregation once you drop its spec from a deploy that still

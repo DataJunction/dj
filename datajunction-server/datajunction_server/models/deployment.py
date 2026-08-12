@@ -37,6 +37,7 @@ from datajunction_server.models.node import (
     NodeType,
 )
 from datajunction_server.models.partition import Granularity, PartitionType
+from datajunction_server.models.preaggregation import reject_preagg_name
 from datajunction_server.models.unit import (
     Unit,
     legacy_unit_to_structured,
@@ -174,14 +175,18 @@ class HierarchySpec(NamespacedSpec):
     levels: list[HierarchyLevelSpec] = Field(default_factory=list, min_length=2)
 
 
-class PreAggSpec(NamespacedSpec):
+class PreAggSpec(BaseModel):
     """
     Specification for an externally-built pre-aggregation table adopted at deploy
-    time (equivalent to POST /preaggs/register). ``name`` is a stable handle used
-    for reconciliation and availability callbacks. Metric/dimension references may
-    use ``${prefix}`` or be fully qualified; they are rendered against the
+    time (equivalent to POST /preaggs/register). It carries no name: a
+    pre-aggregation is identified by the table it is bound to and the grain it
+    covers, which is what reconciliation matches on. Metric/dimension references
+    may use ``${prefix}`` or be fully qualified; they are rendered against the
     deployment namespace.
     """
+
+    # Not user-supplied, gets injected by DeploymentSpec.set_namespaces
+    namespace: str | None = Field(default=None, exclude=True)
 
     metrics: list[str] = Field(default_factory=list)
     dimensions: list[str] = Field(default_factory=list)
@@ -195,6 +200,17 @@ class PreAggSpec(NamespacedSpec):
     dimension_columns: dict[str, str] = Field(default_factory=dict)
 
     model_config = ConfigDict(populate_by_name=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_name(cls, values: Any) -> Any:
+        """Refuse the retired ``name`` handle (see ``reject_preagg_name``)."""
+        return reject_preagg_name(values)
+
+    @property
+    def table_ref(self) -> str:
+        """Fully qualified reference to the external table this spec adopts."""
+        return f"{self.catalog}.{self.schema_}.{self.table}"
 
     @property
     def rendered_metrics(self) -> list[str]:
