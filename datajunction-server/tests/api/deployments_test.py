@@ -1900,6 +1900,109 @@ class TestDeployments:
             del client.app.dependency_overrides[get_query_service_client]
 
     @pytest.mark.asyncio
+    async def test_deploy_preagg_two_map_form(
+        self,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        The two-map form of a pre-agg spec -- each metric and dimension declared
+        with its physical column inline -- deploys to exactly the pre-aggregation
+        the four-field form registers in
+        ``test_deploy_reconciles_external_preaggregation``, including a dimension
+        left unbound (``state_name:`` with no value), which falls back to its DJ
+        column name.
+        """
+        hard_hat_facts = TransformSpec(
+            name="default.hard_hat_facts",
+            node_type=NodeType.TRANSFORM,
+            query="SELECT hard_hat_id, state FROM ${prefix}default.hard_hats",
+            dimension_links=[
+                DimensionJoinLinkSpec(
+                    dimension_node="${prefix}default.us_state",
+                    join_type="inner",
+                    join_on=(
+                        "${prefix}default.hard_hat_facts.state = "
+                        "${prefix}default.us_state.state_short"
+                    ),
+                ),
+            ],
+            owners=["dj"],
+        )
+        count_hard_hats = MetricSpec(
+            name="default.count_hard_hats",
+            node_type=NodeType.METRIC,
+            query="SELECT COUNT(*) FROM ${prefix}default.hard_hat_facts",
+            owners=["dj"],
+        )
+
+        async def _fake_columns(*args, **kwargs):
+            return [
+                SimpleNamespace(name="hard_hat_count", type="bigint"),
+                SimpleNamespace(name="state_name", type="string"),
+            ]
+
+        mock_qs = MagicMock()
+        mock_qs.get_columns_for_table = _fake_columns
+        client.app.dependency_overrides[get_query_service_client] = lambda: mock_qs
+        try:
+            preagg_spec = PreAggSpec.model_validate(
+                {
+                    "name": "hard_hats_by_state",
+                    "metrics": {
+                        "${prefix}default.count_hard_hats": "hard_hat_count",
+                    },
+                    "dimensions": {"${prefix}default.us_state.state_name": None},
+                    "catalog": "default",
+                    "schema": "analytics",
+                    "table": "hard_hats_agg",
+                    "valid_through_ts": 1700000000,
+                },
+            )
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(
+                    namespace="preagg_map",
+                    nodes=[
+                        default_hard_hats,
+                        default_us_states,
+                        default_us_state,
+                        hard_hat_facts,
+                        count_hard_hats,
+                    ],
+                    preaggregations=[preagg_spec],
+                ),
+            )
+            assert data["status"] == "success", data["results"]
+
+            listing = await client.get(
+                "/preaggs/",
+                params={"node_name": "preagg_map.default.hard_hat_facts"},
+            )
+            assert listing.status_code == 200, listing.text
+            items = listing.json()["items"]
+            assert len(items) == 1
+            preagg = items[0]
+            assert preagg["name"] == "preagg_map.hard_hats_by_state"
+            assert preagg["strategy"] == "external"
+            assert [measure["source_column"] for measure in preagg["measures"]] == [
+                "hard_hat_count",
+            ]
+            # The unbound dimension carries no physical binding, which is how
+            # "the column is named after the DJ dimension" is recorded.
+            dimension_columns = [
+                col
+                for col in preagg["columns"]
+                if col.get("semantic_type") == "dimension"
+            ]
+            assert [col["name"] for col in dimension_columns] == ["state_name"]
+            assert [col.get("source_column") for col in dimension_columns] == [None]
+        finally:
+            del client.app.dependency_overrides[get_query_service_client]
+
+    @pytest.mark.asyncio
     async def test_deploy_preagg_applies_dimension_columns(
         self,
         client,

@@ -316,34 +316,39 @@ like this:
 # views_by_page.yaml
 kind: preagg
 name: views_by_page
-metrics:
-  - ${prefix}view_rate
-dimensions:
-  - ${prefix}page_d.page_id
-  - ${prefix}geo_country_d.country_iso_code
 catalog: warehouse
 schema: analytics
 table: views_by_page_daily
-measure_columns:
+metrics:
   ${prefix}view_secs: view_secs_sum
   ${prefix}session_count: session_cnt
-dimension_columns:
+dimensions:
   ${prefix}page_d.page_id: page
-  ${prefix}geo_country_d.country_iso_code: country
+  ${prefix}geo_country_d.country_iso_code:
 ```
 
-`view_rate` is listed as the metric you care about querying, but the column mapping is still declared
-against its underlying measures — DJ resolves `view_rate`'s dependency on `view_secs` and
-`session_count`, sees both are covered by columns in `measure_columns`, and considers `view_rate`
-covered as a result.
+Each metric and each dimension is written together with the physical column that holds it, so the
+reference and its binding never drift apart. What you list under `metrics` are the *measures* the table
+stores — `view_rate` doesn't appear at all, and doesn't need to: DJ resolves its dependency on
+`view_secs` and `session_count`, sees both are covered, and considers `view_rate` covered as a result.
+A measure always needs an explicit column, because its DJ-side name is generated with an
+expression-hash suffix and so is not something the table can be assumed to have matched.
 
-Grain columns are mapped the same way: the optional `dimension_columns` map binds each dimension
-reference to the physical column holding it (here `page_d.page_id` is stored as `page` and the country
-as `country`), and unmapped dimensions are read under DJ's own name. It's validated like `measure_columns` — the column must exist
-and be type-compatible — and only changes how the table is read, not how it's matched. A mapped
-dimension can even be a joined attribute the table has denormalized (say it stores `country` directly
-rather than an account key you'd otherwise join through), which DJ then reads straight from the table
-with no join.
+Dimensions are more forgiving. `page_d.page_id` is stored in the table as `page`, so it says so, while
+`geo_country_d.country_iso_code` is left empty — that's how you say the table already calls the column
+by DJ's own name, and it is what the majority of grain columns will look like. A binding is validated
+the same way a measure's is — the column must exist and be type-compatible — and only changes how the
+table is read, not how it's matched. A bound dimension can even be a joined attribute the table has
+denormalized (say it stores `country` directly rather than an account key you'd otherwise join
+through), which DJ then reads straight from the table with no join.
+
+If you have existing pre-aggregation files, note that the older four-field form — `metrics` and
+`dimensions` as plain lists, with the columns declared separately under `measure_columns` and
+`dimension_columns` — still parses exactly as it always did, and is still the way to name a derived
+metric like `view_rate` in the spec itself. There is no migration to do; the two forms mean the same
+thing to DJ. What you can't do is mix them within one file, since a map-form `metrics` alongside a
+`measure_columns` block would be declaring the same bindings twice, and DJ rejects that rather than
+guess which one you meant.
 
 On deploy, DJ registers any pre-aggregation specs it finds. Because deployments are the source of truth,
 it also removes a previously-registered pre-aggregation once you drop its spec from a deploy that still
