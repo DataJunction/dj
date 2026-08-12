@@ -1,4 +1,5 @@
 import pytest
+from pydantic import ValidationError
 
 from datajunction_server.errors import DJInvalidDeploymentConfig
 from datajunction_server.models.deployment import (
@@ -28,6 +29,7 @@ from datajunction_server.models.deployment import (
 )
 from datajunction_server.models.materialization import MaterializationStrategy
 from datajunction_server.models.node import MetricUnit, NodeMode, NodeType
+from datajunction_server.models.preaggregation import PREAGG_NAME_REMOVED_ERROR
 
 
 def test_source_spec():
@@ -618,7 +620,6 @@ def test_deployment_spec_preserves_explicit_preagg_namespace():
         namespace="ns",
         preaggregations=[
             PreAggSpec(
-                name="already_scoped",
                 namespace="explicit",
                 catalog="c",
                 schema="s",
@@ -626,7 +627,6 @@ def test_deployment_spec_preserves_explicit_preagg_namespace():
                 measure_columns={},
             ),
             PreAggSpec(
-                name="unscoped",
                 catalog="c",
                 schema="s",
                 table="t",
@@ -638,11 +638,40 @@ def test_deployment_spec_preserves_explicit_preagg_namespace():
     assert spec.preaggregations[1].namespace == "ns"
 
 
+def test_preagg_spec_rejects_a_name():
+    """
+    The retired handle is refused outright rather than quietly dropped, so a
+    spec that still carries one is fixed at the source instead of deploying
+    with a field nobody reads.
+    """
+    with pytest.raises(ValidationError) as exc_info:
+        PreAggSpec(
+            name="views_by_page",
+            catalog="warehouse",
+            schema="analytics",
+            table="views_by_page_daily",
+        )
+    assert [
+        (error["loc"], error["type"], error["msg"]) for error in exc_info.value.errors()
+    ] == [((), "value_error", f"Value error, {PREAGG_NAME_REMOVED_ERROR}")]
+    assert PREAGG_NAME_REMOVED_ERROR == (
+        "Pre-aggregations no longer take a `name`. DJ identifies an "
+        "externally-registered pre-aggregation by the table it is bound to and "
+        "the grain it covers, and reconciles a deploy against those, so the "
+        "handle was never read. Remove `name` from the pre-aggregation."
+    )
+
+
+def test_preagg_spec_table_ref():
+    """The table reference is what labels a pre-aggregation in deploy results."""
+    spec = PreAggSpec(catalog="warehouse", schema="analytics", table="views_daily")
+    assert spec.table_ref == "warehouse.analytics.views_daily"
+
+
 def test_preagg_spec_renders_dimension_columns():
     """dimension_columns keys are prefix-rendered against the namespace, like
     measure_columns; values (physical columns) are left as-is."""
     spec = PreAggSpec(
-        name="p",
         namespace="ns",
         metrics=["${prefix}count"],
         dimensions=["${prefix}d.attr"],

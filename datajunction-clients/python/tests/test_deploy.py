@@ -53,7 +53,6 @@ def test_reconstruct_deployment_spec_separates_preaggregations(tmp_path):
     )
     (tmp_path / "revenue_by_day.yaml").write_text(
         "kind: preagg\n"
-        "name: revenue_by_day\n"
         "metrics:\n  - ns.revenue\n"
         "dimensions:\n  - ns.date.day\n"
         "catalog: default\n"
@@ -69,7 +68,7 @@ def test_reconstruct_deployment_spec_separates_preaggregations(tmp_path):
     assert [node["name"] for node in spec["nodes"]] == ["ns.revenue"]
     assert len(spec["preaggregations"]) == 1
     preagg = spec["preaggregations"][0]
-    assert preagg["name"] == "revenue_by_day"
+    assert preagg["table"] == "revenue_agg"
     assert preagg["measure_columns"] == {"ns.revenue": "revenue_sum"}
     # The discriminator is stripped before reaching the payload.
     assert "kind" not in preagg

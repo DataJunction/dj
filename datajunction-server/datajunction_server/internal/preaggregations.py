@@ -8,6 +8,7 @@ call it without importing from the ``api`` layer, keeping the dependency
 direction api -> internal.
 """
 
+from dataclasses import dataclass
 from typing import cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,6 +29,7 @@ from datajunction_server.database.preaggregation import (
     compute_grain_group_hash,
     compute_preagg_hash,
     get_measure_identities,
+    measure_identity_token,
 )
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.decompose import PreAggMeasure
@@ -120,7 +122,6 @@ async def register_external_preaggregations(
     query_service_client: QueryServiceClient,
     request_headers: dict[str, str],
     *,
-    name: str | None,
     metrics: list[str],
     dimensions: list[str],
     table: ExternalPreAggTable,
@@ -318,7 +319,6 @@ async def register_external_preaggregations(
             existing.columns = columns
             existing.sql = grain_group.sql
             existing.strategy = MaterializationStrategy.EXTERNAL
-            existing.name = name
             preagg = existing
         else:
             preagg = PreAggregation(
@@ -334,7 +334,6 @@ async def register_external_preaggregations(
                     grain_measures,
                 ),
                 strategy=MaterializationStrategy.EXTERNAL,
-                name=name,
             )
             session.add(preagg)
         created_preaggs.append(preagg)
@@ -354,3 +353,66 @@ async def register_external_preaggregations(
 
     await session.flush()
     return created_preaggs
+
+
+@dataclass
+class PreAggTarget:
+    """
+    One grain group a pre-aggregation spec resolves to, together with the
+    existing row (if any) that registering it would land on.
+    """
+
+    grain_columns: list[str]
+    existing: PreAggregation | None
+
+
+async def resolve_external_preagg_targets(
+    session: AsyncSession,
+    *,
+    metrics: list[str],
+    dimensions: list[str],
+) -> list[PreAggTarget]:
+    """
+    Work out which pre-aggregation rows a spec maps to, without introspecting
+    the external table.
+
+    ``register_external_preaggregations`` only discovers this by registering: it
+    decomposes the metrics into grain groups and, for each, looks for a row that
+    already covers the same measures at the same grain. Neither step needs the
+    query service -- only binding the physical columns does -- so a deploy dry
+    run can reproduce the lookup exactly and preview the very operations the
+    apply will perform, instead of guessing from a user-supplied handle.
+    """
+    measures_result = await build_measures_sql(
+        session=session,
+        metrics=metrics,
+        dimensions=dimensions,
+        dialect=Dialect.SPARK,
+        use_materialized=False,
+    )
+    assert_dimension_refs_are_role_qualified(measures_result, dimensions)
+
+    targets: list[PreAggTarget] = []
+    for grain_group in measures_result.grain_groups:
+        parent_node = measures_result.ctx.nodes.get(grain_group.parent_name)
+        if not parent_node or not parent_node.current:  # pragma: no cover
+            continue
+        grain_columns = list(measures_result.requested_dimensions)
+        targets.append(
+            PreAggTarget(
+                grain_columns=grain_columns,
+                existing=await PreAggregation.find_matching(
+                    session=session,
+                    node_revision_id=parent_node.current.id,
+                    grain_columns=grain_columns,
+                    measure_identities={
+                        measure_identity_token(
+                            compute_expression_hash(component.expression),
+                            component.normalized_aggregation,
+                        )
+                        for component in grain_group.components
+                    },
+                ),
+            ),
+        )
+    return targets

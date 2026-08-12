@@ -14,7 +14,10 @@ from datajunction_server.database.partition import Partition
 from datajunction_server.database.preaggregation import PreAggregation
 from datajunction_server.models.materialization import MaterializationStrategy
 from datajunction_server.models.partition import Granularity, PartitionType
-from datajunction_server.models.preaggregation import WorkflowUrl
+from datajunction_server.models.preaggregation import (
+    PREAGG_NAME_REMOVED_ERROR,
+    WorkflowUrl,
+)
 from datajunction_server.utils import get_query_service_client
 from datajunction_server.construction.build_v3.builder import build_measures_sql
 from datajunction_server.models.access import ResourceAction
@@ -2683,17 +2686,17 @@ class TestRegisterPreAggregations:
             del client_with_build_v3.app.dependency_overrides[get_query_service_client]
 
     @pytest.mark.asyncio
-    async def test_register_sets_external_strategy_and_name(
+    async def test_register_sets_external_strategy_and_no_name(
         self,
         client_with_build_v3: AsyncClient,
     ):
-        """A registered pre-agg is marked EXTERNAL and keeps its handle."""
+        """A registered pre-agg is marked EXTERNAL and carries no handle: it is
+        identified by the table it is bound to and the grain it covers."""
         _mock_query_service(client_with_build_v3, ["revenue_total", "order_cnt"])
         try:
             response = await client_with_build_v3.post(
                 "/preaggs/register",
                 json={
-                    "name": "aov_by_category",
                     "metrics": ["v3.avg_order_value"],
                     "dimensions": ["v3.product.category"],
                     "table": {
@@ -2711,9 +2714,42 @@ class TestRegisterPreAggregations:
             assert response.status_code == 201, response.text
             preagg = response.json()["preaggs"][0]
             assert preagg["strategy"] == "external"
-            assert preagg["name"] == "aov_by_category"
+            assert preagg["name"] is None
         finally:
             del client_with_build_v3.app.dependency_overrides[get_query_service_client]
+
+    @pytest.mark.asyncio
+    async def test_register_rejects_a_name(
+        self,
+        client_with_build_v3: AsyncClient,
+    ):
+        """The retired handle is refused with an explanation, on the same terms
+        as the deploy spec, rather than being accepted and ignored."""
+        response = await client_with_build_v3.post(
+            "/preaggs/register",
+            json={
+                "name": "aov_by_category",
+                "metrics": ["v3.avg_order_value"],
+                "dimensions": ["v3.product.category"],
+                "table": {
+                    "catalog": "default",
+                    "schema": "analytics",
+                    "table": "aov_agg",
+                },
+                "measure_columns": {"v3.total_revenue": "revenue_total"},
+            },
+        )
+        assert response.status_code == 422, response.text
+        assert [
+            (error["loc"], error["type"], error["msg"])
+            for error in response.json()["detail"]
+        ] == [
+            (
+                ["body"],
+                "value_error",
+                f"Value error, {PREAGG_NAME_REMOVED_ERROR}",
+            ),
+        ]
 
     async def _register_external(self, client, table_name):
         """Register a simple external pre-agg and return its id."""

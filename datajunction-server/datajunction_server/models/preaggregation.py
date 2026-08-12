@@ -5,7 +5,7 @@ Models for pre-aggregation API requests and responses.
 from datetime import date, datetime
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from datajunction_server.enum import StrEnum
 from datajunction_server.models.decompose import PreAggMeasure
@@ -14,6 +14,27 @@ from datajunction_server.models.node import PartitionAvailability
 from datajunction_server.models.node_type import NodeNameVersion
 from datajunction_server.models.partition import Granularity
 from datajunction_server.models.query import ColumnMetadata, V3ColumnMetadata
+
+
+#: Raised when a caller still supplies the retired ``name`` handle on an
+#: externally-registered pre-aggregation. Shared by the request model and the
+#: deployment spec so both paths say the same thing.
+PREAGG_NAME_REMOVED_ERROR = (
+    "Pre-aggregations no longer take a `name`. DJ identifies an "
+    "externally-registered pre-aggregation by the table it is bound to and the "
+    "grain it covers, and reconciles a deploy against those, so the handle was "
+    "never read. Remove `name` from the pre-aggregation."
+)
+
+
+def reject_preagg_name(values: Any) -> Any:
+    """
+    Refuse a supplied ``name`` outright rather than dropping it silently, so a
+    spec that still carries the retired handle fails loudly at the edge.
+    """
+    if isinstance(values, dict) and "name" in values:
+        raise ValueError(PREAGG_NAME_REMOVED_ERROR)
+    return values
 
 
 class WorkflowStatus(StrEnum):
@@ -117,13 +138,6 @@ class RegisterPreAggregationsRequest(BaseModel):
     pre-aggregation so grain resolution can route queries to it.
     """
 
-    name: str | None = Field(
-        default=None,
-        description=(
-            "Optional stable handle for the pre-aggregation, used by YAML deploy "
-            "reconciliation and availability-by-name callbacks."
-        ),
-    )
     metrics: list[str] = Field(
         description="Metric node names the external table should serve",
     )
@@ -147,6 +161,12 @@ class RegisterPreAggregationsRequest(BaseModel):
             "dimension's. Unmapped dimensions default to their DJ column name."
         ),
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_name(cls, values: Any) -> Any:
+        """Refuse the retired ``name`` handle (see ``reject_preagg_name``)."""
+        return reject_preagg_name(values)
 
 
 class UpdatePreAggregationAvailabilityRequest(BaseModel):
@@ -222,7 +242,9 @@ class PreAggregationInfo(BaseModel):
     sql: str  # The generated SQL for materializing this pre-agg
     grain_group_hash: str
     preagg_hash: str  # Unique hash including measures (used for table/workflow naming)
-    name: str | None = None  # Stable handle for externally-registered pre-aggs
+    # Legacy handle carried by pre-aggs registered before the name was retired.
+    # Nothing reads it; new registrations leave it unset.
+    name: str | None = None
 
     # Materialization config
     strategy: MaterializationStrategy | None = None
