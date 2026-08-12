@@ -22,7 +22,7 @@ description: |
   - external pre-aggregation, externally-built aggregate, registered aggregate
   - multiple tables for a metric, fact table and agg table, fact/agg hierarchy
   - summary table, rollup table, agg table, materialized aggregate
-  - measure_columns, dimension_columns, valid_through_ts, availability
+  - metrics map, dimensions map, column binding, valid_through_ts, availability
   - freshness, join back, retained key
 user-invocable: false
 ---
