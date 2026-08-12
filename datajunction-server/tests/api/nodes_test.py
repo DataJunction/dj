@@ -2668,6 +2668,54 @@ class TestNodeCRUD:
         assert described_columns["id"] == "described id"
 
     @pytest.mark.asyncio
+    async def test_refresh_sets_a_group_owner(
+        self,
+        module__client_with_roads: AsyncClient,
+        module__query_service_client: QueryServiceClient,
+        mocker: MockerFixture,
+    ):
+        """
+        A table owned by a group is applied as the node's owner.
+
+        Some catalogs only name a group for a table. Recording it as a USER would
+        both misstate what it is and collide with the group principal that group
+        membership sync creates under the same username.
+        """
+        columns = await module__query_service_client.get_columns_for_table(
+            "default",
+            "roads",
+            "repair_orders",
+            request_headers={},
+        )
+
+        async def _group_owner(*args, **kwargs):
+            return TableMetadata(
+                columns=columns,
+                owner=TableOwner(
+                    username="data-eng@example.com",
+                    email="data-eng@example.com",
+                    display_name="Data Engineering",
+                    is_group=True,
+                ),
+            )
+
+        mocker.patch.object(
+            module__query_service_client,
+            "get_table_metadata",
+            _group_owner,
+        )
+        await module__client_with_roads.post(
+            "/nodes/default.repair_orders/refresh/",
+        )
+        after = (
+            await module__client_with_roads.get("/nodes/default.repair_orders/")
+        ).json()
+        # The principal kind itself is asserted in
+        # tests/database/nodeowner_test.py, against the same session that writes
+        # it -- this fixture's session is a different container and cannot see it.
+        assert after["owners"] == [{"username": "data-eng@example.com"}]
+
+    @pytest.mark.asyncio
     async def test_refresh_records_column_type_changes(
         self,
         module__client_with_roads: AsyncClient,

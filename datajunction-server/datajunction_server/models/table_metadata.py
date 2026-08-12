@@ -22,6 +22,10 @@ class TableOwner(BaseModel):
     username: str
     email: str | None = None
     display_name: str = ""
+    # True when the owner is a group rather than an individual. Some catalogs
+    # only name a group for a table, and a group owner outlives the people in
+    # it, so recording it as a person would be both wrong and fragile.
+    is_group: bool = False
 
 
 class TableMetadata(BaseModel):

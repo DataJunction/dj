@@ -49,7 +49,7 @@ from datajunction_server.database.preaggregation import (
     compute_expression_hash,
     measure_identity_token,
 )
-from datajunction_server.database.user import OAuthProvider, User
+from datajunction_server.database.user import OAuthProvider, PrincipalKind, User
 from datajunction_server.errors import (
     DJDoesNotExistException,
     DJError,
@@ -1572,6 +1572,7 @@ async def apply_table_owner(
             email=owner.email,
             name=owner.display_name or owner.username,
             oauth_provider=OAuthProvider.BASIC,
+            kind=PrincipalKind.GROUP if owner.is_group else PrincipalKind.USER,
         )
         session.add(user)
         await session.flush()
