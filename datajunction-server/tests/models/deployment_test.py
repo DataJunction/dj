@@ -1,5 +1,4 @@
 import pytest
-from pydantic import ValidationError
 
 from datajunction_server.errors import DJInvalidDeploymentConfig
 from datajunction_server.models.deployment import (
@@ -657,15 +656,12 @@ def _preagg_spec_dict() -> dict:
 
 def test_preagg_spec_renders_column_bindings():
     """
-    The maps are split back into the references-plus-bindings shape the
-    registration internals take, with every reference prefix-rendered against
-    the namespace and the physical columns left as-is.
+    Every reference is prefix-rendered against the namespace and stays bound to
+    the physical column that holds it, which is left as-is.
     """
     spec = PreAggSpec.model_validate(_preagg_spec_dict())
-    assert spec.rendered_metrics == ["ns.count"]
-    assert spec.rendered_dimensions == ["ns.d.attr", "ns.d.same"]
-    assert spec.rendered_measure_columns == {"ns.count": "cnt"}
-    assert spec.rendered_dimension_columns == {
+    assert spec.rendered_metrics == {"ns.count": "cnt"}
+    assert spec.rendered_dimensions == {
         "ns.d.attr": "phys_attr",
         "ns.d.same": "same",
     }
@@ -693,94 +689,9 @@ def test_preagg_spec_round_trips_through_model_dump():
     }
 
 
-def test_preagg_spec_rejects_measure_columns_block():
-    """
-    The four-field form is gone: `measure_columns` would otherwise be ignored as
-    an unknown key, silently dropping every binding it declared.
-    """
-    spec = _preagg_spec_dict()
-    spec["metrics"] = ["${prefix}count"]
-    spec["measure_columns"] = {"${prefix}count": "cnt"}
-    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
-        PreAggSpec.model_validate(spec)
-    assert exc_info.value.message == (
-        "Pre-aggregation 'p' declares `measure_columns`, which is no longer a "
-        "pre-aggregation field. Declare the physical column alongside what it "
-        "holds instead, as `metrics: {<reference>: <column>}`, and drop the "
-        "`measure_columns` block."
-    )
-
-
-def test_preagg_spec_rejects_dimension_columns_block():
-    """Same for `dimension_columns`, the other half of the retired form."""
-    spec = _preagg_spec_dict()
-    spec["dimensions"] = ["${prefix}d.attr"]
-    spec["dimension_columns"] = {"${prefix}d.attr": "phys_attr"}
-    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
-        PreAggSpec.model_validate(spec)
-    assert exc_info.value.message == (
-        "Pre-aggregation 'p' declares `dimension_columns`, which is no longer a "
-        "pre-aggregation field. Declare the physical column alongside what it "
-        "holds instead, as `dimensions: {<reference>: <column>}`, and drop the "
-        "`dimension_columns` block."
-    )
-
-
-def test_preagg_spec_rejects_list_of_references():
-    """
-    A bare list of references carries no bindings at all, so it is refused with
-    the shape to write instead rather than a pydantic type error.
-    """
-    spec = _preagg_spec_dict()
-    spec["metrics"] = ["${prefix}count"]
-    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
-        PreAggSpec.model_validate(spec)
-    assert exc_info.value.message == (
-        "Pre-aggregation 'p' declares `metrics` as a list. `metrics` is a map "
-        "from each reference to the physical column of the external table that "
-        "holds it, e.g. `metrics: {<reference>: <column>}`."
-    )
-
-
-def test_preagg_spec_rejects_metric_without_column():
-    """A measure's DJ-side name is hashed, so there is nothing to default to."""
-    spec = _preagg_spec_dict()
-    spec["metrics"] = {"${prefix}count": None, "${prefix}total": "total_sum"}
-    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
-        PreAggSpec.model_validate(spec)
-    assert exc_info.value.message == (
-        "Pre-aggregation 'p' leaves the physical column empty under `metrics` "
-        "for ['${prefix}count']. A measure's DJ-side name is auto-generated "
-        "with an expression-hash suffix, so there is no name to fall back on."
-    )
-
-
-def test_preagg_spec_rejects_dimension_without_column():
-    """
-    A dimension is held to the same rule, even though its DJ column name would
-    be a plausible default: a trailing colon is too easy to write by accident,
-    and the written-out name documents the table.
-    """
-    spec = _preagg_spec_dict()
-    spec["dimensions"] = {"${prefix}d.attr": "phys_attr", "${prefix}d.same": None}
-    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
-        PreAggSpec.model_validate(spec)
-    assert exc_info.value.message == (
-        "Pre-aggregation 'p' leaves the physical column empty under "
-        "`dimensions` for ['${prefix}d.same']. Write the column out even when "
-        "it matches the DJ column name, so the file says what the table "
-        "actually holds."
-    )
-
-
-def test_preagg_spec_rejects_non_mapping_input():
-    """
-    Input that isn't a mapping at all falls through the binding checks and gets
-    pydantic's own error, rather than blowing up inside the validator.
-    """
-    with pytest.raises(ValidationError) as exc_info:
-        PreAggSpec.model_validate(["not", "a", "spec"])
-    assert exc_info.value.errors()[0]["type"] == "model_type"
+# The three rejections that hold a spec to the map form are shared with
+# POST /preaggs/register and asserted for both surfaces in
+# tests/models/preagg_binding_test.py.
 
 
 def test_tag_spec_metadata_aliases():
