@@ -96,7 +96,8 @@ chooses the **smallest grain** that covers the request.
 
 Dimension references are compared **canonically**, so when exactly one role reaches a dimension, a bare
 name and its role-qualified spelling match each other — a pre-aggregation registered with one spelling
-still serves queries written with the other, including its `dimension_columns` column mapping. If the
+still serves queries written with the other, including the physical column bound to it under
+`dimensions`. If the
 dimension is also reachable by a role-free link, the bare name means that link and the two spellings
 stay distinct, since that's how the reference resolves everywhere else. A bare name is only rejected
 when the dimension is reachable by more than one role, since then it identifies none of them: a fact
@@ -176,8 +177,8 @@ just applying it at registration time instead of at materialization time.
 ### Plan for this when you author metrics, not when you register tables
 
 This constraint reaches back into how you model, because it cannot be worked around
-later. `measure_columns` maps a **metric to a single column**, so a metric that
-decomposes into more than one component has nothing to map and registration refuses
+later. The `metrics` map binds a **metric to a single column**, so a metric that
+decomposes into more than one component has nothing to bind and registration refuses
 it. And the components it *does* decompose into are named automatically, with a hash
 suffix derived from the expression — `line_total_sum_e1f61696`,
 `customer_id_hll_23002251` — names that are deliberately not addressable from YAML.
@@ -189,7 +190,7 @@ SELECT SUM(revenue) / COUNT(DISTINCT view_id) FROM fct_views
 ```
 
 can never be bound to an aggregate table, no matter what columns that table holds.
-There is no spelling of `measure_columns` that reaches its two components. The only
+There is no entry under `metrics` that reaches its two components. The only
 fix is to refactor the metric, which means changing a node other teams may already
 be querying.
 
@@ -217,11 +218,11 @@ partials with `SUM` and maxima with `MAX`, but you can't recover a maximum from 
 
 Two consequences when you register a table:
 
-- **One table can back several aggregations of the same column**, each with its own mapping. If your
-  table stores both a total and a peak, map them separately and both bindings are kept:
+- **One table can back several aggregations of the same column**, each with its own binding. If your
+  table stores both a total and a peak, bind them separately and both are kept:
 
   ```yaml
-  measure_columns:
+  metrics:
     ${prefix}total_price: price_sum
     ${prefix}peak_price: price_max
   ```
