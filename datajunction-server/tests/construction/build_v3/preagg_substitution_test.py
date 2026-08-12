@@ -4435,3 +4435,137 @@ class TestPreAggJoinBack:
             GROUP BY order_details_0.customer_id, order_details_0.name_customer
             """,
         )
+
+
+class TestRegistrationUpsertIdentity:
+    """
+    Registration upserts on the EXACT declaration, never on a wider one.
+
+    The upsert replaces the matched row's measures, SQL and columns wholesale,
+    so matching a merely-covering row would strip measures off a pre-agg other
+    metrics route to -- and, for an external pre-agg, leave the rewritten row
+    still bound to the first registration's physical table.
+    """
+
+    @staticmethod
+    async def _list_by_table(client) -> dict[str, dict]:
+        """Every pre-agg on v3.order_details, keyed by its materialized table."""
+        listing = await client.get(
+            "/preaggs/",
+            params={"node_name": "v3.order_details"},
+        )
+        assert listing.status_code == 200, listing.text
+        return {row["materialized_table_ref"]: row for row in listing.json()["items"]}
+
+    @staticmethod
+    async def _register_wide(client, table="wide_by_status"):
+        """A pre-agg covering both revenue and quantity, at status grain."""
+        return await _register_external_preagg(
+            client,
+            metrics=["v3.total_revenue", "v3.total_quantity"],
+            dimensions=["v3.order_details.status"],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": table,
+                "valid_through_ts": 20250101,
+            },
+            measure_columns={
+                "v3.total_revenue": "rev_sum",
+                "v3.total_quantity": "qty_sum",
+            },
+            table_columns={
+                "status": "string",
+                "rev_sum": "double",
+                "qty_sum": "double",
+            },
+        )
+
+    @staticmethod
+    async def _register_narrow(client, table="narrow_by_status"):
+        """A pre-agg covering only revenue, at the same grain."""
+        return await _register_external_preagg(
+            client,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.order_details.status"],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": table,
+                "valid_through_ts": 20250101,
+            },
+            measure_columns={"v3.total_revenue": "rev_sum"},
+            table_columns={"status": "string", "rev_sum": "double"},
+        )
+
+    @pytest.mark.asyncio
+    async def test_narrower_registration_gets_its_own_row(
+        self,
+        client_with_build_v3,
+    ):
+        """A narrower declaration inserts rather than cannibalising the wider
+        row, which keeps every measure it was registered with."""
+        wide = await self._register_wide(client_with_build_v3)
+        wide_id = wide.json()["preaggs"][0]["id"]
+        narrow = await self._register_narrow(client_with_build_v3)
+        narrow_id = narrow.json()["preaggs"][0]["id"]
+        assert narrow_id != wide_id
+
+        rows = await self._list_by_table(client_with_build_v3)
+        assert set(rows) == {
+            "default.analytics.wide_by_status",
+            "default.analytics.narrow_by_status",
+        }
+        assert {
+            measure["source_column"]
+            for measure in rows["default.analytics.wide_by_status"]["measures"]
+        } == {"rev_sum", "qty_sum"}
+        assert {
+            measure["source_column"]
+            for measure in rows["default.analytics.narrow_by_status"]["measures"]
+        } == {"rev_sum"}
+        # The row bound to the first table was never rewritten to serve the
+        # second one's measures.
+        assert rows["default.analytics.wide_by_status"]["id"] == wide_id
+        assert rows["default.analytics.narrow_by_status"]["id"] == narrow_id
+
+    @pytest.mark.asyncio
+    async def test_wider_preagg_still_routes_after_narrower_registration(
+        self,
+        client_with_build_v3,
+    ):
+        """The measure only the wider pre-agg covers still reads its table."""
+        await self._register_wide(client_with_build_v3)
+        await self._register_narrow(client_with_build_v3)
+
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_quantity"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+        assert response.status_code == 200, response.text
+        assert_sql_equal(
+            get_first_grain_group(response.json())["sql"],
+            """
+            SELECT status, SUM(qty_sum) qty_sum
+            FROM default.analytics.wide_by_status
+            GROUP BY status
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_identical_registration_still_updates_in_place(
+        self,
+        client_with_build_v3,
+    ):
+        """Exact matching is still a match: the same declaration re-registered
+        against a new table moves that one row rather than adding another."""
+        first = await self._register_wide(client_with_build_v3)
+        first_id = first.json()["preaggs"][0]["id"]
+        again = await self._register_wide(client_with_build_v3, "wide_moved")
+        assert again.json()["preaggs"][0]["id"] == first_id
+
+        rows = await self._list_by_table(client_with_build_v3)
+        assert set(rows) == {"default.analytics.wide_moved"}
