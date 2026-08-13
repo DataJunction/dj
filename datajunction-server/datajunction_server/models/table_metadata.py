@@ -47,3 +47,6 @@ class TableMetadata(BaseModel):
     # (Snowflake COMMENT, BigQuery description, Iceberg/Hive comment). Per-column
     # descriptions ride along on ``columns``, which already has the field.
     description: str | None = None
+    # Column names the catalog reports as the table's primary key. DJ models this
+    # as a column attribute, set by hand today.
+    primary_key: list[str] = []
