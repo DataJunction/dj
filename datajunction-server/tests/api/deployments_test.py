@@ -7474,6 +7474,178 @@ class TestCubeRoleCollisionDeployment:
 
 
 @pytest.mark.xdist_group(name="deployments")
+class TestCubeChainedRoleDeployment:
+    """A dimension reached over two FK hops carries a chained role
+    (``[customer->registration]``).
+
+    ``_batch_load_dimensions`` parses those references with ``FullColumnName``,
+    whose role pattern accepts ``-`` and ``>``, so the reference validated fine.
+    The deploy loop then re-stripped the role with ``COLUMN_NAME_REGEX``, whose
+    role group did not, so ``re.fullmatch`` returned None, the still-role-suffixed
+    name never matched a column, and the dimension was dropped from the cube --
+    with the deploy reporting SUCCESS, because the two parsers disagreeing meant
+    the missing-dimension check upstream saw nothing wrong."""
+
+    def _nodes(self):
+        return [
+            SourceSpec(
+                name="orders_raw",
+                description="Raw orders",
+                catalog="default",
+                schema="roads",
+                table="orders_raw",
+                columns=[
+                    ColumnSpec(name="order_id", type="int"),
+                    ColumnSpec(name="customer_id", type="int"),
+                ],
+                dimension_links=[],
+                owners=["dj"],
+            ),
+            SourceSpec(
+                name="customers_raw",
+                description="Raw customers",
+                catalog="default",
+                schema="roads",
+                table="customers_raw",
+                columns=[
+                    ColumnSpec(name="customer_id", type="int"),
+                    ColumnSpec(name="registration_dateint", type="int"),
+                ],
+                dimension_links=[],
+                owners=["dj"],
+            ),
+            SourceSpec(
+                name="dates_raw",
+                description="Raw dates",
+                catalog="default",
+                schema="roads",
+                table="dates_raw",
+                columns=[
+                    ColumnSpec(name="dateint", type="int"),
+                    ColumnSpec(name="year", type="int"),
+                ],
+                dimension_links=[],
+                owners=["dj"],
+            ),
+            DimensionSpec(
+                name="dates_d",
+                description="Date dimension",
+                query="SELECT dateint, year FROM ${prefix}dates_raw",
+                primary_key=["dateint"],
+                dimension_links=[],
+                owners=["dj"],
+            ),
+            DimensionSpec(
+                name="customers_d",
+                description="Customer dimension, itself linked to dates",
+                query=(
+                    "SELECT customer_id, registration_dateint "
+                    "FROM ${prefix}customers_raw"
+                ),
+                primary_key=["customer_id"],
+                dimension_links=[
+                    DimensionJoinLinkSpec(
+                        dimension_node="${prefix}dates_d",
+                        join_type="left",
+                        join_on=(
+                            "${prefix}customers_d.registration_dateint = "
+                            "${prefix}dates_d.dateint"
+                        ),
+                        role="registration",
+                    ),
+                ],
+                owners=["dj"],
+            ),
+            TransformSpec(
+                name="orders_f",
+                description="Orders fact linked to customers under role `customer`",
+                query="SELECT order_id, customer_id FROM ${prefix}orders_raw",
+                dimension_links=[
+                    DimensionJoinLinkSpec(
+                        dimension_node="${prefix}customers_d",
+                        join_type="left",
+                        join_on=(
+                            "${prefix}orders_f.customer_id = "
+                            "${prefix}customers_d.customer_id"
+                        ),
+                        role="customer",
+                    ),
+                ],
+                owners=["dj"],
+            ),
+            MetricSpec(
+                name="order_count",
+                description="Order count",
+                query="SELECT COUNT(*) FROM ${prefix}orders_f",
+                dimension_links=[],
+                owners=["dj"],
+            ),
+            CubeSpec(
+                name="orders_cube",
+                display_name="Orders Cube",
+                description="Cube reaching dates_d over two hops",
+                metrics=["${prefix}order_count"],
+                dimensions=[
+                    "${prefix}customers_d.customer_id[customer]",
+                    "${prefix}dates_d.year[customer->registration]",
+                ],
+                owners=["dj"],
+            ),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_deploy_cube_with_chained_role(self, client):
+        namespace = "cube_chained_role"
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=self._nodes()),
+        )
+        assert data["status"] == DeploymentStatus.SUCCESS.value, data
+
+        # The chained-role dimension must survive the deploy. Previously the cube
+        # came back with only the single-hop dimension and no error anywhere.
+        response = await client.get(f"/cubes/{namespace}.orders_cube/")
+        assert response.status_code == 200, response.json()
+        cube = response.json()
+        assert cube["cube_node_dimensions"] == [
+            f"{namespace}.customers_d.customer_id[customer]",
+            f"{namespace}.dates_d.year[customer->registration]",
+        ]
+        dimension_elements = [
+            (elem["node_name"], elem["name"], elem["role"])
+            for elem in cube["cube_elements"]
+            if elem["type"] == "dimension"
+        ]
+        assert dimension_elements == [
+            (f"{namespace}.customers_d", "customer_id", "customer"),
+            (f"{namespace}.dates_d", "year", "customer->registration"),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_deploy_cube_with_unresolvable_dimension_column_errors(
+        self,
+        client,
+    ):
+        """Widening the role group must not mask genuine errors: a chained-role
+        reference to a column that does not exist still fails the deploy."""
+        namespace = "cube_unresolvable_dim"
+        nodes = self._nodes()
+        nodes[-1].dimensions = [
+            "${prefix}customers_d.customer_id[customer]",
+            "${prefix}dates_d.no_such_column[customer->registration]",
+        ]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        cube_result = next(
+            r for r in data["results"] if r["name"] == f"{namespace}.orders_cube"
+        )
+        assert cube_result["status"] in ("invalid", "failed"), cube_result
+        assert "no_such_column" in cube_result["message"], cube_result
+
+
+@pytest.mark.xdist_group(name="deployments")
 class TestCubeBareDimRoleAwareDeployment:
     """Deploy-time cube validation must be role-aware.
 
