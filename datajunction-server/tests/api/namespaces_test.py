@@ -11,8 +11,14 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.namespace import NodeNamespace
+from datajunction_server.database.namespace_boundary import NamespaceBoundary
+from datajunction_server.database.user import OAuthProvider, PrincipalKind, User
 from datajunction_server.internal.access.authorization import (
     AuthorizationService,
+    PassthroughAuthorizationService,
+)
+from datajunction_server.internal.namespace_boundaries import (
+    provision_namespace_boundary,
 )
 from datajunction_server.internal.namespaces import (
     _merge_columns_preserving_comments,
@@ -913,6 +919,160 @@ async def test_create_namespace(client_with_service_setup: AsyncClient):
             f"{invalid_namespace} is not a valid namespace. Namespace parts cannot start "
             "with numbers, be empty, or use the reserved keyword [user]"
         )
+
+
+@pytest.mark.asyncio
+async def test_provision_governed_namespace_is_idempotent(
+    client_with_roads: AsyncClient,
+    session: AsyncSession,
+    mocker,
+):
+    mocker.patch(
+        VALIDATOR_AUTH_SERVICE,
+        lambda: PassthroughAuthorizationService(),
+    )
+    owner = User(
+        username="api-boundary-owners",
+        password=None,
+        email=None,
+        name="API boundary owners",
+        oauth_provider=OAuthProvider.BASIC,
+        kind=PrincipalKind.GROUP,
+    )
+    deployer = User(
+        username="api-boundary-deployer",
+        password=None,
+        email=None,
+        name="API boundary deployer",
+        oauth_provider=OAuthProvider.BASIC,
+        kind=PrincipalKind.SERVICE_ACCOUNT,
+    )
+    session.add_all([owner, deployer])
+    await session.commit()
+    request = {
+        "owner_group": owner.username,
+        "deployer_service_accounts": [deployer.username],
+    }
+
+    first = await client_with_roads.post(
+        "/namespaces/api_boundary/provision",
+        json=request,
+    )
+    second = await client_with_roads.post(
+        "/namespaces/api_boundary/provision",
+        json=request,
+    )
+
+    assert first.status_code == HTTPStatus.CREATED
+    assert second.status_code == HTTPStatus.CREATED
+    assert (
+        second.json()
+        == first.json()
+        == {
+            "namespace": "api_boundary",
+            "owner_role": "namespace:api_boundary:owners",
+            "deployer_role": "namespace:api_boundary:deployers",
+        }
+    )
+    assert await session.get(NamespaceBoundary, "api_boundary") is not None
+
+    nested = await client_with_roads.post(
+        "/namespaces/api_boundary.child/provision",
+        json=request,
+    )
+    assert nested.status_code == HTTPStatus.CONFLICT
+    assert "Nested governed boundaries are not supported" in nested.json()["message"]
+
+
+@pytest.mark.asyncio
+async def test_hard_delete_ancestor_requires_access_to_governed_descendant(
+    client_with_roads: AsyncClient,
+    session: AsyncSession,
+    current_user: User,
+    mocker,
+):
+    owner = User(
+        username="delete-boundary-owners",
+        password=None,
+        email=None,
+        name="Delete boundary owners",
+        oauth_provider=OAuthProvider.BASIC,
+        kind=PrincipalKind.GROUP,
+    )
+    session.add(owner)
+    await session.commit()
+    await provision_namespace_boundary(
+        session=session,
+        namespace="delete_parent.governed",
+        current_user=current_user,
+        owner_group=owner.username,
+        deployer_service_accounts=[],
+    )
+    mocker.patch(
+        VALIDATOR_AUTH_SERVICE,
+        scoped(ResourceAction.DELETE, "delete_parent"),
+    )
+
+    response = await client_with_roads.delete(
+        "/namespaces/delete_parent/hard/?cascade=true",
+    )
+
+    assert response.status_code == HTTPStatus.FORBIDDEN
+    assert "delete_parent.governed" in response.json()["message"]
+    await session.rollback()
+    assert await NodeNamespace.get(session, "delete_parent.governed") is not None
+
+
+@pytest.mark.asyncio
+async def test_branch_delete_requires_access_to_governed_descendant(
+    client_with_roads: AsyncClient,
+    session: AsyncSession,
+    current_user: User,
+    mocker,
+):
+    parent_namespace = "branch_delete.main"
+    branch_namespace = "branch_delete.feature"
+    governed_namespace = f"{branch_namespace}.governed"
+    owner = User(
+        username="branch-delete-boundary-owners",
+        password=None,
+        email=None,
+        name="Branch delete boundary owners",
+        oauth_provider=OAuthProvider.BASIC,
+        kind=PrincipalKind.GROUP,
+    )
+    session.add_all(
+        [
+            owner,
+            NodeNamespace(namespace=parent_namespace),
+            NodeNamespace(
+                namespace=branch_namespace,
+                parent_namespace=parent_namespace,
+            ),
+        ],
+    )
+    await session.commit()
+    await provision_namespace_boundary(
+        session=session,
+        namespace=governed_namespace,
+        current_user=current_user,
+        owner_group=owner.username,
+        deployer_service_accounts=[],
+    )
+    mocker.patch(
+        VALIDATOR_AUTH_SERVICE,
+        scoped(ResourceAction.DELETE, branch_namespace),
+    )
+
+    response = await client_with_roads.delete(
+        f"/namespaces/{parent_namespace}/branches/{branch_namespace}"
+        "?delete_git_branch=false",
+    )
+
+    assert response.status_code == HTTPStatus.FORBIDDEN
+    assert governed_namespace in response.json()["message"]
+    await session.rollback()
+    assert await NodeNamespace.get(session, branch_namespace) is not None
 
 
 @pytest.mark.asyncio

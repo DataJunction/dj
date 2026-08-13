@@ -23,6 +23,11 @@ from datajunction_server.internal.access.authorization import (
     get_access_checker,
 )
 from datajunction_server.internal.history import ActivityType, EntityType
+from datajunction_server.internal.namespace_boundaries import (
+    reject_boundary_role_definition_change,
+    validate_boundary_role_assignment,
+    validate_boundary_role_revocation,
+)
 from datajunction_server.models.access import ResourceAction, ResourceType
 from datajunction_server.models.rbac import (
     RoleAssignmentCreate,
@@ -242,6 +247,7 @@ async def update_role(
     )
 
     await enforce_scope_management(access_checker, role.scopes)
+    await reject_boundary_role_definition_change(session, role)
 
     # Capture pre-state for audit
     pre_state = {
@@ -313,6 +319,7 @@ async def delete_role(
     )
 
     await enforce_scope_management(access_checker, role.scopes)
+    await reject_boundary_role_definition_change(session, role)
 
     # Check if role has any assignments (current or past)
     if role.assignments:
@@ -377,6 +384,7 @@ async def add_scope_to_role(
     )
 
     await enforce_scope_management(access_checker, [scope_data])
+    await reject_boundary_role_definition_change(session, role)
 
     # Check if scope already exists (duplicate check)
     existing_scope = [
@@ -477,6 +485,7 @@ async def delete_scope_from_role(
             ),
         ],
     )
+    await reject_boundary_role_definition_change(session, role)
 
     # Find the scope by composite key
     delete_stmt = (
@@ -559,6 +568,12 @@ async def assign_role_to_principal(
         raise DJDoesNotExistException(
             message=f"Principal '{assignment_data.principal_username}' not found",
         )
+    await validate_boundary_role_assignment(
+        session,
+        role,
+        principal,
+        assignment_data.expires_at,
+    )
 
     # Check if assignment already exists
     assignments = await RoleAssignment.find(
@@ -579,10 +594,8 @@ async def assign_role_to_principal(
         expires_at=assignment_data.expires_at,
     )
     session.add(assignment)
-    await session.commit()
-    await session.refresh(assignment)
+    await session.flush()
 
-    # Log activity for audit trail
     await log_activity(
         session=session,
         entity_type=EntityType.ROLE_ASSIGNMENT,
@@ -601,6 +614,7 @@ async def assign_role_to_principal(
         },
     )
     await session.commit()
+    await session.refresh(assignment)
 
     return assignment
 
@@ -679,6 +693,7 @@ async def revoke_role_from_principal(
         raise DJDoesNotExistException(
             message=f"Principal '{principal_username}' does not have role '{role_name}'",
         )
+    await validate_boundary_role_revocation(session, role, principal.id)
 
     # Capture pre-state for audit
     assignment = assignments[0]

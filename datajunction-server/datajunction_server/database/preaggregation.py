@@ -425,7 +425,7 @@ class PreAggregation(Base):
                 # sub-namespace (e.g. "ns" and "ns.default").
                 sa.or_(
                     Node.namespace == namespace,
-                    Node.namespace.like(f"{namespace}.%"),
+                    Node.namespace.startswith(f"{namespace}.", autoescape=True),
                 ),
                 cls.strategy == MaterializationStrategy.EXTERNAL,
             )

@@ -152,12 +152,15 @@ class Hierarchy(Base):  # type: ignore
         namespace: str,
     ) -> list[Hierarchy]:
         """Fetch all hierarchies owned by a namespace (name starts with 'namespace.')."""
+        escaped_namespace = (
+            namespace.replace("/", "//").replace("%", "/%").replace("_", "/_")
+        )
         result = await session.execute(
             select(cls)
             .options(selectinload(cls.levels))
             .where(
-                cls.name.like(f"{namespace}.%"),
-                ~cls.name.like(f"{namespace}.%.%"),
+                cls.name.like(f"{escaped_namespace}.%", escape="/"),
+                ~cls.name.like(f"{escaped_namespace}.%.%", escape="/"),
             ),
         )
         return list(result.scalars().all())

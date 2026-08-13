@@ -36,6 +36,12 @@ from datajunction_server.internal.git.github_service import (
     GitHubService,
     GitHubServiceError,
 )
+from datajunction_server.internal.namespace_boundaries import (
+    governed_boundary_delete_targets,
+)
+from datajunction_server.internal.namespace_locks import (
+    lock_namespace_boundary_lifecycle,
+)
 from datajunction_server.internal.namespaces import (
     get_branches,
     hard_delete_namespace,
@@ -107,6 +113,7 @@ async def _create_namespace_and_copy_nodes(
     the default_branch namespace and links to the git root as parent.
     Otherwise copies from the branch namespace and links to the sibling parent.
     """
+    await lock_namespace_boundary_lifecycle(session)
     # Determine parent namespace for the link (used for PR targeting)
     # - Git root: link to the git root itself (e.g., "demo.metrics")
     # - Branch: link to shared parent by removing last segment (e.g., "demo.main" -> "demo")
@@ -231,7 +238,7 @@ async def _cleanup_namespace_and_nodes(
         nodes_query = select(Node).where(
             or_(
                 Node.namespace == namespace,
-                Node.namespace.like(f"{namespace}.%"),
+                Node.namespace.startswith(f"{namespace}.", autoescape=True),
             ),
         )
         result = await session.execute(nodes_query)
@@ -522,7 +529,11 @@ async def delete_branch(
         delete_git_branch: If True (default), also delete the git branch in GitHub
     """
     access_checker.add_namespace(namespace, ResourceAction.WRITE)
-    access_checker.add_namespace(branch_namespace, ResourceAction.WRITE)
+    delete_targets = await governed_boundary_delete_targets(
+        session,
+        branch_namespace,
+    )
+    access_checker.add_namespaces(delete_targets, ResourceAction.DELETE)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     # Verify parent namespace exists

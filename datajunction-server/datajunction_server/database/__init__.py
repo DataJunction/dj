@@ -12,6 +12,7 @@ __all__ = [
     "GroupMember",
     "History",
     "Measure",
+    "NamespaceBoundary",
     "Node",
     "NodeNamespace",
     "NodeRevision",
@@ -37,6 +38,7 @@ from datajunction_server.database.engine import Engine
 from datajunction_server.database.group_member import GroupMember
 from datajunction_server.database.measure import Measure
 from datajunction_server.database.namespace import NodeNamespace
+from datajunction_server.database.namespace_boundary import NamespaceBoundary
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.notification_preference import NotificationPreference
 from datajunction_server.database.partition import Partition

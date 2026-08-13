@@ -68,8 +68,8 @@ class NamespaceProvisionRequest(BaseModel):
 
 
 class NamespaceProvisionResponse(BaseModel):
-    """Roles created for a provisioned namespace boundary."""
+    """Managed roles for a provisioned namespace boundary."""
 
     namespace: str
     owner_role: str
-    deployer_role: str | None
+    deployer_role: str

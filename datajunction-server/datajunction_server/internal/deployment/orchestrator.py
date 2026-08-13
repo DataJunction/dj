@@ -63,6 +63,9 @@ from datajunction_server.internal.deployment.validation import (
 )
 from datajunction_server.internal.history import EntityType
 from datajunction_server.internal.impact import propagate_impact
+from datajunction_server.internal.namespace_locks import (
+    lock_namespace_boundary_lifecycle,
+)
 from datajunction_server.internal.materializations import (
     CubeMaterializationSwap,
     NodeMaterializationTeardown,
@@ -869,7 +872,10 @@ class DeploymentOrchestrator:
             (
                 await self.session.execute(
                     select(NodeNamespace.namespace).where(
-                        NodeNamespace.namespace.like(f"{deployment_namespace}.%"),
+                        NodeNamespace.namespace.startswith(
+                            f"{deployment_namespace}.",
+                            autoescape=True,
+                        ),
                     ),
                 )
             )
@@ -885,6 +891,7 @@ class DeploymentOrchestrator:
         )
 
     async def _setup_namespaces(self) -> list[NodeNamespace]:
+        await lock_namespace_boundary_lifecycle(self.session)
         namespace_start = time.perf_counter()
         to_create = await self._find_namespaces_to_create()
         node_namespaces = []
@@ -1421,7 +1428,10 @@ class DeploymentOrchestrator:
             .where(
                 or_(
                     Node.namespace == self.deployment_spec.namespace,
-                    Node.namespace.like(f"{self.deployment_spec.namespace}.%"),
+                    Node.namespace.startswith(
+                        f"{self.deployment_spec.namespace}.",
+                        autoescape=True,
+                    ),
                 ),
             ),
         )

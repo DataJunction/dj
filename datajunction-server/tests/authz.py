@@ -41,6 +41,9 @@ class RecordingAuthorizationService(AuthorizationService):
             for request in requests
         ]
 
+    def authorize_explicit_grants(self, auth_context, requests):
+        return self.authorize(auth_context, requests)
+
 
 def deny(action: access.ResourceAction) -> Callable[[], AuthorizationService]:
     """
