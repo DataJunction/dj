@@ -1597,6 +1597,55 @@ async def apply_table_owner(
     return True
 
 
+async def apply_table_primary_key(
+    session: AsyncSession,
+    node: Node,
+    primary_key: list[str],
+    current_user: User,
+    save_history: Callable,
+) -> bool:
+    """
+    Set the primary key attribute from the catalog's primary key.
+
+    Fill-when-empty: if the node already declares a primary key, leave it alone.
+    A primary key is structural -- dimension joins and cube grain depend on it --
+    so a hand-chosen one is a deliberate modelling decision and the catalog is
+    not automatically more right than the person who set it.
+
+    Goes through set_node_column_attributes so the attribute's uniqueness scopes
+    are validated the same way a manual change is, and so any other attribute
+    already on the column is preserved rather than replaced.
+    """
+    if not primary_key or node.current.primary_key():
+        return False
+
+    by_name = {column.name: column for column in node.current.columns}
+    changed = False
+    for column_name in primary_key:
+        column = by_name.get(column_name)
+        if column is None:
+            # The catalog named a column the node does not have; the column diff
+            # elsewhere in refresh is what reconciles that, not this.
+            continue
+        attributes = [
+            AttributeTypeIdentifier(name=attribute.attribute_type.name)
+            for attribute in column.attributes
+        ]
+        attributes.append(
+            AttributeTypeIdentifier(name=ColumnAttributes.PRIMARY_KEY.value),
+        )
+        await set_node_column_attributes(
+            session,
+            node,
+            column_name,
+            attributes,
+            current_user=current_user,
+            save_history=save_history,
+        )
+        changed = True
+    return changed
+
+
 def describe_column_changes(
     existing: list[Column],
     incoming: list[Column],
@@ -4244,6 +4293,13 @@ async def refresh_source(
     # documentation, not something a reported number can turn on.
     if table_metadata is not None:
         apply_table_descriptions(session, current_revision, table_metadata)
+        await apply_table_primary_key(
+            session,
+            source_node,  # type: ignore
+            table_metadata.primary_key,
+            current_user,
+            save_history,
+        )
 
     refresh_details = {}
     if new_columns:

@@ -308,6 +308,7 @@ class QueryServiceClient:
             owner=TableOwner(**owner) if owner else None,
             partitions=metadata.get("partitions") or [],
             description=metadata.get("description"),
+            primary_key=metadata.get("primary_key") or [],
         )
 
     async def get_columns_for_tables_batch(

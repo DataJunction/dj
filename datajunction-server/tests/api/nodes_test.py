@@ -2716,6 +2716,174 @@ class TestNodeCRUD:
         assert after["owners"] == [{"username": "data-eng@example.com"}]
 
     @pytest.mark.asyncio
+    async def test_refresh_hydrates_the_primary_key(
+        self,
+        module__client_with_roads: AsyncClient,
+        module__query_service_client: QueryServiceClient,
+        mocker: MockerFixture,
+    ):
+        """The catalog's primary key becomes the node's primary key attribute."""
+        response = await module__client_with_roads.post(
+            "/nodes/source/",
+            json={
+                "name": "default.keyless_table",
+                "description": "A table with no primary key set in DJ",
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "amount", "type": "int"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "roads",
+                "table": "keyless_table",
+            },
+        )
+        assert response.status_code in (200, 201)
+
+        async def _with_pk(*args, **kwargs):
+            return TableMetadata(
+                columns=[
+                    Column(name="id", type=IntegerType(), order=0),
+                    Column(name="amount", type=IntegerType(), order=1),
+                ],
+                primary_key=["id"],
+            )
+
+        mocker.patch.object(
+            module__query_service_client,
+            "get_table_metadata",
+            _with_pk,
+        )
+        await module__client_with_roads.post(
+            "/nodes/default.keyless_table/refresh/",
+        )
+        after = (
+            await module__client_with_roads.get("/nodes/default.keyless_table/")
+        ).json()
+        keyed = {
+            column["name"]: [a["attribute_type"]["name"] for a in column["attributes"]]
+            for column in after["columns"]
+        }
+        assert keyed == {"id": ["primary_key"], "amount": []}
+
+    @pytest.mark.asyncio
+    async def test_refresh_does_not_replace_an_existing_primary_key(
+        self,
+        module__client_with_roads: AsyncClient,
+        module__query_service_client: QueryServiceClient,
+        mocker: MockerFixture,
+    ):
+        """
+        A primary key already set in DJ wins over the catalog's.
+
+        A primary key is structural -- dimension joins and cube grain depend on
+        it -- so a hand-chosen one is a deliberate modelling decision.
+        """
+        response = await module__client_with_roads.post(
+            "/nodes/source/",
+            json={
+                "name": "default.keyed_table",
+                "description": "A table whose primary key DJ already declares",
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "other_id", "type": "int"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "roads",
+                "table": "keyed_table",
+            },
+        )
+        assert response.status_code in (200, 201)
+        await module__client_with_roads.post(
+            "/nodes/default.keyed_table/columns/other_id/attributes/",
+            json=[{"name": "primary_key"}],
+        )
+
+        async def _with_pk(*args, **kwargs):
+            return TableMetadata(
+                columns=[
+                    Column(name="id", type=IntegerType(), order=0),
+                    Column(name="other_id", type=IntegerType(), order=1),
+                ],
+                primary_key=["id"],
+            )
+
+        mocker.patch.object(
+            module__query_service_client,
+            "get_table_metadata",
+            _with_pk,
+        )
+        await module__client_with_roads.post(
+            "/nodes/default.keyed_table/refresh/",
+        )
+        after = (
+            await module__client_with_roads.get("/nodes/default.keyed_table/")
+        ).json()
+        keyed = {
+            column["name"]: [a["attribute_type"]["name"] for a in column["attributes"]]
+            for column in after["columns"]
+        }
+        assert keyed == {"id": [], "other_id": ["primary_key"]}
+
+    @pytest.mark.asyncio
+    async def test_refresh_skips_a_primary_key_column_the_node_lacks(
+        self,
+        module__client_with_roads: AsyncClient,
+        module__query_service_client: QueryServiceClient,
+        mocker: MockerFixture,
+    ):
+        """
+        A primary key naming a column the node does not have hydrates nothing.
+
+        The column diff is what reconciles a table that gained a column, so the
+        column arrives on the refreshed node but without the attribute -- the
+        catalog's primary key is only applied to columns the node already had.
+        """
+        response = await module__client_with_roads.post(
+            "/nodes/source/",
+            json={
+                "name": "default.late_key_table",
+                "description": "A table that gains its primary key column later",
+                "columns": [
+                    {"name": "amount", "type": "int"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "roads",
+                "table": "late_key_table",
+            },
+        )
+        assert response.status_code in (200, 201)
+
+        async def _with_unknown_pk(*args, **kwargs):
+            return TableMetadata(
+                columns=[
+                    Column(name="amount", type=IntegerType(), order=0),
+                    Column(name="id", type=IntegerType(), order=1),
+                ],
+                primary_key=["id"],
+            )
+
+        mocker.patch.object(
+            module__query_service_client,
+            "get_table_metadata",
+            _with_unknown_pk,
+        )
+        refreshed = await module__client_with_roads.post(
+            "/nodes/default.late_key_table/refresh/",
+        )
+        assert refreshed.status_code == 201
+        after = (
+            await module__client_with_roads.get("/nodes/default.late_key_table/")
+        ).json()
+        keyed = {
+            column["name"]: [a["attribute_type"]["name"] for a in column["attributes"]]
+            for column in after["columns"]
+        }
+        assert keyed == {"amount": [], "id": []}
+
+    @pytest.mark.asyncio
     async def test_refresh_records_column_type_changes(
         self,
         module__client_with_roads: AsyncClient,
