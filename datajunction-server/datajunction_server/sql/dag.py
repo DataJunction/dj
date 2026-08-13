@@ -389,7 +389,17 @@ async def get_dimension_attributes(
     reference_links = []
     await refresh_if_needed(session, node.current, ["columns"])
     for col in node.current.columns:
-        await refresh_if_needed(session, col, ["dimension_id", "dimension_column"])
+        await refresh_if_needed(
+            session,
+            col,
+            [
+                "dimension_id",
+                "dimension_column",
+                "display_name",
+                "type",
+                "attributes",
+            ],
+        )
         if col.dimension_id and col.dimension_column:
             await session.refresh(col, ["dimension"])
             if ref_link := await build_reference_link(  # pragma: no cover
@@ -401,7 +411,17 @@ async def get_dimension_attributes(
     for dimension_node, path, role in dimension_nodes_and_paths:
         await refresh_if_needed(session, dimension_node.current, ["columns"])
         for col in dimension_node.current.columns:
-            await refresh_if_needed(session, col, ["dimension_id", "dimension_column"])
+            await refresh_if_needed(
+                session,
+                col,
+                [
+                    "dimension_id",
+                    "dimension_column",
+                    "display_name",
+                    "type",
+                    "attributes",
+                ],
+            )
             if col.dimension_id and col.dimension_column:
                 join_path = (
                     [node.name] if dimension_node.name != node.name else []

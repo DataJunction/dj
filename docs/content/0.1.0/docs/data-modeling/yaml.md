@@ -150,7 +150,7 @@ dimension_links:
   - type: join
     node_column: state_id
     dimension_node: ${prefix}roads.us_state
-    default_value: Unknown  # Optional: fallback for NULL values from LEFT JOIN
+    default_value: Unknown  # Optional: string/number/boolean fallback for NULL values from LEFT JOIN
   - type: reference
     node_column: birth_date
     dimension: ${prefix}roads.date_dim.dateint
@@ -165,7 +165,7 @@ dimension_links:
 | `join_on` | No | A custom join on SQL clause |
 | `join_type` | No | The type of join (one of `left`, `right`, `inner`, `full`, `cross`). Defaults to `left`. |
 | `role` | No | The role this dimension represents |
-| `default_value` | No | A fallback value for NULL results from LEFT/RIGHT joins. When set, dimension columns are wrapped in `COALESCE(column, 'default_value')`. |
+| `default_value` | No | A string, number, or boolean fallback value for NULL results from LEFT/RIGHT joins. When set, dimension columns are wrapped in `COALESCE(column, default_value)`. |
 | `spark_hints` | No | Spark join strategy hint for this dimension join. One of `broadcast`, `merge`, `shuffle_hash`, `shuffle_replicate_nl`. Emitted as a hint comment in the generated SELECT. Has no effect on non-Spark engines. |
 
 | Reference Link Fields | Required?  | Description |

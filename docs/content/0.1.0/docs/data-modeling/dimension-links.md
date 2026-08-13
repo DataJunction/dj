@@ -294,7 +294,8 @@ defined for that dimension.
 When using `LEFT` or `RIGHT` join types for dimension links, unmatched rows will produce NULL values for dimension
 columns. You can configure a `default_value` on the dimension link to provide a fallback value in these cases.
 
-When `default_value` is set, DJ will wrap dimension columns in a `COALESCE` function in the generated SQL:
+When `default_value` is set, DJ will wrap dimension columns in a `COALESCE` function in the generated SQL.
+The fallback can be a string, number, or boolean value:
 
 ```sql
 -- Without default_value
@@ -304,6 +305,11 @@ LEFT JOIN user ON events.user_id = user.id
 
 -- With default_value = "Unknown"
 SELECT COALESCE(user.name, 'Unknown') AS user_name
+FROM events
+LEFT JOIN user ON events.user_id = user.id
+
+-- With default_value = 0
+SELECT COALESCE(user.account_tier, 0) AS account_tier
 FROM events
 LEFT JOIN user ON events.user_id = user.id
 ```

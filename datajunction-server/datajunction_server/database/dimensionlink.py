@@ -4,12 +4,14 @@ from functools import cached_property
 from typing import TYPE_CHECKING
 
 from sqlalchemy import JSON, BigInteger, Enum, ForeignKey, Index, Integer
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from datajunction_server.database.base import Base
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.models.dimensionlink import (
+    DimensionLinkDefault,
     JoinCardinality,
     JoinType,
     SparkJoinStrategy,
@@ -84,7 +86,10 @@ class DimensionLink(Base):
 
     # Optional default value to use when LEFT JOIN produces NULL
     # (e.g., "Unknown" for a dimension column that may not have a match)
-    default_value: Mapped[str | None] = mapped_column(default=None)
+    default_value: Mapped[DimensionLinkDefault | None] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"),
+        default=None,
+    )
 
     # Optional Spark join strategy hint (e.g., broadcast, merge)
     spark_hints: Mapped[SparkJoinStrategy | None] = mapped_column(
@@ -100,6 +105,7 @@ class DimensionLink(Base):
             dimension_node=self.dimension.name,
             join_on=self.join_sql,
             join_type=self.join_type if self.join_type else JoinType.LEFT,
+            default_value=self.default_value,
             spark_hints=self.spark_hints,
         )
 

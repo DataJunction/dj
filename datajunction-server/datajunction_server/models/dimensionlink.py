@@ -5,6 +5,8 @@ from pydantic import BaseModel, ConfigDict
 from datajunction_server.enum import StrEnum
 from datajunction_server.models.node_type import NodeNameOutput
 
+DimensionLinkDefault = str | int | float | bool
+
 
 class JoinCardinality(StrEnum):
     """
@@ -68,7 +70,7 @@ class JoinLinkInput(BaseModel):
     join_on: str | None = None
     join_cardinality: JoinCardinality | None = JoinCardinality.MANY_TO_ONE
     role: str | None = None
-    default_value: str | None = None
+    default_value: DimensionLinkDefault | None = None
     spark_hints: SparkJoinStrategy | None = None
 
 
@@ -83,7 +85,7 @@ class LinkDimensionOutput(BaseModel):
     join_cardinality: JoinCardinality | None = None
     role: str | None = None
     foreign_keys: dict[str, str | None]
-    default_value: str | None = None
+    default_value: DimensionLinkDefault | None = None
     spark_hints: SparkJoinStrategy | None = None
 
     model_config = ConfigDict(from_attributes=True)

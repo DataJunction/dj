@@ -445,6 +445,18 @@ def test_dimension_join_link_spec_with_default_value():
     assert hash(link_spec) != hash(different_default)
 
 
+def test_dimension_join_link_spec_with_numeric_default_value():
+    """Test DimensionJoinLinkSpec accepts numeric default_value."""
+    link_spec = DimensionJoinLinkSpec(
+        dimension_node="some.dimension.tiers",
+        join_type="left",
+        join_on="events.tier_id = some.dimension.tiers.id",
+        default_value=0,
+    )
+
+    assert link_spec.default_value == 0
+
+
 def test_source_spec_with_dimension_link_default_value():
     """Test SourceSpec with dimension_links including default_value."""
     source_spec = SourceSpec(

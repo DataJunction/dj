@@ -70,6 +70,7 @@ from datajunction_server.construction.build_v3.utils import (
     make_column_ref,
     make_name,
 )
+from datajunction_server.construction.utils import dimension_link_default_literal
 from datajunction_server.database.node import Node
 from datajunction_server.internal.scan_estimation import calculate_scan_estimate
 from datajunction_server.models.decompose import Aggregability, MetricComponent
@@ -1042,14 +1043,22 @@ def build_dimension_col_expr(
     col_ref = make_column_ref(resolved_dim.column_name, table_alias)
 
     default_value = None
+    column_type = None
     if resolved_dim.join_path and resolved_dim.join_path.links:
         last_link = resolved_dim.join_path.links[-1]
         default_value = last_link.default_value
+        if ctx:
+            node = ctx.nodes.get(resolved_dim.node_name)
+            if node:
+                column_type = get_column_type(node, resolved_dim.column_name)
 
     if default_value is not None:
         coalesce_func = ast.Function(
             ast.Name("COALESCE"),
-            args=[col_ref, ast.String(f"'{default_value}'")],
+            args=[
+                col_ref,
+                dimension_link_default_literal(default_value, column_type),
+            ],
         )
         col_expr = coalesce_func.set_alias(ast.Name(clean_alias))
         col_expr.set_as(True)

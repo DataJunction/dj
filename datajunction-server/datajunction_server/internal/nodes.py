@@ -1306,7 +1306,7 @@ async def update_any_node(
 
     if node.type == NodeType.CUBE:  # type: ignore
         node = cast(Node, await Node.get_cube_by_name(session, name))
-        node_revision = await update_cube_node(
+        await update_cube_node(
             session,
             node.current,  # type: ignore
             data,
@@ -1318,7 +1318,7 @@ async def update_any_node(
             save_history=save_history,
             refresh_materialization=refresh_materialization,
         )
-        return node_revision.node if node_revision else node
+        return node
     return await update_node_with_query(
         name,
         data,
@@ -1997,8 +1997,8 @@ async def update_cube_node(
         )
 
         new_cube_revision.version = bump_version(node_revision.version, change_tier)
-        new_cube_revision.node = node_revision.node
-        new_cube_revision.node.current_version = new_cube_revision.version  # type: ignore
+        new_cube_revision.node = node
+        node.current_version = new_cube_revision.version  # type: ignore
 
         await save_history(
             event=History(
@@ -2037,7 +2037,7 @@ async def update_cube_node(
                 )
 
         session.add(new_cube_revision)
-        session.add(new_cube_revision.node)
+        session.add(node)
         await session.commit()
 
     # Swap the materializations onto the new revision only once it is committed: the
@@ -2070,8 +2070,6 @@ async def update_cube_node(
         )
 
     await session.refresh(new_cube_revision)
-    await session.refresh(new_cube_revision.node)
-    await session.refresh(new_cube_revision.node.current)
     return new_cube_revision
 
 

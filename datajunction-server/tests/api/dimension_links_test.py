@@ -1403,6 +1403,92 @@ async def test_dimension_link_with_default_value(
 
 
 @pytest.mark.asyncio
+async def test_dimension_link_numeric_default_value(
+    dimensions_link_client: AsyncClient,
+):
+    """
+    Numeric default_value should validate and render as an unquoted SQL literal
+    for numeric dimension columns.
+    """
+    response = await dimensions_link_client.post(
+        "/nodes/default.events/link",
+        json={
+            "dimension_node": "default.countries",
+            "join_type": "left",
+            "join_on": (
+                "default.events.user_registration_country = "
+                "default.countries.country_code"
+            ),
+            "join_cardinality": "many_to_one",
+            "default_value": 0,
+        },
+    )
+    assert response.status_code == 201
+
+    response = await dimensions_link_client.get("/nodes/default.events")
+    link = response.json()["dimension_links"][0]
+    assert link["default_value"] == 0
+
+    response = await dimensions_link_client.get(
+        "/sql/default.events?dimensions=default.countries.population",
+    )
+    query = response.json()["sql"]
+    expected_sql = """
+    WITH default_countries AS (
+      SELECT  country_code,
+        name,
+        population
+      FROM default.examples.countries
+    ),
+    default_events AS (
+      SELECT  user_id,
+        event_start_date,
+        event_end_date,
+        elapsed_secs,
+        user_registration_country
+      FROM default.examples.events
+    )
+    SELECT  t1.user_id,
+      t1.event_start_date,
+      t1.event_end_date,
+      t1.elapsed_secs,
+      t1.user_registration_country,
+      COALESCE(t2.population, 0) AS population
+    FROM default_events t1
+    LEFT OUTER JOIN default_countries t2 ON t1.user_registration_country = t2.country_code
+    """
+    assert_sql_equal(query, expected_sql)
+
+    response = await dimensions_link_client.get(
+        "/sql/measures/v3/",
+        params={
+            "metrics": ["default.elapsed_secs"],
+            "dimensions": ["default.countries.population"],
+        },
+    )
+    assert response.status_code == 200
+    v3_measures_sql = response.json()["grain_groups"][0]["sql"]
+    expected_v3_measures_sql = """
+    WITH default_countries AS (
+      SELECT country_code, population
+      FROM default.examples.countries
+    ),
+    default_events AS (
+      SELECT elapsed_secs, user_registration_country
+      FROM default.examples.events
+    )
+    SELECT
+      COALESCE(t2.population, 0) AS population,
+      SUM(t1.elapsed_secs) elapsed_secs_sum_88a2603f
+    FROM default_events t1
+    LEFT OUTER JOIN default_countries t2
+      ON t1.user_registration_country = t2.country_code
+    GROUP BY t2.population
+    """
+    assert_sql_equal(v3_measures_sql, expected_v3_measures_sql)
+
+
+@pytest.mark.asyncio
 async def test_dimension_link_default_value_graphql(
     dimensions_link_client: AsyncClient,
 ):

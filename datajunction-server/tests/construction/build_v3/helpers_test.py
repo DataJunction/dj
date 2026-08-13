@@ -1,5 +1,6 @@
 """Tests for build_v3 helper functions."""
 
+from types import SimpleNamespace
 from typing import cast
 from unittest.mock import MagicMock
 
@@ -36,6 +37,7 @@ from datajunction_server.construction.build_v3.materialization import (
 from datajunction_server.construction.build_v3.measures import (
     _add_table_prefixes_to_filter,
     _resolve_dim_namespace_refs,
+    build_dimension_col_expr,
     collect_cte_nodes_and_needed_columns,
 )
 from datajunction_server.construction.build_v3.types import (
@@ -64,6 +66,7 @@ from datajunction_server.models.decompose import (
 from datajunction_server.models.node import NodeType
 from datajunction_server.naming import amenable_col_names
 from datajunction_server.sql.parsing import ast
+from datajunction_server.sql.parsing import types as ct
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 
 
@@ -104,6 +107,75 @@ class TestDimensionRefParsing:
         with an empty ``node_name`` that would silently match the wrong node."""
         with pytest.raises(DJInvalidInputException, match="not fully qualified"):
             parse_dimension_ref("status")
+
+
+def test_build_dimension_col_expr_uses_numeric_default_for_numeric_column():
+    """
+    v3 dimension projections should coerce legacy string defaults by column type.
+    """
+    resolved_dim = ResolvedDimension(
+        original_ref="default.countries.population",
+        node_name="default.countries",
+        column_name="population",
+        role=None,
+        join_path=JoinPath(
+            links=[SimpleNamespace(default_value="0", role=None)],
+            target_dimension=SimpleNamespace(name="default.countries"),
+        ),
+        is_local=False,
+    )
+    ctx = SimpleNamespace(
+        nodes={
+            "default.countries": SimpleNamespace(
+                current=SimpleNamespace(
+                    columns=[
+                        SimpleNamespace(
+                            name="population",
+                            type=ct.IntegerType(),
+                        ),
+                    ],
+                ),
+            ),
+        },
+    )
+
+    expr = build_dimension_col_expr(
+        resolved_dim,
+        main_alias="t1",
+        dim_aliases={("default.countries", ""): "t2"},
+        clean_alias="population",
+        ctx=ctx,  # type: ignore[arg-type]
+    )
+
+    assert str(expr) == "COALESCE(t2.population, 0) AS population"
+
+
+def test_build_dimension_col_expr_handles_missing_context_node():
+    """
+    v3 dimension projections should still render defaults if ctx lacks the dim node.
+    """
+    resolved_dim = ResolvedDimension(
+        original_ref="default.countries.population",
+        node_name="default.countries",
+        column_name="population",
+        role=None,
+        join_path=JoinPath(
+            links=[SimpleNamespace(default_value=0, role=None)],
+            target_dimension=SimpleNamespace(name="default.countries"),
+        ),
+        is_local=False,
+    )
+    ctx = SimpleNamespace(nodes={})
+
+    expr = build_dimension_col_expr(
+        resolved_dim,
+        main_alias="t1",
+        dim_aliases={("default.countries", ""): "t2"},
+        clean_alias="population",
+        ctx=ctx,  # type: ignore[arg-type]
+    )
+
+    assert str(expr) == "COALESCE(t2.population, 0) AS population"
 
 
 def _make_ref_column(
