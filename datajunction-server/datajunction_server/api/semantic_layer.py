@@ -39,7 +39,7 @@ DEFAULT_ROW_LIMIT = 10000
 MAX_ROW_LIMIT = 100000
 
 DIMENSION_FALLBACK_ARROW_TYPE_NAME = "utf8"
-METRIC_FALLBACK_ARROW_TYPE_NAME = "float"
+METRIC_FALLBACK_ARROW_TYPE_NAME = "floating"
 
 DJ_TO_ARROW_TYPE_NAMES = {
     "array": "list",
@@ -49,8 +49,8 @@ DJ_TO_ARROW_TYPE_NAMES = {
     "char": "utf8",
     "date": "date",
     "decimal": "decimal",
-    "double": "float",
-    "float": "float",
+    "double": "floating",
+    "float": "floating",
     "int": "int",
     "integer": "int",
     "list": "list",

@@ -71,7 +71,7 @@ class TestQuoteValue:
 class TestSemanticViewPayloadTypes:
     def test_arrow_type_name_uses_standard_name_only(self):
         assert _arrow_type_name("bigint") == "int"
-        assert _arrow_type_name("double") == "float"
+        assert _arrow_type_name("double") == "floating"
         assert _arrow_type_name("varchar(255)") == "utf8"
         assert _arrow_type_name("array<string>") == "list"
         assert _arrow_type_name("timestamp") == "timestamp"
@@ -128,7 +128,7 @@ class TestSemanticViewPayloadTypes:
         metrics = _metrics_payload(cube)  # type: ignore[arg-type]
         dimensions = _dimensions_payload(cube)  # type: ignore[arg-type]
 
-        assert metrics[0].type == "float"
+        assert metrics[0].type == "floating"
         assert dimensions[0].type == "utf8"
 
     def test_metric_and_dimension_payloads_fallback_when_column_is_missing(self):
@@ -141,7 +141,7 @@ class TestSemanticViewPayloadTypes:
         metrics = _metrics_payload(cube)  # type: ignore[arg-type]
         dimensions = _dimensions_payload(cube)  # type: ignore[arg-type]
 
-        assert metrics[0].type == "float"
+        assert metrics[0].type == "floating"
         assert dimensions[0].type == "utf8"
 
 
