@@ -22,7 +22,7 @@ description: |
   - external pre-aggregation, externally-built aggregate, registered aggregate
   - multiple tables for a metric, fact table and agg table, fact/agg hierarchy
   - summary table, rollup table, agg table, materialized aggregate
-  - measure_columns, dimension_columns, valid_through_ts, availability
+  - metrics map, dimensions map, column binding, valid_through_ts, availability
   - freshness, join back, retained key
 user-invocable: false
 ---
@@ -580,15 +580,15 @@ read, falling back to the fact table when no aggregate can answer correctly.
 
 **The rules live in the docs, not here** — see
 [Query Routing & Aggregate Awareness](https://datajunction.io/docs/0.1.0/dj-concepts/query-routing-aggregate-awareness/)
-for the `kind: preagg` schema, `measure_columns` / `dimension_columns`, what makes a
-metric mappable, role-qualified dimension references, freshness reporting, and the
-current limitations. Read it before registering anything; the rules that decide
+for the `kind: preagg` schema (`metrics` and `dimensions` are maps from each
+reference to the physical column holding it), what makes a metric mappable,
+role-qualified dimension references, freshness reporting, and the current limitations. Read it before registering anything; the rules that decide
 whether your table actually gets used are not guessable.
 
 ### The one thing to get right before you author metrics
 
-`measure_columns` maps a **metric to one column**, so a metric decomposing into more
-than one component can never be bound to an aggregate — and its components are
+A pre-agg's `metrics` map binds a **metric to one column**, so a metric decomposing
+into more than one component can never be bound to an aggregate — and its components are
 auto-named with a hash suffix that YAML cannot address. `SUM(revenue) /
 COUNT(DISTINCT view_id)` as a single node is unmappable forever; fixing it means
 refactoring a node other teams may already query.

@@ -670,6 +670,12 @@ class CubeMaterializationV2Input(BaseModel):
     )
 
 
+# The name every cube planner materialization row is stored under. The two cube
+# dialects share a job class, so this -- and the `version` discriminator on the
+# config below -- is what tells a planner row apart from a fused one.
+DRUID_CUBE_V3_MATERIALIZATION_NAME = "druid_cube_v3"
+
+
 class DruidCubeV3Config(BaseModel):
     """
     V3 Druid cube materialization config.

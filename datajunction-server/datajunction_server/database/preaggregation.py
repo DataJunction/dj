@@ -442,12 +442,28 @@ class PreAggregation(Base):
         measure_identities: set[str],
     ) -> PreAggregation | None:
         """
-        Find an existing pre-agg that covers the requested measures.
+        Find the row this exact declaration already occupies, if any.
 
-        Looks up by grain_group_hash, then finds a candidate whose measures are a
-        superset of those required, compared by identity token. Comparing bare
-        expression hashes made SUM- and MAX-backed pre-aggs look like one row, so
-        registering either silently overwrote the other.
+        This is the upsert's identity check -- "is this the same declaration I am
+        about to write?" -- so it matches the uniqueness key exactly: same
+        revision and grain (via ``grain_group_hash``) and the SAME set of measure
+        identities, not merely a covering one.
+
+        Covering was wrong here, in two compounding ways. Callers replace the
+        matched row's contents wholesale, so a narrow declaration could match a
+        wider pre-agg and silently strip measures off it, breaking routing for
+        whatever metric depended on the dropped ones. And ``preagg_hash`` is
+        UNIQUE over exactly ``(node_revision_id, grain_columns,
+        measure_identities)`` and frozen at insert, so a covering match could
+        hand back a row whose stored hash no longer described its own contents.
+        A declaration that genuinely differs now gets its own row instead.
+
+        Identity tokens rather than bare expression hashes, because the latter
+        made SUM- and MAX-backed pre-aggs look like one row, so registering
+        either silently overwrote the other.
+
+        Contrast ``find_latest_for_node``, which asks the other question -- "what
+        did this declaration look like before?" -- and does want covering.
 
         Returns:
             Matching PreAggregation if found, None otherwise
@@ -456,9 +472,63 @@ class PreAggregation(Base):
         candidates = await cls.get_by_grain_group_hash(session, grain_group_hash)
 
         for candidate in candidates:
-            if measure_identities <= get_measure_identities(candidate.measures):
+            if measure_identities == get_measure_identities(candidate.measures):
                 return candidate
 
+        return None
+
+    @classmethod
+    async def find_latest_for_node(
+        cls,
+        session: AsyncSession,
+        node_name: str,
+        grain_columns: list[str],
+        measure_identities: set[str],
+    ) -> PreAggregation | None:
+        """
+        Find the most recent pre-agg for the same declaration on ANY revision of
+        the node, i.e. the predecessor of the one about to be inserted.
+
+        There are two lookups because there are two different questions, and
+        they deliberately match differently.
+
+        ``find_matching`` is revision-scoped and asks "is this the same
+        declaration I am upserting?". It decides whether to overwrite a row, so
+        it has to be exact: same ``grain_group_hash`` (which embeds
+        ``node_revision_id``) and the same set of measure identities.
+
+        This one is node-scoped and asks "what did this declaration look like
+        before?". The answer has to survive a new revision, so it cannot use
+        that hash at all and instead joins through ``NodeRevision`` to ``Node``
+        to match on node name. It also wants COVERING rather than exact
+        measures: the point is to recognise the earlier incarnation of a
+        declaration whose measures may have shifted, and it only reads the
+        predecessor -- the caller re-checks the physical table coordinates
+        before inheriting anything, which is what keeps a merely-similar
+        pre-agg from being mistaken for the same one.
+
+        Returns:
+            The newest matching PreAggregation, or None
+        """
+        from sqlalchemy.orm import joinedload
+
+        from datajunction_server.database.node import Node
+
+        statement = (
+            select(cls)
+            .join(NodeRevision, cls.node_revision_id == NodeRevision.id)
+            .join(Node, NodeRevision.node_id == Node.id)
+            .options(joinedload(cls.availability))
+            .where(Node.name == node_name)
+            .order_by(cls.id.desc())
+        )
+        result = await session.execute(statement)
+        wanted_grain = sorted(grain_columns)
+        for candidate in result.scalars().unique().all():
+            if sorted(candidate.grain_columns) != wanted_grain:
+                continue
+            if measure_identities <= get_measure_identities(candidate.measures):
+                return candidate
         return None
 
     # TODO: Remove this once we have a way to test pre-aggregations

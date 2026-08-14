@@ -555,12 +555,19 @@ class TestPreAggregationDBMethods:
         result = await PreAggregation.get_by_id(session, 999999)
         assert result is None
 
-    async def test_find_matching_with_superset(
+    async def test_find_matching_rejects_covering_row(
         self,
         session,
         minimal_node_revision,
     ):
-        """Test find_matching returns pre-agg with superset of measures."""
+        """
+        A wider pre-agg is NOT the row a narrower declaration upserts into.
+
+        Matching is exact because the caller replaces the matched row wholesale:
+        a covering match would strip the extra measures off a row other metrics
+        route to, and leave its frozen preagg_hash describing contents it no
+        longer has.
+        """
         grain_columns = ["test.dim.col"]
 
         measures = [
@@ -586,13 +593,25 @@ class TestPreAggregationDBMethods:
         session.add(preagg)
         await session.flush()
 
-        # Request subset - should match
+        # A subset of the stored measures is a different declaration.
         result = await PreAggregation.find_matching(
             session,
             node_revision_id=minimal_node_revision.id,
             grain_columns=grain_columns,
             measure_identities={
                 measure_identity_token(compute_expression_hash("price"), "SUM"),
+            },
+        )
+        assert result is None
+
+        # The full set is the same declaration, and matches.
+        result = await PreAggregation.find_matching(
+            session,
+            node_revision_id=minimal_node_revision.id,
+            grain_columns=grain_columns,
+            measure_identities={
+                measure_identity_token(compute_expression_hash("price"), "SUM"),
+                measure_identity_token(compute_expression_hash("1"), "COUNT"),
             },
         )
         assert result is not None
@@ -648,7 +667,7 @@ class TestPreAggregationDBMethods:
         assert result.preagg_hash == legacy_hash
 
     async def test_find_matching_no_match(self, session, minimal_node_revision):
-        """Test find_matching returns None when no candidate has superset."""
+        """Test find_matching returns None when no candidate matches."""
         grain_columns = ["test.dim.col"]
 
         measures = [make_measure("sum_price", "price")]

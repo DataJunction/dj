@@ -96,7 +96,8 @@ chooses the **smallest grain** that covers the request.
 
 Dimension references are compared **canonically**, so when exactly one role reaches a dimension, a bare
 name and its role-qualified spelling match each other — a pre-aggregation registered with one spelling
-still serves queries written with the other, including its `dimension_columns` column mapping. If the
+still serves queries written with the other, including the physical column bound to it under
+`dimensions`. If the
 dimension is also reachable by a role-free link, the bare name means that link and the two spellings
 stay distinct, since that's how the reference resolves everywhere else. A bare name is only rejected
 when the dimension is reachable by more than one role, since then it identifies none of them: a fact
@@ -176,8 +177,8 @@ just applying it at registration time instead of at materialization time.
 ### Plan for this when you author metrics, not when you register tables
 
 This constraint reaches back into how you model, because it cannot be worked around
-later. `measure_columns` maps a **metric to a single column**, so a metric that
-decomposes into more than one component has nothing to map and registration refuses
+later. The `metrics` map binds a **metric to a single column**, so a metric that
+decomposes into more than one component has nothing to bind and registration refuses
 it. And the components it *does* decompose into are named automatically, with a hash
 suffix derived from the expression — `line_total_sum_e1f61696`,
 `customer_id_hll_23002251` — names that are deliberately not addressable from YAML.
@@ -189,7 +190,7 @@ SELECT SUM(revenue) / COUNT(DISTINCT view_id) FROM fct_views
 ```
 
 can never be bound to an aggregate table, no matter what columns that table holds.
-There is no spelling of `measure_columns` that reaches its two components. The only
+There is no entry under `metrics` that reaches its two components. The only
 fix is to refactor the metric, which means changing a node other teams may already
 be querying.
 
@@ -217,11 +218,11 @@ partials with `SUM` and maxima with `MAX`, but you can't recover a maximum from 
 
 Two consequences when you register a table:
 
-- **One table can back several aggregations of the same column**, each with its own mapping. If your
-  table stores both a total and a peak, map them separately and both bindings are kept:
+- **One table can back several aggregations of the same column**, each with its own binding. If your
+  table stores both a total and a peak, bind them separately and both are kept:
 
   ```yaml
-  measure_columns:
+  metrics:
     ${prefix}total_price: price_sum
     ${prefix}peak_price: price_max
   ```
@@ -316,34 +317,40 @@ like this:
 # views_by_page.yaml
 kind: preagg
 name: views_by_page
-metrics:
-  - ${prefix}view_rate
-dimensions:
-  - ${prefix}page_d.page_id
-  - ${prefix}geo_country_d.country_iso_code
 catalog: warehouse
 schema: analytics
 table: views_by_page_daily
-measure_columns:
+metrics:
   ${prefix}view_secs: view_secs_sum
   ${prefix}session_count: session_cnt
-dimension_columns:
+dimensions:
   ${prefix}page_d.page_id: page
-  ${prefix}geo_country_d.country_iso_code: country
+  ${prefix}geo_country_d.country_iso_code: country_iso_code
 ```
 
-`view_rate` is listed as the metric you care about querying, but the column mapping is still declared
-against its underlying measures — DJ resolves `view_rate`'s dependency on `view_secs` and
-`session_count`, sees both are covered by columns in `measure_columns`, and considers `view_rate`
-covered as a result.
+Every metric and every dimension is written together with the physical column that holds it, so a
+reference and its binding can never drift apart, and reading the file tells you what the table looks
+like. Both maps require a value for every key. `page_d.page_id` is stored as `page`, so it says so;
+`geo_country_d.country_iso_code` happens to be stored under the same name DJ uses, and it says that
+too rather than leaving the value off. That is deliberate — a trailing colon is easy to write by
+accident, and an optional value would make the map not really a mapping. Each binding is validated
+the same way — the column must exist and be type-compatible — and only changes how the table is read,
+not how it's matched. A bound dimension can even be a joined attribute the table has denormalized (say
+it stores `country` directly rather than an account key you'd otherwise join through), which DJ then
+reads straight from the table with no join.
 
-Grain columns are mapped the same way: the optional `dimension_columns` map binds each dimension
-reference to the physical column holding it (here `page_d.page_id` is stored as `page` and the country
-as `country`), and unmapped dimensions are read under DJ's own name. It's validated like `measure_columns` — the column must exist
-and be type-compatible — and only changes how the table is read, not how it's matched. A mapped
-dimension can even be a joined attribute the table has denormalized (say it stores `country` directly
-rather than an account key you'd otherwise join through), which DJ then reads straight from the table
-with no join.
+Notice that `view_rate` doesn't appear in the file at all. What you declare under `metrics` are the
+*measures* the table physically stores, and a derived metric has no column of its own to name, so it
+can't be listed. It doesn't need to be: both registration and query-time routing work on decomposed
+measures rather than metric names, so any metric that resolves to `view_secs` and `session_count` — the
+ratio `view_rate` among them — is served by this table automatically. Declare the measures and the
+metrics built on them follow.
+
+The earlier form of this file, where `metrics` and `dimensions` were plain lists and the columns lived
+in separate `measure_columns` and `dimension_columns` blocks, is no longer accepted; a file still using
+it is rejected with a message describing what to write instead. If you have one, move each column up
+next to the reference it belongs to, and write out the columns for any dimensions that were previously
+left unmapped and relied on DJ's column name.
 
 On deploy, DJ registers any pre-aggregation specs it finds. Because deployments are the source of truth,
 it also removes a previously-registered pre-aggregation once you drop its spec from a deploy that still

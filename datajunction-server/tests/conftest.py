@@ -62,6 +62,7 @@ from datajunction_server.internal.access.authorization import (
 from datajunction_server.internal.seed import seed_default_catalogs
 from datajunction_server.models.materialization import MaterializationInfo
 from datajunction_server.models.query import QueryCreate, QueryWithResults
+from datajunction_server.models.table_metadata import TableMetadata
 from datajunction_server.models.user import OAuthProvider
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.typing import QueryState
@@ -710,6 +711,25 @@ def query_service_client(
             request_headers,
         )
 
+    async def mock_get_table_metadata_async(
+        catalog: str,
+        schema: str,
+        table: str,
+        request_headers: dict[str, str] | None = None,
+        engine: Engine | None = None,
+    ) -> TableMetadata:
+        # ``get_columns_for_table`` is resolved at call time so that tests which
+        # patch only the columns call still drive refresh through this method.
+        return TableMetadata(
+            columns=await qs_client.get_columns_for_table(
+                catalog,
+                schema,
+                table,
+                request_headers,
+                engine,
+            ),
+        )
+
     mocker.patch.object(
         qs_client,
         "get_columns_for_table",
@@ -719,6 +739,11 @@ def query_service_client(
         qs_client,
         "get_columns_for_table",
         mock_get_columns_for_table_async,
+    )
+    mocker.patch.object(
+        qs_client,
+        "get_table_metadata",
+        mock_get_table_metadata_async,
     )
 
     def mock_submit_query(
@@ -1465,6 +1490,15 @@ async def module__client(
                     if asyncio.iscoroutine(result):
                         await result
                 module__background_tasks.clear()
+                # Empty the identity map between requests, the way production
+                # does by handing each request its own session. Sharing one
+                # session across a module leaves partially-loaded instances
+                # (from a `load_only` query) reachable by later requests, and
+                # touching a column they didn't load issues a lazy primary-key
+                # fetch. In a synchronous frame -- the v2 builder, for one --
+                # that raises MissingGreenlet, and which test it lands on
+                # depends on how xdist happened to pack modules onto workers.
+                module__session.expunge_all()
                 return response
 
             test_client.request = wrapped_request
@@ -1812,6 +1846,9 @@ async def module__clean_client(
                     if asyncio.iscoroutine(result):
                         await result
                 module__background_tasks.clear()
+                # See the note above: production gives each request its own
+                # session, so clear the identity map to match.
+                session.expunge_all()
                 return response
 
             test_client.request = wrapped_request
@@ -2219,6 +2256,25 @@ def module__query_service_client(
             request_headers,
         )
 
+    async def mock_get_table_metadata_async(
+        catalog: str,
+        schema: str,
+        table: str,
+        request_headers: dict[str, str] | None = None,
+        engine: Engine | None = None,
+    ) -> TableMetadata:
+        # ``get_columns_for_table`` is resolved at call time so that tests which
+        # patch only the columns call still drive refresh through this method.
+        return TableMetadata(
+            columns=await qs_client.get_columns_for_table(
+                catalog,
+                schema,
+                table,
+                request_headers,
+                engine,
+            ),
+        )
+
     module_mocker.patch.object(
         qs_client,
         "get_columns_for_table",
@@ -2228,6 +2284,11 @@ def module__query_service_client(
         qs_client,
         "get_columns_for_table",
         mock_get_columns_for_table_async,
+    )
+    module_mocker.patch.object(
+        qs_client,
+        "get_table_metadata",
+        mock_get_table_metadata_async,
     )
 
     def mock_submit_query(

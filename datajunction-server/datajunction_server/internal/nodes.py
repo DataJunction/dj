@@ -49,7 +49,7 @@ from datajunction_server.database.preaggregation import (
     compute_expression_hash,
     measure_identity_token,
 )
-from datajunction_server.database.user import User
+from datajunction_server.database.user import OAuthProvider, PrincipalKind, User
 from datajunction_server.errors import (
     DJDoesNotExistException,
     DJError,
@@ -66,9 +66,10 @@ from datajunction_server.internal.access.authorization.context import AuthContex
 from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.materializations import (
+    apply_cube_materialization_swap,
     create_new_materialization,
     schedule_materialization_jobs_bg,
-    stop_cube_materialization_workflows,
+    swap_cube_materializations,
 )
 from datajunction_server.internal.validation import (
     NodeValidator,
@@ -118,6 +119,7 @@ from datajunction_server.models.node import (
 )
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import QueryCreate
+from datajunction_server.models.table_metadata import TableMetadata, TableOwner
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import (
     get_downstream_nodes,
@@ -1540,6 +1542,189 @@ async def update_owners(
     await session.commit()
 
 
+async def apply_table_owner(
+    session: AsyncSession,
+    node: Node,
+    owner: TableOwner,
+    save_history: Callable,
+    current_user: User,
+) -> bool:
+    """
+    Set the node's owners to exactly the table's owner.
+
+    Returns True when a change was made. Creates the user if absent, keyed on
+    ``owner.username`` -- the query service is responsible for mapping its
+    catalog's identity to a DJ username, since DJ usernames are not universally
+    emails. Never clears owners: the caller only invokes this with a resolved
+    owner.
+
+    Owners live on ``Node`` rather than ``NodeRevision``, so this never forks a
+    revision. The caller is responsible for committing.
+    """
+    await session.refresh(node, ["owners"])
+    old_owners = [existing.username for existing in node.owners]
+    if old_owners == [owner.username]:
+        return False
+
+    user = await User.get_by_username(session, owner.username)
+    if user is None:
+        user = User(
+            username=owner.username,
+            email=owner.email,
+            name=owner.display_name or owner.username,
+            oauth_provider=OAuthProvider.BASIC,
+            kind=PrincipalKind.GROUP if owner.is_group else PrincipalKind.USER,
+        )
+        session.add(user)
+        await session.flush()
+
+    node.owners = [user]
+    session.add(node)
+    await save_history(
+        event=History(
+            entity_type=EntityType.NODE,
+            entity_name=node.name,
+            node=node.name,
+            activity_type=ActivityType.UPDATE,
+            details={"old_owners": old_owners, "new_owners": [owner.username]},
+            # The actor is whoever ran the refresh, not the new owner -- the new
+            # owner is the object of the change. `get_node_creator`-style callers
+            # read this field, so it has to name a real actor.
+            user=current_user.username,
+        ),
+        session=session,
+    )
+    return True
+
+
+async def apply_table_primary_key(
+    session: AsyncSession,
+    node: Node,
+    primary_key: list[str],
+    current_user: User,
+    save_history: Callable,
+) -> bool:
+    """
+    Set the primary key attribute from the catalog's primary key.
+
+    Fill-when-empty: if the node already declares a primary key, leave it alone.
+    A primary key is structural -- dimension joins and cube grain depend on it --
+    so a hand-chosen one is a deliberate modelling decision and the catalog is
+    not automatically more right than the person who set it.
+
+    Goes through set_node_column_attributes so the attribute's uniqueness scopes
+    are validated the same way a manual change is, and so any other attribute
+    already on the column is preserved rather than replaced.
+    """
+    if not primary_key or node.current.primary_key():
+        return False
+
+    by_name = {column.name: column for column in node.current.columns}
+    changed = False
+    for column_name in primary_key:
+        column = by_name.get(column_name)
+        if column is None:
+            # The catalog named a column the node does not have; the column diff
+            # elsewhere in refresh is what reconciles that, not this.
+            continue
+        attributes = [
+            AttributeTypeIdentifier(name=attribute.attribute_type.name)
+            for attribute in column.attributes
+        ]
+        attributes.append(
+            AttributeTypeIdentifier(name=ColumnAttributes.PRIMARY_KEY.value),
+        )
+        await set_node_column_attributes(
+            session,
+            node,
+            column_name,
+            attributes,
+            current_user=current_user,
+            save_history=save_history,
+        )
+        changed = True
+    return changed
+
+
+def describe_column_changes(
+    existing: list[Column],
+    incoming: list[Column],
+) -> dict:
+    """
+    Describe how a table's columns changed, for the audit trail.
+
+    Returns the same keys ``revalidate`` already records -- ``type_changes``,
+    ``added_columns``, ``removed_columns`` -- so a version bump is explained the
+    same way however it was triggered. Empty when nothing changed, so the result
+    doubles as the "did anything change" test.
+
+    Type changes matter beyond documentation: a source column changing type can
+    change the value of a metric computed from it, so a refresh that silently
+    bumps a version leaves no way to explain a number that moved.
+    """
+    existing_by_name = {column.name: column for column in existing}
+    incoming_by_name = {column.name: column for column in incoming}
+
+    changes: dict = {}
+    type_changes = [
+        {
+            "column": name,
+            "from": str(existing_by_name[name].type),
+            "to": str(column.type),
+        }
+        for name, column in incoming_by_name.items()
+        if name in existing_by_name
+        and str(existing_by_name[name].type) != str(column.type)
+    ]
+    added = sorted(set(incoming_by_name) - set(existing_by_name))
+    removed = sorted(set(existing_by_name) - set(incoming_by_name))
+
+    if type_changes:
+        changes["type_changes"] = type_changes
+    if added:
+        changes["added_columns"] = added
+    if removed:
+        changes["removed_columns"] = removed
+    return changes
+
+
+def apply_table_descriptions(
+    session: AsyncSession,
+    revision: NodeRevision,
+    table_metadata: TableMetadata,
+) -> bool:
+    """
+    Fill in the node's and columns' descriptions from the warehouse table.
+
+    Fill-when-empty, never overwrite: a description is curated prose that
+    someone may have written in DJ, and the table's comment is not automatically
+    the better one. This only closes the gap where DJ has nothing.
+
+    Applied in place rather than by forking a revision -- a comment is not a
+    schema change, and the caller commits.
+    """
+    changed = False
+
+    if table_metadata.description and not revision.description:
+        revision.description = table_metadata.description
+        changed = True
+
+    incoming = {
+        column.name: column.description
+        for column in table_metadata.columns
+        if column.description
+    }
+    for column in revision.columns:
+        description = incoming.get(column.name)
+        if description and not column.description:
+            column.description = description
+            changed = True
+
+    if changed:
+        session.add(revision)
+    return changed
+
+
 def cube_changed_fields(
     old_revision: NodeRevision,
     new_cube: CreateCubeNode,
@@ -1685,6 +1870,13 @@ async def is_non_trivial_cube_change(
     asks whether the previously materialized table is still usable. The two can and
     do diverge -- reordering dimensions earns a minor bump but leaves the table
     valid, while a filters change is major and invalidates it.
+
+    It no longer decides whether the superseded revision's workflows are stopped:
+    `swap_cube_materializations` does that on every new revision, because a revision
+    that keeps neither its materialization nor its availability cannot be left
+    pointing at another revision's running workflow. What remains is the
+    adopt-or-backfill question -- whether the rebuilt materialization can reuse the
+    previous revision's data -- which the swap records on its history event.
     """
     if set(old_revision.cube_dimensions()) != set(new_revision.cube_dimensions()):
         return True
@@ -1844,74 +2036,36 @@ async def update_cube_node(
                     granularity=col.partition.granularity,
                 )
 
-        # Materializations are not migrated to the new revision. When the new
-        # revision is non-trivially different, the previous revision's workflows are
-        # also stopped: left running, they keep posting fresh availability for a
-        # table built from the old definition, and that stale-but-live availability
-        # record can then be used to route queries against the new revision,
-        # producing column-not-found errors.
-        #
-        # "default"-named materializations are included: they are legacy Druid
-        # materializations that post availability just like any other, so leaving
-        # them running reproduces exactly the failure we are preventing.
-        active_materializations = [
-            mat for mat in node_revision.materializations if not mat.deactivated_at
-        ]
-        materializations_to_stop = (
-            active_materializations
-            if active_materializations
-            and await is_non_trivial_cube_change(
-                session,
-                node_revision,
-                new_cube_revision,
-            )
-            else []
-        )
-        if materializations_to_stop:
-            for mat in materializations_to_stop:
-                mat.deactivated_at = UTCDatetime.now(UTC)  # type: ignore
-            await save_history(
-                event=History(
-                    entity_type=EntityType.MATERIALIZATION,
-                    entity_name=node_revision.name,
-                    node=node_revision.name,
-                    activity_type=ActivityType.STATUS_CHANGE,
-                    details={
-                        "message": (
-                            f"Cube updated to {new_cube_revision.version}. "
-                            "Materializations from the previous version were stopped "
-                            "because the cube changed non-trivially. Please set up "
-                            "materializations again if you want to continue "
-                            "materializing this cube."
-                        ),
-                        "previous_version": node_revision.version,
-                        "new_version": new_cube_revision.version,
-                        "stopped_materializations": [
-                            mat.name for mat in materializations_to_stop
-                        ],
-                    },
-                    user=current_user.username,
-                ),
-                session=session,
-            )
-
         session.add(new_cube_revision)
         session.add(new_cube_revision.node)
         await session.commit()
 
-    # Stop the remote workflows only once DJ's own state is committed, so a slow or
-    # failing query service can neither hold the transaction open nor leave DJ
-    # claiming the old materializations are still active. The call is batched rather
-    # than per-materialization: these are blocking HTTP requests, so a loop would
-    # stall the event loop once per materialization. The helper swallows query
-    # service errors: a stop that can't be delivered must not abort a legitimate
-    # cube edit, and the History event above records what we attempted.
-    if query_service_client and materializations_to_stop:
-        stop_cube_materialization_workflows(
-            query_service_client=query_service_client,
-            cube_name=node_revision.name,
-            cube_version=node_revision.version,
-            materializations=materializations_to_stop,
+    # Swap the materializations onto the new revision only once it is committed: the
+    # rebuild reads the new revision's columns and partitions back out of the DB.
+    swap = await swap_cube_materializations(
+        session,
+        node_revision,
+        new_cube_revision,
+        access_checker=access_checker,
+        current_user=current_user,
+        previous_table_usable=not await is_non_trivial_cube_change(
+            session,
+            node_revision,
+            new_cube_revision,
+        ),
+    )
+    if swap:
+        # Talk to the query service only once DJ's own record of the swap is
+        # committed, so a slow or failing query service can neither hold the
+        # transaction open nor leave DJ claiming the superseded materializations are
+        # still active. The call never raises: a stop or a schedule that cannot be
+        # delivered must not abort a legitimate cube edit, and the History event
+        # recorded above says what we attempted.
+        await session.commit()
+        await apply_cube_materialization_swap(
+            session,
+            swap,
+            query_service_client,
             request_headers=request_headers,
         )
 
@@ -4104,10 +4258,11 @@ async def refresh_source(
         )
         new_query = current_revision.query
 
-    # Get the latest columns for the source node's table from the query service
+    # Get the latest columns and owner for the source node's table from the query service
+    table_metadata = None
     new_columns = []
     try:
-        new_columns = await query_service_client.get_columns_for_table(
+        table_metadata = await query_service_client.get_table_metadata(
             current_revision.catalog.name,
             current_revision.schema_,  # type: ignore
             current_revision.table,  # type: ignore
@@ -4116,9 +4271,35 @@ async def refresh_source(
             if len(current_revision.catalog.engines) >= 1
             else None,
         )
+        new_columns = table_metadata.columns
     except DJDoesNotExistException:
         # continue with the update, if the table was not found
         pass
+
+    # Apply the table's owner before the column comparison below, so that an
+    # ownership-only change still takes effect on the two short-circuit paths.
+    # ``owner is None`` means "no ownership information", never "no owner", so it
+    # leaves the node's existing owners alone.
+    if table_metadata is not None and table_metadata.owner is not None:
+        await apply_table_owner(
+            session,
+            source_node,  # type: ignore
+            table_metadata.owner,
+            save_history,
+            current_user,
+        )
+
+    # Descriptions are deliberately not recorded in the audit trail: a comment is
+    # documentation, not something a reported number can turn on.
+    if table_metadata is not None:
+        apply_table_descriptions(session, current_revision, table_metadata)
+        await apply_table_primary_key(
+            session,
+            source_node,  # type: ignore
+            table_metadata.primary_key,
+            current_user,
+            save_history,
+        )
 
     refresh_details = {}
     if new_columns:
@@ -4131,6 +4312,10 @@ async def refresh_source(
         # if the columns haven't changed and the node has a table, we can skip the update
         if not column_changes:
             if not source_node.missing_table:  # type: ignore
+                # No revision to fork. An ownership change is already recorded by
+                # apply_table_owner above, and descriptions are deliberately not
+                # audited, so there is nothing further to record here.
+                await session.commit()
                 return source_node  # type: ignore
             # if the columns haven't changed but the node has a missing table, we should fix it
             source_node.missing_table = False  # type: ignore
@@ -4139,6 +4324,7 @@ async def refresh_source(
         # since we don't see any columns, we assume the table is gone
         if source_node.missing_table:  # type: ignore
             # but if the node already has a missing table, we can skip the update
+            await session.commit()
             return source_node  # type: ignore
         source_node.missing_table = True  # type: ignore
         new_columns = current_revision.columns
@@ -4195,6 +4381,12 @@ async def refresh_source(
     session.add(source_node)
 
     refresh_details["version"] = new_revision.version
+    # Explain the bump the same way `revalidate` does. A source column changing
+    # type can change a metric computed from it, so "which columns and how" is
+    # the part of a refresh worth auditing.
+    refresh_details.update(
+        describe_column_changes(current_revision.columns, new_columns),
+    )
     await save_history(
         event=History(
             entity_type=EntityType.NODE,

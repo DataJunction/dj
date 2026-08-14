@@ -24,6 +24,10 @@ from datajunction_server.errors import (
     DJQueryServiceClientException,
 )
 from datajunction_server.models.cube import CubeElementMetadata
+from datajunction_server.models.materialization import (
+    MaterializationInfo,
+    MaterializationStrategy,
+)
 from datajunction_server.models.node import ColumnOutput
 from datajunction_server.models.query import ColumnMetadata, V3ColumnMetadata
 from datajunction_server.service_clients import QueryServiceClient
@@ -2751,10 +2755,28 @@ async def test_updating_cube_with_existing_cube_materialization(
     result = response.json()
     assert result["version"] == "v2.0"
 
-    # Check that there is no longer a materialization configured
+    # Both of the previous revision's materializations are rebuilt against v2.0.
     response = await client_with_repairs_cube.get(f"/cubes/{cube_name}/")
     data = response.json()
-    assert len(data["materializations"]) == 0
+    assert [
+        (mat["name"], mat["job"], mat["config"].get("cube"))
+        for mat in data["materializations"]
+    ] == [
+        (
+            "druid_cube__incremental_time__default.hard_hat.hire_date",
+            "DruidCubeMaterializationJob",
+            {
+                "name": cube_name,
+                "version": "v2.0",
+                "display_name": "Repairs Cube  Default Incremental 11",
+            },
+        ),
+        (
+            "druid_metrics_cube__incremental_time__default.hard_hat.hire_date",
+            "DruidMetricsCubeMaterializationJob",
+            None,
+        ),
+    ]
 
 
 @pytest.mark.asyncio
@@ -2812,10 +2834,20 @@ async def test_updating_cube_with_existing_materialization(
     result = response.json()
     assert result["version"] == "v2.0"
 
-    # Check that the cube was updated
+    # The materialization is rebuilt against the new revision, carrying the
+    # schedule and spark config the user set on the previous one.
     response = await client_with_repairs_cube.get("/cubes/default.repairs_cube_2/")
     data = response.json()
-    assert len(data["materializations"]) == 0
+    assert [
+        (mat["name"], mat["schedule"], mat["config"]["spark"])
+        for mat in data["materializations"]
+    ] == [
+        (
+            "druid_measures_cube__incremental_time__default.hard_hat.hire_date",
+            "@daily",
+            {"spark.executor.memory": "6g"},
+        ),
+    ]
     assert_updated_repairs_cube(data)
 
 
@@ -6255,9 +6287,22 @@ class TestCubeRefreshMaterialization:
         mat_names = [m["name"] for m in call_kwargs["materializations"]]
         assert "deactivated_mat" in mat_names
 
-        # Verify the materialization was re-activated in the DB
-        await module__session.refresh(deactivated_mat)
-        assert deactivated_mat.deactivated_at is None
+        # Verify the materialization was re-activated in the DB. Re-select it
+        # rather than refreshing the instance built above: the request cleared
+        # the identity map, as it does in production, so that instance is no
+        # longer attached to this session.
+        reactivated_mat = (
+            (
+                await module__session.execute(
+                    select(Materialization).where(
+                        Materialization.id == deactivated_mat.id,
+                    ),
+                )
+            )
+            .scalars()
+            .one()
+        )
+        assert reactivated_mat.deactivated_at is None
 
         # Verify version didn't change
         response = await client_with_repairs_cube.get(f"/nodes/{cube_name}/")
@@ -6266,10 +6311,14 @@ class TestCubeRefreshMaterialization:
 
 class TestStopStaleCubeMaterializationWorkflows:
     """
-    A non-trivial cube revision must stop the previous revision's materialization
-    workflows. Left running, they keep posting availability for a table built from
-    the old definition, and that stale-but-live availability is then used to route
-    queries against the new revision, producing column-not-found errors.
+    Every new cube revision swaps its materializations: they are rebuilt against the
+    new revision and the superseded revision's workflows are stopped.
+
+    Materializations belong to a single revision and availability is scoped to the
+    revision encoded in the materialized table name, so a new revision that is not
+    rebuilt has neither -- the cube silently falls back to live queries while the old
+    revision's workflow keeps posting availability for a table built from the old
+    definition, which is then used to route queries against the new revision.
     """
 
     METRICS = ["default.num_repair_orders", "default.avg_repair_price"]
@@ -6322,18 +6371,26 @@ class TestStopStaleCubeMaterializationWorkflows:
     async def _materialization_states(
         session: AsyncSession,
         cube_name: str,
-    ) -> list[tuple[str, bool]]:
+    ) -> list[tuple[str, str, bool]]:
         """
-        (materialization name, is deactivated) for every revision of the cube.
+        (revision version, materialization name, is deactivated) for every revision
+        of the cube.
         """
         statement = (
-            select(Materialization.name, Materialization.deactivated_at)
+            select(
+                NodeRevision.version,
+                Materialization.name,
+                Materialization.deactivated_at,
+            )
             .join(NodeRevision, NodeRevision.id == Materialization.node_revision_id)
             .where(NodeRevision.name == cube_name)
+            .order_by(NodeRevision.version, Materialization.name)
         )
         return [
-            (name, deactivated_at is not None)
-            for name, deactivated_at in (await session.execute(statement)).all()
+            (version, name, deactivated_at is not None)
+            for version, name, deactivated_at in (
+                await session.execute(statement)
+            ).all()
         ]
 
     @staticmethod
@@ -6361,8 +6418,10 @@ class TestStopStaleCubeMaterializationWorkflows:
         mocker,
     ):
         """
-        A swapped dimension is non-trivial: the previous revision's workflow is
-        stopped in the query service and marked deactivated in DJ.
+        A swapped dimension invalidates the previous materialized table: the
+        materialization is rebuilt against the new revision and the previous
+        revision's workflow is stopped in the query service and marked deactivated
+        in DJ.
         """
         cube_name = "default.stop_workflows_dimension_change"
         await self._make_materialized_cube(
@@ -6406,7 +6465,8 @@ class TestStopStaleCubeMaterializationWorkflows:
         mock_deactivate_workflows.assert_not_called()
 
         assert await self._materialization_states(module__session, cube_name) == [
-            (self.MATERIALIZATION_NAME, True),
+            ("v1.0", self.MATERIALIZATION_NAME, True),
+            ("v2.0", self.MATERIALIZATION_NAME, False),
         ]
         assert await self._materialization_history(
             client_with_repairs_cube,
@@ -6414,14 +6474,15 @@ class TestStopStaleCubeMaterializationWorkflows:
         ) == [
             {
                 "message": (
-                    "Cube updated to v2.0. Materializations from the previous "
-                    "version were stopped because the cube changed non-trivially. "
-                    "Please set up materializations again if you want to continue "
-                    "materializing this cube."
+                    "Cube updated to v2.0. Materializations were rebuilt against "
+                    "the new version and the previous version's workflows were "
+                    "stopped."
                 ),
                 "previous_version": "v1.0",
                 "new_version": "v2.0",
                 "stopped_materializations": [self.MATERIALIZATION_NAME],
+                "rebuilt_materializations": [self.MATERIALIZATION_NAME],
+                "previous_table_usable": False,
             },
         ]
 
@@ -6434,8 +6495,8 @@ class TestStopStaleCubeMaterializationWorkflows:
     ):
         """
         A filters-only change is a major version bump — it changes which rows the
-        cube contains — and for the same reason it is non-trivial, so the previous
-        version's workflows are stopped.
+        cube contains — so the previous version's workflows are stopped and the
+        materialization is rebuilt against the new revision.
         """
         cube_name = "default.stop_workflows_filters_change"
         await self._make_materialized_cube(
@@ -6465,21 +6526,29 @@ class TestStopStaleCubeMaterializationWorkflows:
             request_headers=mock.ANY,
         )
         assert await self._materialization_states(module__session, cube_name) == [
-            (self.MATERIALIZATION_NAME, True),
+            ("v1.0", self.MATERIALIZATION_NAME, True),
+            ("v2.0", self.MATERIALIZATION_NAME, False),
         ]
 
     @pytest.mark.asyncio
-    async def test_trivial_change_keeps_previous_workflows(
+    async def test_trivial_change_also_swaps_workflows(
         self,
         client_with_repairs_cube: AsyncClient,
         module__session: AsyncSession,
         mocker,
     ):
         """
-        A description-only change still creates a new revision, but the materialized
-        table stays valid, so the running workflow is left alone.
+        A description-only change earns only a minor bump and leaves the previously
+        materialized table valid, but it is still a new revision, and a revision
+        carries neither its predecessor's materialization nor its availability. So
+        the materialization is rebuilt against v1.1 and v1.0's workflow is stopped:
+        leaving v1.0's workflow running would mean the current revision has no
+        materialization at all while a superseded one keeps posting availability.
+
+        `previous_table_usable` records that this rebuild can adopt the existing
+        data rather than needing a fresh build.
         """
-        cube_name = "default.keep_workflows_trivial_change"
+        cube_name = "default.swap_workflows_trivial_change"
         await self._make_materialized_cube(client_with_repairs_cube, cube_name)
         qs_client = client_with_repairs_cube.app.dependency_overrides[
             get_query_service_client
@@ -6497,14 +6566,32 @@ class TestStopStaleCubeMaterializationWorkflows:
         assert response.status_code == 200, response.json()
         assert response.json()["version"] == "v1.1"
 
-        mock_deactivate_cube_workflow.assert_not_called()
-        assert await self._materialization_states(module__session, cube_name) == [
-            (self.MATERIALIZATION_NAME, False),
-        ]
-        assert (
-            await self._materialization_history(client_with_repairs_cube, cube_name)
-            == []
+        mock_deactivate_cube_workflow.assert_called_once_with(
+            cube_name,
+            version="v1.0",
+            request_headers=mock.ANY,
         )
+        assert await self._materialization_states(module__session, cube_name) == [
+            ("v1.0", self.MATERIALIZATION_NAME, True),
+            ("v1.1", self.MATERIALIZATION_NAME, False),
+        ]
+        assert await self._materialization_history(
+            client_with_repairs_cube,
+            cube_name,
+        ) == [
+            {
+                "message": (
+                    "Cube updated to v1.1. Materializations were rebuilt against "
+                    "the new version and the previous version's workflows were "
+                    "stopped."
+                ),
+                "previous_version": "v1.0",
+                "new_version": "v1.1",
+                "stopped_materializations": [self.MATERIALIZATION_NAME],
+                "rebuilt_materializations": [self.MATERIALIZATION_NAME],
+                "previous_table_usable": True,
+            },
+        ]
 
     @pytest.mark.asyncio
     async def test_metric_component_change_stops_previous_workflows(
@@ -6550,7 +6637,8 @@ class TestStopStaleCubeMaterializationWorkflows:
             request_headers=mock.ANY,
         )
         assert await self._materialization_states(module__session, cube_name) == [
-            (self.MATERIALIZATION_NAME, True),
+            ("v1.0", self.MATERIALIZATION_NAME, True),
+            ("v2.0", self.MATERIALIZATION_NAME, False),
         ]
 
     @pytest.mark.asyncio
@@ -6561,8 +6649,9 @@ class TestStopStaleCubeMaterializationWorkflows:
         mocker,
     ):
         """
-        Asking for a materialization refresh after a non-trivial update must not
-        re-activate the previous revision's stopped materializations.
+        Asking for a materialization refresh after a non-trivial update refreshes the
+        rebuilt materialization on the new revision, and must not re-activate the
+        previous revision's stopped ones.
         """
         cube_name = "default.stop_workflows_then_refresh"
         await self._make_materialized_cube(
@@ -6597,18 +6686,26 @@ class TestStopStaleCubeMaterializationWorkflows:
         )
         assert response.status_code == 200, response.json()
 
-        # The new revision has no materializations of its own, so there is nothing
-        # to refresh -- and nothing revived on the previous revision.
-        assert mock_refresh.call_args_list == [
-            mock.call(
-                cube_name=cube_name,
-                cube_version="v2.0",
-                materializations=[],
-                request_headers=mock.ANY,
+        # The refresh sees exactly the materialization rebuilt on v2.0, and nothing
+        # is revived on the previous revision.
+        assert mock_refresh.call_count == 1
+        _, kwargs = mock_refresh.call_args
+        assert kwargs["cube_name"] == cube_name
+        assert kwargs["cube_version"] == "v2.0"
+        assert [
+            (mat["name"], mat["job"], mat["strategy"], mat["cube"])
+            for mat in kwargs["materializations"]
+        ] == [
+            (
+                self.MATERIALIZATION_NAME,
+                "DruidMetricsCubeMaterializationJob",
+                "incremental_time",
+                {"name": cube_name, "version": "v2.0"},
             ),
         ]
         assert await self._materialization_states(module__session, cube_name) == [
-            (self.MATERIALIZATION_NAME, True),
+            ("v1.0", self.MATERIALIZATION_NAME, True),
+            ("v2.0", self.MATERIALIZATION_NAME, False),
         ]
 
     @pytest.mark.asyncio
@@ -6618,8 +6715,9 @@ class TestStopStaleCubeMaterializationWorkflows:
         module__session: AsyncSession,
     ):
         """
-        With no query service configured there is no workflow to stop remotely, but
-        DJ still stops treating the previous revision's materializations as active.
+        With no query service configured there is no workflow to stop or schedule
+        remotely, but DJ-side state still swaps: the materialization is rebuilt on the
+        new revision and the previous revision's is no longer active.
         """
         cube_name = "default.stop_workflows_without_query_service"
         await self._make_materialized_cube(
@@ -6640,5 +6738,228 @@ class TestStopStaleCubeMaterializationWorkflows:
         assert response.status_code == 200, response.json()
         assert response.json()["version"] == "v2.0"
         assert await self._materialization_states(module__session, cube_name) == [
-            (self.MATERIALIZATION_NAME, True),
+            ("v1.0", self.MATERIALIZATION_NAME, True),
+            ("v2.0", self.MATERIALIZATION_NAME, False),
         ]
+
+    @pytest.mark.asyncio
+    async def test_rebuild_that_cannot_be_built_still_stops_previous_workflows(
+        self,
+        client_with_repairs_cube: AsyncClient,
+        module__session: AsyncSession,
+        mocker,
+    ):
+        """
+        Dropping the only temporally partitioned dimension leaves a revision a cube
+        materialization cannot be built against at all. The edit still succeeds and
+        the superseded workflow is still stopped -- leaving it running would keep
+        posting availability for a table the new revision cannot use -- but there is
+        nothing to schedule in its place, and the history event says so.
+        """
+        cube_name = "default.stop_workflows_unbuildable_rebuild"
+        await self._make_materialized_cube(client_with_repairs_cube, cube_name)
+        qs_client = client_with_repairs_cube.app.dependency_overrides[
+            get_query_service_client
+        ]()
+        mock_materialize = mocker.patch.object(qs_client, "materialize")
+        mock_deactivate_cube_workflow = mocker.patch.object(
+            qs_client,
+            "deactivate_cube_workflow",
+            return_value={"status": "deactivated"},
+        )
+
+        response = await client_with_repairs_cube.patch(
+            f"/nodes/{cube_name}",
+            json={"dimensions": ["default.hard_hat.city"]},
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["version"] == "v2.0"
+
+        mock_materialize.assert_not_called()
+        mock_deactivate_cube_workflow.assert_called_once_with(
+            cube_name,
+            version="v1.0",
+            request_headers=mock.ANY,
+        )
+        assert await self._materialization_states(module__session, cube_name) == [
+            ("v1.0", self.MATERIALIZATION_NAME, True),
+        ]
+        assert await self._materialization_history(
+            client_with_repairs_cube,
+            cube_name,
+        ) == [
+            {
+                "message": (
+                    "Cube updated to v2.0. Materializations were rebuilt against "
+                    "the new version and the previous version's workflows were "
+                    "stopped."
+                ),
+                "previous_version": "v1.0",
+                "new_version": "v2.0",
+                "stopped_materializations": [self.MATERIALIZATION_NAME],
+                "rebuilt_materializations": [],
+                "previous_table_usable": False,
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_scheduling_failure_does_not_fail_the_edit(
+        self,
+        client_with_repairs_cube: AsyncClient,
+        module__session: AsyncSession,
+        mocker,
+    ):
+        """
+        A query service that cannot schedule the rebuilt materialization must not
+        abort the cube edit that triggered the swap. DJ keeps the rebuilt
+        materialization on the new revision -- that is what was asked for, and it is
+        what a later refresh will re-submit -- and still stops the old workflow.
+        """
+        cube_name = "default.stop_workflows_schedule_failure"
+        await self._make_materialized_cube(client_with_repairs_cube, cube_name)
+        qs_client = client_with_repairs_cube.app.dependency_overrides[
+            get_query_service_client
+        ]()
+        mock_materialize = mocker.patch.object(
+            qs_client,
+            "materialize",
+            side_effect=RuntimeError("query service unreachable"),
+        )
+        mock_deactivate_cube_workflow = mocker.patch.object(
+            qs_client,
+            "deactivate_cube_workflow",
+            return_value={"status": "deactivated"},
+        )
+
+        response = await client_with_repairs_cube.patch(
+            f"/nodes/{cube_name}",
+            json={"description": "Cube of repair metrics, revised"},
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["version"] == "v1.1"
+
+        assert mock_materialize.call_count == 1
+        mock_deactivate_cube_workflow.assert_called_once_with(
+            cube_name,
+            version="v1.0",
+            request_headers=mock.ANY,
+        )
+        assert await self._materialization_states(module__session, cube_name) == [
+            ("v1.0", self.MATERIALIZATION_NAME, True),
+            ("v1.1", self.MATERIALIZATION_NAME, False),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_cube_planner_materialization_is_not_swapped(
+        self,
+        client_with_repairs_cube: AsyncClient,
+        module__session: AsyncSession,
+        mocker,
+    ):
+        """
+        A cube planner materialization is not carried onto the new revision.
+
+        The two cube dialects are indistinguishable by job -- `POST
+        /cubes/{name}/materialize` stores the same `DruidCubeMaterializationJob` the
+        fused path derives -- so a planner row read as intent to rebuild recovers as
+        a fused materialization. On a cube that has both, the two rebuilds derive one
+        name and the edit dies on `name_node_revision_uniq`, after the new revision
+        has already been committed. The planner's row is left where it is instead,
+        still active, and the fused one swaps as it always did.
+        """
+        cube_name = "default.stop_workflows_cube_planner"
+        response = await client_with_repairs_cube.post(
+            "/nodes/cube/",
+            json={
+                "metrics": list(self.METRICS),
+                "dimensions": list(self.DIMENSIONS),
+                "description": "Cube of repair metrics",
+                "mode": "published",
+                "name": cube_name,
+            },
+        )
+        assert response.status_code < 400, response.json()
+        response = await client_with_repairs_cube.post(
+            f"/nodes/{cube_name}/columns/default.hard_hat.hire_date/partition",
+            json={"type_": "temporal", "granularity": "day", "format": "yyyyMMdd"},
+        )
+        assert response.status_code < 400, response.json()
+
+        qs_client = client_with_repairs_cube.app.dependency_overrides[
+            get_query_service_client
+        ]()
+        mocker.patch.object(
+            qs_client,
+            "materialize_cube",
+            return_value=MaterializationInfo(
+                urls=["http://fake.url/job"],
+                output_tables=[],
+            ),
+        )
+        response = await client_with_repairs_cube.post(
+            f"/nodes/{cube_name}/materialization/",
+            json={
+                "job": "druid_cube",
+                "strategy": "incremental_time",
+                "schedule": "@daily",
+                "lookback_window": "1 DAY",
+            },
+        )
+        assert response.status_code < 400, response.json()
+
+        # The planner's row is written directly: its own endpoint needs pre-agg
+        # tables that this fixture's cube does not have.
+        revision_id = (
+            await module__session.execute(
+                select(NodeRevision.id).where(NodeRevision.name == cube_name),
+            )
+        ).scalar_one()
+        module__session.add(
+            Materialization(
+                node_revision_id=revision_id,
+                name="druid_cube_v3",
+                strategy=MaterializationStrategy.INCREMENTAL_TIME,
+                schedule="@daily",
+                config={"version": "v3", "workflow_names": ["planner-workflow"]},
+                job="DruidCubeMaterializationJob",
+            ),
+        )
+        await module__session.commit()
+
+        mock_deactivate_cube_workflow = mocker.patch.object(
+            qs_client,
+            "deactivate_cube_workflow",
+            return_value={"status": "deactivated"},
+        )
+        mock_deactivate_workflows = mocker.patch.object(
+            qs_client,
+            "deactivate_workflows",
+            return_value={"status": "deactivated"},
+        )
+
+        response = await client_with_repairs_cube.patch(
+            f"/nodes/{cube_name}",
+            json={
+                "dimensions": [
+                    "default.hard_hat.state",
+                    "default.hard_hat.hire_date",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["version"] == "v2.0"
+
+        fused_name = "druid_cube__incremental_time__default.hard_hat.hire_date"
+        assert await self._materialization_states(module__session, cube_name) == [
+            ("v1.0", fused_name, True),
+            ("v1.0", "druid_cube_v3", False),
+            ("v2.0", fused_name, False),
+        ]
+        # The planner's workflow is not among those stopped: only the fused row is
+        # superseded, and it carries no workflow names of its own.
+        assert mock_deactivate_workflows.call_args_list == []
+        mock_deactivate_cube_workflow.assert_called_once_with(
+            cube_name,
+            version="v1.0",
+            request_headers=mock.ANY,
+        )

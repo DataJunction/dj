@@ -697,6 +697,11 @@ class Node(Base):
         is derived by DJ on every build, so re-exporting it would put generated
         artifacts into a hand-edited file and make the YAML churn on each rebuild.
 
+        A cube planner materialization is skipped even though it shares the fused
+        job class, because the declarative block cannot describe it: exporting one
+        would write YAML that, pushed back, replaces the planner's materialization
+        with a fused one.
+
         Loaded lazily rather than through `export_load_options`: cubes are a small
         minority of exported nodes, so paying a SELECT for every source and metric
         to serve them is the wrong trade.
@@ -712,6 +717,7 @@ class Node(Base):
                 for materialization in self.current.materializations
                 if materialization.job == CUBE_MATERIALIZATION_JOB
                 and materialization.deactivated_at is None
+                and not materialization.is_cube_planner
             ),
             key=lambda materialization: materialization.name,
         )

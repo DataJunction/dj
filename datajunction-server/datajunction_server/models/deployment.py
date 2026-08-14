@@ -9,6 +9,7 @@ from pydantic import (
     Field,
     PrivateAttr,
     TypeAdapter,
+    field_validator,
     model_validator,
 )
 
@@ -180,20 +181,112 @@ class PreAggSpec(NamespacedSpec):
     for reconciliation and availability callbacks. Metric/dimension references may
     use ``${prefix}`` or be fully qualified; they are rendered against the
     deployment namespace.
+
+    Every metric and every dimension is declared together with the physical
+    column of the external table that holds it, as a map::
+
+        metrics:
+          ${prefix}paid_members: paid_members_sum
+        dimensions:
+          ${prefix}country_dim.country_iso: country
+          ${prefix}date_dim.utc_date: utc_date
+
+    Both maps require a value for every key -- including a dimension whose
+    physical column happens to match its DJ column name, which is written out
+    rather than left empty. An optional value would make the map not really a
+    mapping, a trailing colon is easy to write by accident, and spelling the
+    physical name out documents the table in the file that declares it.
+
+    What goes under ``metrics`` are the measures the table stores. A derived
+    metric (a ratio of two others, say) is not listed and cannot be: it has no
+    column of its own. It is covered anyway, because both registration and
+    query-time matching work on decomposed measure identities rather than metric
+    names, so any metric that decomposes into the stored measures resolves to
+    this table.
+
+    The earlier four-field form -- ``metrics``/``dimensions`` as lists alongside
+    separate ``measure_columns``/``dimension_columns`` maps -- is no longer
+    accepted, and a spec still using it is rejected with a message describing
+    what to write instead.
     """
 
-    metrics: list[str] = Field(default_factory=list)
-    dimensions: list[str] = Field(default_factory=list)
+    # Metric/dimension reference -> the physical column of the external table
+    # holding it. The `rendered_*` properties below split these back into the
+    # references-plus-bindings shape the registration internals take.
+    metrics: dict[str, str] = Field(default_factory=dict)
+    dimensions: dict[str, str] = Field(default_factory=dict)
     catalog: str
     schema_: str = Field(alias="schema")
     table: str
     valid_through_ts: int | None = None
-    measure_columns: dict[str, str] = Field(default_factory=dict)
-    # Physical-column binding for dimensions, keyed by dimension reference.
-    # Unmapped dimensions default to their DJ column name.
-    dimension_columns: dict[str, str] = Field(default_factory=dict)
 
     model_config = ConfigDict(populate_by_name=True)
+
+    # Each removed field and the map that replaced it.
+    _REPLACED_FIELDS: ClassVar[dict[str, str]] = {
+        "measure_columns": "metrics",
+        "dimension_columns": "dimensions",
+    }
+
+    # Why a missing column can't be defaulted, per axis.
+    _UNBOUND_REASONS: ClassVar[dict[str, str]] = {
+        "metrics": (
+            "A measure's DJ-side name is auto-generated with an expression-hash "
+            "suffix, so there is no name to fall back on."
+        ),
+        "dimensions": (
+            "Write the column out even when it matches the DJ column name, so "
+            "the file says what the table actually holds."
+        ),
+    }
+
+    @model_validator(mode="before")
+    @classmethod
+    def require_column_bindings(cls, data: Any) -> Any:
+        """
+        Hold the author to the map form: every metric and dimension names the
+        physical column that holds it, and the fields that used to carry those
+        bindings separately are gone.
+        """
+        if not isinstance(data, dict):
+            return data
+
+        name = data.get("name")
+        for removed, replacement in cls._REPLACED_FIELDS.items():
+            if removed in data:
+                raise DJInvalidDeploymentConfig(
+                    message=(
+                        f"Pre-aggregation '{name}' declares `{removed}`, which is no "
+                        f"longer a pre-aggregation field. Declare the physical column "
+                        f"alongside what it holds instead, as `{replacement}: "
+                        f"{{<reference>: <column>}}`, and drop the `{removed}` block."
+                    ),
+                )
+
+        for field, reason in cls._UNBOUND_REASONS.items():
+            value = data.get(field)
+            if value is None:
+                continue
+            if not isinstance(value, dict):
+                raise DJInvalidDeploymentConfig(
+                    message=(
+                        f"Pre-aggregation '{name}' declares `{field}` as a "
+                        f"{type(value).__name__}. `{field}` is a map from each "
+                        f"reference to the physical column of the external table "
+                        f"that holds it, e.g. `{field}: {{<reference>: <column>}}`."
+                    ),
+                )
+            unbound = [
+                reference for reference, column in value.items() if column is None
+            ]
+            if unbound:
+                raise DJInvalidDeploymentConfig(
+                    message=(
+                        f"Pre-aggregation '{name}' leaves the physical column empty "
+                        f"under `{field}` for {unbound}. {reason}"
+                    ),
+                )
+        return data
 
     @property
     def rendered_metrics(self) -> list[str]:
@@ -207,14 +300,14 @@ class PreAggSpec(NamespacedSpec):
     def rendered_measure_columns(self) -> dict[str, str]:
         return {
             render_prefixes(metric, self.namespace): column
-            for metric, column in self.measure_columns.items()
+            for metric, column in self.metrics.items()
         }
 
     @property
     def rendered_dimension_columns(self) -> dict[str, str]:
         return {
             render_prefixes(dimension, self.namespace): column
-            for dimension, column in self.dimension_columns.items()
+            for dimension, column in self.dimensions.items()
         }
 
 
@@ -257,6 +350,20 @@ class MaterializationSpec(BaseModel):
         if self.strategy != MaterializationStrategy.INCREMENTAL_TIME:
             self.lookback_window = None
         return self
+
+
+class MaterializationAction(str, Enum):
+    """
+    What a cube's `materialization:` block can say instead of naming a schedule.
+
+    `NONE` asks for whatever the cube has materialized to be torn down. It is a
+    value rather than an absent key on purpose: "not managed in YAML" and "should
+    not be materialized" have to stay distinguishable after a round trip through
+    `model_dump`, which emits every optional field explicitly and so cannot
+    preserve which keys an author actually wrote.
+    """
+
+    NONE = "none"
 
 
 class ColumnSpec(BaseModel):
@@ -948,7 +1055,13 @@ class CubeSpec(NodeSpec):
     dimensions: list[str] = Field(default_factory=list)
     filters: list[str] | None = None
     columns: list[ColumnSpec] | None = None
-    materialization: MaterializationSpec | None = None
+    # Tri-state. A spec materializes the cube on the schedule it names; the `none`
+    # sentinel tears down whatever the cube has materialized; absent -- and null,
+    # which is what serializing an absent field produces -- means the cube's
+    # materialization is not managed here and whatever exists is left alone. Only a
+    # value can carry intent through serialization, so removal is spelled
+    # `materialization: none` rather than inferred from a key being present.
+    materialization: MaterializationSpec | MaterializationAction | None = None
 
     FIELD_CHANGE_TIERS: ClassVar[dict[str, ChangeTier]] = {
         # Adding or removing a metric or a dimension changes the cube's columns.
@@ -989,6 +1102,15 @@ class CubeSpec(NodeSpec):
         "filters": ChangeTier.NONE,
     }
 
+    @field_validator("materialization", mode="before")
+    @classmethod
+    def normalize_materialization_sentinel(cls, value: Any) -> Any:
+        """
+        Case-fold the sentinel, since `None` is what a Python author reaches for and
+        `NONE` what a YAML one does, and both mean `none`.
+        """
+        return value.lower() if isinstance(value, str) else value
+
     @model_validator(mode="after")
     def validate_materialization(self) -> "CubeSpec":
         """
@@ -999,7 +1121,7 @@ class CubeSpec(NodeSpec):
         carrying the same dimension in two roles can say which role partitions it.
         """
         if (
-            self.materialization
+            isinstance(self.materialization, MaterializationSpec)
             and self.materialization.strategy
             == MaterializationStrategy.INCREMENTAL_TIME
             and not any(
@@ -1345,6 +1467,7 @@ class DeploymentResult(BaseModel):
         TAG = "tag"
         NAMESPACE = "namespace"
         PREAGG = "preaggregation"
+        MATERIALIZATION = "materialization"
         GENERAL = "general"
 
     name: str

@@ -65,7 +65,12 @@ from datajunction_server.utils import SEPARATOR
 
 _logger = logging.getLogger(__name__)
 
-COLUMN_NAME_REGEX = r"([A-Za-z0-9_\.]+)(\[[A-Za-z0-9_]+\])?"
+# The role group must accept `-` and `>` so that chained roles like
+# `[customer->registration]`, produced by any multi-hop FK path, parse here the same
+# way they do in `FullColumnName.role` (see `construction/build_v2.py`). Keep the two
+# in sync: a role this regex cannot match is silently dropped by its callers, which
+# strip roles with this pattern and then look the column up by name.
+COLUMN_NAME_REGEX = r"([A-Za-z0-9_\.]+)(\[[A-Za-z0-9_\-\>]+\])?"
 
 
 async def get_node_namespace(

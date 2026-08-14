@@ -1,6 +1,25 @@
 import re
 
+from datajunction_server.sql.parsing.ast import Aliasable, Node
 from datajunction_server.sql.parsing.backends.antlr4 import parse as parse_sql
+
+
+def _normalize_alias_keyword(node: Node) -> Node:
+    """
+    Spell every alias with AS, since the keyword is optional in SQL.
+
+    The parser records whether AS was written and renders it back, so otherwise
+    ``COALESCE(a, b) AS x`` and ``COALESCE(a, b) x`` compare unequal despite
+    being the same query -- which made these assertions depend on how the SQL
+    generator happens to format aliases rather than on what it means.
+    """
+
+    def spell_out_as(child: Node) -> None:
+        if isinstance(child, Aliasable) and child.alias is not None:
+            child.set_as(True)
+
+    node.apply(spell_out_as)
+    return node
 
 
 def assert_sql_equal(
@@ -12,7 +31,8 @@ def assert_sql_equal(
     Assert that two SQL strings are semantically equal.
 
     Uses the DJ SQL parser to normalize both strings before comparison.
-    This handles whitespace differences, keyword casing, etc.
+    This handles whitespace differences, keyword casing, the optional AS keyword
+    on aliases, etc.
 
     Args:
         actual_sql: The actual SQL generated
@@ -26,8 +46,8 @@ def assert_sql_equal(
         expected_sql = re.sub(hash_pattern, "_HASH", expected_sql)
 
     actual_sql = actual_sql.replace("${dj_logical_timestamp}", "DJ_LOGICAL_TIMESTAMP()")
-    actual_parsed = str(parse_sql(actual_sql))
-    expected_parsed = str(parse_sql(expected_sql))
+    actual_parsed = str(_normalize_alias_keyword(parse_sql(actual_sql)))
+    expected_parsed = str(_normalize_alias_keyword(parse_sql(expected_sql)))
 
     assert actual_parsed == expected_parsed, (
         f"\n\nActual SQL:\n{actual_parsed}\n\nExpected SQL:\n{expected_parsed}"

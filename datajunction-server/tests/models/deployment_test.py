@@ -1,4 +1,5 @@
 import pytest
+from pydantic import ValidationError
 
 from datajunction_server.errors import DJInvalidDeploymentConfig
 from datajunction_server.models.deployment import (
@@ -10,6 +11,7 @@ from datajunction_server.models.deployment import (
     DimensionReferenceLinkSpec,
     DimensionSpec,
     Granularity,
+    MaterializationAction,
     MaterializationSpec,
     MetricSpec,
     NamespaceGitConfig,
@@ -622,14 +624,12 @@ def test_deployment_spec_preserves_explicit_preagg_namespace():
                 catalog="c",
                 schema="s",
                 table="t",
-                measure_columns={},
             ),
             PreAggSpec(
                 name="unscoped",
                 catalog="c",
                 schema="s",
                 table="t",
-                measure_columns={},
             ),
         ],
     )
@@ -637,22 +637,150 @@ def test_deployment_spec_preserves_explicit_preagg_namespace():
     assert spec.preaggregations[1].namespace == "ns"
 
 
-def test_preagg_spec_renders_dimension_columns():
-    """dimension_columns keys are prefix-rendered against the namespace, like
-    measure_columns; values (physical columns) are left as-is."""
-    spec = PreAggSpec(
-        name="p",
-        namespace="ns",
-        metrics=["${prefix}count"],
-        dimensions=["${prefix}d.attr"],
-        catalog="c",
-        schema="s",
-        table="t",
-        measure_columns={"${prefix}count": "cnt"},
-        dimension_columns={"${prefix}d.attr": "phys_attr"},
-    )
-    assert spec.rendered_dimension_columns == {"ns.d.attr": "phys_attr"}
+def _preagg_spec_dict() -> dict:
+    """Each metric and dimension declared with the column that holds it."""
+    return {
+        "name": "p",
+        "namespace": "ns",
+        "metrics": {"${prefix}count": "cnt"},
+        "dimensions": {
+            "${prefix}d.attr": "phys_attr",
+            # The physical column matches the DJ column name, and says so anyway.
+            "${prefix}d.same": "same",
+        },
+        "catalog": "c",
+        "schema": "s",
+        "table": "t",
+        "valid_through_ts": 1700000000,
+    }
+
+
+def test_preagg_spec_renders_column_bindings():
+    """
+    The maps are split back into the references-plus-bindings shape the
+    registration internals take, with every reference prefix-rendered against
+    the namespace and the physical columns left as-is.
+    """
+    spec = PreAggSpec.model_validate(_preagg_spec_dict())
+    assert spec.rendered_metrics == ["ns.count"]
+    assert spec.rendered_dimensions == ["ns.d.attr", "ns.d.same"]
     assert spec.rendered_measure_columns == {"ns.count": "cnt"}
+    assert spec.rendered_dimension_columns == {
+        "ns.d.attr": "phys_attr",
+        "ns.d.same": "same",
+    }
+
+
+def test_preagg_spec_round_trips_through_model_dump():
+    """
+    A dumped spec is what crosses the wire from the client, so re-validating a
+    dump has to land on an equal spec.
+    """
+    spec = PreAggSpec.model_validate(_preagg_spec_dict())
+    # `namespace` is excluded from the dump (the deployment re-injects it), so
+    # the comparison is on the dumped fields.
+    assert (
+        PreAggSpec.model_validate(spec.model_dump()).model_dump() == spec.model_dump()
+    )
+    assert spec.model_dump() == {
+        "name": "p",
+        "metrics": {"${prefix}count": "cnt"},
+        "dimensions": {"${prefix}d.attr": "phys_attr", "${prefix}d.same": "same"},
+        "catalog": "c",
+        "schema_": "s",
+        "table": "t",
+        "valid_through_ts": 1700000000,
+    }
+
+
+def test_preagg_spec_rejects_measure_columns_block():
+    """
+    The four-field form is gone: `measure_columns` would otherwise be ignored as
+    an unknown key, silently dropping every binding it declared.
+    """
+    spec = _preagg_spec_dict()
+    spec["metrics"] = ["${prefix}count"]
+    spec["measure_columns"] = {"${prefix}count": "cnt"}
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        PreAggSpec.model_validate(spec)
+    assert exc_info.value.message == (
+        "Pre-aggregation 'p' declares `measure_columns`, which is no longer a "
+        "pre-aggregation field. Declare the physical column alongside what it "
+        "holds instead, as `metrics: {<reference>: <column>}`, and drop the "
+        "`measure_columns` block."
+    )
+
+
+def test_preagg_spec_rejects_dimension_columns_block():
+    """Same for `dimension_columns`, the other half of the retired form."""
+    spec = _preagg_spec_dict()
+    spec["dimensions"] = ["${prefix}d.attr"]
+    spec["dimension_columns"] = {"${prefix}d.attr": "phys_attr"}
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        PreAggSpec.model_validate(spec)
+    assert exc_info.value.message == (
+        "Pre-aggregation 'p' declares `dimension_columns`, which is no longer a "
+        "pre-aggregation field. Declare the physical column alongside what it "
+        "holds instead, as `dimensions: {<reference>: <column>}`, and drop the "
+        "`dimension_columns` block."
+    )
+
+
+def test_preagg_spec_rejects_list_of_references():
+    """
+    A bare list of references carries no bindings at all, so it is refused with
+    the shape to write instead rather than a pydantic type error.
+    """
+    spec = _preagg_spec_dict()
+    spec["metrics"] = ["${prefix}count"]
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        PreAggSpec.model_validate(spec)
+    assert exc_info.value.message == (
+        "Pre-aggregation 'p' declares `metrics` as a list. `metrics` is a map "
+        "from each reference to the physical column of the external table that "
+        "holds it, e.g. `metrics: {<reference>: <column>}`."
+    )
+
+
+def test_preagg_spec_rejects_metric_without_column():
+    """A measure's DJ-side name is hashed, so there is nothing to default to."""
+    spec = _preagg_spec_dict()
+    spec["metrics"] = {"${prefix}count": None, "${prefix}total": "total_sum"}
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        PreAggSpec.model_validate(spec)
+    assert exc_info.value.message == (
+        "Pre-aggregation 'p' leaves the physical column empty under `metrics` "
+        "for ['${prefix}count']. A measure's DJ-side name is auto-generated "
+        "with an expression-hash suffix, so there is no name to fall back on."
+    )
+
+
+def test_preagg_spec_rejects_dimension_without_column():
+    """
+    A dimension is held to the same rule, even though its DJ column name would
+    be a plausible default: a trailing colon is too easy to write by accident,
+    and the written-out name documents the table.
+    """
+    spec = _preagg_spec_dict()
+    spec["dimensions"] = {"${prefix}d.attr": "phys_attr", "${prefix}d.same": None}
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        PreAggSpec.model_validate(spec)
+    assert exc_info.value.message == (
+        "Pre-aggregation 'p' leaves the physical column empty under "
+        "`dimensions` for ['${prefix}d.same']. Write the column out even when "
+        "it matches the DJ column name, so the file says what the table "
+        "actually holds."
+    )
+
+
+def test_preagg_spec_rejects_non_mapping_input():
+    """
+    Input that isn't a mapping at all falls through the binding checks and gets
+    pydantic's own error, rather than blowing up inside the validator.
+    """
+    with pytest.raises(ValidationError) as exc_info:
+        PreAggSpec.model_validate(["not", "a", "spec"])
+    assert exc_info.value.errors()[0]["type"] == "model_type"
 
 
 def test_tag_spec_metadata_aliases():
@@ -997,3 +1125,53 @@ def test_cube_spec_without_materialization_omits_it_from_export():
     spec = _partitioned_cube()
     assert spec.materialization is None
     assert "materialization" not in spec.model_dump(mode="json", exclude_none=True)
+
+
+def test_cube_spec_teardown_survives_serialization():
+    """
+    The two ways a cube can decline to be materialized have to stay distinguishable
+    after a round trip. `model_dump` emits every optional field explicitly, so a
+    teardown carried by a key's presence alone would be indistinguishable from every
+    cube that never mentioned `materialization:` -- and the round-tripped spec would
+    read as a request to tear down the whole namespace.
+    """
+    torn_down = CubeSpec.model_validate(
+        {**_partitioned_cube().model_dump(), "materialization": "none"},
+    )
+    assert torn_down.materialization == MaterializationAction.NONE
+    assert (
+        CubeSpec.model_validate(torn_down.model_dump()).materialization
+        == MaterializationAction.NONE
+    )
+
+    unmanaged = CubeSpec.model_validate(_partitioned_cube().model_dump())
+    assert unmanaged.materialization is None
+    assert CubeSpec.model_validate(unmanaged.model_dump()).materialization is None
+
+    # `rendered_spec` round-trips through JSON too, and preserved neither before.
+    assert torn_down.rendered_spec().materialization == MaterializationAction.NONE
+    assert unmanaged.rendered_spec().materialization is None
+
+
+def test_cube_spec_teardown_sentinel_is_case_insensitive():
+    """`None` is what a Python author writes and `NONE` what a YAML one does."""
+    for spelling in ("none", "None", "NONE"):
+        spec = CubeSpec.model_validate(
+            {**_partitioned_cube().model_dump(), "materialization": spelling},
+        )
+        assert spec.materialization == MaterializationAction.NONE
+
+
+def test_cube_spec_teardown_needs_no_temporal_partition():
+    """
+    The partition requirement is a property of an incremental block, so a cube being
+    torn down is exempt -- it may well be losing the partition in the same push.
+    """
+    spec = CubeSpec(
+        namespace="test",
+        name="my_cube",
+        metrics=["${prefix}num_orders"],
+        dimensions=["${prefix}date_dim.dateint"],
+        materialization=MaterializationAction.NONE,
+    )
+    assert spec.materialization == MaterializationAction.NONE
