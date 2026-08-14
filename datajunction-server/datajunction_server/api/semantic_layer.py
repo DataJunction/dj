@@ -38,7 +38,7 @@ DEFAULT_ROW_LIMIT = 10000
 # An explicit limit above this is rejected (400).
 MAX_ROW_LIMIT = 100000
 
-DEFAULT_ARROW_TYPE_NAME = "utf8"
+DIMENSION_FALLBACK_ARROW_TYPE_NAME = "utf8"
 METRIC_FALLBACK_ARROW_TYPE_NAME = "float"
 
 DJ_TO_ARROW_TYPE_NAMES = {
@@ -80,18 +80,18 @@ def _problem(status_code: int, detail: str) -> JSONResponse:
     )
 
 
-def _arrow_type_name(dj_type: Any, fallback: str = DEFAULT_ARROW_TYPE_NAME) -> str:
+def _arrow_type_name(dj_type: Any) -> str | None:
     """Map a DJ column type to the Arrow JSON type object's ``name`` value."""
     if not dj_type:
-        return fallback
+        return None
 
     type_name = str(dj_type).lower().split("(", maxsplit=1)[0].strip()
     type_name = type_name.split("<", maxsplit=1)[0].strip()
 
-    return DJ_TO_ARROW_TYPE_NAMES.get(type_name, fallback)
+    return DJ_TO_ARROW_TYPE_NAMES.get(type_name)
 
 
-def _cube_column_type_map(cube: NodeRevision) -> dict[str, str]:
+def _cube_column_type_map(cube: NodeRevision) -> dict[str, str | None]:
     """Return Arrow type names for the metric/dimension ids exposed by a cube."""
     return {
         column.cube_element_name: _arrow_type_name(column.type)
@@ -106,7 +106,7 @@ def _metrics_payload(cube: NodeRevision) -> list["MetricInfo"]:
         MetricInfo(
             id=metric_name,
             name=metric_name.split(".")[-1],
-            type=type_by_name.get(metric_name, METRIC_FALLBACK_ARROW_TYPE_NAME),
+            type=type_by_name.get(metric_name) or METRIC_FALLBACK_ARROW_TYPE_NAME,
             definition=metric_name,
             description=None,
             aggregation="OTHER",
@@ -122,7 +122,7 @@ def _dimensions_payload(cube: NodeRevision) -> list["DimensionInfo"]:
         DimensionInfo(
             id=dim_ref,
             name=dim_ref.split(".")[-1],
-            type=type_by_name.get(dim_ref, DEFAULT_ARROW_TYPE_NAME),
+            type=type_by_name.get(dim_ref) or DIMENSION_FALLBACK_ARROW_TYPE_NAME,
             definition=dim_ref,
             description=None,
             grain=None,

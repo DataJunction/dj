@@ -75,7 +75,7 @@ class TestSemanticViewPayloadTypes:
         assert _arrow_type_name("varchar(255)") == "utf8"
         assert _arrow_type_name("array<string>") == "list"
         assert _arrow_type_name("timestamp") == "timestamp"
-        assert _arrow_type_name(None) == "utf8"
+        assert _arrow_type_name(None) is None
 
     def test_metric_and_dimension_payloads_use_cube_column_types(self):
         cube = SimpleNamespace(
@@ -108,6 +108,41 @@ class TestSemanticViewPayloadTypes:
             "sem.region.region_id": "int",
             "sem.region.region_name[home]": "utf8",
         }
+
+    def test_metric_and_dimension_payloads_fallback_when_type_is_unknown(self):
+        cube = SimpleNamespace(
+            columns=[
+                SimpleNamespace(
+                    cube_element_name="sem.total_amount",
+                    type=None,
+                ),
+                SimpleNamespace(
+                    cube_element_name="sem.region.region_name",
+                    type="unknown_type",
+                ),
+            ],
+            cube_node_metrics=["sem.total_amount"],
+            cube_node_dimensions=["sem.region.region_name"],
+        )
+
+        metrics = _metrics_payload(cube)  # type: ignore[arg-type]
+        dimensions = _dimensions_payload(cube)  # type: ignore[arg-type]
+
+        assert metrics[0].type == "float"
+        assert dimensions[0].type == "utf8"
+
+    def test_metric_and_dimension_payloads_fallback_when_column_is_missing(self):
+        cube = SimpleNamespace(
+            columns=[],
+            cube_node_metrics=["sem.total_amount"],
+            cube_node_dimensions=["sem.region.region_name"],
+        )
+
+        metrics = _metrics_payload(cube)  # type: ignore[arg-type]
+        dimensions = _dimensions_payload(cube)  # type: ignore[arg-type]
+
+        assert metrics[0].type == "float"
+        assert dimensions[0].type == "utf8"
 
 
 # ---------------------------------------------------------------------------
