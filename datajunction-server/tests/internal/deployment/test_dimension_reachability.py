@@ -2,12 +2,13 @@
 Tests for DimensionReachability — batched dimension reachability lookups.
 """
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from datajunction_server.internal.deployment.dimension_reachability import (
     DimensionReachability,
+    find_reference_dimensions_batch,
 )
 
 
@@ -149,6 +150,67 @@ class TestDimensionReachabilityInMemory:
         assert r.shared_dimensions({10, 20}) == set()
 
 
+class TestReferenceDimensions:
+    """A reference-linked column makes its dimension reachable without a join."""
+
+    def test_reference_dimension_is_reachable(self):
+        r = DimensionReachability(
+            {},
+            local_names={10: "orders"},
+            reference_dims={10: {("dim.customer", "")}},
+        )
+        assert r.is_reachable(10, "dim.customer")
+        assert r.is_reachable_under_role(10, "dim.customer", None)
+        assert r.reachable_from(10) == {"orders", "dim.customer"}
+
+    def test_reference_dimension_role_matches_only_its_role(self):
+        r = DimensionReachability({}, reference_dims={10: {("dim.date", "ordered")}})
+        assert r.is_reachable_under_role(10, "dim.date", "ordered")
+        assert not r.is_reachable_under_role(10, "dim.date", "shipped")
+        # A bare reference does not match a role-only reference link.
+        assert not r.is_reachable_under_role(10, "dim.date", None)
+        # The node-level check stays role-agnostic.
+        assert r.is_reachable(10, "dim.date")
+
+    def test_reference_dimensions_do_not_disturb_join_paths(self):
+        paths = {(10, "dim.product", ""): [100], (10, "dim.date", "ordered"): [101]}
+        r = DimensionReachability(paths, reference_dims={10: {("dim.customer", "")}})
+        assert r.is_reachable_under_role(10, "dim.product", None)
+        assert r.is_reachable_under_role(10, "dim.date", "ordered")
+        assert not r.is_reachable_under_role(10, "dim.date", None)
+        assert r.unreachable_dimension_roles({10}, {("dim.customer", None)}) == {}
+
+    def test_reference_dimensions_participate_in_shared(self):
+        r = DimensionReachability(
+            {},
+            reference_dims={10: {("dim.customer", "")}, 20: {("dim.customer", "")}},
+        )
+        assert r.shared_dimensions({10, 20}) == {"dim.customer"}
+
+    @pytest.mark.asyncio
+    async def test_find_reference_dimensions_batch_parses_roles(self):
+        """The role travels inline on dimension_column: `column[role]`."""
+        session = AsyncMock()
+        session.execute.return_value = MagicMock(
+            all=MagicMock(
+                return_value=[
+                    (10, "dim.customer", "customer_id"),
+                    (10, "dim.date", "dateint[ordered]"),
+                    (20, "dim.product", None),
+                ],
+            ),
+        )
+        reference_dims = await find_reference_dimensions_batch(
+            session,
+            {10, 20},
+            {"dim.customer", "dim.date", "dim.product"},
+        )
+        assert reference_dims == {
+            10: {("dim.customer", ""), ("dim.date", "ordered")},
+            20: {("dim.product", "")},
+        }
+
+
 class TestDimensionReachabilityBuild:
     """Tests for the async build method using mocked find_join_paths_batch."""
 
@@ -167,11 +229,19 @@ class TestDimensionReachabilityBuild:
             (10, "dim.country", ""): [100],
             (20, "dim.country", ""): [200],
         }
-        with patch(
-            "datajunction_server.internal.deployment.dimension_reachability.find_join_paths_batch",
-            new_callable=AsyncMock,
-            return_value=mock_paths,
-        ) as mock_bfs:
+        with (
+            patch(
+                "datajunction_server.internal.deployment.dimension_reachability.find_join_paths_batch",
+                new_callable=AsyncMock,
+                return_value=mock_paths,
+            ) as mock_bfs,
+            patch(
+                "datajunction_server.internal.deployment.dimension_reachability."
+                "find_reference_dimensions_batch",
+                new_callable=AsyncMock,
+                return_value={20: {("dim.customer", "")}},
+            ) as mock_refs,
+        ):
             r = await DimensionReachability.build(
                 session=AsyncMock(),
                 source_revision_ids={10, 20},
@@ -179,10 +249,13 @@ class TestDimensionReachabilityBuild:
                 local_names={10: "node.fact"},
             )
             mock_bfs.assert_called_once()
+            mock_refs.assert_called_once()
 
         assert r.is_reachable(10, "dim.country")
         assert r.is_reachable(10, "node.fact")  # local
         assert r.is_reachable(20, "dim.country")
+        assert r.is_reachable(20, "dim.customer")  # reference link
+        assert not r.is_reachable(10, "dim.customer")
 
     @pytest.mark.asyncio
     async def test_build_with_local_names_no_targets(self):

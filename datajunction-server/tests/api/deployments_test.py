@@ -7778,6 +7778,103 @@ class TestCubeBareDimRoleAwareDeployment:
         assert response.json()["status"] == "valid"
 
 
+@pytest.mark.xdist_group(name="deployments")
+class TestCubeReferenceDimDeployment:
+    """Deploy-time cube validation must see reference dimension links.
+
+    A reference link writes no dimensionlink row — it lives on the column, as a
+    denormalized copy of the dimension attribute — so the join-path BFS cannot
+    find it. A cube sliced by such a dimension used to deploy INVALID ("not
+    reachable from parent node(s)") even though it builds correct SQL.
+    """
+
+    def _nodes(self):
+        """Orders reaches the customer dimension only via a reference link."""
+        return [
+            SourceSpec(
+                name="orders_raw",
+                description="Raw orders",
+                catalog="default",
+                schema="store",
+                table="orders_raw",
+                columns=[
+                    ColumnSpec(name="order_id", type="int"),
+                    ColumnSpec(name="customer_country", type="string"),
+                ],
+                owners=["dj"],
+            ),
+            SourceSpec(
+                name="customers_raw",
+                description="Raw customers",
+                catalog="default",
+                schema="store",
+                table="customers_raw",
+                columns=[
+                    ColumnSpec(name="customer_id", type="int"),
+                    ColumnSpec(name="country", type="string"),
+                ],
+                owners=["dj"],
+            ),
+            DimensionSpec(
+                name="customers_d",
+                description="Customer dimension",
+                query="SELECT customer_id, country FROM ${prefix}customers_raw",
+                primary_key=["customer_id"],
+                owners=["dj"],
+            ),
+            TransformSpec(
+                name="orders_f",
+                description="Orders fact carrying the customer country inline",
+                query="SELECT order_id, customer_country FROM ${prefix}orders_raw",
+                dimension_links=[
+                    DimensionReferenceLinkSpec(
+                        node_column="customer_country",
+                        dimension="${prefix}customers_d.country",
+                    ),
+                ],
+                owners=["dj"],
+            ),
+            MetricSpec(
+                name="order_count",
+                description="Order count",
+                query="SELECT COUNT(*) FROM ${prefix}orders_f",
+                owners=["dj"],
+            ),
+            MetricSpec(
+                name="customer_count",
+                description="Customer count",
+                query="SELECT COUNT(*) FROM ${prefix}customers_d",
+                owners=["dj"],
+            ),
+            CubeSpec(
+                name="orders_cube",
+                display_name="Orders Cube",
+                description="Cube sliced by a reference-linked dimension",
+                metrics=["${prefix}order_count", "${prefix}customer_count"],
+                dimensions=["${prefix}customers_d.country"],
+                owners=["dj"],
+            ),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_deploy_cube_on_reference_linked_dim(self, client):
+        """Repro: the reference-linked dimension is reachable, so the cube is valid."""
+        namespace = "cube_reference_dim"
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=self._nodes()),
+        )
+        assert data["status"] == DeploymentStatus.SUCCESS.value, data
+        cube_result = next(
+            r for r in data["results"] if r["name"] == f"{namespace}.orders_cube"
+        )
+        assert cube_result["status"] not in ("invalid", "failed"), cube_result
+
+        response = await client.get(f"/nodes/{namespace}.orders_cube/")
+        assert response.status_code == 200, response.json()
+        assert response.json()["status"] == "valid"
+
+
 def _hard_hat_deploy_nodes(default_hard_hats, default_us_states, default_us_state):
     """Fact + dimension + link + a COUNT measure metric, for pre-agg deploy tests."""
     hard_hat_facts = TransformSpec(
