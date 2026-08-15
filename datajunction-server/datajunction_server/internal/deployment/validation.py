@@ -571,8 +571,24 @@ class NodeSpecBulkValidator:
         inferred_columns: list[ColumnSpec],
         spec: LinkableNodeSpec,
     ) -> DJError | None:
+        """
+        Check the spec's declared primary key: dimensions must have one, and every
+        column named in a primary key must exist among the node's columns.
+        """
         columns_map = {col.name: col for col in inferred_columns}
         if isinstance(spec, LinkableNodeSpec):
+            # Dimensions are joined through their primary key; sources and
+            # transforms are not, so for them it stays optional.
+            if spec.node_type == NodeType.DIMENSION and not spec.primary_key:
+                return DJError(
+                    code=ErrorCode.INVALID_SQL_QUERY,
+                    message=(
+                        f"Dimension node {spec.rendered_name} has no primary key. "
+                        "Add a primary_key listing the column(s) that uniquely "
+                        "identify a row in this dimension, so that links to it can "
+                        "be joined correctly."
+                    ),
+                )
             if not_in_pk := [
                 key_col for key_col in spec.primary_key if key_col not in columns_map
             ]:

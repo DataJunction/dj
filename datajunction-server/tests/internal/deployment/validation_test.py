@@ -24,6 +24,7 @@ from datajunction_server.models.deployment import (
     ColumnSpec,
     DimensionJoinLinkSpec,
     DimensionReferenceLinkSpec,
+    DimensionSpec,
     MetricSpec,
     SourceSpec,
     TransformSpec,
@@ -535,6 +536,107 @@ class TestBulkValidateSkipValidation:
         assert result.status == NodeStatus.VALID
         assert result.inferred_columns == spec.columns
         assert result.errors == []
+
+
+class TestPrimaryKeyCheck:
+    """Tests for the primary key checks in _check_primary_key."""
+
+    @pytest.fixture
+    def validation_context(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ) -> ValidationContext:
+        """A context whose only dependency is the shared test.parent source node."""
+        return ValidationContext(
+            session=session,
+            node_graph={
+                "test.customers": ["test.parent"],
+                "test.orders": ["test.parent"],
+            },
+            dependency_nodes={parent_node.name: parent_node},
+        )
+
+    @pytest.mark.asyncio
+    async def test_dimension_without_primary_key_is_invalid(
+        self,
+        validation_context: ValidationContext,
+    ):
+        """A dimension that declares no primary key at all fails validation."""
+        spec = DimensionSpec(
+            name="test.customers",
+            query="SELECT id, name FROM test.parent",
+            description="Customers",
+            mode="published",
+        )
+        validator = NodeSpecBulkValidator(validation_context)
+        result = validator.validate_query_node(spec)
+
+        assert result.status == NodeStatus.INVALID
+        assert [e.code for e in result.errors] == [ErrorCode.INVALID_SQL_QUERY]
+        assert "has no primary key" in result.errors[0].message
+        assert "Add a primary_key" in result.errors[0].message
+
+    @pytest.mark.asyncio
+    async def test_dimension_with_primary_key_is_valid(
+        self,
+        validation_context: ValidationContext,
+    ):
+        """A dimension whose primary key names a real column validates cleanly."""
+        spec = DimensionSpec(
+            name="test.customers",
+            query="SELECT id, name FROM test.parent",
+            description="Customers",
+            mode="published",
+            primary_key=["id"],
+        )
+        validator = NodeSpecBulkValidator(validation_context)
+        result = validator.validate_query_node(spec)
+
+        assert result.errors == []
+        assert result.status == NodeStatus.VALID
+
+    @pytest.mark.asyncio
+    async def test_dimension_primary_key_column_not_inferred_is_invalid(
+        self,
+        validation_context: ValidationContext,
+    ):
+        """A primary key naming a column the query does not select still fails."""
+        spec = DimensionSpec(
+            name="test.customers",
+            query="SELECT id, name FROM test.parent",
+            description="Customers",
+            mode="published",
+            primary_key=["customer_id"],
+        )
+        validator = NodeSpecBulkValidator(validation_context)
+        result = validator.validate_query_node(spec)
+
+        assert result.status == NodeStatus.INVALID
+        assert [e.code for e in result.errors] == [ErrorCode.INVALID_SQL_QUERY]
+        assert "['customer_id']" in result.errors[0].message
+        assert (
+            "were not found in the list of available columns"
+            in result.errors[0].message
+        )
+
+    @pytest.mark.asyncio
+    async def test_transform_without_primary_key_is_valid(
+        self,
+        validation_context: ValidationContext,
+    ):
+        """Only dimensions are required to have one; transforms are unaffected."""
+        spec = TransformSpec(
+            name="test.orders",
+            query="SELECT id, value FROM test.parent",
+            description="Orders",
+            mode="published",
+        )
+        validator = NodeSpecBulkValidator(validation_context)
+        result = validator.validate_query_node(spec)
+
+        assert result.errors == []
+        assert result.status == NodeStatus.VALID
 
 
 class TestRequiredDimensions:
