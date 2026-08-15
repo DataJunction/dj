@@ -20,6 +20,7 @@ from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.sql.operators import is_
 
 from datajunction_server.database.node import Node, NodeRelationship, NodeRevision
+from datajunction_server.database.user import User
 from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.internal.deployment.dimension_reachability import (
     DimensionReachability,
@@ -230,7 +231,14 @@ async def _propagate_via_parent_graph(
                     select(Node)
                     .where(Node.id.in_(unvisited))
                     .where(is_(Node.deactivated_at, None))
-                    .options(joinedload(Node.current)),
+                    .options(
+                        joinedload(Node.current),
+                        # Only the username: it is all an impact record carries,
+                        # and the users table is wide enough that hydrating whole
+                        # rows here would fetch a password hash and an email for
+                        # every owner of every downstream node.
+                        selectinload(Node.owners).load_only(User.username),
+                    ),
                 )
             )
             .unique()
@@ -269,6 +277,7 @@ async def _propagate_via_parent_graph(
                     depth=depth,
                     caused_by=cause_names,
                     is_external=not node.name.startswith(ctx.namespace + "."),
+                    owners=sorted(owner.username for owner in node.owners),
                 ),
             )
             next_frontier.add(node.id)
@@ -578,6 +587,7 @@ async def _check_cube_dimension_reachability(
                 depth=impact.depth,
                 caused_by=impact.caused_by,
                 is_external=impact.is_external,
+                owners=impact.owners,
             )
 
     return updated_results
@@ -672,6 +682,7 @@ def _revalidate_single_node(
             depth=impact.depth,
             caused_by=impact.caused_by,
             is_external=impact.is_external,
+            owners=impact.owners,
         )
 
     new_columns = validation.output_columns
@@ -699,6 +710,7 @@ def _revalidate_single_node(
                 depth=impact.depth,
                 caused_by=impact.caused_by,
                 is_external=impact.is_external,
+                owners=impact.owners,
             )
         return impact
 
@@ -722,6 +734,7 @@ def _revalidate_single_node(
             depth=impact.depth,
             caused_by=impact.caused_by,
             is_external=impact.is_external,
+            owners=impact.owners,
         )
 
     return DownstreamImpact(
@@ -734,6 +747,7 @@ def _revalidate_single_node(
         depth=impact.depth,
         caused_by=impact.caused_by,
         is_external=impact.is_external,
+        owners=impact.owners,
     )
 
 

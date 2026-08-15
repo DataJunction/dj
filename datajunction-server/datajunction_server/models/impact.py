@@ -30,3 +30,7 @@ class DownstreamImpact(BaseModel):
     depth: int  # Hops from the changed node
     caused_by: list[str] = Field(default_factory=list)  # Which changed nodes cause this
     is_external: bool = False  # True if outside the deployment namespace
+    # Usernames of the node's owners, sorted.  Empty if the node has no owners.
+    # Defaulted so that deployment rows persisted before this field existed can
+    # still be rehydrated from JSON.
+    owners: list[str] = Field(default_factory=list)
