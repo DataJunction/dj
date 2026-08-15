@@ -17,6 +17,6 @@ columns:
     type: int
 dimension_links:
   - type: join
-    node_column: repair_order_id
     dimension_node: ${prefix}roads.repair_order
+    join_on: ${prefix}roads.repair_orders.repair_order_id = ${prefix}roads.repair_order.repair_order_id
 display_name: default.roads.repair_orders

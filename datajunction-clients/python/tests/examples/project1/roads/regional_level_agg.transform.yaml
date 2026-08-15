@@ -48,8 +48,8 @@ query: |
       EXTRACT(DAY FROM ro.order_date)
 dimension_links:
   - type: join
-    node_column: state_name
     dimension_node: ${prefix}roads.us_state
+    join_on: ${prefix}roads.regional_level_agg.state_name = ${prefix}roads.us_state.state_name
 columns:
 - name: location_hierarchy
   display_name: Location (Hierarchy)

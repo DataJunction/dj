@@ -15,8 +15,8 @@ primary_key:
   - contractor_id
 dimension_links:
   - type: join
-    node_column: state
     dimension_node: ${prefix}roads.us_state
+    join_on: ${prefix}roads.contractor.state = ${prefix}roads.us_state.state_abbr
   - type: reference
     node_column: company_name
     dimension: ${prefix}roads.companies_dim.name

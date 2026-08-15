@@ -23,8 +23,8 @@ primary_key:
   - hard_hat_id
 dimension_links:
   - type: join
-    node_column: state_id
     dimension_node: ${prefix}roads.us_state
+    join_on: ${prefix}roads.local_hard_hats.state_id = ${prefix}roads.us_state.state_id
   - type: reference
     node_column: birth_date
     dimension: ${prefix}roads.date_dim.dateint

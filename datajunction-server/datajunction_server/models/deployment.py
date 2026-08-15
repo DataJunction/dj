@@ -421,8 +421,11 @@ class DimensionJoinLinkSpec(DimensionLinkSpec):
     """
     Specification for a dimension join link
 
-    If a custom `join_on` clause is not specified, DJ will automatically set
-    this clause to be on the selected column and the dimension node's primary key
+    `join_on` is required for every join type except CROSS, and carries the whole
+    join. A spec says nothing about which of this node's columns is the foreign
+    key, so the clause cannot be derived the way `link_dimension` derives it from
+    a column the caller names explicitly. `node_column` applies only to reference
+    links and is rejected here.
     """
 
     dimension_node: str

@@ -29,6 +29,7 @@ from datajunction_server.models.deployment import (
     SourceSpec,
     TransformSpec,
 )
+from datajunction_server.models.dimensionlink import JoinType
 from datajunction_server.models.node import (
     DimensionAttributeOutput,
     NodeStatus,
@@ -1382,8 +1383,9 @@ class TestDimLinkValidation:
         assert result.status == NodeStatus.VALID
         assert result.errors == []
 
-    def test_join_link_with_no_join_on_is_skipped(self, session: AsyncSession):
-        """A DimensionJoinLinkSpec with no join_on is silently skipped."""
+    def test_join_link_with_no_join_on_is_invalid(self, session: AsyncSession):
+        """A join link must carry join_on: a spec says nothing about which column is
+        the foreign key, so an absent clause would build a cross join."""
         validator = _make_validator(session)
         spec = SourceSpec(
             name="facts",
@@ -1402,8 +1404,65 @@ class TestDimLinkValidation:
             dependencies=[],
         )
         validator._validate_dimension_link_specs([result])
+        assert result.status == NodeStatus.INVALID
+        assert "has no join_on clause" in result.errors[0].message
+
+    def test_cross_join_link_with_no_join_on_is_valid(self, session: AsyncSession):
+        """A CROSS join has no ON clause by definition, so join_on stays optional."""
+        validator = _make_validator(session)
+        spec = SourceSpec(
+            name="facts",
+            catalog="default",
+            schema_="s",
+            table="t",
+            columns=[ColumnSpec(name="id", type="int")],
+            dimension_links=[
+                DimensionJoinLinkSpec(
+                    dimension_node="test.dim",
+                    join_type=JoinType.CROSS,
+                ),
+            ],
+        )
+        spec.namespace = "test"
+        result = NodeValidationResult(
+            spec=spec,
+            status=NodeStatus.VALID,
+            inferred_columns=[ColumnSpec(name="id", type="int")],
+            errors=[],
+            dependencies=[],
+        )
+        validator._validate_dimension_link_specs([result])
         assert result.status == NodeStatus.VALID
         assert result.errors == []
+
+    def test_join_link_with_node_column_is_invalid(self, session: AsyncSession):
+        """node_column belongs to reference links; on a join link nothing reads it."""
+        validator = _make_validator(session)
+        spec = SourceSpec(
+            name="facts",
+            catalog="default",
+            schema_="s",
+            table="t",
+            columns=[ColumnSpec(name="dim_id", type="int")],
+            dimension_links=[
+                DimensionJoinLinkSpec(
+                    dimension_node="test.dim",
+                    node_column="dim_id",
+                    join_on="test.facts.dim_id = test.dim.id",
+                ),
+            ],
+        )
+        spec.namespace = "test"
+        result = NodeValidationResult(
+            spec=spec,
+            status=NodeStatus.VALID,
+            inferred_columns=[ColumnSpec(name="dim_id", type="int")],
+            errors=[],
+            dependencies=[],
+        )
+        validator._validate_dimension_link_specs([result])
+        assert result.status == NodeStatus.INVALID
+        assert "only applies to reference links" in result.errors[0].message
 
     def test_reference_link_is_skipped(self, session: AsyncSession):
         """A DimensionReferenceLinkSpec is silently skipped (no join_on to validate)."""
