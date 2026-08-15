@@ -250,6 +250,7 @@ class TestDeploymentImpactEndpoint:
                 TransformSpec(
                     name="derived",
                     query="SELECT id, value FROM ${prefix}base",
+                    owners=["dj"],
                 ),
             ],
         )
@@ -278,6 +279,7 @@ class TestDeploymentImpactEndpoint:
                 TransformSpec(
                     name="derived",
                     query="SELECT id, value FROM ${prefix}base",  # will break
+                    owners=["dj"],
                 ),
             ],
         )
@@ -293,3 +295,27 @@ class TestDeploymentImpactEndpoint:
         assert "results" in data
         assert "downstream_impacts" in data
         assert isinstance(data["downstream_impacts"], list)
+
+        # Every impact carries the owners of the affected node
+        derived = [
+            impact
+            for impact in data["downstream_impacts"]
+            if impact["name"] == "impact_downstream_test.derived"
+        ]
+        assert derived == [
+            {
+                "name": "impact_downstream_test.derived",
+                "node_type": "transform",
+                "current_status": "valid",
+                "predicted_status": "invalid",
+                "impact_type": "will_invalidate",
+                "impact_reason": (
+                    "Revalidation failed: Column `value` not found in any table. "
+                    "Available tables: ['impact_downstream_test.base']"
+                ),
+                "depth": 1,
+                "caused_by": ["impact_downstream_test.base"],
+                "is_external": False,
+                "owners": ["dj"],
+            },
+        ]
