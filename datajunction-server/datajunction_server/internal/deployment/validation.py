@@ -27,6 +27,7 @@ from datajunction_server.models.deployment import (
     LinkableNodeSpec,
     NodeSpec,
 )
+from datajunction_server.models.dimensionlink import JoinType
 from datajunction_server.models.node import NodeStatus, NodeType
 from datajunction_server.sql.dag import get_dimensions
 from datajunction_server.sql.parsing.ast import fast_parse_mode
@@ -200,6 +201,37 @@ class NodeSpecBulkValidator:
                             link,
                             node_name,
                             inferred_col_names,
+                        )
+                    if link.node_column:
+                        # Only reference links use node_column; on a join link it is
+                        # silently ignored, so accepting it invites a wrong mental model.
+                        result.status = NodeStatus.INVALID
+                        result.errors.append(
+                            DJError(
+                                code=ErrorCode.INVALID_COLUMN,
+                                message=(
+                                    f"Dimension link from {node_name} to "
+                                    f"{link.rendered_dimension_node} sets node_column, "
+                                    "which only applies to reference links. Express the "
+                                    "join in join_on instead."
+                                ),
+                            ),
+                        )
+                    if not link.rendered_join_on and link.join_type != JoinType.CROSS:
+                        # Without a clause the link is stored with no ON condition,
+                        # which builds a cross join and silently multiplies rows.
+                        result.status = NodeStatus.INVALID
+                        result.errors.append(
+                            DJError(
+                                code=ErrorCode.INVALID_COLUMN,
+                                message=(
+                                    f"Dimension link from {node_name} to "
+                                    f"{link.rendered_dimension_node} has no join_on "
+                                    "clause. Set join_on to the equality between this "
+                                    "node's foreign key column(s) and the dimension's "
+                                    "primary key."
+                                ),
+                            ),
                         )
                 else:
                     self._validate_reference_link(

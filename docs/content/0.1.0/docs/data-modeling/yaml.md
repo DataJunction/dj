@@ -148,8 +148,8 @@ query: ...
 primary_key: ...
 dimension_links:
   - type: join
-    node_column: state_id
     dimension_node: ${prefix}roads.us_state
+    join_on: ${prefix}roads.local_hard_hats.state_id = ${prefix}roads.us_state.state_id
     default_value: Unknown  # Optional: fallback for NULL values from LEFT JOIN
   - type: reference
     node_column: birth_date
@@ -161,8 +161,7 @@ dimension_links:
 | ---- | ---- | ---- | ---- |
 | `type` | Yes  | Must be `join` |
 | `dimension_node` | Yes | The dimension node being linked to |
-| `node_column` | No  | The column on this node that is being linked from |
-| `join_on` | No | A custom join on SQL clause |
+| `join_on` | Yes, unless `join_type` is `cross` | The join condition, equating this node's foreign key column(s) to the dimension's primary key. There is no inference: a spec says nothing about which column is the foreign key, so the clause must be written out. |
 | `join_type` | No | The type of join (one of `left`, `right`, `inner`, `full`, `cross`). Defaults to `left`. |
 | `role` | No | The role this dimension represents |
 | `default_value` | No | A fallback value for NULL results from LEFT/RIGHT joins. When set, dimension columns are wrapped in `COALESCE(column, 'default_value')`. |
