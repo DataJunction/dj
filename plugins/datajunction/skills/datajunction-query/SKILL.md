@@ -3,21 +3,16 @@ name: datajunction-query
 description: |
   Activate this skill for querying DataJunction (DJ) — finding nodes,
   generating SQL, fetching metric data, exploring lineage, visualizing
-  results — via the DJ UI, MCP tools, or REST/GraphQL APIs. For core DJ
-  concepts and vocabulary, invoke `datajunction`. For modeling decisions
-  (what shape something should take), invoke `datajunction-semantic-model`.
-  For authoring nodes, invoke `datajunction-repo` (YAML) or
-  `datajunction-api` (REST).
+  results — via the DJ UI, MCP tools, or REST/GraphQL APIs.
   Keywords:
   - query metric, query metrics
-  - generate SQL, build metric SQL
-  - get metric data, fetch metric
+  - generate SQL
   - available dimensions, common dimensions
   - search_nodes, get_node_details, get_node_lineage
   - get_common, build_metric_sql, get_metric_data
   - visualize metrics
-  - MCP tools, DJ API, GraphQL
-  - DJ UI, web UI, browse
+  - MCP tools, GraphQL
+  - DJ UI
 user-invocable: false
 ---
 

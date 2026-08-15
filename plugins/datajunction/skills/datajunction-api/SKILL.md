@@ -3,15 +3,12 @@ name: datajunction-api
 description: |
   Activate this skill when authoring DataJunction (DJ) nodes via the REST
   API directly (curl, HTTP clients) — typically for exploration, ad-hoc
-  prototyping, or namespaces that aren't repo-backed. For modeling
-  decisions and the decomposition workflow, invoke `datajunction-semantic-model`.
-  For repo-backed YAML authoring (the production path), invoke
-  `datajunction-repo`. For concepts, invoke `datajunction`.
+  prototyping, or namespaces that aren't repo-backed.
   Keywords:
   - DJ API, REST API, curl
   - POST nodes/metric, POST nodes/dimension
-  - create metric, create dimension, create cube
-  - API approach, direct API changes
+  - create a metric via the API, create a dimension via the API
+  - create a node with curl
   - prototyping, exploration
 user-invocable: false
 ---

@@ -5,16 +5,13 @@ description: |
   in a git repository — the repo-backed workflow. Covers YAML schemas per
   node type, branch-based development, temporal partitions on cubes,
   registering pre-aggregations / aggregate awareness, and the full
-  PR-driven deployment flow. For modeling decisions (how to
-  structure metrics, decomposition workflow), invoke `datajunction-semantic-model`.
-  For direct API authoring, invoke `datajunction-api`. For concepts,
-  invoke `datajunction`.
+  PR-driven deployment flow.
   Keywords:
   - YAML nodes, YAML definitions
   - repo-backed namespace, repo-backed workflow
   - git workflow, branch development, feature branch
   - cube YAML, metric YAML, dimension YAML, transform YAML
-  - create metric, create dimension, create cube, build cube
+  - add a metric YAML file, add a dimension YAML file, add a cube YAML file
   - temporal partition, partition pushdown
   - pre-commit, push.sh
   - pre-aggregation, pre-agg, preagg, kind: preagg
