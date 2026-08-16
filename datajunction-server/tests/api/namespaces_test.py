@@ -697,6 +697,162 @@ async def test_hard_delete_namespace_with_backfills(
     )
 
 
+async def _create_materialized_cube(client: AsyncClient, cube_name: str) -> str:
+    """
+    Create a cube with a Druid materialization, returning its materialization name.
+    """
+    response = await client.post(
+        "/nodes/default.repair_orders_fact/columns/order_date/attributes/",
+        json=[{"name": "dimension"}],
+    )
+    assert response.status_code in (200, 201), response.json()
+    response = await client.post(
+        "/nodes/cube/",
+        json={
+            "metrics": ["default.num_repair_orders", "default.total_repair_cost"],
+            "dimensions": [
+                "default.repair_orders_fact.order_date",
+                "default.hard_hat.state",
+            ],
+            "description": "Cube of various metrics related to repairs",
+            "mode": "published",
+            "name": cube_name,
+        },
+    )
+    assert response.status_code == 201, response.json()
+    response = await client.post(
+        f"/nodes/{cube_name}/columns/default.repair_orders_fact.order_date/partition",
+        json={"type_": "temporal", "granularity": "day", "format": "yyyyMMdd"},
+    )
+    assert response.status_code in (200, 201), response.json()
+    response = await client.post(
+        f"/nodes/{cube_name}/materialization/",
+        json={"job": "druid_measures_cube", "strategy": "full", "schedule": "@daily"},
+    )
+    assert response.status_code in (200, 201), response.json()
+    return "druid_measures_cube__full__default.repair_orders_fact.order_date"
+
+
+@pytest.mark.asyncio
+async def test_hard_delete_namespace_stops_materialization_workflows(
+    client_example_loader,
+    query_service_client,
+    mocker,
+):
+    """
+    Cascade-deleting a namespace must stop the workflows behind every
+    materialization it takes with it.
+
+    This is the leak that matters most in practice: a branch-namespace reaper
+    hard-deletes namespaces after PRs merge, so every branch deploy that
+    materialized used to leave a daily-firing workflow behind.
+    """
+    client = await client_example_loader(["ROADS"])
+    client.app.dependency_overrides[get_query_service_client] = lambda: (
+        query_service_client
+    )
+    await _create_materialized_cube(client, "default.first_reaped_cube")
+    await _create_materialized_cube(client, "default.second_reaped_cube")
+
+    # A materialized dimension node, whose workflows are named by the node and
+    # materialization name rather than by a cube config
+    response = await client.post(
+        "/nodes/default.hard_hat/columns/birth_date/partition",
+        json={"type_": "temporal", "granularity": "day", "format": "yyyyMMdd"},
+    )
+    assert response.status_code < 400, response.json()
+    response = await client.post(
+        "/nodes/default.hard_hat/materialization/",
+        json={
+            "job": "spark_sql",
+            "strategy": "full",
+            "config": {},
+            "schedule": "@daily",
+        },
+    )
+    assert response.status_code < 400, response.json()
+
+    deactivate_cube_workflow = mocker.patch.object(
+        query_service_client,
+        "deactivate_cube_workflow",
+        return_value={"status": "deactivated"},
+    )
+    deactivate_workflows = mocker.patch.object(
+        query_service_client,
+        "deactivate_workflows",
+        return_value={"status": "deactivated"},
+    )
+    deactivate_materialization = mocker.patch.object(
+        query_service_client,
+        "deactivate_materialization",
+    )
+
+    response = await client.delete("/namespaces/default/hard/?cascade=true")
+    assert response.status_code == 200, response.json()
+    assert response.json()["impact"]["materialization_failures"] == []
+    assert deactivate_cube_workflow.call_args_list == [
+        mocker.call(
+            "default.first_reaped_cube",
+            version="v1.0",
+            request_headers=mocker.ANY,
+        ),
+        mocker.call(
+            "default.second_reaped_cube",
+            version="v1.0",
+            request_headers=mocker.ANY,
+        ),
+    ]
+    assert deactivate_workflows.call_args_list == []
+    assert deactivate_materialization.call_args_list == [
+        mocker.call(
+            "default.hard_hat",
+            "spark_sql__full__birth_date",
+            node_version="v1.1",
+            request_headers=mocker.ANY,
+        ),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_hard_delete_namespace_completes_when_query_service_fails(
+    client_example_loader,
+    query_service_client,
+    mocker,
+):
+    """
+    An unreachable query service must not block a namespace deletion, but the
+    failure is reported rather than swallowed into a log line.
+    """
+    client = await client_example_loader(["ROADS"])
+    client.app.dependency_overrides[get_query_service_client] = lambda: (
+        query_service_client
+    )
+    materialization_name = await _create_materialized_cube(
+        client,
+        "default.unstoppable_cube",
+    )
+    mocker.patch.object(
+        query_service_client,
+        "deactivate_cube_workflow",
+        side_effect=Exception("query service unreachable"),
+    )
+
+    response = await client.delete("/namespaces/default/hard/?cascade=true")
+    assert response.status_code == 200, response.json()
+    result = response.json()
+    assert result["message"] == "The namespace `default` has been completely removed."
+    assert result["impact"]["materialization_failures"] == [
+        "Cube `default.unstoppable_cube`: DJ retired the materialization "
+        f"`{materialization_name}` at version v1.0, but the query service did not "
+        "stop its workflow: query service unreachable. The workflow may still be "
+        "running.",
+    ]
+
+    # The namespace really is gone
+    response = await client.get("/namespaces/default/")
+    assert response.status_code == 404
+
+
 @pytest.mark.asyncio
 async def test_create_namespace(client_with_service_setup: AsyncClient):
     """

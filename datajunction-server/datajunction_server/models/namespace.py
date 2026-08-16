@@ -33,6 +33,12 @@ class HardDeleteResponse(BaseModel):
     deleted_namespaces: list[str]
     impacted: ImpactedNodes
 
+    # Materialization workflows the query service refused to stop. The nodes are
+    # gone either way -- an unreachable query service does not undo a delete -- but
+    # DJ no longer holds what those workflows are named, so a failure here is the
+    # last chance anyone has to hear about it.
+    materialization_failures: list[str] = []
+
 
 class NamespaceWriteStatus(StrEnum):
     """What a create-or-reactivate namespace request ended up doing."""

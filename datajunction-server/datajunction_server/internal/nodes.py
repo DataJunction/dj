@@ -3,9 +3,10 @@
 import logging
 from collections import defaultdict
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from http import HTTPStatus
-from typing import cast
+from typing import Any, cast
 
 from fastapi import BackgroundTasks, Request
 from fastapi.responses import JSONResponse
@@ -67,8 +68,10 @@ from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.materializations import (
     apply_cube_materialization_swap,
+    collect_materialization_teardowns,
     create_new_materialization,
     schedule_materialization_jobs_bg,
+    stop_materialization_workflows,
     swap_cube_materializations,
 )
 from datajunction_server.internal.validation import (
@@ -3619,6 +3622,13 @@ async def deactivate_node(
 ):
     """
     Deactivates a node and propagates to all downstreams.
+
+    A deactivated node stops materializing. Restoring it does not reschedule
+    anything, so leaving its workflows running would keep writing a table whose node
+    is not readable -- which is why this path has always asked the query service to
+    stop them. It just could not stop a cube's: those workflows are named in the
+    materialization config, not derivable from the node and materialization name, so
+    the teardown goes through the shared helper that knows both dialects.
     """
     node = await Node.get_by_name(session, name, raise_if_not_exists=True)
 
@@ -3634,14 +3644,15 @@ async def deactivate_node(
         save_history=save_history,
     )
 
-    # If the node has materializations, deactivate them
-    for materialization in (
-        node.current.materializations if node and node.current else []
-    ):
+    # If the node has materializations, stop the workflows behind them. Collected
+    # here, before the deactivation, and handed to a background task as detached
+    # copies so the query service call happens off the request path.
+    teardowns = await collect_materialization_teardowns(session, [name])
+    if teardowns:
         background_tasks.add_task(
-            query_service_client.deactivate_materialization,
-            node_name=name,
-            materialization_name=materialization.name,
+            stop_materialization_workflows,
+            query_service_client,
+            teardowns,
             request_headers=request_headers,
         )
 
@@ -4104,15 +4115,33 @@ async def revalidate_node(
     return node_validator
 
 
+@dataclass
+class HardDeleteNodeResult:
+    """
+    What a hard delete did: its downstream impact, plus any materialization
+    workflow the query service would not stop on the way out.
+    """
+
+    impact: list[dict[str, Any]]
+    materialization_failures: list[str]
+
+
 async def hard_delete_node(
     name: str,
     session: AsyncSession,
     current_user: User,
     save_history: Callable,
-):
+    query_service_client: QueryServiceClient | None = None,
+    request_headers: dict[str, str] | None = None,
+) -> HardDeleteNodeResult:
     """
     Hard delete a node, destroying all links and invalidating all downstream nodes.
     This should be used with caution, deactivating a node is preferred.
+
+    The node's materializations are read before it is deleted and their workflows
+    stopped once the delete has committed. Deleting the node cascades away the rows
+    naming those workflows, so a delete that skips this leaves the query service
+    firing jobs on schedule that DJ can no longer even name, let alone stop.
     """
     node = await Node.get_by_name(
         session,
@@ -4140,8 +4169,20 @@ async def hard_delete_node(
             common_dimensions=[node],  # type: ignore
         )
 
+    teardowns = await collect_materialization_teardowns(session, [name])
+
     await session.delete(node)
     await session.commit()
+
+    # Straight after the commit that made the deletion durable, and before the
+    # downstream revalidation below, which is DB work that could fail and must not
+    # be what decides whether the workflows get stopped.
+    materialization_failures = stop_materialization_workflows(
+        query_service_client,
+        teardowns,
+        request_headers=request_headers,
+    )
+
     impact = []  # Aggregate all impact of this deletion to include in response
 
     # Revalidate all downstream nodes in topological order so that parents are
@@ -4218,7 +4259,10 @@ async def hard_delete_node(
     await delete_orphaned_missing_parents(session)
     await session.commit()
 
-    return impact
+    return HardDeleteNodeResult(
+        impact=impact,
+        materialization_failures=materialization_failures,
+    )
 
 
 async def refresh_source(

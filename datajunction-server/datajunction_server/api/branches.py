@@ -11,7 +11,7 @@ import time
 from collections.abc import Callable
 from http import HTTPStatus
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import or_, select
@@ -46,7 +46,13 @@ from datajunction_server.internal.nodes import copy_nodes_to_namespace
 from datajunction_server.models.access import ResourceAction
 from datajunction_server.models.deployment import DeploymentResult
 from datajunction_server.models.namespace import BranchInfo
-from datajunction_server.utils import SEPARATOR, get_current_user, get_session
+from datajunction_server.service_clients import QueryServiceClient
+from datajunction_server.utils import (
+    SEPARATOR,
+    get_current_user,
+    get_query_service_client,
+    get_session,
+)
 
 _logger = logging.getLogger(__name__)
 router = SecureAPIRouter(tags=["branches"])
@@ -499,6 +505,8 @@ async def delete_branch(
     current_user: User = Depends(get_current_user),
     access_checker: AccessChecker = Depends(get_access_checker),
     save_history: Callable = Depends(get_save_history),
+    query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    request: Request,
 ) -> JSONResponse:
     """
     Delete a branch namespace.
@@ -568,6 +576,8 @@ async def delete_branch(
         current_user=current_user,
         save_history=save_history,
         cascade=True,
+        query_service_client=query_service_client,
+        request_headers=dict(request.headers),
     )
     nodes_deleted = len(impact.deleted_nodes)
 
@@ -585,5 +595,10 @@ async def delete_branch(
             "message": f"Branch namespace '{branch_namespace}' deleted",
             "nodes_deleted": nodes_deleted,
             "git_branch_deleted": git_branch_deleted,
+            **(
+                {"materialization_failures": impact.materialization_failures}
+                if impact.materialization_failures
+                else {}
+            ),
         },
     )

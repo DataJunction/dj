@@ -1759,6 +1759,181 @@ async def test_deleting_node_with_materialization(
 
 
 @pytest.mark.asyncio
+async def test_hard_deleting_cube_stops_its_materialization_workflows(
+    module__client_with_roads: AsyncClient,
+    module__query_service_client: QueryServiceClient,
+    set_temporal_column: Callable,
+    mocker,
+):
+    """
+    Hard deleting a materialized cube must ask the query service to stop the
+    workflows behind it. The delete cascades away the materialization rows, so a
+    workflow left running is one nothing can ever find or stop again.
+    """
+    client = module__client_with_roads
+    cube_name = "default.repairs_hard_delete_cube"
+    await create_cube_with_materialization(
+        client,
+        set_temporal_column,
+        cube_name=cube_name,
+        strategy="full",
+        schedule="@daily",
+    )
+    deactivate_cube_workflow = mocker.patch.object(
+        module__query_service_client,
+        "deactivate_cube_workflow",
+        return_value={"status": "deactivated"},
+    )
+    deactivate_workflows = mocker.patch.object(
+        module__query_service_client,
+        "deactivate_workflows",
+        return_value={"status": "deactivated"},
+    )
+
+    response = await client.delete(f"/nodes/{cube_name}/hard/")
+    assert response.status_code == 200
+    assert response.json() == {
+        "message": f"The node `{cube_name}` has been completely removed.",
+        "impact": [],
+    }
+    assert deactivate_cube_workflow.call_args_list == [
+        mocker.call(cube_name, version="v1.0", request_headers=mocker.ANY),
+    ]
+    assert deactivate_workflows.call_args_list == []
+
+
+@pytest.mark.asyncio
+async def test_hard_deleting_unmaterialized_node_calls_no_query_service(
+    module__client_with_roads: AsyncClient,
+    module__query_service_client: QueryServiceClient,
+    mocker,
+):
+    """
+    A node with no materializations has no workflows to stop, so the delete must
+    not talk to the query service at all.
+    """
+    client = module__client_with_roads
+    node_name = "default.unmaterialized_teardown_probe"
+    response = await client.post(
+        "/nodes/transform/",
+        json={
+            "description": "A transform nobody materialized",
+            "query": "SELECT repair_order_id FROM default.repair_orders",
+            "mode": "published",
+            "name": node_name,
+        },
+    )
+    assert response.status_code == 201, response.json()
+    deactivate_cube_workflow = mocker.patch.object(
+        module__query_service_client,
+        "deactivate_cube_workflow",
+    )
+    deactivate_workflows = mocker.patch.object(
+        module__query_service_client,
+        "deactivate_workflows",
+    )
+    deactivate_materialization = mocker.patch.object(
+        module__query_service_client,
+        "deactivate_materialization",
+    )
+
+    response = await client.delete(f"/nodes/{node_name}/hard/")
+    assert response.status_code == 200
+    assert response.json() == {
+        "message": f"The node `{node_name}` has been completely removed.",
+        "impact": [],
+    }
+    assert deactivate_cube_workflow.call_args_list == []
+    assert deactivate_workflows.call_args_list == []
+    assert deactivate_materialization.call_args_list == []
+
+
+@pytest.mark.asyncio
+async def test_hard_deleting_cube_completes_when_query_service_fails(
+    module__client_with_roads: AsyncClient,
+    module__query_service_client: QueryServiceClient,
+    set_temporal_column: Callable,
+    mocker,
+):
+    """
+    A query service that cannot be reached must not stop the deletion the user
+    asked for -- but the failure is reported, since DJ has just thrown away the
+    only record of what that workflow was called.
+    """
+    client = module__client_with_roads
+    cube_name = "default.repairs_hard_delete_failure_cube"
+    await create_cube_with_materialization(
+        client,
+        set_temporal_column,
+        cube_name=cube_name,
+        strategy="full",
+        schedule="@daily",
+    )
+    mocker.patch.object(
+        module__query_service_client,
+        "deactivate_cube_workflow",
+        side_effect=Exception("query service unreachable"),
+    )
+    materialization_name = (
+        "druid_measures_cube__full__default.repair_orders_fact.order_date"
+    )
+
+    response = await client.delete(f"/nodes/{cube_name}/hard/")
+    assert response.status_code == 200
+    assert response.json() == {
+        "message": f"The node `{cube_name}` has been completely removed.",
+        "impact": [],
+        "materialization_failures": [
+            f"Cube `{cube_name}`: DJ retired the materialization "
+            f"`{materialization_name}` at version v1.0, but the query service did "
+            "not stop its workflow: query service unreachable. The workflow may "
+            "still be running.",
+        ],
+    }
+
+    # The node really is gone
+    response = await client.get(f"/nodes/{cube_name}/")
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_deactivating_cube_stops_its_materialization_workflows(
+    module__client_with_roads: AsyncClient,
+    module__query_service_client: QueryServiceClient,
+    set_temporal_column: Callable,
+    mocker,
+):
+    """
+    Deactivating a cube stops its workflows too. Restoring the node does not
+    reschedule anything, so a workflow left running writes a table whose node
+    nobody can read.
+    """
+    client = module__client_with_roads
+    cube_name = "default.repairs_deactivate_cube"
+    await create_cube_with_materialization(
+        client,
+        set_temporal_column,
+        cube_name=cube_name,
+        strategy="full",
+        schedule="@daily",
+    )
+    deactivate_cube_workflow = mocker.patch.object(
+        module__query_service_client,
+        "deactivate_cube_workflow",
+        return_value={"status": "deactivated"},
+    )
+
+    response = await client.delete(f"/nodes/{cube_name}")
+    assert response.status_code == 200
+    assert response.json() == {
+        "message": f"Node `{cube_name}` has been successfully deleted.",
+    }
+    assert deactivate_cube_workflow.call_args_list == [
+        mocker.call(cube_name, version="v1.0", request_headers=mocker.ANY),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_list_node_availability_states_across_versions(
     module__client_with_roads: AsyncClient,
 ) -> None:
