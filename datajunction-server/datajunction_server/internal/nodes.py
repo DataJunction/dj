@@ -2342,6 +2342,26 @@ async def _propagate_update_downstream(
                 cache.delete(upstream_cache_key)
 
         if downstream.type == NodeType.CUBE:
+            # Any tier at all rebuilds, and that churn is deliberate -- please do
+            # not "fix" it. Editing a transform's query is always a major bump
+            # (`create_new_revision_from_existing` asks only whether the query text
+            # differs), so every upstream query edit rebuilds every cube below it,
+            # including edits that turn out to have changed nothing that matters.
+            #
+            # Narrowing this by comparing the upstream's resolved output columns was
+            # considered and rejected: a query edit can move a filter, a join or a
+            # CASE threshold while leaving the column set and every type identical,
+            # and each of those changes every row the cube serves. Nothing short of
+            # understanding the SQL separates a cosmetic edit from a material one,
+            # so "the query changed, therefore anything built from it is suspect" is
+            # the only rule that cannot be wrong. Rebuilding costs compute; the
+            # alternative is serving numbers computed from a definition that no
+            # longer exists, and not knowing it.
+            #
+            # NONE is the one tier that is skipped, because it is the one case where
+            # DJ knows nothing material happened -- see the column-order backfill in
+            # `revalidate_node`, which is the only thing that produces it.
+            #
             # A cube bump can trigger a materialization rebuild, so one cube that
             # cannot be rebuilt -- an unresolvable metric, a query service that
             # rejects the new workflow -- must not cost the remaining downstreams
@@ -4203,13 +4223,17 @@ async def revalidate_node(
     # longer matches. An added column is minor -- nothing downstream can reference a
     # column that did not exist when it was written, so an additive change breaks
     # nobody, and treating it as major rebuilds every downstream cube for free.
-    # `order_fixed` is DJ backfilling a missing `order` onto stored columns to match
-    # the query's projection; it changes no name, no type and no value, so it earns
-    # the same minor bump as an addition rather than a major one.
+    #
+    # `order_fixed` is deliberately not a tier at all. It fires when a stored column
+    # has no `order` and DJ fills in the projection index -- its own bookkeeping on
+    # a row written before the field existed. No query changed and no name, type or
+    # value moved, so there is nothing for a new revision to describe, and any tier
+    # above NONE would rebuild every downstream cube for a metadata backfill. It is
+    # applied to the current revision in place instead, below.
     change_tier = fold_change_tiers(
         [
             ChangeTier.MAJOR if type_changes else ChangeTier.NONE,
-            ChangeTier.MINOR if (order_fixed or added_columns) else ChangeTier.NONE,
+            ChangeTier.MINOR if added_columns else ChangeTier.NONE,
         ],
     )
     updated_columns = change_tier is not ChangeTier.NONE
@@ -4321,6 +4345,44 @@ async def revalidate_node(
                 ),
                 session=session,
             )
+    elif order_fixed:
+        # No new revision was earned, so the backfill lands on the current one.
+        # Leaving it unset is not free: every reader sorts columns by `order` with
+        # None ordered last, so an unordered column drifts to the end of the
+        # projection and `Node.to_spec` logs the node as unordered on every read.
+        # Writing the projection index onto the stored row misrepresents nothing --
+        # the rows were inserted in projection order to begin with, so this records
+        # the position they already had.
+        #
+        # Only missing values are filled, matching what the new-revision path above
+        # does, so an order someone set deliberately is never overwritten.
+        for idx, validator_col in enumerate(node_validator.columns):
+            stored_col = existing_columns[validator_col.name]
+            if stored_col.order is None:
+                stored_col.order = idx
+        session.add(node.current)  # type: ignore
+
+        # The audit trail records that DJ touched the row even though the node's
+        # definition did not change, so a column that changes position has an
+        # explanation. Not gated on ``record_revision_bump_event``: this is not a
+        # revision bump, and no caller writes a richer event in its place.
+        await save_history(
+            event=History(
+                entity_type=EntityType.NODE,
+                entity_name=node.name,  # type: ignore
+                node=node.name,  # type: ignore
+                activity_type=ActivityType.UPDATE,
+                details={
+                    # The version the node still has -- this event explains a
+                    # metadata fix, not a bump.
+                    "version": node.current.version,  # type: ignore
+                    "reason": "column order backfill",
+                    "order_fixed": order_fixed,
+                },
+                user=current_user.username,
+            ),
+            session=session,
+        )
     await session.commit()
     await session.refresh(node.current)  # type: ignore
     await session.refresh(node, ["current"])
