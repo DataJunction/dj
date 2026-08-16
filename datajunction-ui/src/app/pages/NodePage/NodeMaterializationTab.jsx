@@ -528,9 +528,8 @@ export default function NodeMaterializationTab({
     [selectedRevisionTab, availabilityStatesByRevision, availabilityStates],
   );
 
-  // Side-by-side evaluation of the proposed state panel against the existing tree
-  // view, fed from the same two responses. Delete this block and its toggle to
-  // remove the panel; nothing below depends on it.
+  // The state panel and the tree view below it are fed from the same two responses,
+  // and are shown side by side behind a toggle. Nothing below depends on this block.
   const proposedState = useMemo(
     () =>
       toMaterializationState({

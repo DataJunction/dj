@@ -1,10 +1,10 @@
 /**
- * Proposed materialization panel, in three candidate layouts behind an A/B/C switcher.
+ * Materialization panel, in three layouts selectable with an A/B/C switcher.
  *
- * Renders a `MaterializationState` (see src/mocks/materializationState.js) rather
- * than stitching `materializations()` and `availabilityStates()` together in the
- * component, which is why the current tab can show an empty "Output Tables" while
- * an output dataset sits at the bottom of the same page.
+ * Renders a `MaterializationState` (built by ./materializationState.js) rather than
+ * stitching `materializations()` and `availabilityStates()` together in the component.
+ * Stitching them here is what lets the tab show an empty "Output Tables" while an
+ * output dataset sits at the bottom of the same page.
  *
  * Rules all three layouts enforce:
  *

@@ -6,8 +6,6 @@
 import * as React from 'react';
 import { Helmet } from 'react-helmet-async';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import MaterializationStatePreview from './pages/NodePage/MaterializationStatePreview';
-
 import { NamespacePage } from './pages/NamespacePage/Loadable';
 import { MyWorkspacePage } from './pages/MyWorkspacePage/Loadable';
 import { OverviewPage } from './pages/OverviewPage/Loadable';
@@ -72,11 +70,6 @@ export function App() {
                     element={<Root />}
                     children={
                       <>
-                        {/* Dev-only fixture preview; no API involvement. */}
-                        <Route
-                          path="dev/materialization-state"
-                          element={<MaterializationStatePreview />}
-                        />
                         <Route path="nodes" key="nodes">
                           <Route path=":name" element={<NodePage />} />
                           <Route

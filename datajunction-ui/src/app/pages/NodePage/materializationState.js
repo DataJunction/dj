@@ -1,25 +1,28 @@
 /**
- * Adapter from today's two API responses to the proposed `MaterializationState`
- * read model (see src/mocks/materializationState.js for the shape and the reasons
- * behind it).
+ * Adapter from the two API responses the materialization tab already fetches
+ * (`materializations()` and `availabilityStates()`) into a single
+ * `MaterializationState` read model.
  *
- * The layers are kept strictly separate here because merging them is the bug the
- * read model exists to fix:
+ * The model keeps three layers strictly separate, because conflating them misreports
+ * the system:
  *
  *   intent    -- the materialization record. What the author declared.
  *   outcome   -- the availability state. What exists.
- *   execution -- always null. DJ has no engine-reported run data, and its own
- *                request-time record (workflow_status, urls) is not evidence that
- *                anything ran. See EXECUTION_UNAVAILABLE below.
+ *   execution -- what the engine did. Always null today; see EXECUTION_UNAVAILABLE.
+ *
+ * In particular, DJ's `workflow_status` and `urls` record what was *requested* when
+ * the materialization was configured, not what any run observed. They belong to
+ * `intent` and must not be rendered as observed reality.
  */
 import cronstrue from 'cronstrue';
 
 /**
- * `execution` needs `MaterializationInfo` extended with last-run status, timestamps,
- * attempt, in-flight partition and next fire time, plus a query-service implementation
- * to populate them. Neither exists, so every materialization reports `null` and the
- * panel renders `unknown`. That gap is the argument for the DJQS work; filling it from
- * DJ's own records would erase the argument and lie about what ran.
+ * DJ stores no engine-reported run data, so `execution` is `null` for every
+ * materialization and the panel renders run status as `unknown`.
+ *
+ * Populating it would require `MaterializationInfo` extended with last-run status,
+ * timestamps, attempt, in-flight partition and next fire time, plus a query-service
+ * implementation to supply them.
  */
 const EXECUTION_UNAVAILABLE = null;
 
