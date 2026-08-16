@@ -1,18 +1,8 @@
 import { useCallback, useEffect, useState, useMemo } from 'react';
-import TableIcon from '../../icons/TableIcon';
 import AddMaterializationPopover from './AddMaterializationPopover';
 import * as React from 'react';
-import AddBackfillPopover from './AddBackfillPopover';
-import { labelize } from '../../../utils/form';
-import NodeMaterializationDelete from '../../components/NodeMaterializationDelete';
-import AvailabilityStateBlock from './AvailabilityStateBlock';
 import MaterializationStatePanel from './MaterializationStatePanel';
 import { toMaterializationState } from './materializationState';
-import cronstrue from 'cronstrue';
-import {
-  decodeColumnIdentifier,
-  getColumnIdentifier,
-} from '../../utils/column';
 
 /**
  * Cube materialization tab - shows cube-specific materializations.
@@ -28,7 +18,6 @@ export default function NodeMaterializationTab({
   const [selectedRevisionTab, setSelectedRevisionTab] = useState(null);
   const [showInactive, setShowInactive] = useState(false);
   const [availabilityStates, setAvailabilityStates] = useState([]);
-  const [showProposedPanel, setShowProposedPanel] = useState(true);
   const [availabilityStatesByRevision, setAvailabilityStatesByRevision] =
     useState({});
   const [isRebuilding, setIsRebuilding] = useState(() => {
@@ -109,21 +98,6 @@ export default function NodeMaterializationTab({
       }
     }
   }, [materializationsByRevision, selectedRevisionTab, node?.version]);
-
-  const partitionColumnsMap = node
-    ? Object.fromEntries(
-        node?.columns
-          .filter(col => col.partition !== null)
-          .map(col => [getColumnIdentifier(node, col), col.display_name]),
-      )
-    : {};
-  const cron = materialization => {
-    var parsedCron = '';
-    try {
-      parsedCron = cronstrue.toString(materialization.schedule);
-    } catch (e) {}
-    return parsedCron;
-  };
 
   const onClickRevisionTab = revisionId => () => {
     setSelectedRevisionTab(revisionId);
@@ -283,7 +257,7 @@ export default function NodeMaterializationTab({
       >
         {/* The panel renders this in its own header, where the version's scope
             actually is. Kept here only for when the panel is switched off. */}
-        {showProposedPanel ? <span /> : renderVersionSelect()}
+        <span />
         <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
           <label
             style={{
@@ -333,185 +307,6 @@ export default function NodeMaterializationTab({
     );
   };
 
-  const materializationRows = materializations => {
-    return materializations.map((materialization, index) => (
-      <div key={`${materialization.name}-${index}`}>
-        <div className="tr">
-          <div key={materialization.name} style={{ fontSize: 'large' }}>
-            <div
-              className="text-start node_name td"
-              style={{ fontWeight: '600' }}
-            >
-              {materialization.job
-                ?.replace('MaterializationJob', '')
-                .match(/[A-Z][a-z]+/g)
-                .join(' ')}
-            </div>
-            <div className="td">
-              {!readOnly && (
-                <NodeMaterializationDelete
-                  nodeName={node.name}
-                  materializationName={materialization.name}
-                  nodeVersion={selectedRevisionTab}
-                />
-              )}
-            </div>
-            <div className="td">
-              <span className={`badge cron`}>{materialization.schedule}</span>
-              <div className={`cron-description`}>{cron(materialization)} </div>
-            </div>
-            <div className="td">
-              <span className={`badge strategy`}>
-                {labelize(materialization.strategy)}
-              </span>
-            </div>
-          </div>
-        </div>
-        <div style={{ display: 'table-row' }}>
-          <div style={{ display: 'inline-flex' }}>
-            <ul className="backfills">
-              <li className="backfill">
-                <div className="backfills_header">Output Tables</div>{' '}
-                {materialization.output_tables.map(table => (
-                  <div className={`table__full`} key={table}>
-                    <div className="table__header">
-                      <TableIcon />{' '}
-                      <span className={`entity-info`}>
-                        {table.split('.')[0] + '.' + table.split('.')[1]}
-                      </span>
-                    </div>
-                    <div className={`table__body upstream_tables`}>
-                      {table.split('.')[2]}
-                    </div>
-                  </div>
-                ))}
-              </li>
-            </ul>
-          </div>
-
-          <div style={{ display: 'inline-flex' }}>
-            <ul className="backfills">
-              <li>
-                <div className="backfills_header">Workflows</div>{' '}
-                <ul>
-                  {materialization.urls.map((url, idx) => (
-                    <li style={{ listStyle: 'none' }} key={idx}>
-                      <div
-                        className="partitionLink"
-                        style={{ fontSize: 'revert' }}
-                      >
-                        <a
-                          href={url}
-                          key={`url-${idx}`}
-                          className=""
-                          target="blank"
-                        >
-                          {idx === 0 ? 'main' : 'backfill'}
-                        </a>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </li>
-            </ul>
-          </div>
-
-          <div style={{ display: 'inline-flex' }}>
-            <ul className="backfills">
-              <li className="backfill">
-                <details open>
-                  <summary>
-                    <span className="backfills_header">Backfills</span>{' '}
-                  </summary>
-                  {materialization.strategy === 'incremental_time' ? (
-                    <ul>
-                      {!readOnly && (
-                        <li>
-                          <AddBackfillPopover
-                            node={node}
-                            materialization={materialization}
-                            onSubmit={fetchData}
-                          />
-                        </li>
-                      )}
-                      {materialization.backfills.map(backfill => (
-                        <li className="backfill">
-                          <div className="partitionLink">
-                            <a href={backfill.urls[0]}>
-                              {backfill.spec.map(partition => {
-                                const partitionBody =
-                                  'range' in partition &&
-                                  partition['range'] !== null ? (
-                                    <>
-                                      <span className="badge partition_value">
-                                        {partition.range[0]}
-                                      </span>
-                                      to
-                                      <span className="badge partition_value">
-                                        {partition.range[1]}
-                                      </span>
-                                    </>
-                                  ) : (
-                                    <span className="badge partition_value">
-                                      {partition.values.join(', ')}
-                                    </span>
-                                  );
-                                return (
-                                  <>
-                                    <div>
-                                      {
-                                        partitionColumnsMap[
-                                          decodeColumnIdentifier(
-                                            partition.column_name,
-                                          )
-                                        ]
-                                      }{' '}
-                                      {partitionBody}
-                                    </div>
-                                  </>
-                                );
-                              })}
-                            </a>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <ul>
-                      <li>N/A</li>
-                    </ul>
-                  )}
-                </details>
-              </li>
-            </ul>
-          </div>
-          <div className="td">
-            <ul className="backfills">
-              <li className="backfill">
-                <div className="backfills_header">Partitions</div>{' '}
-                <ul>
-                  {node.columns
-                    .filter(col => col.partition !== null)
-                    .map(column => {
-                      return (
-                        <li key={getColumnIdentifier(node, column)}>
-                          <div className="partitionLink">
-                            {column.display_name}
-                            <span className="badge partition_value">
-                              {column.partition.type_}
-                            </span>
-                          </div>
-                        </li>
-                      );
-                    })}
-                </ul>
-              </li>
-            </ul>
-          </div>
-        </div>
-      </div>
-    ));
-  };
   const currentRevisionMaterializations = useMemo(
     () =>
       selectedRevisionTab
@@ -530,7 +325,7 @@ export default function NodeMaterializationTab({
 
   // The state panel and the tree view below it are fed from the same two responses,
   // and are shown side by side behind a toggle. Nothing below depends on this block.
-  const proposedState = useMemo(
+  const materializationState = useMemo(
     () =>
       toMaterializationState({
         node,
@@ -539,23 +334,6 @@ export default function NodeMaterializationTab({
       }),
     [node, currentRevisionMaterializations, currentRevisionAvailability],
   );
-
-  const renderMaterializedDatasets = availabilityStates => {
-    if (!availabilityStates || availabilityStates.length === 0) {
-      return (
-        <div className="message alert" style={{ marginTop: '10px' }}>
-          No materialized datasets available for this revision.
-        </div>
-      );
-    }
-
-    return availabilityStates.map((availability, index) => (
-      <AvailabilityStateBlock
-        key={`availability-${index}`}
-        availability={availability}
-      />
-    ));
-  };
 
   return (
     <>
@@ -608,58 +386,10 @@ export default function NodeMaterializationTab({
 
         <div>
           {buildRevisionTabs()}
-          <div style={{ marginBottom: '20px' }}>
-            <label
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '5px',
-                fontSize: '14px',
-              }}
-            >
-              <input
-                type="checkbox"
-                aria-label="Show proposed materialization state panel"
-                checked={showProposedPanel}
-                onChange={e => setShowProposedPanel(e.target.checked)}
-              />
-              Proposed state panel
-            </label>
-            {showProposedPanel && (
-              <MaterializationStatePanel
-                state={proposedState}
-                versionSelect={renderVersionSelect()}
-              />
-            )}
-          </div>
-          {currentRevisionMaterializations.length > 0 ? (
-            <div
-              className="card-inner-table table"
-              aria-label="Materializations"
-              aria-hidden="false"
-            >
-              <div style={{ display: 'table' }}>
-                {materializationRows(
-                  currentRevisionMaterializations.filter(
-                    materialization =>
-                      !(
-                        materialization.name === 'default' &&
-                        node.type === 'cube'
-                      ),
-                  ),
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="message alert" style={{ marginTop: '10px' }}>
-              No materialization workflows configured for this revision.
-            </div>
-          )}
-          {Object.keys(materializationsByRevision).length > 0 && (
-            <div style={{ marginTop: '30px' }}>
-              {renderMaterializedDatasets(currentRevisionAvailability)}
-            </div>
-          )}
+          <MaterializationStatePanel
+            state={materializationState}
+            versionSelect={renderVersionSelect()}
+          />
         </div>
       </div>
     </>
