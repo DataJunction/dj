@@ -97,6 +97,7 @@ from datajunction_server.models.deployment import (
     CubeSpec,
     DeploymentResult,
     bump_version,
+    fold_change_tiers,
     version_change_tier,
 )
 from datajunction_server.models.dimensionlink import (
@@ -4194,12 +4195,30 @@ async def revalidate_node(
             )
         if existing_col.order is None:
             order_fixed.append(col.name)
-    updated_columns = bool(type_changes or order_fixed or added_columns)
+    # How significant the validator's findings are, as a tier rather than a version,
+    # so downstream propagation can hand the same value to `bump_version` for cubes.
+    #
+    # A type change is major: anything selecting the column may now be reading a
+    # different type, and a cube materialized on it holds a table whose schema no
+    # longer matches. An added column is minor -- nothing downstream can reference a
+    # column that did not exist when it was written, so an additive change breaks
+    # nobody, and treating it as major rebuilds every downstream cube for free.
+    # `order_fixed` is DJ backfilling a missing `order` onto stored columns to match
+    # the query's projection; it changes no name, no type and no value, so it earns
+    # the same minor bump as an addition rather than a major one.
+    change_tier = fold_change_tiers(
+        [
+            ChangeTier.MAJOR if type_changes else ChangeTier.NONE,
+            ChangeTier.MINOR if (order_fixed or added_columns) else ChangeTier.NONE,
+        ],
+    )
+    updated_columns = change_tier is not ChangeTier.NONE
 
     _logger.info(
-        "Columns updated: %s for node %s (current version: %s) — "
+        "Columns updated: %s (tier %s) for node %s (current version: %s) — "
         "type_changes=%s, order_fixed=%s, added_columns=%s",
         updated_columns,
+        change_tier.name,
         node.name,
         node.current.version,
         type_changes,
@@ -4209,9 +4228,7 @@ async def revalidate_node(
     # Only create a new revision if the columns have been updated
     if updated_columns:  # type: ignore
         new_revision = copy_existing_node_revision(node.current, current_user)  # type: ignore
-        new_revision.version = str(
-            Version.parse(node.current.version).next_major_version(),  # type: ignore
-        )
+        new_revision.version = bump_version(node.current.version, change_tier)  # type: ignore
 
         new_revision.status = node_validator.status
         # Snapshot pending m2m state before compile — autoflush during
