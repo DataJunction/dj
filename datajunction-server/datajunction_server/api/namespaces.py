@@ -435,6 +435,8 @@ async def hard_delete_node_namespace(
     current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
     access_checker: AccessChecker = Depends(get_access_checker),
+    query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    request: Request,
 ) -> JSONResponse:
     """
     Hard delete a namespace, which will completely remove the namespace. Additionally,
@@ -474,6 +476,8 @@ async def hard_delete_node_namespace(
         cascade=cascade,
         current_user=current_user,
         save_history=save_history,
+        query_service_client=query_service_client,
+        request_headers=dict(request.headers),
     )
     return JSONResponse(
         status_code=HTTPStatus.OK,

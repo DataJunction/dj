@@ -411,10 +411,12 @@ async def delete_node(
 @router.delete("/nodes/{name}/hard/", name="Hard Delete a DJ Node")
 async def hard_delete(
     name: str,
+    request: Request,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
     access_checker: AccessChecker = Depends(get_access_checker),
+    query_service_client: QueryServiceClient = Depends(get_query_service_client),
 ) -> JSONResponse:
     """
     Hard delete a node, destroying all links and invalidating all downstream nodes.
@@ -425,17 +427,26 @@ async def hard_delete(
     namespace = name.rsplit(".", 1)[0]
     await check_namespace_not_git_only(session, namespace)
 
-    impact = await hard_delete_node(
+    result = await hard_delete_node(
         name=name,
         session=session,
         current_user=current_user,
         save_history=save_history,
+        query_service_client=query_service_client,
+        request_headers=dict(request.headers),
     )
     return JSONResponse(
         status_code=HTTPStatus.OK,
         content={
             "message": f"The node `{name}` has been completely removed.",
-            "impact": impact,
+            "impact": result.impact,
+            # Reported only when there is something to report: the node is gone
+            # either way, and DJ no longer knows what the workflow was called.
+            **(
+                {"materialization_failures": result.materialization_failures}
+                if result.materialization_failures
+                else {}
+            ),
         },
     )
 

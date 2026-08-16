@@ -18,7 +18,7 @@ from datajunction_server.database.history import (
     History,
 )
 from datajunction_server.database.materialization import Materialization
-from datajunction_server.database.node import NodeRevision
+from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJException, DJInvalidInputException
 from datajunction_server.internal.access.authorization import AccessChecker
@@ -686,7 +686,7 @@ def stop_cube_materialization_workflows(
     cube_version: str,
     materializations: list[Materialization],
     request_headers: dict[str, str] | None = None,
-) -> None:
+) -> str | None:
     """
     Ask the query service to stop the workflows behind cube materializations.
 
@@ -697,6 +697,10 @@ def stop_cube_materialization_workflows(
 
     Never raises: a query service that is unreachable, or that has already forgotten
     the workflow, must not block the DJ-side operation that triggered the teardown.
+    Returns a message describing the failure instead, `None` when there was none, so
+    a caller with somewhere to report it does not have to settle for a log line: DJ
+    has already dropped its own record of the materialization, and a workflow left
+    running past that point is one nothing will ever clean up.
     """
     workflow_names: list[str] = []
     needs_legacy_stop = False
@@ -738,6 +742,158 @@ def stop_cube_materialization_workflows(
             cube_version,
             str(exc),
         )
+        names = ", ".join(f"`{mat.name}`" for mat in materializations)
+        return (
+            f"Cube `{cube_name}`: DJ retired the materialization {names} at version "
+            f"{cube_version}, but the query service did not stop its workflow: {exc}. "
+            f"The workflow may still be running."
+        )
+    return None
+
+
+@dataclass
+class NodeMaterializationTeardown:
+    """
+    The workflows one node revision still has running, and everything needed to
+    stop them once the rows recording them are gone.
+
+    ``materializations`` are detached copies, not rows: they outlive the delete.
+    """
+
+    node_name: str
+    node_version: str
+    node_type: NodeType
+    materializations: list[Materialization]
+
+
+async def collect_materialization_teardowns(
+    session: AsyncSession,
+    node_names: list[str],
+) -> list[NodeMaterializationTeardown]:
+    """
+    Read what the query service is still running for a set of nodes about to be
+    deleted, before deleting them takes the answer away.
+
+    Deleting a node cascades its materialization rows away, so the workflow names
+    they carry have to be read first: afterwards DJ no longer knows what to stop,
+    and the workflow keeps firing on schedule against a table nobody reads.
+
+    Every active materialization on every revision counts, not just the current
+    one. A superseded revision's rows are marked deactivated when their workflow is
+    stopped, so a row that is still active is a workflow that is still running.
+
+    Cube planner rows are included, unlike during a revision swap where DJ spares
+    them because it cannot rebuild what it stops. A deletion rebuilds nothing, and
+    the planner's row is the only place its workflow names are written down.
+
+    What comes back are copies holding just the name and config the teardown reads,
+    never rows attached to the session: the workflows are stopped after the commit
+    that deleted them, where a real row would either be expired and unable to answer
+    or gone from the database entirely.
+    """
+    if not node_names:
+        return []
+    rows = (
+        await session.execute(
+            select(
+                Materialization.name,
+                Materialization.config,
+                NodeRevision.name.label("node_name"),
+                NodeRevision.version,
+                Node.type,
+            )
+            .join(NodeRevision, Materialization.node_revision_id == NodeRevision.id)
+            .join(Node, Node.id == NodeRevision.node_id)
+            .where(
+                Node.name.in_(node_names),
+                Materialization.deactivated_at.is_(None),
+            )
+            .order_by(NodeRevision.name, NodeRevision.version, Materialization.name),
+        )
+    ).all()
+    teardowns: dict[tuple[str, str], NodeMaterializationTeardown] = {}
+    for row in rows:
+        teardown = teardowns.setdefault(
+            (row.node_name, row.version),
+            NodeMaterializationTeardown(
+                node_name=row.node_name,
+                node_version=row.version,
+                node_type=row.type,
+                materializations=[],
+            ),
+        )
+        teardown.materializations.append(
+            Materialization(name=row.name, config=row.config),
+        )
+    return list(teardowns.values())
+
+
+def stop_materialization_workflows(
+    query_service_client: QueryServiceClient | None,
+    teardowns: list[NodeMaterializationTeardown],
+    request_headers: dict[str, str] | None = None,
+) -> list[str]:
+    """
+    Stop the workflows behind materializations that a deletion has erased.
+
+    Call this only after the deletion has committed: the query service is a remote
+    call that must not hold the transaction open, and telling it to stop a workflow
+    for a deletion that then rolls back is worse than not telling it at all.
+
+    Cubes go through the cube teardown, which knows about persisted workflow names
+    and the cube-name fallback for rows written before them. Everything else is a
+    node-and-materialization-name deactivation, the same call node deactivation
+    makes.
+
+    Never raises: a query service that is unreachable must not turn a deletion the
+    user already asked for -- and that has already happened -- into an error.
+    Returns one message per failure for the caller to report.
+    """
+    if not query_service_client:
+        return []
+    failures: list[str] = []
+    for teardown in teardowns:
+        if teardown.node_type == NodeType.CUBE:
+            failure = stop_cube_materialization_workflows(
+                query_service_client=query_service_client,
+                cube_name=teardown.node_name,
+                cube_version=teardown.node_version,
+                materializations=teardown.materializations,
+                request_headers=request_headers,
+            )
+            if failure:
+                failures.append(failure)
+            continue
+        for materialization in teardown.materializations:
+            try:
+                query_service_client.deactivate_materialization(
+                    teardown.node_name,
+                    materialization.name,
+                    node_version=teardown.node_version,
+                    request_headers=request_headers,
+                )
+                _logger.info(
+                    "Deactivated materialization %s for node=%s version=%s",
+                    materialization.name,
+                    teardown.node_name,
+                    teardown.node_version,
+                )
+            except Exception as exc:
+                _logger.warning(
+                    "Failed to deactivate materialization %s for node=%s version=%s: "
+                    "%s (continuing)",
+                    materialization.name,
+                    teardown.node_name,
+                    teardown.node_version,
+                    str(exc),
+                )
+                failures.append(
+                    f"Node `{teardown.node_name}`: DJ deleted the materialization "
+                    f"`{materialization.name}` at version {teardown.node_version}, "
+                    f"but the query service did not stop its workflow: {exc}. The "
+                    f"workflow may still be running.",
+                )
+    return failures
 
 
 async def schedule_materialization_jobs(

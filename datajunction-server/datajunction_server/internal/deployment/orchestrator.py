@@ -65,8 +65,11 @@ from datajunction_server.internal.history import EntityType
 from datajunction_server.internal.impact import propagate_impact
 from datajunction_server.internal.materializations import (
     CubeMaterializationSwap,
+    NodeMaterializationTeardown,
     apply_cube_materialization_swap,
+    collect_materialization_teardowns,
     reconcile_declared_materialization,
+    stop_materialization_workflows,
     swap_cube_materializations,
 )
 from datajunction_server.internal.nodes import (
@@ -355,6 +358,7 @@ class DeploymentOrchestrator:
         self.deployed_results: list[DeploymentResult] = []
         self._timer = DeploymentTimer()
         self._cube_materialization_swaps: list[CubeMaterializationSwap] = []
+        self._materialization_teardowns: list[NodeMaterializationTeardown] = []
 
     @property
     def _history_user(self) -> str:
@@ -410,6 +414,7 @@ class DeploymentOrchestrator:
             # implies wet-run — commit the outer transaction.
             await self.session.commit()
             await self._apply_cube_materialization_swaps()
+            result.results.extend(self._stop_deleted_node_materializations())
 
         # Warnings are only surfaced by the failure path (they ride along on
         # DJInvalidDeploymentConfig), so hand them back here too — otherwise a
@@ -2783,6 +2788,36 @@ class DeploymentOrchestrator:
                 request_headers=request_headers,
             )
 
+    def _stop_deleted_node_materializations(self) -> list[DeploymentResult]:
+        """
+        Stop the workflows behind materializations that deleted nodes took with
+        them, once the deletion has committed.
+
+        A node dropped from the spec is hard-deleted, which cascades away the rows
+        naming its workflows -- so unless they are stopped here, the query service
+        keeps running jobs DJ can no longer identify. Reported rather than only
+        logged: the deployment says the node is gone, and a workflow still firing
+        against its table is not something a log line is enough for.
+        """
+        request_headers = (
+            dict(self.context.request.headers) if self.context.request else {}
+        )
+        failures = stop_materialization_workflows(
+            self.context.query_service_client,
+            self._materialization_teardowns,
+            request_headers=request_headers,
+        )
+        return [
+            DeploymentResult(
+                name=self.deployment_spec.namespace,
+                deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                status=DeploymentResult.Status.WARNING,
+                operation=DeploymentResult.Operation.DELETE,
+                message=failure,
+            )
+            for failure in failures
+        ]
+
     async def _bulk_validate_cubes(
         self,
         cube_specs: list[CubeSpec],
@@ -3712,6 +3747,15 @@ class DeploymentOrchestrator:
             deleted_names = {row.name for row in id_rows}
             node_ids = [row.id for row in id_rows]
             if node_ids:
+                # Read the workflows these nodes still have running before the
+                # delete cascades away the rows that name them. They are stopped
+                # after the deployment commits.
+                self._materialization_teardowns.extend(
+                    await collect_materialization_teardowns(
+                        self.session,
+                        sorted(deleted_names),
+                    ),
+                )
                 await hard_delete_nodes(
                     self.session,
                     node_ids,

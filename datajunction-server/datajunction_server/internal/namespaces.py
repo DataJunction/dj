@@ -32,6 +32,10 @@ from datajunction_server.errors import (
     DJInvalidInputException,
 )
 from datajunction_server.internal.history import ActivityType, EntityType
+from datajunction_server.internal.materializations import (
+    collect_materialization_teardowns,
+    stop_materialization_workflows,
+)
 from datajunction_server.internal.nodes import get_single_cube_revision_metadata
 from datajunction_server.models.deployment import (
     CubeSpec,
@@ -53,6 +57,7 @@ from datajunction_server.models.namespace import (
 )
 from datajunction_server.models.node import NodeMinimumDetail
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import topological_sort
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import SEPARATOR
@@ -637,9 +642,16 @@ async def hard_delete_namespace(
     current_user: User,
     save_history: Callable,
     cascade: bool = False,
+    query_service_client: QueryServiceClient | None = None,
+    request_headers: dict[str, str] | None = None,
 ) -> HardDeleteResponse:
     """
     Hard delete a node namespace.
+
+    Materializations under the namespace are read before the delete and their
+    workflows stopped after the commit: the rows naming those workflows go away with
+    the nodes, so a namespace deleted without this leaves the query service running
+    jobs no one can find again, let alone stop.
     """
     node_rows = (
         await session.execute(
@@ -665,6 +677,7 @@ async def hard_delete_namespace(
                 " this action cannot be undone."
             ),
         )
+    teardowns = await collect_materialization_teardowns(session, node_names)
     impacted = await hard_delete_nodes(session, node_ids, current_user)
 
     # Delete namespaces in the same transaction so the whole operation is
@@ -688,10 +701,17 @@ async def hard_delete_namespace(
 
     await session.commit()
 
+    materialization_failures = stop_materialization_workflows(
+        query_service_client,
+        teardowns,
+        request_headers=request_headers,
+    )
+
     return HardDeleteResponse(
         deleted_namespaces=deleted_namespaces,
         deleted_nodes=node_names,
         impacted=impacted,
+        materialization_failures=materialization_failures,
     )
 
 
