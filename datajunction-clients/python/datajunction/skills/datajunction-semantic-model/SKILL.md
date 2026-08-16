@@ -5,15 +5,12 @@ description: |
   choosing the right node shape (fact, dimension, transform, metric, cube),
   turning a draft SQL query into well-designed nodes, and the cross-cutting
   conventions (ownership, naming, namespace organization). Format-agnostic
-  modeling guidance; for YAML schemas and the repo-backed authoring flow,
-  invoke `datajunction-repo`; for direct API examples, invoke
-  `datajunction-api`. For DJ concepts (node types, dim links), invoke
-  `datajunction`. For querying existing metrics, invoke
-  `datajunction-query`.
+  modeling guidance.
   Keywords:
   - semantic modeling
   - decompose query, model query, query to nodes
-  - create metric, create dimension, create node, create cube, build cube
+  - how should I model this metric, what shape should this node be
+  - design a cube, what belongs in this cube
   - ratio metric, derived metric, base metric
   - composable metrics
   - metric query constraints
