@@ -4235,32 +4235,40 @@ async def revalidate_node(
     # columns remain a faithful snapshot of what was committed at that
     # version. Track *why* the validator decided a column changed so the
     # history event can explain the bump.
-    type_changes: list[dict] = []
-    order_fixed: list[str] = []
-    added_columns: list[str] = []
-    for col in node_validator.columns:
-        existing_col = existing_columns.get(col.name)
-        if existing_col is None:
-            added_columns.append(col.name)
-            continue
-        if existing_col.type != col.type:
-            type_changes.append(
-                {
-                    "column": col.name,
-                    "from": str(existing_col.type),
-                    "to": str(col.type),
-                },
-            )
-        if existing_col.order is None:
-            order_fixed.append(col.name)
+    #
+    # `describe_column_changes` is the shared comparison, so a bump is explained
+    # the same way however it was triggered -- and so removals are seen at all.
+    # Walking the validator's columns and looking each one up, which is what this
+    # did, can only ever find what the validator produced: a column the revision
+    # still stores but the query no longer selects was never visited, so it earned
+    # no bump and rode along on the next revision advertising a value the node
+    # cannot supply.
+    column_changes = describe_column_changes(
+        node.current.columns,  # type: ignore
+        node_validator.columns,
+    )
+    type_changes: list[dict] = column_changes.get("type_changes", [])
+    added_columns: list[str] = column_changes.get("added_columns", [])
+    removed_columns: list[str] = column_changes.get("removed_columns", [])
+    # Not a column change, and so not part of the shared comparison: `order` is
+    # DJ's own bookkeeping rather than anything the query says.
+    order_fixed: list[str] = [
+        col.name
+        for col in node_validator.columns
+        if col.name in existing_columns and existing_columns[col.name].order is None
+    ]
     # How significant the validator's findings are, as a tier rather than a version,
     # so downstream propagation can hand the same value to `bump_version` for cubes.
     #
     # A type change is major: anything selecting the column may now be reading a
     # different type, and a cube materialized on it holds a table whose schema no
-    # longer matches. An added column is minor -- nothing downstream can reference a
-    # column that did not exist when it was written, so an additive change breaks
-    # nobody, and treating it as major rebuilds every downstream cube for free.
+    # longer matches. A removal is major for the same reason and more bluntly --
+    # anything that referenced the column is now broken. An added column is minor:
+    # nothing downstream can reference a column that did not exist when it was
+    # written, so an additive change breaks nobody, and treating it as major
+    # rebuilds every downstream cube for free. The asymmetry is deliberate --
+    # removals are rare and additions are constant, so occasionally rebuilding a
+    # cube that never used the dropped column is a cost worth paying.
     #
     # `order_fixed` is deliberately not a tier at all. It fires when a stored column
     # has no `order` and DJ fills in the projection index -- its own bookkeeping on
@@ -4270,7 +4278,7 @@ async def revalidate_node(
     # applied to the current revision in place instead, below.
     change_tier = fold_change_tiers(
         [
-            ChangeTier.MAJOR if type_changes else ChangeTier.NONE,
+            ChangeTier.MAJOR if (type_changes or removed_columns) else ChangeTier.NONE,
             ChangeTier.MINOR if added_columns else ChangeTier.NONE,
         ],
     )
@@ -4278,7 +4286,7 @@ async def revalidate_node(
 
     _logger.info(
         "Columns updated: %s (tier %s) for node %s (current version: %s) — "
-        "type_changes=%s, order_fixed=%s, added_columns=%s",
+        "type_changes=%s, order_fixed=%s, added_columns=%s, removed_columns=%s",
         updated_columns,
         change_tier.name,
         node.name,
@@ -4286,6 +4294,7 @@ async def revalidate_node(
         type_changes,
         order_fixed,
         added_columns,
+        removed_columns,
     )
     # Only create a new revision if the columns have been updated
     if updated_columns:  # type: ignore
@@ -4359,19 +4368,16 @@ async def revalidate_node(
         # Record the revision bump so the audit trail reflects revalidate-
         # driven version changes, not just deploy-driven ones, and explains
         # *which* validator-detected differences triggered it (type changes,
-        # missing column orders, new columns). Skip when the caller will
-        # write its own (richer) event for the same bump.
+        # new columns, dropped columns, missing column orders). Skip when the
+        # caller will write its own (richer) event for the same bump.
         if record_revision_bump_event:
             history_details: dict = {
                 "version": new_revision.version,
                 "reason": "revalidate",
+                **column_changes,
             }
-            if type_changes:
-                history_details["type_changes"] = type_changes
             if order_fixed:
                 history_details["order_fixed"] = order_fixed
-            if added_columns:
-                history_details["added_columns"] = added_columns
             await save_history(
                 event=History(
                     entity_type=EntityType.NODE,

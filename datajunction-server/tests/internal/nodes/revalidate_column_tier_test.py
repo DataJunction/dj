@@ -6,7 +6,7 @@ cases -- nothing written before a column existed can be referencing it -- and it
 matters more now that downstream cubes inherit their upstream's tier, since a
 major bump rebuilds a cube's materialized table. A type change stays major:
 everything reading the column is reading a different type than it was written
-against.
+against, and so is a removal, which breaks anything that referenced it.
 
 A missing column `order` is not a change at all: it is DJ's own bookkeeping,
 backfilled in place with no new revision.
@@ -144,6 +144,40 @@ async def test_column_type_change_is_a_major_bump(
     """A column whose type moved breaks everything reading it, so it earns v2.0."""
     await _create_node(client_with_roads)
     await _edit_stored_columns(session, "UPDATE \"column\" SET type = 'int'")
+
+    await _revalidate(client_with_roads)
+
+    assert await _node(client_with_roads) == ("v2.0", COLUMNS)
+
+
+@pytest.mark.asyncio
+async def test_removed_column_is_a_major_bump(
+    client_with_roads: AsyncClient,
+    session: AsyncSession,
+):
+    """
+    A column the query no longer produces is breaking for anything that referenced
+    it, and must not survive onto the new revision advertising a value the node
+    cannot supply.
+    """
+    await _create_node(client_with_roads)
+    # A column stored on the revision that the query does not produce -- what a
+    # node whose query stopped selecting a field looks like from the validator's
+    # side. Cloned from an existing row so every non-null column is populated.
+    await session.execute(
+        text(
+            """
+            INSERT INTO "column" (name, type, node_revision_id, "order")
+            SELECT 'ghost', c.type, c.node_revision_id, 99
+            FROM "column" c
+            JOIN noderevision nr ON nr.id = c.node_revision_id
+            WHERE nr.name = :name AND c.name = 'price'
+            """,
+        ),
+        {"name": NODE},
+    )
+    await session.commit()
+    session.expire_all()
 
     await _revalidate(client_with_roads)
 
