@@ -146,6 +146,7 @@ class DruidCubeMaterializationJob(DruidMaterializationJob, MaterializationJob):
             "Scheduling DruidCubeMaterializationJob for node=%s",
             cube_config.cube,
         )
+        revision = materialization.node_revision
         return query_service_client.materialize_cube(
             materialization_input=DruidCubeMaterializationInput(
                 name=materialization.name,
@@ -157,6 +158,8 @@ class DruidCubeMaterializationJob(DruidMaterializationJob, MaterializationJob):
                 job=materialization.job,
                 lookback_window=cube_config.lookback_window,
                 retention=cube_config.retention,
+                owners=sorted(owner.username for owner in revision.node.owners),
+                custom_metadata=revision.custom_metadata,
                 measures_materializations=cube_config.measures_materializations,
                 combiners=cube_config.combiners,
             ),

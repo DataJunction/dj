@@ -496,6 +496,13 @@ class DruidCubeMaterializationInput(BaseModel):
     # Druid's coordinator API.
     retention: str | None = DEFAULT_CUBE_RETENTION
 
+    # Usernames, as everywhere else DJ exposes an owner. Kept off `DruidCubeConfig`
+    # so an owner rename does not read as a materialization change.
+    owners: list[str] = Field(default_factory=list)
+
+    # Passed through verbatim; DJ does not read keys out of it.
+    custom_metadata: dict | None = None
+
     # List of measures materializations
     measures_materializations: list[MeasuresMaterialization]
 

@@ -17,6 +17,7 @@ from datajunction_server.models.cube_materialization import (
     DruidCubeV3Config,
     MeasuresMaterialization,
     PreAggTableInfo,
+    UpsertCubeMaterialization,
     materialized_table_name,
     version_from_materialized_table,
 )
@@ -42,6 +43,22 @@ def _temporal_partition(name: str, dimension_column: str | None) -> Column:
     return column
 
 
+def _fake_revision(
+    owners: list[str] | None = None,
+    custom_metadata: dict | None = None,
+) -> SimpleNamespace:
+    """
+    The slice of a cube's revision that `schedule()` reads: who owns the node, and
+    whatever opaque metadata is hanging off the revision.
+    """
+    return SimpleNamespace(
+        node=SimpleNamespace(
+            owners=[SimpleNamespace(username=owner) for owner in owners or []],
+        ),
+        custom_metadata=custom_metadata,
+    )
+
+
 def test_druid_cube_materialization_job_passes_lookback_window():
     """
     The legacy Druid cube scheduler should preserve the configured lookback
@@ -61,6 +78,7 @@ def test_druid_cube_materialization_job_passes_lookback_window():
         strategy=MaterializationStrategy.INCREMENTAL_TIME,
         schedule="@daily",
         job="DruidCubeMaterializationJob",
+        node_revision=_fake_revision(),
     )
     query_service_client = Mock()
 
@@ -94,6 +112,7 @@ def test_druid_cube_materialization_job_defaults_retention():
         strategy=MaterializationStrategy.FULL,
         schedule="@daily",
         job="DruidCubeMaterializationJob",
+        node_revision=_fake_revision(),
     )
     query_service_client = Mock()
 
@@ -114,6 +133,101 @@ def test_druid_cube_materialization_job_defaults_retention():
         measures_materializations=[],
         combiners=[],
     )
+
+
+def _cube_materialization_input(**overrides) -> DruidCubeMaterializationInput:
+    """The payload for a minimal cube, with the fields under test overridden."""
+    return DruidCubeMaterializationInput(
+        name="druid_cube__full",
+        cube=NodeNameVersion(name="default.repairs_cube", version="v1.0"),
+        dimensions=[],
+        metrics=[],
+        strategy=MaterializationStrategy.FULL,
+        schedule="@daily",
+        job="DruidCubeMaterializationJob",
+        lookback_window="1 DAY",
+        retention="400 DAYS",
+        measures_materializations=[],
+        combiners=[],
+        **overrides,
+    )
+
+
+def _schedule_minimal_cube(revision: SimpleNamespace) -> DruidCubeMaterializationInput:
+    """Schedule a minimal cube materialization off the given revision."""
+    config = DruidCubeConfig(
+        cube=NodeNameVersion(name="default.repairs_cube", version="v1.0"),
+        dimensions=[],
+        metrics=[],
+        measures_materializations=[],
+        combiners=[],
+    )
+    materialization = SimpleNamespace(
+        name="druid_cube__full",
+        config=config.model_dump(),
+        strategy=MaterializationStrategy.FULL,
+        schedule="@daily",
+        job="DruidCubeMaterializationJob",
+        node_revision=revision,
+    )
+    query_service_client = Mock()
+    DruidCubeMaterializationJob().schedule(materialization, query_service_client)  # type: ignore[arg-type]
+    return query_service_client.materialize_cube.call_args.kwargs[
+        "materialization_input"
+    ]
+
+
+def test_druid_cube_materialization_job_passes_owners_and_custom_metadata():
+    """
+    The query service is told who owns the cube, so the workflow it creates can be
+    attributed to someone -- a scheduled build has no caller to attribute it to. The
+    revision's `custom_metadata` rides along untouched, which is what lets a
+    deployment-specific consumer read something out of it without a change here.
+    """
+    assert _schedule_minimal_cube(
+        _fake_revision(
+            # Deliberately out of order: the payload sorts, so the same set of owners
+            # always serializes the same way.
+            owners=["dj@example.com", "anaghshineh@example.com"],
+            custom_metadata={
+                "ownership_override": {"team": "metrics"},
+                "nested": [1, {"two": None}],
+            },
+        ),
+    ) == _cube_materialization_input(
+        owners=["anaghshineh@example.com", "dj@example.com"],
+        custom_metadata={
+            "ownership_override": {"team": "metrics"},
+            "nested": [1, {"two": None}],
+        },
+    )
+
+
+def test_druid_cube_materialization_job_without_owners_or_custom_metadata():
+    """
+    An unowned cube with nothing in `custom_metadata` still materializes: the payload
+    carries an empty list and a null rather than refusing to build.
+    """
+    assert _schedule_minimal_cube(
+        _fake_revision(),
+    ) == _cube_materialization_input(owners=[], custom_metadata=None)
+
+
+def test_attribution_fields_stay_off_the_persisted_config():
+    """
+    Owners and `custom_metadata` belong to the payload and to nothing else.
+
+    Whether a materialization needs re-pushing is decided by diffing the persisted
+    config -- `reconcile_declared_materialization` compares it field for field, and so
+    does `POST /nodes/{name}/materialization/` -- so every field on the config feeds
+    rebuild decisions. Correct for `retention`, whose change really does have to reach
+    Druid; wrong for attribution, where an owner rename would tear down a live
+    workflow and re-create an identical one.
+    """
+    attribution = {"owners", "custom_metadata"}
+    assert attribution & set(DruidCubeMaterializationInput.model_fields) == attribution
+    assert attribution & set(DruidCubeConfig.model_fields) == set()
+    assert attribution & set(UpsertCubeMaterialization.model_fields) == set()
 
 
 class TestDruidCubeV3ConfigDruidCubeConfigCompatibility:
