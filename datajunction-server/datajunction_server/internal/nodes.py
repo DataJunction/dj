@@ -100,6 +100,7 @@ from datajunction_server.models.deployment import (
     CubeSpec,
     DeploymentResult,
     bump_version,
+    version_change_tier,
 )
 from datajunction_server.models.dimensionlink import (
     JoinLinkInput,
@@ -128,6 +129,7 @@ from datajunction_server.models.query import QueryCreate
 from datajunction_server.models.table_metadata import TableMetadata, TableOwner
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import (
+    _node_output_options,
     get_downstream_nodes,
     get_nodes_with_common_dimensions,
     topological_sort,
@@ -1528,6 +1530,12 @@ async def update_node_with_query(
         current_user=current_user,
         save_history=save_history,
         cache=cache,
+        # Downstream cubes inherit this node's tier: a cube's own shape can be
+        # identical across an upstream change that nonetheless changes every row it
+        # serves, so how significant the change was is only answerable here.
+        change_tier=version_change_tier(old_revision.version, node.current_version),  # type: ignore
+        query_service_client=query_service_client,
+        request_headers=request_headers,
     )
     await session.refresh(node, ["current"])
     await session.refresh(node.current, ["materializations"])  # type: ignore
@@ -2025,6 +2033,49 @@ async def update_cube_node(
             )
         return None
 
+    return await save_new_cube_revision(
+        session,
+        node_revision,
+        create_cube,
+        change_tier,
+        request_headers=request_headers,
+        query_service_client=query_service_client,
+        current_user=current_user,
+        access_checker=access_checker,
+        save_history=save_history,
+    )
+
+
+async def save_new_cube_revision(
+    session: AsyncSession,
+    node_revision: NodeRevision,
+    create_cube: CreateCubeNode,
+    change_tier: ChangeTier,
+    *,
+    request_headers: dict[str, str] | None,
+    query_service_client: QueryServiceClient | None,
+    current_user: User,
+    access_checker: AccessChecker,
+    save_history: Callable,
+    extra_history_details: dict | None = None,
+) -> NodeRevision:
+    """
+    Commit `create_cube` as the cube's next revision, at the version `change_tier`
+    earns, and move its materializations onto it.
+
+    Everything a new cube revision needs beyond deciding *that* there should be one:
+    resolving the cube against the current metrics and dimensions, the version bump,
+    carrying partition columns forward, the audit event, and the materialization
+    swap. Both writers of a cube revision go through here -- a user editing the cube
+    (`update_cube_node`) and an upstream change propagating into it -- so the two
+    cannot produce differently-shaped revisions.
+
+    `extra_history_details` is merged into the UPDATE event's details, which is how
+    the propagation path records the upstream node and version that caused the bump.
+    """
+    old_metrics = [m.name for m in node_revision.cube_metrics()]
+    old_dimensions = node_revision.cube_dimensions()
+
     # Disable autoflush to prevent partial state from being persisted if an error
     # occurs during revision creation. This ensures that node.current_version and
     # the new NodeRevision are committed atomically - either both succeed or both
@@ -2049,6 +2100,7 @@ async def update_cube_node(
                 activity_type=ActivityType.UPDATE,
                 details={
                     "version": new_cube_revision.version,  # type: ignore
+                    **(extra_history_details or {}),
                 },
                 pre={
                     "metrics": old_metrics,
@@ -2121,9 +2173,16 @@ async def propagate_update_downstream(
     current_user: User,
     save_history: Callable,
     cache: Cache | None = None,
+    change_tier: ChangeTier = ChangeTier.MAJOR,
+    query_service_client: QueryServiceClient | None = None,
+    request_headers: dict[str, str] | None = None,
 ):
     """
     Background task to propagate the updated node's changes to all of its downstream children.
+
+    `change_tier` is how significant the change to `node` itself was, which is what
+    downstream cubes inherit as their own bump. It defaults to MAJOR because
+    over-rebuilding a cube costs compute while under-rebuilding serves wrong numbers.
     """
     try:
         async with session_context() as session:
@@ -2133,6 +2192,9 @@ async def propagate_update_downstream(
                 current_user=current_user,
                 save_history=save_history,
                 cache=cache,
+                change_tier=change_tier,
+                query_service_client=query_service_client,
+                request_headers=request_headers,
             )
     except Exception:
         _logger.exception(
@@ -2141,12 +2203,110 @@ async def propagate_update_downstream(
         )
 
 
+async def _reload_nodes_in_order(
+    session: AsyncSession,
+    names: list[str],
+) -> list[Node]:
+    """
+    Reload the named nodes in one query, preserving the order they were given in.
+
+    Used to recover the tail of a propagation walk after a rollback has expired the
+    instances it was holding. A node that has disappeared meanwhile is dropped
+    rather than resurrected, and an empty list of names is a select that matches
+    nothing rather than a case to special-case.
+    """
+    reloaded = (
+        (
+            await session.execute(
+                select(Node)
+                .where(Node.name.in_(names))
+                .options(*_node_output_options()),
+            )
+        )
+        .unique()
+        .scalars()
+        .all()
+    )
+    position = {name: index for index, name in enumerate(names)}
+    return sorted(reloaded, key=lambda reloaded_node: position[reloaded_node.name])
+
+
+async def _rebuild_downstream_cube(
+    session: AsyncSession,
+    cube: Node,
+    upstream: Node,
+    change_tier: ChangeTier,
+    *,
+    current_user: User,
+    save_history: Callable,
+    query_service_client: QueryServiceClient | None,
+    request_headers: dict[str, str] | None,
+) -> None:
+    """
+    Bump a cube because something upstream of it changed.
+
+    Nobody edited the cube, so there is no payload to reconstruct it from: the new
+    revision is resolved from the cube's *own* current metrics and dimensions, which
+    is exactly what `update_cube_node` falls back to for every field a PATCH omits.
+    Re-resolving them is the point -- the metrics and dimensions are the same names,
+    but they now resolve against new upstream revisions, so the cube's columns,
+    elements and parents recompile against what the upstream became.
+
+    The cube inherits the upstream's tier rather than being classified on its own
+    shape. `is_non_trivial_cube_change` asks whether the *cube's* definition moved,
+    which is the wrong question here: widening a transform's WHERE clause changes no
+    metric, no dimension and no component identity, yet every row in the cube's
+    materialized table was computed under the old filter. Over-rebuilding costs
+    compute; under-rebuilding serves wrong numbers.
+    """
+    cube_node = await Node.get_cube_by_name(session, cube.name)
+    node_revision = cube_node.current  # type: ignore
+    create_cube = CreateCubeNode(
+        name=node_revision.name,
+        display_name=node_revision.display_name,
+        description=node_revision.description,
+        metrics=[metric.name for metric in node_revision.cube_metrics()],
+        dimensions=node_revision.cube_dimensions(),
+        mode=node_revision.mode,
+        filters=node_revision.cube_filters or [],
+        custom_metadata=node_revision.custom_metadata,
+    )
+    # Propagation runs after the response has returned, outside the request's
+    # AccessChecker, so the materialization rebuild gets a fresh one built from the
+    # updating user. It is not used to gate the bump: like the revalidation path
+    # above, propagation into a cube whose owner pointed it at this upstream is not
+    # the updater's call to make.
+    access_checker = AccessChecker(await AuthContext.from_user(session, current_user))
+    await save_new_cube_revision(
+        session,
+        node_revision,
+        create_cube,
+        change_tier,
+        request_headers=request_headers,
+        query_service_client=query_service_client,
+        current_user=current_user,
+        access_checker=access_checker,
+        save_history=save_history,
+        extra_history_details={
+            "upstream": {
+                "node": upstream.name,
+                "version": upstream.current_version,
+            },
+            "reason": f"Caused by update of `{upstream.name}` to "
+            f"{upstream.current_version}",
+        },
+    )
+
+
 async def _propagate_update_downstream(
     session: AsyncSession,
     node: Node,
     current_user: User,
     save_history: Callable,
     cache: Cache | None = None,
+    change_tier: ChangeTier = ChangeTier.MAJOR,
+    query_service_client: QueryServiceClient | None = None,
+    request_headers: dict[str, str] | None = None,
 ):
     """
     Propagate the updated node's changes to all of its downstream children.
@@ -2164,15 +2324,25 @@ async def _propagate_update_downstream(
     graph asserting VALID for nodes that are now broken -- silently, since the
     caller above swallows exceptions. Pinned by
     tests/internal/nodes/background_authz_test.py.
+
+    Cubes are included. They used to be filtered out, which meant a cube kept
+    serving a materialized table built against a definition that no longer existed
+    -- the only way to recompile it was a no-op edit to the cube itself. They also
+    can't go through `revalidate_node`, whose cube branch only refreshes status; a
+    cube's next revision comes from `save_new_cube_revision`, which is what
+    `_rebuild_downstream_cube` calls.
     """
     _logger.info("Propagating update of node %s downstream", node.name)
     downstreams = await get_downstream_nodes(
         session,
         node.name,
         include_deactivated=False,
-        include_cubes=False,
     )
     downstreams = topological_sort(downstreams)
+    # Names in topological order, kept separately because a rollback below expires
+    # every instance in the session and reading `.name` back off one would be a
+    # lazy load, which async SQLAlchemy cannot do.
+    downstream_names = [downstream.name for downstream in downstreams]
     _logger.info(
         "Node %s updated — revalidating %s downstreams",
         node.name,
@@ -2192,18 +2362,10 @@ async def _propagate_update_downstream(
             downstream.name,
             node.name,
         )
-        node_validator = await revalidate_node(
-            downstream.name,
-            session,
-            current_user=current_user,
-            save_history=save_history,
-            # propagate_update_downstream writes its own richer history event
-            # below (with upstream context); skip the inner one to avoid
-            # duplicate audit rows for the same revision bump.
-            record_revision_bump_event=False,
-        )
 
-        # Reset the upstreams DAG cache of any downstream nodes
+        # Reset the upstreams DAG cache of any downstream nodes. Done before the
+        # per-type work so a cube -- which returns early below -- has its cache
+        # invalidated too.
         if cache:
             upstream_cache_key = downstream.upstream_cache_key()
             results = cache.get(upstream_cache_key)
@@ -2215,6 +2377,51 @@ async def _propagate_update_downstream(
                     upstream_cache_key,
                 )
                 cache.delete(upstream_cache_key)
+
+        if downstream.type == NodeType.CUBE:
+            # A cube bump can trigger a materialization rebuild, so one cube that
+            # cannot be rebuilt -- an unresolvable metric, a query service that
+            # rejects the new workflow -- must not cost the remaining downstreams
+            # their propagation.
+            if change_tier is not ChangeTier.NONE:
+                try:
+                    await _rebuild_downstream_cube(
+                        session,
+                        downstream,
+                        node,
+                        change_tier,
+                        current_user=current_user,
+                        save_history=save_history,
+                        query_service_client=query_service_client,
+                        request_headers=request_headers,
+                    )
+                except Exception:
+                    _logger.exception(
+                        "Error rebuilding downstream cube %s after update of node %s",
+                        downstream.name,
+                        node.name,
+                    )
+                    # Discard the failed rebuild's partial writes, then reload what
+                    # is left of the walk: a rollback expires every instance in the
+                    # session, and the loop would otherwise touch an expired
+                    # attribute on the next downstream and lazy-load from async
+                    # code. One query, and only on the failure path.
+                    await session.rollback()
+                    downstreams[idx + 1 :] = await _reload_nodes_in_order(
+                        session,
+                        downstream_names[idx + 1 :],
+                    )
+            continue
+        node_validator = await revalidate_node(
+            downstream.name,
+            session,
+            current_user=current_user,
+            save_history=save_history,
+            # propagate_update_downstream writes its own richer history event
+            # below (with upstream context); skip the inner one to avoid
+            # duplicate audit rows for the same revision bump.
+            record_revision_bump_event=False,
+        )
 
         # Record history event
         if (
