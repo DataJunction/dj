@@ -13,7 +13,7 @@ from unittest.mock import patch
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import datajunction_server.internal.nodes as nodes_module
@@ -286,6 +286,53 @@ async def test_no_tier_change_leaves_cube_alone(
     )
 
     assert await _version(client, CUBE) == "v1.0"
+
+
+@pytest.mark.asyncio
+async def test_column_order_backfill_upstream_does_not_rebuild_the_cube(
+    client_with_cube_downstream: AsyncClient,
+    session: AsyncSession,
+):
+    """
+    The one upstream change that moves nothing at all.
+
+    A stored column with no `order` is DJ's own bookkeeping. Revalidating the
+    upstream fills it in against the current revision, so the upstream does not turn
+    over -- and a node that does not turn over has nothing to propagate, which is
+    what leaves the cube alone. Before the backfill was reclassified this earned the
+    upstream a major bump, and every consumer of a bump would have followed.
+
+    Pinned on the whole downstream chain rather than the cube alone, since the
+    guarantee is "no revision, so nothing moved", not something specific to cubes.
+    """
+    client = client_with_cube_downstream
+    await session.execute(
+        text(
+            """
+            UPDATE "column" SET "order" = NULL
+            WHERE node_revision_id IN (
+                SELECT id FROM noderevision WHERE name = :name
+            )
+            """,
+        ),
+        {"name": FACT},
+    )
+    await session.commit()
+    session.expire_all()
+
+    response = await client.post(f"/nodes/{FACT}/validate/")
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "valid"
+
+    assert [
+        (name, await _version(client, name))
+        for name in (FACT, "default.total_price", CUBE, UNRELATED_CUBE)
+    ] == [
+        (FACT, "v2.0"),
+        ("default.total_price", "v1.0"),
+        (CUBE, "v1.0"),
+        (UNRELATED_CUBE, "v1.0"),
+    ]
 
 
 def test_version_change_tier():
