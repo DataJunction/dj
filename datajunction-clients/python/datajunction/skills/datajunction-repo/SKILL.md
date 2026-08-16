@@ -182,6 +182,10 @@ query: |
 - ✅ Column order in YAML should match SELECT order
 - ✅ Use descriptive display names for better UX
 
+### Dimension Link YAML
+
+`dimension_links` accepts two link types, `join` and `reference`. See the **Dimension Links** section of the `datajunction` skill for both schemas, their required fields, and when to reach for which.
+
 ### Source Node YAML
 
 ```yaml

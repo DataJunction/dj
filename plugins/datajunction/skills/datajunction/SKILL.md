@@ -80,21 +80,55 @@ DJ uses normalized star schema modeling where **dimension links** connect fact t
 
 ## Dimension Links
 
-Dimension links define how nodes join to dimensions. They enable automatic join path discovery.
+Dimension links attach a node's columns to dimensions. There are **two types**, and they behave differently at query time.
 
-**Basic structure:**
+### Join Links (`type: join`)
+
+A join link connects a foreign key on this node to a dimension node, and DJ generates a real join to reach that dimension's attributes.
+
 ```yaml
 dimension_links:
   - type: join
-    dimension_node: common.dimensions.users
-    join_type: left              # Optional: left, right, inner (default: left)
-    join_on: finance.transactions.user_id = common.dimensions.users.user_id
+    dimension_node: core.users
+    join_type: left              # Optional: left, right, inner, full, cross (default: left)
+    join_on: finance.transactions.user_id = core.users.user_id
 ```
 
-**Join types:**
-- `left` - Left outer join (default, most common)
-- `right` - Right outer join
-- `inner` - Inner join (only matching rows)
+| Field | Required? | Description |
+|-------|-----------|-------------|
+| `dimension_node` | Yes | The dimension node being linked to |
+| `join_on` | Yes, unless `join_type` is `cross` | The join condition. There is no inference — DJ can't tell which column is the foreign key, so write the clause out |
+| `join_type` | No | `left`, `right`, `inner`, `full`, `cross` (default `left`) |
+| `role` | No | Disambiguates multiple links to the same dimension node (see below) |
+| `default_value` | No | Fallback for NULLs from an outer join; dimension columns get wrapped in `COALESCE(...)` |
+| `node_column` | Not allowed | Reference-link-only field; rejected on a join link — express the relationship in `join_on` instead |
+
+### Reference Links (`type: reference`)
+
+A reference link points a column that **already holds a denormalized dimension value** at the dimension attribute it corresponds to. **No join is performed** — DJ just reads the column in place.
+
+```yaml
+dimension_links:
+  - type: reference
+    node_column: transaction_date   # column on this node holding the value
+    dimension: core.dates.dateint   # fully qualified <dimension_node>.<column>
+    role: transaction_date          # optional
+```
+
+| Field | Required? | Description |
+|-------|-----------|-------------|
+| `node_column` | Yes | The column on this node holding the denormalized value |
+| `dimension` | Yes | Fully qualified dimension attribute, `<dimension_node>.<column>` |
+| `role` | No | Disambiguates multiple references to the same dimension |
+
+**The grain consequence**: because nothing is joined, a reference link only serves the exact attribute it names. A consumer asking for a grain the reference doesn't already provide — say `core.dates.month` when the reference only exposes `core.dates.dateint` — cannot be served through it. Reaching the rest of the dimension's attributes requires a join link.
+
+### Which One to Reach For
+
+- **Join link** — the node carries a foreign key and consumers need the dimension's other attributes (roll up to month, group by user country, filter on product category). This is the default choice.
+- **Reference link** — the value is already denormalized onto the node, joining back would be wasted work, and the single attribute is all consumers need at that grain. Common for date keys and for pre-joined columns on wide fact tables.
+
+A node can carry both, including to the same dimension node.
 
 ### Where to Define Them
 
@@ -125,26 +159,21 @@ Metrics on `transactions` can now group by:
 
 When a node references the same dimension node multiple times, use **roles** to disambiguate:
 
-```json
-{
-  "dimension_links": [
-    {
-      "dimension": "core.users",
-      "join_on": "orders.buyer_id = core.users.user_id",
-      "role": "buyer"
-    },
-    {
-      "dimension": "core.users",
-      "join_on": "orders.seller_id = core.users.user_id",
-      "role": "seller"
-    }
-  ]
-}
+```yaml
+dimension_links:
+  - type: join
+    dimension_node: core.users
+    join_on: orders.buyer_id = core.users.user_id
+    role: buyer
+  - type: join
+    dimension_node: core.users
+    join_on: orders.seller_id = core.users.user_id
+    role: seller
 ```
 
 **Query with**: `buyer.country` vs `seller.country`
 
-DJ uses the role prefix to generate the correct joins.
+DJ uses the role prefix to generate the correct joins. Roles work the same way on reference links — two reference links to `core.dates.dateint` from different date columns need distinct roles.
 
 ---
 
