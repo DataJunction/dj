@@ -34,12 +34,6 @@ const VERDICT = {
   unknown: { glyph: '○', className: 'mat-verdict--unknown' },
 };
 
-const LAYOUTS = [
-  { id: 'A', title: 'Table' },
-  { id: 'B', title: 'Master / detail' },
-  { id: 'C', title: 'Stacked rows' },
-];
-
 /** Run data is absent for every materialization today; say so without burying coverage. */
 const RUN_UNKNOWN = 'Run status unknown.';
 
@@ -519,62 +513,8 @@ function LayoutTable({ mats }) {
 }
 
 /** Declared intent. DJ owns this outright, so it is never `unknown`. */
-function DeclaredBlock({ intent }) {
-  return (
-    <div className="mat-block">
-      <h5>Declared</h5>
-      <div>{intent.scheduleHuman}</div>
-      <div className="mat-dim mat-mono">{intent.schedule}</div>
-      <div>{intent.strategy}</div>
-      {intent.lookbackWindow ? (
-        <div>lookback {intent.lookbackWindow.toLowerCase()}</div>
-      ) : null}
-      {/* Cubes with no temporal partition column exist; they simply have no
-          partition to declare, and inventing one would misreport the cube. */}
-      <div className="mat-dim">
-        {intent.partition
-          ? `partition ${intent.partition.column} (${intent.partition.granularity})`
-          : 'no temporal partition'}
-      </div>
-    </div>
-  );
-}
 
 /** Engine-reported execution. Absent means absent — never backfilled from intent. */
-function LastRunBlock({ execution }) {
-  if (!execution) {
-    return (
-      <div className="mat-block">
-        <h5>Last run</h5>
-        <div className="mat-dim">no run information</div>
-      </div>
-    );
-  }
-  const run = execution.lastRun;
-  return (
-    <div className="mat-block">
-      <h5>Last run</h5>
-      {run ? (
-        <>
-          <div>
-            {run.status} {formatUtc(run.endedAt)}
-          </div>
-          <div className="mat-dim">
-            attempt {run.attempt} of {run.maxAttempts}
-          </div>
-          <div className="mat-dim">processing {run.processingPartition}</div>
-        </>
-      ) : (
-        <div className="mat-dim">no runs recorded</div>
-      )}
-      {execution.nextScheduledAt ? (
-        <div className="mat-dim">
-          next {formatUtc(execution.nextScheduledAt)}
-        </div>
-      ) : null}
-    </div>
-  );
-}
 
 /**
  * B -- master/detail: a rail of materializations beside a pane describing the selected
@@ -587,64 +527,6 @@ function LastRunBlock({ execution }) {
  * appear to change a number that never moved. Coverage is stated once in the header;
  * the rail distinguishes entries by what actually differs, which is how they build.
  */
-function LayoutMasterDetail({ mats }) {
-  const [selected, setSelected] = useState(0);
-  const mat = mats[Math.min(selected, mats.length - 1)];
-  if (!mat) {
-    return null;
-  }
-
-  return (
-    <div className="mat-split">
-      <div
-        className="mat-split__rail"
-        role="listbox"
-        aria-label="Materializations"
-      >
-        {mats.map((candidate, index) => (
-          <button
-            type="button"
-            role="option"
-            aria-selected={index === selected}
-            key={`${candidate.name}-${index}`}
-            className={`mat-split__item ${
-              index === selected ? 'mat-split__item--active' : ''
-            }`}
-            onClick={() => setSelected(index)}
-          >
-            <span className="mat-split__item-text">
-              <span className="mat-split__item-label">
-                {candidate.engine || candidate.label}
-                <StrategyBadge intent={candidate.intent} />
-                <InactiveBadge mat={candidate} />
-              </span>
-              <span className="mat-dim">
-                {candidate.intent.scheduleHuman || candidate.intent.schedule}
-              </span>
-            </span>
-          </button>
-        ))}
-      </div>
-      <div className="mat-split__detail">
-        <div className="mat-split__head">
-          <span className="mat-split__head-label">
-            {mat.engine || mat.label}
-          </span>
-          <StrategyBadge intent={mat.intent} />
-          <InactiveBadge mat={mat} />
-        </div>
-        <div className="mat-split__blocks">
-          <DeclaredBlock intent={mat.intent} />
-          <div className="mat-block">
-            <h5>Workflows</h5>
-            <WorkflowActivity workflows={mat.workflows} />
-          </div>
-          <LastRunBlock execution={mat.execution} />
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /**
  * Coverage as a short run of fixed-size squares, bucketed by `coverageSquares` so the
@@ -679,33 +561,6 @@ function SquaresRun({ squares }) {
   );
 }
 
-function CoverageSquares({ outcome, partition }) {
-  const squares = coverageSquares(outcome);
-  const note = partition
-    ? `${partition.column} (${partition.granularity})`
-    : 'no temporal partition';
-
-  if (!squares.length) {
-    return (
-      <div className="mat-stack__coverage">
-        <span className="coverage--unknown">coverage unknown</span>
-        <span className="mat-dim mat-stack__partition">{note}</span>
-      </div>
-    );
-  }
-  return (
-    <div className="mat-stack__coverage">
-      {/* A list rather than one labelled image: each bucket's meaning lives in its own
-          label, so a reader can reach the behind ones instead of a "Coverage" summary. */}
-      <SquaresRun squares={squares} />
-      <span className="mat-dim">
-        {outcome.target.from} → {outcome.target.through}
-      </span>
-      <span className="mat-dim mat-stack__partition">{note}</span>
-    </div>
-  );
-}
-
 /** Strategy, neutral by design: the status glyph is the row's only coloured element. */
 function StrategyBadge({ intent }) {
   const text = strategyBadge(intent);
@@ -713,81 +568,21 @@ function StrategyBadge({ intent }) {
 }
 
 /** C -- full-width rows, no columns; the header carries the scannable facts. */
-function LayoutStacked({ mats }) {
-  return (
-    <div className="mat-stack">
-      {mats.map((mat, index) => {
-        const { verdict, detail } = summarize(mat);
-        const tone = VERDICT[verdict];
-        return (
-          <div className="mat-stack__row" key={`${mat.name}-${index}`}>
-            <div className="mat-stack__head">
-              <span className={`mat-glyph ${tone.className}`}>
-                {tone.glyph}
-              </span>
-              <span className="mat-stack__label">
-                {mat.engine || mat.label}
-              </span>
-              <StrategyBadge intent={mat.intent} />
-              <InactiveBadge mat={mat} />
-              <span className="mat-stack__schedule">
-                {mat.intent.scheduleHuman || mat.intent.schedule}
-                <span className="mat-dim mat-mono"> {mat.intent.schedule}</span>
-              </span>
-              <WorkflowActivity workflows={mat.workflows} />
-            </div>
-            <div className="mat-stack__verdict">{detail}</div>
-            <CoverageSquares
-              outcome={mat.outcome}
-              partition={mat.intent.partition}
-            />
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-const LAYOUT_COMPONENTS = {
-  A: LayoutTable,
-  B: LayoutMasterDetail,
-  C: LayoutStacked,
-};
 
 export default function MaterializationStatePanel({ state, versionSelect }) {
-  const [layout, setLayout] = useState('A');
   const mats = state.materializations || [];
   // Every card previously repeated this; all of them are the same row, because
   // availability keys off the revision the materializations share.
   const serving = mats.find(mat => mat.outcome.servingTable)?.outcome ?? null;
   // The adapter supplies this; fixtures that predate it are merged here instead.
   const coverage = state.coverage ?? mergeCoverage(mats);
-  const Layout = LAYOUT_COMPONENTS[layout];
 
   return (
-    <div className={`mat-panel mat-panel--${layout.toLowerCase()}`}>
+    <div className="mat-panel mat-panel--a">
       {/* The version scopes everything below it -- the serving table and the
           materializations alike -- so it belongs at the top of the panel rather than
           floating above it as neither page chrome nor panel content. */}
-      <div className="mat-controls">
-        {versionSelect}
-        <div className="mat-switcher" role="group" aria-label="Panel layout">
-          {LAYOUTS.map(option => (
-            <button
-              type="button"
-              key={option.id}
-              title={option.title}
-              aria-pressed={layout === option.id}
-              className={`mat-switcher__btn ${
-                layout === option.id ? 'mat-switcher__btn--active' : ''
-              }`}
-              onClick={() => setLayout(option.id)}
-            >
-              {option.id}
-            </button>
-          ))}
-        </div>
-      </div>
+      <div className="mat-controls">{versionSelect}</div>
       <CubeHeader state={state} serving={serving} coverage={coverage} />
       <h4 className="mat-section">
         Materializations{' '}
@@ -795,7 +590,7 @@ export default function MaterializationStatePanel({ state, versionSelect }) {
       </h4>
       {/* Keyed by index as well: the same materialization name recurs across cube
           revisions, so the name alone is not unique within a node. */}
-      <Layout mats={mats} />
+      <LayoutTable mats={mats} />
     </div>
   );
 }

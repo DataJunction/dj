@@ -252,11 +252,12 @@ export default function NodeMaterializationTab({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
+          marginTop: '16px',
           marginBottom: '20px',
         }}
       >
-        {/* The panel renders this in its own header, where the version's scope
-            actually is. Kept here only for when the panel is switched off. */}
+        {/* The version select lives in the panel's own header, where the
+            version's scope actually is. */}
         <span />
         <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
           <label

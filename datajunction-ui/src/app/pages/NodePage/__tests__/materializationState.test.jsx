@@ -953,8 +953,7 @@ describe('MaterializationStatePanel copy', () => {
 
   // "No watermarks" named an internal concept; a reader only needs to know DJ cannot
   // tell them what is covered.
-  it('calls unjudgeable coverage unknown in both A and C', async () => {
-    const user = userEvent.setup();
+  it('calls unjudgeable coverage unknown', () => {
     const { container } = renderPanel(
       panelState(
         [INCREMENTAL],
@@ -968,39 +967,27 @@ describe('MaterializationStatePanel copy', () => {
       ),
     );
 
-    // A states it once, on the cube's Coverage row, and draws no strip beside it:
-    // an empty strip reads as "nothing is covered" rather than "this is not known".
+    // Stated once, on the cube's Coverage row, with no strip beside it: an empty
+    // strip reads as "nothing is covered" rather than "this is not known".
     expect(
       container.querySelector('.mat-verdict--unknown').textContent,
     ).toEqual('○ Coverage unknown');
     expect(container.querySelector('.mat-squares')).toEqual(null);
-    await user.click(screen.getByTitle('Stacked rows'));
-    expect(container.querySelector('.coverage--unknown').textContent).toEqual(
-      'coverage unknown',
-    );
-    expect(container.querySelector('.mat-stack__verdict').textContent).toEqual(
-      "This materialization doesn't report which dates it covers. Run status unknown.",
-    );
   });
 
-  it('reports an absent run without mentioning the query service', async () => {
-    const user = userEvent.setup();
+  it('reports an absent run without mentioning the query service', () => {
     const { container } = renderPanel(
       panelState([INCREMENTAL], [AVAILABILITY]),
     );
 
-    await user.click(screen.getByTitle('Master / detail'));
-
-    expect(
-      [...container.querySelectorAll('.mat-block')].map(
-        block => block.querySelector('h5').textContent,
-      ),
-    ).toEqual(['Declared', 'Workflows', 'Last run']);
-    expect(container.querySelectorAll('.mat-block')[1].textContent).toEqual(
-      'WorkflowsWorkflowsmain ↗○ no runs reportedbackfill ↗○ no runs reported',
-    );
-    expect(container.querySelectorAll('.mat-block')[2].textContent).toEqual(
-      'Last runno run information',
-    );
+    // Each workflow says plainly that nothing ran. DJ has no engine-reported run
+    // data, and saying so is the honest reading -- naming the service that would
+    // supply it tells a reader nothing they can act on.
+    // Scoped to the workflow list: `.mat-dim` is also used for other quiet text.
+    const runs = [
+      ...container.querySelectorAll('.mat-facts .mat-activity__workflow + dd'),
+    ].map(cell => cell.textContent.trim());
+    expect(runs).toEqual(['○ no runs reported', '○ no runs reported']);
+    expect(container.textContent).not.toContain('query service');
   });
 });
