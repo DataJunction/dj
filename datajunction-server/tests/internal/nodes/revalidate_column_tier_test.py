@@ -229,6 +229,42 @@ async def test_backfilled_column_order_still_writes_a_history_event(
 
 
 @pytest.mark.asyncio
+async def test_backfill_rides_along_on_a_revision_earned_elsewhere(
+    client_with_roads: AsyncClient,
+    session: AsyncSession,
+):
+    """
+    A legacy revision with no `order` that also earns a bump for a real reason.
+
+    The backfill no longer creates a revision of its own, but a revision created
+    for a type change deep-copies the unordered columns along with everything
+    else. Filling the index in on the way through is what keeps the new revision
+    from inheriting the gap and carrying it forward forever -- the copy is the
+    only chance to fix it, since the next revalidate will find nothing changed.
+    """
+    await _create_node(client_with_roads)
+    await _edit_stored_columns(session, "UPDATE \"column\" SET type = 'int'")
+    await _clear_all_orders(session)
+    assert await _stored_order(session) == [("price", None), ("repair_order_id", None)]
+
+    await _revalidate(client_with_roads)
+
+    # The type change earns the bump; the backfill contributes nothing to the tier.
+    assert await _node(client_with_roads) == ("v2.0", COLUMNS)
+    # The new revision's copies come out ordered, not NULL.
+    assert await _stored_order(session) == [("price", 1), ("repair_order_id", 0)]
+    # One event, explaining both what earned the bump and what rode along on it.
+    assert await _revalidate_events(client_with_roads) == [
+        {
+            "version": "v2.0",
+            "reason": "revalidate",
+            "type_changes": [{"column": "price", "from": "int", "to": "float"}],
+            "order_fixed": ["repair_order_id", "price"],
+        },
+    ]
+
+
+@pytest.mark.asyncio
 async def test_backfill_leaves_orders_that_are_already_set(
     client_with_roads: AsyncClient,
     session: AsyncSession,
