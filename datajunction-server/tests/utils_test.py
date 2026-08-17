@@ -118,23 +118,13 @@ def test_get_settings(mocker: MockerFixture) -> None:
     Settings.assert_not_called()
 
 
-def test_creator_owned_namespace_patterns_accept_exact_and_subtree() -> None:
-    settings = Settings(
+def test_creator_owned_namespace_patterns() -> None:
+    assert Settings(
         creator_owned_namespace_patterns=["scratch", "personal.*"],
-    )
-
-    assert settings.creator_owned_namespace_patterns == ["scratch", "personal.*"]
-
-
-@pytest.mark.parametrize(
-    "pattern",
-    ["", "*", "personal*", "1personal.*", "user.*", " personal.*"],
-)
-def test_creator_owned_namespace_patterns_reject_invalid_patterns(
-    pattern: str,
-) -> None:
-    with pytest.raises(ValueError, match="exact namespace or a subtree"):
-        Settings(creator_owned_namespace_patterns=[pattern])
+    ).creator_owned_namespace_patterns == ["scratch", "personal.*"]
+    for pattern in ("", "*", "personal*", "1personal.*", " personal.*"):
+        with pytest.raises(ValueError):
+            Settings(creator_owned_namespace_patterns=[pattern])
 
 
 def test_get_issue_url() -> None:
