@@ -2058,6 +2058,7 @@ async def save_new_cube_revision(
     access_checker: AccessChecker,
     save_history: Callable,
     extra_history_details: dict | None = None,
+    previous_table_usable: bool | None = None,
 ) -> NodeRevision:
     """
     Commit `create_cube` as the cube's next revision, at the version `change_tier`
@@ -2066,12 +2067,21 @@ async def save_new_cube_revision(
     Everything a new cube revision needs beyond deciding *that* there should be one:
     resolving the cube against the current metrics and dimensions, the version bump,
     carrying partition columns forward, the audit event, and the materialization
-    swap. Both writers of a cube revision go through here -- a user editing the cube
-    (`update_cube_node`) and an upstream change propagating into it -- so the two
-    cannot produce differently-shaped revisions.
+    swap. Both writers that start from a cube's *own* definition go through here --
+    a user editing the cube (`update_cube_node`) and an upstream change propagating
+    into it -- so the two cannot produce differently-shaped revisions. Deploy builds
+    cube revisions on its own path and swaps them itself
+    (`orchestrator._swap_cube_materializations`).
 
     `extra_history_details` is merged into the UPDATE event's details, which is how
     the propagation path records the upstream node and version that caused the bump.
+
+    `previous_table_usable` is recorded on the swap's history event for an operator
+    deciding whether the rebuild can adopt the old table or needs a backfill. Left
+    unset it is derived from `is_non_trivial_cube_change`, which compares the cube's
+    own shape -- correct when the cube itself changed. An upstream change must pass
+    False: the shapes can be identical while every row differs, which is the same
+    reason propagation does not use that predicate to decide whether to rebuild.
     """
     old_metrics = [m.name for m in node_revision.cube_metrics()]
     old_dimensions = node_revision.cube_dimensions()
@@ -2141,10 +2151,14 @@ async def save_new_cube_revision(
         new_cube_revision,
         access_checker=access_checker,
         current_user=current_user,
-        previous_table_usable=not await is_non_trivial_cube_change(
-            session,
-            node_revision,
-            new_cube_revision,
+        previous_table_usable=(
+            previous_table_usable
+            if previous_table_usable is not None
+            else not await is_non_trivial_cube_change(
+                session,
+                node_revision,
+                new_cube_revision,
+            )
         ),
     )
     if swap:
@@ -2293,6 +2307,9 @@ async def _rebuild_downstream_cube(
             "reason": f"Caused by update of `{upstream.name}` to "
             f"{upstream.current_version}",
         },
+        # The cube's own shape can be identical across an upstream change that
+        # altered every row, so the old table cannot be assumed adoptable.
+        previous_table_usable=False,
     )
 
 
@@ -2406,6 +2423,11 @@ async def _propagate_update_downstream(
                     # Discard partial writes, then reload the rest of the walk:
                     # the rollback expires every instance, so the next iteration
                     # would lazy-load from async code. Failure path only.
+                    #
+                    # `node` and `current_user` survive it because they belong to
+                    # the request's session, not this one, so the rollback never
+                    # touches them and reading `.name` below needs no IO. Load
+                    # either one in this session and that stops being true.
                     await session.rollback()
                     downstreams[idx + 1 :] = await _reload_nodes_in_order(
                         session,
