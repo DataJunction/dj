@@ -96,7 +96,7 @@ const NODE_SUMMARY = {
 };
 
 const PARTITION = {
-  column: 'Utc Date',
+  column: 'utc_date',
   granularity: 'day',
   format: 'yyyyMMdd',
 };
@@ -899,7 +899,7 @@ describe('MaterializationStatePanel copy', () => {
         // No space between them: the cron is a badge with a CSS gap, not trailing
         // prose, so `textContent` runs them together.
         ['Schedule', 'At 11:59 AM59 11 * * *'],
-        ['Partition', 'Utc Date (day)'],
+        ['Partition', 'utc_date (day)'],
         ['Lookback', '3 days'],
       ],
       // One row per workflow: `main` fires daily and `backfill` may not have run in
@@ -915,7 +915,7 @@ describe('MaterializationStatePanel copy', () => {
       heading: 'Workflows',
       declared: [
         ['Schedule', 'At 06:00 AM0 6 * * *'],
-        ['Partition', 'Utc Date (day)'],
+        ['Partition', 'utc_date (day)'],
       ],
       // Labelled from the trailing segment of the workflow id, so the full build's
       // workflow reads `full` rather than being assumed to be `main`.

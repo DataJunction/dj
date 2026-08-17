@@ -409,7 +409,11 @@ function temporalPartition(node, availability) {
     return null;
   }
   return {
-    column: column.display_name || column.name,
+    // The column identifier, not its display name: this is the partition column a
+    // reader will look for in the table or a query, and "Utc Date" is not a name
+    // anything answers to. Trailing segment only -- `column.name` carries the
+    // node's full path, which is qualification the row does not need.
+    column: column.name.split('.').pop(),
     granularity: column.partition.granularity ?? null,
     format: column.partition.format ?? null,
   };

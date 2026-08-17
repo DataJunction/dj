@@ -481,7 +481,10 @@ function MaterializationBlock({ mat }) {
           <dt>Partition</dt>
           <dd>
             {intent.partition ? (
-              `${intent.partition.column} (${intent.partition.granularity})`
+              <>
+                <code>{intent.partition.column}</code> (
+                {intent.partition.granularity})
+              </>
             ) : (
               <span className="mat-dim">none</span>
             )}
