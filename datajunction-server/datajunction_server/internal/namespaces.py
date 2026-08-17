@@ -25,9 +25,11 @@ from datajunction_server.database.deployment import Deployment
 from datajunction_server.database.history import History
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import Column, Node, NodeRevision
-from datajunction_server.database.user import User
+from datajunction_server.database.rbac import Role, RoleAssignment, RoleScope
+from datajunction_server.database.user import PrincipalKind, User
 from datajunction_server.errors import (
     DJActionNotAllowedException,
+    DJAlreadyExistsException,
     DJDoesNotExistException,
     DJInvalidInputException,
 )
@@ -36,10 +38,8 @@ from datajunction_server.internal.materializations import (
     collect_materialization_teardowns,
     stop_materialization_workflows,
 )
-from datajunction_server.internal.namespace_locks import (
-    lock_namespace_boundary_lifecycle,
-)
 from datajunction_server.internal.nodes import get_single_cube_revision_metadata
+from datajunction_server.models.access import ResourceAction, ResourceType
 from datajunction_server.models.deployment import (
     CubeSpec,
     DeploymentSourceType,
@@ -55,6 +55,7 @@ from datajunction_server.models.namespace import (
     HardDeleteResponse,
     ImpactedNode,
     ImpactedNodes,
+    NamespaceProvisionResponse,
     NamespaceWriteResult,
     NamespaceWriteStatus,
 )
@@ -104,7 +105,7 @@ async def get_nodes_in_namespace_detailed(
         select(Node)
         .where(
             or_(
-                Node.namespace.startswith(f"{namespace}.", autoescape=True),
+                Node.namespace.like(f"{namespace}.%"),
                 Node.namespace == namespace,
             ),
             Node.current_version == NodeRevision.version,
@@ -132,9 +133,8 @@ async def list_namespaces_in_hierarchy(
     """
     statement = select(NodeNamespace).where(
         or_(
-            NodeNamespace.namespace.startswith(
-                f"{namespace}.",
-                autoescape=True,
+            NodeNamespace.namespace.like(
+                f"{namespace}.%",
             ),
             NodeNamespace.namespace == namespace,
         ),
@@ -425,6 +425,137 @@ async def create_namespace(
     return parents
 
 
+def _namespace_boundary_scopes(
+    namespace: str,
+    action: ResourceAction,
+) -> list[RoleScope]:
+    return [
+        RoleScope(
+            action=action,
+            scope_type=ResourceType.NAMESPACE,
+            scope_value=namespace,
+        ),
+        RoleScope(
+            action=action,
+            scope_type=ResourceType.NAMESPACE,
+            scope_value=f"{namespace}.*",
+        ),
+        RoleScope(
+            action=action,
+            scope_type=ResourceType.NODE,
+            scope_value=f"{namespace}.*",
+        ),
+    ]
+
+
+async def provision_namespace_boundary(
+    *,
+    session: AsyncSession,
+    namespace: str,
+    current_user: User,
+    owner_group: str,
+    deployer_service_accounts: list[str],
+) -> NamespaceProvisionResponse:
+    """
+    Create a namespace boundary and its RBAC assignments in one transaction.
+
+    The caller authorizes the role scopes before calling this function. The
+    provisioner only accepts a group owner and service-account deployers, so it
+    never promotes the creator's WRITE access into MANAGE.
+    """
+    validate_namespace(namespace)
+    if await NodeNamespace.get(session, namespace, raise_if_not_exists=False):
+        raise DJAlreadyExistsException(
+            message=f"Node namespace `{namespace}` already exists",
+        )
+
+    principal_names = [owner_group, *deployer_service_accounts]
+    if len(set(principal_names)) != len(principal_names):
+        raise DJInvalidInputException("Owner and deployer principals must be unique")
+    principals = await User.get_by_usernames(session, principal_names, options=[])
+    owner = principals[0]
+    deployers = principals[1:]
+    if owner.kind != PrincipalKind.GROUP:
+        raise DJInvalidInputException(
+            message=f"Owner principal `{owner_group}` must be a group",
+        )
+    invalid_deployers = [
+        principal.username
+        for principal in deployers
+        if principal.kind != PrincipalKind.SERVICE_ACCOUNT
+    ]
+    if invalid_deployers:
+        raise DJInvalidInputException(
+            message=(
+                "Deployer principals must be service accounts: "
+                + ", ".join(invalid_deployers)
+            ),
+        )
+
+    owner_role_name = f"namespace:{namespace}:owners"
+    role_names = [owner_role_name]
+    deployer_role_name: str | None = None
+    if deployers:
+        deployer_role_name = f"namespace:{namespace}:deployers"
+        role_names.append(deployer_role_name)
+    for role_name in role_names:
+        if await Role.get_by_name(session, role_name):
+            raise DJAlreadyExistsException(message=f"Role `{role_name}` already exists")
+
+    session.add(NodeNamespace(namespace=namespace))
+    session.add(
+        History(
+            entity_type=EntityType.NAMESPACE,
+            entity_name=namespace,
+            node=None,
+            activity_type=ActivityType.CREATE,
+            user=current_user.username,
+        ),
+    )
+    owner_role = Role(
+        name=owner_role_name,
+        description=f"Owner group for namespace boundary {namespace}",
+        created_by_id=current_user.id,
+        scopes=_namespace_boundary_scopes(namespace, ResourceAction.MANAGE),
+    )
+    session.add(owner_role)
+    await session.flush()
+    session.add(
+        RoleAssignment(
+            principal_id=owner.id,
+            role_id=owner_role.id,
+            granted_by_id=current_user.id,
+        ),
+    )
+
+    if deployer_role_name:
+        deployer_role = Role(
+            name=deployer_role_name,
+            description=f"Deployment access for namespace boundary {namespace}",
+            created_by_id=current_user.id,
+            scopes=_namespace_boundary_scopes(namespace, ResourceAction.DELETE),
+        )
+        session.add(deployer_role)
+        await session.flush()
+        session.add_all(
+            [
+                RoleAssignment(
+                    principal_id=deployer.id,
+                    role_id=deployer_role.id,
+                    granted_by_id=current_user.id,
+                )
+                for deployer in deployers
+            ],
+        )
+
+    await session.commit()
+    return NamespaceProvisionResponse(
+        namespace=namespace,
+        owner_role=owner_role_name,
+        deployer_role=deployer_role_name,
+    )
+
+
 async def create_or_reactivate_namespace(
     namespace: str,
     *,
@@ -442,7 +573,6 @@ async def create_or_reactivate_namespace(
     Access control is enforced by each caller, not here, so this must only be
     reached from a path that has already authorized the write.
     """
-    await lock_namespace_boundary_lifecycle(session)
     if node_namespace := await NodeNamespace.get(
         session,
         namespace,
@@ -658,13 +788,12 @@ async def hard_delete_namespace(
     the nodes, so a namespace deleted without this leaves the query service running
     jobs no one can find again, let alone stop.
     """
-    await lock_namespace_boundary_lifecycle(session)
     node_rows = (
         await session.execute(
             select(Node.id, Node.name, Node.type)
             .where(
                 or_(
-                    Node.namespace.startswith(f"{namespace}.", autoescape=True),
+                    Node.namespace.like(f"{namespace}.%"),
                     Node.namespace == namespace,
                 ),
             )
@@ -703,18 +832,6 @@ async def hard_delete_namespace(
     )
 
     for _namespace in namespaces:
-        session.add(
-            History(
-                entity_type=EntityType.NAMESPACE,
-                entity_name=_namespace.namespace,
-                activity_type=ActivityType.DELETE,
-                user=current_user.username,
-                details={
-                    "hard_delete": True,
-                    "cascade_root": namespace,
-                },
-            ),
-        )
         await session.delete(_namespace)
 
     await session.commit()

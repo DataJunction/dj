@@ -33,14 +33,6 @@ from datajunction_server.internal.git.yaml_export import (
     fetch_existing_yaml_map,
     generate_namespace_yaml_files,
 )
-from datajunction_server.internal.namespace_boundaries import (
-    governed_boundary_delete_targets,
-    namespace_boundary_scope_targets,
-    provision_namespace_boundary,
-)
-from datajunction_server.internal.namespace_locks import (
-    lock_namespace_boundary_lifecycle,
-)
 from datajunction_server.internal.namespaces import (
     create_or_reactivate_namespace,
     detect_parent_cycle,
@@ -55,13 +47,14 @@ from datajunction_server.internal.namespaces import (
     mark_namespace_deactivated,
     mark_namespace_restored,
     namespaces_to_authorize,
+    provision_namespace_boundary,
     resolve_git_config,
     validate_git_path,
     validate_sibling_relationship,
 )
 from datajunction_server.internal.nodes import activate_node, deactivate_node
 from datajunction_server.models import access
-from datajunction_server.models.access import ResourceAction
+from datajunction_server.models.access import ResourceAction, ResourceType
 from datajunction_server.models.deployment import (
     BulkNamespaceSourcesRequest,
     BulkNamespaceSourcesResponse,
@@ -169,7 +162,12 @@ async def provision_node_namespace(
     """
     Provision a governed namespace boundary for an owner group and deployers.
     """
-    for scope_type, scope_value in namespace_boundary_scope_targets(namespace):
+    boundary_scopes = [
+        (ResourceType.NAMESPACE, namespace),
+        (ResourceType.NAMESPACE, f"{namespace}.*"),
+        (ResourceType.NODE, f"{namespace}.*"),
+    ]
+    for scope_type, scope_value in boundary_scopes:
         access_checker.add_scope(
             scope_type,
             scope_value,
@@ -312,8 +310,7 @@ async def deactivate_a_namespace(
     # Deactivation is a delete-class operation (it can cascade-delete nodes), so
     # it requires DELETE -- matching node deactivation and namespace hard-delete,
     # not the weaker WRITE.
-    delete_targets = await governed_boundary_delete_targets(session, namespace)
-    access_checker.add_namespaces(delete_targets, ResourceAction.DELETE)
+    access_checker.add_namespace(namespace, ResourceAction.DELETE)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     node_namespace = await NodeNamespace.get(
@@ -492,8 +489,7 @@ async def hard_delete_node_namespace(
     is set to true. If cascade is set to false, we'll raise an error. This should be used
     with caution, as the impact may be large.
     """
-    delete_targets = await governed_boundary_delete_targets(session, namespace)
-    access_checker.add_namespaces(delete_targets, ResourceAction.DELETE)
+    access_checker.add_namespace(namespace, ResourceAction.DELETE)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     # Only apply the default-branch guard when the namespace exists. Git config
@@ -816,7 +812,6 @@ async def update_namespace_git_config(
 
     # Get or create the namespace - auto-create if it doesn't exist
     # This allows retroactive configuration of parent namespaces when children already exist
-    await lock_namespace_boundary_lifecycle(session)
     node_namespace = await NodeNamespace.get(
         session,
         namespace,

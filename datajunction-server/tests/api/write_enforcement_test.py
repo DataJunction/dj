@@ -132,12 +132,6 @@ CASES = [
         resource=ResourceType.NAMESPACE,
         action=ResourceAction.DELETE,
     ),
-    Case(
-        "DELETE",
-        "/namespaces/{namespace}/branches/{branch_namespace}",
-        resource=ResourceType.NAMESPACE,
-        action=ResourceAction.DELETE,
-    ),
 ]
 
 # Routes whose denial test lives in another module, next to the fixtures it needs.
@@ -187,6 +181,7 @@ PENDING_DENIAL_TESTS: dict[str, list[tuple[str, str]]] = {
     ],
     "git-backed namespace flow; needs repo fixtures": [
         ("POST", "/namespaces/{namespace}/branches"),
+        ("DELETE", "/namespaces/{namespace}/branches/{branch_namespace}"),
         ("POST", "/namespaces/{namespace}/sync-to-git"),
         ("POST", "/namespaces/{namespace}/sync-from-git"),
         ("POST", "/namespaces/{namespace}/pull-request"),

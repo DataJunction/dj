@@ -160,10 +160,7 @@ class NodeNamespace(Base):
             .where(
                 or_(
                     Node.namespace == root_namespace,
-                    Node.namespace.startswith(
-                        f"{root_namespace}.",
-                        autoescape=True,
-                    ),
+                    Node.namespace.like(f"{root_namespace}.%"),
                 ),
             )
             .group_by(Node.namespace)
@@ -192,7 +189,7 @@ class NodeNamespace(Base):
             select(Node)
             .where(
                 or_(
-                    Node.namespace.startswith(f"{namespace}.", autoescape=True),
+                    Node.namespace.like(f"{namespace}.%"),
                     Node.namespace == namespace,
                 ),
                 Node.type == node_type if node_type else True,
@@ -257,7 +254,7 @@ class NodeNamespace(Base):
             select(Node)
             .where(
                 or_(
-                    Node.namespace.startswith(f"{namespace}.", autoescape=True),
+                    Node.namespace.like(f"{namespace}.%"),
                     Node.namespace == namespace,
                 ),
             )

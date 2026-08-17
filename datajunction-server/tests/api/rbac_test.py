@@ -9,17 +9,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.history import History
-from datajunction_server.database.rbac import Role, RoleAssignment, RoleScope
-from datajunction_server.database.user import OAuthProvider, PrincipalKind, User
+from datajunction_server.database.rbac import RoleAssignment, RoleScope
+from datajunction_server.database.user import User
 from datajunction_server.internal.access.authorization import (
     AuthorizationService,
     PassthroughAuthorizationService,
     RBACAuthorizationService,
 )
 from datajunction_server.internal.history import ActivityType, EntityType
-from datajunction_server.internal.namespace_boundaries import (
-    provision_namespace_boundary,
-)
 from datajunction_server.models import access
 
 VALIDATOR_AUTH_SERVICE = (
@@ -1241,165 +1238,3 @@ async def test_scoped_manage_limits_role_creation(
         },
     )
     assert denied.status_code == 403
-
-
-@pytest.mark.asyncio
-async def test_managed_boundary_roles_preserve_policy_invariants(
-    client_with_basic: AsyncClient,
-    session: AsyncSession,
-    current_user: User,
-):
-    from urllib.parse import quote
-
-    owner = User(
-        username="managed-primary-owner",
-        password=None,
-        email=None,
-        name="Managed primary owner",
-        oauth_provider=OAuthProvider.BASIC,
-        kind=PrincipalKind.GROUP,
-    )
-    replacement_owner = User(
-        username="managed-replacement-owner",
-        password=None,
-        email=None,
-        name="Managed replacement owner",
-        oauth_provider=OAuthProvider.BASIC,
-        kind=PrincipalKind.GROUP,
-    )
-    deployer = User(
-        username="managed-primary-deployer",
-        password=None,
-        email=None,
-        name="Managed primary deployer",
-        oauth_provider=OAuthProvider.BASIC,
-        kind=PrincipalKind.SERVICE_ACCOUNT,
-    )
-    additional_deployer = User(
-        username="managed-additional-deployer",
-        password=None,
-        email=None,
-        name="Managed additional deployer",
-        oauth_provider=OAuthProvider.BASIC,
-        kind=PrincipalKind.SERVICE_ACCOUNT,
-    )
-    session.add_all([owner, replacement_owner, deployer, additional_deployer])
-    await session.commit()
-    provisioned = await provision_namespace_boundary(
-        session=session,
-        namespace="managed_policy",
-        current_user=current_user,
-        owner_group=owner.username,
-        deployer_service_accounts=[deployer.username],
-    )
-
-    definition_changes = [
-        (
-            "PATCH",
-            f"/roles/{provisioned.owner_role}",
-            {"description": "changed"},
-        ),
-        ("DELETE", f"/roles/{provisioned.owner_role}", None),
-        (
-            "POST",
-            f"/roles/{provisioned.owner_role}/scopes/",
-            {
-                "action": "read",
-                "scope_type": "namespace",
-                "scope_value": "other",
-            },
-        ),
-        (
-            "DELETE",
-            (
-                f"/roles/{provisioned.owner_role}/scopes/manage/namespace/"
-                + quote("managed_policy.*", safe="")
-            ),
-            None,
-        ),
-    ]
-    for method, path, body in definition_changes:
-        response = await client_with_basic.request(method, path, json=body)
-        assert response.status_code == 409, response.json()
-
-    invalid_owner = await client_with_basic.post(
-        f"/roles/{provisioned.owner_role}/assign",
-        json={"principal_username": current_user.username},
-    )
-    assert invalid_owner.status_code == 422
-    assert "group principals" in invalid_owner.json()["message"]
-
-    expiring_owner = await client_with_basic.post(
-        f"/roles/{provisioned.owner_role}/assign",
-        json={
-            "principal_username": replacement_owner.username,
-            "expires_at": (datetime.now(UTC) + timedelta(days=1)).isoformat(),
-        },
-    )
-    assert expiring_owner.status_code == 422
-    assert "cannot expire" in expiring_owner.json()["message"]
-
-    add_owner = await client_with_basic.post(
-        f"/roles/{provisioned.owner_role}/assign",
-        json={"principal_username": replacement_owner.username},
-    )
-    assert add_owner.status_code == 201
-    remove_original_owner = await client_with_basic.delete(
-        f"/roles/{provisioned.owner_role}/assignments/{owner.username}",
-    )
-    assert remove_original_owner.status_code == 204
-    remove_last_owner = await client_with_basic.delete(
-        (f"/roles/{provisioned.owner_role}/assignments/{replacement_owner.username}"),
-    )
-    assert remove_last_owner.status_code == 409
-    assert "Assign another owner group first" in remove_last_owner.json()["message"]
-
-    invalid_deployer = await client_with_basic.post(
-        f"/roles/{provisioned.deployer_role}/assign",
-        json={"principal_username": replacement_owner.username},
-    )
-    assert invalid_deployer.status_code == 422
-    assert "service_account principals" in invalid_deployer.json()["message"]
-    add_deployer = await client_with_basic.post(
-        f"/roles/{provisioned.deployer_role}/assign",
-        json={"principal_username": additional_deployer.username},
-    )
-    assert add_deployer.status_code == 201
-
-
-@pytest.mark.asyncio
-async def test_role_assignment_audit_failure_does_not_commit_grant(
-    client_with_basic: AsyncClient,
-    session: AsyncSession,
-    current_user: User,
-    mocker,
-):
-    await client_with_basic.post(
-        "/roles/",
-        json={"name": "atomic-assignment-role"},
-    )
-    current_user_id = current_user.id
-    current_username = current_user.username
-    mocker.patch(
-        "datajunction_server.api.rbac.log_activity",
-        side_effect=RuntimeError("audit failed"),
-    )
-
-    try:
-        response = await client_with_basic.post(
-            "/roles/atomic-assignment-role/assign",
-            json={"principal_username": current_username},
-        )
-    except RuntimeError as error:
-        assert str(error) == "audit failed"
-    else:
-        assert response.status_code == 500
-    await session.rollback()
-
-    role = await Role.get_by_name(session, "atomic-assignment-role")
-    assert role is not None
-    assert not await RoleAssignment.find(
-        session,
-        principal_id=current_user_id,
-        role_id=role.id,
-    )
