@@ -53,6 +53,8 @@ from datajunction_server.models.node import (
     NodeMode,
     NodeType,
 )
+from datajunction_server.database.user import PrincipalKind
+from datajunction_server.models.cube_materialization import PrincipalRef
 from datajunction_server.utils import get_query_service_client
 from tests.authz import VALIDATOR_AUTH_SERVICE, deny
 from tests.construction.build_v3 import assert_sql_equal
@@ -5245,6 +5247,41 @@ class TestDeclaredCubeMaterializations:
                 True,
             ),
         ]
+
+    @pytest.mark.asyncio
+    async def test_declared_materialization_is_attributed_to_the_cube_owners(
+        self,
+        client,
+        upstreams,
+        mock_qs,
+    ):
+        """
+        A cube deployed from YAML tells the query service who owns it.
+
+        This is the path with nothing loaded on the revision it materializes -- the
+        deployment created that revision moments ago -- so it is also where a missing
+        eager load on `owners` would surface, as a lazy load from async code that
+        fails intermittently rather than a wrong answer.
+        """
+        namespace = "cube_mat_attribution"
+        cube = self._cube(
+            custom_metadata={"ownership_override": {"team": "metrics"}},
+            materialization=MaterializationSpec(
+                schedule="0 6 * * *",
+                lookback_window="1 DAY",
+            ),
+        )
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=[*upstreams, cube]),
+        )
+        assert data["status"] == "success", data
+        assert mock_qs.materialize_cube.call_count == 1
+        scheduled = mock_qs.materialize_cube.call_args.kwargs["materialization_input"]
+        assert (scheduled.owners, scheduled.custom_metadata) == (
+            [PrincipalRef(username="dj", kind=PrincipalKind.USER)],
+            {"ownership_override": {"team": "metrics"}},
+        )
 
     @pytest.mark.asyncio
     async def test_definition_and_schedule_edit_rebuilds_once(

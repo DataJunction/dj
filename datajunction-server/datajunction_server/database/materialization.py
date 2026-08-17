@@ -14,7 +14,13 @@ from sqlalchemy import (
     select,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Mapped, joinedload, mapped_column, relationship
+from sqlalchemy.orm import (
+    Mapped,
+    joinedload,
+    mapped_column,
+    relationship,
+    selectinload,
+)
 
 from datajunction_server.database.backfill import Backfill
 from datajunction_server.database.base import Base
@@ -135,7 +141,8 @@ class Materialization(Base):
         """
         Get materializations by name and node revision id.
         """
-        from datajunction_server.database.node import NodeRevision
+        from datajunction_server.database.node import Node, NodeRevision
+        from datajunction_server.database.user import User
 
         statement = (
             select(cls)
@@ -148,6 +155,10 @@ class Materialization(Base):
             .options(
                 joinedload(cls.node_revision).options(
                     joinedload(NodeRevision.columns).joinedload(Column.partition),
+                    selectinload(NodeRevision.node)
+                    .selectinload(Node.owners)
+                    .load_only(User.username, User.kind)
+                    .raiseload("*"),
                 ),
             )
         )

@@ -17,6 +17,8 @@ from datajunction_server.models.cube_materialization import (
     NodeNameVersion,
 )
 from datajunction_server.models.partition import Granularity, PartitionBackfill
+from datajunction_server.database.user import PrincipalKind
+from datajunction_server.models.cube_materialization import PrincipalRef
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 
@@ -2285,3 +2287,397 @@ async def test_cube_materialization_round_trips_to_spec(
         lookback_window="7 DAY",
         retention="90 DAYS",
     )
+
+
+@pytest.mark.asyncio
+async def test_cube_materialization_carries_owners_and_custom_metadata(
+    module__client_with_roads: AsyncClient,
+    module__query_service_client: QueryServiceClient,
+    set_temporal_column,
+):
+    """
+    The query service is handed the cube's owners and its `custom_metadata`, so the
+    workflow it creates can be attributed to someone. Nothing about a scheduled build
+    names a caller -- it is DJ that asks for it, on a cron, long after whoever set it
+    up walked away -- so the node's own ownership is the only attribution available.
+
+    `custom_metadata` goes across verbatim, nested values and all. DJ reads no keys
+    out of it: it is there so a deployment-specific consumer can find what it needs
+    without this payload growing a field for each one.
+    """
+    client = module__client_with_roads
+    cube_name = "default.repairs_cube__owner_payload"
+    custom_metadata = {
+        "ownership_override": {"team": "metrics", "contacts": ["a@example.com"]},
+        "cost_center": 42,
+        "unset": None,
+    }
+    response = await client.post(
+        "/nodes/default.repair_orders_fact/columns/order_date/attributes/",
+        json=[{"name": "dimension"}],
+    )
+    assert response.status_code in (200, 201)
+    response = await client.post(
+        "/nodes/cube/",
+        json={
+            "metrics": ["default.num_repair_orders"],
+            "dimensions": [
+                "default.repair_orders_fact.order_date",
+                "default.hard_hat.state",
+            ],
+            "description": "Cube whose materialization is attributed to its owners",
+            "mode": "published",
+            "name": cube_name,
+            "custom_metadata": custom_metadata,
+        },
+    )
+    assert response.status_code == 201
+
+    await set_temporal_column(
+        client,
+        cube_name,
+        "default.repair_orders_fact.order_date",
+    )
+    response = await client.post(
+        f"/nodes/{cube_name}/materialization/",
+        json={
+            "job": "druid_cube",
+            "strategy": "incremental_time",
+            "schedule": "0 6 * * *",
+            "lookback_window": "1 DAY",
+        },
+    )
+    assert response.status_code in (200, 201)
+
+    _, kwargs = module__query_service_client.materialize_cube.call_args_list[-1]  # type: ignore
+    payload = kwargs["materialization_input"]
+    # Creating a node makes its creator its owner, so this is the cube's real owner
+    # rather than a value the test planted on it.
+    assert payload.owners == [PrincipalRef(username="dj", kind=PrincipalKind.USER)]
+    assert payload.custom_metadata == custom_metadata
+
+
+@pytest.mark.asyncio
+async def test_cube_materialization_without_owners_or_custom_metadata(
+    module__session,
+    module__query_service_client: QueryServiceClient,
+    client_with_repairs_cube: AsyncClient,
+    set_temporal_column,
+):
+    """
+    A cube nobody owns, with nothing in `custom_metadata`, still materializes. Both
+    fields are attribution rather than build input, so their absence is an empty list
+    and a null in the payload, not a failure.
+    """
+    from datajunction_server.database.node import Node
+
+    cube_name = "default.repairs_cube__unowned"
+    client = await client_with_repairs_cube(cube_name=cube_name)  # type: ignore
+
+    # Nothing in the API drops a node's last owner, so the ownerless case is set up
+    # directly. It is reachable all the same: owners are deletable users, and a node
+    # predating the owners table has none.
+    cube = await Node.get_by_name(
+        module__session,
+        cube_name,
+        options=Node.cube_load_options(),
+    )
+    assert cube is not None
+    cube.owners = []
+    await module__session.commit()
+
+    await set_temporal_column(
+        client,
+        cube_name,
+        "default.repair_orders_fact.order_date",
+    )
+    response = await client.post(
+        f"/nodes/{cube_name}/materialization/",
+        json={
+            "job": "druid_cube",
+            "strategy": "incremental_time",
+            "schedule": "0 6 * * *",
+            "lookback_window": "1 DAY",
+        },
+    )
+    assert response.status_code in (200, 201)
+
+    _, kwargs = module__query_service_client.materialize_cube.call_args_list[-1]  # type: ignore
+    payload = kwargs["materialization_input"]
+    assert (payload.owners, payload.custom_metadata) == ([], None)
+
+
+@pytest.mark.asyncio
+async def test_ownership_edit_leaves_the_materialization_config_alone(
+    module__session,
+    module__query_service_client: QueryServiceClient,
+    client_with_repairs_cube: AsyncClient,
+    set_temporal_column,
+):
+    """
+    Handing a cube to someone else must not read as a materialization change.
+
+    Both this endpoint and `reconcile_declared_materialization` decide whether
+    anything moved by comparing the stored config, so every field on that config feeds
+    rebuild decisions. That is right for a schedule or a retention window and wrong
+    for ownership: the datasource a rename builds is byte-for-byte the one that was
+    already there, and tearing a live workflow down to re-create it over a change of
+    hands is pure churn. Hence owners on the payload and not on the config.
+
+    The new owner still reaches the query service, because an unchanged config is
+    re-scheduled rather than skipped.
+    """
+    from datajunction_server.database.user import OAuthProvider, User
+
+    cube_name = "default.repairs_cube__owner_edit"
+    client = await client_with_repairs_cube(cube_name=cube_name)  # type: ignore
+    await set_temporal_column(
+        client,
+        cube_name,
+        "default.repair_orders_fact.order_date",
+    )
+    materialization = {
+        "job": "druid_cube",
+        "strategy": "incremental_time",
+        "schedule": "0 6 * * *",
+        "lookback_window": "1 DAY",
+    }
+    response = await client.post(
+        f"/nodes/{cube_name}/materialization/",
+        json=materialization,
+    )
+    assert response.status_code in (200, 201)
+    before = (await client.get(f"/nodes/{cube_name}/")).json()
+
+    module__session.add(
+        User(
+            username="new.owner@example.com",
+            oauth_provider=OAuthProvider.BASIC,
+        ),
+    )
+    await module__session.commit()
+    response = await client.patch(
+        f"/nodes/{cube_name}/",
+        json={"owners": ["new.owner@example.com"]},
+    )
+    assert response.status_code == 200
+    after = (await client.get(f"/nodes/{cube_name}/")).json()
+    # Owners hang off the node rather than the revision, so the cube that gets
+    # re-declared below is the very same revision, config and all.
+    assert (after["owners"], after["version"]) == (
+        [{"username": "new.owner@example.com"}],
+        before["version"],
+    )
+
+    response = await client.post(
+        f"/nodes/{cube_name}/materialization/",
+        json=materialization,
+    )
+    assert response.status_code == 201
+    materialization_name = (
+        "druid_cube__incremental_time__default.repair_orders_fact.order_date"
+    )
+    assert response.json()["message"] == (
+        f"The same materialization config with name `{materialization_name}` "
+        f"already exists for node `{cube_name}` so no update was performed."
+    )
+
+    _, kwargs = module__query_service_client.materialize_cube.call_args_list[-1]  # type: ignore
+    assert kwargs["materialization_input"].owners == [
+        PrincipalRef(username="new.owner@example.com", kind=PrincipalKind.USER),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_cube_materialization_owners_carry_their_principal_kind(
+    module__session,
+    module__query_service_client: QueryServiceClient,
+    client_with_repairs_cube: AsyncClient,
+    set_temporal_column,
+):
+    """
+    A cube owned by a mix of principals reaches the query service with each owner's
+    kind alongside its name.
+
+    The consumer routes on the kind rather than guessing from the string: a group and
+    an individual go to different destinations, and the one for individuals rejects
+    anything that is not email-shaped, which is what a group handle looks like. The
+    ordering is by username across all three kinds, so adding a group owner does not
+    reshuffle the people.
+    """
+    from datajunction_server.database.user import OAuthProvider, User
+
+    cube_name = "default.repairs_cube__owner_kinds"
+    client = await client_with_repairs_cube(cube_name=cube_name)  # type: ignore
+    module__session.add_all(
+        [
+            User(
+                username="data-eng-team",
+                oauth_provider=OAuthProvider.BASIC,
+                kind=PrincipalKind.GROUP,
+            ),
+            User(
+                username="etl-bot",
+                oauth_provider=OAuthProvider.BASIC,
+                kind=PrincipalKind.SERVICE_ACCOUNT,
+            ),
+        ],
+    )
+    await module__session.commit()
+    response = await client.patch(
+        f"/nodes/{cube_name}/",
+        json={"owners": ["etl-bot", "dj", "data-eng-team"]},
+    )
+    assert response.status_code == 200
+
+    await set_temporal_column(
+        client,
+        cube_name,
+        "default.repair_orders_fact.order_date",
+    )
+    response = await client.post(
+        f"/nodes/{cube_name}/materialization/",
+        json={
+            "job": "druid_cube",
+            "strategy": "incremental_time",
+            "schedule": "0 6 * * *",
+            "lookback_window": "1 DAY",
+        },
+    )
+    assert response.status_code in (200, 201)
+
+    _, kwargs = module__query_service_client.materialize_cube.call_args_list[-1]  # type: ignore
+    assert kwargs["materialization_input"].owners == [
+        PrincipalRef(username="data-eng-team", kind=PrincipalKind.GROUP),
+        PrincipalRef(username="dj", kind=PrincipalKind.USER),
+        PrincipalRef(username="etl-bot", kind=PrincipalKind.SERVICE_ACCOUNT),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_loading_a_cube_to_schedule_it_does_not_fan_out_through_its_owners(
+    module__session,
+    client_with_repairs_cube: AsyncClient,
+    set_temporal_column,
+):
+    """
+    Reading a couple of owners off a cube must not drag the owners' own nodes in.
+
+    `Materialization.get_by_names` is where the owners get loaded, because `schedule()`
+    is sync and cannot reach for an unloaded relationship. Loading them as `User` rows
+    is what makes that a risk: `User.owned_nodes` is eagerly loaded, and every `Node`
+    behind it eagerly loads more still, so an owner who owns hundreds of nodes could
+    cost hundreds of rows to answer "who owns this cube".
+
+    The check is comparative rather than an absolute row count, because this query
+    already pulls a pile of unrelated rows in through `created_by` -- a separate,
+    older problem. What is pinned here is the delta: with an owner who owns every node
+    in the database, asking for the owners costs one more query and not one more node.
+    """
+    from sqlalchemy import and_, delete, event, insert, select
+    from sqlalchemy.orm import joinedload
+
+    from datajunction_server.database.column import Column
+    from datajunction_server.database.materialization import Materialization
+    from datajunction_server.database.node import Node, NodeRevision
+    from datajunction_server.database.nodeowner import NodeOwner
+    from datajunction_server.database.user import OAuthProvider, User
+
+    cube_name = "default.repairs_cube__owner_fan_out"
+    client = await client_with_repairs_cube(cube_name=cube_name)  # type: ignore
+    await set_temporal_column(
+        client,
+        cube_name,
+        "default.repair_orders_fact.order_date",
+    )
+    response = await client.post(
+        f"/nodes/{cube_name}/materialization/",
+        json={
+            "job": "druid_cube",
+            "strategy": "incremental_time",
+            "schedule": "0 6 * * *",
+            "lookback_window": "1 DAY",
+        },
+    )
+    assert response.status_code in (200, 201)
+
+    # An owner with a lot to their name: without a guard, loading them loads all of it.
+    busy = User(username="busy.owner@example.com", oauth_provider=OAuthProvider.BASIC)
+    module__session.add(busy)
+    await module__session.commit()
+    all_node_ids = (await module__session.execute(select(Node.id))).scalars().all()
+    assert len(all_node_ids) > 100
+    await module__session.execute(
+        insert(NodeOwner),
+        [{"node_id": node_id, "user_id": busy.id} for node_id in all_node_ids],
+    )
+    await module__session.commit()
+
+    cube = await Node.get_by_name(module__session, cube_name)
+    assert cube is not None
+    revision_id = cube.current.id
+    materialization_name = (
+        "druid_cube__incremental_time__default.repair_orders_fact.order_date"
+    )
+    queries: list[str] = []
+    sync_engine = module__session.bind.sync_engine
+
+    def record(_conn, _cursor, statement, _params, _context, _executemany):
+        queries.append(statement)
+
+    async def load(with_owners: bool):
+        """Load the materialization, with and without the owners the payload needs."""
+        module__session.expunge_all()
+        queries.clear()
+        event.listen(sync_engine, "before_cursor_execute", record)
+        if with_owners:
+            loaded = await Materialization.get_by_names(
+                module__session,
+                revision_id,
+                [materialization_name],
+            )
+        else:
+            # The same query minus the owners, to price them. Deliberately spelled out
+            # rather than derived from `get_by_names`, so that dropping the guard there
+            # shows up here as a difference.
+            result = await module__session.execute(
+                select(Materialization)
+                .where(
+                    and_(
+                        Materialization.name == materialization_name,
+                        Materialization.node_revision_id == revision_id,
+                    ),
+                )
+                .options(
+                    joinedload(Materialization.node_revision).options(
+                        joinedload(NodeRevision.columns).joinedload(Column.partition),
+                    ),
+                ),
+            )
+            loaded = result.unique().scalars().all()
+        event.remove(sync_engine, "before_cursor_execute", record)
+        nodes = [
+            obj
+            for obj in module__session.identity_map.values()
+            if isinstance(obj, Node)
+        ]
+        return loaded, len(queries), len(nodes)
+
+    without_owners, queries_without, nodes_without = await load(with_owners=False)
+    with_owners, queries_with, nodes_with = await load(with_owners=True)
+
+    # Reading the owners off the loaded revision is the whole point of the eager load:
+    # this is what `schedule()` does, from sync code, where a lazy load cannot happen.
+    owners = with_owners[0].node_revision.node.owners
+    assert sorted((owner.username, owner.kind) for owner in owners) == [
+        ("busy.owner@example.com", PrincipalKind.USER),
+        ("dj", PrincipalKind.USER),
+    ]
+    assert (len(without_owners), len(with_owners)) == (1, 1)
+    # One more query -- the owners themselves -- and not one row more of anything else,
+    # though the owner has every node in the database to their name.
+    assert (queries_with, nodes_with) == (queries_without + 1, nodes_without)
+
+    # Hand every node back, so nothing later in this module inherits an extra owner.
+    await module__session.execute(delete(NodeOwner).where(NodeOwner.user_id == busy.id))
+    await module__session.commit()

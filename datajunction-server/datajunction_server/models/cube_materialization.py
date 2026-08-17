@@ -474,6 +474,15 @@ class DruidCubeConfig(BaseModel):
     retention: str | None = DEFAULT_CUBE_RETENTION
 
 
+class PrincipalRef(BaseModel):
+    """
+    A principal on a materialization payload.
+    """
+
+    username: str
+    kind: Literal["user", "service_account", "group"] = "user"
+
+
 class DruidCubeMaterializationInput(BaseModel):
     """
     Materialization info as passed to the query service.
@@ -495,6 +504,11 @@ class DruidCubeMaterializationInput(BaseModel):
     # Retention for the target Druid datasource, applied by the query service through
     # Druid's coordinator API.
     retention: str | None = DEFAULT_CUBE_RETENTION
+
+    owners: list[PrincipalRef] = Field(default_factory=list)
+
+    # Passed through verbatim; DJ does not read keys out of it.
+    custom_metadata: dict | None = None
 
     # List of measures materializations
     measures_materializations: list[MeasuresMaterialization]
