@@ -22,8 +22,8 @@ from datajunction_server.models.access import (
     ResourceType,
     RestrictiveScopeRule,
     parse_restrictive_scope_rule,
-    parse_scope_pattern,
 )
+from datajunction_server.naming import parse_scope_pattern
 from datajunction_server.utils import (
     SEPARATOR,
     get_settings,
