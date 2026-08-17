@@ -20,8 +20,8 @@ from datajunction_server.models.access import (
     ResourceAction,
     ResourceRequest,
     ResourceType,
+    parse_scope_pattern,
 )
-from datajunction_server.naming import parse_scope_pattern
 from datajunction_server.utils import (
     SEPARATOR,
     get_settings,

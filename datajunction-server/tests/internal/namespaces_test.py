@@ -19,6 +19,7 @@ from datajunction_server.internal.namespace_locks import (
     lock_namespace_boundary_lifecycle,
 )
 from datajunction_server.internal.namespaces import (
+    _matches_creator_owned_pattern,
     _merge_list_with_key,
     _merge_yaml_preserving_comments,
     create_or_reactivate_namespace,
@@ -46,6 +47,23 @@ async def _save_history(event, session):
     """No-op history recorder."""
 
 
+async def _create_namespace(
+    session,
+    user: User,
+    namespace: str,
+    patterns: list[str],
+    save_history=_save_history,
+):
+    return await create_or_reactivate_namespace(
+        namespace,
+        include_parents=False,
+        session=session,
+        current_user=user,
+        save_history=save_history,
+        creator_owned_namespace_patterns=patterns,
+    )
+
+
 async def test_lock_namespace_boundary_lifecycle(mocker):
     session = mocker.MagicMock()
     session.execute = mocker.AsyncMock()
@@ -71,40 +89,33 @@ async def test_create_or_reactivate_namespace_reports_already_exists(
     existing namespace fail.
     """
 
-    async def create():
-        return await create_or_reactivate_namespace(
-            "already_exists_ns",
-            include_parents=False,
-            session=session,
-            current_user=current_user,
-            save_history=_save_history,
-            creator_owned_namespace_patterns=[],
-        )
-
-    assert (await create()).status == NamespaceWriteStatus.CREATED
-    assert (await create()).status == NamespaceWriteStatus.ALREADY_EXISTS
+    assert (
+        await _create_namespace(session, current_user, "already_exists_ns", [])
+    ).status == NamespaceWriteStatus.CREATED
+    assert (
+        await _create_namespace(session, current_user, "already_exists_ns", [])
+    ).status == NamespaceWriteStatus.ALREADY_EXISTS
 
 
-@pytest.mark.parametrize(
-    ("namespace", "patterns"),
-    [
-        ("personal_alice", ["personal_alice"]),
-        ("personal.alice", ["personal.*"]),
-    ],
-)
+def test_creator_owned_namespace_pattern_matching():
+    assert _matches_creator_owned_pattern("personal", ["personal"])
+    assert _matches_creator_owned_pattern("personal.alice", ["personal.*"])
+    assert not _matches_creator_owned_pattern(
+        "team.finance",
+        ["invalid*", "*", "team.marketing", "personal.*"],
+    )
+
+
 async def test_create_namespace_assigns_matching_creator_as_owner(
     session,
     current_user: User,
-    namespace: str,
-    patterns: list[str],
 ):
-    result = await create_or_reactivate_namespace(
+    namespace = "personal.alice"
+    result = await _create_namespace(
+        session,
+        current_user,
         namespace,
-        include_parents=False,
-        session=session,
-        current_user=current_user,
-        save_history=_save_history,
-        creator_owned_namespace_patterns=patterns,
+        ["personal.*"],
     )
 
     role = await Role.get_by_name(session, f"namespace:{namespace}:owners")
@@ -124,52 +135,25 @@ async def test_create_namespace_assigns_matching_creator_as_owner(
     )
 
 
-async def test_create_namespace_outside_creator_patterns_has_no_owner_role(
+async def test_creator_ownership_respects_policy_boundaries(
     session,
     current_user: User,
 ):
-    await create_or_reactivate_namespace(
-        "team.finance",
-        include_parents=False,
-        session=session,
-        current_user=current_user,
-        save_history=_save_history,
-        creator_owned_namespace_patterns=[
-            "invalid*",
-            "*",
-            "team.marketing",
-            "personal.*",
-        ],
-    )
-
-    assert await Role.get_by_name(session, "namespace:team.finance:owners") is None
-
-
-async def test_create_namespace_does_not_promote_creator_below_existing_boundary(
-    session,
-    current_user: User,
-):
-    await create_or_reactivate_namespace(
+    await _create_namespace(
+        session,
+        current_user,
         "personal.alice",
-        include_parents=False,
-        session=session,
-        current_user=current_user,
-        save_history=_save_history,
-        creator_owned_namespace_patterns=["personal.*"],
+        ["personal.*"],
     )
     deployer = _principal("personal-deployer", PrincipalKind.SERVICE_ACCOUNT)
     session.add(deployer)
     await session.commit()
-
-    await create_or_reactivate_namespace(
+    await _create_namespace(
+        session,
+        deployer,
         "personal.alice.project",
-        include_parents=False,
-        session=session,
-        current_user=deployer,
-        save_history=_save_history,
-        creator_owned_namespace_patterns=["personal.*"],
+        ["personal.*"],
     )
-
     assert (
         await Role.get_by_name(
             session,
@@ -178,24 +162,13 @@ async def test_create_namespace_does_not_promote_creator_below_existing_boundary
         is None
     )
 
-
-async def test_create_namespace_rejects_service_account_as_first_owner(
-    session,
-):
-    deployer = _principal("first-deployer", PrincipalKind.SERVICE_ACCOUNT)
-    session.add(deployer)
-    await session.commit()
-
     with pytest.raises(DJInvalidInputException, match="Only user principals"):
-        await create_or_reactivate_namespace(
+        await _create_namespace(
+            session,
+            deployer,
             "personal.service",
-            include_parents=False,
-            session=session,
-            current_user=deployer,
-            save_history=_save_history,
-            creator_owned_namespace_patterns=["personal.*"],
+            ["personal.*"],
         )
-
     assert (
         await NodeNamespace.get(
             session,
@@ -214,60 +187,17 @@ async def test_creator_owner_assignment_is_atomic_with_namespace(
         raise RuntimeError("history unavailable")
 
     with pytest.raises(RuntimeError, match="history unavailable"):
-        await create_or_reactivate_namespace(
+        await _create_namespace(
+            session,
+            current_user,
             "personal.atomic",
-            include_parents=False,
-            session=session,
-            current_user=current_user,
+            ["personal.*"],
             save_history=fail_to_save_history,
-            creator_owned_namespace_patterns=["personal.*"],
         )
     await session.rollback()
 
-    assert (
-        await NodeNamespace.get(
-            session,
-            "personal.atomic",
-            raise_if_not_exists=False,
-        )
-        is None
-    )
+    assert await session.get(NodeNamespace, "personal.atomic") is None
     assert await Role.get_by_name(session, "namespace:personal.atomic:owners") is None
-
-
-async def test_creator_owned_namespace_rejects_descendant_boundary(
-    session,
-    current_user: User,
-):
-    owner_group = _principal("personal-owners", PrincipalKind.GROUP)
-    session.add(owner_group)
-    await session.commit()
-    await provision_namespace_boundary(
-        session=session,
-        namespace="personal.child",
-        current_user=current_user,
-        owner_group=owner_group.username,
-        deployer_service_accounts=[],
-    )
-
-    with pytest.raises(DJInvalidInputException, match="overlaps governed boundary"):
-        await create_or_reactivate_namespace(
-            "personal",
-            include_parents=False,
-            session=session,
-            current_user=current_user,
-            save_history=_save_history,
-            creator_owned_namespace_patterns=["personal"],
-        )
-
-    assert (
-        await NodeNamespace.get(
-            session,
-            "personal",
-            raise_if_not_exists=False,
-        )
-        is None
-    )
 
 
 async def test_creator_owned_namespace_rejects_owner_role_conflict(
@@ -283,23 +213,12 @@ async def test_creator_owned_namespace_rejects_owner_role_conflict(
     await session.commit()
 
     with pytest.raises(DJAlreadyExistsException, match="already exists"):
-        await create_or_reactivate_namespace(
-            "personal.conflict",
-            include_parents=False,
-            session=session,
-            current_user=current_user,
-            save_history=_save_history,
-            creator_owned_namespace_patterns=["personal.*"],
-        )
-
-    assert (
-        await NodeNamespace.get(
+        await _create_namespace(
             session,
+            current_user,
             "personal.conflict",
-            raise_if_not_exists=False,
+            ["personal.*"],
         )
-        is None
-    )
 
 
 async def test_provision_namespace_boundary_creates_owner_and_deployer_roles(

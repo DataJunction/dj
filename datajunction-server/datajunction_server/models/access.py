@@ -5,6 +5,7 @@ Models for authorization
 from dataclasses import dataclass
 
 from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.naming import SEPARATOR
 from datajunction_server.typing import StrEnum
 
 
@@ -27,6 +28,33 @@ class ResourceAction(StrEnum):
     EXECUTE = "execute"  # Run queries against nodes
     DELETE = "delete"  # Delete resources (keep for safety/auditability)
     MANAGE = "manage"  # Grant/revoke permissions (RBAC-specific)
+
+
+def parse_scope_pattern(value: str) -> tuple[str, str] | None:
+    """
+    Parse exact, trailing-wildcard, and global scope patterns.
+
+    A blank value is outside the grammar rather than a global scope: the global
+    scope is spelled ``*``, which is what scope input has required since #2339.
+    Reading blanks as global would let a legacy or out-of-band row grant every
+    resource of its type.
+    """
+    if not value:
+        return None
+    if value == "*":
+        return ("global", "")
+    if (
+        value.startswith(SEPARATOR)
+        or value.endswith(SEPARATOR)
+        or SEPARATOR * 2 in value
+    ):
+        return None
+    if "*" not in value:
+        return ("exact", value)
+    if value.count("*") != 1 or not value.endswith(f"{SEPARATOR}*"):
+        return None
+    prefix = value[: -len(f"{SEPARATOR}*")]
+    return ("subtree", prefix) if prefix else None
 
 
 @dataclass(frozen=True)

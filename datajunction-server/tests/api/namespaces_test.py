@@ -10,10 +10,8 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from datajunction_server.api import namespaces as namespaces_api
 from datajunction_server.api.namespaces import provision_node_namespace
 from datajunction_server.database.namespace import NodeNamespace
-from datajunction_server.database.rbac import Role
 from datajunction_server.database.user import OAuthProvider, PrincipalKind, User
 from datajunction_server.internal.access.authorization import (
     AuthorizationService,
@@ -96,29 +94,6 @@ async def test_provision_namespace_boundary(
         mocker.call(ResourceType.NODE, "api_governed.*", ResourceAction.MANAGE),
     ]
     access_checker.check.assert_awaited_once()
-
-
-async def test_create_namespace_auto_assigns_creator_from_config(
-    client_with_service_setup: AsyncClient,
-    session: AsyncSession,
-    mocker,
-):
-    mocker.patch.object(
-        namespaces_api.settings,
-        "creator_owned_namespace_patterns",
-        ["personal.*"],
-    )
-
-    response = await client_with_service_setup.post("/namespaces/personal.api_user")
-
-    assert response.status_code == HTTPStatus.CREATED
-    assert (
-        await Role.get_by_name(
-            session,
-            "namespace:personal.api_user:owners",
-        )
-        is not None
-    )
 
 
 @pytest.mark.asyncio

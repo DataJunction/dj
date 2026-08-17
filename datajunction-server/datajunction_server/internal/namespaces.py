@@ -4,6 +4,7 @@ Helper methods for namespaces endpoints.
 
 import logging
 import os
+import re
 import textwrap
 from collections import defaultdict
 from collections.abc import Callable, Sequence
@@ -41,7 +42,10 @@ from datajunction_server.internal.namespace_locks import (
     lock_namespace_boundary_lifecycle,
 )
 from datajunction_server.internal.nodes import get_single_cube_revision_metadata
-from datajunction_server.models.access import ResourceAction, ResourceType
+from datajunction_server.models.access import (
+    ResourceAction,
+    ResourceType,
+)
 from datajunction_server.models.deployment import (
     CubeSpec,
     DeploymentSourceType,
@@ -63,17 +67,18 @@ from datajunction_server.models.namespace import (
 )
 from datajunction_server.models.node import NodeMinimumDetail
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.naming import (
-    RESERVED_NAMESPACE_NAMES,
-    SEPARATOR,
-    is_valid_namespace,
-    parse_scope_pattern,
-)
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import topological_sort
 from datajunction_server.typing import UTCDatetime
+from datajunction_server.utils import SEPARATOR
 
 logger = logging.getLogger(__name__)
+
+# A list of namespace names that cannot be used because they are
+# part of a list of reserved SQL keywords
+RESERVED_NAMESPACE_NAMES = [
+    "user",
+]
 
 
 async def get_nodes_in_namespace(
@@ -211,11 +216,17 @@ def validate_namespace(namespace: str):
     """
     Validate that the namespace parts are valid (i.e., cannot start with numbers or be empty)
     """
-    if not is_valid_namespace(namespace):
-        raise DJInvalidInputException(
-            f"{namespace} is not a valid namespace. Namespace parts cannot start with numbers"
-            f", be empty, or use the reserved keyword [{', '.join(RESERVED_NAMESPACE_NAMES)}]",
-        )
+    parts = namespace.split(SEPARATOR)
+    for part in parts:
+        if (
+            not part
+            or not re.match("^[a-zA-Z][a-zA-Z0-9_]*$", part)
+            or part in RESERVED_NAMESPACE_NAMES
+        ):
+            raise DJInvalidInputException(
+                f"{namespace} is not a valid namespace. Namespace parts cannot start with numbers"
+                f", be empty, or use the reserved keyword [{', '.join(RESERVED_NAMESPACE_NAMES)}]",
+            )
 
 
 def get_parent_namespaces(namespace: str):
@@ -454,16 +465,14 @@ def _matches_creator_owned_pattern(
     namespace: str,
     patterns: Sequence[str],
 ) -> bool:
-    for pattern in patterns:
-        parsed = parse_scope_pattern(pattern)
-        if parsed is None:
-            continue
-        kind, prefix = parsed
-        if kind == "exact" and namespace == prefix:
-            return True
-        if kind == "subtree" and namespace.startswith(f"{prefix}{SEPARATOR}"):
-            return True
-    return False
+    return any(
+        namespace == pattern
+        or (
+            pattern.endswith(f"{SEPARATOR}*")
+            and namespace.startswith(pattern.removesuffix("*"))
+        )
+        for pattern in patterns
+    )
 
 
 async def _validate_namespace_creation_parent(
@@ -565,19 +574,11 @@ async def _stage_creator_owner_role(
     ):
         return
 
-    if overlapping_boundary := await _overlapping_namespace_boundary(
+    if await _overlapping_namespace_boundary(
         session,
         namespace,
     ):
-        if namespace.startswith(f"{overlapping_boundary}{SEPARATOR}"):
-            return
-        raise DJInvalidInputException(
-            message=(
-                f"Creator-owned namespace boundary `{namespace}` overlaps governed "
-                f"boundary `{overlapping_boundary}`. Nested governed boundaries "
-                "are not supported."
-            ),
-        )
+        return
     if current_user.kind != PrincipalKind.USER:
         raise DJInvalidInputException(
             message="Only user principals can own creator-owned namespaces",

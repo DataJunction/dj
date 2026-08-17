@@ -1,13 +1,10 @@
 """Naming related utils."""
 
-import re
 from collections.abc import Iterable
 from string import ascii_letters, digits
 from typing import Any
 
 SEPARATOR = "."
-RESERVED_NAMESPACE_NAMES = ("user",)
-_NAMESPACE_PART_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*$")
 
 ACCEPTABLE_CHARS = set(ascii_letters + digits + "_")
 LOOKUP_CHARS = {
@@ -37,39 +34,6 @@ LOOKUP_CHARS = {
     ">": "GT",
     "<": "LT",
 }
-
-
-def is_valid_namespace(namespace: str) -> bool:
-    """Return whether a name follows the namespace naming rules."""
-    return all(
-        _NAMESPACE_PART_PATTERN.fullmatch(part) and part not in RESERVED_NAMESPACE_NAMES
-        for part in namespace.split(SEPARATOR)
-    )
-
-
-def parse_scope_pattern(value: str) -> tuple[str, str] | None:
-    """
-    Parse exact, trailing-wildcard, and global scope patterns.
-
-    A blank value is outside the grammar rather than a global scope. The global
-    scope is spelled ``*``.
-    """
-    if not value:
-        return None
-    if value == "*":
-        return ("global", "")
-    if (
-        value.startswith(SEPARATOR)
-        or value.endswith(SEPARATOR)
-        or SEPARATOR * 2 in value
-    ):
-        return None
-    if "*" not in value:
-        return ("exact", value)
-    if value.count("*") != 1 or not value.endswith(f"{SEPARATOR}*"):
-        return None
-    prefix = value[: -len(f"{SEPARATOR}*")]
-    return ("subtree", prefix) if prefix else None
 
 
 def amenable_name(name: str) -> str:
