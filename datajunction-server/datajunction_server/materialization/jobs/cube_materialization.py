@@ -22,6 +22,7 @@ from datajunction_server.models.materialization import (
     MaterializationInfo,
     MaterializationStrategy,
 )
+from datajunction_server.models.principal import PrincipalRef
 from datajunction_server.naming import amenable_name
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast
@@ -158,7 +159,13 @@ class DruidCubeMaterializationJob(DruidMaterializationJob, MaterializationJob):
                 job=materialization.job,
                 lookback_window=cube_config.lookback_window,
                 retention=cube_config.retention,
-                owners=sorted(owner.username for owner in revision.node.owners),
+                owners=[
+                    PrincipalRef(username=owner.username, kind=owner.kind)
+                    for owner in sorted(
+                        revision.node.owners,
+                        key=lambda owner: owner.username,
+                    )
+                ],
                 custom_metadata=revision.custom_metadata,
                 measures_materializations=cube_config.measures_materializations,
                 combiners=cube_config.combiners,

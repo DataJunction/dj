@@ -154,9 +154,24 @@ class Materialization(Base):
             .options(
                 joinedload(cls.node_revision).options(
                     joinedload(NodeRevision.columns).joinedload(Column.partition),
-                    # Owners travel on the materialization payload; without this they would
-                    # lazy-load from async code and fail.
-                    selectinload(NodeRevision.node).selectinload(Node.owners),
+                    # The cube materialization payload names the node's owners, so they
+                    # have to be loaded here: `schedule()` is sync, and reaching for an
+                    # unloaded relationship from there fails outright.
+                    #
+                    # An owner is a `User`, and `User.owned_nodes` is eagerly loaded, so
+                    # this is one relationship away from loading every node the owner
+                    # owns -- and, through those nodes' own eager relationships, a good
+                    # deal more. It does not happen today only because `owned_nodes` is
+                    # the reverse of the relationship just traversed, which SQLAlchemy
+                    # declines to follow back. `raiseload("*")` says so deliberately
+                    # instead of relying on it, and covers the next eager relationship
+                    # added to `User`, which would have no such reprieve. It raises
+                    # rather than quietly reading as empty, since these are the request
+                    # session's `User` objects and a wrong answer elsewhere would be
+                    # worse than a loud failure here.
+                    selectinload(NodeRevision.node)
+                    .selectinload(Node.owners)
+                    .raiseload("*"),
                 ),
             )
         )

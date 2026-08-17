@@ -21,6 +21,7 @@ from datajunction_server.models.materialization import (
 )
 from datajunction_server.models.node_type import NodeNameVersion
 from datajunction_server.models.partition import Granularity
+from datajunction_server.models.principal import PrincipalRef
 from datajunction_server.models.query import ColumnMetadata
 
 # Re-export for backward compatibility
@@ -496,9 +497,14 @@ class DruidCubeMaterializationInput(BaseModel):
     # Druid's coordinator API.
     retention: str | None = DEFAULT_CUBE_RETENTION
 
-    # Usernames, as everywhere else DJ exposes an owner. Kept off `DruidCubeConfig`
-    # so an owner rename does not read as a materialization change.
-    owners: list[str] = Field(default_factory=list)
+    # Who the cube belongs to, each owner with the kind of principal it is: an
+    # individual, a service account or a group. The consumer routes on that -- a group
+    # goes somewhere an individual does not, and the destination for individuals
+    # expects something email-shaped, which a group handle is not -- so a bare list of
+    # names would not survive the trip. Sorted by username, which is unique across
+    # principals, so the payload never varies with relationship load order. Kept off
+    # `DruidCubeConfig` so an owner rename does not read as a materialization change.
+    owners: list[PrincipalRef] = Field(default_factory=list)
 
     # Passed through verbatim; DJ does not read keys out of it.
     custom_metadata: dict | None = None

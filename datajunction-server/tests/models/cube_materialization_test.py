@@ -29,6 +29,7 @@ from datajunction_server.models.decompose import (
 from datajunction_server.models.materialization import MaterializationStrategy
 from datajunction_server.models.node_type import NodeNameVersion
 from datajunction_server.models.partition import Granularity, PartitionType
+from datajunction_server.models.principal import PrincipalKind, PrincipalRef
 from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.utils import get_settings
 
@@ -44,16 +45,20 @@ def _temporal_partition(name: str, dimension_column: str | None) -> Column:
 
 
 def _fake_revision(
-    owners: list[str] | None = None,
+    owners: list[tuple[str, PrincipalKind]] | None = None,
     custom_metadata: dict | None = None,
 ) -> SimpleNamespace:
     """
-    The slice of a cube's revision that `schedule()` reads: who owns the node, and
-    whatever opaque metadata is hanging off the revision.
+    The slice of a cube's revision that `schedule()` reads: who owns the node and what
+    kind of principal each owner is, plus whatever opaque metadata is hanging off the
+    revision.
     """
     return SimpleNamespace(
         node=SimpleNamespace(
-            owners=[SimpleNamespace(username=owner) for owner in owners or []],
+            owners=[
+                SimpleNamespace(username=username, kind=kind)
+                for username, kind in owners or []
+            ],
         ),
         custom_metadata=custom_metadata,
     )
@@ -188,19 +193,84 @@ def test_druid_cube_materialization_job_passes_owners_and_custom_metadata():
         _fake_revision(
             # Deliberately out of order: the payload sorts, so the same set of owners
             # always serializes the same way.
-            owners=["dj@example.com", "anaghshineh@example.com"],
+            owners=[
+                ("dj@example.com", PrincipalKind.USER),
+                ("anaghshineh@example.com", PrincipalKind.USER),
+            ],
             custom_metadata={
                 "ownership_override": {"team": "metrics"},
                 "nested": [1, {"two": None}],
             },
         ),
     ) == _cube_materialization_input(
-        owners=["anaghshineh@example.com", "dj@example.com"],
+        owners=[
+            PrincipalRef(username="anaghshineh@example.com", kind=PrincipalKind.USER),
+            PrincipalRef(username="dj@example.com", kind=PrincipalKind.USER),
+        ],
         custom_metadata={
             "ownership_override": {"team": "metrics"},
             "nested": [1, {"two": None}],
         },
     )
+
+
+def test_druid_cube_materialization_job_says_what_kind_each_owner_is():
+    """
+    An owner reaches the query service as a name *and* a kind.
+
+    The consumer routes on the kind: a group and an individual are handed to different
+    destinations downstream, and the one for individuals checks that what it was given
+    is email-shaped, which a group handle is not. Flattening owners to bare names would
+    leave it guessing from the string.
+    """
+    assert _schedule_minimal_cube(
+        _fake_revision(
+            owners=[
+                ("data-eng-team", PrincipalKind.GROUP),
+                ("anaghshineh@example.com", PrincipalKind.USER),
+            ],
+        ),
+    ).owners == [
+        PrincipalRef(username="anaghshineh@example.com", kind=PrincipalKind.USER),
+        PrincipalRef(username="data-eng-team", kind=PrincipalKind.GROUP),
+    ]
+
+
+def test_druid_cube_materialization_job_carries_a_service_account_owner():
+    """
+    A service account owns nodes the way a person does, and is neither a person nor a
+    group to the consumer, so it travels as itself.
+    """
+    assert _schedule_minimal_cube(
+        _fake_revision(owners=[("etl-bot", PrincipalKind.SERVICE_ACCOUNT)]),
+    ).owners == [PrincipalRef(username="etl-bot", kind=PrincipalKind.SERVICE_ACCOUNT)]
+
+
+def test_druid_cube_materialization_job_orders_owners_by_username():
+    """
+    Owners come off a relationship, which has no promised order, so the payload sorts
+    them. Two builds of an unchanged cube then produce byte-identical attribution
+    rather than a list that shuffles with whatever the database returned.
+
+    Username is the sort key and nothing else: it is unique across principals, so the
+    order is total, and it does not group by kind, which would make adding one group
+    owner reshuffle everyone.
+    """
+    assert _schedule_minimal_cube(
+        _fake_revision(
+            owners=[
+                ("zoe@example.com", PrincipalKind.USER),
+                ("data-eng-team", PrincipalKind.GROUP),
+                ("etl-bot", PrincipalKind.SERVICE_ACCOUNT),
+                ("adrian@example.com", PrincipalKind.USER),
+            ],
+        ),
+    ).owners == [
+        PrincipalRef(username="adrian@example.com", kind=PrincipalKind.USER),
+        PrincipalRef(username="data-eng-team", kind=PrincipalKind.GROUP),
+        PrincipalRef(username="etl-bot", kind=PrincipalKind.SERVICE_ACCOUNT),
+        PrincipalRef(username="zoe@example.com", kind=PrincipalKind.USER),
+    ]
 
 
 def test_druid_cube_materialization_job_without_owners_or_custom_metadata():

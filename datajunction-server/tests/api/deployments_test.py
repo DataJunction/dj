@@ -53,6 +53,7 @@ from datajunction_server.models.node import (
     NodeMode,
     NodeType,
 )
+from datajunction_server.models.principal import PrincipalKind, PrincipalRef
 from datajunction_server.utils import get_query_service_client
 from tests.authz import VALIDATOR_AUTH_SERVICE, deny
 from tests.construction.build_v3 import assert_sql_equal
@@ -5277,7 +5278,7 @@ class TestDeclaredCubeMaterializations:
         assert mock_qs.materialize_cube.call_count == 1
         scheduled = mock_qs.materialize_cube.call_args.kwargs["materialization_input"]
         assert (scheduled.owners, scheduled.custom_metadata) == (
-            ["dj"],
+            [PrincipalRef(username="dj", kind=PrincipalKind.USER)],
             {"ownership_override": {"team": "metrics"}},
         )
 

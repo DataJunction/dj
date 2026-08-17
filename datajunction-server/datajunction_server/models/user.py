@@ -7,7 +7,25 @@ from pydantic import BaseModel, ConfigDict
 from datajunction_server.database.user import OAuthProvider
 from datajunction_server.models.catalog import CatalogInfo
 from datajunction_server.models.node import NodeType
+
+# Declared in `models/principal.py`, which stays importable from the query-service
+# payload models; re-exported here, where callers have always imported them from.
+from datajunction_server.models.principal import (
+    PrincipalKind,
+    PrincipalRef,
+    UserNameOnly,
+)
 from datajunction_server.typing import UTCDatetime
+
+__all__ = [
+    "CreatedNode",
+    "OAuthProvider",
+    "PrincipalKind",
+    "PrincipalRef",
+    "UserActivity",
+    "UserNameOnly",
+    "UserOutput",
+]
 
 
 class CreatedNode(BaseModel):
@@ -40,16 +58,6 @@ class UserOutput(BaseModel):
     oauth_provider: OAuthProvider
     is_admin: bool = False
     last_viewed_notifications_at: UTCDatetime | None = None
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class UserNameOnly(BaseModel):
-    """
-    Username only
-    """
-
-    username: str
 
     model_config = ConfigDict(from_attributes=True)
 
