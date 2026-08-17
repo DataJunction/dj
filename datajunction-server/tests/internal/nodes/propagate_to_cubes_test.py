@@ -266,6 +266,69 @@ async def test_cube_failure_does_not_abort_remaining_downstreams(
 
 
 @pytest.mark.asyncio
+async def test_a_cube_failing_after_one_succeeded_keeps_the_success(
+    client_with_roads: AsyncClient,
+):
+    """
+    The rollback that recovers from a failed rebuild must not undo an earlier one.
+
+    Failing the *first* cube says nothing about this: there is no committed work for
+    the rollback to reach. `save_new_cube_revision` commits per cube, so the bump
+    before the failure is already durable -- this pins that, because the recovery
+    path rolls the session back and a single transaction spanning the walk would
+    silently lose the earlier cube's revision.
+    """
+    await _patch_fact(client_with_roads, price="repair_order_details.price")
+    response = await client_with_roads.post(
+        "/nodes/metric/",
+        json={
+            "name": "default.total_price",
+            "description": "Total price",
+            "mode": "published",
+            "query": f"SELECT sum(price) FROM {FACT}",
+        },
+    )
+    assert response.status_code == 201, response.text
+    for name in ("default.cube_one", "default.cube_two"):
+        response = await client_with_roads.post(
+            "/nodes/cube/",
+            json={
+                "name": name,
+                "metrics": ["default.total_price"],
+                "dimensions": ["default.hard_hat.state"],
+                "description": "A cube",
+                "mode": "published",
+            },
+        )
+        assert response.status_code == 201, response.text
+
+    real_save = nodes_module.save_new_cube_revision
+    calls: list[str] = []
+
+    async def fail_second(session, node_revision, *args, **kwargs):
+        calls.append(node_revision.name)
+        if len(calls) == 2:
+            raise RuntimeError("cannot rebuild this cube")
+        return await real_save(session, node_revision, *args, **kwargs)
+
+    with patch.object(nodes_module, "save_new_cube_revision", fail_second):
+        await _patch_fact(
+            client_with_roads,
+            price="CAST(repair_order_details.price AS int)",
+        )
+
+    assert len(calls) == 2
+    versions = sorted(
+        [
+            await _version(client_with_roads, "default.cube_one"),
+            await _version(client_with_roads, "default.cube_two"),
+        ],
+    )
+    # The first cube's bump survived the rollback that the second one triggered.
+    assert versions == ["v1.0", "v2.0"]
+
+
+@pytest.mark.asyncio
 async def test_no_tier_change_leaves_cube_alone(
     client_with_cube_downstream: AsyncClient,
     session: AsyncSession,
