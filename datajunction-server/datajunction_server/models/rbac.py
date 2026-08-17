@@ -7,8 +7,8 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstra
 from datajunction_server.models.access import (
     ResourceAction,
     ResourceType,
-    parse_scope_pattern,
 )
+from datajunction_server.naming import parse_scope_pattern
 from datajunction_server.typing import UTCDatetime
 
 

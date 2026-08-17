@@ -12,8 +12,10 @@ from cachelib.base import BaseCache
 from cachelib.file import FileSystemCache
 from cachelib.redis import RedisCache
 from celery import Celery
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings
+
+from datajunction_server.naming import is_valid_namespace, parse_scope_pattern
 
 
 class DatabaseConfig(BaseModel):
@@ -221,6 +223,31 @@ class Settings(BaseSettings):  # pragma: no cover
     # RBAC_ADMIN_USERS uses JSON list syntax, for example ["admin-user"].
     rbac_require_admin: bool = False
     rbac_admin_users: list[str] = Field(default_factory=list)
+
+    # Exact namespaces or subtrees where a first human creator becomes the owner.
+    # CREATOR_OWNED_NAMESPACE_PATTERNS uses JSON list syntax, for example
+    # ["personal.*", "scratch"].
+    creator_owned_namespace_patterns: list[str] = Field(default_factory=list)
+
+    @field_validator("creator_owned_namespace_patterns")
+    @classmethod
+    def validate_creator_owned_namespace_patterns(
+        cls,
+        patterns: list[str],
+    ) -> list[str]:
+        """Require valid namespace patterns and reject global creator ownership."""
+        for pattern in patterns:
+            parsed = parse_scope_pattern(pattern)
+            if (
+                pattern != pattern.strip()
+                or parsed is None
+                or parsed[0] == "global"
+                or not is_valid_namespace(parsed[1])
+            ):
+                raise ValueError(
+                    f"`{pattern}` must be an exact namespace or a subtree ending in `.*`",
+                )
+        return patterns
 
     # Interval in seconds with which to expire caching of any indexes
     index_cache_expire: int = 60

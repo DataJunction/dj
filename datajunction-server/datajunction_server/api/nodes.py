@@ -705,6 +705,7 @@ async def register_table(
         session=session,
         current_user=current_user,
         save_history=save_history,
+        creator_owned_namespace_patterns=settings.creator_owned_namespace_patterns,
     )
 
     # Use reflection to get column names and types
@@ -809,6 +810,7 @@ async def register_view(
         session=session,
         current_user=current_user,
         save_history=save_history,
+        creator_owned_namespace_patterns=settings.creator_owned_namespace_patterns,
     )
 
     return await create_source(
