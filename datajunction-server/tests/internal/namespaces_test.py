@@ -23,6 +23,17 @@ from datajunction_server.models.namespace import NamespaceWriteStatus
 from datajunction_server.models.node_type import NodeType
 
 
+def _principal(username: str, kind: PrincipalKind) -> User:
+    return User(
+        username=username,
+        password=None,
+        email=None,
+        name=username,
+        oauth_provider=OAuthProvider.BASIC,
+        kind=kind,
+    )
+
+
 async def test_create_or_reactivate_namespace_reports_already_exists(
     session,
     current_user: User,
@@ -55,22 +66,8 @@ async def test_provision_namespace_boundary_creates_owner_and_deployer_roles(
     session,
     current_user: User,
 ):
-    owner_group = User(
-        username="analytics-owners",
-        password=None,
-        email=None,
-        name="Analytics owners",
-        oauth_provider=OAuthProvider.BASIC,
-        kind=PrincipalKind.GROUP,
-    )
-    deployer = User(
-        username="analytics-deployer",
-        password=None,
-        email=None,
-        name="Analytics deployer",
-        oauth_provider=OAuthProvider.BASIC,
-        kind=PrincipalKind.SERVICE_ACCOUNT,
-    )
+    owner_group = _principal("analytics-owners", PrincipalKind.GROUP)
+    deployer = _principal("analytics-deployer", PrincipalKind.SERVICE_ACCOUNT)
     session.add_all([owner_group, deployer])
     await session.commit()
 
@@ -123,14 +120,7 @@ async def test_provision_namespace_boundary_rejects_non_service_deployer(
     session,
     current_user: User,
 ):
-    owner_group = User(
-        username="governed-owners",
-        password=None,
-        email=None,
-        name="Governed owners",
-        oauth_provider=OAuthProvider.BASIC,
-        kind=PrincipalKind.GROUP,
-    )
+    owner_group = _principal("governed-owners", PrincipalKind.GROUP)
     session.add(owner_group)
     await session.commit()
 
@@ -157,14 +147,7 @@ async def test_provision_namespace_boundary_rejects_invalid_owner_and_conflicts(
     session,
     current_user: User,
 ):
-    owner_group = User(
-        username="boundary-owners",
-        password=None,
-        email=None,
-        name="Boundary owners",
-        oauth_provider=OAuthProvider.BASIC,
-        kind=PrincipalKind.GROUP,
-    )
+    owner_group = _principal("boundary-owners", PrincipalKind.GROUP)
     session.add(owner_group)
     await session.commit()
 
@@ -210,6 +193,84 @@ async def test_provision_namespace_boundary_rejects_invalid_owner_and_conflicts(
             owner_group=owner_group.username,
             deployer_service_accounts=[],
         )
+
+
+@pytest.mark.parametrize(
+    ("existing_namespace", "requested_namespace"),
+    [
+        ("governed_root", "governed_root.child"),
+        ("governed_root.child", "governed_root"),
+    ],
+)
+async def test_provision_namespace_boundary_rejects_overlapping_boundary(
+    session,
+    current_user: User,
+    existing_namespace: str,
+    requested_namespace: str,
+):
+    owner_group = _principal("overlap-owners", PrincipalKind.GROUP)
+    session.add(owner_group)
+    await session.commit()
+    await provision_namespace_boundary(
+        session=session,
+        namespace=existing_namespace,
+        current_user=current_user,
+        owner_group=owner_group.username,
+        deployer_service_accounts=[],
+    )
+
+    with pytest.raises(DJInvalidInputException, match="overlaps governed boundary"):
+        await provision_namespace_boundary(
+            session=session,
+            namespace=requested_namespace,
+            current_user=current_user,
+            owner_group=owner_group.username,
+            deployer_service_accounts=[],
+        )
+
+    assert (
+        await NodeNamespace.get(
+            session,
+            requested_namespace,
+            raise_if_not_exists=False,
+        )
+        is None
+    )
+
+
+async def test_provision_namespace_boundary_rejects_child_under_git_root(
+    session,
+    current_user: User,
+):
+    owner_group = _principal("git-root-owners", PrincipalKind.GROUP)
+    session.add_all(
+        [
+            owner_group,
+            NodeNamespace(
+                namespace="git_root",
+                github_repo_path="org/repo",
+            ),
+        ],
+    )
+    await session.commit()
+
+    with pytest.raises(DJInvalidInputException, match="Create a new branch"):
+        await provision_namespace_boundary(
+            session=session,
+            namespace="git_root.child",
+            current_user=current_user,
+            owner_group=owner_group.username,
+            deployer_service_accounts=[],
+        )
+
+    assert (
+        await NodeNamespace.get(
+            session,
+            "git_root.child",
+            raise_if_not_exists=False,
+        )
+        is None
+    )
 
 
 class TestMergeListWithKey:

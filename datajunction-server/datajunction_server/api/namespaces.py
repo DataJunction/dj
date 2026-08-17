@@ -46,6 +46,7 @@ from datajunction_server.internal.namespaces import (
     hard_delete_namespace,
     mark_namespace_deactivated,
     mark_namespace_restored,
+    namespace_boundary_scope_targets,
     namespaces_to_authorize,
     provision_namespace_boundary,
     resolve_git_config,
@@ -54,7 +55,7 @@ from datajunction_server.internal.namespaces import (
 )
 from datajunction_server.internal.nodes import activate_node, deactivate_node
 from datajunction_server.models import access
-from datajunction_server.models.access import ResourceAction, ResourceType
+from datajunction_server.models.access import ResourceAction
 from datajunction_server.models.deployment import (
     BulkNamespaceSourcesRequest,
     BulkNamespaceSourcesResponse,
@@ -162,12 +163,7 @@ async def provision_node_namespace(
     """
     Provision a governed namespace boundary for an owner group and deployers.
     """
-    boundary_scopes = [
-        (ResourceType.NAMESPACE, namespace),
-        (ResourceType.NAMESPACE, f"{namespace}.*"),
-        (ResourceType.NODE, f"{namespace}.*"),
-    ]
-    for scope_type, scope_value in boundary_scopes:
+    for scope_type, scope_value in namespace_boundary_scope_targets(namespace):
         access_checker.add_scope(
             scope_type,
             scope_value,

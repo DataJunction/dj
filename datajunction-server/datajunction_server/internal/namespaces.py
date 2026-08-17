@@ -14,7 +14,7 @@ from typing import cast
 
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import Comment, CommentedMap, CommentedSeq
-from sqlalchemy import bindparam, delete, func, or_, select, text, update
+from sqlalchemy import and_, bindparam, delete, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 from yamlfix import fix_code
@@ -425,6 +425,17 @@ async def create_namespace(
     return parents
 
 
+def namespace_boundary_scope_targets(
+    namespace: str,
+) -> list[tuple[ResourceType, str]]:
+    """Return every scope governed by a namespace boundary."""
+    return [
+        (ResourceType.NAMESPACE, namespace),
+        (ResourceType.NAMESPACE, f"{namespace}.*"),
+        (ResourceType.NODE, f"{namespace}.*"),
+    ]
+
+
 def _namespace_boundary_scopes(
     namespace: str,
     action: ResourceAction,
@@ -432,20 +443,58 @@ def _namespace_boundary_scopes(
     return [
         RoleScope(
             action=action,
-            scope_type=ResourceType.NAMESPACE,
-            scope_value=namespace,
-        ),
-        RoleScope(
-            action=action,
-            scope_type=ResourceType.NAMESPACE,
-            scope_value=f"{namespace}.*",
-        ),
-        RoleScope(
-            action=action,
-            scope_type=ResourceType.NODE,
-            scope_value=f"{namespace}.*",
-        ),
+            scope_type=scope_type,
+            scope_value=scope_value,
+        )
+        for scope_type, scope_value in namespace_boundary_scope_targets(namespace)
     ]
+
+
+async def _validate_namespace_creation_parent(
+    session: AsyncSession,
+    namespace: str,
+) -> None:
+    """Reject direct child creation under a Git root."""
+    parent = namespace.rsplit(SEPARATOR, 1)[0] if SEPARATOR in namespace else None
+    if parent:
+        parent_ns = await NodeNamespace.get(session, parent, raise_if_not_exists=False)
+        if parent_ns and parent_ns.github_repo_path and parent_ns.git_branch is None:
+            raise DJInvalidInputException(
+                message=(
+                    f"Cannot create namespace '{namespace}' under git root '{parent}'. "
+                    "Create a new branch under this namespace instead."
+                ),
+            )
+
+
+async def _overlapping_namespace_boundary(
+    session: AsyncSession,
+    namespace: str,
+) -> str | None:
+    """Return an active governed ancestor or descendant boundary."""
+    ancestor_role_names = [
+        f"namespace:{parent}:owners" for parent in get_parent_namespaces(namespace)
+    ]
+    descendant_role = and_(
+        Role.name.startswith(f"namespace:{namespace}.", autoescape=True),
+        Role.name.endswith(":owners", autoescape=True),
+    )
+    overlap_filter = (
+        or_(Role.name.in_(ancestor_role_names), descendant_role)
+        if ancestor_role_names
+        else descendant_role
+    )
+    role_name = await session.scalar(
+        select(Role.name)
+        .where(
+            Role.deleted_at.is_(None),
+            overlap_filter,
+        )
+        .limit(1),
+    )
+    if role_name:
+        return role_name.removeprefix("namespace:").removesuffix(":owners")
+    return None
 
 
 async def provision_namespace_boundary(
@@ -467,6 +516,17 @@ async def provision_namespace_boundary(
     if await NodeNamespace.get(session, namespace, raise_if_not_exists=False):
         raise DJAlreadyExistsException(
             message=f"Node namespace `{namespace}` already exists",
+        )
+    await _validate_namespace_creation_parent(session, namespace)
+    if overlapping_boundary := await _overlapping_namespace_boundary(
+        session,
+        namespace,
+    ):
+        raise DJInvalidInputException(
+            message=(
+                f"Namespace boundary `{namespace}` overlaps governed boundary "
+                f"`{overlapping_boundary}`. Nested governed boundaries are not supported."
+            ),
         )
 
     principal_names = [owner_group, *deployer_service_accounts]
@@ -590,19 +650,7 @@ async def create_or_reactivate_namespace(
             status=NamespaceWriteStatus.ALREADY_EXISTS,
             namespaces=[namespace],
         )
-    # Block creating child namespaces under a git root — only branch namespaces
-    # (configured via PATCH /namespaces/{name}/git with parent_namespace + git_branch)
-    # are allowed there.
-    parent = namespace.rsplit(".", 1)[0] if "." in namespace else None
-    if parent:
-        parent_ns = await NodeNamespace.get(session, parent, raise_if_not_exists=False)
-        if parent_ns and parent_ns.github_repo_path and parent_ns.git_branch is None:
-            raise DJInvalidInputException(
-                message=(
-                    f"Cannot create namespace '{namespace}' under git root '{parent}'. "
-                    "Create a new branch under this namespace instead."
-                ),
-            )
+    await _validate_namespace_creation_parent(session, namespace)
 
     created_namespaces = await create_namespace(
         session=session,
