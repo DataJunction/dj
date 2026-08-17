@@ -1531,9 +1531,8 @@ async def update_node_with_query(
         current_user=current_user,
         save_history=save_history,
         cache=cache,
-        # Downstream cubes inherit this node's tier: a cube's own shape can be
-        # identical across an upstream change that nonetheless changes every row it
-        # serves, so how significant the change was is only answerable here.
+        # Downstream cubes inherit this tier: a cube's own shape can be identical
+        # across an upstream change that alters every row it serves.
         change_tier=version_change_tier(old_revision.version, node.current_version),  # type: ignore
         query_service_client=query_service_client,
         request_headers=request_headers,
@@ -2272,11 +2271,9 @@ async def _rebuild_downstream_cube(
         filters=node_revision.cube_filters or [],
         custom_metadata=node_revision.custom_metadata,
     )
-    # Propagation runs after the response has returned, outside the request's
-    # AccessChecker, so the materialization rebuild gets a fresh one built from the
-    # updating user. It is not used to gate the bump: like the revalidation path
-    # above, propagation into a cube whose owner pointed it at this upstream is not
-    # the updater's call to make.
+    # Propagation runs after the response returned, outside the request's
+    # AccessChecker, so the rebuild gets a fresh one. It does not gate the bump:
+    # a cube whose owner pointed it at this upstream is not the updater's call.
     access_checker = AccessChecker(await AuthContext.from_user(session, current_user))
     await save_new_cube_revision(
         session,
@@ -2340,9 +2337,8 @@ async def _propagate_update_downstream(
         include_deactivated=False,
     )
     downstreams = topological_sort(downstreams)
-    # Names in topological order, kept separately because a rollback below expires
-    # every instance in the session and reading `.name` back off one would be a
-    # lazy load, which async SQLAlchemy cannot do.
+    # Kept separately because the rollback below expires every instance, and
+    # reading `.name` back off one would lazy-load from async code.
     downstream_names = [downstream.name for downstream in downstreams]
     _logger.info(
         "Node %s updated — revalidating %s downstreams",
@@ -2364,8 +2360,7 @@ async def _propagate_update_downstream(
             node.name,
         )
 
-        # Reset the upstreams DAG cache of any downstream nodes. Done before the
-        # per-type work so a cube -- which returns early below -- has its cache
+        # Before the per-type work, so a cube -- which returns early -- is
         # invalidated too.
         if cache:
             upstream_cache_key = downstream.upstream_cache_key()
@@ -2380,30 +2375,16 @@ async def _propagate_update_downstream(
                 cache.delete(upstream_cache_key)
 
         if downstream.type == NodeType.CUBE:
-            # Any tier at all rebuilds, and that churn is deliberate -- please do
-            # not "fix" it. Editing a transform's query is always a major bump
-            # (`create_new_revision_from_existing` asks only whether the query text
-            # differs), so every upstream query edit rebuilds every cube below it,
-            # including edits that turn out to have changed nothing that matters.
+            # Any tier rebuilds, and the churn is deliberate. Narrowing this by
+            # comparing the upstream's resolved columns was rejected: a query edit
+            # can move a filter, a join or a CASE threshold while leaving every
+            # column and type identical, and each changes every row the cube serves.
+            # Nothing short of reading the SQL tells those apart, so a changed query
+            # makes anything built from it suspect. Only NONE is skipped, the one
+            # case where DJ knows nothing material happened.
             #
-            # Narrowing this by comparing the upstream's resolved output columns was
-            # considered and rejected: a query edit can move a filter, a join or a
-            # CASE threshold while leaving the column set and every type identical,
-            # and each of those changes every row the cube serves. Nothing short of
-            # understanding the SQL separates a cosmetic edit from a material one,
-            # so "the query changed, therefore anything built from it is suspect" is
-            # the only rule that cannot be wrong. Rebuilding costs compute; the
-            # alternative is serving numbers computed from a definition that no
-            # longer exists, and not knowing it.
-            #
-            # NONE is the one tier that is skipped, because it is the one case where
-            # DJ knows nothing material happened -- see the column-order backfill in
-            # `revalidate_node`, which is the only thing that produces it.
-            #
-            # A cube bump can trigger a materialization rebuild, so one cube that
-            # cannot be rebuilt -- an unresolvable metric, a query service that
-            # rejects the new workflow -- must not cost the remaining downstreams
-            # their propagation.
+            # A rebuild can fail, and one cube's failure must not cost the remaining
+            # downstreams theirs.
             if change_tier is not ChangeTier.NONE:
                 try:
                     await _rebuild_downstream_cube(
@@ -2422,11 +2403,9 @@ async def _propagate_update_downstream(
                         downstream.name,
                         node.name,
                     )
-                    # Discard the failed rebuild's partial writes, then reload what
-                    # is left of the walk: a rollback expires every instance in the
-                    # session, and the loop would otherwise touch an expired
-                    # attribute on the next downstream and lazy-load from async
-                    # code. One query, and only on the failure path.
+                    # Discard partial writes, then reload the rest of the walk:
+                    # the rollback expires every instance, so the next iteration
+                    # would lazy-load from async code. Failure path only.
                     await session.rollback()
                     downstreams[idx + 1 :] = await _reload_nodes_in_order(
                         session,
@@ -4236,13 +4215,9 @@ async def revalidate_node(
     # version. Track *why* the validator decided a column changed so the
     # history event can explain the bump.
     #
-    # `describe_column_changes` is the shared comparison, so a bump is explained
-    # the same way however it was triggered -- and so removals are seen at all.
-    # Walking the validator's columns and looking each one up, which is what this
-    # did, can only ever find what the validator produced: a column the revision
-    # still stores but the query no longer selects was never visited, so it earned
-    # no bump and rode along on the next revision advertising a value the node
-    # cannot supply.
+    # Uses the shared comparison so removals are seen at all: walking the
+    # validator's columns can only find what the validator produced, so a column
+    # the revision still stores but the query no longer selects went unnoticed.
     column_changes = describe_column_changes(
         node.current.columns,  # type: ignore
         node_validator.columns,
@@ -4257,25 +4232,19 @@ async def revalidate_node(
         for col in node_validator.columns
         if col.name in existing_columns and existing_columns[col.name].order is None
     ]
-    # How significant the validator's findings are, as a tier rather than a version,
-    # so downstream propagation can hand the same value to `bump_version` for cubes.
+    # A tier rather than a version, so propagation can hand the same value to
+    # `bump_version` for downstream cubes.
     #
-    # A type change is major: anything selecting the column may now be reading a
-    # different type, and a cube materialized on it holds a table whose schema no
-    # longer matches. A removal is major for the same reason and more bluntly --
-    # anything that referenced the column is now broken. An added column is minor:
-    # nothing downstream can reference a column that did not exist when it was
-    # written, so an additive change breaks nobody, and treating it as major
-    # rebuilds every downstream cube for free. The asymmetry is deliberate --
-    # removals are rare and additions are constant, so occasionally rebuilding a
-    # cube that never used the dropped column is a cost worth paying.
+    # Type changes and removals are major: both break anything referencing the
+    # column. An addition is minor -- nothing could already reference a column that
+    # did not exist. The asymmetry is deliberate: removals are rare and additions
+    # constant, so occasionally rebuilding a cube that never used a dropped column
+    # is cheaper than rebuilding every cube on every addition.
     #
-    # `order_fixed` is deliberately not a tier at all. It fires when a stored column
-    # has no `order` and DJ fills in the projection index -- its own bookkeeping on
-    # a row written before the field existed. No query changed and no name, type or
-    # value moved, so there is nothing for a new revision to describe, and any tier
-    # above NONE would rebuild every downstream cube for a metadata backfill. It is
-    # applied to the current revision in place instead, below.
+    # `order_fixed` earns no tier. DJ filling in a missing projection index is its
+    # own bookkeeping, not a change to the node, so a revision would describe
+    # nothing and any tier above NONE would rebuild every cube below. It is applied
+    # to the current revision in place instead, below.
     change_tier = fold_change_tiers(
         [
             ChangeTier.MAJOR if (type_changes or removed_columns) else ChangeTier.NONE,
@@ -4391,15 +4360,9 @@ async def revalidate_node(
             )
     elif order_fixed:
         # No new revision was earned, so the backfill lands on the current one.
-        # Leaving it unset is not free: every reader sorts columns by `order` with
-        # None ordered last, so an unordered column drifts to the end of the
-        # projection and `Node.to_spec` logs the node as unordered on every read.
-        # Writing the projection index onto the stored row misrepresents nothing --
-        # the rows were inserted in projection order to begin with, so this records
-        # the position they already had.
-        #
-        # Only missing values are filled, matching what the new-revision path above
-        # does, so an order someone set deliberately is never overwritten.
+        # Leaving it unset is not free: readers sort by `order` with None last, so
+        # an unordered column drifts to the end of the projection. Only missing
+        # values are filled, so an order set deliberately is never overwritten.
         for idx, validator_col in enumerate(node_validator.columns):
             stored_col = existing_columns[validator_col.name]
             if stored_col.order is None:
