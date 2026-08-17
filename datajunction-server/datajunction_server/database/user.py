@@ -26,10 +26,6 @@ from datajunction_server.database.base import Base
 from datajunction_server.database.nodeowner import NodeOwner
 from datajunction_server.enum import StrEnum
 from datajunction_server.errors import DJDoesNotExistException
-
-# Re-exported: `PrincipalKind` is declared where the payload models can reach it, and
-# imported from here by everything that already did.
-from datajunction_server.models.principal import PrincipalKind
 from datajunction_server.typing import UTCDatetime
 
 if TYPE_CHECKING:
@@ -53,6 +49,16 @@ class OAuthProvider(StrEnum):
     BASIC = "basic"
     GITHUB = "github"
     GOOGLE = "google"
+
+
+class PrincipalKind(StrEnum):
+    """
+    Principal kinds: users, service accounts, and groups
+    """
+
+    USER = "user"
+    SERVICE_ACCOUNT = "service_account"
+    GROUP = "group"
 
 
 class User(Base):

@@ -53,7 +53,8 @@ from datajunction_server.models.node import (
     NodeMode,
     NodeType,
 )
-from datajunction_server.models.principal import PrincipalKind, PrincipalRef
+from datajunction_server.database.user import PrincipalKind
+from datajunction_server.models.cube_materialization import PrincipalRef
 from datajunction_server.utils import get_query_service_client
 from tests.authz import VALIDATOR_AUTH_SERVICE, deny
 from tests.construction.build_v3 import assert_sql_equal

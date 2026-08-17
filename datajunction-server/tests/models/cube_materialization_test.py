@@ -29,7 +29,8 @@ from datajunction_server.models.decompose import (
 from datajunction_server.models.materialization import MaterializationStrategy
 from datajunction_server.models.node_type import NodeNameVersion
 from datajunction_server.models.partition import Granularity, PartitionType
-from datajunction_server.models.principal import PrincipalKind, PrincipalRef
+from datajunction_server.database.user import PrincipalKind
+from datajunction_server.models.cube_materialization import PrincipalRef
 from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.utils import get_settings
 

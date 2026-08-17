@@ -11,6 +11,7 @@ from datajunction_server.materialization.jobs.materialization_job import (
     MaterializationJob,
 )
 from datajunction_server.models.cube_materialization import (
+    PrincipalRef,
     DruidCubeConfig,
     DruidCubeMaterializationInput,
 )
@@ -22,7 +23,6 @@ from datajunction_server.models.materialization import (
     MaterializationInfo,
     MaterializationStrategy,
 )
-from datajunction_server.models.principal import PrincipalRef
 from datajunction_server.naming import amenable_name
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast

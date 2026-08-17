@@ -17,7 +17,8 @@ from datajunction_server.models.cube_materialization import (
     NodeNameVersion,
 )
 from datajunction_server.models.partition import Granularity, PartitionBackfill
-from datajunction_server.models.principal import PrincipalKind, PrincipalRef
+from datajunction_server.database.user import PrincipalKind
+from datajunction_server.models.cube_materialization import PrincipalRef
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 
