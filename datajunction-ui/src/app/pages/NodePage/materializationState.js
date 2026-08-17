@@ -44,42 +44,6 @@ function lookbackDays(lookbackWindow) {
   return match ? Number(match[1]) : 1;
 }
 
-function parseDayPartition(value) {
-  if (!/^\d{8}$/.test(String(value))) {
-    return null;
-  }
-  const text = String(value);
-  return Date.UTC(
-    Number(text.slice(0, 4)),
-    Number(text.slice(4, 6)) - 1,
-    Number(text.slice(6, 8)),
-  );
-}
-
-function formatDayPartition(timestamp) {
-  return new Date(timestamp).toISOString().slice(0, 10).replace(/-/g, '');
-}
-
-/**
- * Inclusive list of day partitions, stepping by calendar day.
- *
- * Exported because the coverage strip needs the same enumeration; incrementing the
- * yyyyMMdd integer instead invents partitions like 20260732 whenever a range crosses
- * a month boundary, which real availability ranges routinely do.
- */
-export function dayPartitionsBetween(from, through) {
-  const start = parseDayPartition(from);
-  const end = parseDayPartition(through);
-  if (start === null || end === null) {
-    return [];
-  }
-  const days = [];
-  for (let day = start; day <= end; day += MS_PER_DAY) {
-    days.push(formatDayPartition(day));
-  }
-  return days;
-}
-
 /**
  * Partition keys are `yyyyMMdd` at day grain and `yyyyMMddHH` at hour grain, and the
  * coverage strip has to enumerate either. Grain is read off the key length rather than
@@ -98,6 +62,28 @@ const GRAINS = {
     format: ms => new Date(ms).toISOString().slice(0, 13).replace(/[-T]/g, ''),
   },
 };
+
+const DAY_GRAIN = GRAINS[8];
+
+const formatDayPartition = DAY_GRAIN.format;
+
+function parseDayPartition(value) {
+  const parsed = parsePartition(value);
+  return parsed && parsed.spec === DAY_GRAIN ? parsed.ms : null;
+}
+
+/**
+ * Inclusive list of day partitions, stepping by calendar day.
+ *
+ * Enumeration goes through the timestamp rather than incrementing the yyyyMMdd
+ * integer, which invents partitions like 20260732 whenever a range crosses a month
+ * boundary — something real availability ranges routinely do.
+ */
+export function dayPartitionsBetween(from, through) {
+  return parseDayPartition(from) === null || parseDayPartition(through) === null
+    ? []
+    : partitionsBetween(from, through);
+}
 
 function parsePartition(value) {
   const text = String(value);
@@ -231,9 +217,8 @@ export function coverageSquares(outcome) {
 /**
  * Strategy as a short neutral chip: `full`, or `incremental`.
  *
- * The lookback used to fold in here, back when nothing else on the row carried it.
- * The block now gives it its own labelled row, so folding it in states it twice --
- * and the badge is a category, which a window length is not.
+ * A category only. The lookback is a window length rather than a category, and has a
+ * labelled row of its own, so it is deliberately not folded in here.
  */
 export function strategyBadge(intent) {
   const strategy = String(intent?.strategy || '').trim();
@@ -263,13 +248,7 @@ function computeCoverage({
   const from = parseDayPartition(min);
   const through = parseDayPartition(max);
   if (from === null || through === null || partition?.granularity !== 'day') {
-    return {
-      target: null,
-      covered: null,
-      missing: [],
-      notDueYet: [],
-      coverageKnown: false,
-    };
+    return { ...UNKNOWN_COVERAGE };
   }
 
   const { hour, minute } = scheduleTimeOfDay(schedule);
@@ -307,15 +286,20 @@ function computeCoverage({
   };
 }
 
-const EMPTY_OUTCOME = {
-  servingTable: null,
-  servingCatalog: null,
-  validThrough: null,
+/** What every "DJ cannot judge this" coverage looks like, wherever it is produced. */
+const UNKNOWN_COVERAGE = {
   target: null,
   covered: null,
   missing: [],
   notDueYet: [],
   coverageKnown: false,
+};
+
+const EMPTY_OUTCOME = {
+  servingTable: null,
+  servingCatalog: null,
+  validThrough: null,
+  ...UNKNOWN_COVERAGE,
   links: [],
 };
 
@@ -456,16 +440,10 @@ function workflowLinks(materialization) {
  * configured materialization has had its last chance to write it, so the not-due sets
  * union and what remains is the real shortfall.
  */
-export function mergeCoverage(mats) {
+function mergeCoverage(mats) {
   const known = mats.filter(mat => mat.outcome.coverageKnown);
   if (!known.length) {
-    return {
-      target: null,
-      covered: null,
-      missing: [],
-      notDueYet: [],
-      coverageKnown: false,
-    };
+    return { ...UNKNOWN_COVERAGE };
   }
   const notDueYet = new Set();
   const trailing = new Set();

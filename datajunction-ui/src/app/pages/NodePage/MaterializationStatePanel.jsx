@@ -1,12 +1,12 @@
 /**
- * Materialization panel, in three layouts selectable with an A/B/C switcher.
+ * Materialization panel.
  *
  * Renders a `MaterializationState` (built by ./materializationState.js) rather than
  * stitching `materializations()` and `availabilityStates()` together in the component.
  * Stitching them here is what lets the tab show an empty "Output Tables" while an
  * output dataset sits at the bottom of the same page.
  *
- * Rules all three layouts enforce:
+ * Rules the layout enforces:
  *
  *  - Coverage is always shown against a target. A bare "20260806 to 20260806" is
  *    uninterpretable; "covered through 20260806, target 20260808" is not.
@@ -17,13 +17,9 @@
  *  - Anything the engine reports is labelled as such. Absent run data qualifies the
  *    verdict; it does not replace it, because DJ still knows the coverage.
  */
-import { Fragment, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import {
-  coverageSquares,
-  mergeCoverage,
-  strategyBadge,
-} from './materializationState';
+import { coverageSquares, strategyBadge } from './materializationState';
 
 // Glyphs and semantic classes follow the planner's `getStatusInfo`
 // (QueryPlannerPage/PreAggDetailsPanel.jsx), so the two panels read as one product.
@@ -49,8 +45,7 @@ function plural(count, noun) {
 }
 
 /**
- * One honest sentence about a materialization, plus the two-or-three word form the
- * table layout puts in its status column.
+ * One honest sentence about a materialization, plus a two-or-three word headline.
  *
  * Ordered by what DJ actually knows. Coverage comes from availability watermarks and
  * is available today; run data comes from the query service and is not. Leading with
@@ -116,24 +111,15 @@ export function summarize(mat) {
  */
 function coverageVerdict(coverage) {
   if (!coverage?.coverageKnown) {
-    return {
-      verdict: 'unknown',
-      headline: 'Coverage unknown',
-      className: VERDICT.unknown.className,
-    };
+    return { verdict: 'unknown', headline: 'Coverage unknown' };
   }
   if (coverage.missing?.length) {
     return {
       verdict: 'stale',
       headline: `${plural(coverage.missing.length, 'day')} behind`,
-      className: VERDICT.stale.className,
     };
   }
-  return {
-    verdict: 'healthy',
-    headline: 'On target',
-    className: VERDICT.healthy.className,
-  };
+  return { verdict: 'healthy', headline: 'On target' };
 }
 
 /** "2026-08-07T20:00:00.000Z" -> "Fri 07 Aug 2026 20:00 GMT". Seconds are noise here. */
@@ -320,7 +306,9 @@ function ServingCard({ node, serving }) {
  * range in `title`, and 25 dates written out would be a table, not an axis.
  */
 function LabelledSquares({ coverage }) {
-  const squares = coverageSquares(coverage);
+  // A year of hourly partitions is ~8800 keys enumerated and bucketed; the panel
+  // re-renders on every copy-button flash, and none of that work depends on it.
+  const squares = useMemo(() => coverageSquares(coverage), [coverage]);
   if (!squares.length) {
     return null;
   }
@@ -343,12 +331,12 @@ function LabelledSquares({ coverage }) {
 }
 
 function CoverageCard({ coverage }) {
-  const verdict = coverageVerdict(coverage);
+  const { verdict, headline } = coverageVerdict(coverage);
+  const tone = VERDICT[verdict];
   return (
     <>
-      <div className={verdict.className}>
-        <span className="mat-glyph">{VERDICT[verdict.verdict].glyph}</span>{' '}
-        {verdict.headline}
+      <div className={tone.className}>
+        <span className="mat-glyph">{tone.glyph}</span> {headline}
       </div>
       {coverage?.coverageKnown ? <LabelledSquares coverage={coverage} /> : null}
     </>
@@ -369,12 +357,6 @@ function CubeHeader({ state, serving, coverage }) {
       <h4 className="mat-section">Output</h4>
       <SummaryCards node={state.node} serving={serving} coverage={coverage} />
     </div>
-  );
-}
-
-function InactiveBadge({ mat }) {
-  return mat.active ? null : (
-    <span className="badge partition_value">inactive</span>
   );
 }
 
@@ -439,7 +421,7 @@ function WorkflowRuns({ workflows }) {
 }
 
 /**
- * A -- one block per materialization: what was declared, beside what ran.
+ * One block per materialization: what was declared, beside what ran.
  *
  * The two sides come from different systems and can disagree in both directions. A run
  * can succeed and write nothing (Maestro green, coverage flat -- which is how a
@@ -457,12 +439,16 @@ function WorkflowRuns({ workflows }) {
  */
 function MaterializationBlock({ mat }) {
   const { intent } = mat;
+  // Neutral by design: the status glyph is the block's only coloured element.
+  const strategy = strategyBadge(intent);
   return (
     <div className="mat-item">
       <div className="mat-item__head">
         <span className="mat-item__name">{mat.engine || mat.label}</span>
-        <StrategyBadge intent={intent} />
-        <InactiveBadge mat={mat} />
+        {strategy ? <span className="mat-badge">{strategy}</span> : null}
+        {mat.active ? null : (
+          <span className="badge partition_value">inactive</span>
+        )}
       </div>
       <div className="mat-item__cols">
         <dl className="mat-facts">
@@ -505,32 +491,6 @@ function MaterializationBlock({ mat }) {
   );
 }
 
-function LayoutTable({ mats }) {
-  return (
-    <div className="mat-items">
-      {mats.map((mat, index) => (
-        <MaterializationBlock key={`${mat.name}-${index}`} mat={mat} />
-      ))}
-    </div>
-  );
-}
-
-/** Declared intent. DJ owns this outright, so it is never `unknown`. */
-
-/** Engine-reported execution. Absent means absent — never backfilled from intent. */
-
-/**
- * B -- master/detail: a rail of materializations beside a pane describing the selected
- * one. The planner's selection-panel idiom, at this tab's type scale rather than the
- * planner's 11px, which is sized for a bounded sidebar and not for a full-width tab.
- *
- * The rail deliberately carries no status glyph and no coverage. Availability is keyed
- * to the node revision, so a per-materialization verdict here would be the cube's
- * verdict wearing a materialization's name, and clicking between the two entries would
- * appear to change a number that never moved. Coverage is stated once in the header;
- * the rail distinguishes entries by what actually differs, which is how they build.
- */
-
 /**
  * Coverage as a short run of fixed-size squares, bucketed by `coverageSquares` so the
  * strip stays scannable at a year or at hourly grain. Deliberately not stretched: a
@@ -564,36 +524,30 @@ function SquaresRun({ squares }) {
   );
 }
 
-/** Strategy, neutral by design: the status glyph is the row's only coloured element. */
-function StrategyBadge({ intent }) {
-  const text = strategyBadge(intent);
-  return text ? <span className="mat-badge">{text}</span> : null;
-}
-
-/** C -- full-width rows, no columns; the header carries the scannable facts. */
-
 export default function MaterializationStatePanel({ state, versionSelect }) {
   const mats = state.materializations || [];
-  // Every card previously repeated this; all of them are the same row, because
-  // availability keys off the revision the materializations share.
+  // One serving row for the whole panel: all the materializations report the same one,
+  // because availability keys off the revision they share.
   const serving = mats.find(mat => mat.outcome.servingTable)?.outcome ?? null;
-  // The adapter supplies this; fixtures that predate it are merged here instead.
-  const coverage = state.coverage ?? mergeCoverage(mats);
 
   return (
-    <div className="mat-panel mat-panel--a">
+    <div className="mat-panel">
       {/* The version scopes everything below it -- the serving table and the
           materializations alike -- so it belongs at the top of the panel rather than
           floating above it as neither page chrome nor panel content. */}
       <div className="mat-controls">{versionSelect}</div>
-      <CubeHeader state={state} serving={serving} coverage={coverage} />
+      <CubeHeader state={state} serving={serving} coverage={state.coverage} />
       <h4 className="mat-section">
         Materializations{' '}
         <span className="mat-section__count">{mats.length}</span>
       </h4>
-      {/* Keyed by index as well: the same materialization name recurs across cube
-          revisions, so the name alone is not unique within a node. */}
-      <LayoutTable mats={mats} />
+      <div className="mat-items">
+        {/* Keyed by index as well: the same materialization name recurs across cube
+            revisions, so the name alone is not unique within a node. */}
+        {mats.map((mat, index) => (
+          <MaterializationBlock key={`${mat.name}-${index}`} mat={mat} />
+        ))}
+      </div>
     </div>
   );
 }

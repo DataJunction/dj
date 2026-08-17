@@ -18,11 +18,10 @@
  * The contrast between the within-pair step and the between-pair step is what
  * makes a fact list scan; at 1px and 8px it had none and nothing grouped.
  *
- * The planner's *type scale* is deliberately not inherited by any layout. It is
- * sized for a ~320px sidebar; the node page gives this panel the full content
- * column, where 10--11px body text is unreadable. All three layouts use 13px,
- * matching the rest of the node page -- including B, which reproduces the
- * planner's master/detail idiom but not at the planner's width.
+ * The planner's *type scale* is deliberately not inherited. It is sized for a
+ * ~320px sidebar; the node page gives this panel the full content column, where
+ * 10--11px body text is unreadable. This panel uses 13px, matching the rest of
+ * the node page.
  */
 
 .mat-panel {
@@ -82,7 +81,7 @@
 
 /* The panel's controls, parked top-right so they never compete with the cube header
    for the reading position. The version select lives here because it scopes the whole
-   panel; the layout switcher is scaffolding and goes when B and C do. */
+   panel. */
 .mat-controls {
   position: absolute;
   top: -2px;
@@ -113,8 +112,7 @@
      same size, weight and colour, so the group read as a sibling of its own contents
      rather than as their heading. */
   color: var(--planner-text-muted);
-  /* Clears the absolutely-positioned control group, which is now the version select
-     as well as the switcher. */
+  /* Clears the absolutely-positioned control group holding the version select. */
   padding-right: 340px;
 }
 
@@ -250,17 +248,7 @@
   display: none;
 }
 
-/* --- Coverage bar --------------------------------------------------------- */
-
-/* A range bar, not a calendar. DJ records only min/max watermarks --
-   `partitions` is empty on every availability row -- so coverage is always a
-   contiguous prefix and per-partition cells would imply a fidelity the data
-   does not have. */
-.coverage {
-  min-width: 0;
-}
-
-/* --- Layout A: one block per materialization ------------------------------ */
+/* --- Materialization blocks ----------------------------------------------- */
 
 .mat-items {
   display: flex;
@@ -390,7 +378,7 @@
   text-decoration: underline;
 }
 
-/* --- Layout C: stacked full-width rows ------------------------------------ */
+/* --- Strategy badge -------------------------------------------------------- */
 
 /* Neutral by design. The status glyph is the row's only semantically coloured
    element; a second coloured chip beside it competes for the same read. Shape is

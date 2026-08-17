@@ -4,6 +4,32 @@ import * as React from 'react';
 import MaterializationStatePanel from './MaterializationStatePanel';
 import { toMaterializationState } from './materializationState';
 
+function ShowInactiveToggle({ checked, onChange }) {
+  return (
+    <label
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '5px',
+        fontSize: '14px',
+        color: '#333',
+        padding: '4px 8px',
+        borderRadius: '12px',
+        backgroundColor: '#f5f5f5',
+        border: '1px solid #ddd',
+      }}
+      title="Shows inactive materializations for the latest cube."
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={e => onChange(e.target.checked)}
+      />
+      Show Inactive
+    </label>
+  );
+}
+
 /**
  * Cube materialization tab - shows cube-specific materializations.
  * For non-cube nodes, the parent component (index.jsx) renders
@@ -18,8 +44,6 @@ export default function NodeMaterializationTab({
   const [selectedRevisionTab, setSelectedRevisionTab] = useState(null);
   const [showInactive, setShowInactive] = useState(false);
   const [availabilityStates, setAvailabilityStates] = useState([]);
-  const [availabilityStatesByRevision, setAvailabilityStatesByRevision] =
-    useState({});
   const [isRebuilding, setIsRebuilding] = useState(() => {
     // Check if we're in the middle of a rebuild operation
     return localStorage.getItem(`rebuilding-${node?.name}`) === 'true';
@@ -30,6 +54,17 @@ export default function NodeMaterializationTab({
       ? rawMaterializations
       : rawMaterializations.filter(mat => !mat.deactivated_at);
   }, [rawMaterializations, showInactive]);
+
+  const availabilityStatesByRevision = useMemo(() => {
+    return availabilityStates.reduce((acc, avail) => {
+      const version = avail.node_version || node?.version;
+      if (!acc[version]) {
+        acc[version] = [];
+      }
+      acc[version].push(avail);
+      return acc;
+    }, {});
+  }, [availabilityStates, node?.version]);
 
   const materializationsByRevision = useMemo(() => {
     return filteredMaterializations.reduce((acc, mat) => {
@@ -54,18 +89,6 @@ export default function NodeMaterializationTab({
       // Fetch availability states
       const availabilityData = await djClient.availabilityStates(node.name);
       setAvailabilityStates(availabilityData);
-
-      // Group availability states by version
-      const availabilityGrouped = availabilityData.reduce((acc, avail) => {
-        const version = avail.node_version || node.version;
-        if (!acc[version]) {
-          acc[version] = [];
-        }
-        acc[version].push(avail);
-        return acc;
-      }, {});
-
-      setAvailabilityStatesByRevision(availabilityGrouped);
 
       // Clear rebuilding state once data is loaded after a page reload
       if (localStorage.getItem(`rebuilding-${node.name}`) === 'true') {
@@ -99,10 +122,6 @@ export default function NodeMaterializationTab({
     }
   }, [materializationsByRevision, selectedRevisionTab, node?.version]);
 
-  const onClickRevisionTab = revisionId => () => {
-    setSelectedRevisionTab(revisionId);
-  };
-
   /**
    * The revision picker. A select rather than a tab strip: as tabs it was the same
    * blue-underline control as the page's own Info/Columns/... nav, sitting directly
@@ -127,7 +146,7 @@ export default function NodeMaterializationTab({
           id="materialization-version"
           className="mat-version-select"
           value={selectedRevisionTab || ''}
-          onChange={event => onClickRevisionTab(event.target.value)()}
+          onChange={event => setSelectedRevisionTab(event.target.value)}
         >
           {versions.map(version => (
             <option key={version} value={version}>
@@ -139,28 +158,11 @@ export default function NodeMaterializationTab({
     );
   };
 
-  const buildRevisionTabs = () => {
+  const renderToolbar = () => {
     const versions = Object.keys(materializationsByRevision);
 
     // Check if there are any materializations at all (including inactive ones)
     const hasAnyMaterializations = rawMaterializations.length > 0;
-
-    // Determine which versions have only inactive materializations
-    const versionHasOnlyInactive = {};
-    rawMaterializations.forEach(mat => {
-      const matVersion = mat.config?.cube?.version || node.version;
-      if (!versionHasOnlyInactive[matVersion]) {
-        versionHasOnlyInactive[matVersion] = {
-          hasActive: false,
-          hasInactive: false,
-        };
-      }
-      if (mat.deactivated_at) {
-        versionHasOnlyInactive[matVersion].hasInactive = true;
-      } else {
-        versionHasOnlyInactive[matVersion].hasActive = true;
-      }
-    });
 
     // If no active versions but there are inactive materializations, show checkbox and button
     if (versions.length === 0) {
@@ -176,27 +178,10 @@ export default function NodeMaterializationTab({
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
             {hasAnyMaterializations && (
-              <label
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '5px',
-                  fontSize: '14px',
-                  color: '#333',
-                  padding: '4px 8px',
-                  borderRadius: '12px',
-                  backgroundColor: '#f5f5f5',
-                  border: '1px solid #ddd',
-                }}
-                title="Shows inactive materializations for the latest cube."
-              >
-                <input
-                  type="checkbox"
-                  checked={showInactive}
-                  onChange={e => setShowInactive(e.target.checked)}
-                />
-                Show Inactive
-              </label>
+              <ShowInactiveToggle
+                checked={showInactive}
+                onChange={setShowInactive}
+              />
             )}
             {node && !readOnly && <AddMaterializationPopover node={node} />}
           </div>
@@ -260,27 +245,10 @@ export default function NodeMaterializationTab({
             version's scope actually is. */}
         <span />
         <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-          <label
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '5px',
-              fontSize: '14px',
-              color: '#333',
-              padding: '4px 8px',
-              borderRadius: '12px',
-              backgroundColor: '#f5f5f5',
-              border: '1px solid #ddd',
-            }}
-            title="Shows inactive materializations for the latest cube."
-          >
-            <input
-              type="checkbox"
-              checked={showInactive}
-              onChange={e => setShowInactive(e.target.checked)}
-            />
-            Show Inactive
-          </label>
+          <ShowInactiveToggle
+            checked={showInactive}
+            onChange={setShowInactive}
+          />
           {node &&
             !readOnly &&
             (hasLatestVersionMaterialization ? (
@@ -324,8 +292,8 @@ export default function NodeMaterializationTab({
     [selectedRevisionTab, availabilityStatesByRevision, availabilityStates],
   );
 
-  // The state panel and the tree view below it are fed from the same two responses,
-  // and are shown side by side behind a toggle. Nothing below depends on this block.
+  // The panel renders from this read model alone; the two responses are stitched
+  // together here rather than in the component.
   const materializationState = useMemo(
     () =>
       toMaterializationState({
@@ -386,7 +354,7 @@ export default function NodeMaterializationTab({
         )}
 
         <div>
-          {buildRevisionTabs()}
+          {renderToolbar()}
           <MaterializationStatePanel
             state={materializationState}
             versionSelect={renderVersionSelect()}
