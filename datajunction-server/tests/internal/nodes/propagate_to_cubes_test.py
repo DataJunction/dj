@@ -64,6 +64,14 @@ async def _columns(client: AsyncClient, name: str) -> list[tuple[str, str]]:
     return [(col["name"], col["type"]) for col in response.json()["columns"]]
 
 
+async def _state(client: AsyncClient, name: str) -> tuple[str, str]:
+    """The node's version and status, which move together on a breaking change."""
+    response = await client.get(f"/nodes/{name}")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    return body["version"], body["status"]
+
+
 @pytest_asyncio.fixture
 async def client_with_cube_downstream(client_with_roads: AsyncClient) -> AsyncClient:
     """
@@ -341,3 +349,35 @@ def test_version_change_tier():
     assert version_change_tier("v1.3", "v2.0") == ChangeTier.MAJOR
     assert version_change_tier("v1.0", "v1.1") == ChangeTier.MINOR
     assert version_change_tier("v1.0", "v1.0") == ChangeTier.NONE
+
+
+@pytest.mark.asyncio
+async def test_a_removed_column_a_metric_uses_invalidates_it_and_the_cube(
+    client_with_cube_downstream: AsyncClient,
+):
+    """
+    Dropping a column the metric aggregates carries all the way to the cube.
+
+    The transform stays valid -- its own query is fine -- while the metric can no
+    longer infer a type for `sum(price)` and the cube built on that metric follows
+    it down. Each bumps, so nothing is left quietly serving a definition that no
+    longer resolves. Pinned because the failure is only visible downstream: the
+    edit that causes it looks entirely successful at the node being edited.
+    """
+    client = client_with_cube_downstream
+    response = await client.patch(
+        f"/nodes/{FACT}",
+        json={
+            "query": (
+                "SELECT repair_orders.repair_order_id, repair_orders.hard_hat_id "
+                "FROM default.repair_orders repair_orders"
+            ),
+        },
+    )
+    assert response.status_code == 200, response.text
+
+    assert await _state(client, FACT) == ("v3.0", "valid")
+    assert await _state(client, "default.total_price") == ("v2.0", "invalid")
+    assert await _state(client, CUBE) == ("v2.0", "invalid")
+    # The cube that shares only a dimension with the edited transform is untouched.
+    assert await _state(client, UNRELATED_CUBE) == ("v1.0", "valid")
