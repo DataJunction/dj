@@ -396,6 +396,7 @@ async def create_namespace(
     current_user: User,
     save_history: Callable,
     include_parents: bool = True,
+    is_governed_boundary: bool = False,
 ) -> list[str]:
     """
     Creates a namespace entry in the database table.
@@ -416,7 +417,12 @@ async def create_namespace(
             raise_if_not_exists=False,
         ):
             logger.info("Created namespace `%s`", parent_namespace)
-            node_namespace = NodeNamespace(namespace=parent_namespace)
+            node_namespace = NodeNamespace(
+                namespace=parent_namespace,
+                is_governed_boundary=(
+                    is_governed_boundary and parent_namespace == namespace
+                ),
+            )
             session.add(node_namespace)
             history_events.append(
                 History(
@@ -567,18 +573,18 @@ async def _stage_creator_owner_role(
     namespace: str,
     current_user: User,
     creator_owned_namespace_patterns: Sequence[str],
-) -> None:
+) -> bool:
     if not _matches_creator_owned_pattern(
         namespace,
         creator_owned_namespace_patterns,
     ):
-        return
+        return False
 
     if await _overlapping_namespace_boundary(
         session,
         namespace,
     ):
-        return
+        return False
     if current_user.kind != PrincipalKind.USER:
         raise DJInvalidInputException(
             message="Only user principals can own creator-owned namespaces",
@@ -597,13 +603,23 @@ async def _stage_creator_owner_role(
     )
     session.add(owner_role)
     await session.flush()
-    session.add(
-        RoleAssignment(
-            principal_id=current_user.id,
-            role_id=owner_role.id,
-            granted_by_id=current_user.id,
-        ),
+    assignment = RoleAssignment(
+        principal_id=current_user.id,
+        role_id=owner_role.id,
+        granted_by_id=current_user.id,
     )
+    session.add_all(
+        [
+            assignment,
+            _role_creation_history(owner_role, current_user),
+            _assignment_creation_history(
+                principal=current_user,
+                role=owner_role,
+                current_user=current_user,
+            ),
+        ],
+    )
+    return True
 
 
 async def provision_namespace_boundary(
@@ -621,7 +637,6 @@ async def provision_namespace_boundary(
     provisioner only accepts a group owner and service-account deployers, so it
     never promotes the creator's WRITE access into MANAGE.
     """
-    await lock_namespace_boundary_lifecycle(session)
     validate_namespace(namespace)
     await lock_namespace_boundary_lifecycle(session)
     existing_namespace = await NodeNamespace.get(
@@ -802,7 +817,7 @@ async def create_or_reactivate_namespace(
             namespaces=[namespace],
         )
     await _validate_namespace_creation_parent(session, namespace)
-    await _stage_creator_owner_role(
+    is_governed_boundary = await _stage_creator_owner_role(
         session=session,
         namespace=namespace,
         current_user=current_user,
@@ -815,6 +830,7 @@ async def create_or_reactivate_namespace(
         include_parents=include_parents,
         current_user=current_user,
         save_history=save_history,
+        is_governed_boundary=is_governed_boundary,
     )
     return NamespaceWriteResult(
         status=NamespaceWriteStatus.CREATED,

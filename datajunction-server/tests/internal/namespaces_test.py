@@ -119,8 +119,11 @@ async def test_create_namespace_assigns_matching_creator_as_owner(
     )
 
     role = await Role.get_by_name(session, f"namespace:{namespace}:owners")
+    boundary = await NodeNamespace.get(session, namespace)
     assert result.status == NamespaceWriteStatus.CREATED
     assert role is not None
+    assert boundary is not None
+    assert boundary.is_governed_boundary
     assert {
         (scope.action, scope.scope_type, scope.scope_value) for scope in role.scopes
     } == {
@@ -133,6 +136,20 @@ async def test_create_namespace_assigns_matching_creator_as_owner(
         principal_id=current_user.id,
         role_id=role.id,
     )
+    assignment_name = f"{current_user.username}:{role.name}"
+    history = set(
+        (
+            await session.execute(
+                select(History.entity_type, History.entity_name).where(
+                    History.entity_name.in_([role.name, assignment_name]),
+                ),
+            )
+        ).all(),
+    )
+    assert history == {
+        (EntityType.ROLE, role.name),
+        (EntityType.ROLE_ASSIGNMENT, assignment_name),
+    }
 
 
 async def test_creator_ownership_respects_policy_boundaries(
@@ -145,6 +162,10 @@ async def test_creator_ownership_respects_policy_boundaries(
         "personal.alice",
         ["personal.*"],
     )
+    owner_role = await Role.get_by_name(session, "namespace:personal.alice:owners")
+    assert owner_role is not None
+    owner_role.name = "renamed-personal-owner"
+    await session.commit()
     deployer = _principal("personal-deployer", PrincipalKind.SERVICE_ACCOUNT)
     session.add(deployer)
     await session.commit()
