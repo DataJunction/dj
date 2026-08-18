@@ -15,7 +15,10 @@ from httpx import AsyncClient
 from datajunction_server.api.semantic_layer import (
     MAX_ROW_LIMIT,
     FilterPayload,
+    _arrow_type_name,
+    _dimensions_payload,
     _filter_to_sql,
+    _metrics_payload,
     _quote_value,
 )
 from datajunction_server.errors import DJException
@@ -63,6 +66,83 @@ class TestQuoteValue:
         # would mis-lex into two adjacent strings. So the correct literal is
         # backslash-escaped.
         assert _quote_value("O'Brien") == "'O\\'Brien'"
+
+
+class TestSemanticViewPayloadTypes:
+    def test_arrow_type_name_uses_standard_name_only(self):
+        assert _arrow_type_name("bigint") == "int"
+        assert _arrow_type_name("double") == "floating"
+        assert _arrow_type_name("varchar(255)") == "utf8"
+        assert _arrow_type_name("array<string>") == "list"
+        assert _arrow_type_name("timestamp") == "timestamp"
+        assert _arrow_type_name(None) is None
+
+    def test_metric_and_dimension_payloads_use_cube_column_types(self):
+        cube = SimpleNamespace(
+            columns=[
+                SimpleNamespace(
+                    cube_element_name="sem.total_amount",
+                    type="decimal(18,2)",
+                ),
+                SimpleNamespace(
+                    cube_element_name="sem.region.region_id",
+                    type="bigint",
+                ),
+                SimpleNamespace(
+                    cube_element_name="sem.region.region_name[home]",
+                    type="varchar(255)",
+                ),
+            ],
+            cube_node_metrics=["sem.total_amount"],
+            cube_node_dimensions=[
+                "sem.region.region_id",
+                "sem.region.region_name[home]",
+            ],
+        )
+
+        metrics = _metrics_payload(cube)  # type: ignore[arg-type]
+        dimensions = _dimensions_payload(cube)  # type: ignore[arg-type]
+
+        assert metrics[0].type == "decimal"
+        assert {dimension.id: dimension.type for dimension in dimensions} == {
+            "sem.region.region_id": "int",
+            "sem.region.region_name[home]": "utf8",
+        }
+
+    def test_metric_and_dimension_payloads_fallback_when_type_is_unknown(self):
+        cube = SimpleNamespace(
+            columns=[
+                SimpleNamespace(
+                    cube_element_name="sem.total_amount",
+                    type=None,
+                ),
+                SimpleNamespace(
+                    cube_element_name="sem.region.region_name",
+                    type="unknown_type",
+                ),
+            ],
+            cube_node_metrics=["sem.total_amount"],
+            cube_node_dimensions=["sem.region.region_name"],
+        )
+
+        metrics = _metrics_payload(cube)  # type: ignore[arg-type]
+        dimensions = _dimensions_payload(cube)  # type: ignore[arg-type]
+
+        assert metrics[0].type == "floating"
+        assert dimensions[0].type == "utf8"
+
+    def test_metric_and_dimension_payloads_fallback_when_column_is_missing(self):
+        cube = SimpleNamespace(
+            columns=[],
+            cube_node_metrics=["sem.total_amount"],
+            cube_node_dimensions=["sem.region.region_name"],
+        )
+
+        metrics = _metrics_payload(cube)  # type: ignore[arg-type]
+        dimensions = _dimensions_payload(cube)  # type: ignore[arg-type]
+
+        assert metrics[0].type == "floating"
+        assert dimensions[0].type == "utf8"
 
 
 # ---------------------------------------------------------------------------

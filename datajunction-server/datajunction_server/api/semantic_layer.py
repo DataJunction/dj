@@ -38,6 +38,34 @@ DEFAULT_ROW_LIMIT = 10000
 # An explicit limit above this is rejected (400).
 MAX_ROW_LIMIT = 100000
 
+DIMENSION_FALLBACK_ARROW_TYPE_NAME = "utf8"
+METRIC_FALLBACK_ARROW_TYPE_NAME = "floating"
+
+DJ_TO_ARROW_TYPE_NAMES = {
+    "array": "list",
+    "bigint": "int",
+    "binary": "binary",
+    "boolean": "bool",
+    "char": "utf8",
+    "date": "date",
+    "decimal": "decimal",
+    "double": "floating",
+    "float": "floating",
+    "int": "int",
+    "integer": "int",
+    "list": "list",
+    "long": "int",
+    "map": "map",
+    "smallint": "int",
+    "string": "utf8",
+    "struct": "struct",
+    "time": "time",
+    "timestamp": "timestamp",
+    "timestamptz": "timestamp",
+    "tinyint": "int",
+    "varchar": "utf8",
+}
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -52,14 +80,33 @@ def _problem(status_code: int, detail: str) -> JSONResponse:
     )
 
 
+def _arrow_type_name(dj_type: Any) -> str | None:
+    """Map a DJ column type to the Arrow JSON type object's ``name`` value."""
+    if not dj_type:
+        return None
+
+    type_name = str(dj_type).lower().split("(", maxsplit=1)[0].strip()
+    type_name = type_name.split("<", maxsplit=1)[0].strip()
+
+    return DJ_TO_ARROW_TYPE_NAMES.get(type_name)
+
+
+def _cube_column_type_map(cube: NodeRevision) -> dict[str, str | None]:
+    """Return Arrow type names for the metric/dimension ids exposed by a cube."""
+    return {
+        column.cube_element_name: _arrow_type_name(column.type)
+        for column in cube.columns
+    }
+
+
 def _metrics_payload(cube: NodeRevision) -> list["MetricInfo"]:
-    """Spec ``metrics`` list. type/aggregation are coarse defaults — real types
-    come through the query-result schema; ``definition`` is display-only."""
+    """Spec ``metrics`` list. ``definition`` is display-only."""
+    type_by_name = _cube_column_type_map(cube)
     return [
         MetricInfo(
             id=metric_name,
             name=metric_name.split(".")[-1],
-            type="double",
+            type=type_by_name.get(metric_name) or METRIC_FALLBACK_ARROW_TYPE_NAME,
             definition=metric_name,
             description=None,
             aggregation="OTHER",
@@ -69,13 +116,13 @@ def _metrics_payload(cube: NodeRevision) -> list["MetricInfo"]:
 
 
 def _dimensions_payload(cube: NodeRevision) -> list["DimensionInfo"]:
-    """Spec ``dimensions`` list. type is a coarse default (real types come through
-    the query-result schema); grain detection is deferred."""
+    """Spec ``dimensions`` list. Grain detection is deferred."""
+    type_by_name = _cube_column_type_map(cube)
     return [
         DimensionInfo(
             id=dim_ref,
             name=dim_ref.split(".")[-1],
-            type="string",
+            type=type_by_name.get(dim_ref) or DIMENSION_FALLBACK_ARROW_TYPE_NAME,
             definition=dim_ref,
             description=None,
             grain=None,
