@@ -162,6 +162,10 @@ async def provision_node_namespace(
 ) -> NamespaceProvisionResponse:
     """
     Provision a governed namespace boundary for an owner group and deployers.
+
+    Provisioning requires a new namespace. Restore a deactivated governed
+    namespace through ``POST /namespaces/{namespace}/restore/`` so its existing
+    roles and assignments remain attached.
     """
     for scope_type, scope_value in namespace_boundary_scope_targets(namespace):
         access_checker.add_scope(

@@ -14,7 +14,7 @@ from typing import cast
 
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import Comment, CommentedMap, CommentedSeq
-from sqlalchemy import and_, bindparam, delete, func, or_, select, text, update
+from sqlalchemy import bindparam, delete, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 from yamlfix import fix_code
@@ -37,6 +37,9 @@ from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.materializations import (
     collect_materialization_teardowns,
     stop_materialization_workflows,
+)
+from datajunction_server.internal.namespace_locks import (
+    lock_namespace_boundary_lifecycle,
 )
 from datajunction_server.internal.nodes import get_single_cube_revision_metadata
 from datajunction_server.models.access import ResourceAction, ResourceType
@@ -471,30 +474,69 @@ async def _overlapping_namespace_boundary(
     session: AsyncSession,
     namespace: str,
 ) -> str | None:
-    """Return an active governed ancestor or descendant boundary."""
-    ancestor_role_names = [
-        f"namespace:{parent}:owners" for parent in get_parent_namespaces(namespace)
-    ]
-    descendant_role = and_(
-        Role.name.startswith(f"namespace:{namespace}.", autoescape=True),
-        Role.name.endswith(":owners", autoescape=True),
+    """Return a governed ancestor or descendant boundary."""
+    ancestor_names = get_parent_namespaces(namespace)
+    descendant_boundary = NodeNamespace.namespace.startswith(
+        f"{namespace}.",
+        autoescape=True,
     )
     overlap_filter = (
-        or_(Role.name.in_(ancestor_role_names), descendant_role)
-        if ancestor_role_names
-        else descendant_role
+        or_(NodeNamespace.namespace.in_(ancestor_names), descendant_boundary)
+        if ancestor_names
+        else descendant_boundary
     )
-    role_name = await session.scalar(
-        select(Role.name)
+    return await session.scalar(
+        select(NodeNamespace.namespace)
         .where(
-            Role.deleted_at.is_(None),
+            NodeNamespace.is_governed_boundary.is_(True),
             overlap_filter,
         )
         .limit(1),
     )
-    if role_name:
-        return role_name.removeprefix("namespace:").removesuffix(":owners")
-    return None
+
+
+def _role_creation_history(role: Role, current_user: User) -> History:
+    return History(
+        entity_type=EntityType.ROLE,
+        entity_name=role.name,
+        activity_type=ActivityType.CREATE,
+        user=current_user.username,
+        post={
+            "id": role.id,
+            "name": role.name,
+            "description": role.description,
+            "scopes": [
+                {
+                    "action": scope.action.value,
+                    "scope_type": scope.scope_type.value,
+                    "scope_value": scope.scope_value,
+                }
+                for scope in role.scopes
+            ],
+        },
+    )
+
+
+def _assignment_creation_history(
+    *,
+    principal: User,
+    role: Role,
+    current_user: User,
+) -> History:
+    return History(
+        entity_type=EntityType.ROLE_ASSIGNMENT,
+        entity_name=f"{principal.username}:{role.name}",
+        activity_type=ActivityType.CREATE,
+        user=current_user.username,
+        post={
+            "principal_id": principal.id,
+            "principal_username": principal.username,
+            "role_id": role.id,
+            "role_name": role.name,
+            "granted_by_id": current_user.id,
+            "expires_at": None,
+        },
+    )
 
 
 async def provision_namespace_boundary(
@@ -513,7 +555,20 @@ async def provision_namespace_boundary(
     never promotes the creator's WRITE access into MANAGE.
     """
     validate_namespace(namespace)
-    if await NodeNamespace.get(session, namespace, raise_if_not_exists=False):
+    await lock_namespace_boundary_lifecycle(session)
+    existing_namespace = await NodeNamespace.get(
+        session,
+        namespace,
+        raise_if_not_exists=False,
+    )
+    if existing_namespace:
+        if existing_namespace.deactivated_at:
+            raise DJAlreadyExistsException(
+                message=(
+                    f"Node namespace `{namespace}` is deactivated. Restore it through "
+                    f"`POST /namespaces/{namespace}/restore/`."
+                ),
+            )
         raise DJAlreadyExistsException(
             message=f"Node namespace `{namespace}` already exists",
         )
@@ -562,7 +617,7 @@ async def provision_namespace_boundary(
         if await Role.get_by_name(session, role_name):
             raise DJAlreadyExistsException(message=f"Role `{role_name}` already exists")
 
-    session.add(NodeNamespace(namespace=namespace))
+    session.add(NodeNamespace(namespace=namespace, is_governed_boundary=True))
     session.add(
         History(
             entity_type=EntityType.NAMESPACE,
@@ -580,12 +635,21 @@ async def provision_namespace_boundary(
     )
     session.add(owner_role)
     await session.flush()
-    session.add(
-        RoleAssignment(
-            principal_id=owner.id,
-            role_id=owner_role.id,
-            granted_by_id=current_user.id,
-        ),
+    owner_assignment = RoleAssignment(
+        principal_id=owner.id,
+        role_id=owner_role.id,
+        granted_by_id=current_user.id,
+    )
+    session.add_all(
+        [
+            owner_assignment,
+            _role_creation_history(owner_role, current_user),
+            _assignment_creation_history(
+                principal=owner,
+                role=owner_role,
+                current_user=current_user,
+            ),
+        ],
     )
 
     if deployer_role_name:
@@ -597,14 +661,26 @@ async def provision_namespace_boundary(
         )
         session.add(deployer_role)
         await session.flush()
+        deployer_assignments = [
+            RoleAssignment(
+                principal_id=deployer.id,
+                role_id=deployer_role.id,
+                granted_by_id=current_user.id,
+            )
+            for deployer in deployers
+        ]
         session.add_all(
             [
-                RoleAssignment(
-                    principal_id=deployer.id,
-                    role_id=deployer_role.id,
-                    granted_by_id=current_user.id,
-                )
-                for deployer in deployers
+                *deployer_assignments,
+                _role_creation_history(deployer_role, current_user),
+                *[
+                    _assignment_creation_history(
+                        principal=deployer,
+                        role=deployer_role,
+                        current_user=current_user,
+                    )
+                    for deployer in deployers
+                ],
             ],
         )
 
