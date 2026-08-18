@@ -19,7 +19,6 @@ from datajunction_server.internal.namespace_locks import (
     lock_namespace_boundary_lifecycle,
 )
 from datajunction_server.internal.namespaces import (
-    _matches_creator_owned_pattern,
     _merge_list_with_key,
     _merge_yaml_preserving_comments,
     create_or_reactivate_namespace,
@@ -89,21 +88,14 @@ async def test_create_or_reactivate_namespace_reports_already_exists(
     existing namespace fail.
     """
 
-    assert (
-        await _create_namespace(session, current_user, "already_exists_ns", [])
-    ).status == NamespaceWriteStatus.CREATED
-    assert (
-        await _create_namespace(session, current_user, "already_exists_ns", [])
-    ).status == NamespaceWriteStatus.ALREADY_EXISTS
+    namespace = "already_exists_ns"
+    patterns = ["other", "personal.*"]
+    created = await _create_namespace(session, current_user, namespace, patterns)
+    duplicate = await _create_namespace(session, current_user, namespace, patterns)
 
-
-def test_creator_owned_namespace_pattern_matching():
-    assert _matches_creator_owned_pattern("personal", ["personal"])
-    assert _matches_creator_owned_pattern("personal.alice", ["personal.*"])
-    assert not _matches_creator_owned_pattern(
-        "team.finance",
-        ["invalid*", "*", "team.marketing", "personal.*"],
-    )
+    assert created.status == NamespaceWriteStatus.CREATED
+    assert duplicate.status == NamespaceWriteStatus.ALREADY_EXISTS
+    assert await Role.get_by_name(session, f"namespace:{namespace}:owners") is None
 
 
 async def test_create_namespace_assigns_matching_creator_as_owner(
@@ -115,7 +107,7 @@ async def test_create_namespace_assigns_matching_creator_as_owner(
         session,
         current_user,
         namespace,
-        ["personal.*"],
+        [namespace],
     )
 
     role = await Role.get_by_name(session, f"namespace:{namespace}:owners")
