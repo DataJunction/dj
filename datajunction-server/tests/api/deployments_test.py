@@ -2593,6 +2593,105 @@ class TestDeployments:
         ]
 
     @pytest.mark.asyncio
+    async def test_patch_and_deployment_agree_on_an_upstream_change(
+        self,
+        client,
+        default_hard_hats,
+        default_hard_hat,
+        default_us_states,
+        default_us_state,
+        default_avg_length_of_employment,
+    ):
+        """
+        A change to a node the cube sits on must bump the cube the same on both paths.
+
+        The sibling of `test_patch_and_deployment_agree_on_version`, which only covers
+        edits to the cube itself. Here the cube's own spec is byte-identical across the
+        two deploys -- it still names the same metric and dimensions -- and only the
+        metric underneath it changes. That is the case a deploy currently cannot see:
+        an unchanged spec is skipped, so the cube keeps a revision compiled against the
+        old definition, while the PATCH path propagates into it.
+        """
+        upstreams = [
+            default_hard_hats,
+            default_hard_hat,
+            default_us_states,
+            default_us_state,
+        ]
+
+        def build_metric(query: str) -> MetricSpec:
+            return default_avg_length_of_employment.model_copy(
+                deep=True,
+                update={"query": query},
+            )
+
+        original = default_avg_length_of_employment.query
+        # Same shape, different rows: the cube's elements are untouched, so nothing
+        # about the cube's own spec records that this happened.
+        edited = (
+            "SELECT avg(IF(state = 'AZ', CAST(NOW() AS DATE) - hire_date, NULL)) "
+            "FROM ${prefix}default.hard_hat"
+        )
+
+        cube = CubeSpec(
+            name="default.repairs_cube",
+            display_name="Repairs Cube",
+            description="Cube for analyzing repair orders",
+            dimensions=["${prefix}default.hard_hat.state"],
+            metrics=["${prefix}default.avg_length_of_employment"],
+            owners=["dj"],
+        )
+
+        async def deploy(namespace: str, metric_query: str) -> None:
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(
+                    namespace=namespace,
+                    nodes=(
+                        [spec.model_copy(deep=True) for spec in upstreams]
+                        + [build_metric(metric_query), cube.model_copy(deep=True)]
+                    ),
+                ),
+            )
+            assert data["status"] == "success", data
+
+        async def version_of(namespace: str, node: str) -> str:
+            response = await client.get(f"/nodes/{namespace}.default.{node}/")
+            assert response.status_code == 200, response.text
+            return response.json()["version"]
+
+        patch_ns, deploy_ns = (
+            "upstream_equivalence_patch",
+            "upstream_equivalence_deploy",
+        )
+        await deploy(patch_ns, original)
+        await deploy(deploy_ns, original)
+        assert await version_of(patch_ns, "repairs_cube") == "v1.0"
+        assert await version_of(deploy_ns, "repairs_cube") == "v1.0"
+
+        # The same upstream edit, once through PATCH and once through a deployment.
+        response = await client.patch(
+            f"/nodes/{patch_ns}.default.avg_length_of_employment",
+            json={"query": edited.replace("${prefix}", f"{patch_ns}.")},
+        )
+        assert response.status_code == 200, response.json()
+        await deploy(deploy_ns, edited)
+
+        # The metric moved on both paths -- that part already agreed.
+        assert await version_of(
+            patch_ns,
+            "avg_length_of_employment",
+        ) == await version_of(
+            deploy_ns,
+            "avg_length_of_employment",
+        )
+        # And so must the cube above it.
+        assert await version_of(patch_ns, "repairs_cube") == await version_of(
+            deploy_ns,
+            "repairs_cube",
+        )
+
+    @pytest.mark.asyncio
     async def test_patch_and_deployment_agree_on_version(
         self,
         client,
