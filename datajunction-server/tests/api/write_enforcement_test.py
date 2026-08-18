@@ -64,6 +64,16 @@ CASES = [
     Case("POST", "/namespaces/{namespace}", resource=ResourceType.NAMESPACE),
     Case(
         "POST",
+        "/namespaces/{namespace}/provision",
+        {
+            "owner_group": "owner-group",
+            "deployer_service_accounts": [],
+        },
+        resource=ResourceType.NAMESPACE,
+        action=ResourceAction.MANAGE,
+    ),
+    Case(
+        "POST",
         "/namespaces/{namespace}/restore",
         resource=ResourceType.NAMESPACE,
     ),

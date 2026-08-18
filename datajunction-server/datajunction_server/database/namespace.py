@@ -42,6 +42,11 @@ class NodeNamespace(Base):
         nullable=True,
         default=None,
     )
+    is_governed_boundary: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+    )
 
     # Git configuration for branch management
     github_repo_path: Mapped[str | None] = mapped_column(

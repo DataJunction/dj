@@ -25,9 +25,11 @@ from datajunction_server.database.deployment import Deployment
 from datajunction_server.database.history import History
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import Column, Node, NodeRevision
-from datajunction_server.database.user import User
+from datajunction_server.database.rbac import Role, RoleAssignment, RoleScope
+from datajunction_server.database.user import PrincipalKind, User
 from datajunction_server.errors import (
     DJActionNotAllowedException,
+    DJAlreadyExistsException,
     DJDoesNotExistException,
     DJInvalidInputException,
 )
@@ -36,7 +38,11 @@ from datajunction_server.internal.materializations import (
     collect_materialization_teardowns,
     stop_materialization_workflows,
 )
+from datajunction_server.internal.namespace_locks import (
+    lock_namespace_boundary_lifecycle,
+)
 from datajunction_server.internal.nodes import get_single_cube_revision_metadata
+from datajunction_server.models.access import ResourceAction, ResourceType
 from datajunction_server.models.deployment import (
     CubeSpec,
     DeploymentSourceType,
@@ -52,6 +58,7 @@ from datajunction_server.models.namespace import (
     HardDeleteResponse,
     ImpactedNode,
     ImpactedNodes,
+    NamespaceProvisionResponse,
     NamespaceWriteResult,
     NamespaceWriteStatus,
 )
@@ -421,6 +428,270 @@ async def create_namespace(
     return parents
 
 
+def namespace_boundary_scope_targets(
+    namespace: str,
+) -> list[tuple[ResourceType, str]]:
+    """Return every scope governed by a namespace boundary."""
+    return [
+        (ResourceType.NAMESPACE, namespace),
+        (ResourceType.NAMESPACE, f"{namespace}.*"),
+        (ResourceType.NODE, f"{namespace}.*"),
+    ]
+
+
+def _namespace_boundary_scopes(
+    namespace: str,
+    action: ResourceAction,
+) -> list[RoleScope]:
+    return [
+        RoleScope(
+            action=action,
+            scope_type=scope_type,
+            scope_value=scope_value,
+        )
+        for scope_type, scope_value in namespace_boundary_scope_targets(namespace)
+    ]
+
+
+async def _validate_namespace_creation_parent(
+    session: AsyncSession,
+    namespace: str,
+) -> None:
+    """Reject direct child creation under a Git root."""
+    parent = namespace.rsplit(SEPARATOR, 1)[0] if SEPARATOR in namespace else None
+    if parent:
+        parent_ns = await NodeNamespace.get(session, parent, raise_if_not_exists=False)
+        if parent_ns and parent_ns.github_repo_path and parent_ns.git_branch is None:
+            raise DJInvalidInputException(
+                message=(
+                    f"Cannot create namespace '{namespace}' under git root '{parent}'. "
+                    "Create a new branch under this namespace instead."
+                ),
+            )
+
+
+async def _overlapping_namespace_boundary(
+    session: AsyncSession,
+    namespace: str,
+) -> str | None:
+    """Return a governed ancestor or descendant boundary."""
+    ancestor_names = get_parent_namespaces(namespace)
+    descendant_boundary = NodeNamespace.namespace.startswith(
+        f"{namespace}.",
+        autoescape=True,
+    )
+    overlap_filter = (
+        or_(NodeNamespace.namespace.in_(ancestor_names), descendant_boundary)
+        if ancestor_names
+        else descendant_boundary
+    )
+    return await session.scalar(
+        select(NodeNamespace.namespace)
+        .where(
+            NodeNamespace.is_governed_boundary.is_(True),
+            overlap_filter,
+        )
+        .limit(1),
+    )
+
+
+def _role_creation_history(role: Role, current_user: User) -> History:
+    return History(
+        entity_type=EntityType.ROLE,
+        entity_name=role.name,
+        activity_type=ActivityType.CREATE,
+        user=current_user.username,
+        post={
+            "id": role.id,
+            "name": role.name,
+            "description": role.description,
+            "scopes": [
+                {
+                    "action": scope.action.value,
+                    "scope_type": scope.scope_type.value,
+                    "scope_value": scope.scope_value,
+                }
+                for scope in role.scopes
+            ],
+        },
+    )
+
+
+def _assignment_creation_history(
+    *,
+    principal: User,
+    role: Role,
+    current_user: User,
+) -> History:
+    return History(
+        entity_type=EntityType.ROLE_ASSIGNMENT,
+        entity_name=f"{principal.username}:{role.name}",
+        activity_type=ActivityType.CREATE,
+        user=current_user.username,
+        post={
+            "principal_id": principal.id,
+            "principal_username": principal.username,
+            "role_id": role.id,
+            "role_name": role.name,
+            "granted_by_id": current_user.id,
+            "expires_at": None,
+        },
+    )
+
+
+async def provision_namespace_boundary(
+    *,
+    session: AsyncSession,
+    namespace: str,
+    current_user: User,
+    owner_group: str,
+    deployer_service_accounts: list[str],
+) -> NamespaceProvisionResponse:
+    """
+    Create a namespace boundary and its RBAC assignments in one transaction.
+
+    The caller authorizes the role scopes before calling this function. The
+    provisioner only accepts a group owner and service-account deployers, so it
+    never promotes the creator's WRITE access into MANAGE.
+    """
+    validate_namespace(namespace)
+    await lock_namespace_boundary_lifecycle(session)
+    existing_namespace = await NodeNamespace.get(
+        session,
+        namespace,
+        raise_if_not_exists=False,
+    )
+    if existing_namespace:
+        if existing_namespace.deactivated_at:
+            raise DJAlreadyExistsException(
+                message=(
+                    f"Node namespace `{namespace}` is deactivated. Restore it through "
+                    f"`POST /namespaces/{namespace}/restore/`."
+                ),
+            )
+        raise DJAlreadyExistsException(
+            message=f"Node namespace `{namespace}` already exists",
+        )
+    await _validate_namespace_creation_parent(session, namespace)
+    if overlapping_boundary := await _overlapping_namespace_boundary(
+        session,
+        namespace,
+    ):
+        raise DJInvalidInputException(
+            message=(
+                f"Namespace boundary `{namespace}` overlaps governed boundary "
+                f"`{overlapping_boundary}`. Nested governed boundaries are not supported."
+            ),
+        )
+
+    principal_names = [owner_group, *deployer_service_accounts]
+    if len(set(principal_names)) != len(principal_names):
+        raise DJInvalidInputException("Owner and deployer principals must be unique")
+    principals = await User.get_by_usernames(session, principal_names, options=[])
+    owner = principals[0]
+    deployers = principals[1:]
+    if owner.kind != PrincipalKind.GROUP:
+        raise DJInvalidInputException(
+            message=f"Owner principal `{owner_group}` must be a group",
+        )
+    invalid_deployers = [
+        principal.username
+        for principal in deployers
+        if principal.kind != PrincipalKind.SERVICE_ACCOUNT
+    ]
+    if invalid_deployers:
+        raise DJInvalidInputException(
+            message=(
+                "Deployer principals must be service accounts: "
+                + ", ".join(invalid_deployers)
+            ),
+        )
+
+    owner_role_name = f"namespace:{namespace}:owners"
+    role_names = [owner_role_name]
+    deployer_role_name: str | None = None
+    if deployers:
+        deployer_role_name = f"namespace:{namespace}:deployers"
+        role_names.append(deployer_role_name)
+    for role_name in role_names:
+        if await Role.get_by_name(session, role_name):
+            raise DJAlreadyExistsException(message=f"Role `{role_name}` already exists")
+
+    session.add(NodeNamespace(namespace=namespace, is_governed_boundary=True))
+    session.add(
+        History(
+            entity_type=EntityType.NAMESPACE,
+            entity_name=namespace,
+            node=None,
+            activity_type=ActivityType.CREATE,
+            user=current_user.username,
+        ),
+    )
+    owner_role = Role(
+        name=owner_role_name,
+        description=f"Owner group for namespace boundary {namespace}",
+        created_by_id=current_user.id,
+        scopes=_namespace_boundary_scopes(namespace, ResourceAction.MANAGE),
+    )
+    session.add(owner_role)
+    await session.flush()
+    owner_assignment = RoleAssignment(
+        principal_id=owner.id,
+        role_id=owner_role.id,
+        granted_by_id=current_user.id,
+    )
+    session.add_all(
+        [
+            owner_assignment,
+            _role_creation_history(owner_role, current_user),
+            _assignment_creation_history(
+                principal=owner,
+                role=owner_role,
+                current_user=current_user,
+            ),
+        ],
+    )
+
+    if deployer_role_name:
+        deployer_role = Role(
+            name=deployer_role_name,
+            description=f"Deployment access for namespace boundary {namespace}",
+            created_by_id=current_user.id,
+            scopes=_namespace_boundary_scopes(namespace, ResourceAction.DELETE),
+        )
+        session.add(deployer_role)
+        await session.flush()
+        deployer_assignments = [
+            RoleAssignment(
+                principal_id=deployer.id,
+                role_id=deployer_role.id,
+                granted_by_id=current_user.id,
+            )
+            for deployer in deployers
+        ]
+        session.add_all(
+            [
+                *deployer_assignments,
+                _role_creation_history(deployer_role, current_user),
+                *[
+                    _assignment_creation_history(
+                        principal=deployer,
+                        role=deployer_role,
+                        current_user=current_user,
+                    )
+                    for deployer in deployers
+                ],
+            ],
+        )
+
+    await session.commit()
+    return NamespaceProvisionResponse(
+        namespace=namespace,
+        owner_role=owner_role_name,
+        deployer_role=deployer_role_name,
+    )
+
+
 async def create_or_reactivate_namespace(
     namespace: str,
     *,
@@ -455,19 +726,7 @@ async def create_or_reactivate_namespace(
             status=NamespaceWriteStatus.ALREADY_EXISTS,
             namespaces=[namespace],
         )
-    # Block creating child namespaces under a git root — only branch namespaces
-    # (configured via PATCH /namespaces/{name}/git with parent_namespace + git_branch)
-    # are allowed there.
-    parent = namespace.rsplit(".", 1)[0] if "." in namespace else None
-    if parent:
-        parent_ns = await NodeNamespace.get(session, parent, raise_if_not_exists=False)
-        if parent_ns and parent_ns.github_repo_path and parent_ns.git_branch is None:
-            raise DJInvalidInputException(
-                message=(
-                    f"Cannot create namespace '{namespace}' under git root '{parent}'. "
-                    "Create a new branch under this namespace instead."
-                ),
-            )
+    await _validate_namespace_creation_parent(session, namespace)
 
     created_namespaces = await create_namespace(
         session=session,

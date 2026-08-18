@@ -10,7 +10,9 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datajunction_server.api.namespaces import provision_node_namespace
 from datajunction_server.database.namespace import NodeNamespace
+from datajunction_server.database.user import OAuthProvider, PrincipalKind, User
 from datajunction_server.internal.access.authorization import (
     AuthorizationService,
 )
@@ -22,7 +24,7 @@ from datajunction_server.internal.namespaces import (
     node_spec_to_yaml,
 )
 from datajunction_server.models import access
-from datajunction_server.models.access import ResourceAction
+from datajunction_server.models.access import ResourceAction, ResourceType
 from datajunction_server.models.deployment import (
     BulkNamespaceSourcesRequest,
     BulkNamespaceSourcesResponse,
@@ -38,6 +40,7 @@ from datajunction_server.models.deployment import (
     SourceSpec,
     TransformSpec,
 )
+from datajunction_server.models.namespace import NamespaceProvisionRequest
 from datajunction_server.models.partition import Granularity, PartitionType
 from datajunction_server.utils import get_query_service_client
 from tests.authz import VALIDATOR_AUTH_SERVICE, scoped
@@ -54,6 +57,43 @@ def patch_effective_writer_concurrency():
         return_value=1,
     ):
         yield
+
+
+async def test_provision_namespace_boundary(
+    session: AsyncSession,
+    current_user: User,
+    mocker,
+):
+    owner_group = User(
+        username="api-namespace-owners",
+        password=None,
+        email=None,
+        name="API namespace owners",
+        oauth_provider=OAuthProvider.BASIC,
+        kind=PrincipalKind.GROUP,
+    )
+    session.add(owner_group)
+    await session.commit()
+    access_checker = mocker.MagicMock()
+    access_checker.check = mocker.AsyncMock()
+
+    result = await provision_node_namespace(
+        "api_governed",
+        NamespaceProvisionRequest(owner_group=owner_group.username),
+        session=session,
+        current_user=current_user,
+        access_checker=access_checker,
+    )
+
+    assert result.namespace == "api_governed"
+    assert result.owner_role == "namespace:api_governed:owners"
+    assert result.deployer_role is None
+    assert access_checker.add_scope.call_args_list == [
+        mocker.call(ResourceType.NAMESPACE, "api_governed", ResourceAction.MANAGE),
+        mocker.call(ResourceType.NAMESPACE, "api_governed.*", ResourceAction.MANAGE),
+        mocker.call(ResourceType.NODE, "api_governed.*", ResourceAction.MANAGE),
+    ]
+    access_checker.check.assert_awaited_once()
 
 
 @pytest.mark.asyncio
