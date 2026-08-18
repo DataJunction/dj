@@ -42,10 +42,7 @@ from datajunction_server.internal.namespace_locks import (
     lock_namespace_boundary_lifecycle,
 )
 from datajunction_server.internal.nodes import get_single_cube_revision_metadata
-from datajunction_server.models.access import (
-    ResourceAction,
-    ResourceType,
-)
+from datajunction_server.models.access import ResourceAction, ResourceType
 from datajunction_server.models.deployment import (
     CubeSpec,
     DeploymentSourceType,
@@ -599,14 +596,13 @@ async def _stage_creator_owner_role(
     )
     session.add(owner_role)
     await session.flush()
-    assignment = RoleAssignment(
-        principal_id=current_user.id,
-        role_id=owner_role.id,
-        granted_by_id=current_user.id,
-    )
     session.add_all(
         [
-            assignment,
+            RoleAssignment(
+                principal_id=current_user.id,
+                role_id=owner_role.id,
+                granted_by_id=current_user.id,
+            ),
             _role_creation_history(owner_role, current_user),
             _assignment_creation_history(
                 principal=current_user,
