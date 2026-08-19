@@ -1970,12 +1970,12 @@ class TestDeployments:
         default_us_state,
     ):
         """
-        A pre-agg declared in a deployment spec with ``dimension_columns`` binds
-        each grain dimension to its physical column, and the generated measures
-        SQL reads that physical column (aliased back to the DJ name) instead of
-        the DJ dimension name.
+        A pre-agg declared in a deployment spec binds each grain dimension to
+        its physical column under ``dimensions``, and the generated measures SQL
+        reads that physical column (aliased back to the DJ name) instead of the
+        DJ dimension name.
 
-        Regression: the ``dimension_columns`` feature was only covered through the
+        Regression: the dimension binding was only covered through the
         POST /preaggs/register API path; the deployment/orchestrator path (what
         ``dj push`` uses) had no coverage. This exercises the two shapes that path
         must get right: a joined dimension's *key* satisfied by a differently
@@ -8053,8 +8053,8 @@ class TestExternalPreAggDeploy:
         default_us_states,
         default_us_state,
     ):
-        """A pre-agg whose measure_columns key is not a valid measure fails the
-        whole deploy and rolls it back -- no nodes or pre-aggs are left behind."""
+        """A pre-agg whose `metrics` key is not a valid measure fails the whole
+        deploy and rolls it back -- no nodes or pre-aggs are left behind."""
         _override_query_service(
             client,
             {"hard_hat_count": "bigint", "state_name": "string"},
@@ -8479,7 +8479,7 @@ class TestExternalPreAggDeploy:
         default_us_states,
         default_us_state,
     ):
-        """dimension_columns on a deployed pre-agg flows through reconcile so the
+        """A deployed pre-agg's dimension binding flows through reconcile so the
         renamed physical dimension column is read at query time."""
         _override_query_service(
             client,

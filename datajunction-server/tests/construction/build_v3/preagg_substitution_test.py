@@ -47,22 +47,32 @@ async def _register_external_preagg(
     metrics,
     dimensions,
     table_ref,
-    measure_columns,
     table_columns,
-    dimension_columns=None,
     expected_status=201,
 ):
     """
     Register an externally-built pre-aggregation via /preaggs/register with a
     mocked query service that reports ``table_columns`` for the external table.
-    Returns the response (asserts ``expected_status``).
+
+    ``metrics`` and ``dimensions`` are the request's maps from reference to the
+    physical column of the external table that holds it. Returns the response
+    (asserts ``expected_status``).
+
+    ``table_columns`` is either a name -> type map, or a bare list of names whose
+    types are inferred from what each column backs: `double` for a measure and
+    `string` for a dimension, which is what most of these fixtures hold. Every
+    binding is type-checked at registration, so a test whose dimension is numeric
+    (a date or an id) passes the map form and spells the type out.
     """
 
-    items = (
-        table_columns.items()
-        if isinstance(table_columns, dict)
-        else [(name, "double") for name in table_columns]
-    )
+    if isinstance(table_columns, dict):
+        items = list(table_columns.items())
+    else:
+        bound_to_a_dimension = set(dimensions.values())
+        items = [
+            (name, "string" if name in bound_to_a_dimension else "double")
+            for name in table_columns
+        ]
 
     async def _fake_columns(*args, **kwargs):
         return [SimpleNamespace(name=name, type=type_str) for name, type_str in items]
@@ -75,10 +85,7 @@ async def _register_external_preagg(
             "metrics": metrics,
             "dimensions": dimensions,
             "table": table_ref,
-            "measure_columns": measure_columns,
         }
-        if dimension_columns is not None:
-            payload["dimension_columns"] = dimension_columns
         response = await client.post("/preaggs/register", json=payload)
         assert response.status_code == expected_status, response.text
         return response
@@ -94,15 +101,14 @@ class TestExternalPreAggRouting:
         """An exact-grain query reads the external table's physical source column."""
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=["v3.order_details.status"],
+            metrics={"v3.total_revenue": "revenue_sum"},
+            dimensions={"v3.order_details.status": "status"},
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
                 "table": "revenue_by_status",
                 "valid_through_ts": 20250101,
             },
-            measure_columns={"v3.total_revenue": "revenue_sum"},
             table_columns=["status", "revenue_sum"],
         )
         # Measures SQL: reads the external table, applying SUM over the
@@ -154,15 +160,14 @@ class TestExternalPreAggRouting:
         """An additive measure rolls up from an external pre-agg at a coarser grain."""
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=["v3.order_details.status"],
+            metrics={"v3.total_revenue": "revenue_sum"},
+            dimensions={"v3.order_details.status": "status"},
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
                 "table": "revenue_by_status",
                 "valid_through_ts": 20250101,
             },
-            measure_columns={"v3.total_revenue": "revenue_sum"},
             table_columns=["status", "revenue_sum"],
         )
         # Query at a coarser grain (no dimensions) -> roll up the additive sum
@@ -204,15 +209,14 @@ class TestExternalPreAggRouting:
         grain; the query falls back to raw sources."""
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.order_count"],
-            dimensions=["v3.order_details.status"],
+            metrics={"v3.order_count": "order_cnt"},
+            dimensions={"v3.order_details.status": "status"},
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
                 "table": "orders_by_status",
                 "valid_through_ts": 20250101,
             },
-            measure_columns={"v3.order_count": "order_cnt"},
             table_columns=["status", "order_cnt"],
         )
         # Coarser grain than the pre-agg -> a distinct count cannot be summed.
@@ -243,17 +247,16 @@ class TestExternalPreAggRouting:
         """
         response = await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_quantity", "v3.order_count"],
-            dimensions=["v3.order_details.status"],
+            metrics={
+                "v3.total_quantity": "qty_sum",
+                "v3.order_count": "order_id_col",
+            },
+            dimensions={"v3.order_details.status": "status"},
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
                 "table": "qty_orders_by_status",
                 "valid_through_ts": 20250101,
-            },
-            measure_columns={
-                "v3.total_quantity": "qty_sum",
-                "v3.order_count": "order_id_col",
             },
             table_columns={
                 "status": "string",
@@ -303,15 +306,14 @@ class TestExternalPreAggRouting:
         """
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_unit_price"],
-            dimensions=["v3.order_details.status"],
+            metrics={"v3.total_unit_price": "unit_price_sum"},
+            dimensions={"v3.order_details.status": "status"},
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
                 "table": "unit_price_by_status",
                 "valid_through_ts": 20250101,
             },
-            measure_columns={"v3.total_unit_price": "unit_price_sum"},
             table_columns=["status", "unit_price_sum"],
         )
         # SUM metric routes to the agg (control).
@@ -369,17 +371,16 @@ class TestExternalPreAggRouting:
         """
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_unit_price", "v3.max_unit_price"],
-            dimensions=["v3.order_details.status"],
+            metrics={
+                "v3.total_unit_price": "unit_price_sum",
+                "v3.max_unit_price": "unit_price_max",
+            },
+            dimensions={"v3.order_details.status": "status"},
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
                 "table": "unit_price_both",
                 "valid_through_ts": 20250101,
-            },
-            measure_columns={
-                "v3.total_unit_price": "unit_price_sum",
-                "v3.max_unit_price": "unit_price_max",
             },
             table_columns={
                 "status": "string",
@@ -438,15 +439,14 @@ class TestExternalPreAggRouting:
         ):
             await _register_external_preagg(
                 client_with_build_v3,
-                metrics=[metric],
-                dimensions=["v3.order_details.status"],
+                metrics={metric: column},
+                dimensions={"v3.order_details.status": "status"},
                 table_ref={
                     "catalog": "default",
                     "schema": "analytics",
                     "table": table,
                     "valid_through_ts": 20250101,
                 },
-                measure_columns={metric: column},
                 table_columns={"status": "string", column: "double"},
             )
 
@@ -500,15 +500,14 @@ class TestExternalPreAggRouting:
         """
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=["v3.order_details.status"],
+            metrics={"v3.total_revenue": "rev_sum"},
+            dimensions={"v3.order_details.status": "status"},
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
                 "table": "revenue_by_status",
                 "valid_through_ts": 20250101,
             },
-            measure_columns={"v3.total_revenue": "rev_sum"},
             table_columns={"status": "string", "rev_sum": "double"},
         )
         params = {
@@ -563,31 +562,28 @@ class TestExternalPreAggRouting:
         displace an earlier candidate. Pinning this makes the tie-break explicit
         rather than incidental.
         """
-        for table, metrics, measure_columns, table_columns in (
+        for table, metric_bindings, table_columns in (
             (
                 "revenue_only",
-                ["v3.total_revenue"],
                 {"v3.total_revenue": "rev_sum"},
                 {"status": "string", "rev_sum": "double"},
             ),
             (
                 "revenue_and_quantity",
-                ["v3.total_revenue", "v3.total_quantity"],
                 {"v3.total_revenue": "rev_sum", "v3.total_quantity": "qty_sum"},
                 {"status": "string", "rev_sum": "double", "qty_sum": "double"},
             ),
         ):
             await _register_external_preagg(
                 client_with_build_v3,
-                metrics=metrics,
-                dimensions=["v3.order_details.status"],
+                metrics=metric_bindings,
+                dimensions={"v3.order_details.status": "status"},
                 table_ref={
                     "catalog": "default",
                     "schema": "analytics",
                     "table": table,
                     "valid_through_ts": 20250101,
                 },
-                measure_columns=measure_columns,
                 table_columns=table_columns,
             )
 
@@ -630,16 +626,14 @@ class TestExternalPreAggRouting:
         dimension = "v3.location.country[customer->home]"
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=[dimension],
+            metrics={"v3.total_revenue": "rev_sum"},
+            dimensions={dimension: "home_country"},
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
                 "table": "revenue_by_home_country",
                 "valid_through_ts": 20250101,
             },
-            measure_columns={"v3.total_revenue": "rev_sum"},
-            dimension_columns={dimension: "home_country"},
             table_columns={"home_country": "string", "rev_sum": "double"},
         )
         response = await client_with_build_v3.get(
@@ -662,14 +656,13 @@ class TestExternalPreAggRouting:
         used to answer queries."""
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=["v3.order_details.status"],
+            metrics={"v3.total_revenue": "revenue_sum"},
+            dimensions={"v3.order_details.status": "status"},
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
                 "table": "revenue_pending",
             },
-            measure_columns={"v3.total_revenue": "revenue_sum"},
             table_columns=["status", "revenue_sum"],
         )
         response = await client_with_build_v3.get(
@@ -692,17 +685,16 @@ class TestExternalPreAggRouting:
         from it at the exact grain."""
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue", "v3.total_quantity"],
-            dimensions=["v3.order_details.status"],
+            metrics={
+                "v3.total_revenue": "revenue_sum",
+                "v3.total_quantity": "qty_sum",
+            },
+            dimensions={"v3.order_details.status": "status"},
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
                 "table": "revenue_qty_by_status",
                 "valid_through_ts": 20250101,
-            },
-            measure_columns={
-                "v3.total_revenue": "revenue_sum",
-                "v3.total_quantity": "qty_sum",
             },
             table_columns=["status", "revenue_sum", "qty_sum"],
         )
@@ -763,17 +755,16 @@ class TestExternalPreAggRouting:
         even the covered total_revenue/total_quantity come from source)."""
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue", "v3.total_quantity"],
-            dimensions=["v3.order_details.status"],
+            metrics={
+                "v3.total_revenue": "revenue_sum",
+                "v3.total_quantity": "qty_sum",
+            },
+            dimensions={"v3.order_details.status": "status"},
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
                 "table": "revenue_qty_by_status",
                 "valid_through_ts": 20250101,
-            },
-            measure_columns={
-                "v3.total_revenue": "revenue_sum",
-                "v3.total_quantity": "qty_sum",
             },
             table_columns=["status", "revenue_sum", "qty_sum"],
         )
@@ -825,19 +816,22 @@ class TestExternalPreAggRouting:
         rolling the additive measure up over the dropped dimension."""
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=[
-                "v3.order_details.status",
-                "v3.order_details.product_id",
-            ],
+            metrics={"v3.total_revenue": "revenue_sum"},
+            dimensions={
+                "v3.order_details.status": "status",
+                "v3.order_details.product_id": "product_id",
+            },
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
                 "table": "revenue_by_status_product",
                 "valid_through_ts": 20250101,
             },
-            measure_columns={"v3.total_revenue": "revenue_sum"},
-            table_columns=["status", "product_id", "revenue_sum"],
+            table_columns={
+                "status": "string",
+                "product_id": "int",
+                "revenue_sum": "double",
+            },
         )
         measures_response = await client_with_build_v3.get(
             "/sql/measures/v3/",
@@ -866,15 +860,14 @@ class TestExternalPreAggRouting:
         cannot add a grain), so it computes from source."""
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=["v3.order_details.status"],
+            metrics={"v3.total_revenue": "revenue_sum"},
+            dimensions={"v3.order_details.status": "status"},
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
                 "table": "revenue_by_status",
                 "valid_through_ts": 20250101,
             },
-            measure_columns={"v3.total_revenue": "revenue_sum"},
             table_columns=["status", "revenue_sum"],
         )
         # product_id is not in the pre-agg grain -> cannot be served by it.
@@ -918,15 +911,14 @@ class TestExternalPreAggRouting:
         pre-agg read."""
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=["v3.order_details.status"],
+            metrics={"v3.total_revenue": "revenue_sum"},
+            dimensions={"v3.order_details.status": "status"},
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
                 "table": "revenue_by_status",
                 "valid_through_ts": 20250101,
             },
-            measure_columns={"v3.total_revenue": "revenue_sum"},
             table_columns=["status", "revenue_sum"],
         )
         measures_response = await client_with_build_v3.get(
@@ -985,15 +977,14 @@ class TestExternalPreAggRouting:
         to source (the pre-agg has already aggregated that column away)."""
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=["v3.order_details.status"],
+            metrics={"v3.total_revenue": "revenue_sum"},
+            dimensions={"v3.order_details.status": "status"},
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
                 "table": "revenue_by_status",
                 "valid_through_ts": 20250101,
             },
-            measure_columns={"v3.total_revenue": "revenue_sum"},
             table_columns=["status", "revenue_sum"],
         )
         measures_response = await client_with_build_v3.get(
@@ -1036,16 +1027,17 @@ class TestExternalPreAggRouting:
         Previously the predicate was dropped and the result over-counted."""
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=["v3.order_details.status", "v3.product.category"],
+            metrics={"v3.total_revenue": "rev_sum"},
+            dimensions={
+                "v3.order_details.status": "status",
+                "v3.product.category": "cat",
+            },
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
                 "table": "rev_by_status_cat",
                 "valid_through_ts": 20250101,
             },
-            measure_columns={"v3.total_revenue": "rev_sum"},
-            dimension_columns={"v3.product.category": "cat"},
             table_columns={"status": "string", "cat": "string", "rev_sum": "double"},
         )
         params = {
@@ -1104,16 +1096,17 @@ class TestExternalPreAggRouting:
         """
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=["v3.order_details.status", "v3.product.category"],
+            metrics={"v3.total_revenue": "rev_sum"},
+            dimensions={
+                "v3.order_details.status": "status",
+                "v3.product.category": "cat",
+            },
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
                 "table": "rev_status_cat_both",
                 "valid_through_ts": 20250101,
             },
-            measure_columns={"v3.total_revenue": "rev_sum"},
-            dimension_columns={"v3.product.category": "cat"},
             table_columns={"status": "string", "cat": "string", "rev_sum": "double"},
         )
         params = {
@@ -1172,21 +1165,19 @@ class TestExternalPreAggRouting:
         only the finer one carries reads the finer one -- each through its own
         column mapping.
         """
-        for table, dimensions, dimension_columns, table_columns in (
+        for table, dimensions, table_columns in (
             (
                 "rev_by_status_cat",
-                ["v3.order_details.status", "v3.product.category"],
-                {"v3.product.category": "cat"},
+                {
+                    "v3.order_details.status": "status",
+                    "v3.product.category": "cat",
+                },
                 {"status": "string", "cat": "string", "rev_sum": "double"},
             ),
             (
                 "rev_by_status_cat_day",
-                [
-                    "v3.order_details.status",
-                    "v3.product.category",
-                    "v3.date.date_id[order]",
-                ],
                 {
+                    "v3.order_details.status": "status",
                     "v3.product.category": "cat",
                     "v3.date.date_id[order]": "day_key",
                 },
@@ -1200,7 +1191,7 @@ class TestExternalPreAggRouting:
         ):
             await _register_external_preagg(
                 client_with_build_v3,
-                metrics=["v3.total_revenue"],
+                metrics={"v3.total_revenue": "rev_sum"},
                 dimensions=dimensions,
                 table_ref={
                     "catalog": "default",
@@ -1208,8 +1199,6 @@ class TestExternalPreAggRouting:
                     "table": table,
                     "valid_through_ts": 20250101,
                 },
-                measure_columns={"v3.total_revenue": "rev_sum"},
-                dimension_columns=dimension_columns,
                 table_columns=table_columns,
             )
 
@@ -1281,13 +1270,16 @@ class TestExternalPreAggRouting:
 
         ``country[from]`` and ``country[to]`` both resolve to the column
         ``country``, so they must be disambiguated to ``country_from`` /
-        ``country_to``; mapping only the ``to`` role checks the two are bound
-        independently rather than sharing one column.
+        ``country_to``; storing the ``to`` role under a different physical name
+        checks the two are bound independently rather than sharing one column.
         """
-        dimensions = ["v3.location.country[from]", "v3.location.country[to]"]
+        dimensions = {
+            "v3.location.country[from]": "country_from",
+            "v3.location.country[to]": "dest_country",
+        }
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
+            metrics={"v3.total_revenue": "rev_sum"},
             dimensions=dimensions,
             table_ref={
                 "catalog": "default",
@@ -1295,15 +1287,13 @@ class TestExternalPreAggRouting:
                 "table": "rev_by_route",
                 "valid_through_ts": 20250101,
             },
-            measure_columns={"v3.total_revenue": "rev_sum"},
-            dimension_columns={"v3.location.country[to]": "dest_country"},
             table_columns={
                 "country_from": "string",
                 "dest_country": "string",
                 "rev_sum": "double",
             },
         )
-        params = {"metrics": ["v3.total_revenue"], "dimensions": dimensions}
+        params = {"metrics": ["v3.total_revenue"], "dimensions": list(dimensions)}
         measures_response = await client_with_build_v3.get(
             "/sql/measures/v3/",
             params=params,
@@ -1349,16 +1339,14 @@ class TestExternalPreAggRouting:
         """
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=["v3.date.date_id[order]"],
+            metrics={"v3.total_revenue": "rev_sum"},
+            dimensions={"v3.date.date_id[order]": "day_key"},
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
                 "table": "rev_by_day",
                 "valid_through_ts": 20250101,
             },
-            measure_columns={"v3.total_revenue": "rev_sum"},
-            dimension_columns={"v3.date.date_id[order]": "day_key"},
             table_columns={"day_key": "int", "rev_sum": "double"},
         )
         metrics_response = await client_with_build_v3.get(
@@ -1400,16 +1388,15 @@ class TestExternalPreAggRouting:
         """
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=["v3.customer.customer_id[customer]"],
+            metrics={"v3.total_revenue": "revenue_sum"},
+            dimensions={"v3.customer.customer_id[customer]": "customer_id_customer"},
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
                 "table": "revenue_by_customer",
                 "valid_through_ts": 20250101,
             },
-            measure_columns={"v3.total_revenue": "revenue_sum"},
-            table_columns=["customer_id", "revenue_sum"],
+            table_columns={"customer_id_customer": "int", "revenue_sum": "double"},
         )
         metrics_response = await client_with_build_v3.get(
             "/sql/metrics/v3/",
@@ -1463,19 +1450,17 @@ class TestExternalPreAggRouting:
         client_with_build_v3,
     ):
         """A grain dimension stored under a different physical column name is read
-        via dimension_columns and aliased back to the DJ name."""
+        under `dimensions` and aliased back to the DJ name."""
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=["v3.order_details.status"],
+            metrics={"v3.total_revenue": "revenue_sum"},
+            dimensions={"v3.order_details.status": "order_status"},
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
                 "table": "revenue_by_status",
                 "valid_through_ts": 20250101,
             },
-            measure_columns={"v3.total_revenue": "revenue_sum"},
-            dimension_columns={"v3.order_details.status": "order_status"},
             table_columns={"order_status": "string", "revenue_sum": "double"},
         )
         measures_response = await client_with_build_v3.get(
@@ -1510,16 +1495,14 @@ class TestExternalPreAggRouting:
         """
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=["v3.date.date_id[order]"],
+            metrics={"v3.total_revenue": "rev_sum"},
+            dimensions={"v3.date.date_id[order]": "day_key"},
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
                 "table": "revenue_by_day",
                 "valid_through_ts": 20250101,
             },
-            measure_columns={"v3.total_revenue": "rev_sum"},
-            dimension_columns={"v3.date.date_id[order]": "day_key"},
             table_columns={"day_key": "int", "rev_sum": "double"},
         )
         # Measures SQL: reads the mapped physical column (day_key) and aliases it
@@ -1577,14 +1560,13 @@ class TestExternalPreAggRouting:
         """
         rejected = await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=["v3.location.country"],
+            metrics={"v3.total_revenue": "rev_sum"},
+            dimensions={"v3.location.country": "country"},
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
                 "table": "revenue_by_country",
             },
-            measure_columns={"v3.total_revenue": "rev_sum"},
             table_columns={"country": "string", "rev_sum": "double"},
             expected_status=422,
         )
@@ -1596,44 +1578,48 @@ class TestExternalPreAggRouting:
 
         # References that are legal stay legal: a role-qualified dimension, a
         # locally-owned column, the FK column behind a join, and a role-free link.
-        for dimension, table, columns in (
+        for dimension, column, table, columns in (
             (
                 "v3.location.country[from]",
+                "country_from",
                 "revenue_by_from_country",
                 {"country_from": "string", "rev_sum": "double"},
             ),
             (
                 "v3.order_details.status",
+                "status",
                 "revenue_by_status_local",
                 {"status": "string", "rev_sum": "double"},
             ),
             (
                 "v3.order_details.order_date",
+                "order_date",
                 "revenue_by_order_date",
                 {"order_date": "int", "rev_sum": "double"},
             ),
             (
                 "v3.product.category",
+                "category",
                 "revenue_by_category_plain",
                 {"category": "string", "rev_sum": "double"},
             ),
             (
                 "v3.customer.customer_id",
+                "customer_id",
                 "revenue_by_customer_bare",
                 {"customer_id": "int", "rev_sum": "double"},
             ),
         ):
             await _register_external_preagg(
                 client_with_build_v3,
-                metrics=["v3.total_revenue"],
-                dimensions=[dimension],
+                metrics={"v3.total_revenue": "rev_sum"},
+                dimensions={dimension: column},
                 table_ref={
                     "catalog": "default",
                     "schema": "analytics",
                     "table": table,
                     "valid_through_ts": 20250101,
                 },
-                measure_columns={"v3.total_revenue": "rev_sum"},
                 table_columns=columns,
             )
 
@@ -1648,16 +1634,14 @@ class TestExternalPreAggRouting:
         """
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=["v3.customer.customer_id"],
+            metrics={"v3.total_revenue": "rev_sum"},
+            dimensions={"v3.customer.customer_id": "cust_key"},
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
                 "table": "revenue_by_customer_key",
                 "valid_through_ts": 20250101,
             },
-            measure_columns={"v3.total_revenue": "rev_sum"},
-            dimension_columns={"v3.customer.customer_id": "cust_key"},
             table_columns={"cust_key": "int", "rev_sum": "double"},
         )
         # The output alias follows the spelling that was requested; only matching
@@ -1685,46 +1669,34 @@ class TestExternalPreAggRouting:
         self,
         client_with_build_v3,
     ):
-        """A dimension_columns mapping to a column absent from the table is
-        rejected; an unknown dimension key is rejected too."""
+        """A dimension bound to a column the table doesn't have is rejected, and
+        so is one bound to a column of an incompatible type."""
         missing = await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=["v3.order_details.status"],
+            metrics={"v3.total_revenue": "revenue_sum"},
+            dimensions={"v3.order_details.status": "nope"},
             table_ref={"catalog": "default", "schema": "analytics", "table": "t"},
-            measure_columns={"v3.total_revenue": "revenue_sum"},
-            dimension_columns={"v3.order_details.status": "nope"},
             table_columns=["order_status", "revenue_sum"],
             expected_status=422,
         )
-        assert "not found in table" in missing.json()["message"]
-
-        unknown = await _register_external_preagg(
-            client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=["v3.order_details.status"],
-            table_ref={"catalog": "default", "schema": "analytics", "table": "t"},
-            measure_columns={"v3.total_revenue": "revenue_sum"},
-            dimension_columns={"v3.order_details.not_a_dim": "x"},
-            table_columns=["order_status", "revenue_sum", "x"],
-            expected_status=422,
+        assert missing.json()["message"] == (
+            "Columns ['nope'] declared under `metrics`/`dimensions` were not "
+            "found in table default.analytics.t."
         )
-        assert "not in the pre-aggregation's dimensions" in unknown.json()["message"]
 
         # A string dimension bound to a numeric column is type-incompatible.
         bad_type = await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=["v3.order_details.status"],
+            metrics={"v3.total_revenue": "revenue_sum"},
+            dimensions={"v3.order_details.status": "status_num"},
             table_ref={"catalog": "default", "schema": "analytics", "table": "t"},
-            measure_columns={"v3.total_revenue": "revenue_sum"},
-            dimension_columns={"v3.order_details.status": "status_num"},
             table_columns={"status_num": "bigint", "revenue_sum": "double"},
             expected_status=422,
         )
-        assert (
-            "not type-compatible with dimension 'v3.order_details.status'"
-            in bad_type.json()["message"]
+        assert bad_type.json()["message"] == (
+            "Column 'status_num' (type bigint) in table default.analytics.t is "
+            "not type-compatible with dimension 'v3.order_details.status' "
+            "(expected string)."
         )
 
     @pytest.mark.asyncio
@@ -1733,20 +1705,18 @@ class TestExternalPreAggRouting:
         client_with_build_v3,
     ):
         """A joined dimension attribute stored (denormalized) in the external
-        table is read directly from it via dimension_columns -- no join back to
-        the dimension node."""
+        table is read directly from its declared column -- no join back to the
+        dimension node."""
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=["v3.product.category"],
+            metrics={"v3.total_revenue": "rev_sum"},
+            dimensions={"v3.product.category": "cat"},
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
                 "table": "revenue_by_category",
                 "valid_through_ts": 20250101,
             },
-            measure_columns={"v3.total_revenue": "rev_sum"},
-            dimension_columns={"v3.product.category": "cat"},
             table_columns={"cat": "string", "rev_sum": "double"},
         )
         measures_response = await client_with_build_v3.get(
@@ -1778,18 +1748,13 @@ class TestExternalPreAggRouting:
         joined attribute) coexist on one external table."""
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=["v3.order_details.status", "v3.product.category"],
+            metrics={"v3.total_revenue": "rev_sum"},
+            dimensions={"v3.order_details.status": "st", "v3.product.category": "cat"},
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
                 "table": "revenue_by_status_category",
                 "valid_through_ts": 20250101,
-            },
-            measure_columns={"v3.total_revenue": "rev_sum"},
-            dimension_columns={
-                "v3.order_details.status": "st",
-                "v3.product.category": "cat",
             },
             table_columns={"st": "string", "cat": "string", "rev_sum": "double"},
         )
@@ -1822,28 +1787,29 @@ class TestExternalPreAggRouting:
         ranking candidates picked the coarse agg and dropped the predicate."""
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=["v3.order_details.status"],
+            metrics={"v3.total_revenue": "rev_sum"},
+            dimensions={"v3.order_details.status": "status"},
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
                 "table": "rev_by_status",
                 "valid_through_ts": 20250101,
             },
-            measure_columns={"v3.total_revenue": "rev_sum"},
             table_columns={"status": "string", "rev_sum": "double"},
         )
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=["v3.order_details.status", "v3.product.category"],
+            metrics={"v3.total_revenue": "rev_sum"},
+            dimensions={
+                "v3.order_details.status": "status",
+                "v3.product.category": "category",
+            },
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
                 "table": "rev_by_status_cat",
                 "valid_through_ts": 20250101,
             },
-            measure_columns={"v3.total_revenue": "rev_sum"},
             table_columns={
                 "status": "string",
                 "category": "string",
@@ -1900,16 +1866,17 @@ class TestExternalPreAggRouting:
         would reference a column the external table does not have."""
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=["v3.order_details.status", "v3.product.category"],
+            metrics={"v3.total_revenue": "rev_sum"},
+            dimensions={
+                "v3.order_details.status": "st",
+                "v3.product.category": "category",
+            },
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
                 "table": "rev_st_cat",
                 "valid_through_ts": 20250101,
             },
-            measure_columns={"v3.total_revenue": "rev_sum"},
-            dimension_columns={"v3.order_details.status": "st"},
             table_columns={"st": "string", "category": "string", "rev_sum": "double"},
         )
         params = {
@@ -1962,29 +1929,26 @@ class TestExternalPreAggRouting:
         another, depending on which agg the metric routes to."""
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=["v3.order_details.status"],
+            metrics={"v3.total_revenue": "rev_sum"},
+            dimensions={"v3.order_details.status": "order_status"},
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
                 "table": "rev_by_st",
                 "valid_through_ts": 20250101,
             },
-            measure_columns={"v3.total_revenue": "rev_sum"},
-            dimension_columns={"v3.order_details.status": "order_status"},
             table_columns={"order_status": "string", "rev_sum": "double"},
         )
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_quantity"],
-            dimensions=["v3.order_details.status"],
+            metrics={"v3.total_quantity": "qty_sum"},
+            dimensions={"v3.order_details.status": "status"},
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
                 "table": "qty_by_status",
                 "valid_through_ts": 20250101,
             },
-            measure_columns={"v3.total_quantity": "qty_sum"},
             table_columns={"status": "string", "qty_sum": "double"},
         )
         revenue_response = await client_with_build_v3.get(
@@ -2030,15 +1994,14 @@ class TestExternalPreAggRouting:
         exposes)."""
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=["v3.order_details.status"],
+            metrics={"v3.total_revenue": "rev_sum"},
+            dimensions={"v3.order_details.status": "status"},
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
                 "table": "rev_by_status",
                 "valid_through_ts": 20250101,
             },
-            measure_columns={"v3.total_revenue": "rev_sum"},
             table_columns={"status": "string", "rev_sum": "double"},
         )
         params = {
@@ -2090,15 +2053,14 @@ class TestExternalPreAggRouting:
         leaks into the pre-agg CTE, which would truncate rows before the roll-up."""
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=["v3.order_details.status"],
+            metrics={"v3.total_revenue": "rev_sum"},
+            dimensions={"v3.order_details.status": "status"},
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
                 "table": "rev_by_status",
                 "valid_through_ts": 20250101,
             },
-            measure_columns={"v3.total_revenue": "rev_sum"},
             table_columns={"status": "string", "rev_sum": "double"},
         )
         params = {
@@ -2149,29 +2111,29 @@ class TestExternalPreAggRouting:
         key still rolls up (on the mapped column)."""
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=[],
+            metrics={"v3.total_revenue": "rev_sum"},
+            dimensions={},
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
                 "table": "rev_total",
                 "valid_through_ts": 20250101,
             },
-            measure_columns={"v3.total_revenue": "rev_sum"},
             table_columns={"rev_sum": "double"},
         )
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=["v3.order_details.status", "v3.product.category"],
+            metrics={"v3.total_revenue": "rev_sum"},
+            dimensions={
+                "v3.order_details.status": "status",
+                "v3.product.category": "cat",
+            },
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
                 "table": "rev_st_cat",
                 "valid_through_ts": 20250101,
             },
-            measure_columns={"v3.total_revenue": "rev_sum"},
-            dimension_columns={"v3.product.category": "cat"},
             table_columns={"status": "string", "cat": "string", "rev_sum": "double"},
         )
         # (a) No dimensions at all -> the empty-grain agg, scanned without GROUP BY.
@@ -2252,15 +2214,14 @@ class TestExternalPreAggRouting:
         carries no column for the distinct component."""
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=["v3.order_details.status"],
+            metrics={"v3.total_revenue": "rev_sum"},
+            dimensions={"v3.order_details.status": "status"},
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
                 "table": "rev_by_status",
                 "valid_through_ts": 20250101,
             },
-            measure_columns={"v3.total_revenue": "rev_sum"},
             table_columns={"status": "string", "rev_sum": "double"},
         )
         params = {
@@ -3267,10 +3228,9 @@ class TestPreAggFreshnessGating:
         assert partition_response.status_code == 201
         response = await _register_external_preagg(
             client,
-            metrics=["v3.total_revenue"],
-            dimensions=["v3.date.date_id[order]"],
+            metrics={"v3.total_revenue": "revenue_sum"},
+            dimensions={"v3.date.date_id[order]": "date_id_order"},
             table_ref={**self.TABLE_REF, "valid_through_ts": 20250101},
-            measure_columns={"v3.total_revenue": "revenue_sum"},
             table_columns={"date_id_order": "int", "revenue_sum": "double"},
         )
         return response.json()["preaggs"][0]["id"]
@@ -3496,14 +3456,12 @@ class TestPreAggJoinBack:
         """
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=[
-                "v3.customer.customer_id[customer]",
-                "v3.order_details.status",
-            ],
+            metrics={"v3.total_revenue": "rev_sum"},
+            dimensions={
+                "v3.customer.customer_id[customer]": "cust_key",
+                "v3.order_details.status": "status",
+            },
             table_ref=self.TABLE,
-            measure_columns={"v3.total_revenue": "rev_sum"},
-            dimension_columns={"v3.customer.customer_id[customer]": "cust_key"},
             table_columns={"cust_key": "int", "status": "string", "rev_sum": "double"},
         )
         params = {
@@ -3555,23 +3513,20 @@ class TestPreAggJoinBack:
         larger grain -- joins rank ahead of grain size, so no join is emitted."""
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=["v3.customer.customer_id[customer]"],
+            metrics={"v3.total_revenue": "rev_sum"},
+            dimensions={"v3.customer.customer_id[customer]": "cust_key"},
             table_ref={**self.TABLE, "table": "rev_by_cust_key"},
-            measure_columns={"v3.total_revenue": "rev_sum"},
-            dimension_columns={"v3.customer.customer_id[customer]": "cust_key"},
             table_columns={"cust_key": "int", "rev_sum": "double"},
         )
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=[
-                "v3.customer.name[customer]",
-                "v3.order_details.status",
-                "v3.product.category",
-            ],
+            metrics={"v3.total_revenue": "rev_sum"},
+            dimensions={
+                "v3.customer.name[customer]": "name_customer",
+                "v3.order_details.status": "status",
+                "v3.product.category": "category",
+            },
             table_ref={**self.TABLE, "table": "rev_by_name_status_cat"},
-            measure_columns={"v3.total_revenue": "rev_sum"},
             table_columns={
                 "name_customer": "string",
                 "status": "string",
@@ -3615,11 +3570,9 @@ class TestPreAggJoinBack:
         join back is by definition a roll-up -- so the query builds from source."""
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.order_count"],
-            dimensions=["v3.customer.customer_id[customer]"],
+            metrics={"v3.order_count": "order_cnt"},
+            dimensions={"v3.customer.customer_id[customer]": "cust_key"},
             table_ref={**self.TABLE, "table": "orders_by_cust"},
-            measure_columns={"v3.order_count": "order_cnt"},
-            dimension_columns={"v3.customer.customer_id[customer]": "cust_key"},
             table_columns={"cust_key": "int", "order_cnt": "bigint"},
         )
         params = {
@@ -3674,14 +3627,12 @@ class TestPreAggJoinBack:
         that doesn't exist."""
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=[
-                "v3.customer.customer_id[customer]",
-                "v3.order_details.status",
-            ],
+            metrics={"v3.total_revenue": "rev_sum"},
+            dimensions={
+                "v3.customer.customer_id[customer]": "cust_key",
+                "v3.order_details.status": "status",
+            },
             table_ref=self.TABLE,
-            measure_columns={"v3.total_revenue": "rev_sum"},
-            dimension_columns={"v3.customer.customer_id[customer]": "cust_key"},
             table_columns={"cust_key": "int", "status": "string", "rev_sum": "double"},
         )
         params = {
@@ -3739,18 +3690,13 @@ class TestPreAggJoinBack:
         into the same WHERE against their own dimension aliases."""
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=[
-                "v3.customer.customer_id[customer]",
-                "v3.product.product_id",
-                "v3.order_details.status",
-            ],
-            table_ref={**self.TABLE, "table": "rev_cust_prod_status"},
-            measure_columns={"v3.total_revenue": "rev_sum"},
-            dimension_columns={
+            metrics={"v3.total_revenue": "rev_sum"},
+            dimensions={
                 "v3.customer.customer_id[customer]": "cust_key",
                 "v3.product.product_id": "prod_key",
+                "v3.order_details.status": "status",
             },
+            table_ref={**self.TABLE, "table": "rev_cust_prod_status"},
             table_columns={
                 "cust_key": "int",
                 "prod_key": "int",
@@ -3828,10 +3774,9 @@ class TestPreAggJoinBack:
         and multiply the revenue, so the query builds from source instead."""
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=["v3.customer.location_id[customer]"],
+            metrics={"v3.total_revenue": "rev_sum"},
+            dimensions={"v3.customer.location_id[customer]": "location_id_customer"},
             table_ref={**self.TABLE, "table": "rev_by_cust_loc"},
-            measure_columns={"v3.total_revenue": "rev_sum"},
             table_columns={"location_id_customer": "int", "rev_sum": "double"},
         )
         params = {
@@ -3887,10 +3832,9 @@ class TestPreAggJoinBack:
         asks for the ``to`` role: a different join path, so no match."""
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=["v3.location.location_id[from]"],
+            metrics={"v3.total_revenue": "rev_sum"},
+            dimensions={"v3.location.location_id[from]": "location_id_from"},
             table_ref={**self.TABLE, "table": "rev_by_from_loc"},
-            measure_columns={"v3.total_revenue": "rev_sum"},
             table_columns={"location_id_from": "int", "rev_sum": "double"},
         )
         params = {
@@ -3974,17 +3918,12 @@ class TestPreAggJoinBack:
         await self._add_composite_key_dimension(client_with_build_v3)
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=[
-                "v3.order_line.order_id[line]",
-                "v3.order_line.line_number[line]",
-            ],
-            table_ref={**self.TABLE, "table": "rev_by_line"},
-            measure_columns={"v3.total_revenue": "rev_sum"},
-            dimension_columns={
+            metrics={"v3.total_revenue": "rev_sum"},
+            dimensions={
                 "v3.order_line.order_id[line]": "ord",
                 "v3.order_line.line_number[line]": "ln",
             },
+            table_ref={**self.TABLE, "table": "rev_by_line"},
             table_columns={"ord": "int", "ln": "int", "rev_sum": "double"},
         )
         params = {
@@ -4042,10 +3981,9 @@ class TestPreAggJoinBack:
         await self._add_composite_key_dimension(client_with_build_v3)
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=["v3.order_line.order_id[line]"],
+            metrics={"v3.total_revenue": "rev_sum"},
+            dimensions={"v3.order_line.order_id[line]": "order_id_line"},
             table_ref={**self.TABLE, "table": "rev_by_order"},
-            measure_columns={"v3.total_revenue": "rev_sum"},
             table_columns={"order_id_line": "int", "rev_sum": "double"},
         )
         params = {
@@ -4109,17 +4047,12 @@ class TestPreAggJoinBack:
         """Two retained keys, two dimensions joined onto the same scan."""
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=[
-                "v3.customer.customer_id[customer]",
-                "v3.product.product_id",
-            ],
-            table_ref={**self.TABLE, "table": "rev_by_cust_prod"},
-            measure_columns={"v3.total_revenue": "rev_sum"},
-            dimension_columns={
+            metrics={"v3.total_revenue": "rev_sum"},
+            dimensions={
                 "v3.customer.customer_id[customer]": "cust_key",
                 "v3.product.product_id": "prod_key",
             },
+            table_ref={**self.TABLE, "table": "rev_by_cust_prod"},
             table_columns={"cust_key": "int", "prod_key": "int", "rev_sum": "double"},
         )
         params = {
@@ -4180,17 +4113,12 @@ class TestPreAggJoinBack:
         under distinct aliases -- the two ``city`` columns don't collide."""
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=[
-                "v3.location.location_id[from]",
-                "v3.location.location_id[to]",
-            ],
-            table_ref={**self.TABLE, "table": "rev_by_lanes"},
-            measure_columns={"v3.total_revenue": "rev_sum"},
-            dimension_columns={
+            metrics={"v3.total_revenue": "rev_sum"},
+            dimensions={
                 "v3.location.location_id[from]": "orig",
                 "v3.location.location_id[to]": "dest",
             },
+            table_ref={**self.TABLE, "table": "rev_by_lanes"},
             table_columns={"orig": "int", "dest": "int", "rev_sum": "double"},
         )
         params = {
@@ -4250,17 +4178,12 @@ class TestPreAggJoinBack:
         than the pre-agg's."""
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=[
-                "v3.customer.customer_id[customer]",
-                "v3.order_details.status",
-            ],
-            table_ref={**self.TABLE, "table": "rev_shadowed"},
-            measure_columns={"v3.total_revenue": "rev_sum"},
-            dimension_columns={
+            metrics={"v3.total_revenue": "rev_sum"},
+            dimensions={
                 "v3.customer.customer_id[customer]": "cust_key",
                 "v3.order_details.status": "name",
             },
+            table_ref={**self.TABLE, "table": "rev_shadowed"},
             table_columns={"cust_key": "int", "name": "string", "rev_sum": "double"},
         )
         params = {
@@ -4324,11 +4247,9 @@ class TestPreAggJoinBack:
         assert response.status_code == 200, response.text
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=["v3.customer.customer_id[customer]"],
+            metrics={"v3.total_revenue": "rev_sum"},
+            dimensions={"v3.customer.customer_id[customer]": "cust_key"},
             table_ref={**self.TABLE, "table": "rev_by_cust_key"},
-            measure_columns={"v3.total_revenue": "rev_sum"},
-            dimension_columns={"v3.customer.customer_id[customer]": "cust_key"},
             table_columns={"cust_key": "int", "rev_sum": "double"},
         )
         params = {
@@ -4378,14 +4299,12 @@ class TestPreAggJoinBack:
         collide."""
         await _register_external_preagg(
             client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=[
-                "v3.customer.customer_id[customer]",
-                "v3.order_details.status",
-            ],
+            metrics={"v3.total_revenue": "rev_sum"},
+            dimensions={
+                "v3.customer.customer_id[customer]": "cust_key",
+                "v3.order_details.status": "status",
+            },
             table_ref=self.TABLE,
-            measure_columns={"v3.total_revenue": "rev_sum"},
-            dimension_columns={"v3.customer.customer_id[customer]": "cust_key"},
             table_columns={"cust_key": "int", "status": "string", "rev_sum": "double"},
         )
         params = {
@@ -4462,17 +4381,16 @@ class TestRegistrationUpsertIdentity:
         """A pre-agg covering both revenue and quantity, at status grain."""
         return await _register_external_preagg(
             client,
-            metrics=["v3.total_revenue", "v3.total_quantity"],
-            dimensions=["v3.order_details.status"],
+            metrics={
+                "v3.total_revenue": "rev_sum",
+                "v3.total_quantity": "qty_sum",
+            },
+            dimensions={"v3.order_details.status": "status"},
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
                 "table": table,
                 "valid_through_ts": 20250101,
-            },
-            measure_columns={
-                "v3.total_revenue": "rev_sum",
-                "v3.total_quantity": "qty_sum",
             },
             table_columns={
                 "status": "string",
@@ -4486,15 +4404,14 @@ class TestRegistrationUpsertIdentity:
         """A pre-agg covering only revenue, at the same grain."""
         return await _register_external_preagg(
             client,
-            metrics=["v3.total_revenue"],
-            dimensions=["v3.order_details.status"],
+            metrics={"v3.total_revenue": "rev_sum"},
+            dimensions={"v3.order_details.status": "status"},
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
                 "table": table,
                 "valid_through_ts": 20250101,
             },
-            measure_columns={"v3.total_revenue": "rev_sum"},
             table_columns={"status": "string", "rev_sum": "double"},
         )
 

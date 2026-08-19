@@ -736,11 +736,13 @@ async def register_preaggregations(
     Register an externally-built pre-aggregation table.
 
     Unlike ``/preaggs/plan`` (where DJ generates and owns the materialization),
-    this adopts a table built by an external pipeline. DJ decomposes the
-    requested metrics into component measures, binds each measure to a physical
-    column via ``measure_columns``, validates them against the table, records
-    the pre-aggregation, and — when ``valid_through_ts`` is supplied — marks it
-    available so grain resolution can route queries to it.
+    this adopts a table built by an external pipeline. Every metric and every
+    dimension is declared together with the physical column of the external table
+    that holds it, the same way a ``kind: preagg`` YAML spec declares it. DJ
+    decomposes the requested metrics into component measures, validates every
+    declared column against the table, records the pre-aggregation, and — when
+    ``valid_through_ts`` is supplied — marks it available so grain resolution can
+    route queries to it.
     """
     request_headers = dict(request.headers)
     if not query_service_client:
@@ -757,10 +759,14 @@ async def register_preaggregations(
     # inference and row creation). The same result is handed to the registration
     # below: resolving it twice can pick different parents, which would authorize
     # one set of nodes and write another.
+    # The request binds each reference to its physical column inline, so the
+    # references are the map keys and the bindings are the maps themselves.
+    metrics = list(data.metrics)
+    dimensions = list(data.dimensions)
     measures_result = await build_measures_sql(
         session=session,
-        metrics=data.metrics,
-        dimensions=data.dimensions,
+        metrics=metrics,
+        dimensions=dimensions,
         dialect=Dialect.SPARK,
         use_materialized=False,
     )
@@ -776,8 +782,6 @@ async def register_preaggregations(
         metrics=data.metrics,
         dimensions=data.dimensions,
         table=data.table,
-        measure_columns=data.measure_columns,
-        dimension_columns=data.dimension_columns,
         measures_result=measures_result,
     )
 

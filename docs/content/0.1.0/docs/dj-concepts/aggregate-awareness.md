@@ -249,36 +249,44 @@ gets reconciled on every deploy.
 
 #### REST: `POST /preaggs/register`
 
-Send DJ the metrics and dimensions the table covers, where the table lives, and which physical column
-backs each measure metric:
+Send DJ where the table lives, plus the metrics and dimensions it covers — each one named together with
+the physical column that holds it:
 
 ```json
 {
-  "metrics": ["default.view_secs", "default.session_count", "default.view_rate"],
-  "dimensions": ["default.page_d.page_id"],
+  "metrics": {
+    "default.view_secs": "view_secs_sum",
+    "default.session_count": "session_cnt"
+  },
+  "dimensions": {
+    "default.page_d.page_id": "page",
+    "default.geo_country_d.country_iso_code": "country_iso_code"
+  },
   "table": {
     "catalog": "warehouse",
     "schema": "analytics",
     "table": "views_by_page_daily"
-  },
-  "measure_columns": {
-    "default.view_secs": "view_secs_sum",
-    "default.session_count": "session_cnt"
   }
 }
 ```
 
-Notice that `view_rate`, a ratio metric, is listed under `metrics` but doesn't appear in
-`measure_columns` — it doesn't need a column, because it's derived from `view_secs` and
-`session_count`, which are the two measures that do have columns.
+Both maps require a value for every key, so `page_d.page_id` says it is stored as `page`, and
+`geo_country_d.country_iso_code`, stored under the very name DJ uses, says that too rather than leaving
+the value off. This is the same declaration the YAML spec below makes, in the same shape — the two paths
+differ in where the file lives and when it is reconciled, not in what you write.
 
-On registration DJ decomposes every metric you listed, then validates the binding: it confirms each key
-in `measure_columns` really is a measure, checks (via query-service introspection) that every column you
-named actually exists in the table **and is type-compatible with the measure it backs** — a numeric
-`SUM` can't bind to a string column, for instance (the check is category-level, so `int` vs `bigint`
-vs `decimal` are all fine) — and confirms that every measure any of your metrics decomposes into is
-covered by some column. If all of that checks out, DJ records the pre-aggregation. If you also pass a
-`valid_through_ts`, DJ marks it available immediately so routing can start using it right away.
+What goes under `metrics` are the *measures* the table physically stores. A ratio metric such as
+`view_rate` has no column of its own, so it can't be named here — and doesn't need to be, for the reason
+[the YAML section](#yaml-a-kind-preagg-file) spells out: declaring `view_secs` and `session_count` is
+what covers everything built on them.
+
+On registration DJ decomposes the metrics you named, then validates every binding: it confirms each key
+under `metrics` really is a measure, and checks (via query-service introspection) that every column you
+named actually exists in the table **and is type-compatible with the metric or dimension it backs** — a
+numeric `SUM` can't bind to a string column, for instance (the check is category-level, so `int` vs
+`bigint` vs `decimal` are all fine). If all of that checks out, DJ records the pre-aggregation. If you
+also pass a `valid_through_ts`, DJ marks it available immediately so routing can start using it right
+away.
 
 #### YAML: a `kind: preagg` file
 

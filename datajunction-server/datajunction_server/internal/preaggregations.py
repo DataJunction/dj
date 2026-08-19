@@ -169,18 +169,22 @@ async def register_external_preaggregations(
     request_headers: dict[str, str],
     *,
     name: str | None,
-    metrics: list[str],
-    dimensions: list[str],
+    metrics: dict[str, str],
+    dimensions: dict[str, str],
     table: ExternalPreAggTable,
-    measure_columns: dict[str, str],
-    dimension_columns: dict[str, str] | None = None,
     measures_result: GeneratedMeasuresSQL | None = None,
 ) -> list[PreAggregation]:
     """
     Core logic for adopting an externally-built pre-aggregation table.
 
-    Decomposes ``metrics`` into component measures, binds each to a physical
-    column via ``measure_columns``, validates them against ``table``, and upserts
+    ``metrics`` and ``dimensions`` each map a reference to the physical column of
+    the external table that holds it — the shape both surfaces declare (a
+    ``kind: preagg`` YAML spec and the body of ``POST /preaggs/register``). The
+    references are the keys, so a reference can never be declared without its
+    binding or bound without being declared.
+
+    Decomposes the metrics into component measures, binds each to its declared
+    column, validates them against ``table``, and upserts
     the pre-aggregation(s) marked ``EXTERNAL``. Flushes but does NOT commit — the
     caller owns the transaction (the endpoint commits; the deploy orchestrator
     commits its whole plan). Callers must ensure ``query_service_client`` is
@@ -196,7 +200,7 @@ async def register_external_preaggregations(
     #    column. Keying on the hash alone would collapse SUM(x) and MAX(x),
     #    silently discarding one metric's declared column.
     measure_identity_to_column: dict[tuple[str, str], str] = {}
-    for metric_name, physical_column in measure_columns.items():
+    for metric_name, physical_column in metrics.items():
         node = await Node.get_by_name(
             session,
             metric_name,
@@ -209,7 +213,9 @@ async def register_external_preaggregations(
         )
         if not node or node.type != NodeType.METRIC:
             raise DJInvalidInputException(
-                message=f"'{metric_name}' in measure_columns is not a metric node.",
+                message=(
+                    f"'{metric_name}' declared under `metrics` is not a metric node."
+                ),
             )
         if not node.current.is_measure:
             raise DJInvalidInputException(
@@ -234,12 +240,12 @@ async def register_external_preaggregations(
     if measures_result is None:
         measures_result = await build_measures_sql(
             session=session,
-            metrics=metrics,
-            dimensions=dimensions,
+            metrics=list(metrics),
+            dimensions=list(dimensions),
             dialect=Dialect.SPARK,
             use_materialized=False,
         )
-    assert_dimension_refs_are_role_qualified(measures_result, dimensions)
+    assert_dimension_refs_are_role_qualified(measures_result, list(dimensions))
 
     # 3. Introspect the external table and confirm the declared columns exist.
     catalog = await get_catalog_by_name(session=session, name=table.catalog)
@@ -250,26 +256,17 @@ async def register_external_preaggregations(
         request_headers,
         catalog.engines[0] if catalog.engines else None,
     )
-    dimension_columns = dimension_columns or {}
-    unknown_dims = sorted(set(dimension_columns) - set(dimensions))
-    if unknown_dims:
-        raise DJInvalidInputException(
-            message=(
-                f"dimension_columns references {unknown_dims}, which are not in "
-                f"the pre-aggregation's dimensions {sorted(dimensions)}."
-            ),
-        )
     table_columns_by_name = {col.name: col.type for col in table_columns}
     missing_columns = sorted(
         column
-        for column in (*measure_columns.values(), *dimension_columns.values())
+        for column in (*metrics.values(), *dimensions.values())
         if column not in table_columns_by_name
     )
     if missing_columns:
         raise DJInvalidInputException(
             message=(
-                f"Columns {missing_columns} declared in measure_columns/"
-                f"dimension_columns were not found in table "
+                f"Columns {missing_columns} declared under `metrics`/`dimensions` "
+                f"were not found in table "
                 f"{table.catalog}.{table.schema_}.{table.table}."
             ),
         )
@@ -312,14 +309,20 @@ async def register_external_preaggregations(
         for component in grain_group.components:
             expr_hash = compute_expression_hash(component.expression)
             identity = (expr_hash, component.normalized_aggregation)
-            if identity not in measure_identity_to_column:
+            # Defensive since the map form landed: the grain groups are built
+            # from the very metrics `metrics` binds, and each is_measure metric
+            # contributes exactly one component, so every component is bound. It
+            # stays as the clear failure a bare KeyError below would not be, in
+            # case a metric ever decomposes differently in a grain group than it
+            # does on its own.
+            if identity not in measure_identity_to_column:  # pragma: no cover
                 raise DJInvalidInputException(
                     message=(
                         f"Measure '{component.name}' "
                         f"({component.normalized_aggregation} over "
                         f"'{component.expression}') required by the requested "
-                        f"metrics is not covered by measure_columns. Add the "
-                        f"is_measure metric it corresponds to."
+                        f"metrics is not covered by any column declared under "
+                        f"`metrics`. Add the is_measure metric it corresponds to."
                     ),
                 )
             physical_column = measure_identity_to_column[identity]
@@ -346,13 +349,13 @@ async def register_external_preaggregations(
                 ),
             )
 
-        # Bind dimension columns to physical columns via dimension_columns, keyed
-        # by dimension reference. Measures carry their binding on PreAggMeasure.
+        # Bind each grain dimension to its declared physical column, keyed by
+        # dimension reference. Measures carry their binding on PreAggMeasure.
         columns = []
         for col in grain_group.columns:
             source_column = None
             if col.semantic_type == "dimension":
-                source_column = dimension_columns.get(col.semantic_name)
+                source_column = dimensions.get(col.semantic_name)
                 if source_column is not None:
                     assert_column_type_compatible(
                         subject=f"dimension '{col.semantic_name}'",
