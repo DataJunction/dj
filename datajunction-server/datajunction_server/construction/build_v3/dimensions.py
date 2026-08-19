@@ -13,9 +13,14 @@ from typing import cast
 from datajunction_server.construction.build_v3.materialization import (
     get_table_reference_parts_with_materialization,
 )
+from datajunction_server.construction.build_v3.decomposition import (
+    get_base_metrics_for_derived,
+    is_derived_metric,
+)
 from datajunction_server.construction.build_v3.types import (
     BuildContext,
     DimensionRef,
+    GrainGroup,
     JoinPath,
     ResolvedDimension,
 )
@@ -30,7 +35,13 @@ from datajunction_server.errors import (
     DJError,
     DJException,
     DJInvalidInputException,
+    DJWarning,
     ErrorCode,
+)
+from datajunction_server.models.dimensionlink import JoinCardinality
+from datajunction_server.sql.decompose import (
+    is_metric_duplication_sensitive,
+    merge_inflates,
 )
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
@@ -1040,3 +1051,141 @@ def build_join_clause(
     )
 
     return join
+
+
+# Fan-out cardinalities (default MANY_TO_ONE is safe). See check_fanout_safety.
+UNSAFE_JOIN_CARDINALITIES = frozenset(
+    {JoinCardinality.ONE_TO_MANY, JoinCardinality.MANY_TO_MANY},
+)
+
+
+def find_unsafe_cardinality_links(
+    resolved_dimensions: list[ResolvedDimension],
+) -> list[DimensionLink]:
+    """Return the emitted join-path links whose cardinality can fan out."""
+    unsafe: list[DimensionLink] = []
+    for resolved_dim in resolved_dimensions:
+        if resolved_dim.is_local or not resolved_dim.join_path:
+            continue
+        for link in resolved_dim.join_path.links:
+            if link.join_cardinality in UNSAFE_JOIN_CARDINALITIES:
+                unsafe.append(link)
+    return unsafe
+
+
+def requested_metrics_for(ctx: BuildContext, metric_names: set[str]) -> list[str]:
+    """
+    Map metric names found in a grain group back to the metrics the caller asked for.
+
+    A derived metric is decomposed into its base metrics before grain grouping, so a
+    grain group holds base metric nodes the caller never named. Report the requested
+    metric instead. A requested base metric maps to itself, and anything that can't be
+    traced back to a request is kept as-is rather than dropped.
+    """
+    requested: set[str] = set()
+    covered: set[str] = set()
+    for requested_name in ctx.metrics:
+        metric_node = ctx.get_metric_node(requested_name)
+        names = {requested_name}
+        if is_derived_metric(ctx, metric_node):
+            names.update(
+                base.name for base in get_base_metrics_for_derived(ctx, metric_node)
+            )
+        covered.update(names)
+        if names & metric_names:
+            requested.add(requested_name)
+    return sorted(requested | (metric_names - covered))
+
+
+def check_fanout_safety(
+    ctx: BuildContext,
+    grain_group: GrainGroup,
+    unsafe_links: list[DimensionLink],
+) -> DJWarning | None:
+    """
+    Return a fan-out warning if this grain group aggregates a metric that row
+    duplication would inflate across a fanning join.
+
+    A ONE_TO_MANY/MANY_TO_MANY link duplicates fact rows; whether that inflates a
+    given metric is decided per aggregation (see is_duplication_invariant). We warn
+    rather than error: the user may know the data does not fan out.
+    """
+    if not unsafe_links:
+        return None
+
+    inflated_metrics: set[str] = {
+        metric_node.name
+        for metric_node, component in grain_group.components
+        if merge_inflates(component.merge)
+    }
+
+    # Non-decomposable metrics have no component merge to read; their derived_ast is
+    # the untouched metric query, so inspect its aggregations directly.
+    inflated_metrics.update(
+        info.metric_node.name
+        for info in grain_group.non_decomposable_metrics
+        if is_metric_duplication_sensitive(info.derived_ast)
+    )
+
+    if not inflated_metrics:
+        return None
+
+    base_metric_names = sorted(inflated_metrics)
+    # Name what the caller asked for; the base metrics stay in debug for detail.
+    metric_names = requested_metrics_for(ctx, inflated_metrics)
+    unsafe_link_keys = sorted(
+        {
+            (
+                link.node_revision.name,
+                link.dimension.name,
+                # Role disambiguates two links to the same dimension, which would
+                # otherwise collapse into one entry here.
+                link.role or "",
+                JoinCardinality(link.join_cardinality).value,
+            )
+            for link in unsafe_links
+        },
+    )
+    link_details = [
+        {
+            "node": node_name,
+            "dimension": dimension_name,
+            "role": role or None,
+            "join_cardinality": cardinality,
+        }
+        for node_name, dimension_name, role, cardinality in unsafe_link_keys
+    ]
+    link_descriptions = [
+        f"{node_name} -> {dimension_name}"
+        f"{'[' + role + ']' if role else ''} "
+        f"({cardinality})"
+        for node_name, dimension_name, role, cardinality in unsafe_link_keys
+    ]
+    metrics_str = ", ".join(metric_names)
+    links_str = "; ".join(link_descriptions)
+    # The join isn't necessarily one the caller asked for -- a filter or the metric
+    # expression itself can pull it in -- so name the link rather than blaming the
+    # requested dimensions.
+    message = (
+        f"Possible fan-out: metric(s) {metrics_str} aggregate across a fan-out "
+        f"link [{links_str}]. One {grain_group.parent_node.name} row matches many "
+        f"dimension rows, so the result may be inflated by duplicated fact rows. "
+        f"The join may come from a requested dimension, a filter, or the metric "
+        f"expression itself. If a filter constrains the relationship to be "
+        f"effectively one-to-one this result is correct; otherwise drop the "
+        f"reference to the offending dimension(s), or correct the link's "
+        f"cardinality if the relationship is not actually one-to-many or "
+        f"many-to-many."
+    )
+    return DJWarning(
+        code=ErrorCode.FANOUT_RISK,
+        message=message,
+        debug={
+            # Requested metrics; base_metrics names the aggregations that actually
+            # inflate, which differs from metrics for a derived metric.
+            "metrics": metric_names,
+            "base_metrics": base_metric_names,
+            "links": link_details,
+            "parent": grain_group.parent_node.name,
+        },
+    )

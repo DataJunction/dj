@@ -417,6 +417,10 @@ class QueryCacheManager(
             sql=built_sql.sql,
             columns=built_sql.columns,
             dialect=built_sql.dialect,
+            # Re-wrapping drops anything not named here. Note a cache hit replays a
+            # stored payload, so warnings only appear on a miss until the cached
+            # shape carries them.
+            warnings=built_sql.warnings,
         )
 
     async def _build_metrics_query(

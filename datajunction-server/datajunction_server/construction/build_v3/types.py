@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.construction.build_v3.alias_registry import AliasRegistry
 from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.node import Node
-from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.errors import DJInvalidInputException, DJWarning
 from datajunction_server.models.decompose import Aggregability, MetricComponent
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.node_type import NodeType
@@ -31,10 +31,11 @@ logger = logging.getLogger(__name__)
 @dataclass
 class BuildContext:
     """
-    Immutable context passed through the SQL generation pipeline.
+    Context threaded through the SQL generation pipeline.
 
-    Contains all the information needed to build SQL for a set of metrics
-    and dimensions.
+    Holds the build inputs (metrics, dimensions, filters, dialect) plus the
+    state accumulated during a build: loaded nodes, join paths, caches, and
+    warnings. One instance per top-level build.
     """
 
     session: AsyncSession
@@ -140,6 +141,35 @@ class BuildContext:
     # Dim refs handled via upstream pushdown — caller skips emitting a
     # ResolvedDimension for these and skips the unreachable-dim error.
     pushdown_resolved_dims: set[str] = field(default_factory=set)
+
+    # Build warnings (e.g. fan-out risk): the single sink, read once per endpoint.
+    warnings: list[DJWarning] = field(default_factory=list)
+
+    def add_warning(self, warning: DJWarning | None) -> None:
+        """
+        Record a build warning, de-duplicated by (code, message). No-ops on None.
+
+        One risk can be detected once per grain group, so callers append
+        unconditionally and leave the de-duplication here. Logging happens here too,
+        after the de-duplication, so a risk seen by several grain groups produces one
+        log line rather than one per group.
+        """
+        if warning is None:
+            return
+        key = (warning.code, warning.message)
+        if any((w.code, w.message) == key for w in self.warnings):
+            return
+        self.warnings.append(warning)
+        logger.warning(
+            "[BuildV3] build warning: %s",
+            warning.message,
+            extra={
+                "error_code": warning.code.name if warning.code is not None else None,
+                # Nested rather than splatted: a debug key colliding with a LogRecord
+                # attribute would raise at log time.
+                "warning_debug": warning.debug,
+            },
+        )
 
     def next_table_alias(self, base_name: str) -> str:
         """Generate a unique table alias."""
@@ -364,6 +394,11 @@ class GeneratedMeasuresSQL:
     # These are LAG/LEAD window function metrics that need aggregation at a different grain
     window_metric_grains: dict[str, set[str]] = field(default_factory=dict)
 
+    @property
+    def warnings(self) -> list[DJWarning]:
+        """Derived from the ctx sink, so no intermediate shape has to copy them."""
+        return self.ctx.warnings
+
 
 @dataclass
 class GeneratedSQL:
@@ -386,6 +421,10 @@ class GeneratedSQL:
 
     # Scan estimate aggregated from all grain groups
     scan_estimate: ScanEstimate | None = None
+
+    # Copied in rather than derived like GeneratedMeasuresSQL.warnings: this type
+    # holds no ctx to read the sink from. Set in builder.build_metrics_sql.
+    warnings: list[DJWarning] = field(default_factory=list)
 
     @property
     def sql(self) -> str:

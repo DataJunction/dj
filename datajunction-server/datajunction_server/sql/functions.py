@@ -598,6 +598,7 @@ class ArrayAgg(Function):
     """
 
     dialects = [Dialect.SPARK, Dialect.DRUID]
+    is_aggregation = True
 
 
 @ArrayAgg.register  # type: ignore

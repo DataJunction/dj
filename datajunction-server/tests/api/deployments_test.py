@@ -42,7 +42,7 @@ from datajunction_server.models.deployment import (
     TagSpec,
     TransformSpec,
 )
-from datajunction_server.models.dimensionlink import JoinType
+from datajunction_server.models.dimensionlink import JoinCardinality, JoinType
 from datajunction_server.models.materialization import (
     MaterializationInfo,
     MaterializationStrategy,
@@ -1640,6 +1640,69 @@ class TestDeployments:
             "changed_fields": [],
             "status": "success",
         }
+
+    @pytest.mark.asyncio
+    async def test_deploy_dimension_link_join_cardinality_round_trip(
+        self,
+        session,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        A non-default join_cardinality set in a deployment spec must persist onto
+        the DimensionLink (orchestrator threads it into the JoinLinkInput) and
+        survive DimensionLink.to_spec().
+        """
+        namespace = "link_cardinality"
+        dim_spec = DimensionSpec(
+            name="default.hard_hat",
+            query="SELECT hard_hat_id, state FROM ${prefix}default.hard_hats",
+            primary_key=["hard_hat_id"],
+            owners=["dj"],
+            dimension_links=[
+                # one_to_many: a worker can be assigned across several states, so
+                # one hard_hat row matches many us_state rows (a fan-out link).
+                DimensionJoinLinkSpec(
+                    dimension_node="${prefix}default.us_state",
+                    join_type="inner",
+                    join_on="${prefix}default.hard_hat.state = ${prefix}default.us_state.state_short",
+                    join_cardinality=JoinCardinality.ONE_TO_MANY,
+                ),
+            ],
+        )
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[
+                    dim_spec,
+                    default_hard_hats,
+                    default_us_states,
+                    default_us_state,
+                ],
+            ),
+        )
+        assert data["status"] == "success"
+
+        hard_hat = await Node.get_by_name(session, "link_cardinality.default.hard_hat")
+        (link,) = hard_hat.current.dimension_links
+        # Persisted onto the link, and preserved by to_spec().
+        assert link.join_cardinality == JoinCardinality.ONE_TO_MANY
+        assert link.to_spec().join_cardinality == JoinCardinality.ONE_TO_MANY
+
+        # Cardinality is what makes this link fan out at query time, so the history
+        # entry has to record it alongside the join it describes.
+        response = await client.get(
+            "/history?node=link_cardinality.default.hard_hat",
+        )
+        assert response.status_code == 200, response.json()
+        link_events = [
+            event for event in response.json() if event["entity_type"] == "link"
+        ]
+        assert link_events, response.json()
+        assert link_events[0]["details"]["join_cardinality"] == "one_to_many"
 
     @pytest.mark.asyncio
     async def test_deploy_with_reference_dimension_link(

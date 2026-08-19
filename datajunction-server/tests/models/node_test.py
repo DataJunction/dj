@@ -135,6 +135,18 @@ def test_extra_validation() -> None:
     )
     node_revision.extra_validation()
 
+    # ARRAY_AGG is tagged is_aggregation so the fan-out guard can see it, which also
+    # makes it a valid sole aggregate here. It was rejected before that tagging.
+    node = Node(name="A", type=NodeType.METRIC, current_version="1")
+    node_revision = NodeRevision(
+        name=node.name,
+        type=node.type,
+        node=node,
+        version="1",
+        query="SELECT array_agg(repair_order_id) AS Aorder_ids FROM repair_orders",
+    )
+    node_revision.extra_validation()
+
     node = Node(name="A", type=NodeType.METRIC, current_version="1")
     node_revision = NodeRevision(
         name=node.name,
