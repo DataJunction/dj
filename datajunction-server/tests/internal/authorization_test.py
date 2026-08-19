@@ -1255,6 +1255,16 @@ class TestRestrictiveScopes:
                 "shared.main.revenue",
             ),
             self.request(
+                ResourceAction.DELETE,
+                ResourceType.NODE,
+                "shared.main.revenue",
+            ),
+            self.request(
+                ResourceAction.MANAGE,
+                ResourceType.NODE,
+                "shared.main.revenue",
+            ),
+            self.request(
                 ResourceAction.WRITE,
                 ResourceType.NODE,
                 "shared.other.revenue",
@@ -1268,7 +1278,68 @@ class TestRestrictiveScopes:
             True,
             True,
             True,
+            True,
+            True,
         ]
+
+    @pytest.mark.parametrize(
+        "rule,resource_type,name,approved",
+        [
+            (
+                "write:namespace:shared.main",
+                ResourceType.NAMESPACE,
+                "shared.main",
+                False,
+            ),
+            (
+                "write:namespace:shared.main",
+                ResourceType.NAMESPACE,
+                "shared.main.finance",
+                True,
+            ),
+            (
+                "write:namespace:shared.main",
+                ResourceType.NODE,
+                "shared.main.revenue",
+                True,
+            ),
+            (
+                "write:namespace:shared.main.*",
+                ResourceType.NAMESPACE,
+                "shared.main",
+                True,
+            ),
+            (
+                "write:namespace:shared.main.*",
+                ResourceType.NAMESPACE,
+                "shared.main.finance",
+                False,
+            ),
+            (
+                "write:namespace:shared.main.*",
+                ResourceType.NODE,
+                "shared.main.revenue",
+                False,
+            ),
+        ],
+    )
+    def test_exact_and_subtree_rules_keep_existing_scope_meanings(
+        self,
+        mocker,
+        rule,
+        resource_type,
+        name,
+        approved,
+    ):
+        self.configure(mocker, rules=[rule])
+        request = self.request(ResourceAction.WRITE, resource_type, name)
+
+        decision = RBACAuthorizationService().authorize(
+            self.context(),
+            [request],
+        )[0]
+
+        assert decision.approved is approved
 
     def test_explicit_grant_allows_restricted_request(self, mocker):
         self.configure(mocker, rules=["write:node:shared.main.*"])
@@ -1311,6 +1382,31 @@ class TestRestrictiveScopes:
 
         assert decision.approved is False
         assert decision.reason == "restrictive_scope:write:node:shared.main.*"
+
+    def test_default_read_role_applies_when_only_write_is_restricted(self, mocker):
+        self.configure(
+            mocker,
+            rules=["write:node:shared.main.*"],
+            default_policy="restrictive",
+        )
+        default_scope = SimpleNamespace(
+            action=ResourceAction.READ,
+            scope_type=ResourceType.NODE,
+            scope_value="*",
+        )
+        request = self.request(
+            ResourceAction.READ,
+            ResourceType.NODE,
+            "shared.main.revenue",
+        )
+
+        decision = RBACAuthorizationService().authorize(
+            self.context(default_scopes=[default_scope]),
+            [request],
+        )[0]
+
+        assert decision.approved is True
+        assert decision.reason == "default_access_role"
 
     def test_empty_configuration_preserves_permissive_fallback(self, mocker):
         self.configure(mocker, rules=[])
