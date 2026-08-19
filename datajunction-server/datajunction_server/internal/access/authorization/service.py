@@ -6,7 +6,7 @@ import logging
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime
 from functools import cache
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 if TYPE_CHECKING:
     from datajunction_server.database.rbac import RoleScope
@@ -20,6 +20,8 @@ from datajunction_server.models.access import (
     ResourceAction,
     ResourceRequest,
     ResourceType,
+    RestrictiveScopeRule,
+    parse_restrictive_scope_rule,
     parse_scope_pattern,
 )
 from datajunction_server.utils import (
@@ -103,7 +105,7 @@ class RBACAuthorizationService(AuthorizationService):
 
     name = "rbac"
 
-    PERMISSION_HIERARCHY = {
+    PERMISSION_HIERARCHY: ClassVar[dict[ResourceAction, set[ResourceAction]]] = {
         ResourceAction.MANAGE: {
             ResourceAction.MANAGE,
             ResourceAction.DELETE,
@@ -163,28 +165,33 @@ class RBACAuthorizationService(AuthorizationService):
                 )
                 for request in requests
             ]
-        candidate_scopes = self.candidate_scopes(auth_context)
-        return [self._make_decision(request, candidate_scopes) for request in requests]
+        explicit_scopes = self.explicit_scopes(auth_context)
+        restrictive_rules = self.restrictive_rules()
+        return [
+            self._make_decision(
+                request,
+                explicit_scopes,
+                auth_context.default_scopes,
+                restrictive_rules,
+            )
+            for request in requests
+        ]
 
     @classmethod
-    def candidate_scopes(cls, auth_context: AuthContext) -> list["RoleScope"]:
-        """
-        Collect every scope that could grant a request for this context.
-
-        This is the union of the principal's own (non-expired) role scopes and
-        the configured default-access role's scopes. Collecting all candidates
-        up front (rather than short-circuiting source by source) keeps the
-        decision a single resolve step, leaving room for future deny/precedence
-        rules without restructuring.
-        """
+    def explicit_scopes(cls, auth_context: AuthContext) -> list["RoleScope"]:
+        """Collect non-expired principal and group scopes."""
         scopes: list[RoleScope] = []
         now = datetime.now(UTC)
         for assignment in auth_context.role_assignments:
             if assignment.expires_at and assignment.expires_at < now:
                 continue
             scopes.extend(assignment.role.scopes)
-        scopes.extend(auth_context.default_scopes)
         return scopes
+
+    @classmethod
+    def candidate_scopes(cls, auth_context: AuthContext) -> list["RoleScope"]:
+        """Collect explicit and default-role scopes."""
+        return [*cls.explicit_scopes(auth_context), *auth_context.default_scopes]
 
     def authorize_explicit_grants(
         self,
@@ -202,29 +209,64 @@ class RBACAuthorizationService(AuthorizationService):
     def _make_decision(
         self,
         request: ResourceRequest,
-        candidate_scopes: list["RoleScope"],
+        explicit_scopes: list["RoleScope"],
+        default_scopes: list["RoleScope"],
+        restrictive_rules: list[RestrictiveScopeRule],
     ) -> AccessDecision:
         """
         Convert ResourceRequest to AccessDecision.
 
-        Evaluates the candidate scopes (explicit grants + default-access role)
-        collected once per authorize() call and approves if any grants the
-        request. Otherwise falls back to the configured default_access_policy.
+        Explicit grants are considered first. Restrictive policy then blocks
+        fallback access before the default-access role and default policy.
         """
-        granted = any(
-            self._scope_grants_permission(
-                scope,
-                request.verb,
-                request.access_object.resource_type,
-                request.access_object.name,
+        if self._matching_scope(explicit_scopes, request):
+            return AccessDecision(
+                request=request,
+                approved=True,
+                reason="explicit_grant",
             )
-            for scope in candidate_scopes
+        restrictive_rule = self._matching_restrictive_rule(
+            request,
+            restrictive_rules,
         )
-        if granted:
-            return AccessDecision(request=request, approved=True)
+        if restrictive_rule:
+            return AccessDecision(
+                request=request,
+                approved=False,
+                reason=f"restrictive_scope:{restrictive_rule}",
+            )
+        if self._matching_scope(default_scopes, request):
+            return AccessDecision(
+                request=request,
+                approved=True,
+                reason="default_access_role",
+            )
+        approved = settings.default_access_policy == "permissive"
         return AccessDecision(
             request=request,
-            approved=(settings.default_access_policy == "permissive"),
+            approved=approved,
+            reason=f"default_access_policy_{settings.default_access_policy}",
+        )
+
+    @classmethod
+    def _matching_scope(
+        cls,
+        scopes: list["RoleScope"],
+        request: ResourceRequest,
+    ) -> "RoleScope | None":
+        """Return the first role scope that grants a request."""
+        return next(
+            (
+                scope
+                for scope in scopes
+                if cls._scope_grants_permission(
+                    scope,
+                    request.verb,
+                    request.access_object.resource_type,
+                    request.access_object.name,
+                )
+            ),
+            None,
         )
 
     def _make_explicit_grant_decision(
@@ -417,26 +459,59 @@ class RBACAuthorizationService(AuthorizationService):
         if action not in granted_actions:
             return False
 
-        # Handle global access. Blank is not global -- it is outside the grammar,
-        # so it falls through to the matcher below and grants nothing.
-        if scope.scope_value == "*":
-            # Global scope matches any resource of the same type
-            return scope.scope_type == resource_type
+        return cls._resource_in_scope(
+            scope.scope_type,
+            scope.scope_value,
+            resource_type,
+            resource_name,
+        )
 
-        # Same resource type - use pattern matching
-        if scope.scope_type == resource_type:
-            return cls.resource_matches_pattern(resource_name, scope.scope_value)
-
-        # Cross-resource-type: namespace scope can cover nodes
-        if (
-            scope.scope_type == ResourceType.NAMESPACE
-            and resource_type == ResourceType.NODE
-        ):
-            # Check if node name matches the namespace pattern
-            return cls.resource_matches_pattern(resource_name, scope.scope_value)
-
-        # No match
+    @classmethod
+    def _resource_in_scope(
+        cls,
+        scope_type: ResourceType,
+        scope_value: str,
+        resource_type: ResourceType,
+        resource_name: str,
+    ) -> bool:
+        """Return whether a resource falls under a supported scope pattern."""
+        if scope_value == "*":
+            return scope_type == resource_type
+        if scope_type == resource_type:
+            return cls.resource_matches_pattern(resource_name, scope_value)
+        if scope_type == ResourceType.NAMESPACE and resource_type == ResourceType.NODE:
+            return cls.resource_matches_pattern(resource_name, scope_value)
         return False
+
+    @classmethod
+    def restrictive_rules(cls) -> list[RestrictiveScopeRule]:
+        """Parse configured restrictive policy rules."""
+        return [
+            parse_restrictive_scope_rule(value)
+            for value in getattr(settings, "restrictive_scopes", []) or []
+        ]
+
+    @classmethod
+    def _matching_restrictive_rule(
+        cls,
+        request: ResourceRequest,
+        rules: list[RestrictiveScopeRule],
+    ) -> RestrictiveScopeRule | None:
+        """Return the first exact-action restrictive rule covering a request."""
+        return next(
+            (
+                rule
+                for rule in rules
+                if rule.action == request.verb
+                and cls._resource_in_scope(
+                    rule.scope_type,
+                    rule.scope_value,
+                    request.access_object.resource_type,
+                    request.access_object.name,
+                )
+            ),
+            None,
+        )
 
 
 class PassthroughAuthorizationService(AuthorizationService):

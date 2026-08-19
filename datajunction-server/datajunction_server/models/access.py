@@ -5,7 +5,7 @@ Models for authorization
 from dataclasses import dataclass
 
 from datajunction_server.database.node import Node, NodeRevision
-from datajunction_server.naming import SEPARATOR
+from datajunction_server.naming import parse_scope_pattern
 from datajunction_server.typing import StrEnum
 
 
@@ -30,31 +30,43 @@ class ResourceAction(StrEnum):
     MANAGE = "manage"  # Grant/revoke permissions (RBAC-specific)
 
 
-def parse_scope_pattern(value: str) -> tuple[str, str] | None:
-    """
-    Parse exact, trailing-wildcard, and global scope patterns.
+@dataclass(frozen=True)
+class RestrictiveScopeRule:
+    """A configured action and resource scope that requires an explicit grant."""
 
-    A blank value is outside the grammar rather than a global scope: the global
-    scope is spelled ``*``, which is what scope input has required since #2339.
-    Reading blanks as global would let a legacy or out-of-band row grant every
-    resource of its type.
-    """
-    if not value:
-        return None
-    if value == "*":
-        return ("global", "")
-    if (
-        value.startswith(SEPARATOR)
-        or value.endswith(SEPARATOR)
-        or SEPARATOR * 2 in value
-    ):
-        return None
-    if "*" not in value:
-        return ("exact", value)
-    if value.count("*") != 1 or not value.endswith(f"{SEPARATOR}*"):
-        return None
-    prefix = value[: -len(f"{SEPARATOR}*")]
-    return ("subtree", prefix) if prefix else None
+    action: ResourceAction
+    scope_type: ResourceType
+    scope_value: str
+
+    def __str__(self) -> str:
+        return f"{self.action.value}:{self.scope_type.value}:{self.scope_value}"
+
+
+def parse_restrictive_scope_rule(value: str) -> RestrictiveScopeRule:
+    """Parse ``action:scope_type:scope_value`` using the RBAC scope grammar."""
+    parts = value.split(":")
+    if len(parts) != 3:
+        raise ValueError(
+            "restrictive scope must be 'action:scope_type:scope_value'",
+        )
+    action_value, scope_type_value, scope_value = parts
+    try:
+        action = ResourceAction(action_value)
+        scope_type = ResourceType(scope_type_value)
+    except ValueError as exc:
+        raise ValueError(
+            "restrictive scope action and scope type must be supported values",
+        ) from exc
+    if scope_value != scope_value.strip() or parse_scope_pattern(scope_value) is None:
+        raise ValueError(
+            "restrictive scope value must be '*', an exact scope, "
+            "or a subtree ending in '.*'",
+        )
+    return RestrictiveScopeRule(
+        action=action,
+        scope_type=scope_type,
+        scope_value=scope_value,
+    )
 
 
 @dataclass(frozen=True)

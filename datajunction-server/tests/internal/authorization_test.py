@@ -3,11 +3,13 @@
 import logging
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from typing import cast
+from typing import ClassVar, cast
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datajunction_server.config import Settings
 from datajunction_server.database.group_member import GroupMember
 from datajunction_server.database.rbac import Role, RoleAssignment, RoleScope
 from datajunction_server.database.user import PrincipalKind, User
@@ -31,6 +33,7 @@ from datajunction_server.models.access import (
     ResourceAction,
     ResourceRequest,
     ResourceType,
+    parse_restrictive_scope_rule,
 )
 
 
@@ -1140,6 +1143,249 @@ class TestDefaultAccessRole:
         )
         results = await access_checker.check(on_denied=AccessDenialMode.RETURN)
         assert results[0].approved is False
+
+
+class TestRestrictiveScopes:
+    """Tests for per-action restrictive policy within namespace boundaries."""
+
+    SERVICE_SETTINGS = (
+        "datajunction_server.internal.access.authorization.service.settings"
+    )
+    BOUNDARY_RULES: ClassVar[tuple[str, ...]] = (
+        "write:namespace:shared.main",
+        "write:namespace:shared.main.*",
+        "write:node:shared.main.*",
+        "delete:namespace:shared.main",
+        "delete:namespace:shared.main.*",
+        "delete:node:shared.main.*",
+        "manage:namespace:shared.main",
+        "manage:namespace:shared.main.*",
+        "manage:node:shared.main.*",
+    )
+
+    @staticmethod
+    def request(
+        action: ResourceAction,
+        resource_type: ResourceType,
+        name: str,
+    ) -> ResourceRequest:
+        return ResourceRequest(
+            verb=action,
+            access_object=Resource(name=name, resource_type=resource_type),
+        )
+
+    @staticmethod
+    def context(
+        explicit_scopes=None,
+        default_scopes=None,
+        is_admin: bool = False,
+    ) -> AuthContext:
+        assignments = (
+            [
+                SimpleNamespace(
+                    expires_at=None,
+                    role=SimpleNamespace(scopes=explicit_scopes),
+                ),
+            ]
+            if explicit_scopes
+            else []
+        )
+        return AuthContext(
+            user_id=1,
+            username="test-user",
+            oauth_provider="basic",
+            role_assignments=assignments,
+            is_admin=is_admin,
+            default_scopes=default_scopes or [],
+        )
+
+    def configure(self, mocker, rules=None, default_policy="permissive"):
+        service_settings = mocker.patch(self.SERVICE_SETTINGS)
+        service_settings.restrictive_scopes = (
+            self.BOUNDARY_RULES if rules is None else rules
+        )
+        service_settings.default_access_policy = default_policy
+
+    @pytest.mark.parametrize(
+        "action",
+        [ResourceAction.WRITE, ResourceAction.DELETE, ResourceAction.MANAGE],
+    )
+    @pytest.mark.parametrize(
+        "resource_type,name",
+        [
+            (ResourceType.NAMESPACE, "shared.main"),
+            (ResourceType.NAMESPACE, "shared.main.finance"),
+            (ResourceType.NODE, "shared.main.revenue"),
+        ],
+    )
+    def test_boundary_rules_cover_every_mutating_resource_shape(
+        self,
+        mocker,
+        action,
+        resource_type,
+        name,
+    ):
+        self.configure(mocker)
+        request = self.request(action, resource_type, name)
+
+        decision = RBACAuthorizationService().authorize(
+            self.context(),
+            [request],
+        )[0]
+
+        assert decision.approved is False
+        assert decision.reason and decision.reason.startswith("restrictive_scope:")
+
+    def test_only_configured_actions_and_boundary_are_restricted(self, mocker):
+        self.configure(mocker, rules=["write:node:shared.main.*"])
+        requests = [
+            self.request(
+                ResourceAction.WRITE,
+                ResourceType.NODE,
+                "shared.main.revenue",
+            ),
+            self.request(
+                ResourceAction.READ,
+                ResourceType.NODE,
+                "shared.main.revenue",
+            ),
+            self.request(
+                ResourceAction.EXECUTE,
+                ResourceType.NODE,
+                "shared.main.revenue",
+            ),
+            self.request(
+                ResourceAction.WRITE,
+                ResourceType.NODE,
+                "shared.other.revenue",
+            ),
+        ]
+
+        decisions = RBACAuthorizationService().authorize(self.context(), requests)
+
+        assert [decision.approved for decision in decisions] == [
+            False,
+            True,
+            True,
+            True,
+        ]
+
+    def test_explicit_grant_allows_restricted_request(self, mocker):
+        self.configure(mocker, rules=["write:node:shared.main.*"])
+        explicit_scope = SimpleNamespace(
+            action=ResourceAction.WRITE,
+            scope_type=ResourceType.NODE,
+            scope_value="shared.main.*",
+        )
+        request = self.request(
+            ResourceAction.WRITE,
+            ResourceType.NODE,
+            "shared.main.revenue",
+        )
+
+        decision = RBACAuthorizationService().authorize(
+            self.context(explicit_scopes=[explicit_scope]),
+            [request],
+        )[0]
+
+        assert decision.approved is True
+        assert decision.reason == "explicit_grant"
+
+    def test_default_role_cannot_bypass_restrictive_rule(self, mocker):
+        self.configure(mocker, rules=["write:node:shared.main.*"])
+        default_scope = SimpleNamespace(
+            action=ResourceAction.WRITE,
+            scope_type=ResourceType.NODE,
+            scope_value="*",
+        )
+        request = self.request(
+            ResourceAction.WRITE,
+            ResourceType.NODE,
+            "shared.main.revenue",
+        )
+
+        decision = RBACAuthorizationService().authorize(
+            self.context(default_scopes=[default_scope]),
+            [request],
+        )[0]
+
+        assert decision.approved is False
+        assert decision.reason == "restrictive_scope:write:node:shared.main.*"
+
+    def test_empty_configuration_preserves_permissive_fallback(self, mocker):
+        self.configure(mocker, rules=[])
+        request = self.request(
+            ResourceAction.WRITE,
+            ResourceType.NODE,
+            "shared.main.revenue",
+        )
+
+        decision = RBACAuthorizationService().authorize(
+            self.context(),
+            [request],
+        )[0]
+
+        assert decision.approved is True
+        assert decision.reason == "default_access_policy_permissive"
+
+    def test_global_namespace_rule_does_not_restrict_nodes(self, mocker):
+        self.configure(mocker, rules=["write:namespace:*"])
+        requests = [
+            self.request(ResourceAction.WRITE, ResourceType.NAMESPACE, "shared.main"),
+            self.request(
+                ResourceAction.WRITE,
+                ResourceType.NODE,
+                "shared.main.revenue",
+            ),
+        ]
+
+        decisions = RBACAuthorizationService().authorize(self.context(), requests)
+
+        assert [decision.approved for decision in decisions] == [False, True]
+
+    @pytest.mark.parametrize(
+        "rule",
+        [
+            "writes:node:shared.main.*",
+            "write:nodes:shared.main.*",
+            "write:node:shared*",
+            "write:node:.*",
+            "write:node:**",
+            "write:node:",
+            "write:node",
+            " write:node:shared.main.*",
+        ],
+    )
+    def test_settings_reject_malformed_rules(self, rule):
+        with pytest.raises(ValidationError, match="restrictive scope"):
+            Settings(restrictive_scopes=[rule])
+
+    @pytest.mark.parametrize(
+        "rule",
+        [
+            "write:node",
+            "writes:node:shared.main.*",
+            "write:nodes:shared.main.*",
+            "write:node:shared*",
+            "write:node: shared.main.*",
+        ],
+    )
+    def test_runtime_parser_rejects_malformed_rules(self, rule):
+        with pytest.raises(ValueError, match="restrictive scope"):
+            parse_restrictive_scope_rule(rule)
+
+    def test_settings_parse_json_list_from_environment(self, monkeypatch):
+        monkeypatch.setenv(
+            "RESTRICTIVE_SCOPES",
+            '["write:node:shared.main.*","delete:node:shared.main.*"]',
+        )
+
+        settings = Settings()
+
+        assert settings.restrictive_scopes == [
+            "write:node:shared.main.*",
+            "delete:node:shared.main.*",
+        ]
 
 
 @pytest.mark.asyncio
