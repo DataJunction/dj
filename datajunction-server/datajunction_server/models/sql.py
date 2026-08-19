@@ -5,7 +5,7 @@ Models for generated SQL
 from pydantic import field_validator
 from pydantic.main import BaseModel
 
-from datajunction_server.errors import DJQueryBuildError
+from datajunction_server.errors import DJQueryBuildError, DJWarning
 from datajunction_server.models.cube_materialization import MetricComponent
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.node_type import NodeNameVersion
@@ -140,6 +140,7 @@ class MeasuresSQLResponse(BaseModel):
     metric_formulas: list[MetricFormulaResponse]  # How metrics combine components
     dialect: str | None = None
     requested_dimensions: list[str]
+    warnings: list[DJWarning] = []
 
 
 class CombinedMeasuresSQLResponse(BaseModel):
@@ -159,3 +160,4 @@ class CombinedMeasuresSQLResponse(BaseModel):
         bool  # If True, data is read from pre-agg tables; if False, from source tables
     )
     source_tables: list[str]  # Tables being read (pre-agg tables or source tables)
+    warnings: list[DJWarning] = []

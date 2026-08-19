@@ -288,6 +288,8 @@ async def get_measures_sql_v3(
         _tags,
     )
     get_metrics_provider().counter("dj.sql.requests", tags=_tags)
+    if result.warnings:
+        get_metrics_provider().counter("dj.sql.build_warnings", tags=_tags)
 
     _logger.info(
         "[SQL] endpoint=%s metrics=%s dimensions=%s filters=%s elapsed_ms=%.1f",
@@ -409,6 +411,7 @@ def _build_measures_response(result) -> MeasuresSQLResponse:
         metric_formulas=metric_formulas,
         dialect=str(result.dialect) if result.dialect else None,
         requested_dimensions=result.requested_dimensions,
+        warnings=result.warnings,
     )
 
 
@@ -476,14 +479,14 @@ async def get_combined_measures_sql_v3(
             combined_result,
             preagg_sources,
             _,
-        ) = await build_combiner_sql_from_preaggs(  # pragma: no cover
+        ) = await build_combiner_sql_from_preaggs(
             session=session,
             metrics=metrics,
             dimensions=dimensions,
             filters=filters,
             dialect=dialect,
         )
-        source_tables = [src.table_ref for src in preagg_sources]  # pragma: no cover
+        source_tables = [src.table_ref for src in preagg_sources]
     else:
         # Build the measures SQL to get grain groups (compute from scratch)
         result = await build_measures_sql(
@@ -511,6 +514,10 @@ async def get_combined_measures_sql_v3(
             # Extract table references from the query
             source_tables.append(gg.parent_name)
 
+        # build_combiner_sql has no ctx of its own, so carry the measures build's
+        # warnings across; both branches then expose them the same way.
+        combined_result.warnings = result.warnings
+
     elapsed_ms = (time.monotonic() - _t0) * 1000
     _tags = {"query_type": "measures_combined", "query_version": "v3"}
     get_metrics_provider().timer(
@@ -519,6 +526,8 @@ async def get_combined_measures_sql_v3(
         _tags,
     )
     get_metrics_provider().counter("dj.sql.requests", tags=_tags)
+    if combined_result.warnings:
+        get_metrics_provider().counter("dj.sql.build_warnings", tags=_tags)
 
     _logger.info(
         "[SQL] endpoint=%s metrics=%s dimensions=%s filters=%s elapsed_ms=%.1f",
@@ -553,6 +562,7 @@ async def get_combined_measures_sql_v3(
         dialect=str(dialect),
         use_preagg_tables=use_preagg_tables,
         source_tables=source_tables,
+        warnings=combined_result.warnings,
     )
 
 
@@ -664,6 +674,7 @@ async def get_metrics_sql_v3(
         dialect=result.dialect,
         cube_name=result.cube_name,
         scan_estimate=result.scan_estimate,
+        warnings=result.warnings,
     )
 
 

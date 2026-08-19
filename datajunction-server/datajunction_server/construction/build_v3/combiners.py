@@ -36,6 +36,7 @@ from datajunction_server.database.preaggregation import (
     get_measure_identities,
     measure_identity_token,
 )
+from datajunction_server.errors import DJWarning
 from datajunction_server.models.column import SemanticType
 from datajunction_server.models.decompose import MetricComponent
 from datajunction_server.models.dialect import Dialect
@@ -71,6 +72,9 @@ class CombinedGrainGroupResult:
     metric_combiners: dict[str, str] = field(default_factory=dict)
     # Dialect for rendering SQL (used for dialect-specific function names)
     dialect: Dialect = Dialect.SPARK
+    # Build warnings (e.g. fan-out risk), set from the ctx sink so the pre-agg/cube
+    # endpoints (which hold only this result, not the ctx) can surface them.
+    warnings: list[DJWarning] = field(default_factory=list)
 
     @property
     def sql(self) -> str:
@@ -702,6 +706,10 @@ async def build_combiner_sql_from_preaggs(
         ):
             temporal_partition_info = first
 
+    # Carry warnings from the ctx sink onto the combined result: the pre-agg/cube
+    # endpoints hold only this result, not the ctx.
+    combined_result.warnings = result.warnings
+
     # Reorder columns so partition column is last
     # This is required for Hive/Spark INSERT OVERWRITE ... PARTITION (col) syntax
     if temporal_partition_info:
@@ -809,6 +817,7 @@ def _reorder_partition_column_last(
             component_aliases=result.component_aliases,
             metric_combiners=result.metric_combiners,
             dialect=result.dialect,
+            warnings=result.warnings,
         )
 
     return result
