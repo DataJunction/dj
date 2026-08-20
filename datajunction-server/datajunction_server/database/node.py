@@ -923,6 +923,23 @@ class Node(Base):
         return node
 
     @classmethod
+    def _find_filters(
+        cls,
+        prefix: str | None = None,
+        node_type: NodeType | None = None,
+    ) -> list:
+        """
+        Filters shared by ``find`` and ``find_names``: active nodes, optionally
+        narrowed to a name prefix and a node type.
+        """
+        filters = [is_(Node.deactivated_at, None)]
+        if prefix:
+            filters.append(Node.name.like(f"{prefix}%"))  # type: ignore
+        if node_type:
+            filters.append(Node.type == node_type)
+        return filters
+
+    @classmethod
     async def find(
         cls,
         session: AsyncSession,
@@ -933,15 +950,26 @@ class Node(Base):
         """
         Finds a list of nodes by prefix
         """
-        statement = select(Node).where(is_(Node.deactivated_at, None))
-        if prefix:
-            statement = statement.where(
-                Node.name.like(f"{prefix}%"),  # type: ignore
-            )
-        if node_type:
-            statement = statement.where(Node.type == node_type)
+        statement = select(Node).where(*cls._find_filters(prefix, node_type))
         result = await session.execute(statement.options(*options))
         return result.unique().scalars().all()
+
+    @classmethod
+    async def find_names(
+        cls,
+        session: AsyncSession,
+        prefix: str | None = None,
+        node_type: NodeType | None = None,
+    ) -> list[str]:
+        """
+        Finds node names by prefix and type.
+
+        Selects the name column directly, so no ORM entities are built and the
+        session's identity map is left untouched.
+        """
+        statement = select(Node.name).where(*cls._find_filters(prefix, node_type))
+        result = await session.execute(statement)
+        return list(result.scalars().all())
 
     @classmethod
     async def _build_filtered_node_statement(

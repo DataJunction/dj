@@ -283,8 +283,10 @@ async def list_nodes(
     """
     List the available nodes.
     """
-    nodes = await Node.find(session, prefix, node_type)  # type: ignore
-    access_checker.add_nodes(nodes, access.ResourceAction.READ)
+    # Only the names are needed, here and for the access check.
+    node_names = await Node.find_names(session, prefix, node_type)
+    for node_name in node_names:
+        access_checker.add_request_by_node_name(node_name, access.ResourceAction.READ)
     return await access_checker.approved_resource_names()
 
 

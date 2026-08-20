@@ -37,6 +37,38 @@ async def test_list_dimension(
 
 
 @pytest.mark.asyncio
+async def test_list_dimension_query_count(
+    client_with_roads: AsyncClient,
+    capture_queries: list[str],
+) -> None:
+    """
+    ``GET /dimensions/`` must stay on a small, constant number of queries.
+
+    The dimension picker in the UI loads this list in full on every mount, so
+    the cost here is paid interactively. It used to hydrate every dimension node
+    as a full ORM object -- pulling in columns, parents, dimension links and
+    those links' target dimensions -- which ran into the hundreds of queries and
+    tens of seconds on a large instance.
+    """
+    response = await client_with_roads.get("/dimensions/")
+    assert response.status_code == 200
+
+    # The endpoint's own work is two queries: list the dimension nodes, then
+    # aggregate their indegrees.
+    node_queries = [
+        query
+        for query in capture_queries
+        if "FROM node" in query or "FROM dimensionlink" in query
+    ]
+    assert len(node_queries) == 2, "\n\n".join(node_queries)
+
+    # Everything else in the request is per-request auth/RBAC. Cap the total so
+    # that a relationship quietly becoming eager-loaded (which would fan out
+    # into extra batched selects against other tables) fails here.
+    assert len(capture_queries) <= 8, "\n\n".join(capture_queries)
+
+
+@pytest.mark.asyncio
 async def test_list_nodes_with_dimension(
     module__client_with_roads_and_acc_revenue: AsyncClient,
 ) -> None:

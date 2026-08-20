@@ -39,7 +39,7 @@ from fastapi_cache.backends.inmemory import InMemoryBackend
 from httpx import AsyncClient
 from psycopg import connect
 from pytest_mock import MockerFixture
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -2507,3 +2507,33 @@ async def clean_current_user(clean_session: AsyncSession) -> User:
     await clean_session.commit()
     await clean_session.refresh(new_user)
     return new_user
+
+
+@pytest_asyncio.fixture
+async def capture_queries(
+    session: AsyncSession,
+) -> AsyncGenerator[list[str], None]:
+    """
+    Returns a list of strings, where each string represents a SQL statement
+    captured during the test.
+    """
+    queries = []
+    sync_engine = session.bind.sync_engine
+
+    def before_cursor_execute(
+        _conn,
+        _cursor,
+        statement,
+        _parameters,
+        _context,
+        _executemany,
+    ):
+        queries.append(statement)
+
+    # Attach event listener to capture queries
+    event.listen(sync_engine, "before_cursor_execute", before_cursor_execute)
+
+    yield queries
+
+    # Detach event listener after the test
+    event.remove(sync_engine, "before_cursor_execute", before_cursor_execute)

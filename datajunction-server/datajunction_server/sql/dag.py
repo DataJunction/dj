@@ -13,7 +13,7 @@ from typing import cast
 from sqlalchemy import and_, bindparam, func, join, or_, select, text
 from sqlalchemy.dialects.postgresql import array
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.orm import aliased, joinedload, selectinload
 from sqlalchemy.sql.base import ExecutableOption
 from sqlalchemy.sql.operators import is_
 
@@ -1561,28 +1561,37 @@ async def get_dimension_dag_indegree(session, node_names: list[str]) -> dict[str
     of dimension links that reference this node. Non-dimension nodes will always have an
     indegree of 0.
     """
-    nodes = await Node.get_by_names(session, node_names)
-    dimension_ids = [node.id for node in nodes]
+    if not node_names:
+        return {}
+
+    # Aggregate directly rather than hydrating ORM nodes and their eager loads.
+    linking_revision = aliased(NodeRevision)
+    linking_node = aliased(Node)
     statement = (
-        select(
-            DimensionLink.dimension_id,
-            func.count(DimensionLink.id),
+        select(Node.name, func.count(linking_node.id))
+        .select_from(Node)
+        .outerjoin(DimensionLink, DimensionLink.dimension_id == Node.id)
+        .outerjoin(
+            linking_revision,
+            DimensionLink.node_revision_id == linking_revision.id,
         )
-        .where(DimensionLink.dimension_id.in_(dimension_ids))
-        .join(NodeRevision, DimensionLink.node_revision_id == NodeRevision.id)
-        .join(
-            Node,
+        # Only a node's current revision contributes to indegree; a failed join
+        # leaves a NULL that count() skips.
+        .outerjoin(
+            linking_node,
             and_(
-                Node.id == NodeRevision.node_id,
-                Node.current_version == NodeRevision.version,
+                linking_node.id == linking_revision.node_id,
+                linking_node.current_version == linking_revision.version,
             ),
         )
-        .group_by(DimensionLink.dimension_id)
+        .where(
+            Node.name.in_(node_names),
+            is_(Node.deactivated_at, None),
+        )
+        .group_by(Node.name)
     )
     result = await session.execute(statement)
-    link_counts = {link[0]: link[1] for link in result.unique().all()}
-    dimension_dag_indegree = {node.name: link_counts.get(node.id, 0) for node in nodes}
-    return dimension_dag_indegree
+    return {name: indegree for name, indegree in result.all()}
 
 
 async def get_cubes_using_dimensions(
