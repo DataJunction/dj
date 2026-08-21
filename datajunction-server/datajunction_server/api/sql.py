@@ -9,6 +9,7 @@ from http import HTTPStatus
 from typing import cast
 
 from fastapi import BackgroundTasks, Depends, Query, Request
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.construction.build_v3 import (
@@ -702,11 +703,17 @@ async def get_sql_for_metrics(
     # Label this session for debugging
     session.info["session_label"] = "initial node loading"
 
-    # Fetch all metric nodes in a single query (only name/type needed for validation here)
-    nodes = await Node.get_by_names(session, metrics, options=[])
+    # Fetch only name/type for validation here — no need to hydrate full
+    # Node entities (which would trigger the mapper-level created_by/tags
+    # selectin loads on each row).
+    node_rows = (
+        await session.execute(
+            select(Node.name, Node.type).where(Node.name.in_(metrics)),
+        )
+    ).all()
 
     # Check if all requested nodes exist
-    found_names = {node.name for node in nodes}
+    found_names = {row.name for row in node_rows}
     missing_nodes = set(metrics) - found_names
     if missing_nodes:
         raise DJInvalidInputException(
@@ -715,11 +722,11 @@ async def get_sql_for_metrics(
         )
 
     # Validate node types
-    non_metric_nodes = [node for node in nodes if node and node.type != NodeType.METRIC]
+    non_metric_nodes = [row for row in node_rows if row.type != NodeType.METRIC]
     if non_metric_nodes:
         raise DJInvalidInputException(
             message="All nodes must be of metric type, but some are not: "
-            f"{', '.join([f'{n.name} ({n.type})' for n in non_metric_nodes])} .",
+            f"{', '.join([f'{row.name} ({row.type})' for row in non_metric_nodes])} .",
             http_status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
         )
 
