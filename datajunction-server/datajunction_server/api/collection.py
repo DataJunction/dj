@@ -6,12 +6,12 @@ import logging
 from http import HTTPStatus
 
 from fastapi import Depends, HTTPException, Response
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only, noload, selectinload
 from sqlalchemy.sql.operators import is_
 
-from datajunction_server.database.collection import Collection
+from datajunction_server.database.collection import Collection, CollectionNodes
 from datajunction_server.database.node import Node
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJException
@@ -169,19 +169,18 @@ async def delete_nodes_from_collection(
     """
     Delete one or more nodes from a collection
     """
-    collection = await Collection.get_by_name(session, name)
-    nodes = await Node.get_by_names(
-        session=session,
-        names=data,
-        options=[
-            load_only(Node.id, Node.name),
-            noload(Node.created_by),
-            noload(Node.tags),
-        ],
+    collection = await Collection.get_by_name(session, name, raise_if_not_exists=True)
+    # Delete the join rows directly. Going through `collection.nodes` would load
+    # every node in the collection to remove a few, and the read-modify-write it
+    # implies races with a concurrent edit. Names that match nothing delete nothing,
+    # which is the same outcome the membership check gave.
+    await session.execute(
+        delete(CollectionNodes).where(
+            CollectionNodes.collection_id == collection.id,  # type: ignore
+            CollectionNodes.node_id.in_(
+                select(Node.id).where(Node.name.in_(data)),
+            ),
+        ),
     )
-    for node in nodes:
-        if node in collection.nodes:  # type: ignore
-            collection.nodes.remove(node)  # type: ignore
     await session.commit()
-    await session.refresh(collection)
     return Response(status_code=HTTPStatus.NO_CONTENT)
