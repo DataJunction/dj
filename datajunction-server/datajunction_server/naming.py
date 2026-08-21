@@ -36,6 +36,26 @@ LOOKUP_CHARS = {
 }
 
 
+def parse_scope_pattern(value: str) -> tuple[str, str] | None:
+    """Parse exact, trailing-wildcard, and global scope patterns."""
+    if not value:
+        return None
+    if value == "*":
+        return ("global", "")
+    if (
+        value.startswith(SEPARATOR)
+        or value.endswith(SEPARATOR)
+        or SEPARATOR * 2 in value
+    ):
+        return None
+    if "*" not in value:
+        return ("exact", value)
+    if value.count("*") != 1 or not value.endswith(f"{SEPARATOR}*"):
+        return None
+    prefix = value[: -len(f"{SEPARATOR}*")]
+    return ("subtree", prefix) if prefix else None
+
+
 def amenable_name(name: str) -> str:
     """Takes a string and makes it have only alphanumerics"""
     ret: list[str] = []
