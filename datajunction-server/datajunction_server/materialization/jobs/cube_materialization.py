@@ -11,9 +11,9 @@ from datajunction_server.materialization.jobs.materialization_job import (
     MaterializationJob,
 )
 from datajunction_server.models.cube_materialization import (
-    PrincipalRef,
     DruidCubeConfig,
     DruidCubeMaterializationInput,
+    principal_refs,
 )
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import (
@@ -159,13 +159,7 @@ class DruidCubeMaterializationJob(DruidMaterializationJob, MaterializationJob):
                 job=materialization.job,
                 lookback_window=cube_config.lookback_window,
                 retention=cube_config.retention,
-                owners=[
-                    PrincipalRef(username=owner.username, kind=owner.kind)
-                    for owner in sorted(
-                        revision.node.owners,
-                        key=lambda owner: owner.username,
-                    )
-                ],
+                owners=principal_refs(revision.node.owners),
                 custom_metadata=revision.custom_metadata,
                 measures_materializations=cube_config.measures_materializations,
                 combiners=cube_config.combiners,
