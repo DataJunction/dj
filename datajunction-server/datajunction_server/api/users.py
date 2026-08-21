@@ -2,18 +2,20 @@
 User related APIs.
 """
 
+from collections import defaultdict
+
 from fastapi import Depends, Query
 from sqlalchemy import distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, selectinload
 
-from datajunction_server.database.column import Column
 from datajunction_server.database.history import History
 from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.tag import Tag, TagNodeRelationship
 from datajunction_server.database.user import User
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.models.node import NodeMinimumDetail
+from datajunction_server.models.tag import TagMinimum
 from datajunction_server.models.user import UserActivity
 from datajunction_server.utils import get_session, get_settings
 
@@ -37,20 +39,73 @@ async def list_nodes_by_username(
         & (History.activity_type.in_(activity_types)),
     )
     result = await session.execute(statement)
-    nodes = await Node.get_by_names(
-        session=session,
-        names=list(set(result.scalars().all())),
-        options=[
-            joinedload(Node.current).options(
-                selectinload(NodeRevision.cube_elements)
-                .selectinload(Column.node_revision)
-                .options(
-                    selectinload(NodeRevision.node),
-                ),
-            ),
-        ],
+    names = list(set(result.scalars().all()))
+    if not names:
+        return []
+
+    # Column-only select of exactly the fields `NodeMinimumDetail` needs, joined
+    # to the node's current revision. This avoids hydrating `Node`/`NodeRevision`
+    # ORM entities altogether, which would otherwise fan out into the mapper's
+    # eager-loaded relationships (`created_by`, `node`, `catalog`, etc.) for
+    # every node the user has ever touched.
+    nodes_statement = (
+        select(
+            Node.name,
+            Node.type,
+            Node.current_version,
+            NodeRevision.display_name,
+            NodeRevision.description,
+            NodeRevision.status,
+            NodeRevision.mode,
+            NodeRevision.updated_at,
+        )
+        .join(
+            NodeRevision,
+            (NodeRevision.node_id == Node.id)
+            & (NodeRevision.version == Node.current_version),
+        )
+        .where(Node.name.in_(names))
     )
-    return [node.current for node in nodes]
+    rows = (await session.execute(nodes_statement)).all()
+
+    tags_statement = (
+        select(Node.name, Tag.name)
+        .select_from(Node)
+        .join(TagNodeRelationship, TagNodeRelationship.node_id == Node.id)
+        .join(Tag, Tag.id == TagNodeRelationship.tag_id)
+        .where(Node.name.in_(names))
+    )
+    tags_by_node: dict[str, list[TagMinimum]] = defaultdict(list)
+    for node_name, tag_name in (await session.execute(tags_statement)).all():
+        tags_by_node[node_name].append(TagMinimum(name=tag_name))
+
+    history_statement = select(
+        distinct(History.entity_name),
+        History.user,
+    ).where(
+        History.entity_name.in_(names)
+        & (History.entity_type == EntityType.NODE)
+        & (History.user.is_not(None)),
+    )
+    editors_by_node: dict[str, set[str]] = defaultdict(set)
+    for node_name, editor in (await session.execute(history_statement)).all():
+        editors_by_node[node_name].add(editor)
+
+    return [
+        NodeMinimumDetail(
+            name=row.name,
+            display_name=row.display_name,
+            description=row.description,
+            version=row.current_version,
+            type=row.type,
+            status=row.status,
+            mode=row.mode,
+            updated_at=row.updated_at,
+            tags=tags_by_node.get(row.name, []),
+            edited_by=list(editors_by_node.get(row.name, set())),
+        )
+        for row in rows
+    ]
 
 
 @router.get("/users", response_model=list[str | UserActivity])
