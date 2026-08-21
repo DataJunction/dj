@@ -908,9 +908,37 @@ describe('DataJunctionAPI', () => {
   it('calls dimensions correctly', async () => {
     fetch.mockResponseOnce(JSON.stringify(mocks.dimensions));
     await DataJunctionAPI.dimensions();
-    expect(fetch).toHaveBeenCalledWith(`${DJ_URL}/dimensions`, {
+    expect(fetch).toHaveBeenCalledWith(`${DJ_URL}/dimensions/`, {
       credentials: 'include',
     });
+  });
+
+  it('calls dimensions with a limit', async () => {
+    fetch.mockResponseOnce(JSON.stringify(mocks.dimensions));
+    await DataJunctionAPI.dimensions(100);
+    expect(fetch).toHaveBeenCalledWith(`${DJ_URL}/dimensions/?limit=100`, {
+      credentials: 'include',
+    });
+  });
+
+  it('calls searchDimensions correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify({
+        data: {
+          findNodes: [
+            { name: 'default.hard_hat', current: { displayName: 'Hard Hat' } },
+            { name: 'default.us_state', current: null },
+          ],
+        },
+      }),
+    );
+    const results = await DataJunctionAPI.searchDimensions('hard', {
+      limit: 10,
+    });
+    expect(results).toEqual([
+      { name: 'default.hard_hat', displayName: 'Hard Hat' },
+      { name: 'default.us_state', displayName: 'default.us_state' },
+    ]);
   });
 
   it('calls setAttributes correctly', async () => {
