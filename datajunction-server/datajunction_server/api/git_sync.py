@@ -306,7 +306,11 @@ async def sync_node_to_git(
     attributed via Co-authored-by trailer.
     """
     # Get the node
-    node = await Node.get_by_name(session, node_name, options=Node.cube_load_options())
+    node = await Node.get_by_name(
+        session,
+        node_name,
+        options=Node.export_load_options(),
+    )
     if not node:
         raise DJDoesNotExistException(
             message=f"Node '{node_name}' does not exist.",

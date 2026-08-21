@@ -7,7 +7,7 @@ import logging
 from fastapi import Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from datajunction_server.database import Node, NodeRevision
 from datajunction_server.database.column import Column
@@ -41,8 +41,8 @@ async def get_measure_by_name(
                 .where(Measure.name == measure_name)
                 .options(
                     joinedload(Measure.columns).options(
-                        joinedload(Column.node_revision).options(
-                            *NodeRevision.default_load_options(),
+                        joinedload(Column.node_revision).load_only(
+                            NodeRevision.name,
                         ),
                     ),
                 ),
@@ -66,22 +66,30 @@ async def get_node_columns(
     """
     Finds all the specified node columns or raises if they don't exist
     """
+    node_names = [node_column.node for node_column in node_columns]
+    nodes = await Node.get_by_names(
+        session,
+        node_names,
+        options=[
+            joinedload(Node.current).options(
+                selectinload(NodeRevision.columns),
+            ),
+        ],
+    )
+    nodes_by_name = {node.name: node for node in nodes}
+
     measure_columns = []
     for node_column in node_columns:
-        node = await Node.get_by_name(
-            session,
-            node_column.node,
-            options=[
-                joinedload(Node.current).options(*NodeRevision.default_load_options()),
-            ],
+        node = nodes_by_name.get(node_column.node)
+        available = (
+            [
+                col
+                for col in node.current.columns  # type: ignore
+                if col.name == node_column.column
+            ]
+            if node
+            else []
         )
-        available = [
-            col
-            for col in node.current.columns  # type: ignore
-            if col.name == node_column.column
-        ]
-        for col in available:
-            await session.refresh(col, ["node_revision"])
         if len(available) == 0:
             raise DJDoesNotExistException(
                 message=f"Column `{node_column.column}` does not exist on "
