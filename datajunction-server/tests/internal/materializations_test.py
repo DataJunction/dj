@@ -4,9 +4,14 @@ Tests for node materialization helper functions.
 
 from unittest import mock
 
+import pytest
+
 from datajunction_server.database.materialization import Materialization
 from datajunction_server.internal.materializations import (
+    CubeMaterializationSwap,
+    CubeMaterializationSwapOutcome,
     NodeMaterializationTeardown,
+    apply_cube_materialization_swap,
     stop_cube_materialization_workflows,
     stop_materialization_workflows,
 )
@@ -227,3 +232,139 @@ def test_stop_materialization_workflows_reports_every_failure():
         "version v1.0, but the query service did not stop its workflow: unreachable. "
         "The workflow may still be running.",
     ]
+
+
+def _swap(rebuilt_names: list[str]) -> CubeMaterializationSwap:
+    """A swap with one superseded materialization and the given rebuilt names."""
+    return CubeMaterializationSwap(
+        cube_name="default.a_cube",
+        previous_version="v1.0",
+        new_revision_id=42,
+        new_version="v1.1",
+        rebuilt_names=rebuilt_names,
+        superseded=[
+            Materialization(
+                name="druid_cube_v3",
+                config={"workflow_names": ["cube_workflow_1"]},
+            ),
+        ],
+    )
+
+
+@pytest.mark.asyncio
+async def test_apply_cube_swap_reports_a_scheduled_push():
+    """
+    A push the query service accepted reports the cube scheduled, with no error to
+    carry back to the deployment.
+    """
+    query_service_client = mock.MagicMock()
+    session = mock.MagicMock()
+
+    with mock.patch(
+        "datajunction_server.internal.materializations.schedule_materialization_jobs",
+        new=mock.AsyncMock(),
+    ) as schedule:
+        outcome = await apply_cube_materialization_swap(
+            session,
+            _swap(["druid_cube_v3"]),
+            query_service_client,
+            request_headers={"cookie": "a-cookie"},
+        )
+
+    assert outcome == CubeMaterializationSwapOutcome(
+        cube_name="default.a_cube",
+        materialization_names=["druid_cube_v3"],
+        scheduled=True,
+        error=None,
+    )
+    assert schedule.call_args_list == [
+        mock.call(
+            session,
+            node_revision_id=42,
+            materialization_names=["druid_cube_v3"],
+            query_service_client=query_service_client,
+            request_headers={"cookie": "a-cookie"},
+        ),
+    ]
+    assert query_service_client.deactivate_workflows.call_args_list == [
+        mock.call(
+            workflow_names=["cube_workflow_1"],
+            request_headers={"cookie": "a-cookie"},
+        ),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_apply_cube_swap_reports_a_rejected_push():
+    """
+    A query service that refuses the push still does not raise -- the deploy has
+    committed -- but the refusal comes back verbatim, and the superseded workflow is
+    stopped regardless: DJ has already recorded it as inactive.
+    """
+    query_service_client = mock.MagicMock()
+    rejection = (
+        "User `dj` is not an owner of data project `analytics` and cannot write to "
+        "`prodhive.analytics.a_cube`"
+    )
+
+    with mock.patch(
+        "datajunction_server.internal.materializations.schedule_materialization_jobs",
+        new=mock.AsyncMock(side_effect=Exception(rejection)),
+    ):
+        outcome = await apply_cube_materialization_swap(
+            mock.MagicMock(),
+            _swap(["druid_cube_v3"]),
+            query_service_client,
+        )
+
+    assert outcome == CubeMaterializationSwapOutcome(
+        cube_name="default.a_cube",
+        materialization_names=["druid_cube_v3"],
+        scheduled=False,
+        error=rejection,
+    )
+    assert query_service_client.deactivate_workflows.call_args_list == [
+        mock.call(workflow_names=["cube_workflow_1"], request_headers=None),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_apply_cube_swap_of_a_teardown_scheduled_nothing_and_failed_nothing():
+    """
+    A swap that rebuilt nothing is a teardown. There is no scheduling to fail, so it
+    reports success with no names -- a workflow the query service could not stop is
+    `stop_cube_materialization_workflows`'s to report, not a materialization failure
+    to hang on the cube.
+    """
+    query_service_client = mock.MagicMock()
+    query_service_client.deactivate_workflows.side_effect = Exception("unreachable")
+
+    outcome = await apply_cube_materialization_swap(
+        mock.MagicMock(),
+        _swap([]),
+        query_service_client,
+    )
+
+    assert outcome == CubeMaterializationSwapOutcome(
+        cube_name="default.a_cube",
+        materialization_names=[],
+        scheduled=True,
+        error=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_apply_cube_swap_without_a_query_service():
+    """
+    With no query service configured there is nothing to push and nothing to report.
+    """
+    assert await apply_cube_materialization_swap(
+        mock.MagicMock(),
+        _swap(["druid_cube_v3"]),
+        None,
+    ) == CubeMaterializationSwapOutcome(
+        cube_name="default.a_cube",
+        materialization_names=["druid_cube_v3"],
+        scheduled=True,
+        error=None,
+    )

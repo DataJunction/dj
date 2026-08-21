@@ -32,6 +32,10 @@ from datajunction_server.internal.deployment.validation import (
     CubeValidationData,
     NodeValidationResult,
 )
+from datajunction_server.internal.materializations import (
+    CubeMaterializationSwap,
+    CubeMaterializationSwapOutcome,
+)
 from datajunction_server.models.deployment import (
     ChangeTier,
     ColumnSpec,
@@ -3596,3 +3600,186 @@ class TestDeriveLegacyUnitForStorage:
             None,
         )
         assert result == MetricUnit.SECOND
+
+
+class TestApplyCubeMaterializationSwaps:
+    """
+    Reporting on the query service's answer to a cube materialization push.
+
+    The push happens after the deploy commits, and until it was reported a query
+    service that rejected it left the deployment claiming success.
+    """
+
+    @staticmethod
+    def _swap(cube_name: str, rebuilt_names: list[str]) -> CubeMaterializationSwap:
+        return CubeMaterializationSwap(
+            cube_name=cube_name,
+            previous_version="v1.0",
+            new_revision_id=7,
+            new_version="v1.1",
+            rebuilt_names=rebuilt_names,
+            superseded=[],
+        )
+
+    @staticmethod
+    def _result(name: str) -> DeploymentResult:
+        """The success reconciliation appends before the push is attempted."""
+        return DeploymentResult(
+            name=name,
+            deploy_type=DeploymentResult.Type.MATERIALIZATION,
+            status=DeploymentResult.Status.SUCCESS,
+            operation=DeploymentResult.Operation.CREATE,
+            message="cube materialization on schedule @daily",
+        )
+
+    @pytest.mark.asyncio
+    async def test_rejected_push_fails_the_reported_materialization(
+        self,
+        orchestrator,
+    ):
+        """
+        A rejection turns the cube's already-reported success into a failure that
+        repeats the query service's message word for word, while an unrelated cube
+        that pushed cleanly keeps its success.
+        """
+        orchestrator.context.request = None
+        rejection = (
+            "User `dj` does not own data project `analytics`; Jenkins job "
+            "`analytics-a_cube` cannot write `prodhive.analytics.a_cube`"
+        )
+        orchestrator._cube_materialization_swaps = [
+            self._swap("default.a_cube", ["druid_cube__full__a_cube"]),
+            self._swap("default.b_cube", ["druid_cube__full__b_cube"]),
+        ]
+        orchestrator.deployed_results = [
+            self._result("default.a_cube"),
+            self._result("default.b_cube"),
+        ]
+
+        with patch(
+            "datajunction_server.internal.deployment.orchestrator."
+            "apply_cube_materialization_swap",
+            new=AsyncMock(
+                side_effect=[
+                    CubeMaterializationSwapOutcome(
+                        cube_name="default.a_cube",
+                        materialization_names=["druid_cube__full__a_cube"],
+                        scheduled=False,
+                        error=rejection,
+                    ),
+                    CubeMaterializationSwapOutcome(
+                        cube_name="default.b_cube",
+                        materialization_names=["druid_cube__full__b_cube"],
+                        scheduled=True,
+                    ),
+                ],
+            ),
+        ):
+            await orchestrator._apply_cube_materialization_swaps()
+
+        assert orchestrator.deployed_results == [
+            DeploymentResult(
+                name="default.a_cube",
+                deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                status=DeploymentResult.Status.FAILED,
+                operation=DeploymentResult.Operation.CREATE,
+                message=(
+                    "Cube `default.a_cube`: the query service rejected the request "
+                    f"to schedule its materialization: {rejection}"
+                ),
+            ),
+            self._result("default.b_cube"),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_rejected_push_matched_by_materialization_name(
+        self,
+        orchestrator,
+    ):
+        """
+        A result recorded under the materialization's own name rather than the
+        cube's is still the result the failure belongs on.
+        """
+        orchestrator.context.request = None
+        orchestrator._cube_materialization_swaps = [
+            self._swap("default.a_cube", ["druid_cube__full__a_cube"]),
+        ]
+        orchestrator.deployed_results = [self._result("druid_cube__full__a_cube")]
+
+        with patch(
+            "datajunction_server.internal.deployment.orchestrator."
+            "apply_cube_materialization_swap",
+            new=AsyncMock(
+                return_value=CubeMaterializationSwapOutcome(
+                    cube_name="default.a_cube",
+                    materialization_names=["druid_cube__full__a_cube"],
+                    scheduled=False,
+                    error="unreachable",
+                ),
+            ),
+        ):
+            await orchestrator._apply_cube_materialization_swaps()
+
+        assert orchestrator.deployed_results == [
+            DeploymentResult(
+                name="druid_cube__full__a_cube",
+                deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                status=DeploymentResult.Status.FAILED,
+                operation=DeploymentResult.Operation.CREATE,
+                message=(
+                    "Cube `default.a_cube`: the query service rejected the request "
+                    "to schedule its materialization: unreachable"
+                ),
+            ),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_rejected_push_with_nothing_to_correct_is_still_reported(
+        self,
+        orchestrator,
+    ):
+        """
+        A revision swap the deployment never reported a materialization for -- a
+        cube rebuilt because its definition moved, not because it declared a block
+        -- gets a result of its own rather than being dropped.
+        """
+        orchestrator.context.request = None
+        orchestrator._cube_materialization_swaps = [
+            self._swap("default.a_cube", ["druid_cube__full__a_cube"]),
+        ]
+        node_result = DeploymentResult(
+            name="default.a_cube",
+            deploy_type=DeploymentResult.Type.NODE,
+            status=DeploymentResult.Status.SUCCESS,
+            operation=DeploymentResult.Operation.UPDATE,
+            message="Updated cube (v1.1)",
+        )
+        orchestrator.deployed_results = [node_result]
+
+        with patch(
+            "datajunction_server.internal.deployment.orchestrator."
+            "apply_cube_materialization_swap",
+            new=AsyncMock(
+                return_value=CubeMaterializationSwapOutcome(
+                    cube_name="default.a_cube",
+                    materialization_names=["druid_cube__full__a_cube"],
+                    scheduled=False,
+                    error="403 Forbidden",
+                ),
+            ),
+        ):
+            await orchestrator._apply_cube_materialization_swaps()
+
+        assert orchestrator.deployed_results == [
+            node_result,
+            DeploymentResult(
+                name="default.a_cube",
+                deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                status=DeploymentResult.Status.FAILED,
+                operation=DeploymentResult.Operation.UNKNOWN,
+                message=(
+                    "Cube `default.a_cube`: the query service rejected the request "
+                    "to schedule its materialization: 403 Forbidden"
+                ),
+            ),
+        ]
