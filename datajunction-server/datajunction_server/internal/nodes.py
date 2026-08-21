@@ -97,6 +97,8 @@ from datajunction_server.models.deployment import (
     CubeSpec,
     DeploymentResult,
     bump_version,
+    fold_change_tiers,
+    version_change_tier,
 )
 from datajunction_server.models.dimensionlink import (
     JoinLinkInput,
@@ -125,6 +127,7 @@ from datajunction_server.models.query import QueryCreate
 from datajunction_server.models.table_metadata import TableMetadata, TableOwner
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import (
+    _node_output_options,
     get_downstream_nodes,
     get_nodes_with_common_dimensions,
     topological_sort,
@@ -1502,6 +1505,11 @@ async def update_node_with_query(
         current_user=current_user,
         save_history=save_history,
         cache=cache,
+        # Downstream cubes inherit this tier: a cube's own shape can be identical
+        # across an upstream change that alters every row it serves.
+        change_tier=version_change_tier(old_revision.version, node.current_version),  # type: ignore
+        query_service_client=query_service_client,
+        request_headers=request_headers,
     )
     await session.refresh(node, ["current"])
     await session.refresh(node.current, ["materializations"])  # type: ignore
@@ -1987,6 +1995,59 @@ async def update_cube_node(
             )
         return None
 
+    return await save_new_cube_revision(
+        session,
+        node_revision,
+        create_cube,
+        change_tier,
+        request_headers=request_headers,
+        query_service_client=query_service_client,
+        current_user=current_user,
+        access_checker=access_checker,
+        save_history=save_history,
+    )
+
+
+async def save_new_cube_revision(
+    session: AsyncSession,
+    node_revision: NodeRevision,
+    create_cube: CreateCubeNode,
+    change_tier: ChangeTier,
+    *,
+    request_headers: dict[str, str] | None,
+    query_service_client: QueryServiceClient | None,
+    current_user: User,
+    access_checker: AccessChecker,
+    save_history: Callable,
+    extra_history_details: dict | None = None,
+    previous_table_usable: bool | None = None,
+) -> NodeRevision:
+    """
+    Commit `create_cube` as the cube's next revision, at the version `change_tier`
+    earns, and move its materializations onto it.
+
+    Everything a new cube revision needs beyond deciding *that* there should be one:
+    resolving the cube against the current metrics and dimensions, the version bump,
+    carrying partition columns forward, the audit event, and the materialization
+    swap. Both writers that start from a cube's *own* definition go through here --
+    a user editing the cube (`update_cube_node`) and an upstream change propagating
+    into it -- so the two cannot produce differently-shaped revisions. Deploy builds
+    cube revisions on its own path and swaps them itself
+    (`orchestrator._swap_cube_materializations`).
+
+    `extra_history_details` is merged into the UPDATE event's details, which is how
+    the propagation path records the upstream node and version that caused the bump.
+
+    `previous_table_usable` is recorded on the swap's history event for an operator
+    deciding whether the rebuild can adopt the old table or needs a backfill. Left
+    unset it is derived from `is_non_trivial_cube_change`, which compares the cube's
+    own shape -- correct when the cube itself changed. An upstream change must pass
+    False: the shapes can be identical while every row differs, which is the same
+    reason propagation does not use that predicate to decide whether to rebuild.
+    """
+    old_metrics = [m.name for m in node_revision.cube_metrics()]
+    old_dimensions = node_revision.cube_dimensions()
+
     # Disable autoflush to prevent partial state from being persisted if an error
     # occurs during revision creation. This ensures that node.current_version and
     # the new NodeRevision are committed atomically - either both succeed or both
@@ -2011,6 +2072,7 @@ async def update_cube_node(
                 activity_type=ActivityType.UPDATE,
                 details={
                     "version": new_cube_revision.version,  # type: ignore
+                    **(extra_history_details or {}),
                 },
                 pre={
                     "metrics": old_metrics,
@@ -2051,10 +2113,14 @@ async def update_cube_node(
         new_cube_revision,
         access_checker=access_checker,
         current_user=current_user,
-        previous_table_usable=not await is_non_trivial_cube_change(
-            session,
-            node_revision,
-            new_cube_revision,
+        previous_table_usable=(
+            previous_table_usable
+            if previous_table_usable is not None
+            else not await is_non_trivial_cube_change(
+                session,
+                node_revision,
+                new_cube_revision,
+            )
         ),
     )
     if swap:
@@ -2083,9 +2149,16 @@ async def propagate_update_downstream(
     current_user: User,
     save_history: Callable,
     cache: Cache | None = None,
+    change_tier: ChangeTier = ChangeTier.MAJOR,
+    query_service_client: QueryServiceClient | None = None,
+    request_headers: dict[str, str] | None = None,
 ):
     """
     Background task to propagate the updated node's changes to all of its downstream children.
+
+    `change_tier` is how significant the change to `node` itself was, which is what
+    downstream cubes inherit as their own bump. It defaults to MAJOR because
+    over-rebuilding a cube costs compute while under-rebuilding serves wrong numbers.
     """
     try:
         async with session_context() as session:
@@ -2095,6 +2168,9 @@ async def propagate_update_downstream(
                 current_user=current_user,
                 save_history=save_history,
                 cache=cache,
+                change_tier=change_tier,
+                query_service_client=query_service_client,
+                request_headers=request_headers,
             )
     except Exception:
         _logger.exception(
@@ -2103,12 +2179,111 @@ async def propagate_update_downstream(
         )
 
 
+async def _reload_nodes_in_order(
+    session: AsyncSession,
+    names: list[str],
+) -> list[Node]:
+    """
+    Reload the named nodes in one query, preserving the order they were given in.
+
+    Used to recover the tail of a propagation walk after a rollback has expired the
+    instances it was holding. A node that has disappeared meanwhile is dropped
+    rather than resurrected, and an empty list of names is a select that matches
+    nothing rather than a case to special-case.
+    """
+    reloaded = (
+        (
+            await session.execute(
+                select(Node)
+                .where(Node.name.in_(names))
+                .options(*_node_output_options()),
+            )
+        )
+        .unique()
+        .scalars()
+        .all()
+    )
+    position = {name: index for index, name in enumerate(names)}
+    return sorted(reloaded, key=lambda reloaded_node: position[reloaded_node.name])
+
+
+async def _rebuild_downstream_cube(
+    session: AsyncSession,
+    cube: Node,
+    upstream: Node,
+    change_tier: ChangeTier,
+    *,
+    current_user: User,
+    save_history: Callable,
+    query_service_client: QueryServiceClient | None,
+    request_headers: dict[str, str] | None,
+) -> None:
+    """
+    Bump a cube because something upstream of it changed.
+
+    Nobody edited the cube, so there is no payload to reconstruct it from: the new
+    revision is resolved from the cube's *own* current metrics and dimensions, which
+    is exactly what `update_cube_node` falls back to for every field a PATCH omits.
+    Re-resolving them is the point -- the metrics and dimensions are the same names,
+    but they now resolve against new upstream revisions, so the cube's columns,
+    elements and parents recompile against what the upstream became.
+
+    The cube inherits the upstream's tier rather than being classified on its own
+    shape. `is_non_trivial_cube_change` asks whether the *cube's* definition moved,
+    which is the wrong question here: widening a transform's WHERE clause changes no
+    metric, no dimension and no component identity, yet every row in the cube's
+    materialized table was computed under the old filter. Over-rebuilding costs
+    compute; under-rebuilding serves wrong numbers.
+    """
+    cube_node = await Node.get_cube_by_name(session, cube.name)
+    node_revision = cube_node.current  # type: ignore
+    create_cube = CreateCubeNode(
+        name=node_revision.name,
+        display_name=node_revision.display_name,
+        description=node_revision.description,
+        metrics=[metric.name for metric in node_revision.cube_metrics()],
+        dimensions=node_revision.cube_dimensions(),
+        mode=node_revision.mode,
+        filters=node_revision.cube_filters or [],
+        custom_metadata=node_revision.custom_metadata,
+    )
+    # Propagation runs after the response returned, outside the request's
+    # AccessChecker, so the rebuild gets a fresh one. It does not gate the bump:
+    # a cube whose owner pointed it at this upstream is not the updater's call.
+    access_checker = AccessChecker(await AuthContext.from_user(session, current_user))
+    await save_new_cube_revision(
+        session,
+        node_revision,
+        create_cube,
+        change_tier,
+        request_headers=request_headers,
+        query_service_client=query_service_client,
+        current_user=current_user,
+        access_checker=access_checker,
+        save_history=save_history,
+        extra_history_details={
+            "upstream": {
+                "node": upstream.name,
+                "version": upstream.current_version,
+            },
+            "reason": f"Caused by update of `{upstream.name}` to "
+            f"{upstream.current_version}",
+        },
+        # The cube's own shape can be identical across an upstream change that
+        # altered every row, so the old table cannot be assumed adoptable.
+        previous_table_usable=False,
+    )
+
+
 async def _propagate_update_downstream(
     session: AsyncSession,
     node: Node,
     current_user: User,
     save_history: Callable,
     cache: Cache | None = None,
+    change_tier: ChangeTier = ChangeTier.MAJOR,
+    query_service_client: QueryServiceClient | None = None,
+    request_headers: dict[str, str] | None = None,
 ):
     """
     Propagate the updated node's changes to all of its downstream children.
@@ -2126,15 +2301,24 @@ async def _propagate_update_downstream(
     graph asserting VALID for nodes that are now broken -- silently, since the
     caller above swallows exceptions. Pinned by
     tests/internal/nodes/background_authz_test.py.
+
+    Cubes are included. They used to be filtered out, which meant a cube kept
+    serving a materialized table built against a definition that no longer existed
+    -- the only way to recompile it was a no-op edit to the cube itself. They also
+    can't go through `revalidate_node`, whose cube branch only refreshes status; a
+    cube's next revision comes from `save_new_cube_revision`, which is what
+    `_rebuild_downstream_cube` calls.
     """
     _logger.info("Propagating update of node %s downstream", node.name)
     downstreams = await get_downstream_nodes(
         session,
         node.name,
         include_deactivated=False,
-        include_cubes=False,
     )
     downstreams = topological_sort(downstreams)
+    # Kept separately because the rollback below expires every instance, and
+    # reading `.name` back off one would lazy-load from async code.
+    downstream_names = [downstream.name for downstream in downstreams]
     _logger.info(
         "Node %s updated — revalidating %s downstreams",
         node.name,
@@ -2154,18 +2338,9 @@ async def _propagate_update_downstream(
             downstream.name,
             node.name,
         )
-        node_validator = await revalidate_node(
-            downstream.name,
-            session,
-            current_user=current_user,
-            save_history=save_history,
-            # propagate_update_downstream writes its own richer history event
-            # below (with upstream context); skip the inner one to avoid
-            # duplicate audit rows for the same revision bump.
-            record_revision_bump_event=False,
-        )
 
-        # Reset the upstreams DAG cache of any downstream nodes
+        # Before the per-type work, so a cube -- which returns early -- is
+        # invalidated too.
         if cache:
             upstream_cache_key = downstream.upstream_cache_key()
             results = cache.get(upstream_cache_key)
@@ -2177,6 +2352,60 @@ async def _propagate_update_downstream(
                     upstream_cache_key,
                 )
                 cache.delete(upstream_cache_key)
+
+        if downstream.type == NodeType.CUBE:
+            # Any tier rebuilds, and the churn is deliberate. Narrowing this by
+            # comparing the upstream's resolved columns was rejected: a query edit
+            # can move a filter, a join or a CASE threshold while leaving every
+            # column and type identical, and each changes every row the cube serves.
+            # Nothing short of reading the SQL tells those apart, so a changed query
+            # makes anything built from it suspect. Only NONE is skipped, the one
+            # case where DJ knows nothing material happened.
+            #
+            # A rebuild can fail, and one cube's failure must not cost the remaining
+            # downstreams theirs.
+            if change_tier is not ChangeTier.NONE:
+                try:
+                    await _rebuild_downstream_cube(
+                        session,
+                        downstream,
+                        node,
+                        change_tier,
+                        current_user=current_user,
+                        save_history=save_history,
+                        query_service_client=query_service_client,
+                        request_headers=request_headers,
+                    )
+                except Exception:
+                    _logger.exception(
+                        "Error rebuilding downstream cube %s after update of node %s",
+                        downstream.name,
+                        node.name,
+                    )
+                    # Discard partial writes, then reload the rest of the walk:
+                    # the rollback expires every instance, so the next iteration
+                    # would lazy-load from async code. Failure path only.
+                    #
+                    # `node` and `current_user` survive it because they belong to
+                    # the request's session, not this one, so the rollback never
+                    # touches them and reading `.name` below needs no IO. Load
+                    # either one in this session and that stops being true.
+                    await session.rollback()
+                    downstreams[idx + 1 :] = await _reload_nodes_in_order(
+                        session,
+                        downstream_names[idx + 1 :],
+                    )
+            continue
+        node_validator = await revalidate_node(
+            downstream.name,
+            session,
+            current_user=current_user,
+            save_history=save_history,
+            # propagate_update_downstream writes its own richer history event
+            # below (with upstream context); skip the inner one to avoid
+            # duplicate audit rows for the same revision bump.
+            record_revision_bump_event=False,
+        )
 
         # Record history event
         if (
@@ -3969,42 +4198,61 @@ async def revalidate_node(
     # columns remain a faithful snapshot of what was committed at that
     # version. Track *why* the validator decided a column changed so the
     # history event can explain the bump.
-    type_changes: list[dict] = []
-    order_fixed: list[str] = []
-    added_columns: list[str] = []
-    for col in node_validator.columns:
-        existing_col = existing_columns.get(col.name)
-        if existing_col is None:
-            added_columns.append(col.name)
-            continue
-        if existing_col.type != col.type:
-            type_changes.append(
-                {
-                    "column": col.name,
-                    "from": str(existing_col.type),
-                    "to": str(col.type),
-                },
-            )
-        if existing_col.order is None:
-            order_fixed.append(col.name)
-    updated_columns = bool(type_changes or order_fixed or added_columns)
+    #
+    # Uses the shared comparison so removals are seen at all: walking the
+    # validator's columns can only find what the validator produced, so a column
+    # the revision still stores but the query no longer selects went unnoticed.
+    column_changes = describe_column_changes(
+        node.current.columns,  # type: ignore
+        node_validator.columns,
+    )
+    type_changes: list[dict] = column_changes.get("type_changes", [])
+    added_columns: list[str] = column_changes.get("added_columns", [])
+    removed_columns: list[str] = column_changes.get("removed_columns", [])
+    # Not a column change, and so not part of the shared comparison: `order` is
+    # DJ's own bookkeeping rather than anything the query says.
+    order_fixed: list[str] = [
+        col.name
+        for col in node_validator.columns
+        if col.name in existing_columns and existing_columns[col.name].order is None
+    ]
+    # A tier rather than a version, so propagation can hand the same value to
+    # `bump_version` for downstream cubes.
+    #
+    # Type changes and removals are major: both break anything referencing the
+    # column. An addition is minor -- nothing could already reference a column that
+    # did not exist. The asymmetry is deliberate: removals are rare and additions
+    # constant, so occasionally rebuilding a cube that never used a dropped column
+    # is cheaper than rebuilding every cube on every addition.
+    #
+    # `order_fixed` earns no tier. DJ filling in a missing projection index is its
+    # own bookkeeping, not a change to the node, so a revision would describe
+    # nothing and any tier above NONE would rebuild every cube below. It is applied
+    # to the current revision in place instead, below.
+    change_tier = fold_change_tiers(
+        [
+            ChangeTier.MAJOR if (type_changes or removed_columns) else ChangeTier.NONE,
+            ChangeTier.MINOR if added_columns else ChangeTier.NONE,
+        ],
+    )
+    updated_columns = change_tier is not ChangeTier.NONE
 
     _logger.info(
-        "Columns updated: %s for node %s (current version: %s) — "
-        "type_changes=%s, order_fixed=%s, added_columns=%s",
+        "Columns updated: %s (tier %s) for node %s (current version: %s) — "
+        "type_changes=%s, order_fixed=%s, added_columns=%s, removed_columns=%s",
         updated_columns,
+        change_tier.name,
         node.name,
         node.current.version,
         type_changes,
         order_fixed,
         added_columns,
+        removed_columns,
     )
     # Only create a new revision if the columns have been updated
     if updated_columns:  # type: ignore
         new_revision = copy_existing_node_revision(node.current, current_user)  # type: ignore
-        new_revision.version = str(
-            Version.parse(node.current.version).next_major_version(),  # type: ignore
-        )
+        new_revision.version = bump_version(node.current.version, change_tier)  # type: ignore
 
         new_revision.status = node_validator.status
         # Snapshot pending m2m state before compile — autoflush during
@@ -4073,19 +4321,16 @@ async def revalidate_node(
         # Record the revision bump so the audit trail reflects revalidate-
         # driven version changes, not just deploy-driven ones, and explains
         # *which* validator-detected differences triggered it (type changes,
-        # missing column orders, new columns). Skip when the caller will
-        # write its own (richer) event for the same bump.
+        # new columns, dropped columns, missing column orders). Skip when the
+        # caller will write its own (richer) event for the same bump.
         if record_revision_bump_event:
             history_details: dict = {
                 "version": new_revision.version,
                 "reason": "revalidate",
+                **column_changes,
             }
-            if type_changes:
-                history_details["type_changes"] = type_changes
             if order_fixed:
                 history_details["order_fixed"] = order_fixed
-            if added_columns:
-                history_details["added_columns"] = added_columns
             await save_history(
                 event=History(
                     entity_type=EntityType.NODE,
@@ -4097,6 +4342,38 @@ async def revalidate_node(
                 ),
                 session=session,
             )
+    elif order_fixed:
+        # No new revision was earned, so the backfill lands on the current one.
+        # Leaving it unset is not free: readers sort by `order` with None last, so
+        # an unordered column drifts to the end of the projection. Only missing
+        # values are filled, so an order set deliberately is never overwritten.
+        for idx, validator_col in enumerate(node_validator.columns):
+            stored_col = existing_columns[validator_col.name]
+            if stored_col.order is None:
+                stored_col.order = idx
+        session.add(node.current)  # type: ignore
+
+        # The audit trail records that DJ touched the row even though the node's
+        # definition did not change, so a column that changes position has an
+        # explanation. Not gated on ``record_revision_bump_event``: this is not a
+        # revision bump, and no caller writes a richer event in its place.
+        await save_history(
+            event=History(
+                entity_type=EntityType.NODE,
+                entity_name=node.name,  # type: ignore
+                node=node.name,  # type: ignore
+                activity_type=ActivityType.UPDATE,
+                details={
+                    # The version the node still has -- this event explains a
+                    # metadata fix, not a bump.
+                    "version": node.current.version,  # type: ignore
+                    "reason": "column order backfill",
+                    "order_fixed": order_fixed,
+                },
+                user=current_user.username,
+            ),
+            session=session,
+        )
     await session.commit()
     await session.refresh(node.current)  # type: ignore
     await session.refresh(node, ["current"])

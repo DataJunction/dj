@@ -87,6 +87,26 @@ def bump_version(version: str, tier: ChangeTier) -> str:
     return str(parsed)
 
 
+def version_change_tier(old_version: str, new_version: str) -> ChangeTier:
+    """
+    The tier that turned `old_version` into `new_version` -- `bump_version` read
+    backwards.
+
+    Callers that only see the two version strings, notably downstream propagation
+    (which runs after the upstream revision has already been committed and so never
+    sees the classifier's answer), recover the tier here rather than plumbing it
+    through every update path. A major bump reads as MAJOR even when the minor part
+    also moved, since a major bump resets the minor to zero.
+    """
+    old = Version.parse(old_version)
+    new = Version.parse(new_version)
+    if new.major != old.major:
+        return ChangeTier.MAJOR
+    if new.minor != old.minor:
+        return ChangeTier.MINOR
+    return ChangeTier.NONE
+
+
 class DeploymentStatus(str, Enum):
     PENDING = "pending"
     RUNNING = "running"

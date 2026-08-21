@@ -6418,15 +6418,15 @@ class TestValidateNodes:
                 """,
             ),
         )
-        # Also clear the order so revalidate detects a change and creates a
-        # new revision (matching the existing test_revalidate_sets_column_order
-        # trigger).
+        # Also move a stored column's type away from what the query produces, so
+        # revalidate detects a real change and forks a new revision. (A cleared
+        # column order would not: that is backfilled in place without a bump.)
         await session.execute(
             text(
                 """
                 UPDATE "column"
-                SET "order" = NULL
-                WHERE node_revision_id IN (
+                SET type = 'string'
+                WHERE name = 'dispatcher_id' AND node_revision_id IN (
                     SELECT id FROM noderevision WHERE name = 'default.test_meta_preserved'
                 )
                 """,
@@ -6548,13 +6548,14 @@ class TestValidateNodes:
         }, f"Deploy did not land descriptions: {post_deploy_descriptions}"
 
         # Force revalidate_node to detect a column change so it creates a new
-        # revision (same trigger as test_revalidate_sets_column_order_when_missing).
+        # revision. A stored type that disagrees with the query is a major change;
+        # a cleared column order is not, since that is backfilled in place.
         await session.execute(
             text(
                 """
                 UPDATE "column"
-                SET "order" = NULL
-                WHERE node_revision_id IN (
+                SET type = 'string'
+                WHERE name = 'dispatcher_id' AND node_revision_id IN (
                     SELECT id FROM noderevision WHERE name = 'meta_preserve_test.test_deploy_meta'
                 )
                 """,
@@ -6587,10 +6588,15 @@ class TestValidateNodes:
         client_with_roads: AsyncClient,
         session: AsyncSession,
     ):
-        """revalidate_node must record a history event when it creates a new
-        revision. Without it, /history?node=<name> only shows deploy-driven
-        updates and silently masks revalidate-driven version bumps (UI
-        validate, downstream propagation, manual /validate calls).
+        """revalidate_node must record a history event when it changes a node's
+        stored columns. Without it, /history?node=<name> only shows deploy-driven
+        updates and silently masks what revalidation did (UI validate, downstream
+        propagation, manual /validate calls).
+
+        The column-order backfill exercised here no longer bumps the version --
+        filling in DJ's own bookkeeping is not a change to the node -- but it does
+        still rewrite the stored row, so the audit trail must still explain it.
+        Losing the bump must not mean losing the record.
         """
         response = await client_with_roads.post(
             "/nodes/transform/",
@@ -6603,8 +6609,7 @@ class TestValidateNodes:
         )
         assert response.status_code == 201
 
-        # Force revalidate_node to create a new revision (same trigger as the
-        # column-order-cleared tests above).
+        # Clear the stored order so revalidate_node has a backfill to do.
         await session.execute(
             text(
                 """
@@ -6637,31 +6642,30 @@ class TestValidateNodes:
             )
         ).json()
 
-        # An additional history event was emitted by revalidate_node
-        # specifically (reason: revalidate) when it bumped the revision.
+        # An additional history event was emitted by revalidate_node, naming the
+        # columns whose missing order it backfilled and the version it left the
+        # node on. Without this the audit trail says nothing at all: no version
+        # changed, so nothing else records that the row was rewritten.
         revalidate_events = [
-            e
+            e["details"]
             for e in history_after
             if e.get("activity_type") == "update"
-            and (e.get("details") or {}).get("reason") == "revalidate"
+            and (e.get("details") or {}).get("reason") == "column order backfill"
         ]
-        assert len(revalidate_events) >= 1, (
-            f"Expected a revalidate-reason history event after revision bump; "
-            f"got events: {history_after}"
-        )
-        # The event details explain WHY the validator bumped the revision —
-        # in this case, by recording which columns had their missing order
-        # backfilled. Without this the audit trail says "revalidate happened"
-        # but not "this is what it changed".
-        details = revalidate_events[0]["details"]
-        assert details.get("order_fixed"), (
-            f"Expected order_fixed in revalidate event details; got {details}"
-        )
-        assert set(details["order_fixed"]) == {"repair_order_id"}, (
-            f"Expected order_fixed to list the column whose order was cleared; "
-            f"got {details}"
-        )
+        assert revalidate_events == [
+            {
+                "version": "v1.0",
+                "reason": "column order backfill",
+                "order_fixed": ["repair_order_id"],
+            },
+        ], f"Expected one backfill event; got events: {history_after}"
         assert len(history_after) > len(history_before)
+
+        # And the node itself did not turn over.
+        node_after = (
+            await client_with_roads.get("/nodes/default.test_revalidate_history")
+        ).json()
+        assert node_after["version"] == "v1.0"
 
     @pytest.mark.asyncio
     async def test_revalidate_via_propagation_writes_one_history_event(
@@ -6696,12 +6700,15 @@ class TestValidateNodes:
         )
         assert response.status_code == 201
 
-        # Force the revalidate code path to create a new revision.
+        # Force the revalidate code path to create a new revision. It has to be a
+        # real change -- a stored type the query disagrees with -- because the
+        # cheaper triggers no longer fork a revision, and a test that suppresses an
+        # event which was never going to be written proves nothing.
         await session.execute(
             text(
                 """
                 UPDATE "column"
-                SET "order" = NULL
+                SET type = 'string'
                 WHERE node_revision_id IN (
                     SELECT id FROM noderevision WHERE name = 'default.test_one_event_only'
                 )
