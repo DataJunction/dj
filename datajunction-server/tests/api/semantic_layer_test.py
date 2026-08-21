@@ -349,6 +349,38 @@ async def test_semantic_endpoints_end_to_end(client: AsyncClient):
     assert resp.status_code == 404, resp.text
 
 
+@pytest.mark.asyncio
+async def test_list_views_query_count(
+    client: AsyncClient,
+    capture_queries: list[str],
+):
+    """``POST /semantic/views/list`` must stay on a small, constant number of queries.
+
+    It used to hydrate every cube as a full ORM ``Node`` object -- and
+    ``Node.created_by``/``Node.tags`` are ``lazy="selectin"`` at the mapper
+    level, so each batch of cubes triggered extra batched queries for users
+    and tags that the response never used. It now selects only the ``name``
+    column, so the query count should not grow with the number of cubes.
+    """
+    await _setup_cube(client)
+
+    capture_queries.clear()
+    resp = await _expect(
+        await client.post("/semantic/views/list", json={"runtime_configuration": {}}),
+        200,
+    )
+    assert resp.json()
+
+    node_queries = [query for query in capture_queries if "FROM node" in query]
+    assert len(node_queries) == 1, "\n\n".join(node_queries)
+
+    # Everything else in the request is per-request auth/RBAC (user lookup,
+    # group membership, role assignments). Cap the total so that a
+    # relationship quietly becoming eager-loaded (which would fan out into
+    # extra batched selects against other tables) fails here.
+    assert len(capture_queries) <= 4, "\n\n".join(capture_queries)
+
+
 # ---------------------------------------------------------------------------
 # generate_query_sql request-validation rejections
 #
@@ -418,9 +450,9 @@ async def test_list_views_djexception_returns_problem(
     client: AsyncClient,
     monkeypatch,
 ):
-    """``Node.find`` raising DJException -> problem response in list_views."""
+    """``Node.find_names`` raising DJException -> problem response in list_views."""
     monkeypatch.setattr(
-        "datajunction_server.api.semantic_layer.Node.find",
+        "datajunction_server.api.semantic_layer.Node.find_names",
         AsyncMock(
             side_effect=DJException(message="find blew up", http_status_code=418),
         ),
