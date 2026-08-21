@@ -118,6 +118,15 @@ def test_get_settings(mocker: MockerFixture) -> None:
     Settings.assert_not_called()
 
 
+def test_creator_owned_namespace_patterns() -> None:
+    assert Settings(
+        creator_owned_namespace_patterns=["scratch", "personal.*"],
+    ).creator_owned_namespace_patterns == ["scratch", "personal.*"]
+    for pattern in ("", "*", "personal*", "1personal.*", " personal.*"):
+        with pytest.raises(ValueError):
+            Settings(creator_owned_namespace_patterns=[pattern])
+
+
 def test_get_issue_url() -> None:
     """
     Test ``get_issue_url``.

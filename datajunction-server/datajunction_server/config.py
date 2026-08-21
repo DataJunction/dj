@@ -6,14 +6,21 @@ Configuration for the datajunction server.
 import urllib.parse
 from datetime import timedelta
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from cachelib.base import BaseCache
 from cachelib.file import FileSystemCache
 from cachelib.redis import RedisCache
 from celery import Celery
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 from pydantic_settings import BaseSettings
+
+CreatorOwnedNamespacePattern = Annotated[
+    str,
+    StringConstraints(
+        pattern=r"^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)*(\.\*)?$",
+    ),
+]
 
 
 class DatabaseConfig(BaseModel):
@@ -221,6 +228,13 @@ class Settings(BaseSettings):  # pragma: no cover
     # RBAC_ADMIN_USERS uses JSON list syntax, for example ["admin-user"].
     rbac_require_admin: bool = False
     rbac_admin_users: list[str] = Field(default_factory=list)
+
+    # Exact namespaces or subtrees where a first human creator becomes the owner.
+    # CREATOR_OWNED_NAMESPACE_PATTERNS uses JSON list syntax, for example
+    # ["personal.*", "scratch"].
+    creator_owned_namespace_patterns: list[CreatorOwnedNamespacePattern] = Field(
+        default_factory=list,
+    )
 
     # Interval in seconds with which to expire caching of any indexes
     index_cache_expire: int = 60

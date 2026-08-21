@@ -7,7 +7,7 @@ import os
 import re
 import textwrap
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from io import StringIO
 from typing import cast
@@ -393,6 +393,7 @@ async def create_namespace(
     current_user: User,
     save_history: Callable,
     include_parents: bool = True,
+    is_governed_boundary: bool = False,
 ) -> list[str]:
     """
     Creates a namespace entry in the database table.
@@ -405,6 +406,7 @@ async def create_namespace(
         if include_parents
         else [namespace]
     )
+    history_events = []
     for parent_namespace in parents:
         if not await get_node_namespace(  # pragma: no cover
             session=session,
@@ -412,18 +414,27 @@ async def create_namespace(
             raise_if_not_exists=False,
         ):
             logger.info("Created namespace `%s`", parent_namespace)
-            node_namespace = NodeNamespace(namespace=parent_namespace)
+            node_namespace = NodeNamespace(
+                namespace=parent_namespace,
+                is_governed_boundary=(
+                    is_governed_boundary and parent_namespace == namespace
+                ),
+            )
             session.add(node_namespace)
-            await save_history(
-                event=History(
+            history_events.append(
+                History(
                     entity_type=EntityType.NAMESPACE,
                     entity_name=namespace,
                     node=None,
                     activity_type=ActivityType.CREATE,
                     user=current_user.username,
                 ),
-                session=session,
             )
+    for event in history_events:
+        await save_history(
+            event=event,
+            session=session,
+        )
     await session.commit()
     return parents
 
@@ -451,6 +462,20 @@ def _namespace_boundary_scopes(
         )
         for scope_type, scope_value in namespace_boundary_scope_targets(namespace)
     ]
+
+
+def _matches_creator_owned_pattern(
+    namespace: str,
+    patterns: Sequence[str],
+) -> bool:
+    return any(
+        namespace == pattern
+        or (
+            pattern.endswith(f"{SEPARATOR}*")
+            and namespace.startswith(pattern.removesuffix("*"))
+        )
+        for pattern in patterns
+    )
 
 
 async def _validate_namespace_creation_parent(
@@ -537,6 +562,60 @@ def _assignment_creation_history(
             "expires_at": None,
         },
     )
+
+
+async def _stage_creator_owner_role(
+    *,
+    session: AsyncSession,
+    namespace: str,
+    current_user: User,
+    creator_owned_namespace_patterns: Sequence[str],
+) -> bool:
+    if not _matches_creator_owned_pattern(
+        namespace,
+        creator_owned_namespace_patterns,
+    ):
+        return False
+
+    if await _overlapping_namespace_boundary(
+        session,
+        namespace,
+    ):
+        return False
+    if current_user.kind != PrincipalKind.USER:
+        raise DJInvalidInputException(
+            message="Only user principals can own creator-owned namespaces",
+        )
+
+    owner_role_name = f"namespace:{namespace}:owners"
+    if await Role.get_by_name(session, owner_role_name, include_deleted=True):
+        raise DJAlreadyExistsException(
+            message=f"Role `{owner_role_name}` already exists",
+        )
+    owner_role = Role(
+        name=owner_role_name,
+        description=f"Creator ownership for namespace boundary {namespace}",
+        created_by_id=current_user.id,
+        scopes=_namespace_boundary_scopes(namespace, ResourceAction.MANAGE),
+    )
+    session.add(owner_role)
+    await session.flush()
+    session.add_all(
+        [
+            RoleAssignment(
+                principal_id=current_user.id,
+                role_id=owner_role.id,
+                granted_by_id=current_user.id,
+            ),
+            _role_creation_history(owner_role, current_user),
+            _assignment_creation_history(
+                principal=current_user,
+                role=owner_role,
+                current_user=current_user,
+            ),
+        ],
+    )
+    return True
 
 
 async def provision_namespace_boundary(
@@ -699,6 +778,7 @@ async def create_or_reactivate_namespace(
     session: AsyncSession,
     current_user: User,
     save_history: Callable,
+    creator_owned_namespace_patterns: Sequence[str],
 ) -> NamespaceWriteResult:
     """
     Create or reactivate a node namespace.
@@ -709,6 +789,12 @@ async def create_or_reactivate_namespace(
     Access control is enforced by each caller, not here, so this must only be
     reached from a path that has already authorized the write.
     """
+    validate_namespace(namespace)
+    if _matches_creator_owned_pattern(
+        namespace,
+        creator_owned_namespace_patterns,
+    ):
+        await lock_namespace_boundary_lifecycle(session)
     if node_namespace := await NodeNamespace.get(
         session,
         namespace,
@@ -727,6 +813,12 @@ async def create_or_reactivate_namespace(
             namespaces=[namespace],
         )
     await _validate_namespace_creation_parent(session, namespace)
+    is_governed_boundary = await _stage_creator_owner_role(
+        session=session,
+        namespace=namespace,
+        current_user=current_user,
+        creator_owned_namespace_patterns=creator_owned_namespace_patterns,
+    )
 
     created_namespaces = await create_namespace(
         session=session,
@@ -734,6 +826,7 @@ async def create_or_reactivate_namespace(
         include_parents=include_parents,
         current_user=current_user,
         save_history=save_history,
+        is_governed_boundary=is_governed_boundary,
     )
     return NamespaceWriteResult(
         status=NamespaceWriteStatus.CREATED,

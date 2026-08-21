@@ -42,6 +42,27 @@ def _principal(username: str, kind: PrincipalKind) -> User:
     )
 
 
+async def _save_history(event, session):
+    """No-op history recorder."""
+
+
+async def _create_namespace(
+    session,
+    user: User,
+    namespace: str,
+    patterns: list[str],
+    save_history=_save_history,
+):
+    return await create_or_reactivate_namespace(
+        namespace,
+        include_parents=False,
+        session=session,
+        current_user=user,
+        save_history=save_history,
+        creator_owned_namespace_patterns=patterns,
+    )
+
+
 async def test_lock_namespace_boundary_lifecycle(mocker):
     session = mocker.MagicMock()
     session.execute = mocker.AsyncMock()
@@ -67,20 +88,150 @@ async def test_create_or_reactivate_namespace_reports_already_exists(
     existing namespace fail.
     """
 
-    async def save_history(event, session):
-        """No-op history recorder."""
+    namespace = "already_exists_ns"
+    patterns = ["other", "personal.*"]
+    created = await _create_namespace(session, current_user, namespace, patterns)
+    duplicate = await _create_namespace(session, current_user, namespace, patterns)
 
-    async def create():
-        return await create_or_reactivate_namespace(
-            "already_exists_ns",
-            include_parents=False,
-            session=session,
-            current_user=current_user,
-            save_history=save_history,
+    assert created.status == NamespaceWriteStatus.CREATED
+    assert duplicate.status == NamespaceWriteStatus.ALREADY_EXISTS
+    assert await Role.get_by_name(session, f"namespace:{namespace}:owners") is None
+
+
+async def test_create_namespace_assigns_matching_creator_as_owner(
+    session,
+    current_user: User,
+):
+    namespace = "personal.alice"
+    result = await _create_namespace(
+        session,
+        current_user,
+        namespace,
+        [namespace],
+    )
+
+    role = await Role.get_by_name(session, f"namespace:{namespace}:owners")
+    boundary = await NodeNamespace.get(session, namespace)
+    assert result.status == NamespaceWriteStatus.CREATED
+    assert role is not None
+    assert boundary is not None
+    assert boundary.is_governed_boundary
+    assert {
+        (scope.action, scope.scope_type, scope.scope_value) for scope in role.scopes
+    } == {
+        (ResourceAction.MANAGE, ResourceType.NAMESPACE, namespace),
+        (ResourceAction.MANAGE, ResourceType.NAMESPACE, f"{namespace}.*"),
+        (ResourceAction.MANAGE, ResourceType.NODE, f"{namespace}.*"),
+    }
+    assert await RoleAssignment.find(
+        session,
+        principal_id=current_user.id,
+        role_id=role.id,
+    )
+    assignment_name = f"{current_user.username}:{role.name}"
+    history = set(
+        (
+            await session.execute(
+                select(History.entity_type, History.entity_name).where(
+                    History.entity_name.in_([role.name, assignment_name]),
+                ),
+            )
+        ).all(),
+    )
+    assert history == {
+        (EntityType.ROLE, role.name),
+        (EntityType.ROLE_ASSIGNMENT, assignment_name),
+    }
+
+
+async def test_creator_ownership_respects_policy_boundaries(
+    session,
+    current_user: User,
+):
+    await _create_namespace(
+        session,
+        current_user,
+        "personal.alice",
+        ["personal.*"],
+    )
+    owner_role = await Role.get_by_name(session, "namespace:personal.alice:owners")
+    assert owner_role is not None
+    owner_role.name = "renamed-personal-owner"
+    await session.commit()
+    deployer = _principal("personal-deployer", PrincipalKind.SERVICE_ACCOUNT)
+    session.add(deployer)
+    await session.commit()
+    await _create_namespace(
+        session,
+        deployer,
+        "personal.alice.project",
+        ["personal.*"],
+    )
+    assert (
+        await Role.get_by_name(
+            session,
+            "namespace:personal.alice.project:owners",
         )
+        is None
+    )
 
-    assert (await create()).status == NamespaceWriteStatus.CREATED
-    assert (await create()).status == NamespaceWriteStatus.ALREADY_EXISTS
+    with pytest.raises(DJInvalidInputException, match="Only user principals"):
+        await _create_namespace(
+            session,
+            deployer,
+            "personal.service",
+            ["personal.*"],
+        )
+    assert (
+        await NodeNamespace.get(
+            session,
+            "personal.service",
+            raise_if_not_exists=False,
+        )
+        is None
+    )
+
+
+async def test_creator_owner_assignment_is_atomic_with_namespace(
+    session,
+    current_user: User,
+):
+    async def fail_to_save_history(event, session):
+        raise RuntimeError("history unavailable")
+
+    with pytest.raises(RuntimeError, match="history unavailable"):
+        await _create_namespace(
+            session,
+            current_user,
+            "personal.atomic",
+            ["personal.*"],
+            save_history=fail_to_save_history,
+        )
+    await session.rollback()
+
+    assert await session.get(NodeNamespace, "personal.atomic") is None
+    assert await Role.get_by_name(session, "namespace:personal.atomic:owners") is None
+
+
+async def test_creator_owned_namespace_rejects_owner_role_conflict(
+    session,
+    current_user: User,
+):
+    session.add(
+        Role(
+            name="namespace:personal.conflict:owners",
+            created_by_id=current_user.id,
+        ),
+    )
+    await session.commit()
+
+    with pytest.raises(DJAlreadyExistsException, match="already exists"):
+        await _create_namespace(
+            session,
+            current_user,
+            "personal.conflict",
+            ["personal.*"],
+        )
 
 
 async def test_provision_namespace_boundary_creates_owner_and_deployer_roles(
