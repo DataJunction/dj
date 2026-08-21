@@ -8,6 +8,7 @@ from http import HTTPStatus
 from fastapi import Depends, HTTPException, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import load_only, noload, selectinload
 from sqlalchemy.sql.operators import is_
 
 from datajunction_server.database.collection import Collection
@@ -87,7 +88,9 @@ async def list_collections(
     List all collections
     """
     collections = await session.execute(
-        select(Collection).where(is_(Collection.deactivated_at, None)),
+        select(Collection)
+        .where(is_(Collection.deactivated_at, None))
+        .options(noload(Collection.nodes)),
     )
     return collections.scalars().all()
 
@@ -105,6 +108,13 @@ async def get_collection(
         session,
         name=name,
         raise_if_not_exists=True,
+        options=[
+            selectinload(Collection.nodes).options(
+                load_only(Node.name),
+                noload(Node.created_by),
+                noload(Node.tags),
+            ),
+        ],
     )
     return collection  # type: ignore
 
@@ -124,7 +134,15 @@ async def add_nodes_to_collection(
     Add one or more nodes to a collection
     """
     collection = await Collection.get_by_name(session, name, raise_if_not_exists=True)
-    nodes = await Node.get_by_names(session=session, names=data)
+    nodes = await Node.get_by_names(
+        session=session,
+        names=data,
+        options=[
+            load_only(Node.id, Node.name),
+            noload(Node.created_by),
+            noload(Node.tags),
+        ],
+    )
     if not nodes:
         raise HTTPException(
             status_code=HTTPStatus.NOT_FOUND,
@@ -152,7 +170,15 @@ async def delete_nodes_from_collection(
     Delete one or more nodes from a collection
     """
     collection = await Collection.get_by_name(session, name)
-    nodes = await Node.get_by_names(session=session, names=data)
+    nodes = await Node.get_by_names(
+        session=session,
+        names=data,
+        options=[
+            load_only(Node.id, Node.name),
+            noload(Node.created_by),
+            noload(Node.tags),
+        ],
+    )
     for node in nodes:
         if node in collection.nodes:  # type: ignore
             collection.nodes.remove(node)  # type: ignore

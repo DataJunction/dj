@@ -8,6 +8,7 @@ from functools import partial
 from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, String, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql.base import ExecutableOption
 
 from datajunction_server.database.base import Base
 from datajunction_server.database.node import Node
@@ -58,11 +59,14 @@ class Collection(Base):
         session: AsyncSession,
         name: str,
         raise_if_not_exists: bool = False,
+        options: list[ExecutableOption] | None = None,
     ) -> Collection | None:
         """
         Get a collection by name
         """
         statement = select(Collection).where(Collection.name == name)
+        if options:
+            statement = statement.options(*options)
         collection = (await session.execute(statement)).scalar()
         if not collection and raise_if_not_exists:
             raise DJDoesNotExistException(
