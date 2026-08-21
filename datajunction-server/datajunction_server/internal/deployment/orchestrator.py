@@ -65,6 +65,7 @@ from datajunction_server.internal.history import EntityType
 from datajunction_server.internal.impact import propagate_impact
 from datajunction_server.internal.materializations import (
     CubeMaterializationSwap,
+    CubeMaterializationSwapOutcome,
     NodeMaterializationTeardown,
     apply_cube_materialization_swap,
     collect_materialization_teardowns,
@@ -2780,16 +2781,73 @@ class DeploymentOrchestrator:
         Hand the deployment's committed cube materialization swaps to the query
         service. Called only after the outer transaction commits, so a deploy that
         rolls back has told the query service nothing.
+
+        The push happens after the commit but before the result is handed back, so a
+        rejection is still reportable -- and has to be. Reconciliation already
+        recorded the materialization as a success on the strength of DJ's own state
+        moving; if the query service then refuses to schedule it, that success is
+        wrong in exactly the way that hid these failures until now.
         """
         request_headers = (
             dict(self.context.request.headers) if self.context.request else {}
         )
         for swap in self._cube_materialization_swaps:
-            await apply_cube_materialization_swap(
+            outcome = await apply_cube_materialization_swap(
                 self.session,
                 swap,
                 self.context.query_service_client,
                 request_headers=request_headers,
+            )
+            if not outcome.scheduled:
+                self._report_materialization_push_failure(outcome)
+
+    def _report_materialization_push_failure(
+        self,
+        outcome: CubeMaterializationSwapOutcome,
+    ) -> None:
+        """
+        Correct the deployment's report on a cube whose materialization the query
+        service refused to schedule.
+
+        FAILED, not WARNING, for the same reason a materialization the reconciler
+        could not build is failed: the author asked for this cube to be materialized
+        and it is not, `api/deployments.py` derives the aggregate status from these
+        results, and reporting `success` for it is precisely the silent gap this
+        feature exists to close.
+
+        The query service's error goes in whole. Its messages name the user, the job,
+        the data project and the table it refused, which is the only part that tells
+        the reader what to do next.
+
+        Matched against the results reconciliation already appended, by the cube's
+        name -- what every materialization result here is keyed by -- and by the
+        rebuilt materialization names, for a swap whose result was recorded under
+        one of those instead. A failure with no result to correct gets a new one
+        rather than going unmentioned.
+        """
+        message = (
+            f"Cube `{outcome.cube_name}`: the query service rejected the request to "
+            f"schedule its materialization: {outcome.error}"
+        )
+        names = {outcome.cube_name, *outcome.materialization_names}
+        matched = [
+            result
+            for result in self.deployed_results
+            if result.deploy_type == DeploymentResult.Type.MATERIALIZATION
+            and result.name in names
+        ]
+        for result in matched:
+            result.status = DeploymentResult.Status.FAILED
+            result.message = message
+        if not matched:
+            self.deployed_results.append(
+                DeploymentResult(
+                    name=outcome.cube_name,
+                    deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                    status=DeploymentResult.Status.FAILED,
+                    operation=DeploymentResult.Operation.UNKNOWN,
+                    message=message,
+                ),
             )
 
     def _stop_deleted_node_materializations(self) -> list[DeploymentResult]:

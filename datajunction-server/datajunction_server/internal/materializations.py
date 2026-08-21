@@ -388,6 +388,24 @@ class CubeMaterializationSwap:
     superseded: list[Materialization]
 
 
+@dataclass
+class CubeMaterializationSwapOutcome:
+    """
+    What the query service made of a cube materialization swap.
+
+    Only the scheduling half is reported. Stopping a superseded workflow can fail
+    without the cube losing anything it was promised -- the replacement is already
+    running -- so that failure stays where `stop_cube_materialization_workflows`
+    puts it, and calling it a materialization failure here would point an operator
+    at the wrong cube.
+    """
+
+    cube_name: str
+    materialization_names: list[str]
+    scheduled: bool
+    error: str | None = None
+
+
 async def reconcile_declared_materialization(
     session: AsyncSession,
     revision: NodeRevision,
@@ -639,7 +657,7 @@ async def apply_cube_materialization_swap(
     swap: CubeMaterializationSwap,
     query_service_client: QueryServiceClient | None,
     request_headers: dict[str, str] | None = None,
-) -> None:
+) -> CubeMaterializationSwapOutcome:
     """
     Hand a committed cube materialization swap to the query service.
 
@@ -650,9 +668,19 @@ async def apply_cube_materialization_swap(
     revision cannot use.
 
     Never raises. With no query service configured there is nothing to do at all.
+    Returns what became of the scheduling instead, so a caller holding a report the
+    author will read can say the materialization did not happen: the query service
+    rejects a push for reasons DJ cannot anticipate -- ownership, data project
+    authorization, table access -- and a log line is not where the person who ran
+    the deploy is looking.
     """
+    outcome = CubeMaterializationSwapOutcome(
+        cube_name=swap.cube_name,
+        materialization_names=list(swap.rebuilt_names),
+        scheduled=True,
+    )
     if not query_service_client:
-        return
+        return outcome
     if swap.rebuilt_names:
         try:
             await schedule_materialization_jobs(
@@ -671,6 +699,11 @@ async def apply_cube_materialization_swap(
                 str(exc),
                 exc_info=True,
             )
+            outcome.scheduled = False
+            # Verbatim: the query service names the user, the job and the table it
+            # refused, and paraphrasing that would cost the reader the only part of
+            # the message that says what to do about it.
+            outcome.error = str(exc)
     stop_cube_materialization_workflows(
         query_service_client=query_service_client,
         cube_name=swap.cube_name,
@@ -678,6 +711,7 @@ async def apply_cube_materialization_swap(
         materializations=swap.superseded,
         request_headers=request_headers,
     )
+    return outcome
 
 
 def stop_cube_materialization_workflows(

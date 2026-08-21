@@ -3221,6 +3221,95 @@ class TestDeployments:
         )
 
     @pytest.mark.asyncio
+    async def test_deploy_reports_a_rejected_materialization_push(
+        self,
+        client,
+        default_hard_hats,
+        default_hard_hat,
+        default_us_states,
+        default_us_state,
+        default_avg_length_of_employment,
+        mock_qs,
+    ):
+        """
+        A query service that refuses to schedule the declared materialization fails
+        the deployment, and the refusal reaches the report intact.
+
+        The push happens after the deploy has committed, so everything else about
+        the deploy still stands -- the cube is created, its DJ-side materialization
+        row exists -- and until this was reported the deployment said `success` for
+        a cube that is not materialized.
+        """
+        namespace = "cube_materialization_rejected"
+        rejection = (
+            "User `dj` is not an owner of data project `analytics`, so Jenkins job "
+            "`analytics-repairs_cube` cannot write `prodhive.analytics.repairs_cube`"
+        )
+        mock_qs.materialize_cube.side_effect = Exception(rejection)
+        cube = CubeSpec(
+            name="default.repairs_cube",
+            display_name="Repairs Cube",
+            description="""Cube for analyzing repair orders""",
+            dimensions=[
+                "${prefix}default.hard_hat.state",
+                "${prefix}default.hard_hat.birth_date",
+            ],
+            metrics=["${prefix}default.avg_length_of_employment"],
+            columns=[
+                ColumnSpec(
+                    name="${prefix}default.hard_hat.birth_date",
+                    partition=PartitionSpec(
+                        type=PartitionType.TEMPORAL,
+                        granularity=Granularity.DAY,
+                        format="yyyyMMdd",
+                    ),
+                ),
+            ],
+            materialization=MaterializationSpec(
+                schedule="0 6 * * *",
+                lookback_window="1 DAY",
+            ),
+            owners=["dj"],
+        )
+        nodes_list = [
+            default_hard_hats,
+            default_hard_hat,
+            default_us_states,
+            default_us_state,
+            default_avg_length_of_employment,
+            cube,
+        ]
+        cube_name = f"{namespace}.default.repairs_cube"
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "failed"
+        assert [
+            result for result in data["results"] if result["name"] == cube_name
+        ] == [
+            {
+                "deploy_type": "node",
+                "message": "Created cube (v1.0)",
+                "name": cube_name,
+                "operation": "create",
+                "changed_fields": [],
+                "status": "success",
+            },
+            {
+                "deploy_type": "materialization",
+                "message": (
+                    f"Cube `{cube_name}`: the query service rejected the request to "
+                    f"schedule its materialization: {rejection}"
+                ),
+                "name": cube_name,
+                "operation": "create",
+                "changed_fields": [],
+                "status": "failed",
+            },
+        ]
+
+    @pytest.mark.asyncio
     async def test_deploy_cube_with_custom_metadata(
         self,
         client,
