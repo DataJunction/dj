@@ -37,8 +37,8 @@ from datajunction_server.internal.namespaces import (
     create_or_reactivate_namespace,
     detect_parent_cycle,
     get_git_info_for_namespace,
+    get_node_names_in_namespace,
     get_node_specs_for_export,
-    get_nodes_in_namespace,
     get_nodes_in_namespace_detailed,
     get_project_config,
     get_sources_for_namespace,
@@ -333,8 +333,7 @@ async def deactivate_a_namespace(
         )
 
     # If there are no active nodes in the namespace, we can safely deactivate this namespace
-    node_list = await NodeNamespace.list_nodes(session, namespace)
-    node_names = [node.name for node in node_list]
+    node_names = await get_node_names_in_namespace(session, namespace)
     if len(node_names) == 0:
         message = f"Namespace `{namespace}` has been deactivated."
         await mark_namespace_deactivated(
@@ -419,12 +418,11 @@ async def restore_a_namespace(
             message=f"Node namespace `{namespace}` already exists and is active.",
         )
 
-    node_list = await get_nodes_in_namespace(
+    node_names = await get_node_names_in_namespace(
         session,
         namespace,
         include_deactivated=True,
     )
-    node_names = [node.name for node in node_list]
     # If cascade=true is set, we'll restore all nodes in this namespace and then
     # subsequently restore this namespace
     if cascade:
