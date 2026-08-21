@@ -443,6 +443,8 @@ class TestGetDimensionDagIndegree:
             (["default.fact1"], {"default.fact1": 0}),
             # Nonexistent node: should skip
             (["nonexistent.dim"], {}),
+            # No names requested: short-circuits without querying
+            ([], {}),
             # Deactivated dimension should not be included
             (
                 ["default.dim1", "default.fact1", "default.deactivated_dim"],
