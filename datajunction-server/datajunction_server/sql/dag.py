@@ -13,7 +13,7 @@ from typing import cast
 from sqlalchemy import and_, bindparam, func, join, or_, select, text
 from sqlalchemy.dialects.postgresql import array
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import aliased, joinedload, selectinload
+from sqlalchemy.orm import aliased, joinedload, load_only, noload, selectinload
 from sqlalchemy.sql.base import ExecutableOption
 from sqlalchemy.sql.operators import is_
 
@@ -107,6 +107,41 @@ def _node_output_options():
         ),
         selectinload(Node.tags),
         selectinload(Node.owners),
+    ]
+
+
+def _dimension_graph_node_options():
+    """
+    Slim statement options for ``get_dimension_nodes``.
+
+    Its only caller, ``get_dimension_attributes``, reads (per discovered
+    dimension node): ``dim.name``, ``dim.current.display_name``, and for
+    each column in ``dim.current.columns``: ``name``, ``display_name``,
+    ``type``, and ``attribute_names()`` (which needs ``Column.attributes``
+    -> ``ColumnAttribute.attribute_type``). Nothing else on the dimension
+    node/revision graph is touched, so this suppresses the rest of what
+    ``_node_output_options()`` pulls in: ``NodeRevision.parents``,
+    ``NodeRevision.dimension_links`` (and the dimension-of-a-dimension
+    ``Node.current`` chain hanging off of it), ``Node.tags``,
+    ``Node.owners``, ``Column.dimension``, ``Column.partition``, plus the
+    mapper-level eager chains ``Node.created_by``, ``NodeRevision.created_by``,
+    ``NodeRevision.node``, and ``NodeRevision.catalog``.
+    """
+    return [
+        noload(Node.created_by),
+        noload(Node.tags),
+        selectinload(Node.current).options(
+            noload(NodeRevision.created_by),
+            noload(NodeRevision.node),
+            noload(NodeRevision.catalog),
+            selectinload(NodeRevision.columns).options(
+                selectinload(Column.attributes).joinedload(
+                    ColumnAttribute.attribute_type,
+                ),
+                noload(Column.dimension),
+                noload(Column.partition),
+            ),
+        ),
     ]
 
 
@@ -284,26 +319,37 @@ async def build_reference_link(
     col: Column,
     path: list[str],
     role: list[str] | None = None,
+    dimension_node: Node | None = None,
 ) -> DimensionAttributeOutput | None:
     """
     Builds a reference link dimension attribute output for a column.
+
+    If ``dimension_node`` is supplied, it must already have ``current`` and
+    ``current.columns`` loaded (e.g. via a batched lookup keyed by
+    ``col.dimension_id``) and is used as-is without issuing any queries.
+    This is what callers looping over many columns should do to avoid an
+    N+1 of refreshes. When omitted, ``col.dimension`` (and its ``current``
+    and ``current.columns``) are refreshed on demand, which is fine for a
+    single, one-off lookup but should never be used inside a loop.
     """
     if not (col.dimension_id and col.dimension_column):
         return None  # pragma: no cover
-    await session.refresh(col, ["dimension"])
-    await session.refresh(col.dimension, ["current"])
-    await session.refresh(col.dimension.current, ["columns"])
+    if dimension_node is None:
+        await session.refresh(col, ["dimension"])
+        dimension_node = col.dimension
+        await session.refresh(dimension_node, ["current"])
+        await session.refresh(dimension_node.current, ["columns"])
 
-    dim_cols = col.dimension.current.columns
+    dim_cols = dimension_node.current.columns
     if dim_col := next(
         (dc for dc in dim_cols if dc.name == col.dimension_column),
         None,
     ):
         return DimensionAttributeOutput(
-            name=f"{col.dimension.name}.{col.dimension_column}"
+            name=f"{dimension_node.name}.{col.dimension_column}"
             + (f"[{'->'.join(role)}]" if role else ""),
-            node_name=col.dimension.name,
-            node_display_name=col.dimension.current.display_name,
+            node_name=dimension_node.name,
+            node_display_name=dimension_node.current.display_name,
             column_display_name=dim_col.display_name,
             properties=dim_col.attribute_names(),
             type=str(col.type),
@@ -385,19 +431,18 @@ async def get_dimension_attributes(
     )
     dimensions_map = {dim.id: dim for dim, _, _ in dimension_nodes_and_paths}
 
-    # Add all reference links to the list of dimension attributes
-    reference_links = []
+    # Add all reference links to the list of dimension attributes.
+    #
+    # First pass: collect every column that points at a dimension (via
+    # dimension_id/dimension_column) across both the node's own columns and
+    # each discovered dimension node's columns, without touching
+    # ``col.dimension`` yet.
     await refresh_if_needed(session, node.current, ["columns"])
+    candidate_columns: list[tuple[Column, list[str], list[str] | None]] = []
     for col in node.current.columns:
         await refresh_if_needed(session, col, ["dimension_id", "dimension_column"])
         if col.dimension_id and col.dimension_column:
-            await session.refresh(col, ["dimension"])
-            if ref_link := await build_reference_link(  # pragma: no cover
-                session,
-                col,
-                path=[f"{node.name}.{col.name}"],
-            ):
-                reference_links.append(ref_link)
+            candidate_columns.append((col, [f"{node.name}.{col.name}"], None))
     for dimension_node, path, role in dimension_nodes_and_paths:
         await refresh_if_needed(session, dimension_node.current, ["columns"])
         for col in dimension_node.current.columns:
@@ -406,13 +451,41 @@ async def get_dimension_attributes(
                 join_path = (
                     [node.name] if dimension_node.name != node.name else []
                 ) + [dimensions_map[int(node_id)].name for node_id in path]
-                if ref_link := await build_reference_link(  # pragma: no cover
-                    session,
-                    col,
-                    join_path,
-                    role,
-                ):
-                    reference_links.append(ref_link)
+                candidate_columns.append((col, join_path, role))
+
+    # Second pass: batch-load all the referenced dimension nodes (with their
+    # current revision + columns) in a single query, instead of the previous
+    # per-column session.refresh() chain (col.dimension, .current, and
+    # .current.columns) that ran once per candidate column.
+    referenced_dimension_ids = {
+        col.dimension_id for col, _, _ in candidate_columns if col.dimension_id
+    }
+    dimension_nodes_by_id: dict[int, Node] = {}
+    if referenced_dimension_ids:
+        referenced_dimension_nodes = (
+            (
+                await session.execute(
+                    select(Node)
+                    .where(Node.id.in_(referenced_dimension_ids))
+                    .options(*_dimension_graph_node_options()),
+                )
+            )
+            .unique()
+            .scalars()
+            .all()
+        )
+        dimension_nodes_by_id = {n.id: n for n in referenced_dimension_nodes}
+
+    reference_links = []
+    for col, ref_path, role in candidate_columns:
+        if ref_link := await build_reference_link(
+            session,
+            col,
+            ref_path,
+            role,
+            dimension_node=dimension_nodes_by_id.get(col.dimension_id),
+        ):
+            reference_links.append(ref_link)
 
     # Build all dimension attributes from the dimension nodes in the graph
     graph_dimensions = [
@@ -515,7 +588,7 @@ async def get_dimension_nodes(
             (Node.current_version == NodeRevision.version)
             & (Node.id == NodeRevision.node_id),
         )
-        .options(*_node_output_options())
+        .options(*_dimension_graph_node_options())
     )
     return [
         (node, path, [r for r in role if r])
@@ -1125,6 +1198,18 @@ async def get_metric_parents_map(
     metric_names = {m.name for m in metric_nodes}
     result: dict[str, list[Node]] = {name: [] for name in metric_names}
 
+    # Only .id, .name, .type, and .current_version are read off of the parent
+    # Node objects here (and by the downstream callers that consume this
+    # function's result to compute dimensions), so defer the rest of Node's
+    # columns and suppress the mapper-level eager-loaded relationships
+    # (created_by, tags) that would otherwise fan out into extra queries per
+    # batch of parents.
+    parent_node_options = [
+        load_only(Node.id, Node.name, Node.type, Node.current_version),
+        noload(Node.created_by),
+        noload(Node.tags),
+    ]
+
     # Get all immediate parents for the input metrics WITH the child metric name
     find_latest_node_revisions = [
         and_(
@@ -1147,6 +1232,7 @@ async def get_metric_parents_map(
                 NodeRelationship.parent_id == Node.id,
             ),
         )
+        .options(*parent_node_options)
     )
     rows = (await session.execute(statement)).all()
 
@@ -1204,6 +1290,7 @@ async def get_metric_parents_map(
             select(Node)
             .where(Node.name.in_(base_metric_names))
             .where(is_(Node.deactivated_at, None))
+            .options(*parent_node_options)
         )
         base_metrics = list((await session.execute(base_metrics_stmt)).scalars().all())
 
@@ -1231,6 +1318,7 @@ async def get_metric_parents_map(
                     NodeRelationship.parent_id == Node.id,
                 ),
             )
+            .options(*parent_node_options)
         )
         base_rows = (await session.execute(statement)).all()
 
