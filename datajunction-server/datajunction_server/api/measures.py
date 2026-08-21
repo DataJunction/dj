@@ -72,7 +72,11 @@ async def get_node_columns(
         node_names,
         options=[
             joinedload(Node.current).options(
-                selectinload(NodeRevision.columns),
+                selectinload(NodeRevision.columns).options(
+                    joinedload(Column.node_revision).load_only(
+                        NodeRevision.name,
+                    ),
+                ),
             ),
         ],
     )
