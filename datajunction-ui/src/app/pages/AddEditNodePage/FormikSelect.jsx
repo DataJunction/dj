@@ -3,6 +3,7 @@
  */
 import { useField } from 'formik';
 import Select from 'react-select';
+import AsyncSelect from 'react-select/async';
 
 export const FormikSelect = ({
   selectOptions,
@@ -17,6 +18,9 @@ export const FormikSelect = ({
   onChange: customOnChange,
   menuPortalTarget,
   styles,
+  // When provided, options are fetched from the server as the user types and
+  // `selectOptions` is only the initial list shown before anything is typed.
+  loadOptions = null,
   ...rest
 }) => {
   // eslint-disable-next-line no-unused-vars
@@ -57,16 +61,26 @@ export const FormikSelect = ({
           )
         : [];
     } else {
-      // For single-select, find the matching option
-      return selectOptions.find(opt => opt.value === field.value) || null;
+      // For single-select, find the matching option. When options are loaded
+      // asynchronously the current value often isn't among them, so fall back
+      // to the raw value rather than rendering an empty control.
+      return (
+        selectOptions.find(opt => opt.value === field.value) ||
+        (loadOptions ? { value: field.value, label: field.value } : null)
+      );
     }
   };
 
+  const SelectComponent = loadOptions ? AsyncSelect : Select;
+
   return (
-    <Select
+    <SelectComponent
       className={className}
       value={getSelectValue()}
       options={selectOptions}
+      {...(loadOptions
+        ? { loadOptions, defaultOptions: selectOptions, cacheOptions: true }
+        : {})}
       name={field.name}
       placeholder={placeholder}
       onBlur={field.onBlur}
