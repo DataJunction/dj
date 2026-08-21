@@ -44,6 +44,14 @@ async def test_list_dimension(
 
 
 @pytest.mark.asyncio
+async def test_main_branch_names_with_no_names(session: AsyncSession) -> None:
+    """
+    An empty name list resolves to an empty set without issuing a query.
+    """
+    assert await Node.main_branch_names(session, []) == set()
+
+
+@pytest.mark.asyncio
 async def test_list_dimension_limit(client_with_roads: AsyncClient) -> None:
     """
     ``limit`` caps the response to the highest-ranked dimensions, and omitting it
