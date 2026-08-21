@@ -62,7 +62,6 @@ from datajunction_server.models.namespace import (
     NamespaceWriteResult,
     NamespaceWriteStatus,
 )
-from datajunction_server.models.node import NodeMinimumDetail
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import topological_sort
@@ -76,23 +75,6 @@ logger = logging.getLogger(__name__)
 RESERVED_NAMESPACE_NAMES = [
     "user",
 ]
-
-
-async def get_nodes_in_namespace(
-    session: AsyncSession,
-    namespace: str,
-    node_type: NodeType | None = None,
-    include_deactivated: bool = False,
-) -> list[NodeMinimumDetail]:
-    """
-    Gets a list of node names in the namespace
-    """
-    return await NodeNamespace.list_nodes(
-        session,
-        namespace,
-        node_type=node_type,
-        include_deactivated=include_deactivated,
-    )
 
 
 async def get_node_names_in_namespace(
