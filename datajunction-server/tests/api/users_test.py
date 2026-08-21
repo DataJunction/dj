@@ -129,3 +129,24 @@ class TestUsers:
         hard_hat_node = nodes_by_name["default.hard_hat"]
         assert hard_hat_node["tags"] == [{"name": "user_activity_tag"}]
         assert hard_hat_node["edited_by"] == ["dj"]
+
+    @pytest.mark.asyncio
+    async def test_list_nodes_by_user_excludes_deactivated(
+        self,
+        client_with_roads: AsyncClient,
+    ) -> None:
+        """
+        Test that ``GET /users/{username}`` omits nodes the user touched that
+        have since been deactivated.
+        """
+
+        response = await client_with_roads.get("/users/dj")
+        assert response.status_code == 200
+        assert "default.hard_hat" in {node["name"] for node in response.json()}
+
+        delete_response = await client_with_roads.delete("/nodes/default.hard_hat")
+        assert delete_response.status_code == 200
+
+        response = await client_with_roads.get("/users/dj")
+        assert response.status_code == 200
+        assert "default.hard_hat" not in {node["name"] for node in response.json()}

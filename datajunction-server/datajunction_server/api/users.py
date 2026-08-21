@@ -64,7 +64,7 @@ async def list_nodes_by_username(
             (NodeRevision.node_id == Node.id)
             & (NodeRevision.version == Node.current_version),
         )
-        .where(Node.name.in_(names))
+        .where(Node.name.in_(names) & Node.deactivated_at.is_(None))
     )
     rows = (await session.execute(nodes_statement)).all()
 
