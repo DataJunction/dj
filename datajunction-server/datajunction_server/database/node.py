@@ -151,6 +151,19 @@ def _normalize_for_search(text_col):
     )
 
 
+def _on_main_branch(ns_alias, parent_ns_alias):
+    """
+    SQL expression that is true when a node's namespace tracks its repo's
+    default branch, or is not repo-backed at all.
+    """
+    return case(
+        (parent_ns_alias.namespace.is_(None), True),
+        (parent_ns_alias.default_branch.is_(None), True),
+        (ns_alias.git_branch == parent_ns_alias.default_branch, True),
+        else_=False,
+    )
+
+
 def _build_search_score(
     nr_alias,
     ns_alias,
@@ -190,12 +203,7 @@ def _build_search_score(
             * _SEARCH_WEIGHT_DISPLAY_NAME,
         )
     branch_boost = case(
-        (parent_ns_alias.namespace.is_(None), _SEARCH_BOOST_MAIN),
-        (parent_ns_alias.default_branch.is_(None), _SEARCH_BOOST_MAIN),
-        (
-            ns_alias.git_branch == parent_ns_alias.default_branch,
-            _SEARCH_BOOST_MAIN,
-        ),
+        (_on_main_branch(ns_alias, parent_ns_alias), _SEARCH_BOOST_MAIN),
         else_=_SEARCH_BOOST_BRANCH,
     )
     popularity = 1.0 + _SEARCH_POPULARITY_WEIGHT * func.ln(
@@ -970,6 +978,39 @@ class Node(Base):
         statement = select(Node.name).where(*cls._find_filters(prefix, node_type))
         result = await session.execute(statement)
         return list(result.scalars().all())
+
+    @classmethod
+    async def main_branch_names(
+        cls,
+        session: AsyncSession,
+        names: list[str],
+    ) -> set[str]:
+        """
+        Of the given node names, returns those whose namespace tracks its repo's
+        default branch (or is not repo-backed).
+        """
+        if not names:
+            return set()
+
+        from datajunction_server.database.namespace import NodeNamespace
+
+        ns_alias = aliased(NodeNamespace)
+        parent_ns_alias = aliased(NodeNamespace)
+        statement = (
+            select(Node.name)
+            .select_from(Node)
+            .outerjoin(ns_alias, Node.namespace == ns_alias.namespace)
+            .outerjoin(
+                parent_ns_alias,
+                ns_alias.parent_namespace == parent_ns_alias.namespace,
+            )
+            .where(
+                Node.name.in_(names),
+                _on_main_branch(ns_alias, parent_ns_alias),
+            )
+        )
+        result = await session.execute(statement)
+        return set(result.scalars().all())
 
     @classmethod
     async def _build_filtered_node_statement(

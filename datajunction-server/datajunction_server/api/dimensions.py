@@ -36,12 +36,17 @@ router = SecureAPIRouter(tags=["dimensions"])
 @router.get("/dimensions/", response_model=list[NodeIndegreeOutput])
 async def list_dimensions(
     prefix: str | None = None,
+    limit: int | None = None,
     *,
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
 ) -> list[NodeIndegreeOutput]:
     """
-    List all available dimensions.
+    List available dimensions, most useful first.
+
+    Dimensions on a repo's default branch come before those on feature branches,
+    and within each group the most linked-to dimensions come first. `limit` caps
+    how many are returned; omit it for the full list.
     """
     node_names = await list_nodes(
         node_type=NodeType.DIMENSION,
@@ -50,13 +55,15 @@ async def list_dimensions(
         access_checker=access_checker,
     )
     node_indegrees = await get_dimension_dag_indegree(session, node_names)
-    return sorted(
+    main_branch = await Node.main_branch_names(session, node_names)
+    ranked = sorted(
         [
             NodeIndegreeOutput(name=node, indegree=node_indegrees[node])
             for node in node_names
         ],
-        key=lambda n: -n.indegree,
+        key=lambda n: (n.name not in main_branch, -n.indegree),
     )
+    return ranked[:limit] if limit is not None else ranked
 
 
 @router.get("/dimensions/{name}/nodes/", response_model=list[NodeNameOutput])
