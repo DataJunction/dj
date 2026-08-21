@@ -1,7 +1,9 @@
 """Models for materialization"""
 
 import enum
-from typing import TYPE_CHECKING, Literal
+from collections.abc import Callable
+from datetime import date
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import (
     BaseModel,
@@ -9,6 +11,8 @@ from pydantic import (
     Field,
     RootModel,
     field_validator,
+    model_serializer,
+    model_validator,
 )
 
 from datajunction_server.enum import StrEnum
@@ -57,6 +61,101 @@ DRUID_SKETCH_TYPES = {"HLLSketchMerge"}
 # ingest reaching further back fails at load time with a retention rule violation.
 # 400 days covers a full year of history plus room for late-arriving restatements.
 DEFAULT_CUBE_RETENTION = "400 DAYS"
+
+
+class CoverageSpec(BaseModel):
+    """
+    The span of partitions a cube's materialization should serve.
+
+    Distinct from `lookback_window`, which says how far back a single scheduled run
+    reaches. Coverage is the *maintained* span: the range the cube is expected to
+    hold at rest, which later work reconciles toward by backfilling whatever of it
+    is missing. Nothing acts on it yet -- it is parsed, validated, stored and read
+    back out, and that is all.
+
+    Two mutually exclusive forms:
+
+      coverage: {from: 2024-01-01, to: 2024-06-30}   # a fixed span
+      coverage: {window: 800 DAYS}                   # a rolling trailing span
+
+    `to` is optional under the first form; omitting it means the span is ongoing.
+    """
+
+    # `from` and `to` are INCLUSIVE dates, matching the FROM_PARTITION/TO_PARTITION
+    # convention the backfill workflow already speaks: it computes a
+    # TO_PARTITION_PLUS_1 precisely because its own range helper excludes the end.
+    # Do not "fix" these to exclusive -- doing so silently drops the last partition
+    # of every declared span, and quietly disagrees with the workflow that has to
+    # fill it.
+    #
+    # `from` is a Python keyword, so the field is named `from_` and aliased, in the
+    # same way `SourceSpec.schema_` handles `schema`.
+    from_: date | None = Field(default=None, alias="from")
+    to: date | None = None
+
+    # A duration string in the same style as `lookback_window` (e.g. "800 DAYS").
+    # Left as a free-form string deliberately: `lookback_window` has no parsing or
+    # validation of its own anywhere in the server -- it is interpolated straight
+    # into `INTERVAL {lookback_window}` -- so validating shape here would accept a
+    # narrower set of durations than the field it is modelled on.
+    window: str | None = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    @model_validator(mode="after")
+    def validate_form(self) -> "CoverageSpec":
+        """
+        Enforce the two forms and normalize the window, so that two specs meaning
+        the same span compare equal.
+
+        Equality is load-bearing: `reconcile_declared_materialization` compares the
+        declared block against what is already stored to decide whether to touch the
+        query service at all, so a purely cosmetic difference would churn a live
+        workflow on every deploy.
+        """
+        if self.window is not None:
+            self.window = " ".join(self.window.split())
+        if self.window and (self.from_ or self.to):
+            raise DJInvalidInputException(
+                message=(
+                    "A materialization `coverage` block declares either a fixed span "
+                    "(`from`, with an optional `to`) or a rolling `window`, not both."
+                ),
+            )
+        if self.to and not self.from_:
+            raise DJInvalidInputException(
+                message=(
+                    "A materialization `coverage` block with a `to` needs a `from`: "
+                    "an end date on its own does not say where the span starts."
+                ),
+            )
+        if self.from_ and self.to and self.to < self.from_:
+            raise DJInvalidInputException(
+                message=(
+                    f"A materialization `coverage` block ends before it starts: "
+                    f"`to` ({self.to.isoformat()}) precedes `from` "
+                    f"({self.from_.isoformat()})."
+                ),
+            )
+        return self
+
+    @model_serializer(mode="wrap")
+    def serialize(self, handler: Callable[["CoverageSpec"], dict[str, Any]]) -> dict:
+        """
+        Emit the authored key `from` rather than the field name `from_`, and dates as
+        ISO strings under every dump mode.
+
+        Both matter for the round trip. The stored materialization config is built
+        with a plain `model_dump()` into a JSON column, which cannot hold a `date`;
+        and the YAML `dj pull` writes is dumped without `by_alias`, so a `from_:` key
+        would come back out of DJ spelled differently from the way it went in.
+        """
+        return {
+            ("from" if key == "from_" else key): (
+                value.isoformat() if isinstance(value, date) else value
+            )
+            for key, value in handler(self).items()
+        }
 
 
 class MaterializationStrategy(StrEnum):

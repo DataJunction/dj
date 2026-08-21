@@ -3221,6 +3221,147 @@ class TestDeployments:
         )
 
     @pytest.mark.asyncio
+    async def test_deploy_cube_with_declared_coverage(
+        self,
+        session,
+        client,
+        default_hard_hats,
+        default_hard_hat,
+        default_us_states,
+        default_us_state,
+        default_avg_length_of_employment,
+        mock_qs,
+    ):
+        """
+        A declared `coverage:` block survives the whole trip -- into the stored
+        materialization config and back out through `to_spec` as the same YAML the
+        author wrote -- under both of its forms.
+
+        Nothing acts on it yet: the value reaches Druid through no part of the
+        materialization the query service is handed.
+        """
+        namespace = "cube_coverage"
+        cube = CubeSpec(
+            name="default.repairs_cube",
+            display_name="Repairs Cube",
+            description="""Cube for analyzing repair orders""",
+            dimensions=[
+                "${prefix}default.hard_hat.state",
+                "${prefix}default.hard_hat.birth_date",
+            ],
+            metrics=["${prefix}default.avg_length_of_employment"],
+            columns=[
+                ColumnSpec(
+                    name="${prefix}default.hard_hat.birth_date",
+                    partition=PartitionSpec(
+                        type=PartitionType.TEMPORAL,
+                        granularity=Granularity.DAY,
+                        format="yyyyMMdd",
+                    ),
+                ),
+            ],
+            materialization=MaterializationSpec(
+                schedule="0 6 * * *",
+                coverage={"from": "2024-01-01", "to": "2024-06-30"},
+            ),
+            owners=["dj"],
+        )
+        nodes_list = [
+            default_hard_hats,
+            default_hard_hat,
+            default_us_states,
+            default_us_state,
+            default_avg_length_of_employment,
+            cube,
+        ]
+        cube_name = f"{namespace}.default.repairs_cube"
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+
+        session.expire_all()
+        deployed = await Node.get_by_name(
+            session,
+            cube_name,
+            options=Node.cube_load_options(),
+        )
+        # Stored as the authored keys, and JSON-safe -- the config column cannot
+        # hold a `date`.
+        assert [
+            materialization.config["coverage"]
+            for materialization in deployed.current.materializations
+        ] == [{"from": "2024-01-01", "to": "2024-06-30", "window": None}]
+        exported = await deployed.to_spec(session)
+        assert exported.materialization == MaterializationSpec(
+            schedule="0 6 * * *",
+            strategy=MaterializationStrategy.INCREMENTAL_TIME,
+            lookback_window="1 DAY",
+            coverage={"from": "2024-01-01", "to": "2024-06-30"},
+        )
+        # What `dj pull` writes back out is the block the author wrote.
+        assert exported.model_dump(mode="json", exclude_none=True)[
+            "materialization"
+        ] == {
+            "schedule": "0 6 * * *",
+            "strategy": "incremental_time",
+            "lookback_window": "1 DAY",
+            "retention": "400 DAYS",
+            "coverage": {"from": "2024-01-01", "to": "2024-06-30"},
+        }
+        scheduled = mock_qs.materialize_cube.call_args.kwargs["materialization_input"]
+        assert not hasattr(scheduled, "coverage")
+
+        # The rolling form replaces the fixed one rather than accumulating alongside it.
+        cube.materialization = MaterializationSpec(
+            schedule="0 6 * * *",
+            coverage={"window": "800 DAYS"},
+        )
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+
+        session.expire_all()
+        deployed = await Node.get_by_name(
+            session,
+            cube_name,
+            options=Node.cube_load_options(),
+        )
+        assert [
+            materialization.config["coverage"]
+            for materialization in deployed.current.materializations
+        ] == [{"from": None, "to": None, "window": "800 DAYS"}]
+        exported = await deployed.to_spec(session)
+        assert exported.materialization == MaterializationSpec(
+            schedule="0 6 * * *",
+            strategy=MaterializationStrategy.INCREMENTAL_TIME,
+            lookback_window="1 DAY",
+            coverage={"window": "800 DAYS"},
+        )
+        assert exported.model_dump(mode="json", exclude_none=True)[
+            "materialization"
+        ] == {
+            "schedule": "0 6 * * *",
+            "strategy": "incremental_time",
+            "lookback_window": "1 DAY",
+            "retention": "400 DAYS",
+            "coverage": {"window": "800 DAYS"},
+        }
+
+        # Re-declaring the same coverage changes nothing, so the reconciler leaves
+        # the live workflow alone.
+        mock_qs.reset_mock()
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+        assert mock_qs.materialize_cube.call_count == 0
+
+    @pytest.mark.asyncio
     async def test_deploy_reports_a_rejected_materialization_push(
         self,
         client,

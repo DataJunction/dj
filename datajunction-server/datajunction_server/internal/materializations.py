@@ -348,9 +348,9 @@ def _upsert_from_materialization(
     """
     Recover the user's materialization intent from a persisted materialization.
 
-    Only the intent -- job type, strategy, schedule and lookback window -- is
-    carried over; everything else in a stored config is generated content derived
-    from the revision it was built against.
+    Only the intent -- job type, strategy, schedule, lookback window and declared
+    coverage -- is carried over; everything else in a stored config is generated
+    content derived from the revision it was built against.
     """
     config = materialization.config if isinstance(materialization.config, dict) else {}
     lookback_window = config.get("lookback_window")
@@ -361,6 +361,10 @@ def _upsert_from_materialization(
             strategy=materialization.strategy,
             schedule=materialization.schedule,
             lookback_window=lookback_window,
+            # Recovered so a rebuild triggered by an unrelated cube edit does not
+            # quietly drop the coverage the author declared. A cube materialized
+            # outside YAML has none, and reads back as None.
+            coverage=config.get("coverage"),
         )
     return UpsertMaterialization(
         job=job_type.value.name,  # type: ignore
@@ -456,6 +460,7 @@ async def reconcile_declared_materialization(
             strategy=declared.strategy,
             schedule=declared.schedule,
             lookback_window=declared.lookback_window,
+            coverage=declared.coverage,
         ),
         access_checker,
         current_user=current_user,
@@ -582,6 +587,7 @@ async def swap_cube_materializations(
                         "schedule": declared.schedule,
                         "strategy": declared.strategy,
                         "lookback_window": declared.lookback_window,
+                        "coverage": declared.coverage,
                     },
                 )
             new_materialization = await create_new_materialization(

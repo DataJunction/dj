@@ -28,6 +28,7 @@ from datajunction_server.models.dimensionlink import (
 from datajunction_server.models.impact import DownstreamImpact
 from datajunction_server.models.materialization import (
     DEFAULT_CUBE_RETENTION,
+    CoverageSpec,
     MaterializationStrategy,
 )
 from datajunction_server.models.node import (
@@ -327,10 +328,10 @@ class MaterializationSpec(BaseModel):
     Declarative materialization config for a cube.
 
     Deliberately carries only what the author decides: when to build, how, how
-    far back to look, and how long the result is kept. The backend that runs it
-    (and everything it derives -- the measures queries, combiner SQL, Druid spec,
-    output tables) is DJ's choice, so no `job` field is exposed here and the
-    block stays portable if that choice changes.
+    far back to look, how much of history to serve, and how long the result is
+    kept. The backend that runs it (and everything it derives -- the measures
+    queries, combiner SQL, Druid spec, output tables) is DJ's choice, so no `job`
+    field is exposed here and the block stays portable if that choice changes.
     """
 
     schedule: str
@@ -340,6 +341,27 @@ class MaterializationSpec(BaseModel):
     # Unlike `lookback_window`, this is meaningful under both strategies: a full
     # rebuild is exactly the case that loads the widest span of history.
     retention: str | None = DEFAULT_CUBE_RETENTION
+
+    # The span of partitions the cube should serve. Absent means the author has
+    # declared none. Stored and echoed back only for now -- reconciling toward it
+    # by backfilling the gaps is separate work.
+    coverage: CoverageSpec | None = None
+
+    @model_validator(mode="after")
+    def clear_empty_coverage(self) -> "MaterializationSpec":
+        """
+        A `coverage:` block that declares neither form declares nothing, so normalize
+        it away to absent.
+
+        Same reasoning as `clear_lookback_for_full`: "no coverage block" and "an
+        empty coverage block" mean the same thing, and letting them compare unequal
+        would churn a live workflow on deploy. It also keeps the round trip honest --
+        a config stored before coverage existed reads back as no declared coverage
+        rather than as an empty block.
+        """
+        if self.coverage == CoverageSpec():
+            self.coverage = None
+        return self
 
     @model_validator(mode="after")
     def clear_lookback_for_full(self) -> "MaterializationSpec":
