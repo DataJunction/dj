@@ -443,6 +443,8 @@ class TestGetDimensionDagIndegree:
             (["default.fact1"], {"default.fact1": 0}),
             # Nonexistent node: should skip
             (["nonexistent.dim"], {}),
+            # No names requested: short-circuits without querying
+            ([], {}),
             # Deactivated dimension should not be included
             (
                 ["default.dim1", "default.fact1", "default.deactivated_dim"],
@@ -464,6 +466,36 @@ class TestGetDimensionDagIndegree:
         """
         result = await get_dimension_dag_indegree(session, node_names)
         assert result == expected
+
+    @pytest.mark.asyncio
+    async def test_get_dimension_dag_indegree_issues_one_query(
+        self,
+        session: AsyncSession,
+        dimension_test_graph,
+        capture_queries: list[str],
+    ):
+        """
+        Indegrees must be resolved with a single aggregate query.
+
+        This previously hydrated full ORM ``Node`` objects just to map names to
+        ids, which dragged in each node's columns, parents, dimension links and
+        those links' dimensions. On a large instance ``GET /dimensions/`` spent
+        tens of seconds issuing hundreds of eager-load queries because of it.
+        """
+        node_names = [
+            "default.dim1",
+            "default.dim2",
+            "default.dim3",
+            "default.fact1",
+        ]
+        result = await get_dimension_dag_indegree(session, node_names)
+        assert result == {
+            "default.dim1": 1,
+            "default.dim2": 2,
+            "default.dim3": 0,
+            "default.fact1": 0,
+        }
+        assert len(capture_queries) == 1
 
     @pytest.mark.asyncio
     async def test_node_downstreams_with_fanout(
