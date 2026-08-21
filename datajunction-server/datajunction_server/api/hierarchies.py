@@ -10,6 +10,7 @@ from typing import cast
 
 from fastapi import Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import load_only
 
 from datajunction_server.api.helpers import get_node_namespace, get_save_history
 from datajunction_server.database.hierarchy import (
@@ -94,7 +95,12 @@ async def get_dimension_hierarchies(
     # Validate that the dimension node exists and is a dimension
     node = cast(
         Node,
-        await Node.get_by_name(session, dimension, raise_if_not_exists=True),
+        await Node.get_by_name(
+            session,
+            dimension,
+            options=[load_only(Node.id, Node.type)],
+            raise_if_not_exists=True,
+        ),
     )
 
     if node.type != NodeType.DIMENSION:
