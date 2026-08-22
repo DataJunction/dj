@@ -231,6 +231,167 @@ async def test_get_dimension_attributes_metric_on_dimension_node(
 
 
 @pytest.mark.asyncio
+async def test_get_dimension_attributes_depth_bound(
+    session: AsyncSession,
+    current_user: User,
+) -> None:
+    """
+    ``get_dimension_attributes`` (and the ``get_dimension_nodes`` recursive CTE it
+    relies on) should stop traversing the dimension link graph once ``depth`` hops
+    have been followed. Build a source node linked to a 3-level-deep chain of
+    dimension nodes (fact -> dim_1 -> dim_2 -> dim_3) and confirm that a small
+    ``depth`` excludes the deeper dimensions while a large ``depth`` includes them.
+    """
+    dim_3_ref = Node(
+        name="default.depth_dim_3",
+        type=NodeType.DIMENSION,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    dim_3 = NodeRevision(
+        node=dim_3_ref,
+        name=dim_3_ref.name,
+        type=dim_3_ref.type,
+        display_name="Depth Dim 3",
+        version="1",
+        columns=[
+            Column(name="id", type=IntegerType(), order=0),
+            Column(name="attr_3", type=StringType(), order=1),
+        ],
+        created_by_id=current_user.id,
+    )
+    dim_3_ref.current = dim_3
+
+    dim_2_ref = Node(
+        name="default.depth_dim_2",
+        type=NodeType.DIMENSION,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    dim_2 = NodeRevision(
+        node=dim_2_ref,
+        name=dim_2_ref.name,
+        type=dim_2_ref.type,
+        display_name="Depth Dim 2",
+        version="1",
+        columns=[
+            Column(name="id", type=IntegerType(), order=0),
+            Column(name="attr_2", type=StringType(), order=1),
+        ],
+        created_by_id=current_user.id,
+    )
+    dim_2_ref.current = dim_2
+
+    dim_1_ref = Node(
+        name="default.depth_dim_1",
+        type=NodeType.DIMENSION,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    dim_1 = NodeRevision(
+        node=dim_1_ref,
+        name=dim_1_ref.name,
+        type=dim_1_ref.type,
+        display_name="Depth Dim 1",
+        version="1",
+        columns=[
+            Column(name="id", type=IntegerType(), order=0),
+            Column(name="attr_1", type=StringType(), order=1),
+        ],
+        created_by_id=current_user.id,
+    )
+    dim_1_ref.current = dim_1
+
+    session.add_all(
+        [dim_1, dim_1_ref, dim_2, dim_2_ref, dim_3, dim_3_ref],
+    )
+    await session.flush()
+
+    fact_ref = Node(
+        name="default.depth_fact",
+        type=NodeType.SOURCE,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    fact = NodeRevision(
+        node=fact_ref,
+        name=fact_ref.name,
+        type=fact_ref.type,
+        display_name="Depth Fact",
+        version="1",
+        columns=[Column(name="id", type=IntegerType(), order=0)],
+        created_by_id=current_user.id,
+    )
+    fact_ref.current = fact
+    session.add_all([fact, fact_ref])
+    await session.flush()
+
+    session.add_all(
+        [
+            DimensionLink(
+                dimension_id=dim_1_ref.id,
+                node_revision_id=fact.id,
+                join_sql="default.depth_fact.id = default.depth_dim_1.id",
+            ),
+            DimensionLink(
+                dimension_id=dim_2_ref.id,
+                node_revision_id=dim_1.id,
+                join_sql="default.depth_dim_1.id = default.depth_dim_2.id",
+            ),
+            DimensionLink(
+                dimension_id=dim_3_ref.id,
+                node_revision_id=dim_2.id,
+                join_sql="default.depth_dim_2.id = default.depth_dim_3.id",
+            ),
+        ],
+    )
+    await session.commit()
+
+    depth_1_attrs = await get_dimension_attributes(
+        session,
+        "default.depth_fact",
+        depth=1,
+    )
+    depth_2_attrs = await get_dimension_attributes(
+        session,
+        "default.depth_fact",
+        depth=2,
+    )
+    depth_full_attrs = await get_dimension_attributes(
+        session,
+        "default.depth_fact",
+        depth=30,
+    )
+
+    depth_1_names = {d.name for d in depth_1_attrs}
+    depth_2_names = {d.name for d in depth_2_attrs}
+    depth_full_names = {d.name for d in depth_full_attrs}
+
+    # depth=1 only reaches depth_dim_1.
+    assert depth_1_names == {
+        "default.depth_dim_1.id",
+        "default.depth_dim_1.attr_1",
+    }
+    # depth=2 additionally reaches depth_dim_2, but not depth_dim_3.
+    assert depth_2_names == {
+        "default.depth_dim_1.id",
+        "default.depth_dim_1.attr_1",
+        "default.depth_dim_2.id",
+        "default.depth_dim_2.attr_2",
+    }
+    # A depth large enough to cover the whole chain reaches depth_dim_3 too.
+    assert depth_full_names == {
+        "default.depth_dim_1.id",
+        "default.depth_dim_1.attr_1",
+        "default.depth_dim_2.id",
+        "default.depth_dim_2.attr_2",
+        "default.depth_dim_3.id",
+        "default.depth_dim_3.attr_3",
+    }
+    assert len(depth_1_attrs) < len(depth_2_attrs) < len(depth_full_attrs)
+
+
+@pytest.mark.asyncio
 async def test_topological_sort(session: AsyncSession) -> None:
     """
     Test ``topological_sort``.

@@ -10,7 +10,7 @@ from collections import namedtuple
 from dataclasses import dataclass, field
 from typing import cast
 
-from sqlalchemy import and_, bindparam, func, join, or_, select, text
+from sqlalchemy import and_, bindparam, func, join, literal, or_, select, text
 from sqlalchemy.dialects.postgresql import array
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, joinedload, load_only, noload, selectinload
@@ -345,9 +345,11 @@ async def get_dimension_attributes(
     session: AsyncSession,
     node_name: str,
     include_deactivated: bool = True,
+    depth: int = 30,
 ):
     """
-    Get all dimension attributes for a given node.
+    Get all dimension attributes for a given node. `depth` bounds how many
+    dimension link hops are traversed from the node.
     """
     node = cast(
         Node,
@@ -387,7 +389,12 @@ async def get_dimension_attributes(
             # Derived metric - use get_dimensions which handles intersection
             dimensions = cast(
                 list[DimensionAttributeOutput],
-                await get_dimensions(session, node, with_attributes=True),
+                await get_dimensions(
+                    session,
+                    node,
+                    with_attributes=True,
+                    depth=depth,
+                ),
             )
             # Prepend the metric's name to each dimension's path
             for dim in dimensions:
@@ -411,6 +418,7 @@ async def get_dimension_attributes(
         session,
         node,
         include_deactivated,
+        depth,
     )
     dimensions_map = {dim.id: dim for dim, _, _ in dimension_nodes_and_paths}
 
@@ -504,10 +512,12 @@ async def get_dimension_nodes(
     session: AsyncSession,
     node: Node,
     include_deactivated: bool = True,
+    depth: int = 30,
 ) -> list[tuple[Node, list[str], list[str] | None]]:
     """
     Discovers all dimension nodes in the given node's dimensions graph using a recursive
-    CTE query to build out the dimension links.
+    CTE query to build out the dimension links. The traversal stops once `join_path`
+    reaches `depth` hops from the starting node.
     """
     dag = (
         (
@@ -517,6 +527,7 @@ async def get_dimension_nodes(
                 NodeRevision.node_id,
                 array([NodeRevision.node_id]).label("join_path"),  # start path
                 array([DimensionLink.role]).label("role"),
+                literal(1).label("level"),
             )
             .where(DimensionLink.node_revision_id == node.current.id)
             .join(Node, DimensionLink.dimension_id == Node.id)
@@ -541,6 +552,7 @@ async def get_dimension_nodes(
                 "join_path",
             ),
             func.array_cat(dag.c.role, array([DimensionLink.role])).label("role"),
+            (dag.c.level + 1).label("level"),
         )
         .join(DimensionLink, dag.c.id == DimensionLink.node_revision_id)
         .join(Node, DimensionLink.dimension_id == Node.id)
@@ -548,7 +560,8 @@ async def get_dimension_nodes(
             NodeRevision,
             (Node.id == NodeRevision.node_id)
             & (Node.current_version == NodeRevision.version),
-        ),
+        )
+        .where(dag.c.level < depth),
     )
 
     node_selector = select(Node, paths.c.join_path, paths.c.role)
