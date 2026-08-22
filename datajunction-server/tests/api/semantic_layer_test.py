@@ -349,6 +349,30 @@ async def test_semantic_endpoints_end_to_end(client: AsyncClient):
     assert resp.status_code == 404, resp.text
 
 
+@pytest.mark.asyncio
+async def test_list_views_query_count(
+    client: AsyncClient,
+    capture_queries: list[str],
+):
+    """
+    Listing views must not hydrate every cube as a full ORM ``Node``.
+    """
+    await _setup_cube(client)
+
+    capture_queries.clear()
+    resp = await _expect(
+        await client.post("/semantic/views/list", json={"runtime_configuration": {}}),
+        200,
+    )
+    assert resp.json()
+
+    node_queries = [query for query in capture_queries if "FROM node" in query]
+    assert len(node_queries) == 1, "\n\n".join(node_queries)
+
+    # The remaining queries are per-request auth/RBAC.
+    assert len(capture_queries) <= 4, "\n\n".join(capture_queries)
+
+
 # ---------------------------------------------------------------------------
 # generate_query_sql request-validation rejections
 #
@@ -418,9 +442,9 @@ async def test_list_views_djexception_returns_problem(
     client: AsyncClient,
     monkeypatch,
 ):
-    """``Node.find`` raising DJException -> problem response in list_views."""
+    """``Node.find_names`` raising DJException -> problem response in list_views."""
     monkeypatch.setattr(
-        "datajunction_server.api.semantic_layer.Node.find",
+        "datajunction_server.api.semantic_layer.Node.find_names",
         AsyncMock(
             side_effect=DJException(message="find blew up", http_status_code=418),
         ),
