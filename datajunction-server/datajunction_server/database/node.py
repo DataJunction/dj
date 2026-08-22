@@ -30,7 +30,7 @@ from sqlalchemy import (
     select,
 )
 from sqlalchemy import Column as SqlalchemyColumn
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import (
@@ -136,6 +136,17 @@ _SEARCH_MIN_FUZZY_LENGTH = 2
 # field if it's a (normalized) substring OR its word-similarity clears this bar,
 # giving typo/partial tolerance without flooding results with junk.
 _SEARCH_WORD_SIMILARITY_THRESHOLD = 0.6
+
+
+def _name_in(names: list[str]) -> sa.ColumnElement:
+    """
+    Build a ``Node.name = ANY(:names)`` predicate from a caller-supplied list of
+    names, passed as a single array bind parameter rather than expanding into
+    one bind parameter per name via ``IN (...)``. Postgres/psycopg cap a
+    statement at 65,535 bind parameters, which a plain ``Node.name.in_(names)``
+    can exceed once ``names`` gets large (e.g. all of a user's created nodes).
+    """
+    return Node.name == sa.any_(sa.literal(names, type_=ARRAY(String)))
 
 
 def _normalize_for_search(text_col):
@@ -812,7 +823,7 @@ class Node(Base):
         if not names:
             return []
 
-        statement = select(Node).where(Node.name.in_(names))
+        statement = select(Node).where(_name_in(names))
 
         options = options or [
             joinedload(Node.current).options(
@@ -1005,7 +1016,7 @@ class Node(Base):
                 ns_alias.parent_namespace == parent_ns_alias.namespace,
             )
             .where(
-                Node.name.in_(names),
+                _name_in(names),
                 _on_main_branch(ns_alias, parent_ns_alias),
             )
         )
@@ -1091,9 +1102,7 @@ class Node(Base):
                 Node.name.in_(nodes_with_dimensions),
             )
         if names:
-            statement = statement.where(
-                Node.name.in_(names),  # type: ignore
-            )
+            statement = statement.where(_name_in(names))
         if fragment:
             statement = statement.where(
                 or_(
