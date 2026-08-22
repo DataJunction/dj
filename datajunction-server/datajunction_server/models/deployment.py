@@ -342,7 +342,6 @@ class MaterializationSpec(BaseModel):
     # rebuild is exactly the case that loads the widest span of history.
     retention: str | None = DEFAULT_CUBE_RETENTION
 
-    # The span the cube should serve.
     coverage: CoverageSpec | None = None
 
     @model_validator(mode="after")

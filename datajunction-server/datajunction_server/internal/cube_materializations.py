@@ -525,7 +525,6 @@ async def build_cube_materialization(
         combiners=combiners,
         lookback_window=upsert_input.lookback_window if incremental else None,
         retention=upsert_input.retention,
-        # Unconditional: a full rebuild serves a span too.
         coverage=upsert_input.coverage,
     )
     return config

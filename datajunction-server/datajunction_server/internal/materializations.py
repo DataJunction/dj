@@ -361,7 +361,6 @@ def _upsert_from_materialization(
             strategy=materialization.strategy,
             schedule=materialization.schedule,
             lookback_window=lookback_window,
-            # Kept when an unrelated cube edit rebuilds.
             coverage=config.get("coverage"),
         )
     return UpsertMaterialization(

@@ -279,7 +279,6 @@ class UpsertCubeMaterialization(BaseModel):
     # How long the Druid datasource keeps ingested data. Applies under both strategies.
     retention: str | None = DEFAULT_CUBE_RETENTION
 
-    # Declared span. Nothing backfills against it yet.
     coverage: CoverageSpec | None = None
 
     @field_validator("job")
@@ -477,7 +476,6 @@ class DruidCubeConfig(BaseModel):
     # Configs persisted before this field existed pick up the default on their next build.
     retention: str | None = DEFAULT_CUBE_RETENTION
 
-    # Where a declared span comes to rest.
     coverage: CoverageSpec | None = None
 
 
