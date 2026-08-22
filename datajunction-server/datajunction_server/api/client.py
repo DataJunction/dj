@@ -172,13 +172,28 @@ async def notebook_for_exporting_nodes(
         )
 
     if namespace:
-        nodes = await NodeNamespace.list_all_nodes(session, namespace)
+        # build_export_notebook only needs enough of each node to compute the
+        # notebook cell structure (parents for topological sort, dimension
+        # links, and columns/attributes) -- the heavier per-node details
+        # (materializations, availability, created_by) are re-fetched anyway
+        # by python_client_create_node for each node it renders. Use the slim
+        # export options instead of the unbounded default for the whole
+        # namespace.
+        nodes = await NodeNamespace.list_all_nodes(
+            session,
+            namespace,
+            options=Node.export_load_options(),
+        )
         introduction = (
             f"## DJ Namespace Export\n\n"
             f"Exported `{namespace}`\n\n(As of {datetime.now()})"
         )
     else:
-        nodes = await get_upstream_nodes(session, cast(str, cube))
+        nodes = await get_upstream_nodes(
+            session,
+            cast(str, cube),
+            options=Node.export_load_options(),
+        )
         cube_node = cast(
             Node,
             await Node.get_by_name(session, cast(str, cube), raise_if_not_exists=True),

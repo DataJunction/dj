@@ -16,7 +16,7 @@ from ruamel.yaml import YAML
 from ruamel.yaml.comments import Comment, CommentedMap, CommentedSeq
 from sqlalchemy import bindparam, delete, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.orm import joinedload
 from yamlfix import fix_code
 from yamlfix.model import YamlfixConfig, YamlNodeStyle
 
@@ -62,7 +62,6 @@ from datajunction_server.models.namespace import (
     NamespaceWriteResult,
     NamespaceWriteStatus,
 )
-from datajunction_server.models.node import NodeMinimumDetail
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import topological_sort
@@ -78,21 +77,26 @@ RESERVED_NAMESPACE_NAMES = [
 ]
 
 
-async def get_nodes_in_namespace(
+async def get_node_names_in_namespace(
     session: AsyncSession,
     namespace: str,
-    node_type: NodeType | None = None,
     include_deactivated: bool = False,
-) -> list[NodeMinimumDetail]:
+) -> list[str]:
     """
-    Gets a list of node names in the namespace
+    Gets just the names of nodes in the namespace, without hydrating any
+    ORM relationships. Callers that only need node names (e.g. to iterate
+    over for a cascade operation) should use this instead of building full
+    `NodeMinimumDetail`/`Node` objects and discarding everything but the name.
     """
-    return await NodeNamespace.list_nodes(
-        session,
-        namespace,
-        node_type=node_type,
-        include_deactivated=include_deactivated,
+    names_query = select(Node.name).where(
+        or_(
+            Node.namespace.like(f"{namespace}.%"),
+            Node.namespace == namespace,
+        ),
     )
+    if include_deactivated is False:
+        names_query = names_query.where(Node.deactivated_at.is_(None))
+    return list((await session.execute(names_query)).scalars().all())
 
 
 async def get_nodes_in_namespace_detailed(
@@ -118,8 +122,10 @@ async def get_nodes_in_namespace_detailed(
         )
         .options(
             joinedload(Node.current).options(
-                *NodeRevision.default_load_options(),
-                selectinload(NodeRevision.cube_elements),  # Needed for cube exports
+                # Slim load options: skips materializations, availability, and
+                # created_by, none of which get_project_config's builders read.
+                # cube_elements is already included (needed for cube exports).
+                *NodeRevision.export_load_options(),
             ),
             joinedload(Node.tags),
         )

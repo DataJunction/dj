@@ -335,6 +335,30 @@ async def test_list_nodes_by_namespace(
 
 
 @pytest.mark.asyncio
+async def test_list_nodes_include_deactivated(
+    client_with_namespaced_roads: AsyncClient,
+    session: AsyncSession,
+) -> None:
+    """
+    Test that ``NodeNamespace.list_nodes`` respects the ``include_deactivated``
+    flag: a deactivated node is excluded by default and only shows up when
+    ``include_deactivated=True`` is passed.
+    """
+    response = await client_with_namespaced_roads.delete("/nodes/foo.bar.dispatcher/")
+    assert response.status_code == 200
+
+    active_only = await NodeNamespace.list_nodes(session, "foo.bar")
+    assert "foo.bar.dispatcher" not in {node.name for node in active_only}
+
+    with_deactivated = await NodeNamespace.list_nodes(
+        session,
+        "foo.bar",
+        include_deactivated=True,
+    )
+    assert "foo.bar.dispatcher" in {node.name for node in with_deactivated}
+
+
+@pytest.mark.asyncio
 async def test_deactivate_namespaces(client_with_namespaced_roads: AsyncClient) -> None:
     """
     Test ``DELETE /namespaces/{namespace}``.
