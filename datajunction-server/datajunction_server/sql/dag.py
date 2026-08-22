@@ -112,20 +112,8 @@ def _node_output_options():
 
 def _dimension_graph_node_options():
     """
-    Slim statement options for ``get_dimension_nodes``.
-
-    Its only caller, ``get_dimension_attributes``, reads (per discovered
-    dimension node): ``dim.name``, ``dim.current.display_name``, and for
-    each column in ``dim.current.columns``: ``name``, ``display_name``,
-    ``type``, and ``attribute_names()`` (which needs ``Column.attributes``
-    -> ``ColumnAttribute.attribute_type``). Nothing else on the dimension
-    node/revision graph is touched, so this suppresses the rest of what
-    ``_node_output_options()`` pulls in: ``NodeRevision.parents``,
-    ``NodeRevision.dimension_links`` (and the dimension-of-a-dimension
-    ``Node.current`` chain hanging off of it), ``Node.tags``,
-    ``Node.owners``, ``Column.dimension``, ``Column.partition``, plus the
-    mapper-level eager chains ``Node.created_by``, ``NodeRevision.created_by``,
-    ``NodeRevision.node``, and ``NodeRevision.catalog``.
+    Statement options for ``get_dimension_nodes``, covering only the display
+    names and column attributes that ``get_dimension_attributes`` reads.
     """
     return [
         noload(Node.created_by),
@@ -324,13 +312,8 @@ async def build_reference_link(
     """
     Builds a reference link dimension attribute output for a column.
 
-    If ``dimension_node`` is supplied, it must already have ``current`` and
-    ``current.columns`` loaded (e.g. via a batched lookup keyed by
-    ``col.dimension_id``) and is used as-is without issuing any queries.
-    This is what callers looping over many columns should do to avoid an
-    N+1 of refreshes. When omitted, ``col.dimension`` (and its ``current``
-    and ``current.columns``) are refreshed on demand, which is fine for a
-    single, one-off lookup but should never be used inside a loop.
+    ``dimension_node`` must already have ``current.columns`` loaded. Passing it
+    skips the refresh chain, which is what callers in a loop should do.
     """
     if not (col.dimension_id and col.dimension_column):
         return None  # pragma: no cover
@@ -431,12 +414,8 @@ async def get_dimension_attributes(
     )
     dimensions_map = {dim.id: dim for dim, _, _ in dimension_nodes_and_paths}
 
-    # Add all reference links to the list of dimension attributes.
-    #
-    # First pass: collect every column that points at a dimension (via
-    # dimension_id/dimension_column) across both the node's own columns and
-    # each discovered dimension node's columns, without touching
-    # ``col.dimension`` yet.
+    # Collect the columns that reference a dimension, then resolve them in one
+    # batch rather than a refresh per column.
     await refresh_if_needed(session, node.current, ["columns"])
     candidate_columns: list[tuple[Column, list[str], list[str] | None]] = []
     for col in node.current.columns:
@@ -453,10 +432,6 @@ async def get_dimension_attributes(
                 ) + [dimensions_map[int(node_id)].name for node_id in path]
                 candidate_columns.append((col, join_path, role))
 
-    # Second pass: batch-load all the referenced dimension nodes (with their
-    # current revision + columns) in a single query, instead of the previous
-    # per-column session.refresh() chain (col.dimension, .current, and
-    # .current.columns) that ran once per candidate column.
     referenced_dimension_ids = {
         col.dimension_id for col, _, _ in candidate_columns if col.dimension_id
     }
@@ -1198,12 +1173,7 @@ async def get_metric_parents_map(
     metric_names = {m.name for m in metric_nodes}
     result: dict[str, list[Node]] = {name: [] for name in metric_names}
 
-    # Only .id, .name, .type, and .current_version are read off of the parent
-    # Node objects here (and by the downstream callers that consume this
-    # function's result to compute dimensions), so defer the rest of Node's
-    # columns and suppress the mapper-level eager-loaded relationships
-    # (created_by, tags) that would otherwise fan out into extra queries per
-    # batch of parents.
+    # Callers read only id, name, type and current_version off these parents.
     parent_node_options = [
         load_only(Node.id, Node.name, Node.type, Node.current_version),
         noload(Node.created_by),
