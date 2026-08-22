@@ -1403,7 +1403,7 @@ async def list_all_dimension_attributes(
     access_checker.add_request_by_node_name(name, ResourceAction.READ)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
-    dimensions = await get_dimension_attributes(session, name)
+    dimensions = await get_dimension_attributes(session, name, depth=depth)
     filter_only_dimensions = await get_filter_only_dimensions(session, name)
     return dimensions + filter_only_dimensions
 

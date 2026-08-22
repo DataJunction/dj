@@ -8642,6 +8642,81 @@ async def test_get_dimension_dag_diamond_inbound(
 
 
 @pytest.mark.asyncio
+async def test_list_dimension_attributes_depth_limit(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    ``GET /nodes/{name}/dimensions/?depth=`` should bound how many dimension-link
+    hops are traversed. Build a 3-level chain of dimension nodes
+    (source -> dim_1 -> dim_2 -> dim_3) and confirm a small ``depth`` excludes the
+    attributes of the deeper dimension nodes while a larger ``depth`` includes them.
+    """
+    for name in ("dim_1", "dim_2", "dim_3"):
+        response = await client_with_roads.post(
+            "/nodes/dimension/",
+            json={
+                "name": f"default.depth_limit_{name}",
+                "query": "SELECT hard_hat_id FROM default.hard_hats",
+                "primary_key": ["hard_hat_id"],
+                "mode": "published",
+            },
+        )
+        assert response.status_code == 201
+
+    response = await client_with_roads.post(
+        "/nodes/transform/",
+        json={
+            "name": "default.depth_limit_source",
+            "query": "SELECT hard_hat_id FROM default.hard_hats",
+            "mode": "published",
+        },
+    )
+    assert response.status_code == 201
+
+    links = [
+        ("default.depth_limit_source", "default.depth_limit_dim_1"),
+        ("default.depth_limit_dim_1", "default.depth_limit_dim_2"),
+        ("default.depth_limit_dim_2", "default.depth_limit_dim_3"),
+    ]
+    for from_node, to_node in links:
+        response = await client_with_roads.post(
+            f"/nodes/{from_node}/link",
+            json={
+                "dimension_node": to_node,
+                "join_on": f"{from_node}.hard_hat_id = {to_node}.hard_hat_id",
+            },
+        )
+        assert response.status_code in (200, 201)
+
+    response = await client_with_roads.get(
+        "/nodes/default.depth_limit_source/dimensions/?depth=1",
+    )
+    assert response.status_code == 200
+    depth_1_node_names = {d["node_name"] for d in response.json()}
+    assert "default.depth_limit_dim_1" in depth_1_node_names
+    assert "default.depth_limit_dim_2" not in depth_1_node_names
+    assert "default.depth_limit_dim_3" not in depth_1_node_names
+
+    response = await client_with_roads.get(
+        "/nodes/default.depth_limit_source/dimensions/?depth=2",
+    )
+    assert response.status_code == 200
+    depth_2_node_names = {d["node_name"] for d in response.json()}
+    assert "default.depth_limit_dim_1" in depth_2_node_names
+    assert "default.depth_limit_dim_2" in depth_2_node_names
+    assert "default.depth_limit_dim_3" not in depth_2_node_names
+
+    response = await client_with_roads.get(
+        "/nodes/default.depth_limit_source/dimensions/?depth=30",
+    )
+    assert response.status_code == 200
+    depth_full_node_names = {d["node_name"] for d in response.json()}
+    assert "default.depth_limit_dim_1" in depth_full_node_names
+    assert "default.depth_limit_dim_2" in depth_full_node_names
+    assert "default.depth_limit_dim_3" in depth_full_node_names
+
+
+@pytest.mark.asyncio
 async def test_get_dimension_dag_duplicate_role_links(
     client_with_roads: AsyncClient,
 ) -> None:
