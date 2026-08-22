@@ -1,7 +1,13 @@
+import json
+from datetime import date
+
 import pytest
 from pydantic import ValidationError
 
-from datajunction_server.errors import DJInvalidDeploymentConfig
+from datajunction_server.errors import (
+    DJInvalidDeploymentConfig,
+    DJInvalidInputException,
+)
 from datajunction_server.models.deployment import (
     ChangeTier,
     ColumnSpec,
@@ -27,7 +33,10 @@ from datajunction_server.models.deployment import (
     eq_or_fallback,
     fold_change_tiers,
 )
-from datajunction_server.models.materialization import MaterializationStrategy
+from datajunction_server.models.materialization import (
+    CoverageSpec,
+    MaterializationStrategy,
+)
 from datajunction_server.models.node import MetricUnit, NodeMode, NodeType
 
 
@@ -1033,6 +1042,7 @@ def test_materialization_spec_defaults():
         "strategy": MaterializationStrategy.INCREMENTAL_TIME,
         "lookback_window": "1 DAY",
         "retention": "400 DAYS",
+        "coverage": None,
     }
 
 
@@ -1044,6 +1054,7 @@ def test_materialization_spec_retention_override():
         "strategy": MaterializationStrategy.INCREMENTAL_TIME,
         "lookback_window": "1 DAY",
         "retention": "30 DAYS",
+        "coverage": None,
     }
 
 
@@ -1063,11 +1074,139 @@ def test_materialization_spec_full_strategy_drops_lookback():
         "strategy": MaterializationStrategy.FULL,
         "lookback_window": None,
         "retention": "400 DAYS",
+        "coverage": None,
     }
     assert declared == MaterializationSpec(
         schedule="0 6 * * *",
         strategy=MaterializationStrategy.FULL,
     )
+
+
+def test_materialization_spec_coverage_fixed_span():
+    """
+    A fixed span is declared as an inclusive ``from``/``to`` pair, and dumps back out
+    under the authored ``from`` key rather than the ``from_`` field name.
+    """
+    spec = MaterializationSpec(
+        schedule="0 6 * * *",
+        coverage={"from": "2024-01-01", "to": "2024-06-30"},
+    )
+    assert spec.coverage == CoverageSpec(from_=date(2024, 1, 1), to=date(2024, 6, 30))
+    assert spec.model_dump() == {
+        "schedule": "0 6 * * *",
+        "strategy": MaterializationStrategy.INCREMENTAL_TIME,
+        "lookback_window": "1 DAY",
+        "retention": "400 DAYS",
+        "coverage": {"from": "2024-01-01", "to": "2024-06-30", "window": None},
+    }
+
+
+def test_materialization_spec_coverage_open_ended_span():
+    """``to`` is optional: a span with only a ``from`` is ongoing."""
+    spec = MaterializationSpec(
+        schedule="0 6 * * *",
+        coverage={"from": "2024-01-01"},
+    )
+    assert spec.model_dump(mode="json", exclude_none=True) == {
+        "schedule": "0 6 * * *",
+        "strategy": "incremental_time",
+        "lookback_window": "1 DAY",
+        "retention": "400 DAYS",
+        "coverage": {"from": "2024-01-01"},
+    }
+
+
+def test_materialization_spec_coverage_rolling_window():
+    """The other form is a trailing duration, in the style of ``lookback_window``."""
+    spec = MaterializationSpec(
+        schedule="0 6 * * *",
+        coverage={"window": "800 DAYS"},
+    )
+    assert spec.coverage == CoverageSpec(window="800 DAYS")
+    assert spec.model_dump(mode="json", exclude_none=True) == {
+        "schedule": "0 6 * * *",
+        "strategy": "incremental_time",
+        "lookback_window": "1 DAY",
+        "retention": "400 DAYS",
+        "coverage": {"window": "800 DAYS"},
+    }
+
+
+def test_materialization_spec_without_coverage():
+    """Coverage is optional, and absent means the author has declared no span."""
+    assert MaterializationSpec(schedule="0 6 * * *").coverage is None
+
+
+def test_materialization_spec_empty_coverage_is_absent():
+    """
+    A ``coverage:`` block declaring neither form declares nothing, so it normalizes to
+    absent -- otherwise it would compare unequal to the same spec without the block and
+    churn a live workflow on every deploy.
+    """
+    spec = MaterializationSpec(schedule="0 6 * * *", coverage={})
+    assert spec.coverage is None
+    assert spec == MaterializationSpec(schedule="0 6 * * *")
+
+
+def test_materialization_spec_coverage_equality_ignores_spelling():
+    """
+    Two specs meaning the same span compare equal however they were spelled: dates are
+    parsed rather than kept as text, and the window's whitespace is collapsed.
+    """
+    assert MaterializationSpec(
+        schedule="0 6 * * *",
+        coverage={"from": "2024-01-01"},
+    ) == MaterializationSpec(
+        schedule="0 6 * * *",
+        coverage=CoverageSpec(from_=date(2024, 1, 1)),
+    )
+    assert MaterializationSpec(
+        schedule="0 6 * * *",
+        coverage={"window": "  800   DAYS "},
+    ) == MaterializationSpec(schedule="0 6 * * *", coverage={"window": "800 DAYS"})
+
+
+def test_materialization_spec_coverage_rejects_both_forms():
+    """A fixed span and a rolling window say different things about the same cube."""
+    with pytest.raises(DJInvalidInputException) as exc_info:
+        MaterializationSpec(
+            schedule="0 6 * * *",
+            coverage={"from": "2024-01-01", "window": "800 DAYS"},
+        )
+    assert exc_info.value.message == ("Declare a fixed span or a window, not both.")
+
+
+def test_materialization_spec_coverage_rejects_to_without_from():
+    """An end date on its own does not describe a span."""
+    with pytest.raises(DJInvalidInputException) as exc_info:
+        MaterializationSpec(schedule="0 6 * * *", coverage={"to": "2024-06-30"})
+    assert exc_info.value.message == ("Coverage needs a `from` to go with `to`.")
+
+
+def test_materialization_spec_coverage_rejects_backwards_span():
+    """A span that ends before it starts covers nothing."""
+    with pytest.raises(DJInvalidInputException) as exc_info:
+        MaterializationSpec(
+            schedule="0 6 * * *",
+            coverage={"from": "2024-06-30", "to": "2024-01-01"},
+        )
+    assert exc_info.value.message == (
+        "Coverage ends before it starts: 2024-01-01 precedes 2024-06-30."
+    )
+
+
+def test_coverage_spec_survives_a_json_round_trip():
+    """
+    What ``model_dump`` produces is exactly what validates back, which is what lets a
+    declared span pass through the JSON materialization config unchanged.
+    """
+    for coverage in (
+        CoverageSpec(from_=date(2024, 1, 1), to=date(2024, 6, 30)),
+        CoverageSpec(from_=date(2024, 1, 1)),
+        CoverageSpec(window="800 DAYS"),
+    ):
+        stored = json.loads(json.dumps(coverage.model_dump()))
+        assert CoverageSpec.model_validate(stored) == coverage
 
 
 def test_cube_spec_incremental_requires_temporal_partition():

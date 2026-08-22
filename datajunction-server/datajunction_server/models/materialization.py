@@ -1,7 +1,9 @@
 """Models for materialization"""
 
 import enum
-from typing import TYPE_CHECKING, Literal
+from collections.abc import Callable
+from datetime import date
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import (
     BaseModel,
@@ -9,6 +11,8 @@ from pydantic import (
     Field,
     RootModel,
     field_validator,
+    model_serializer,
+    model_validator,
 )
 
 from datajunction_server.enum import StrEnum
@@ -57,6 +61,65 @@ DRUID_SKETCH_TYPES = {"HLLSketchMerge"}
 # ingest reaching further back fails at load time with a retention rule violation.
 # 400 days covers a full year of history plus room for late-arriving restatements.
 DEFAULT_CUBE_RETENTION = "400 DAYS"
+
+
+class CoverageSpec(BaseModel):
+    """
+    The span a cube's materialization should serve.
+
+    Either a fixed span or a rolling one, never both:
+
+      coverage: {from: 2024-01-01, to: 2024-06-30}
+      coverage: {window: 800 DAYS}
+
+    Omitting `to` leaves the span ongoing.
+    """
+
+    # Inclusive, matching FROM_PARTITION and TO_PARTITION.
+    # `from` is a keyword, so alias it.
+    from_: date | None = Field(default=None, alias="from")
+    to: date | None = None
+
+    # Free-form, like `lookback_window`, which parses nothing.
+    window: str | None = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    @model_validator(mode="after")
+    def check_form(self) -> "CoverageSpec":
+        """
+        Enforce that either a fixed span is declared or a rolling window is
+        declared, but not both.
+        """
+        # Collapse whitespace so equal spans compare equal.
+        if self.window is not None:
+            self.window = " ".join(self.window.split())
+        if self.window and (self.from_ or self.to):
+            raise DJInvalidInputException(
+                message="Declare a fixed span or a window, not both.",
+            )
+        if self.to and not self.from_:
+            raise DJInvalidInputException(
+                message="Coverage needs a `from` to go with `to`.",
+            )
+        if self.from_ and self.to and self.to < self.from_:
+            raise DJInvalidInputException(
+                message=(
+                    f"Coverage ends before it starts: {self.to.isoformat()} "
+                    f"precedes {self.from_.isoformat()}."
+                ),
+            )
+        return self
+
+    @model_serializer(mode="wrap")
+    def serialize(self, handler: Callable[["CoverageSpec"], dict[str, Any]]) -> dict:
+        """Emit `from`, and dates as strings, for JSON and YAML."""
+        return {
+            ("from" if key == "from_" else key): (
+                value.isoformat() if isinstance(value, date) else value
+            )
+            for key, value in handler(self).items()
+        }
 
 
 class MaterializationStrategy(StrEnum):

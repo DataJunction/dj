@@ -17,6 +17,7 @@ from datajunction_server.models.decompose import (
 from datajunction_server.models.materialization import (
     DEFAULT_CUBE_RETENTION,
     DRUID_AGG_MAPPING,
+    CoverageSpec,
     MaterializationJobTypeEnum,
     MaterializationStrategy,
 )
@@ -279,6 +280,8 @@ class UpsertCubeMaterialization(BaseModel):
     # How long the Druid datasource keeps ingested data. Applies under both strategies.
     retention: str | None = DEFAULT_CUBE_RETENTION
 
+    coverage: CoverageSpec | None = None
+
     @field_validator("job")
     def validate_job(
         cls,
@@ -473,6 +476,8 @@ class DruidCubeConfig(BaseModel):
     # How long the Druid datasource keeps ingested data. Applies under both strategies.
     # Configs persisted before this field existed pick up the default on their next build.
     retention: str | None = DEFAULT_CUBE_RETENTION
+
+    coverage: CoverageSpec | None = None
 
 
 class PrincipalRef(BaseModel):
