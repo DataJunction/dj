@@ -3000,6 +3000,87 @@ async def test_get_dimensions_surfaces_hidden_reference_link_columns(
 
 
 @pytest.mark.asyncio
+async def test_get_dimension_attributes_skips_dangling_reference_link(
+    session: AsyncSession,
+    current_user: User,
+) -> None:
+    """
+    ``get_dimension_attributes`` batches candidate reference-link columns and
+    resolves each via ``build_reference_link``. When a column's
+    ``dimension_column`` no longer matches any column on the referenced
+    dimension node's current revision (e.g. the dimension was changed after
+    the link was created), ``build_reference_link`` returns ``None`` for that
+    column and it should simply be skipped, while other, still-valid
+    reference-link columns on the same node continue to surface normally.
+    """
+    dim_ref = Node(
+        name="dangling_ref.D",
+        type=NodeType.DIMENSION,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    dim_rev = NodeRevision(
+        node=dim_ref,
+        name=dim_ref.name,
+        type=dim_ref.type,
+        display_name="dangling_ref.D",
+        version="1",
+        columns=[Column(name="visible_col", type=StringType(), order=0)],
+        created_by_id=current_user.id,
+    )
+    dim_ref.current = dim_rev
+    session.add(dim_rev)
+    session.add(dim_ref)
+    await session.flush()
+
+    src_ref = Node(
+        name="dangling_ref.A",
+        type=NodeType.SOURCE,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    src_rev = NodeRevision(
+        node=src_ref,
+        name=src_ref.name,
+        type=src_ref.type,
+        display_name="dangling_ref.A",
+        version="1",
+        columns=[
+            # Valid reference link: dimension_column matches a real column.
+            Column(
+                name="d_visible",
+                type=StringType(),
+                order=0,
+                dimension=dim_ref,
+                dimension_column="visible_col",
+            ),
+            # Dangling reference link: dimension_column no longer exists on
+            # the referenced dimension node's current columns.
+            Column(
+                name="d_missing",
+                type=StringType(),
+                order=1,
+                dimension=dim_ref,
+                dimension_column="does_not_exist_col",
+            ),
+        ],
+        created_by_id=current_user.id,
+    )
+    src_ref.current = src_rev
+    session.add(src_rev)
+    session.add(src_ref)
+    await session.commit()
+
+    attrs = await get_dimension_attributes(session, "dangling_ref.A")
+    names = {a.name for a in attrs}
+
+    assert "dangling_ref.D.visible_col" in names
+    assert not any(
+        name.startswith("dangling_ref.D.does_not_exist_col") for name in names
+    )
+
+
+@pytest.mark.asyncio
 async def test_build_reference_link_returns_attribute(
     session: AsyncSession,
     current_user: User,
