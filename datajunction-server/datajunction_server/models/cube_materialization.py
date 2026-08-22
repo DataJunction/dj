@@ -279,9 +279,7 @@ class UpsertCubeMaterialization(BaseModel):
     # How long the Druid datasource keeps ingested data. Applies under both strategies.
     retention: str | None = DEFAULT_CUBE_RETENTION
 
-    # The span of partitions the cube should serve, as declared in YAML. Carried so it
-    # reaches the stored config and comes back out through `to_spec`; nothing schedules
-    # or backfills against it yet.
+    # Declared span. Nothing backfills against it yet.
     coverage: CoverageSpec | None = None
 
     @field_validator("job")
@@ -479,9 +477,7 @@ class DruidCubeConfig(BaseModel):
     # Configs persisted before this field existed pick up the default on their next build.
     retention: str | None = DEFAULT_CUBE_RETENTION
 
-    # The declared span of partitions the cube should serve. This is where a declared
-    # `coverage:` block comes to rest, and what `Node.to_spec` reads it back out of.
-    # Configs persisted before this field existed read back as no declared coverage.
+    # Where a declared span comes to rest.
     coverage: CoverageSpec | None = None
 
 

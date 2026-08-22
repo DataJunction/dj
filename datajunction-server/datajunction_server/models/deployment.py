@@ -342,23 +342,12 @@ class MaterializationSpec(BaseModel):
     # rebuild is exactly the case that loads the widest span of history.
     retention: str | None = DEFAULT_CUBE_RETENTION
 
-    # The span of partitions the cube should serve. Absent means the author has
-    # declared none. Stored and echoed back only for now -- reconciling toward it
-    # by backfilling the gaps is separate work.
+    # The span the cube should serve.
     coverage: CoverageSpec | None = None
 
     @model_validator(mode="after")
     def clear_empty_coverage(self) -> "MaterializationSpec":
-        """
-        A `coverage:` block that declares neither form declares nothing, so normalize
-        it away to absent.
-
-        Same reasoning as `clear_lookback_for_full`: "no coverage block" and "an
-        empty coverage block" mean the same thing, and letting them compare unequal
-        would churn a live workflow on deploy. It also keeps the round trip honest --
-        a config stored before coverage existed reads back as no declared coverage
-        rather than as an empty block.
-        """
+        """Treat an empty coverage block as absent."""
         if self.coverage == CoverageSpec():
             self.coverage = None
         return self

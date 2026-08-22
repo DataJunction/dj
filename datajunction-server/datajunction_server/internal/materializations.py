@@ -361,9 +361,7 @@ def _upsert_from_materialization(
             strategy=materialization.strategy,
             schedule=materialization.schedule,
             lookback_window=lookback_window,
-            # Recovered so a rebuild triggered by an unrelated cube edit does not
-            # quietly drop the coverage the author declared. A cube materialized
-            # outside YAML has none, and reads back as None.
+            # Kept when an unrelated cube edit rebuilds.
             coverage=config.get("coverage"),
         )
     return UpsertMaterialization(

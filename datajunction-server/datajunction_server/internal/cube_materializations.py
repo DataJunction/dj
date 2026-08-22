@@ -525,8 +525,7 @@ async def build_cube_materialization(
         combiners=combiners,
         lookback_window=upsert_input.lookback_window if incremental else None,
         retention=upsert_input.retention,
-        # Unconditional, unlike `lookback_window`: coverage is the span the cube
-        # should serve, which a full rebuild has just as much of an answer for.
+        # Unconditional: a full rebuild serves a span too.
         coverage=upsert_input.coverage,
     )
     return config

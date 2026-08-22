@@ -1173,20 +1173,14 @@ def test_materialization_spec_coverage_rejects_both_forms():
             schedule="0 6 * * *",
             coverage={"from": "2024-01-01", "window": "800 DAYS"},
         )
-    assert exc_info.value.message == (
-        "A materialization `coverage` block declares either a fixed span "
-        "(`from`, with an optional `to`) or a rolling `window`, not both."
-    )
+    assert exc_info.value.message == ("Declare a fixed span or a window, not both.")
 
 
 def test_materialization_spec_coverage_rejects_to_without_from():
     """An end date on its own does not describe a span."""
     with pytest.raises(DJInvalidInputException) as exc_info:
         MaterializationSpec(schedule="0 6 * * *", coverage={"to": "2024-06-30"})
-    assert exc_info.value.message == (
-        "A materialization `coverage` block with a `to` needs a `from`: "
-        "an end date on its own does not say where the span starts."
-    )
+    assert exc_info.value.message == ("Coverage needs a `from` to go with `to`.")
 
 
 def test_materialization_spec_coverage_rejects_backwards_span():
@@ -1197,8 +1191,7 @@ def test_materialization_spec_coverage_rejects_backwards_span():
             coverage={"from": "2024-06-30", "to": "2024-01-01"},
         )
     assert exc_info.value.message == (
-        "A materialization `coverage` block ends before it starts: "
-        "`to` (2024-01-01) precedes `from` (2024-06-30)."
+        "Coverage ends before it starts: 2024-01-01 precedes 2024-06-30."
     )
 
 

@@ -743,9 +743,7 @@ class Node(Base):
             # Configs persisted before `retention` existed will be built with the
             # default on their next run, so that is what the export should show.
             retention=config.get("retention", DEFAULT_CUBE_RETENTION),
-            # Coverage has no default: unlike `retention`, an absent value means the
-            # author declared no span rather than that they accepted DJ's. Stored as
-            # the aliased `from`/`to`/`window` keys, so it validates straight back.
+            # No default: absent means the author declared none.
             coverage=config.get("coverage"),
         )
 
