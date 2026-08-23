@@ -3608,6 +3608,49 @@ class TestDeriveLegacyUnitForStorage:
         assert result == MetricUnit.SECOND
 
 
+class TestSwapCubeMaterializations:
+    """
+    Which cubes a version swap rebuilt, and so which start on an empty datasource.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_swap_that_rebuilt_nothing(self, orchestrator):
+        """
+        A swap that supersedes without rebuilding keeps the datasource the cube
+        already has, so the cube is not one a coverage backfill has to fill.
+        """
+        old_revision = MagicMock(name="old")
+        new_revision = MagicMock()
+        new_revision.name = "default.a_cube"
+        swap = CubeMaterializationSwap(
+            cube_name="default.a_cube",
+            previous_version="v1.0",
+            new_revision_id=7,
+            new_version="v1.1",
+            rebuilt_names=[],
+            superseded=[],
+        )
+        with (
+            patch(
+                "datajunction_server.internal.deployment.orchestrator."
+                "swap_cube_materializations",
+                AsyncMock(return_value=swap),
+            ),
+            patch(
+                "datajunction_server.internal.deployment.orchestrator."
+                "is_non_trivial_cube_change",
+                AsyncMock(return_value=False),
+            ),
+        ):
+            await orchestrator._swap_cube_materializations(
+                {"default.a_cube": old_revision},
+                [new_revision],
+            )
+
+        assert orchestrator._rebuilt_cubes == set()
+        assert orchestrator._cube_materialization_swaps == [swap]
+
+
 class TestApplyCubeMaterializationSwaps:
     """
     Reporting on the query service's answer to a cube materialization push.
