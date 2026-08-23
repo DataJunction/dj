@@ -4,7 +4,7 @@ import time
 from collections import Counter
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import UTC
+from datetime import UTC, datetime
 from typing import cast
 
 from sqlalchemy import func, or_, select, text
@@ -68,8 +68,12 @@ from datajunction_server.internal.materializations import (
     CubeMaterializationSwapOutcome,
     NodeMaterializationTeardown,
     apply_cube_materialization_swap,
+    backfill_recorded,
     collect_materialization_teardowns,
+    coverage_gap,
+    coverage_partition,
     reconcile_declared_materialization,
+    record_backfill,
     stop_materialization_workflows,
     swap_cube_materializations,
 )
@@ -361,6 +365,9 @@ class DeploymentOrchestrator:
         self._timer = DeploymentTimer()
         self._cube_materialization_swaps: list[CubeMaterializationSwap] = []
         self._materialization_teardowns: list[NodeMaterializationTeardown] = []
+        # Cubes rebuilt onto a new, empty datasource.
+        self._rebuilt_cubes: set[str] = set()
+        self._branch_deploy: bool | None = None
 
     @property
     def _history_user(self) -> str:
@@ -2344,9 +2351,8 @@ class DeploymentOrchestrator:
                 declared=declared,
             )
             if swap:
-                if swap.rebuilt_names and declared:
-                    # A new version means an empty datasource.
-                    swap.backfill = declared.coverage
+                if swap.rebuilt_names:
+                    self._rebuilt_cubes.add(new_revision.name)
                 self._cube_materialization_swaps.append(swap)
 
     def _declared_materializations(self) -> dict[str, MaterializationSpec]:
@@ -2544,11 +2550,9 @@ class DeploymentOrchestrator:
         schedule anything -- an unchanged re-declare, or a block a revision swap has
         already built from, costs no remote call at all.
 
-        `active_names` is what the cube had materialized before reconciling. A block
-        that builds a name absent from it writes a datasource with nothing in it, so
-        a declared `coverage` is handed on as the span to backfill. Everything else
-        the reconciler changes -- the schedule, the lookback window, the coverage
-        itself -- keeps the datasource the cube already has.
+        `active_names` is what the cube had materialized before reconciling, which
+        says whether the block wrote a datasource the cube did not have. It is
+        `_plan_coverage_backfill` that reads it, once the row is in hand.
         """
         operation = (
             DeploymentResult.Operation.CREATE
@@ -2655,13 +2659,14 @@ class DeploymentOrchestrator:
                         new_version=revision.version,
                         rebuilt_names=[materialization.name],
                         superseded=[],
-                        backfill=(
-                            block.coverage
-                            if materialization.name not in active_names
-                            else None
-                        ),
                     ),
                 )
+            await self._plan_coverage_backfill(
+                revision,
+                block,
+                materialization,
+                active_names,
+            )
         self.deployed_results.append(
             DeploymentResult(
                 name=revision.name,
@@ -2669,6 +2674,68 @@ class DeploymentOrchestrator:
                 status=DeploymentResult.Status.SUCCESS,
                 operation=operation,
                 message=f"cube materialization on schedule {block.schedule}",
+            ),
+        )
+
+    async def _plan_coverage_backfill(
+        self,
+        revision: NodeRevision,
+        block: MaterializationSpec,
+        materialization: Materialization,
+        active_names: set[str],
+    ) -> None:
+        """
+        Queue the backfill a cube's declared coverage asks for.
+
+        Two things leave a cube short of the span it declares. A datasource this
+        deploy minted -- a rebuilt version, or a materialization the cube did not
+        have -- is empty, so the whole span is missing. A datasource the cube
+        already has can simply hold less history than the cube now declares, and
+        `coverage_gap` reads how much less off availability.
+
+        The span is recorded beside the cube's other backfills and never asked for
+        twice, since availability does not move until the backfill lands. A branch
+        deploy asks for nothing: it previews what the push would give its author,
+        and a preview does not spend hundreds of partition runs.
+        """
+        coverage = block.coverage
+        partition = coverage_partition(revision)
+        if not coverage or partition is None or await self._is_branch_deploy():
+            return
+        span = coverage.span(datetime.now(UTC).date())
+        if span is None:
+            self.warnings.append(
+                DJError(
+                    code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                    message=(
+                        f"Cube `{revision.name}`: DJ counts a coverage window in "
+                        "days or weeks only."
+                    ),
+                ),
+            )
+            return
+        fresh = (
+            revision.name in self._rebuilt_cubes
+            or materialization.name not in active_names
+        )
+        if not fresh:
+            span = coverage_gap(span, revision)
+        if span is None:
+            return
+        # A backfill needs the materialization's id.
+        await self.session.flush()
+        if await backfill_recorded(self.session, materialization, span[0]):
+            return
+        record_backfill(self.session, materialization, partition, span)
+        self._cube_materialization_swaps.append(
+            CubeMaterializationSwap(
+                cube_name=revision.name,
+                previous_version=revision.version,
+                new_revision_id=revision.id,
+                new_version=revision.version,
+                rebuilt_names=[],
+                superseded=[],
+                backfill=span,
             ),
         )
 
@@ -2806,16 +2873,12 @@ class DeploymentOrchestrator:
         moving; if the query service then refuses to schedule it, that success is
         wrong in exactly the way that hid these failures until now.
 
-        A coverage backfill rides along with the scheduling, on every deploy but a
-        branch one. A branch namespace exists so its author can see what the push
-        would give them, and hundreds of partition runs is not part of the preview.
+        A swap carrying a coverage backfill is queued after the one that schedules
+        the materialization, so the workflow the backfill runs on exists by then.
         """
         request_headers = (
             dict(self.context.request.headers) if self.context.request else {}
         )
-        if await self._is_branch_deploy():
-            for swap in self._cube_materialization_swaps:
-                swap.backfill = None
         for swap in self._cube_materialization_swaps:
             outcome = await apply_cube_materialization_swap(
                 self.session,
@@ -2834,49 +2897,44 @@ class DeploymentOrchestrator:
 
         A branch is a namespace of its own, linked to a git branch, so the target
         namespace is what says which. A namespace with no git root behind it -- a
-        plain `dj deploy` -- is not a branch.
+        plain `dj deploy` -- is not a branch. Asked once per deploy.
         """
-        git_info = await get_git_info_for_namespace(
-            self.session,
-            self.deployment_spec.namespace,
-        )
-        return git_info is not None and not git_info["is_default_branch"]
+        if self._branch_deploy is None:
+            git_info = await get_git_info_for_namespace(
+                self.session,
+                self.deployment_spec.namespace,
+            )
+            self._branch_deploy = (
+                git_info is not None and not git_info["is_default_branch"]
+            )
+        return self._branch_deploy
 
     def _report_backfill(
         self,
         outcome: CubeMaterializationSwapOutcome,
     ) -> None:
         """
-        Say what the cube's new datasource is being filled with.
+        Say what days the cube is being filled with, and what they cost.
 
-        The run count is the point of the warning. A backfill runs one job per day
-        of the declared span, and a mistyped `from` is worth seeing at deploy time
-        rather than on a bill -- so the span is reported as launched, never capped:
-        two years of history is a thing authors legitimately ask for, and a cap is
-        something they could not undo from YAML.
+        The run count is the point. A backfill runs one job per day of the span,
+        and a mistyped `from` is worth seeing at deploy time rather than on a
+        bill -- so the span is reported, never capped: two years of history is a
+        thing authors legitimately ask for, and a cap is something they could not
+        undo from YAML.
         """
         if outcome.backfill_span is None:
             self.warnings.append(
                 DJError(
-                    code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                    code=ErrorCode.QUERY_SERVICE_ERROR,
                     message=(
-                        f"Cube `{outcome.cube_name}`: no backfill ran. "
-                        f"{outcome.backfill_error}"
+                        f"Cube `{outcome.cube_name}`: the query service refused "
+                        f"the backfill: {outcome.backfill_error}"
                     ),
                 ),
             )
             return
         start, end = outcome.backfill_span
         runs = (end - start).days + 1
-        self.warnings.append(
-            DJError(
-                code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
-                message=(
-                    f"Cube `{outcome.cube_name}`: backfilling {start} to {end} "
-                    f"costs {runs} partition runs."
-                ),
-            ),
-        )
         self.deployed_results.append(
             DeploymentResult(
                 name=outcome.cube_name,

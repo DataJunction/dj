@@ -2,7 +2,7 @@ import asyncio
 import json
 import uuid
 from contextlib import asynccontextmanager
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 from unittest import mock
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -16,6 +16,7 @@ from datajunction_server.api.deployments import (
     InProcessExecutor,
     _normalize_repo_path,
 )
+from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.node import Node, NodeRelationship
 from datajunction_server.database.tag import Tag
@@ -3413,7 +3414,7 @@ class TestDeployments:
             DeploymentSpec(namespace=namespace, nodes=nodes_list),
         )
         assert data["status"] == "success"
-        yesterday = date.today() - timedelta(days=1)
+        yesterday = datetime.now(UTC).date() - timedelta(days=1)
         assert mock_qs.run_cube_backfill.call_args.args == (
             CubeBackfillInput(
                 cube_name=cube_name,
@@ -3422,6 +3423,65 @@ class TestDeployments:
                 end_date=yesterday,
             ),
         )
+
+        # Once the cube reports what it holds, a span declared before that is the
+        # gap, and only the days ahead of the earliest one it reports are filled.
+        mock_qs.reset_mock()
+        session.expire_all()
+        deployed = await Node.get_by_name(
+            session,
+            cube_name,
+            options=Node.cube_load_options(),
+        )
+        deployed.current.availability = AvailabilityState(
+            catalog="default",
+            table="a_cube",
+            valid_through_ts=0,
+            min_temporal_partition=["20250301"],
+        )
+        session.add(deployed.current)
+        await session.commit()
+        cube.materialization = MaterializationSpec(
+            schedule="0 6 * * *",
+            coverage={"from": "2024-01-01"},
+        )
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+        assert mock_qs.run_cube_backfill.call_args.args == (
+            CubeBackfillInput(
+                cube_name=cube_name,
+                cube_version="v1.1",
+                start_date=date(2024, 1, 1),
+                end_date=date(2025, 2, 28),
+            ),
+        )
+        assert [
+            result
+            for result in data["results"]
+            if result["message"].startswith("backfilling")
+        ] == [
+            {
+                "name": cube_name,
+                "deploy_type": "materialization",
+                "status": "success",
+                "operation": "create",
+                "message": "backfilling 2024-01-01 to 2025-02-28, 425 partition runs",
+                "changed_fields": [],
+            },
+        ]
+
+        # The gap does not close until the backfill lands, so the next deploy sees
+        # the same one. What DJ already asked for it does not ask for again.
+        mock_qs.reset_mock()
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+        assert mock_qs.run_cube_backfill.call_args_list == []
 
     @pytest.mark.asyncio
     async def test_deploy_reports_a_rejected_materialization_push(

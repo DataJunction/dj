@@ -2,23 +2,34 @@
 Tests for node materialization helper functions.
 """
 
-from datetime import date, timedelta
+from datetime import date
 from unittest import mock
 
 import pytest
+from sqlalchemy import select
 
+from datajunction_server.database.availabilitystate import AvailabilityState
+from datajunction_server.database.backfill import Backfill
+from datajunction_server.database.column import Column
 from datajunction_server.database.materialization import Materialization
+from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.partition import Partition
 from datajunction_server.internal.materializations import (
     CubeMaterializationSwap,
     CubeMaterializationSwapOutcome,
     NodeMaterializationTeardown,
     apply_cube_materialization_swap,
+    backfill_recorded,
+    coverage_gap,
+    coverage_partition,
+    record_backfill,
     stop_cube_materialization_workflows,
     stop_materialization_workflows,
 )
-from datajunction_server.models.materialization import CoverageSpec
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.partition import Granularity, PartitionType
 from datajunction_server.models.preaggregation import CubeBackfillInput
+from datajunction_server.sql.parsing.types import StringType
 
 
 def test_stop_cube_workflows_prefers_stored_workflow_names():
@@ -239,7 +250,7 @@ def test_stop_materialization_workflows_reports_every_failure():
 
 def _swap(
     rebuilt_names: list[str],
-    backfill: CoverageSpec | None = None,
+    backfill: tuple[date, date] | None = None,
 ) -> CubeMaterializationSwap:
     """A swap with one superseded materialization and the given rebuilt names."""
     return CubeMaterializationSwap(
@@ -379,31 +390,35 @@ async def test_apply_cube_swap_without_a_query_service():
 
 async def _apply_with_backfill(
     query_service_client,
-    coverage: CoverageSpec,
+    span: tuple[date, date],
+    rebuilt_names: list[str] | None = None,
 ) -> CubeMaterializationSwapOutcome:
-    """Apply a swap that mints a new datasource over the given coverage."""
+    """Apply a swap that carries a span to backfill."""
     with mock.patch(
         "datajunction_server.internal.materializations.schedule_materialization_jobs",
         new=mock.AsyncMock(),
     ):
         return await apply_cube_materialization_swap(
             mock.MagicMock(),
-            _swap(["druid_cube_v3"], backfill=coverage),
+            _swap(
+                rebuilt_names if rebuilt_names is not None else ["druid_cube_v3"],
+                backfill=span,
+            ),
             query_service_client,
         )
 
 
 @pytest.mark.asyncio
-async def test_apply_cube_swap_backfills_a_fixed_span():
+async def test_apply_cube_swap_backfills_the_span():
     """
-    A declared span with both ends is backfilled exactly as written, against the
-    new version -- which is what names the empty datasource.
+    A swap carrying a span asks for exactly those days, against the new version --
+    which is what names the datasource being filled.
     """
     query_service_client = mock.MagicMock()
 
     outcome = await _apply_with_backfill(
         query_service_client,
-        CoverageSpec(from_=date(2024, 1, 1), to=date(2024, 6, 30)),
+        (date(2024, 1, 1), date(2024, 6, 30)),
     )
 
     assert outcome == CubeMaterializationSwapOutcome(
@@ -428,55 +443,27 @@ async def test_apply_cube_swap_backfills_a_fixed_span():
 
 
 @pytest.mark.asyncio
-async def test_apply_cube_swap_backfills_an_ongoing_span():
-    """A span with no `to` runs up to yesterday, the last full day."""
-    yesterday = date.today() - timedelta(days=1)
-
-    outcome = await _apply_with_backfill(
-        mock.MagicMock(),
-        CoverageSpec(from_=date(2024, 1, 1)),
-    )
-
-    assert outcome.backfill_span == (date(2024, 1, 1), yesterday)
-
-
-@pytest.mark.asyncio
-async def test_apply_cube_swap_backfills_a_rolling_window():
-    """A rolling window is counted back from yesterday, inclusive of both ends."""
-    yesterday = date.today() - timedelta(days=1)
-
-    outcome = await _apply_with_backfill(
-        mock.MagicMock(),
-        CoverageSpec(window="800 DAYS"),
-    )
-
-    assert outcome.backfill_span == (yesterday - timedelta(days=799), yesterday)
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("window", ["6 MONTHS", "a while"])
-async def test_apply_cube_swap_cannot_count_the_window(window):
+async def test_apply_cube_swap_backfills_without_rebuilding():
     """
-    A window DJ cannot turn into days -- an unknown unit, or a duration that reads
-    as nothing at all -- launches nothing, and says so rather than leaving the
-    datasource quietly empty.
+    A gap fill rides on the workflow the cube already has, so its swap rebuilds
+    nothing and schedules nothing -- it only backfills.
     """
     query_service_client = mock.MagicMock()
 
     outcome = await _apply_with_backfill(
         query_service_client,
-        CoverageSpec(window=window),
+        (date(2024, 1, 1), date(2024, 1, 3)),
+        rebuilt_names=[],
     )
 
     assert outcome == CubeMaterializationSwapOutcome(
         cube_name="default.a_cube",
-        materialization_names=["druid_cube_v3"],
+        materialization_names=[],
         scheduled=True,
         error=None,
-        backfill_span=None,
-        backfill_error="DJ cannot count this coverage window in days.",
+        backfill_span=(date(2024, 1, 1), date(2024, 1, 3)),
+        backfill_error=None,
     )
-    assert query_service_client.run_cube_backfill.call_args_list == []
 
 
 @pytest.mark.asyncio
@@ -490,7 +477,7 @@ async def test_apply_cube_swap_reports_a_refused_backfill():
 
     outcome = await _apply_with_backfill(
         query_service_client,
-        CoverageSpec(from_=date(2024, 1, 1), to=date(2024, 1, 2)),
+        (date(2024, 1, 1), date(2024, 1, 2)),
     )
 
     assert outcome == CubeMaterializationSwapOutcome(
@@ -517,10 +504,7 @@ async def test_apply_cube_swap_backfills_nothing_unscheduled():
     ):
         outcome = await apply_cube_materialization_swap(
             mock.MagicMock(),
-            _swap(
-                ["druid_cube_v3"],
-                backfill=CoverageSpec(from_=date(2024, 1, 1)),
-            ),
+            _swap(["druid_cube_v3"], backfill=(date(2024, 1, 1), date(2024, 1, 2))),
             query_service_client,
         )
 
@@ -533,3 +517,187 @@ async def test_apply_cube_swap_backfills_nothing_unscheduled():
         backfill_error=None,
     )
     assert query_service_client.run_cube_backfill.call_args_list == []
+
+
+def _cube_revision(
+    min_temporal_partition: list[str] | None = None,
+    partitions: int = 1,
+) -> NodeRevision:
+    """A day-partitioned cube revision, optionally with availability."""
+    columns = [
+        Column(
+            name=f"date_{index}",
+            display_name=f"date_{index}",
+            type=StringType(),
+            partition=Partition(
+                type_=PartitionType.TEMPORAL,
+                granularity=Granularity.DAY,
+                format="yyyyMMdd",
+            ),
+        )
+        for index in range(partitions)
+    ]
+    return NodeRevision(
+        name="default.a_cube",
+        type=NodeType.CUBE,
+        columns=columns,
+        availability=(
+            AvailabilityState(
+                catalog="default",
+                table="a_cube",
+                valid_through_ts=0,
+                min_temporal_partition=min_temporal_partition,
+            )
+            if min_temporal_partition is not None
+            else None
+        ),
+    )
+
+
+def test_coverage_partition_needs_one_axis():
+    """
+    Coverage is a span of days on a single axis, so a cube partitioned on two
+    temporal columns, or none, has no axis to run one over.
+    """
+    assert coverage_partition(_cube_revision(partitions=0)) is None
+    assert coverage_partition(_cube_revision(partitions=2)) is None
+    assert coverage_partition(_cube_revision()).name == "date_0"
+
+
+def test_coverage_gap_without_availability():
+    """A cube that has posted no availability holds nothing at all."""
+    span = (date(2024, 1, 1), date(2024, 6, 30))
+
+    assert coverage_gap(span, _cube_revision()) == span
+
+
+@pytest.mark.parametrize("covered", ["20250301", 20250301])
+def test_coverage_gap_before_the_covered_start(covered):
+    """
+    The gap runs from the declared start to the day before the cube's earliest,
+    read out of availability in the partition's own format, written either way.
+    """
+    assert coverage_gap(
+        (date(2024, 1, 1), date(2026, 8, 1)),
+        _cube_revision(min_temporal_partition=[covered]),
+    ) == (date(2024, 1, 1), date(2025, 2, 28))
+
+
+def test_coverage_gap_stops_at_the_declared_end():
+    """
+    A span that ends before the cube's earliest day is missing in full, rather
+    than reported as reaching up to a day the cube never declared.
+    """
+    assert coverage_gap(
+        (date(2024, 1, 1), date(2024, 6, 30)),
+        _cube_revision(min_temporal_partition=["20250301"]),
+    ) == (date(2024, 1, 1), date(2024, 6, 30))
+
+
+@pytest.mark.parametrize(
+    "revision",
+    [
+        # The cube already reaches back further than it declares.
+        _cube_revision(min_temporal_partition=["20230101"]),
+        # It reaches back to exactly the declared start.
+        _cube_revision(min_temporal_partition=["20240101"]),
+        # Its availability does not read against the partition format.
+        _cube_revision(min_temporal_partition=["2024-01-01"]),
+        # It reports a bound per axis, and there is more than one axis.
+        _cube_revision(min_temporal_partition=["20240101", "01"], partitions=2),
+    ],
+)
+def test_coverage_gap_leaves_nothing_to_fill(revision):
+    """Nothing knowably missing, and nothing guessed at."""
+    assert coverage_gap((date(2024, 1, 1), date(2026, 8, 1)), revision) is None
+
+
+async def _stored_materialization(session, current_user) -> Materialization:
+    """A stored cube materialization to hang backfill records on."""
+    revision = _cube_revision()
+    revision.version = "v1.0"
+    revision.created_by_id = current_user.id
+    revision.node = Node(
+        name=revision.name,
+        type=NodeType.CUBE,
+        current_version="v1.0",
+        created_by_id=current_user.id,
+    )
+    materialization = Materialization(
+        node_revision=revision,
+        name="druid_cube_v3",
+        schedule="@daily",
+        config={},
+    )
+    session.add(materialization)
+    await session.commit()
+    return materialization
+
+
+async def _recorded(session, materialization: Materialization) -> list[list]:
+    """The backfill specs stored against a materialization."""
+    return list(
+        (
+            await session.execute(
+                select(Backfill.spec).where(
+                    Backfill.materialization_id == materialization.id,
+                ),
+            )
+        )
+        .scalars()
+        .all(),
+    )
+
+
+@pytest.mark.asyncio
+async def test_record_backfill_is_read_back(session, current_user):
+    """
+    A recorded span stops the next deploy asking for the same days again, and any
+    span it already reaches back over.
+    """
+    materialization = await _stored_materialization(session, current_user)
+
+    record_backfill(
+        session,
+        materialization,
+        _cube_revision().columns[0],
+        (date(2024, 1, 1), date(2024, 6, 30)),
+    )
+
+    assert await _recorded(session, materialization) == [
+        [
+            {
+                "column_name": "date_0",
+                "values": None,
+                "range": ["2024-01-01", "2024-06-30"],
+            },
+        ],
+    ]
+    assert await backfill_recorded(session, materialization, date(2024, 1, 1)) is True
+    assert await backfill_recorded(session, materialization, date(2024, 6, 1)) is True
+    assert (
+        await backfill_recorded(session, materialization, date(2023, 12, 31)) is False
+    )
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        # A backfill run from the API, in partition format rather than ISO.
+        [{"column_name": "date_0", "range": [20240101, 20240630]}],
+        # One naming values rather than a range.
+        [{"column_name": "date_0", "values": [20240101], "range": None}],
+        # Nothing at all.
+        [],
+    ],
+)
+@pytest.mark.asyncio
+async def test_backfill_recorded_reads_djs_own(session, current_user, spec):
+    """
+    Only DJ's own records count. A backfill posted through the API says nothing
+    about the span a cube declares.
+    """
+    materialization = await _stored_materialization(session, current_user)
+    session.add(Backfill(materialization_id=materialization.id, spec=spec))
+
+    assert await backfill_recorded(session, materialization, date(2024, 1, 1)) is False

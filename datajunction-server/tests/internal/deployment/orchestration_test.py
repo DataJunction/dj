@@ -2,21 +2,25 @@
 Unit tests for DeploymentOrchestrator
 """
 
-from datetime import UTC, date
+from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 from sqlalchemy import select
 
+from datajunction_server.database.availabilitystate import AvailabilityState
+from datajunction_server.database.backfill import Backfill
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.column import Column
 from datajunction_server.database.dimensionlink import (
     JoinCardinality,
     JoinType,
 )
+from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.partition import Partition
 from datajunction_server.database.tag import Tag
 from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.errors import DJError, DJInvalidDeploymentConfig, ErrorCode
@@ -46,6 +50,7 @@ from datajunction_server.models.deployment import (
     DimensionReferenceLinkSpec,
     HierarchyLevelSpec,
     HierarchySpec,
+    MaterializationSpec,
     MetricSpec,
     PartitionSpec,
     PartitionType,
@@ -55,10 +60,10 @@ from datajunction_server.models.deployment import (
 )
 from datajunction_server.models.dimensionlink import JoinLinkInput
 from datajunction_server.models.history import ActivityType
-from datajunction_server.models.materialization import CoverageSpec
 from datajunction_server.models.node import MetricUnit, NodeStatus
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import Granularity
+from datajunction_server.sql.parsing.types import StringType
 
 
 @pytest.fixture
@@ -3615,7 +3620,7 @@ class TestApplyCubeMaterializationSwaps:
     def _swap(
         cube_name: str,
         rebuilt_names: list[str],
-        backfill: CoverageSpec | None = None,
+        backfill: tuple[date, date] | None = None,
     ) -> CubeMaterializationSwap:
         return CubeMaterializationSwap(
             cube_name=cube_name,
@@ -3793,19 +3798,18 @@ class TestApplyCubeMaterializationSwaps:
     @pytest.mark.asyncio
     async def test_backfill_is_reported_with_its_run_count(self, orchestrator):
         """
-        A launched backfill is reported alongside the materialization, and the runs
-        it costs are warned about -- never capped, so a wide span still runs and a
-        mistyped `from` is visible at deploy time rather than at billing time.
+        A launched backfill is reported with the runs it costs -- never capped, so
+        a wide span still runs and a mistyped `from` is visible at deploy time
+        rather than at billing time.
         """
         orchestrator.context.request = None
         orchestrator._cube_materialization_swaps = [
             self._swap(
                 "default.a_cube",
-                ["druid_cube__full__a_cube"],
-                backfill=CoverageSpec(from_=date(2024, 1, 1), to=date(2024, 6, 30)),
+                [],
+                backfill=(date(2024, 1, 1), date(2024, 6, 30)),
             ),
         ]
-        orchestrator.deployed_results = [self._result("default.a_cube")]
 
         with patch(
             "datajunction_server.internal.deployment.orchestrator."
@@ -3813,7 +3817,7 @@ class TestApplyCubeMaterializationSwaps:
             new=AsyncMock(
                 return_value=CubeMaterializationSwapOutcome(
                     cube_name="default.a_cube",
-                    materialization_names=["druid_cube__full__a_cube"],
+                    materialization_names=[],
                     scheduled=True,
                     backfill_span=(date(2024, 1, 1), date(2024, 6, 30)),
                 ),
@@ -3822,7 +3826,6 @@ class TestApplyCubeMaterializationSwaps:
             await orchestrator._apply_cube_materialization_swaps()
 
         assert orchestrator.deployed_results == [
-            self._result("default.a_cube"),
             DeploymentResult(
                 name="default.a_cube",
                 deploy_type=DeploymentResult.Type.MATERIALIZATION,
@@ -3831,28 +3834,20 @@ class TestApplyCubeMaterializationSwaps:
                 message="backfilling 2024-01-01 to 2024-06-30, 182 partition runs",
             ),
         ]
-        assert orchestrator.warnings == [
-            DJError(
-                code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
-                message=(
-                    "Cube `default.a_cube`: backfilling 2024-01-01 to 2024-06-30 "
-                    "costs 182 partition runs."
-                ),
-            ),
-        ]
+        assert orchestrator.warnings == []
 
     @pytest.mark.asyncio
-    async def test_backfill_that_never_ran_is_warned_about(self, orchestrator):
+    async def test_a_refused_backfill_is_warned_about(self, orchestrator):
         """
-        A cube whose datasource is new and empty and whose backfill did not launch
-        is the one case worth a warning of its own: nothing else will fill it.
+        A cube left with days it declares and does not hold is worth a warning of
+        its own: the materialization is running, so nothing else says so.
         """
         orchestrator.context.request = None
         orchestrator._cube_materialization_swaps = [
             self._swap(
                 "default.a_cube",
-                ["druid_cube__full__a_cube"],
-                backfill=CoverageSpec(window="6 MONTHS"),
+                [],
+                backfill=(date(2024, 1, 1), date(2024, 6, 30)),
             ),
         ]
 
@@ -3862,9 +3857,9 @@ class TestApplyCubeMaterializationSwaps:
             new=AsyncMock(
                 return_value=CubeMaterializationSwapOutcome(
                     cube_name="default.a_cube",
-                    materialization_names=["druid_cube__full__a_cube"],
+                    materialization_names=[],
                     scheduled=True,
-                    backfill_error="DJ cannot count this coverage window in days.",
+                    backfill_error="429 Too Many Requests",
                 ),
             ),
         ):
@@ -3873,97 +3868,361 @@ class TestApplyCubeMaterializationSwaps:
         assert orchestrator.deployed_results == []
         assert orchestrator.warnings == [
             DJError(
+                code=ErrorCode.QUERY_SERVICE_ERROR,
+                message=(
+                    "Cube `default.a_cube`: the query service refused the "
+                    "backfill: 429 Too Many Requests"
+                ),
+            ),
+        ]
+
+
+class TestPlanCoverageBackfill:
+    """
+    Deciding what a cube's declared `coverage:` still owes it.
+
+    A datasource this deploy minted is empty and needs the whole span; one the
+    cube already has needs only the days before what availability reports.
+    """
+
+    @staticmethod
+    async def _cube(
+        session,
+        current_user,
+        min_temporal_partition: list[str] | None = None,
+        partitioned: bool = True,
+        name: str = "default.a_cube",
+    ) -> tuple[NodeRevision, Materialization]:
+        """A stored cube revision and the materialization it is served by."""
+        columns = [
+            Column(
+                name="date_id",
+                display_name="date_id",
+                type=StringType(),
+                partition=Partition(
+                    type_=PartitionType.TEMPORAL,
+                    granularity=Granularity.DAY,
+                    format="yyyyMMdd",
+                ),
+                order=0,
+            ),
+        ]
+        node = Node(
+            name=name,
+            type=NodeType.CUBE,
+            current_version="v1.0",
+            created_by_id=current_user.id,
+        )
+        revision = NodeRevision(
+            name=name,
+            node=node,
+            version="v1.0",
+            type=NodeType.CUBE,
+            created_by_id=current_user.id,
+            columns=columns if partitioned else [],
+            availability=(
+                AvailabilityState(
+                    catalog="default",
+                    table="a_cube",
+                    valid_through_ts=0,
+                    min_temporal_partition=min_temporal_partition,
+                )
+                if min_temporal_partition is not None
+                else None
+            ),
+        )
+        materialization = Materialization(
+            node_revision=revision,
+            name="druid_cube__full__date_id",
+            schedule="@daily",
+            config={},
+        )
+        session.add(materialization)
+        await session.commit()
+        return revision, materialization
+
+    @staticmethod
+    async def _recorded(session, materialization: Materialization) -> list[list]:
+        """The backfill specs stored against a materialization."""
+        return list(
+            (
+                await session.execute(
+                    select(Backfill.spec).where(
+                        Backfill.materialization_id == materialization.id,
+                    ),
+                )
+            )
+            .scalars()
+            .all(),
+        )
+
+    @staticmethod
+    def _block(**coverage) -> MaterializationSpec:
+        return MaterializationSpec(schedule="@daily", coverage=coverage)
+
+    @staticmethod
+    async def _plan(
+        orchestrator,
+        revision: NodeRevision,
+        block: MaterializationSpec,
+        materialization: Materialization,
+        active_names: set[str],
+        branch: bool = False,
+    ) -> None:
+        with patch(
+            "datajunction_server.internal.deployment.orchestrator."
+            "get_git_info_for_namespace",
+            new=AsyncMock(return_value={"is_default_branch": not branch}),
+        ):
+            await orchestrator._plan_coverage_backfill(
+                revision,
+                block,
+                materialization,
+                active_names,
+            )
+
+    @staticmethod
+    def _queued(orchestrator) -> list[tuple[date, date] | None]:
+        return [swap.backfill for swap in orchestrator._cube_materialization_swaps]
+
+    @pytest.mark.asyncio
+    async def test_gap_before_the_covered_start(
+        self,
+        orchestrator,
+        session,
+        current_user,
+    ):
+        """
+        A cube that already holds data back to March is short everything the
+        declared span asks for before it, and that is what gets queued.
+        """
+        revision, materialization = await self._cube(
+            session,
+            current_user,
+            min_temporal_partition=["20250301"],
+        )
+
+        await self._plan(
+            orchestrator,
+            revision,
+            self._block(**{"from": date(2024, 1, 1)}),
+            materialization,
+            {materialization.name},
+        )
+
+        assert self._queued(orchestrator) == [(date(2024, 1, 1), date(2025, 2, 28))]
+        assert await self._recorded(session, materialization) == [
+            [
+                {
+                    "column_name": "date_id",
+                    "values": None,
+                    "range": ["2024-01-01", "2025-02-28"],
+                },
+            ],
+        ]
+
+    @pytest.mark.asyncio
+    async def test_nothing_missing_before_the_start(
+        self,
+        orchestrator,
+        session,
+        current_user,
+    ):
+        """A cube already reaching back past what it declares owes nothing."""
+        revision, materialization = await self._cube(
+            session,
+            current_user,
+            min_temporal_partition=["20230101"],
+        )
+
+        await self._plan(
+            orchestrator,
+            revision,
+            self._block(**{"from": date(2024, 1, 1)}),
+            materialization,
+            {materialization.name},
+        )
+
+        assert self._queued(orchestrator) == []
+        assert await self._recorded(session, materialization) == []
+
+    @pytest.mark.asyncio
+    async def test_a_new_datasource_takes_the_whole_span(
+        self,
+        orchestrator,
+        session,
+        current_user,
+    ):
+        """
+        A materialization the cube did not have writes an empty datasource, so
+        availability says nothing about it and the whole span is missing.
+        """
+        revision, materialization = await self._cube(
+            session,
+            current_user,
+            min_temporal_partition=["20250301"],
+        )
+
+        await self._plan(
+            orchestrator,
+            revision,
+            self._block(**{"from": date(2024, 1, 1), "to": date(2026, 1, 1)}),
+            materialization,
+            set(),
+        )
+
+        assert self._queued(orchestrator) == [(date(2024, 1, 1), date(2026, 1, 1))]
+
+    @pytest.mark.asyncio
+    async def test_a_rebuilt_cube_takes_the_whole_span(
+        self,
+        orchestrator,
+        session,
+        current_user,
+    ):
+        """
+        A cube rebuilt onto a new version writes a datasource named for it, so the
+        availability its previous version posted describes a different table.
+        """
+        revision, materialization = await self._cube(
+            session,
+            current_user,
+            min_temporal_partition=["20250301"],
+        )
+        orchestrator._rebuilt_cubes = {revision.name}
+
+        await self._plan(
+            orchestrator,
+            revision,
+            self._block(**{"from": date(2024, 1, 1), "to": date(2026, 1, 1)}),
+            materialization,
+            {materialization.name},
+        )
+
+        assert self._queued(orchestrator) == [(date(2024, 1, 1), date(2026, 1, 1))]
+
+    @pytest.mark.asyncio
+    async def test_a_recorded_span_is_not_asked_for_twice(
+        self,
+        orchestrator,
+        session,
+        current_user,
+    ):
+        """
+        Availability does not move until the backfill lands, so the next deploy
+        sees the same gap. What DJ already asked for it does not ask for again.
+        """
+        revision, materialization = await self._cube(
+            session,
+            current_user,
+            min_temporal_partition=["20250301"],
+        )
+        block = self._block(**{"from": date(2024, 1, 1)})
+
+        await self._plan(orchestrator, revision, block, materialization, {"other"})
+        await self._plan(
+            orchestrator,
+            revision,
+            block,
+            materialization,
+            {materialization.name},
+        )
+
+        yesterday = datetime.now(UTC).date() - timedelta(days=1)
+        assert self._queued(orchestrator) == [(date(2024, 1, 1), yesterday)]
+        assert len(await self._recorded(session, materialization)) == 1
+
+    @pytest.mark.asyncio
+    async def test_a_branch_deploy_asks_for_nothing(
+        self,
+        orchestrator,
+        session,
+        current_user,
+    ):
+        """
+        A branch namespace previews what the push would give its author, and a
+        preview does not spend hundreds of partition runs.
+        """
+        revision, materialization = await self._cube(
+            session,
+            current_user,
+            min_temporal_partition=["20250301"],
+        )
+
+        await self._plan(
+            orchestrator,
+            revision,
+            self._block(**{"from": date(2024, 1, 1)}),
+            materialization,
+            {materialization.name},
+            branch=True,
+        )
+
+        assert self._queued(orchestrator) == []
+        assert await self._recorded(session, materialization) == []
+
+    @pytest.mark.asyncio
+    async def test_an_uncountable_window_is_warned_about(
+        self,
+        orchestrator,
+        session,
+        current_user,
+    ):
+        """A window DJ cannot turn into days fills nothing, and says so."""
+        revision, materialization = await self._cube(session, current_user)
+
+        await self._plan(
+            orchestrator,
+            revision,
+            self._block(window="6 MONTHS"),
+            materialization,
+            {materialization.name},
+        )
+
+        assert self._queued(orchestrator) == []
+        assert orchestrator.warnings == [
+            DJError(
                 code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
                 message=(
-                    "Cube `default.a_cube`: no backfill ran. DJ cannot count this "
-                    "coverage window in days."
+                    "Cube `default.a_cube`: DJ counts a coverage window in days "
+                    "or weeks only."
                 ),
             ),
         ]
 
     @pytest.mark.asyncio
-    async def test_a_branch_deploy_backfills_nothing(self, orchestrator):
+    async def test_no_coverage_and_no_axis_ask_for_nothing(
+        self,
+        orchestrator,
+        session,
+        current_user,
+    ):
         """
-        A branch namespace is a preview of what the push would give its author, and
-        hundreds of partition runs are not part of a preview.
+        A block that declares no span asks for nothing, and neither does a cube
+        with no single temporal partition to run a span over.
         """
-        orchestrator.context.request = None
-        swap = self._swap(
-            "default.a_cube",
-            ["druid_cube__full__a_cube"],
-            backfill=CoverageSpec(from_=date(2024, 1, 1)),
+        revision, materialization = await self._cube(session, current_user)
+
+        await self._plan(
+            orchestrator,
+            revision,
+            MaterializationSpec(schedule="@daily"),
+            materialization,
+            {materialization.name},
         )
-        orchestrator._cube_materialization_swaps = [swap]
+        unpartitioned, _ = await self._cube(
+            session,
+            current_user,
+            partitioned=False,
+            name="default.no_axis_cube",
+        )
+        await self._plan(
+            orchestrator,
+            unpartitioned,
+            self._block(**{"from": date(2024, 1, 1)}),
+            materialization,
+            {materialization.name},
+        )
 
-        with (
-            patch(
-                "datajunction_server.internal.deployment.orchestrator."
-                "get_git_info_for_namespace",
-                new=AsyncMock(return_value={"is_default_branch": False}),
-            ),
-            patch(
-                "datajunction_server.internal.deployment.orchestrator."
-                "apply_cube_materialization_swap",
-                new=AsyncMock(
-                    return_value=CubeMaterializationSwapOutcome(
-                        cube_name="default.a_cube",
-                        materialization_names=["druid_cube__full__a_cube"],
-                        scheduled=True,
-                    ),
-                ),
-            ),
-        ):
-            await orchestrator._apply_cube_materialization_swaps()
-
-        assert swap.backfill is None
-        assert orchestrator.deployed_results == []
+        assert self._queued(orchestrator) == []
         assert orchestrator.warnings == []
-
-    @pytest.mark.asyncio
-    async def test_the_default_branch_still_backfills(self, orchestrator):
-        """
-        The branch guard is about feature branches. A namespace tracking the repo's
-        default branch is where the cube people query lives.
-        """
-        orchestrator.context.request = None
-        swap = self._swap(
-            "default.a_cube",
-            ["druid_cube__full__a_cube"],
-            backfill=CoverageSpec(from_=date(2024, 1, 1), to=date(2024, 1, 3)),
-        )
-        orchestrator._cube_materialization_swaps = [swap]
-
-        with (
-            patch(
-                "datajunction_server.internal.deployment.orchestrator."
-                "get_git_info_for_namespace",
-                new=AsyncMock(return_value={"is_default_branch": True}),
-            ),
-            patch(
-                "datajunction_server.internal.deployment.orchestrator."
-                "apply_cube_materialization_swap",
-                new=AsyncMock(
-                    return_value=CubeMaterializationSwapOutcome(
-                        cube_name="default.a_cube",
-                        materialization_names=["druid_cube__full__a_cube"],
-                        scheduled=True,
-                        backfill_span=(date(2024, 1, 1), date(2024, 1, 3)),
-                    ),
-                ),
-            ),
-        ):
-            await orchestrator._apply_cube_materialization_swaps()
-
-        assert swap.backfill == CoverageSpec(
-            from_=date(2024, 1, 1),
-            to=date(2024, 1, 3),
-        )
-        assert orchestrator.deployed_results == [
-            DeploymentResult(
-                name="default.a_cube",
-                deploy_type=DeploymentResult.Type.MATERIALIZATION,
-                status=DeploymentResult.Status.SUCCESS,
-                operation=DeploymentResult.Operation.CREATE,
-                message="backfilling 2024-01-01 to 2024-01-03, 3 partition runs",
-            ),
-        ]

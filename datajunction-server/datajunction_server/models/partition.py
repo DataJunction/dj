@@ -1,7 +1,7 @@
 """Partition-related models."""
 
 import re
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import ConfigDict
 from pydantic.main import BaseModel
@@ -141,3 +141,23 @@ def render_partition_value(moment: datetime, format_: str | None) -> int | None:
             _TOKEN_PATTERN.sub(lambda m: PARTITION_FORMAT_TOKENS[m.group()], format_),
         ),
     )
+
+
+def parse_partition_value(value: str, format_: str | None) -> date | None:
+    """
+    Read a partition value back as the day it names.
+
+    The reverse of ``render_partition_value``, and unlike it happy with
+    separators: ``yyyy-MM-dd`` renders no integer but still names a day. None
+    when there is no format, or the value does not match it.
+    """
+    if not format_:
+        return None
+    pattern = _TOKEN_PATTERN.sub(
+        lambda m: PARTITION_FORMAT_TOKENS[m.group()],
+        format_,
+    )
+    try:
+        return datetime.strptime(value, pattern).date()
+    except (TypeError, ValueError):
+        return None

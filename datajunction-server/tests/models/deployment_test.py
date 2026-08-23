@@ -1209,6 +1209,39 @@ def test_coverage_spec_survives_a_json_round_trip():
         assert CoverageSpec.model_validate(stored) == coverage
 
 
+@pytest.mark.parametrize(
+    ("coverage", "span"),
+    [
+        # A fixed span with both ends is already the answer.
+        (
+            CoverageSpec(from_=date(2024, 1, 1), to=date(2024, 6, 30)),
+            (date(2024, 1, 1), date(2024, 6, 30)),
+        ),
+        # An ongoing span runs to yesterday, the last full day.
+        (
+            CoverageSpec(from_=date(2024, 1, 1)),
+            (date(2024, 1, 1), date(2026, 8, 22)),
+        ),
+        # A rolling window counts back from yesterday, both ends included.
+        (
+            CoverageSpec(window="800 DAYS"),
+            (date(2024, 6, 14), date(2026, 8, 22)),
+        ),
+        (
+            CoverageSpec(window="2 weeks"),
+            (date(2026, 8, 9), date(2026, 8, 22)),
+        ),
+        # A window in a unit DJ cannot count in days.
+        (CoverageSpec(window="6 MONTHS"), None),
+        # A window that reads as no duration at all.
+        (CoverageSpec(window="a while"), None),
+    ],
+)
+def test_coverage_spec_span(coverage, span):
+    """The days a declared span asks a backfill to run, as of a given day."""
+    assert coverage.span(date(2026, 8, 23)) == span
+
+
 def test_cube_spec_incremental_requires_temporal_partition():
     """An incremental cube with no temporal partition has nothing to increment over."""
     with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
