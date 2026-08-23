@@ -28,6 +28,7 @@ type AvailabilityState {
   temporalPartitions: [String!]
   minTemporalPartition: [String!]
   maxTemporalPartition: [String!]
+  temporalRanges: [TemporalRange!]
   partitions: [PartitionAvailability!]
 }
 
@@ -443,6 +444,7 @@ type Partition {
 type PartitionAvailability {
   minTemporalPartition: [String!]
   maxTemporalPartition: [String!]
+  temporalRanges: [TemporalRange!]
   value: [String]!
   validThroughTs: Union
 }
@@ -727,6 +729,11 @@ type TagBase {
   description: String
   displayName: String
   tagMetadata: JSON
+}
+
+type TemporalRange {
+  minTemporalPartition: [String!]
+  maxTemporalPartition: [String!]
 }
 
 """BigInt field"""

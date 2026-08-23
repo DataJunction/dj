@@ -85,7 +85,7 @@ from datajunction_server.models.node import (
     NodeStatus,
 )
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.models.partition import PartitionType
+from datajunction_server.models.partition import PartitionGrain, PartitionType
 from datajunction_server.models.unit import (
     AtomicUnit,
     CompoundUnit,
@@ -2161,6 +2161,33 @@ class NodeRevision(
             for col in self.columns
             if col.partition and col.partition.type_ == PartitionType.TEMPORAL
         ]
+
+    def temporal_grain(self, names: list[str] | None = None) -> PartitionGrain | None:
+        """
+        The formats and grain of the node's temporal partitions.
+
+        Pass the partition names an availability state reports to order the
+        formats the way its partition values are ordered. Returns None when a
+        format or the grain is missing, which turns off adjacency merging.
+        """
+        partitions = {
+            col.name: col.partition for col in self.temporal_partition_columns()
+        }
+        ordered = (
+            [partitions[name] for name in names if name in partitions]
+            if names
+            else list(partitions.values())
+        )
+        if (
+            not ordered
+            or not all(partition.format for partition in ordered)
+            or not ordered[-1].granularity
+        ):
+            return None
+        return PartitionGrain(
+            formats=[partition.format for partition in ordered],
+            granularity=ordered[-1].granularity,
+        )
 
     def categorical_partition_columns(self) -> list[Column]:
         """

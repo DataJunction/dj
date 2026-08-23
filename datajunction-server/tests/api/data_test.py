@@ -735,6 +735,12 @@ class TestAvailabilityState:
                     "categorical_partitions": [],
                     "max_temporal_partition": ["2023", "01", "25"],
                     "min_temporal_partition": ["2022", "01", "01"],
+                    "temporal_ranges": [
+                        {
+                            "min_temporal_partition": ["2022", "01", "01"],
+                            "max_temporal_partition": ["2023", "01", "25"],
+                        },
+                    ],
                     "partitions": [],
                     "schema_": "accounting",
                     "table": "pmts",
@@ -765,6 +771,12 @@ class TestAvailabilityState:
             "min_temporal_partition": ["2022", "01", "01"],
             "table": "pmts",
             "max_temporal_partition": ["2023", "01", "25"],
+            "temporal_ranges": [
+                {
+                    "min_temporal_partition": ["2022", "01", "01"],
+                    "max_temporal_partition": ["2023", "01", "25"],
+                },
+            ],
             "partitions": [],
             "schema_": "accounting",
             "categorical_partitions": [],
@@ -933,6 +945,12 @@ class TestAvailabilityState:
                     "categorical_partitions": [],
                     "max_temporal_partition": ["2023", "01", "25"],
                     "min_temporal_partition": ["2022", "01", "01"],
+                    "temporal_ranges": [
+                        {
+                            "min_temporal_partition": ["2022", "01", "01"],
+                            "max_temporal_partition": ["2023", "01", "25"],
+                        },
+                    ],
                     "partitions": [],
                     "schema_": "new_accounting",
                     "table": "new_payments_table",
@@ -950,6 +968,12 @@ class TestAvailabilityState:
                     "categorical_partitions": [],
                     "max_temporal_partition": ["2023", "01", "25"],
                     "min_temporal_partition": ["2022", "01", "01"],
+                    "temporal_ranges": [
+                        {
+                            "min_temporal_partition": ["2022", "01", "01"],
+                            "max_temporal_partition": ["2023", "01", "25"],
+                        },
+                    ],
                     "partitions": [],
                     "schema_": "accounting",
                     "table": "pmts",
@@ -977,6 +1001,12 @@ class TestAvailabilityState:
                     "categorical_partitions": [],
                     "max_temporal_partition": ["2023", "01", "25"],
                     "min_temporal_partition": ["2022", "01", "01"],
+                    "temporal_ranges": [
+                        {
+                            "min_temporal_partition": ["2022", "01", "01"],
+                            "max_temporal_partition": ["2023", "01", "25"],
+                        },
+                    ],
                     "partitions": [],
                     "schema_": "accounting",
                     "table": "pmts",
@@ -994,6 +1024,12 @@ class TestAvailabilityState:
                     "categorical_partitions": [],
                     "max_temporal_partition": ["2023", "01", "25"],
                     "min_temporal_partition": ["2022", "01", "01"],
+                    "temporal_ranges": [
+                        {
+                            "min_temporal_partition": ["2022", "01", "01"],
+                            "max_temporal_partition": ["2023", "01", "25"],
+                        },
+                    ],
                     "partitions": [],
                     "schema_": "accounting",
                     "table": "pmts",
@@ -1021,6 +1057,12 @@ class TestAvailabilityState:
                     "categorical_partitions": [],
                     "max_temporal_partition": ["2023", "01", "25"],
                     "min_temporal_partition": ["2022", "01", "01"],
+                    "temporal_ranges": [
+                        {
+                            "min_temporal_partition": ["2022", "01", "01"],
+                            "max_temporal_partition": ["2023", "01", "25"],
+                        },
+                    ],
                     "partitions": [],
                     "schema_": "accounting",
                     "table": "pmts",
@@ -1051,6 +1093,12 @@ class TestAvailabilityState:
             "min_temporal_partition": ["2022", "01", "01"],
             "table": "new_payments_table",
             "max_temporal_partition": ["2023", "01", "25"],
+            "temporal_ranges": [
+                {
+                    "min_temporal_partition": ["2022", "01", "01"],
+                    "max_temporal_partition": ["2023", "01", "25"],
+                },
+            ],
             "partitions": [],
             "schema_": "new_accounting",
             "categorical_partitions": [],
@@ -1195,6 +1243,17 @@ class TestAvailabilityState:
             "min_temporal_partition": ["20220101"],
             "table": "large_pmts",
             "max_temporal_partition": ["20230102"],
+            # No grain on `payment_id`, so the two posts stay apart
+            "temporal_ranges": [
+                {
+                    "min_temporal_partition": ["20220101"],
+                    "max_temporal_partition": ["20230101"],
+                },
+                {
+                    "min_temporal_partition": ["20230102"],
+                    "max_temporal_partition": ["20230102"],
+                },
+            ],
             "schema_": "accounting",
             "partitions": [],
             "categorical_partitions": [],
@@ -1269,6 +1328,12 @@ class TestAvailabilityState:
             "catalog": "default",
             "min_temporal_partition": ["20230101"],
             "max_temporal_partition": ["20230110"],
+            "temporal_ranges": [
+                {
+                    "min_temporal_partition": ["20230101"],
+                    "max_temporal_partition": ["20230110"],
+                },
+            ],
             "categorical_partitions": [],
             "temporal_partitions": ["birth_date"],
             "partitions": [],
@@ -1320,6 +1385,12 @@ class TestAvailabilityState:
             "catalog": "default",
             "min_temporal_partition": ["20230101"],
             "max_temporal_partition": ["20230110"],
+            "temporal_ranges": [
+                {
+                    "min_temporal_partition": ["20230101"],
+                    "max_temporal_partition": ["20230110"],
+                },
+            ],
             "categorical_partitions": ["country", "postal_code"],
             "temporal_partitions": ["birth_date"],
             "partitions": [],
@@ -1439,6 +1510,12 @@ class TestAvailabilityState:
                 "value": ["DE", None],
                 "min_temporal_partition": ["20230102"],
                 "max_temporal_partition": ["20230115"],
+                "temporal_ranges": [
+                    {
+                        "min_temporal_partition": ["20230102"],
+                        "max_temporal_partition": ["20230115"],
+                    },
+                ],
                 "valid_through_ts": 20230101,
             },
         ]
@@ -1487,12 +1564,24 @@ class TestAvailabilityState:
                 "value": ["DE", None],
                 "min_temporal_partition": ["20230102"],
                 "max_temporal_partition": ["20230115"],
+                "temporal_ranges": [
+                    {
+                        "min_temporal_partition": ["20230102"],
+                        "max_temporal_partition": ["20230115"],
+                    },
+                ],
                 "valid_through_ts": 20230101,
             },
             {
                 "value": ["MY", None],
                 "min_temporal_partition": ["20230102"],
                 "max_temporal_partition": ["20230115"],
+                "temporal_ranges": [
+                    {
+                        "min_temporal_partition": ["20230102"],
+                        "max_temporal_partition": ["20230115"],
+                    },
+                ],
                 "valid_through_ts": 20230101,
             },
         ]
@@ -1543,6 +1632,12 @@ class TestAvailabilityState:
                 "value": ["DE", None],
                 "min_temporal_partition": ["20230102"],
                 "max_temporal_partition": ["20230215"],
+                "temporal_ranges": [
+                    {
+                        "min_temporal_partition": ["20230102"],
+                        "max_temporal_partition": ["20230215"],
+                    },
+                ],
                 "valid_through_ts": 20230101,
             },
         ]
@@ -1605,12 +1700,24 @@ class TestAvailabilityState:
                 "value": ["DE", "abc-def"],
                 "min_temporal_partition": ["20230102"],
                 "max_temporal_partition": ["20230215"],
+                "temporal_ranges": [
+                    {
+                        "min_temporal_partition": ["20230102"],
+                        "max_temporal_partition": ["20230215"],
+                    },
+                ],
                 "valid_through_ts": 20230101,
             },
             {
                 "value": ["DE", None],
                 "min_temporal_partition": ["20230102"],
                 "max_temporal_partition": ["20230115"],
+                "temporal_ranges": [
+                    {
+                        "min_temporal_partition": ["20230102"],
+                        "max_temporal_partition": ["20230115"],
+                    },
+                ],
                 "valid_through_ts": 20230101,
             },
         ]
@@ -1682,6 +1789,17 @@ class TestAvailabilityState:
             "temporal_partitions": [],
             "table": "large_pmts",
             "max_temporal_partition": ["2023", "01", "01"],
+            # The node declares no temporal partition, so no grain closes the gap
+            "temporal_ranges": [
+                {
+                    "min_temporal_partition": ["2021", "12", "31"],
+                    "max_temporal_partition": ["2021", "12", "31"],
+                },
+                {
+                    "min_temporal_partition": ["2022", "01", "01"],
+                    "max_temporal_partition": ["2023", "01", "01"],
+                },
+            ],
             "schema_": "accounting",
             "partitions": [],
             "url": None,
@@ -1757,6 +1875,12 @@ class TestAvailabilityState:
             "min_temporal_partition": ["2022", "01", "01"],
             "table": "large_pmts",
             "max_temporal_partition": ["2023", "01", "01"],
+            "temporal_ranges": [
+                {
+                    "min_temporal_partition": ["2022", "01", "01"],
+                    "max_temporal_partition": ["2023", "01", "01"],
+                },
+            ],
             "schema_": "accounting",
             "partitions": [],
             "categorical_partitions": [],
@@ -1809,6 +1933,12 @@ class TestAvailabilityState:
             "min_temporal_partition": ["2022", "01", "01"],
             "table": "revenue",
             "max_temporal_partition": ["2023", "01", "01"],
+            "temporal_ranges": [
+                {
+                    "min_temporal_partition": ["2022", "01", "01"],
+                    "max_temporal_partition": ["2023", "01", "01"],
+                },
+            ],
             "schema_": "accounting",
             "partitions": [],
             "categorical_partitions": [],
@@ -2078,6 +2208,12 @@ class TestAvailabilityState:
             "categorical_partitions": [],
             "max_temporal_partition": ["2023", "01", "25"],
             "min_temporal_partition": ["2022", "01", "01"],
+            "temporal_ranges": [
+                {
+                    "min_temporal_partition": ["2022", "01", "01"],
+                    "max_temporal_partition": ["2023", "01", "25"],
+                },
+            ],
             "partitions": [],
             "schema_": "accounting",
             "table": "pmts",
@@ -2105,6 +2241,12 @@ class TestAvailabilityState:
             "categorical_partitions": [],
             "max_temporal_partition": ["2023", "01", "25"],
             "min_temporal_partition": ["2022", "01", "01"],
+            "temporal_ranges": [
+                {
+                    "min_temporal_partition": ["2022", "01", "01"],
+                    "max_temporal_partition": ["2023", "01", "25"],
+                },
+            ],
             "partitions": [],
             "schema_": "accounting",
             "table": "pmts",
@@ -2118,3 +2260,52 @@ class TestAvailabilityState:
             "ttl_days": None,
         }
         assert delete_activity["user"] == "dj"
+
+    @pytest.mark.asyncio
+    async def test_grain_closes_gap_between_posts(
+        self,
+        client_with_roads: AsyncClient,
+    ) -> None:
+        """
+        Test that a day grain joins two back-to-back posts into one range.
+        """
+        response = await client_with_roads.post(
+            "/nodes/default.hard_hat/columns/birth_date/partition",
+            json={"type_": "temporal", "granularity": "day", "format": "yyyyMMdd"},
+        )
+        assert response.status_code in (200, 201)
+
+        for low, high in (
+            (["20230101"], ["20230131"]),
+            (["20230201"], ["20230210"]),
+            (["20240101"], ["20240105"]),
+        ):
+            response = await client_with_roads.post(
+                "/data/default.hard_hat/availability/",
+                json={
+                    "catalog": "default",
+                    "schema_": "dimensions",
+                    "table": "hard_hats",
+                    "valid_through_ts": 20240105,
+                    "temporal_partitions": ["birth_date"],
+                    "min_temporal_partition": low,
+                    "max_temporal_partition": high,
+                },
+            )
+            assert response.status_code == 200
+
+        availability = (await client_with_roads.get("/nodes/default.hard_hat/")).json()[
+            "availability"
+        ]
+        assert availability["temporal_ranges"] == [
+            {
+                "min_temporal_partition": ["20230101"],
+                "max_temporal_partition": ["20230210"],
+            },
+            {
+                "min_temporal_partition": ["20240101"],
+                "max_temporal_partition": ["20240105"],
+            },
+        ]
+        assert availability["min_temporal_partition"] == ["20230101"]
+        assert availability["max_temporal_partition"] == ["20240105"]

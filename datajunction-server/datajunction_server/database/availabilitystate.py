@@ -6,6 +6,7 @@ from typing import Any
 
 import sqlalchemy as sa
 from sqlalchemy import JSON, DateTime, ForeignKey, Index
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from datajunction_server.database.base import Base
@@ -45,14 +46,10 @@ class AvailabilityState(Base):
         default=[],
     )
 
-    # Node-level temporal ranges
-    min_temporal_partition: Mapped[list[str] | None] = mapped_column(
-        JSON,
-        default=[],
-    )
-    max_temporal_partition: Mapped[list[str] | None] = mapped_column(
-        JSON,
-        default=[],
+    # Disjoint, inclusive temporal ranges the table covers
+    temporal_ranges: Mapped[list[dict] | None] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"),
+        default=list,
     )
 
     # Partition-level availabilities
@@ -76,6 +73,43 @@ class AvailabilityState(Base):
     )
     total_partitions: Mapped[int | None] = mapped_column(nullable=True)
     ttl_days: Mapped[int | None] = mapped_column(nullable=True)
+
+    @property
+    def min_temporal_partition(self) -> list[str]:
+        """
+        The lowest temporal partition covered.
+        """
+        ranges = self.temporal_ranges or []
+        return (ranges[0].get("min_temporal_partition") if ranges else None) or []
+
+    @min_temporal_partition.setter
+    def min_temporal_partition(self, value) -> None:
+        self._set_bound("min_temporal_partition", value)
+
+    @property
+    def max_temporal_partition(self) -> list[str]:
+        """
+        The highest temporal partition covered.
+        """
+        ranges = self.temporal_ranges or []
+        return (ranges[-1].get("max_temporal_partition") if ranges else None) or []
+
+    @max_temporal_partition.setter
+    def max_temporal_partition(self, value) -> None:
+        self._set_bound("max_temporal_partition", value)
+
+    def _set_bound(self, key: str, value) -> None:
+        """
+        Move one end of the outermost range.
+        """
+        ranges = [dict(item) for item in self.temporal_ranges or []]
+        if not ranges:
+            if not value:
+                return
+            ranges = [{"min_temporal_partition": None, "max_temporal_partition": None}]
+        index = 0 if key == "min_temporal_partition" else -1
+        ranges[index][key] = list(value) if value else None
+        self.temporal_ranges = ranges
 
     def is_available(
         self,

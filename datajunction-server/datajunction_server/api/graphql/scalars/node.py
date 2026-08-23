@@ -15,6 +15,7 @@ from datajunction_server.api.graphql.scalars import BigInt
 from datajunction_server.api.graphql.scalars.availabilitystate import (
     AvailabilityState,
     PartitionAvailability,
+    TemporalRange,
 )
 from datajunction_server.api.graphql.scalars.catalog_engine import Catalog
 from datajunction_server.api.graphql.scalars.column import (
@@ -43,6 +44,7 @@ from datajunction_server.database.node import Node as DBNode
 from datajunction_server.database.node import NodeRevision as DBNodeRevision
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.node import NodeMode as NodeMode_
+from datajunction_server.models.node import as_ranges
 from datajunction_server.models.node import NodeStatus as NodeStatus_
 from datajunction_server.models.node import NodeType as NodeType_
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
@@ -52,6 +54,19 @@ NodeStatus = strawberry.enum(NodeStatus_)
 NodeMode = strawberry.enum(NodeMode_)
 JoinType = strawberry.enum(JoinType_)
 JoinCardinality = strawberry.enum(JoinCardinality_)
+
+
+def _temporal_ranges(raw) -> list[TemporalRange]:
+    """
+    Read stored temporal ranges as GraphQL ranges.
+    """
+    return [
+        TemporalRange(  # type: ignore
+            min_temporal_partition=item.min_temporal_partition,
+            max_temporal_partition=item.max_temporal_partition,
+        )
+        for item in as_ranges(raw)
+    ]
 
 
 @strawberry.enum
@@ -353,10 +368,12 @@ class NodeRevision:
             temporal_partitions=root.availability.temporal_partitions,
             min_temporal_partition=root.availability.min_temporal_partition,
             max_temporal_partition=root.availability.max_temporal_partition,
+            temporal_ranges=_temporal_ranges(root.availability.temporal_ranges),
             partitions=[
                 PartitionAvailability(  # type: ignore
                     min_temporal_partition=p.min_temporal_partition,
                     max_temporal_partition=p.max_temporal_partition,
+                    temporal_ranges=_temporal_ranges(p.temporal_ranges),
                     value=p.value,
                     valid_through_ts=p.valid_through_ts,
                 )

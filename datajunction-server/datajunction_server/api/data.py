@@ -91,6 +91,7 @@ async def add_availability_state(
             joinedload(Node.current).options(
                 selectinload(NodeRevision.catalog),
                 selectinload(NodeRevision.availability),
+                selectinload(NodeRevision.columns),
             ),
         ],
         raise_if_not_exists=True,
@@ -131,6 +132,7 @@ async def add_availability_state(
                 .options(
                     selectinload(NodeRevision.catalog),
                     selectinload(NodeRevision.availability),
+                    selectinload(NodeRevision.columns),
                 ),
             )
         ).scalar_one_or_none()
@@ -181,7 +183,10 @@ async def add_availability_state(
         and old_availability.schema_ == data.schema_
         and old_availability.table == data.table
     ):
-        data.merge(node_revision.availability)
+        data.merge(
+            node_revision.availability,
+            node_revision.temporal_grain(data.temporal_partitions),
+        )
 
     # Update the node with the new availability state
     node_revision.availability = AvailabilityState(
@@ -190,11 +195,8 @@ async def add_availability_state(
         table=data.table,
         valid_through_ts=data.valid_through_ts,
         url=data.url,
-        min_temporal_partition=[
-            str(part) for part in data.min_temporal_partition or []
-        ],
-        max_temporal_partition=[
-            str(part) for part in data.max_temporal_partition or []
+        temporal_ranges=[
+            temporal_range.model_dump() for temporal_range in data.temporal_ranges
         ],
         partitions=[
             partition.model_dump() if not isinstance(partition, dict) else partition

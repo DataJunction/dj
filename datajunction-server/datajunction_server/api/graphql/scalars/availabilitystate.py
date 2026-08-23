@@ -6,6 +6,16 @@ from datajunction_server.api.graphql.scalars import BigInt
 
 
 @strawberry.type
+class TemporalRange:
+    """
+    One inclusive temporal range that a table covers
+    """
+
+    min_temporal_partition: list[str] | None
+    max_temporal_partition: list[str] | None
+
+
+@strawberry.type
 class PartitionAvailability:
     """
     Partition-level availability
@@ -13,6 +23,9 @@ class PartitionAvailability:
 
     min_temporal_partition: list[str] | None
     max_temporal_partition: list[str] | None
+
+    # The disjoint ranges that the bounds above span
+    temporal_ranges: list[TemporalRange] | None
 
     # This list maps to the ordered list of categorical partitions at the node level.
     # For example, if the node's `categorical_partitions` are configured as ["country", "group_id"],
@@ -42,9 +55,12 @@ class AvailabilityState:
     # An ordered list of temporal partitions like ["date", "hour"] or ["date"]
     temporal_partitions: list[str] | None
 
-    # Node-level temporal ranges
+    # Node-level temporal bounds, derived from the first and last range
     min_temporal_partition: list[str] | None
     max_temporal_partition: list[str] | None
+
+    # The disjoint ranges that the bounds above span
+    temporal_ranges: list[TemporalRange] | None
 
     # Partition-level availabilities
     partitions: list[PartitionAvailability] | None

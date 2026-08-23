@@ -32,7 +32,7 @@ from datajunction_server.models.dimensionlink import LinkDimensionOutput
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import MaterializationConfigOutput
 from datajunction_server.models.node_type import NodeNameOutput, NodeType
-from datajunction_server.models.partition import PartitionOutput
+from datajunction_server.models.partition import PartitionGrain, PartitionOutput
 from datajunction_server.models.tag import TagMinimum, TagOutput
 from datajunction_server.models.unit import (
     AtomicUnit,
@@ -182,7 +182,127 @@ class TemporalPartitionRange(BaseModel):
         )
 
 
-class PartitionAvailability(TemporalPartitionRange):
+# Past this many ranges, availability collapses to one bounding range
+MAX_AVAILABILITY_RANGES = 50
+
+
+def _bound_key(value, high: bool) -> tuple:
+    """
+    Sort key for one end of a range, ordering an open end last or first.
+    """
+    if not value:
+        return (2,) if high else (0,)
+    return (1, tuple(str(part) for part in value))
+
+
+def as_ranges(raw) -> list[TemporalPartitionRange]:
+    """
+    Read stored range dicts back as range models.
+    """
+    return [
+        TemporalPartitionRange(**item) if isinstance(item, dict) else item
+        for item in raw or []
+    ]
+
+
+def _touches(earlier, later, grain) -> bool:
+    """
+    Whether two ranges overlap, or sit one grain apart.
+    """
+    if _bound_key(later.min_temporal_partition, False) <= _bound_key(
+        earlier.max_temporal_partition,
+        True,
+    ):
+        return True
+    if grain is None or not earlier.max_temporal_partition:
+        return False
+    successor = grain.next_value(earlier.max_temporal_partition)
+    return successor is not None and successor == [
+        str(part) for part in later.min_temporal_partition or []
+    ]
+
+
+def union_ranges(
+    ranges,
+    grain: PartitionGrain | None = None,
+    cap: int = MAX_AVAILABILITY_RANGES,
+) -> list[TemporalPartitionRange]:
+    """
+    Coalesce temporal ranges into sorted, disjoint ranges.
+
+    Overlapping ranges always merge. Touching ranges merge only when the grain
+    says one starts the step after the other ends; without a grain they stay
+    apart rather than guess. More than `cap` ranges collapse into one.
+    """
+    ordered = sorted(
+        (
+            item
+            for item in as_ranges(ranges)
+            if item.min_temporal_partition or item.max_temporal_partition
+        ),
+        key=lambda item: (
+            _bound_key(item.min_temporal_partition, False),
+            _bound_key(item.max_temporal_partition, True),
+        ),
+    )
+    merged: list[TemporalPartitionRange] = []
+    for current in ordered:
+        if merged and _touches(merged[-1], current, grain):
+            last = merged[-1]
+            if _bound_key(current.max_temporal_partition, True) > _bound_key(
+                last.max_temporal_partition,
+                True,
+            ):
+                last.max_temporal_partition = current.max_temporal_partition
+        else:
+            merged.append(
+                TemporalPartitionRange(
+                    min_temporal_partition=current.min_temporal_partition,
+                    max_temporal_partition=current.max_temporal_partition,
+                ),
+            )
+    if len(merged) > cap:
+        merged = [
+            TemporalPartitionRange(
+                min_temporal_partition=merged[0].min_temporal_partition,
+                max_temporal_partition=merged[-1].max_temporal_partition,
+            ),
+        ]
+    return merged
+
+
+class RangeSet(TemporalPartitionRange):
+    """
+    A set of disjoint temporal ranges, with the bounds it spans.
+    """
+
+    temporal_ranges: list[TemporalPartitionRange] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def sync_bounds(self):
+        """
+        Keep the bounds in step with the ranges.
+        """
+        if not self.temporal_ranges and (
+            self.min_temporal_partition or self.max_temporal_partition
+        ):
+            self.temporal_ranges = [
+                TemporalPartitionRange(
+                    min_temporal_partition=self.min_temporal_partition,
+                    max_temporal_partition=self.max_temporal_partition,
+                ),
+            ]
+        else:
+            self.temporal_ranges = union_ranges(self.temporal_ranges)
+        if self.temporal_ranges:
+            self.min_temporal_partition = self.temporal_ranges[0].min_temporal_partition
+            self.max_temporal_partition = self.temporal_ranges[
+                -1
+            ].max_temporal_partition
+        return self
+
+
+class PartitionAvailability(RangeSet):
     """
     Partition-level availability
     """
@@ -196,25 +316,21 @@ class PartitionAvailability(TemporalPartitionRange):
     valid_through_ts: int | None = None
 
 
-class AvailabilityNode(TemporalPartitionRange):
+class AvailabilityNode(RangeSet):
     """A node in the availability trie tracker"""
 
     children: dict = {}
     valid_through_ts: int | None = Field(default=MIN_VALID_THROUGH_TS)
 
-    def merge_temporal(self, other: "AvailabilityNode"):
+    def merge_temporal(self, other, grain: PartitionGrain | None = None):
         """
-        Merge the temporal ranges with each other by saving the largest
-        possible time range.
+        Union the temporal ranges of the two nodes.
         """
-        self.min_temporal_partition = min(  # type: ignore
-            self.min_temporal_partition,
-            other.min_temporal_partition,
+        self.temporal_ranges = union_ranges(
+            self.temporal_ranges + other.temporal_ranges,
+            grain,
         )
-        self.max_temporal_partition = max(  # type: ignore
-            self.max_temporal_partition,
-            other.max_temporal_partition,
-        )
+        self.sync_bounds()
         self.valid_through_ts = max(  # type: ignore
             self.valid_through_ts,
             other.valid_through_ts,
@@ -227,8 +343,9 @@ class AvailabilityTracker:
     availability states across categorical and temporal partitions.
     """
 
-    def __init__(self):
+    def __init__(self, grain: PartitionGrain | None = None):
         self.root = AvailabilityNode()
+        self.grain = grain
 
     def insert(self, partition):
         """
@@ -237,8 +354,7 @@ class AvailabilityTracker:
         current = self.root
         for value in partition.value:
             next_item = AvailabilityNode(
-                min_temporal_partition=partition.min_temporal_partition,
-                max_temporal_partition=partition.max_temporal_partition,
+                temporal_ranges=partition.temporal_ranges,
                 valid_through_ts=partition.valid_through_ts,
             )
             # If a wildcard is found, only add this specific partition's
@@ -247,7 +363,9 @@ class AvailabilityTracker:
                 current.children[None],
             ):
                 wildcard_partition = current.children[None]
-                next_item.merge_temporal(wildcard_partition)
+                next_item.merge_temporal(wildcard_partition, self.grain)
+                if value in current.children:
+                    next_item.merge_temporal(current.children[value], self.grain)
                 current.children[value] = next_item
             else:
                 # Add if partition doesn't match any existing, otherwise merge with existing
@@ -255,7 +373,7 @@ class AvailabilityTracker:
                     current.children[value] = next_item
                 else:
                     next_item = current.children[value]
-                    next_item.merge_temporal(partition)
+                    next_item.merge_temporal(partition, self.grain)
 
                 # Remove extraneous partitions at this level if this partition value is a wildcard
                 if value is None:
@@ -281,8 +399,7 @@ class AvailabilityTracker:
                 final_partitions.append(
                     PartitionAvailability(
                         value=partition_list,
-                        min_temporal_partition=current.min_temporal_partition,
-                        max_temporal_partition=current.max_temporal_partition,
+                        temporal_ranges=current.temporal_ranges,
                         valid_through_ts=current.valid_through_ts,
                     ),
                 )
@@ -320,7 +437,7 @@ class GitRepositoryInfo(BaseModel):
     )
 
 
-class AvailabilityStateBase(TemporalPartitionRange):
+class AvailabilityStateBase(RangeSet):
     """
     An availability state base
     """
@@ -349,7 +466,7 @@ class AvailabilityStateBase(TemporalPartitionRange):
     # An ordered list of temporal partitions like ["date", "hour"] or ["date"]
     temporal_partitions: list[str] | None = Field(default_factory=list)
 
-    # Node-level temporal ranges
+    # Node-level temporal bounds, derived from the first and last range
     min_temporal_partition: list[str | int] | None = Field(default_factory=list)
     max_temporal_partition: list[str | int] | None = Field(default_factory=list)
 
@@ -373,6 +490,25 @@ class AvailabilityStateBase(TemporalPartitionRange):
             [partition.model_dump() for partition in partitions] if partitions else []
         )
 
+    @field_validator("temporal_ranges", mode="before")
+    def convert_temporal_ranges(cls, temporal_ranges):
+        """
+        Validator for temporal_ranges
+        """
+        return [
+            TemporalPartitionRange(
+                min_temporal_partition=[
+                    str(part) for part in (item.min_temporal_partition or [])
+                ]
+                or None,
+                max_temporal_partition=[
+                    str(part) for part in (item.max_temporal_partition or [])
+                ]
+                or None,
+            )
+            for item in as_ranges(temporal_ranges)
+        ]
+
     @field_validator("min_temporal_partition", mode="before")
     def convert_min_temporal_partition(cls, min_temporal_partition):
         """
@@ -395,7 +531,7 @@ class AvailabilityStateBase(TemporalPartitionRange):
             else []
         )
 
-    def merge(self, other: "AvailabilityStateBase"):
+    def merge(self, other, grain: PartitionGrain | None = None):
         """
         Merge this availability state with another.
         """
@@ -405,23 +541,19 @@ class AvailabilityStateBase(TemporalPartitionRange):
             else partition
             for partition in self.partitions + other.partitions  # type: ignore
         ]
-        min_range = [
-            x for x in (self.min_temporal_partition, other.min_temporal_partition) if x
-        ]
-        max_range = [
-            x for x in (self.max_temporal_partition, other.max_temporal_partition) if x
-        ]
         top_level_partition = PartitionAvailability(
             value=[None for _ in other.categorical_partitions]
             if other.categorical_partitions
             else [],
-            min_temporal_partition=min(min_range) if min_range else None,
-            max_temporal_partition=max(max_range) if max_range else None,
+            temporal_ranges=union_ranges(
+                self.temporal_ranges + as_ranges(other.temporal_ranges),
+                grain,
+            ),
             valid_through_ts=max(self.valid_through_ts, other.valid_through_ts),
         )
         all_partitions += [top_level_partition]
 
-        tracker = AvailabilityTracker()
+        tracker = AvailabilityTracker(grain)
         for partition in all_partitions:
             tracker.insert(partition)
         final_partitions = tracker.get_partition_range()
@@ -438,14 +570,14 @@ class AvailabilityStateBase(TemporalPartitionRange):
         ]
 
         if merged_top_level:  # pragma: no cover
-            self.min_temporal_partition = (
-                top_level_partition.min_temporal_partition
-                or merged_top_level[0].min_temporal_partition
+            self.temporal_ranges = (
+                top_level_partition.temporal_ranges
+                or merged_top_level[0].temporal_ranges
             )
-            self.max_temporal_partition = (
-                top_level_partition.max_temporal_partition
-                or merged_top_level[0].max_temporal_partition
-            )
+            self.sync_bounds()
+            if not self.temporal_ranges:
+                self.min_temporal_partition = None
+                self.max_temporal_partition = None
             self.valid_through_ts = (
                 top_level_partition.valid_through_ts
                 or merged_top_level[0].valid_through_ts

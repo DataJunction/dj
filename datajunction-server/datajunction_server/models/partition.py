@@ -1,7 +1,8 @@
 """Partition-related models."""
 
+import calendar
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from pydantic import ConfigDict
 from pydantic.main import BaseModel
@@ -141,3 +142,80 @@ def render_partition_value(moment: datetime, format_: str | None) -> int | None:
             _TOKEN_PATTERN.sub(lambda m: PARTITION_FORMAT_TOKENS[m.group()], format_),
         ),
     )
+
+
+def strftime_format(format_: str | None) -> str | None:
+    """
+    Translate a Java-style partition format into a strftime pattern.
+
+    Separators survive as literals, so ``yyyy-MM-dd`` renders. A format with no
+    recognized token yields None, since a constant cannot order or step.
+    """
+    if not format_ or not _TOKEN_PATTERN.search(format_):
+        return None
+    return _TOKEN_PATTERN.sub(lambda m: PARTITION_FORMAT_TOKENS[m.group()], format_)
+
+
+# Grains that step by a fixed amount of time
+_GRAIN_DELTAS = {
+    Granularity.SECOND: timedelta(seconds=1),
+    Granularity.MINUTE: timedelta(minutes=1),
+    Granularity.HOUR: timedelta(hours=1),
+    Granularity.DAY: timedelta(days=1),
+    Granularity.WEEK: timedelta(weeks=1),
+}
+
+# Grains that step by whole months
+_GRAIN_MONTHS = {
+    Granularity.MONTH: 1,
+    Granularity.QUARTER: 3,
+    Granularity.YEAR: 12,
+}
+
+
+def _add_months(moment: datetime, count: int) -> datetime:
+    """
+    Move a moment forward by whole months, clamping the day.
+    """
+    index = moment.month - 1 + count
+    year = moment.year + index // 12
+    month = index % 12 + 1
+    return moment.replace(
+        year=year,
+        month=month,
+        day=min(moment.day, calendar.monthrange(year, month)[1]),
+    )
+
+
+class PartitionGrain(BaseModel):
+    """
+    The formats and grain of a node's temporal partition columns.
+
+    The formats are ordered to match a partition value like ``["20240101", "00"]``,
+    and the grain is the finest one, which is the step between two values.
+    """
+
+    formats: list[str]
+    granularity: Granularity
+
+    def next_value(self, value: list) -> list[str] | None:
+        """
+        Return the partition value one grain after this one.
+        """
+        patterns = [strftime_format(format_) for format_ in self.formats]
+        if len(value) != len(patterns) or not all(patterns):
+            return None
+        try:
+            moment = datetime.strptime(
+                "".join(str(part) for part in value),
+                "".join(patterns),  # type: ignore
+            )
+        except ValueError:
+            return None
+        months = _GRAIN_MONTHS.get(self.granularity)
+        moment = (
+            _add_months(moment, months)
+            if months
+            else moment + _GRAIN_DELTAS[self.granularity]
+        )
+        return [moment.strftime(pattern) for pattern in patterns]  # type: ignore

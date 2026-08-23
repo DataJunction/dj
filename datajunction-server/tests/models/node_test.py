@@ -6,13 +6,23 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.availabilitystate import AvailabilityState
+from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.partition import Partition
 from datajunction_server.models.node import (
     AvailabilityStateBase,
     NodeCursor,
     PartitionAvailability,
+    TemporalPartitionRange,
+    union_ranges,
 )
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.partition import (
+    Granularity,
+    PartitionGrain,
+    PartitionType,
+)
+from datajunction_server.sql.parsing.types import StringType
 from datajunction_server.typing import UTCDatetime
 
 
@@ -247,6 +257,7 @@ def test_merging_availability_simple_no_partitions() -> None:
     assert avail_1.merge(avail_2).model_dump() == {
         "min_temporal_partition": None,
         "max_temporal_partition": None,
+        "temporal_ranges": [],
         "catalog": "catalog",
         "schema_": "schema",
         "table": "foo",
@@ -292,6 +303,16 @@ def test_merging_availability_complex_no_partitions() -> None:
     assert avail_1.merge(avail_2).model_dump() == {
         "min_temporal_partition": ["20230924"],
         "max_temporal_partition": ["20230927"],
+        "temporal_ranges": [
+            {
+                "min_temporal_partition": ["20230924"],
+                "max_temporal_partition": ["20230924"],
+            },
+            {
+                "min_temporal_partition": ["20230926"],
+                "max_temporal_partition": ["20230927"],
+            },
+        ],
         "catalog": "druid",
         "schema_": "",
         "table": "dj_product__launchpad__launchpad_cube",
@@ -367,6 +388,12 @@ def test_merging_availability_complex_with_partitions() -> None:
         "table": "dressing",
         "min_temporal_partition": ["20230101"],
         "max_temporal_partition": ["20231010"],
+        "temporal_ranges": [
+            {
+                "min_temporal_partition": ["20230101"],
+                "max_temporal_partition": ["20231010"],
+            },
+        ],
         "valid_through_ts": 20231015,
         "categorical_partitions": ["country"],
         "temporal_partitions": ["region_date"],
@@ -376,12 +403,28 @@ def test_merging_availability_complex_with_partitions() -> None:
                 "valid_through_ts": 20231010,
                 "min_temporal_partition": ["20220101"],
                 "max_temporal_partition": ["20231010"],
+                "temporal_ranges": [
+                    {
+                        "min_temporal_partition": ["20220101"],
+                        "max_temporal_partition": ["20231010"],
+                    },
+                ],
             },
             {
                 "value": ["US"],
                 "valid_through_ts": 20230926,
                 "min_temporal_partition": ["20230101"],
                 "max_temporal_partition": ["20230926"],
+                "temporal_ranges": [
+                    {
+                        "min_temporal_partition": ["20230101"],
+                        "max_temporal_partition": ["20230404"],
+                    },
+                    {
+                        "min_temporal_partition": ["20230924"],
+                        "max_temporal_partition": ["20230926"],
+                    },
+                ],
             },
         ],
         "url": None,
@@ -416,3 +459,250 @@ def test_node_cursors() -> None:
     decoded_cursor = NodeCursor.decode(encoded_cursor)
     assert decoded_cursor.created_at == cursor.created_at
     assert decoded_cursor.id == cursor.id
+
+
+DAILY = PartitionGrain(formats=["yyyyMMdd"], granularity=Granularity.DAY)
+HOURLY = PartitionGrain(formats=["yyyyMMdd", "HH"], granularity=Granularity.HOUR)
+
+
+def _ranges(pairs):
+    """
+    Build temporal ranges from (min, max) pairs.
+    """
+    return [
+        TemporalPartitionRange(
+            min_temporal_partition=low,
+            max_temporal_partition=high,
+        )
+        for low, high in pairs
+    ]
+
+
+@pytest.mark.parametrize(
+    "pairs, grain, expected",
+    [
+        # Nothing to union
+        ([], None, []),
+        # A single range comes back untouched
+        ([(["20240101"], ["20240131"])], None, [(["20240101"], ["20240131"])]),
+        # Disjoint ranges stay apart
+        (
+            [(["20240101"], ["20240131"]), (["20240301"], ["20240331"])],
+            DAILY,
+            [(["20240101"], ["20240131"]), (["20240301"], ["20240331"])],
+        ),
+        # Overlapping ranges merge without a grain
+        (
+            [(["20240101"], ["20240131"]), (["20240120"], ["20240210"])],
+            None,
+            [(["20240101"], ["20240210"])],
+        ),
+        # A nested range disappears into the one that contains it
+        (
+            [(["20240101"], ["20240331"]), (["20240201"], ["20240210"])],
+            None,
+            [(["20240101"], ["20240331"])],
+        ),
+        # Out-of-order input comes back sorted
+        (
+            [(["20240301"], ["20240331"]), (["20240101"], ["20240131"])],
+            None,
+            [(["20240101"], ["20240131"]), (["20240301"], ["20240331"])],
+        ),
+        # The grain says the second range starts the day after the first ends
+        (
+            [(["20240101"], ["20240131"]), (["20240201"], ["20240210"])],
+            DAILY,
+            [(["20240101"], ["20240210"])],
+        ),
+        # Without a grain the same two ranges stay apart
+        (
+            [(["20240101"], ["20240131"]), (["20240201"], ["20240210"])],
+            None,
+            [(["20240101"], ["20240131"]), (["20240201"], ["20240210"])],
+        ),
+        # Adjacency across a multi-column value rolls the hour over
+        (
+            [
+                (["20240101", "00"], ["20240101", "23"]),
+                (["20240102", "00"], ["20240102", "05"]),
+            ],
+            HOURLY,
+            [(["20240101", "00"], ["20240102", "05"])],
+        ),
+        # A daily grain cannot step a date-plus-hour value, so the gap stays
+        (
+            [
+                (["20240101", "00"], ["20240101", "23"]),
+                (["20240102", "00"], ["20240102", "05"]),
+            ],
+            DAILY,
+            [
+                (["20240101", "00"], ["20240101", "23"]),
+                (["20240102", "00"], ["20240102", "05"]),
+            ],
+        ),
+        # A range with no bounds at all is dropped
+        (
+            [(None, None), (["20240101"], ["20240131"])],
+            None,
+            [(["20240101"], ["20240131"])],
+        ),
+        # An open lower bound sorts first and swallows what it covers
+        (
+            [(["20240101"], ["20240131"]), (None, ["20240210"])],
+            None,
+            [(None, ["20240210"])],
+        ),
+        # An open upper bound swallows everything after it
+        (
+            [(["20240101"], None), (["20240301"], ["20240331"])],
+            None,
+            [(["20240101"], None)],
+        ),
+    ],
+)
+def test_union_ranges(pairs, grain, expected) -> None:
+    """
+    Test coalescing temporal ranges.
+    """
+    merged = union_ranges(_ranges(pairs), grain)
+    assert [
+        (item.min_temporal_partition, item.max_temporal_partition) for item in merged
+    ] == expected
+
+
+def test_union_ranges_cap() -> None:
+    """
+    Test that too many ranges collapse into one bounding range.
+    """
+    pairs = [([f"2024{day:04}"], [f"2024{day:04}"]) for day in range(1, 12, 2)]
+    assert union_ranges(_ranges(pairs), cap=6) == _ranges(pairs)
+    assert union_ranges(_ranges(pairs), cap=5) == _ranges(
+        [(["20240001"], ["20240011"])],
+    )
+
+
+def test_union_ranges_from_dicts() -> None:
+    """
+    Test unioning ranges that are still stored as dicts.
+    """
+    stored = [
+        {
+            "min_temporal_partition": ["20240101"],
+            "max_temporal_partition": ["20240131"],
+        },
+        {
+            "min_temporal_partition": ["20240201"],
+            "max_temporal_partition": ["20240210"],
+        },
+    ]
+    assert union_ranges(stored, DAILY) == _ranges([(["20240101"], ["20240210"])])
+
+
+def test_availability_bounds_track_ranges() -> None:
+    """
+    Test that the stored bounds follow the first and last range.
+    """
+    availability = AvailabilityState(
+        catalog="default",
+        table="pmts",
+        valid_through_ts=20240210,
+        temporal_ranges=[
+            {
+                "min_temporal_partition": ["20240101"],
+                "max_temporal_partition": ["20240131"],
+            },
+            {
+                "min_temporal_partition": ["20240201"],
+                "max_temporal_partition": ["20240210"],
+            },
+        ],
+    )
+    assert availability.min_temporal_partition == ["20240101"]
+    assert availability.max_temporal_partition == ["20240210"]
+
+    availability.min_temporal_partition = ["20231201"]
+    availability.max_temporal_partition = ["20240215"]
+    assert availability.temporal_ranges == [
+        {
+            "min_temporal_partition": ["20231201"],
+            "max_temporal_partition": ["20240131"],
+        },
+        {
+            "min_temporal_partition": ["20240201"],
+            "max_temporal_partition": ["20240215"],
+        },
+    ]
+
+
+def test_availability_bounds_without_ranges() -> None:
+    """
+    Test setting bounds on an availability state that has no ranges.
+    """
+    availability = AvailabilityState(
+        catalog="default",
+        table="pmts",
+        valid_through_ts=20240210,
+    )
+    assert availability.min_temporal_partition == []
+    assert availability.max_temporal_partition == []
+
+    availability.max_temporal_partition = []
+    assert availability.temporal_ranges is None
+
+    availability.max_temporal_partition = ["20240210"]
+    assert availability.temporal_ranges == [
+        {"min_temporal_partition": None, "max_temporal_partition": ["20240210"]},
+    ]
+    assert availability.min_temporal_partition == []
+    assert availability.max_temporal_partition == ["20240210"]
+
+
+@pytest.mark.parametrize(
+    "columns, names, expected",
+    [
+        ([], None, None),
+        ([("birth_date", "yyyyMMdd", Granularity.DAY)], None, (["yyyyMMdd"], "day")),
+        ([("birth_date", None, Granularity.DAY)], None, None),
+        ([("birth_date", "yyyyMMdd", None)], None, None),
+        (
+            [
+                ("hour", "HH", Granularity.HOUR),
+                ("birth_date", "yyyyMMdd", Granularity.DAY),
+            ],
+            ["birth_date", "hour"],
+            (["yyyyMMdd", "HH"], "hour"),
+        ),
+        (
+            [("birth_date", "yyyyMMdd", Granularity.DAY)],
+            ["unknown"],
+            None,
+        ),
+    ],
+)
+def test_temporal_grain(columns, names, expected) -> None:
+    """
+    Test reading the grain and formats off a node's temporal partitions.
+    """
+    revision = NodeRevision(
+        name="default.hard_hats",
+        type=NodeType.DIMENSION,
+        columns=[
+            Column(
+                name=name,
+                type=StringType(),
+                order=index,
+                partition=Partition(
+                    type_=PartitionType.TEMPORAL,
+                    format=format_,
+                    granularity=granularity,
+                ),
+            )
+            for index, (name, format_, granularity) in enumerate(columns)
+        ],
+    )
+    grain = revision.temporal_grain(names)
+    assert (
+        None if grain is None else (grain.formats, grain.granularity.value)
+    ) == expected
