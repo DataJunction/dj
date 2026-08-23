@@ -73,6 +73,7 @@ from datajunction_server.internal.materializations import (
     stop_materialization_workflows,
     swap_cube_materializations,
 )
+from datajunction_server.internal.namespaces import get_git_info_for_namespace
 from datajunction_server.internal.nodes import (
     derive_frozen_measures_bulk,
     is_non_trivial_cube_change,
@@ -2328,6 +2329,7 @@ class DeploymentOrchestrator:
         )
         declared_specs = self._declared_materializations()
         for old_revision, new_revision in swappable:
+            declared = declared_specs.get(new_revision.name)
             swap = await swap_cube_materializations(
                 self.session,
                 old_revision,
@@ -2339,9 +2341,12 @@ class DeploymentOrchestrator:
                     old_revision,
                     new_revision,
                 ),
-                declared=declared_specs.get(new_revision.name),
+                declared=declared,
             )
             if swap:
+                if swap.rebuilt_names and declared:
+                    # A new version means an empty datasource.
+                    swap.backfill = declared.coverage
                 self._cube_materialization_swaps.append(swap)
 
     def _declared_materializations(self) -> dict[str, MaterializationSpec]:
@@ -2458,6 +2463,7 @@ class DeploymentOrchestrator:
                         declared[name],
                         persisted.get(name),
                         access_checker,
+                        {mat.name for mat in active.get(name, [])},
                     )
             elif name in removing:
                 self._remove_cube_materialization(
@@ -2526,6 +2532,7 @@ class DeploymentOrchestrator:
         block: MaterializationSpec,
         persisted: MaterializationSpec | MaterializationAction | None,
         access_checker: AccessChecker | None,
+        active_names: set[str],
     ) -> None:
         """
         Configure one cube's materialization from its declared block.
@@ -2536,6 +2543,12 @@ class DeploymentOrchestrator:
         any DJ-side state actually moved, and only then is the query service asked to
         schedule anything -- an unchanged re-declare, or a block a revision swap has
         already built from, costs no remote call at all.
+
+        `active_names` is what the cube had materialized before reconciling. A block
+        that builds a name absent from it writes a datasource with nothing in it, so
+        a declared `coverage` is handed on as the span to backfill. Everything else
+        the reconciler changes -- the schedule, the lookback window, the coverage
+        itself -- keeps the datasource the cube already has.
         """
         operation = (
             DeploymentResult.Operation.CREATE
@@ -2642,6 +2655,11 @@ class DeploymentOrchestrator:
                         new_version=revision.version,
                         rebuilt_names=[materialization.name],
                         superseded=[],
+                        backfill=(
+                            block.coverage
+                            if materialization.name not in active_names
+                            else None
+                        ),
                     ),
                 )
         self.deployed_results.append(
@@ -2787,10 +2805,17 @@ class DeploymentOrchestrator:
         recorded the materialization as a success on the strength of DJ's own state
         moving; if the query service then refuses to schedule it, that success is
         wrong in exactly the way that hid these failures until now.
+
+        A coverage backfill rides along with the scheduling, on every deploy but a
+        branch one. A branch namespace exists so its author can see what the push
+        would give them, and hundreds of partition runs is not part of the preview.
         """
         request_headers = (
             dict(self.context.request.headers) if self.context.request else {}
         )
+        if await self._is_branch_deploy():
+            for swap in self._cube_materialization_swaps:
+                swap.backfill = None
         for swap in self._cube_materialization_swaps:
             outcome = await apply_cube_materialization_swap(
                 self.session,
@@ -2800,6 +2825,67 @@ class DeploymentOrchestrator:
             )
             if not outcome.scheduled:
                 self._report_materialization_push_failure(outcome)
+            elif swap.backfill:
+                self._report_backfill(outcome)
+
+    async def _is_branch_deploy(self) -> bool:
+        """
+        Whether this deploy targets a feature branch rather than the default one.
+
+        A branch is a namespace of its own, linked to a git branch, so the target
+        namespace is what says which. A namespace with no git root behind it -- a
+        plain `dj deploy` -- is not a branch.
+        """
+        git_info = await get_git_info_for_namespace(
+            self.session,
+            self.deployment_spec.namespace,
+        )
+        return git_info is not None and not git_info["is_default_branch"]
+
+    def _report_backfill(
+        self,
+        outcome: CubeMaterializationSwapOutcome,
+    ) -> None:
+        """
+        Say what the cube's new datasource is being filled with.
+
+        The run count is the point of the warning. A backfill runs one job per day
+        of the declared span, and a mistyped `from` is worth seeing at deploy time
+        rather than on a bill -- so the span is reported as launched, never capped:
+        two years of history is a thing authors legitimately ask for, and a cap is
+        something they could not undo from YAML.
+        """
+        if outcome.backfill_span is None:
+            self.warnings.append(
+                DJError(
+                    code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                    message=(
+                        f"Cube `{outcome.cube_name}`: no backfill ran. "
+                        f"{outcome.backfill_error}"
+                    ),
+                ),
+            )
+            return
+        start, end = outcome.backfill_span
+        runs = (end - start).days + 1
+        self.warnings.append(
+            DJError(
+                code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                message=(
+                    f"Cube `{outcome.cube_name}`: backfilling {start} to {end} "
+                    f"costs {runs} partition runs."
+                ),
+            ),
+        )
+        self.deployed_results.append(
+            DeploymentResult(
+                name=outcome.cube_name,
+                deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                status=DeploymentResult.Status.SUCCESS,
+                operation=DeploymentResult.Operation.CREATE,
+                message=f"backfilling {start} to {end}, {runs} partition runs",
+            ),
+        )
 
     def _report_materialization_push_failure(
         self,

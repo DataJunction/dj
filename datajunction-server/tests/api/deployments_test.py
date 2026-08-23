@@ -2,6 +2,7 @@ import asyncio
 import json
 import uuid
 from contextlib import asynccontextmanager
+from datetime import date, timedelta
 from types import SimpleNamespace
 from unittest import mock
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -55,6 +56,7 @@ from datajunction_server.models.node import (
 )
 from datajunction_server.database.user import PrincipalKind
 from datajunction_server.models.cube_materialization import PrincipalRef
+from datajunction_server.models.preaggregation import CubeBackfillInput
 from datajunction_server.utils import get_query_service_client
 from tests.authz import VALIDATOR_AUTH_SERVICE, deny
 from tests.construction.build_v3 import assert_sql_equal
@@ -3219,6 +3221,9 @@ class TestDeployments:
             "v1.0",
             "0 3 * * *",
         )
+        # A block that declares no coverage says nothing about how much history the
+        # cube should hold, so there is no span to backfill.
+        assert mock_qs.run_cube_backfill.call_args_list == []
 
     @pytest.mark.asyncio
     async def test_deploy_cube_with_declared_coverage(
@@ -3237,8 +3242,8 @@ class TestDeployments:
         materialization config and back out through `to_spec` as the same YAML the
         author wrote -- under both of its forms.
 
-        Nothing acts on it yet: the value reaches Druid through no part of the
-        materialization the query service is handed.
+        The value reaches Druid through no part of the materialization the query
+        service is handed. It drives a backfill instead, which is a call of its own.
         """
         namespace = "cube_coverage"
         cube = CubeSpec(
@@ -3313,7 +3318,41 @@ class TestDeployments:
         scheduled = mock_qs.materialize_cube.call_args.kwargs["materialization_input"]
         assert not hasattr(scheduled, "coverage")
 
+        # The cube's first datasource is empty, so the declared span is backfilled
+        # into it, and the deployment says what that costs.
+        assert mock_qs.run_cube_backfill.call_args.args == (
+            CubeBackfillInput(
+                cube_name=cube_name,
+                cube_version="v1.0",
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 6, 30),
+            ),
+        )
+        assert [
+            result
+            for result in data["results"]
+            if result["deploy_type"] == "materialization"
+        ] == [
+            {
+                "name": cube_name,
+                "deploy_type": "materialization",
+                "status": "success",
+                "operation": "create",
+                "message": "cube materialization on schedule 0 6 * * *",
+                "changed_fields": [],
+            },
+            {
+                "name": cube_name,
+                "deploy_type": "materialization",
+                "status": "success",
+                "operation": "create",
+                "message": "backfilling 2024-01-01 to 2024-06-30, 182 partition runs",
+                "changed_fields": [],
+            },
+        ]
+
         # The rolling form replaces the fixed one rather than accumulating alongside it.
+        mock_qs.reset_mock()
         cube.materialization = MaterializationSpec(
             schedule="0 6 * * *",
             coverage={"window": "800 DAYS"},
@@ -3350,6 +3389,9 @@ class TestDeployments:
             "retention": "400 DAYS",
             "coverage": {"window": "800 DAYS"},
         }
+        # Editing the coverage of a cube that already has its datasource does not
+        # refill it: the span moved, the datasource it is served from did not.
+        assert mock_qs.run_cube_backfill.call_args_list == []
 
         # Re-declaring the same coverage changes nothing, so the reconciler leaves
         # the live workflow alone.
@@ -3360,6 +3402,26 @@ class TestDeployments:
         )
         assert data["status"] == "success"
         assert mock_qs.materialize_cube.call_count == 0
+        assert mock_qs.run_cube_backfill.call_args_list == []
+
+        # A new cube version means a datasource nothing has written to yet, so the
+        # rolling window is counted back from yesterday and filled in.
+        mock_qs.reset_mock()
+        cube.description = "Cube for analyzing repair orders, revised"
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+        yesterday = date.today() - timedelta(days=1)
+        assert mock_qs.run_cube_backfill.call_args.args == (
+            CubeBackfillInput(
+                cube_name=cube_name,
+                cube_version="v1.1",
+                start_date=yesterday - timedelta(days=799),
+                end_date=yesterday,
+            ),
+        )
 
     @pytest.mark.asyncio
     async def test_deploy_reports_a_rejected_materialization_push(

@@ -2,7 +2,7 @@
 Unit tests for DeploymentOrchestrator
 """
 
-from datetime import UTC
+from datetime import UTC, date
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
@@ -55,6 +55,7 @@ from datajunction_server.models.deployment import (
 )
 from datajunction_server.models.dimensionlink import JoinLinkInput
 from datajunction_server.models.history import ActivityType
+from datajunction_server.models.materialization import CoverageSpec
 from datajunction_server.models.node import MetricUnit, NodeStatus
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import Granularity
@@ -3611,7 +3612,11 @@ class TestApplyCubeMaterializationSwaps:
     """
 
     @staticmethod
-    def _swap(cube_name: str, rebuilt_names: list[str]) -> CubeMaterializationSwap:
+    def _swap(
+        cube_name: str,
+        rebuilt_names: list[str],
+        backfill: CoverageSpec | None = None,
+    ) -> CubeMaterializationSwap:
         return CubeMaterializationSwap(
             cube_name=cube_name,
             previous_version="v1.0",
@@ -3619,6 +3624,7 @@ class TestApplyCubeMaterializationSwaps:
             new_version="v1.1",
             rebuilt_names=rebuilt_names,
             superseded=[],
+            backfill=backfill,
         )
 
     @staticmethod
@@ -3781,5 +3787,183 @@ class TestApplyCubeMaterializationSwaps:
                     "Cube `default.a_cube`: the query service rejected the request "
                     "to schedule its materialization: 403 Forbidden"
                 ),
+            ),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_backfill_is_reported_with_its_run_count(self, orchestrator):
+        """
+        A launched backfill is reported alongside the materialization, and the runs
+        it costs are warned about -- never capped, so a wide span still runs and a
+        mistyped `from` is visible at deploy time rather than at billing time.
+        """
+        orchestrator.context.request = None
+        orchestrator._cube_materialization_swaps = [
+            self._swap(
+                "default.a_cube",
+                ["druid_cube__full__a_cube"],
+                backfill=CoverageSpec(from_=date(2024, 1, 1), to=date(2024, 6, 30)),
+            ),
+        ]
+        orchestrator.deployed_results = [self._result("default.a_cube")]
+
+        with patch(
+            "datajunction_server.internal.deployment.orchestrator."
+            "apply_cube_materialization_swap",
+            new=AsyncMock(
+                return_value=CubeMaterializationSwapOutcome(
+                    cube_name="default.a_cube",
+                    materialization_names=["druid_cube__full__a_cube"],
+                    scheduled=True,
+                    backfill_span=(date(2024, 1, 1), date(2024, 6, 30)),
+                ),
+            ),
+        ):
+            await orchestrator._apply_cube_materialization_swaps()
+
+        assert orchestrator.deployed_results == [
+            self._result("default.a_cube"),
+            DeploymentResult(
+                name="default.a_cube",
+                deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                status=DeploymentResult.Status.SUCCESS,
+                operation=DeploymentResult.Operation.CREATE,
+                message="backfilling 2024-01-01 to 2024-06-30, 182 partition runs",
+            ),
+        ]
+        assert orchestrator.warnings == [
+            DJError(
+                code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                message=(
+                    "Cube `default.a_cube`: backfilling 2024-01-01 to 2024-06-30 "
+                    "costs 182 partition runs."
+                ),
+            ),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_backfill_that_never_ran_is_warned_about(self, orchestrator):
+        """
+        A cube whose datasource is new and empty and whose backfill did not launch
+        is the one case worth a warning of its own: nothing else will fill it.
+        """
+        orchestrator.context.request = None
+        orchestrator._cube_materialization_swaps = [
+            self._swap(
+                "default.a_cube",
+                ["druid_cube__full__a_cube"],
+                backfill=CoverageSpec(window="6 MONTHS"),
+            ),
+        ]
+
+        with patch(
+            "datajunction_server.internal.deployment.orchestrator."
+            "apply_cube_materialization_swap",
+            new=AsyncMock(
+                return_value=CubeMaterializationSwapOutcome(
+                    cube_name="default.a_cube",
+                    materialization_names=["druid_cube__full__a_cube"],
+                    scheduled=True,
+                    backfill_error="DJ cannot count this coverage window in days.",
+                ),
+            ),
+        ):
+            await orchestrator._apply_cube_materialization_swaps()
+
+        assert orchestrator.deployed_results == []
+        assert orchestrator.warnings == [
+            DJError(
+                code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                message=(
+                    "Cube `default.a_cube`: no backfill ran. DJ cannot count this "
+                    "coverage window in days."
+                ),
+            ),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_branch_deploy_backfills_nothing(self, orchestrator):
+        """
+        A branch namespace is a preview of what the push would give its author, and
+        hundreds of partition runs are not part of a preview.
+        """
+        orchestrator.context.request = None
+        swap = self._swap(
+            "default.a_cube",
+            ["druid_cube__full__a_cube"],
+            backfill=CoverageSpec(from_=date(2024, 1, 1)),
+        )
+        orchestrator._cube_materialization_swaps = [swap]
+
+        with (
+            patch(
+                "datajunction_server.internal.deployment.orchestrator."
+                "get_git_info_for_namespace",
+                new=AsyncMock(return_value={"is_default_branch": False}),
+            ),
+            patch(
+                "datajunction_server.internal.deployment.orchestrator."
+                "apply_cube_materialization_swap",
+                new=AsyncMock(
+                    return_value=CubeMaterializationSwapOutcome(
+                        cube_name="default.a_cube",
+                        materialization_names=["druid_cube__full__a_cube"],
+                        scheduled=True,
+                    ),
+                ),
+            ),
+        ):
+            await orchestrator._apply_cube_materialization_swaps()
+
+        assert swap.backfill is None
+        assert orchestrator.deployed_results == []
+        assert orchestrator.warnings == []
+
+    @pytest.mark.asyncio
+    async def test_the_default_branch_still_backfills(self, orchestrator):
+        """
+        The branch guard is about feature branches. A namespace tracking the repo's
+        default branch is where the cube people query lives.
+        """
+        orchestrator.context.request = None
+        swap = self._swap(
+            "default.a_cube",
+            ["druid_cube__full__a_cube"],
+            backfill=CoverageSpec(from_=date(2024, 1, 1), to=date(2024, 1, 3)),
+        )
+        orchestrator._cube_materialization_swaps = [swap]
+
+        with (
+            patch(
+                "datajunction_server.internal.deployment.orchestrator."
+                "get_git_info_for_namespace",
+                new=AsyncMock(return_value={"is_default_branch": True}),
+            ),
+            patch(
+                "datajunction_server.internal.deployment.orchestrator."
+                "apply_cube_materialization_swap",
+                new=AsyncMock(
+                    return_value=CubeMaterializationSwapOutcome(
+                        cube_name="default.a_cube",
+                        materialization_names=["druid_cube__full__a_cube"],
+                        scheduled=True,
+                        backfill_span=(date(2024, 1, 1), date(2024, 1, 3)),
+                    ),
+                ),
+            ),
+        ):
+            await orchestrator._apply_cube_materialization_swaps()
+
+        assert swap.backfill == CoverageSpec(
+            from_=date(2024, 1, 1),
+            to=date(2024, 1, 3),
+        )
+        assert orchestrator.deployed_results == [
+            DeploymentResult(
+                name="default.a_cube",
+                deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                status=DeploymentResult.Status.SUCCESS,
+                operation=DeploymentResult.Operation.CREATE,
+                message="backfilling 2024-01-01 to 2024-01-03, 3 partition runs",
             ),
         ]
