@@ -1,8 +1,9 @@
 """Models for materialization"""
 
 import enum
+import re
 from collections.abc import Callable
-from datetime import date
+from datetime import date, timedelta
 from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import (
@@ -62,6 +63,9 @@ DRUID_SKETCH_TYPES = {"HLLSketchMerge"}
 # 400 days covers a full year of history plus room for late-arriving restatements.
 DEFAULT_CUBE_RETENTION = "400 DAYS"
 
+# Rolling window units DJ can count in days.
+WINDOW_UNIT_DAYS = {"DAY": 1, "WEEK": 7}
+
 
 class CoverageSpec(BaseModel):
     """
@@ -80,7 +84,7 @@ class CoverageSpec(BaseModel):
     from_: date | None = Field(default=None, alias="from")
     to: date | None = None
 
-    # Free-form, like `lookback_window`, which parses nothing.
+    # Free-form, like `lookback_window`. `span` reads days and weeks.
     window: str | None = None
 
     model_config = ConfigDict(populate_by_name=True)
@@ -110,6 +114,24 @@ class CoverageSpec(BaseModel):
                 ),
             )
         return self
+
+    def span(self, today: date) -> tuple[date, date] | None:
+        """
+        The first and last date this coverage asks a backfill to run.
+
+        An ongoing fixed span ends yesterday, the last full day. `None` when a
+        rolling window names a unit `WINDOW_UNIT_DAYS` cannot count.
+        """
+        end = self.to or today - timedelta(days=1)
+        if self.from_:
+            return self.from_, end
+        match = re.fullmatch(r"(\d+)\s+([A-Za-z]+)", self.window or "")
+        if not match:
+            return None
+        unit = WINDOW_UNIT_DAYS.get(match.group(2).upper().rstrip("S"))
+        if not unit:
+            return None
+        return end - timedelta(days=int(match.group(1)) * unit - 1), end
 
     @model_serializer(mode="wrap")
     def serialize(self, handler: Callable[["CoverageSpec"], dict[str, Any]]) -> dict:

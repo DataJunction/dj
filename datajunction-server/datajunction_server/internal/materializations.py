@@ -3,7 +3,7 @@
 import logging
 import zlib
 from dataclasses import dataclass
-from datetime import UTC
+from datetime import UTC, date
 
 from pydantic import ValidationError
 from sqlalchemy import select
@@ -34,6 +34,7 @@ from datajunction_server.models.column import SemanticType
 from datajunction_server.models.cube_materialization import UpsertCubeMaterialization
 from datajunction_server.models.deployment import MaterializationSpec
 from datajunction_server.models.materialization import (
+    CoverageSpec,
     DruidCubeConfigInput,
     DruidMeasuresCubeConfig,
     DruidMetricsCubeConfig,
@@ -46,6 +47,7 @@ from datajunction_server.models.materialization import (
 )
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.preaggregation import CubeBackfillInput
 from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast
@@ -388,6 +390,10 @@ class CubeMaterializationSwap:
     rebuilt_names: list[str]
     superseded: list[Materialization]
 
+    # The span to backfill once the replacement is scheduled. Set only when the
+    # swap mints an empty Druid datasource and the cube declares `coverage`.
+    backfill: CoverageSpec | None = None
+
 
 @dataclass
 class CubeMaterializationSwapOutcome:
@@ -405,6 +411,10 @@ class CubeMaterializationSwapOutcome:
     materialization_names: list[str]
     scheduled: bool
     error: str | None = None
+
+    # The span a coverage backfill was launched over, and why it was not.
+    backfill_span: tuple[date, date] | None = None
+    backfill_error: str | None = None
 
 
 async def reconcile_declared_materialization(
@@ -670,6 +680,9 @@ async def apply_cube_materialization_swap(
     their workflow running would keep posting availability for a table the current
     revision cannot use.
 
+    A swap carrying a `backfill` span then fills the datasource it just minted,
+    which is empty until something does.
+
     Never raises. With no query service configured there is nothing to do at all.
     Returns what became of the scheduling instead, so a caller holding a report the
     author will read can say the materialization did not happen: the query service
@@ -707,6 +720,8 @@ async def apply_cube_materialization_swap(
             # refused, and paraphrasing that would cost the reader the only part of
             # the message that says what to do about it.
             outcome.error = str(exc)
+        if swap.backfill and outcome.scheduled:
+            _launch_backfill(query_service_client, swap, outcome, request_headers)
     stop_cube_materialization_workflows(
         query_service_client=query_service_client,
         cube_name=swap.cube_name,
@@ -715,6 +730,49 @@ async def apply_cube_materialization_swap(
         request_headers=request_headers,
     )
     return outcome
+
+
+def _launch_backfill(
+    query_service_client: QueryServiceClient,
+    swap: CubeMaterializationSwap,
+    outcome: CubeMaterializationSwapOutcome,
+    request_headers: dict[str, str] | None = None,
+) -> None:
+    """
+    Fill the swap's new, empty Druid datasource over the cube's declared span.
+
+    A new datasource is named for the cube version and the spec hash, so it starts
+    with nothing in it and the declared span is exactly what it is missing. Launched
+    and left: the workflow runs one job per partition, long past this deploy.
+
+    Never raises, and records on the outcome what the caller has to report.
+    """
+    span = swap.backfill.span(date.today()) if swap.backfill else None
+    if span is None:
+        outcome.backfill_error = "DJ cannot count this coverage window in days."
+        return
+    try:
+        query_service_client.run_cube_backfill(
+            CubeBackfillInput(
+                cube_name=swap.cube_name,
+                cube_version=swap.new_version,
+                start_date=span[0],
+                end_date=span[1],
+            ),
+            request_headers=request_headers,
+        )
+        outcome.backfill_span = span
+    except Exception as exc:
+        _logger.warning(
+            "Failed to backfill cube=%s version=%s over %s to %s: %s (continuing)",
+            swap.cube_name,
+            swap.new_version,
+            span[0],
+            span[1],
+            str(exc),
+            exc_info=True,
+        )
+        outcome.backfill_error = str(exc)
 
 
 def stop_cube_materialization_workflows(

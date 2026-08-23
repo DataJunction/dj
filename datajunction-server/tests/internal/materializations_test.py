@@ -2,6 +2,7 @@
 Tests for node materialization helper functions.
 """
 
+from datetime import date, timedelta
 from unittest import mock
 
 import pytest
@@ -15,7 +16,9 @@ from datajunction_server.internal.materializations import (
     stop_cube_materialization_workflows,
     stop_materialization_workflows,
 )
+from datajunction_server.models.materialization import CoverageSpec
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.preaggregation import CubeBackfillInput
 
 
 def test_stop_cube_workflows_prefers_stored_workflow_names():
@@ -234,7 +237,10 @@ def test_stop_materialization_workflows_reports_every_failure():
     ]
 
 
-def _swap(rebuilt_names: list[str]) -> CubeMaterializationSwap:
+def _swap(
+    rebuilt_names: list[str],
+    backfill: CoverageSpec | None = None,
+) -> CubeMaterializationSwap:
     """A swap with one superseded materialization and the given rebuilt names."""
     return CubeMaterializationSwap(
         cube_name="default.a_cube",
@@ -248,6 +254,7 @@ def _swap(rebuilt_names: list[str]) -> CubeMaterializationSwap:
                 config={"workflow_names": ["cube_workflow_1"]},
             ),
         ],
+        backfill=backfill,
     )
 
 
@@ -368,3 +375,161 @@ async def test_apply_cube_swap_without_a_query_service():
         scheduled=True,
         error=None,
     )
+
+
+async def _apply_with_backfill(
+    query_service_client,
+    coverage: CoverageSpec,
+) -> CubeMaterializationSwapOutcome:
+    """Apply a swap that mints a new datasource over the given coverage."""
+    with mock.patch(
+        "datajunction_server.internal.materializations.schedule_materialization_jobs",
+        new=mock.AsyncMock(),
+    ):
+        return await apply_cube_materialization_swap(
+            mock.MagicMock(),
+            _swap(["druid_cube_v3"], backfill=coverage),
+            query_service_client,
+        )
+
+
+@pytest.mark.asyncio
+async def test_apply_cube_swap_backfills_a_fixed_span():
+    """
+    A declared span with both ends is backfilled exactly as written, against the
+    new version -- which is what names the empty datasource.
+    """
+    query_service_client = mock.MagicMock()
+
+    outcome = await _apply_with_backfill(
+        query_service_client,
+        CoverageSpec(from_=date(2024, 1, 1), to=date(2024, 6, 30)),
+    )
+
+    assert outcome == CubeMaterializationSwapOutcome(
+        cube_name="default.a_cube",
+        materialization_names=["druid_cube_v3"],
+        scheduled=True,
+        error=None,
+        backfill_span=(date(2024, 1, 1), date(2024, 6, 30)),
+        backfill_error=None,
+    )
+    assert query_service_client.run_cube_backfill.call_args_list == [
+        mock.call(
+            CubeBackfillInput(
+                cube_name="default.a_cube",
+                cube_version="v1.1",
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 6, 30),
+            ),
+            request_headers=None,
+        ),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_apply_cube_swap_backfills_an_ongoing_span():
+    """A span with no `to` runs up to yesterday, the last full day."""
+    yesterday = date.today() - timedelta(days=1)
+
+    outcome = await _apply_with_backfill(
+        mock.MagicMock(),
+        CoverageSpec(from_=date(2024, 1, 1)),
+    )
+
+    assert outcome.backfill_span == (date(2024, 1, 1), yesterday)
+
+
+@pytest.mark.asyncio
+async def test_apply_cube_swap_backfills_a_rolling_window():
+    """A rolling window is counted back from yesterday, inclusive of both ends."""
+    yesterday = date.today() - timedelta(days=1)
+
+    outcome = await _apply_with_backfill(
+        mock.MagicMock(),
+        CoverageSpec(window="800 DAYS"),
+    )
+
+    assert outcome.backfill_span == (yesterday - timedelta(days=799), yesterday)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("window", ["6 MONTHS", "a while"])
+async def test_apply_cube_swap_cannot_count_the_window(window):
+    """
+    A window DJ cannot turn into days -- an unknown unit, or a duration that reads
+    as nothing at all -- launches nothing, and says so rather than leaving the
+    datasource quietly empty.
+    """
+    query_service_client = mock.MagicMock()
+
+    outcome = await _apply_with_backfill(
+        query_service_client,
+        CoverageSpec(window=window),
+    )
+
+    assert outcome == CubeMaterializationSwapOutcome(
+        cube_name="default.a_cube",
+        materialization_names=["druid_cube_v3"],
+        scheduled=True,
+        error=None,
+        backfill_span=None,
+        backfill_error="DJ cannot count this coverage window in days.",
+    )
+    assert query_service_client.run_cube_backfill.call_args_list == []
+
+
+@pytest.mark.asyncio
+async def test_apply_cube_swap_reports_a_refused_backfill():
+    """
+    A backfill the query service refuses does not raise -- the materialization is
+    scheduled and the deploy has committed -- but the refusal comes back verbatim.
+    """
+    query_service_client = mock.MagicMock()
+    query_service_client.run_cube_backfill.side_effect = Exception("429 Too Many")
+
+    outcome = await _apply_with_backfill(
+        query_service_client,
+        CoverageSpec(from_=date(2024, 1, 1), to=date(2024, 1, 2)),
+    )
+
+    assert outcome == CubeMaterializationSwapOutcome(
+        cube_name="default.a_cube",
+        materialization_names=["druid_cube_v3"],
+        scheduled=True,
+        error=None,
+        backfill_span=None,
+        backfill_error="429 Too Many",
+    )
+
+
+@pytest.mark.asyncio
+async def test_apply_cube_swap_backfills_nothing_unscheduled():
+    """
+    A backfill needs the workflow the scheduling would have created, so a rejected
+    push takes the backfill with it.
+    """
+    query_service_client = mock.MagicMock()
+
+    with mock.patch(
+        "datajunction_server.internal.materializations.schedule_materialization_jobs",
+        new=mock.AsyncMock(side_effect=Exception("403 Forbidden")),
+    ):
+        outcome = await apply_cube_materialization_swap(
+            mock.MagicMock(),
+            _swap(
+                ["druid_cube_v3"],
+                backfill=CoverageSpec(from_=date(2024, 1, 1)),
+            ),
+            query_service_client,
+        )
+
+    assert outcome == CubeMaterializationSwapOutcome(
+        cube_name="default.a_cube",
+        materialization_names=["druid_cube_v3"],
+        scheduled=False,
+        error="403 Forbidden",
+        backfill_span=None,
+        backfill_error=None,
+    )
+    assert query_service_client.run_cube_backfill.call_args_list == []
