@@ -7,6 +7,7 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.node import Node, NodeRelationship, NodeRevision
+from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.cube_materialization import (
     Aggregability,
     AggregationRule,
@@ -14,6 +15,10 @@ from datajunction_server.models.cube_materialization import (
 )
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.semiadditive import (
+    SemiAdditiveCollapseFunction,
+    SemiAdditiveSpec,
+)
 from datajunction_server.sql import functions as dj_functions
 from datajunction_server.sql.decompose import (
     DUPLICATION_INVARIANT_AGGREGATIONS,
@@ -62,7 +67,12 @@ async def create_metric(session: AsyncSession, current_user, parent_node):
     """Fixture to create a metric node with a query."""
     created_metrics: list[NodeRevision] = []
 
-    async def _create(query: str, name: str | None = None, parent=None):
+    async def _create(
+        query: str,
+        name: str | None = None,
+        parent=None,
+        semi_additive: dict[str, str] | None = None,
+    ):
         parent_to_use = parent if parent else parent_node
         metric_name = name or f"test_metric_{len(created_metrics)}"
 
@@ -81,6 +91,7 @@ async def create_metric(session: AsyncSession, current_user, parent_node):
             name=metric_name,
             type=NodeType.METRIC,
             query=query,
+            semi_additive=semi_additive,
             created_by_id=current_user.id,
         )
         session.add(metric_rev)
@@ -117,6 +128,44 @@ async def test_simple_sum(session: AsyncSession, create_metric):
     assert_sql_equal(
         str(derived_sql),
         "SELECT SUM(sales_amount_sum_b5a3cefe) FROM parent_node",
+    )
+
+
+@pytest.mark.asyncio
+async def test_semi_additive_sum_attaches_spec(session: AsyncSession, create_metric):
+    """
+    Semi-additive declarations attach to the single extracted base measure.
+    """
+    metric_rev = await create_metric(
+        "SELECT SUM(account_balance) FROM parent_node",
+        semi_additive={
+            "dimension": "default.date_dim.date",
+            "function": "last_value",
+        },
+    )
+
+    extractor = MetricComponentExtractor(metric_rev.id)
+    measures, derived_sql = await extractor.extract(session)
+
+    expected_spec = SemiAdditiveSpec(
+        dimension="default.date_dim.date",
+        function=SemiAdditiveCollapseFunction.LAST_VALUE,
+    )
+    assert measures == [
+        MetricComponent(
+            name="account_balance_sum_8e611a76",
+            expression="account_balance",
+            aggregation="SUM",
+            merge="SUM",
+            rule=AggregationRule(
+                type=Aggregability.FULL,
+                semi_additive=expected_spec,
+            ),
+        ),
+    ]
+    assert_sql_equal(
+        str(derived_sql),
+        "SELECT SUM(account_balance_sum_8e611a76) FROM parent_node",
     )
 
 
@@ -852,6 +901,46 @@ async def test_unsupported_aggregation_function(session: AsyncSession, create_me
         str(derived_sql),
         "SELECT approx_percentile(duration_ms, 1.0, 0.9) / 1000 FROM parent_node",
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("query", "match"),
+    [
+        (
+            "SELECT AVG(sales_amount) FROM parent_node",
+            "exactly one component",
+        ),
+        (
+            "SELECT COUNT(DISTINCT user_id) FROM parent_node",
+            "one non-distinct fully-aggregatable component",
+        ),
+        (
+            "SELECT MEDIAN(sales_amount) FROM parent_node",
+            "decomposable aggregation",
+        ),
+    ],
+)
+async def test_unsupported_semi_additive_shapes(
+    session: AsyncSession,
+    create_metric,
+    query: str,
+    match: str,
+):
+    """
+    V1 semi-additive metrics only support one ordinary decomposable component.
+    """
+    metric_rev = await create_metric(
+        query,
+        semi_additive={
+            "dimension": "default.date_dim.date",
+            "function": "last_value",
+        },
+    )
+
+    extractor = MetricComponentExtractor(metric_rev.id)
+    with pytest.raises(DJInvalidInputException, match=match):
+        await extractor.extract(session)
 
 
 @pytest.mark.asyncio

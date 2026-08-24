@@ -7,6 +7,7 @@ enum Aggregability {
 type AggregationRule {
   type: Aggregability!
   level: [String!]
+  semiAdditive: SemiAdditiveSpec
 }
 
 type Attribute {
