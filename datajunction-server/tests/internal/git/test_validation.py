@@ -828,6 +828,114 @@ class TestGetGitInfoForNamespace:
         assert result is not None
         assert result["is_default_branch"] is False
 
+    @pytest.mark.asyncio
+    async def test_default_branch_from_ancestor_row(self, session: AsyncSession):
+        """The branch namespace owns the repo path; its parent owns default_branch."""
+        session.add(
+            NodeNamespace(
+                namespace="shop.metrics",
+                github_repo_path="corp/examplerepo",
+                default_branch="main",
+                git_path="defs/",
+            ),
+        )
+        session.add(
+            NodeNamespace(
+                namespace="shop.metrics.main",
+                github_repo_path="corp/examplerepo",
+                git_branch="main",
+                git_path="defs/",
+                parent_namespace="shop.metrics",
+            ),
+        )
+        await session.commit()
+
+        result = await get_git_info_for_namespace(session, "shop.metrics.main")
+
+        assert result == {
+            "repo": "corp/examplerepo",
+            "branch": "main",
+            "default_branch": "main",
+            "path": "defs/",
+            "is_default_branch": True,
+            "parent_namespace": "shop.metrics",
+            "git_only": False,
+            "git_root_namespace": "shop.metrics.main",
+            "branch_namespace": "shop.metrics.main",
+        }
+
+    @pytest.mark.asyncio
+    async def test_feature_branch_with_own_repo(self, session: AsyncSession):
+        """A feature branch owning the repo path is not the default branch."""
+        session.add(
+            NodeNamespace(
+                namespace="shop.metrics",
+                github_repo_path="corp/examplerepo",
+                default_branch="main",
+                git_path="defs/",
+            ),
+        )
+        session.add(
+            NodeNamespace(
+                namespace="shop.metrics.featureone",
+                github_repo_path="corp/examplerepo",
+                git_branch="test_cube",
+                git_path="defs/",
+                parent_namespace="shop.metrics",
+            ),
+        )
+        await session.commit()
+
+        result = await get_git_info_for_namespace(session, "shop.metrics.featureone")
+
+        assert result == {
+            "repo": "corp/examplerepo",
+            "branch": "test_cube",
+            "default_branch": "main",
+            "path": "defs/",
+            "is_default_branch": False,
+            "parent_namespace": "shop.metrics",
+            "git_only": False,
+            "git_root_namespace": "shop.metrics.featureone",
+            "branch_namespace": "shop.metrics.featureone",
+        }
+
+    @pytest.mark.asyncio
+    async def test_default_branch_via_fk_parent(self, session: AsyncSession):
+        """The git root is reached by the FK hop, not by name."""
+        session.add(
+            NodeNamespace(
+                namespace="roots.repo",
+                github_repo_path="org/repo",
+                default_branch="main",
+                git_path="defs/",
+            ),
+        )
+        session.add(
+            NodeNamespace(
+                namespace="branches.main",
+                github_repo_path="org/repo",
+                git_branch="main",
+                git_path="defs/",
+                parent_namespace="roots.repo",
+            ),
+        )
+        await session.commit()
+
+        result = await get_git_info_for_namespace(session, "branches.main")
+
+        assert result == {
+            "repo": "org/repo",
+            "branch": "main",
+            "default_branch": "main",
+            "path": "defs/",
+            "is_default_branch": True,
+            "parent_namespace": "roots.repo",
+            "git_only": False,
+            "git_root_namespace": "roots.repo",
+            "branch_namespace": "branches.main",
+        }
+
     # ------------------------------------------------------------------
     # parent_namespace
     # ------------------------------------------------------------------

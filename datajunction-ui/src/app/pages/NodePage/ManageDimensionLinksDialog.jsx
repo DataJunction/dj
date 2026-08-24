@@ -11,6 +11,7 @@ export default function ManageDimensionLinksDialog({
   column,
   node,
   dimensions,
+  loadDimensionOptions = null,
   fkLinks,
   referenceLink,
   onSubmit,
@@ -328,6 +329,7 @@ export default function ManageDimensionLinksDialog({
                               </label>
                               <FormikSelect
                                 selectOptions={dimensions}
+                                loadOptions={loadDimensionOptions}
                                 formikFieldName="fkDimensions"
                                 placeholder="Select dimensions"
                                 isMulti={true}
@@ -403,6 +405,7 @@ export default function ManageDimensionLinksDialog({
                               </label>
                               <FormikSelect
                                 selectOptions={dimensions}
+                                loadOptions={loadDimensionOptions}
                                 formikFieldName="dimensionNode"
                                 placeholder="Select dimension"
                                 defaultValue={

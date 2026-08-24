@@ -6406,6 +6406,59 @@ class TestCubeRefreshMaterialization:
         response = await client_with_repairs_cube.get(f"/nodes/{cube_name}/")
         assert response.json()["version"] == initial_version
 
+    @pytest.mark.asyncio
+    async def test_refresh_materialization_carries_attribution(
+        self,
+        client_with_repairs_cube: AsyncClient,
+        mocker,
+    ):
+        """
+        A refreshed materialization carries the same owners and custom metadata the
+        normal scheduling path sends, so the query service can work out who owns the
+        resulting workflow and which data project it belongs to.
+        """
+        cube_name = "default.test_refresh_attribution_cube"
+        mock_qs_client = mocker.MagicMock()
+        mock_qs_client.materialize.return_value = mocker.MagicMock(
+            urls=["http://workflow/setup"],
+        )
+        client_with_repairs_cube.app.dependency_overrides[get_query_service_client] = (
+            lambda: mock_qs_client
+        )
+        await make_a_test_cube(
+            client_with_repairs_cube,
+            cube_name,
+            with_materialization=True,
+        )
+
+        # Give the cube the metadata the query service routes on
+        response = await client_with_repairs_cube.patch(
+            f"/nodes/{cube_name}/",
+            json={"custom_metadata": {"project": "repairs"}},
+        )
+        assert response.status_code == 200, response.json()
+
+        mock_refresh = mocker.patch.object(
+            mock_qs_client,
+            "refresh_cube_materialization",
+            return_value=mocker.MagicMock(urls=["http://workflow/refreshed"]),
+        )
+        response = await client_with_repairs_cube.patch(
+            f"/nodes/{cube_name}/?refresh_materialization=true",
+            json={},
+        )
+        assert response.status_code == 200
+
+        materializations = mock_refresh.call_args[1]["materializations"]
+        assert [
+            (mat["owners"], mat["custom_metadata"]) for mat in materializations
+        ] == [
+            (
+                [{"username": "dj", "kind": "user"}],
+                {"project": "repairs"},
+            ),
+        ]
+
 
 class TestStopStaleCubeMaterializationWorkflows:
     """

@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from fastapi_cache.decorator import cache
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.orm import joinedload, load_only, noload, selectinload
 from sqlalchemy.sql.operators import is_
 from starlette.requests import Request
 
@@ -29,6 +29,7 @@ from datajunction_server.api.helpers import (
 from datajunction_server.api.tags import get_tags_by_name
 from datajunction_server.database.attributetype import ColumnAttribute
 from datajunction_server.database.column import Column
+from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.history import History
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.partition import Partition
@@ -199,7 +200,11 @@ async def revalidate(
 
     # Create/update views if requested and this is a cube (non-blocking)
     if sync_views:
-        node = await Node.get_by_name(session, name)
+        node = await Node.get_by_name(
+            session,
+            name,
+            options=[load_only(Node.type)],
+        )
         if node and node.type == NodeType.CUBE:  # type: ignore
             background_tasks.add_task(
                 create_cube_views,
@@ -258,7 +263,17 @@ async def set_column_attributes(
         session,
         node_name,
         options=[
-            joinedload(Node.current).options(*NodeRevision.default_load_options()),
+            joinedload(Node.current).options(
+                selectinload(NodeRevision.columns).options(
+                    joinedload(Column.attributes).joinedload(
+                        ColumnAttribute.attribute_type,
+                    ),
+                    joinedload(Column.dimension).options(
+                        noload(Node.created_by),
+                    ),
+                    joinedload(Column.partition),
+                ),
+            ),
         ],
     )
     columns = await set_node_column_attributes(
@@ -283,8 +298,10 @@ async def list_nodes(
     """
     List the available nodes.
     """
-    nodes = await Node.find(session, prefix, node_type)  # type: ignore
-    access_checker.add_nodes(nodes, access.ResourceAction.READ)
+    # Only the names are needed, here and for the access check.
+    node_names = await Node.find_names(session, prefix, node_type)
+    for node_name in node_names:
+        access_checker.add_request_by_node_name(node_name, access.ResourceAction.READ)
     return await access_checker.approved_resource_names()
 
 
@@ -497,7 +514,28 @@ async def list_node_revisions(
         session,
         name,
         options=[
-            joinedload(Node.revisions).options(*NodeRevision.default_load_options()),
+            joinedload(Node.revisions).options(
+                selectinload(NodeRevision.columns).options(
+                    joinedload(Column.attributes).joinedload(
+                        ColumnAttribute.attribute_type,
+                    ),
+                    joinedload(Column.dimension).options(
+                        noload(Node.created_by),
+                    ),
+                    joinedload(Column.partition),
+                ),
+                joinedload(NodeRevision.catalog),
+                selectinload(NodeRevision.parents),
+                selectinload(NodeRevision.materializations),
+                selectinload(NodeRevision.metric_metadata),
+                selectinload(NodeRevision.availability),
+                selectinload(NodeRevision.dimension_links).options(
+                    joinedload(DimensionLink.dimension).options(
+                        noload(Node.created_by),
+                    ),
+                    joinedload(DimensionLink.node_revision),
+                ),
+            ),
         ],
         raise_if_not_exists=True,
     )
@@ -1093,6 +1131,10 @@ async def tags_node(
     node = await Node.get_by_name(
         session=session,
         name=name,
+        options=[
+            load_only(Node.name),
+            selectinload(Node.tags),
+        ],
         raise_if_not_exists=True,
     )
     existing_tags = {tag.name for tag in node.tags}  # type: ignore
@@ -1323,7 +1365,15 @@ async def list_upstream_nodes(
     access_checker.add_request_by_node_name(name, ResourceAction.READ)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
-    node = cast(Node, await Node.get_by_name(session, name, raise_if_not_exists=True))
+    node = cast(
+        Node,
+        await Node.get_by_name(
+            session,
+            name,
+            options=[load_only(Node.name, Node.current_version)],
+            raise_if_not_exists=True,
+        ),
+    )
     upstream_cache_key = node.upstream_cache_key()
     results = cache.get(upstream_cache_key)
     if results is None:
@@ -1401,7 +1451,7 @@ async def list_all_dimension_attributes(
     access_checker.add_request_by_node_name(name, ResourceAction.READ)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
-    dimensions = await get_dimension_attributes(session, name)
+    dimensions = await get_dimension_attributes(session, name, depth=depth)
     filter_only_dimensions = await get_filter_only_dimensions(session, name)
     return dimensions + filter_only_dimensions
 
@@ -1687,8 +1737,16 @@ async def set_column_partition(
         node_name,
         options=[
             joinedload(Node.current).options(
-                *NodeRevision.default_load_options(),
-                joinedload(NodeRevision.cube_elements),
+                selectinload(NodeRevision.columns).options(
+                    joinedload(Column.attributes).joinedload(
+                        ColumnAttribute.attribute_type,
+                    ),
+                    joinedload(Column.dimension).options(
+                        noload(Node.created_by),
+                    ),
+                    joinedload(Column.partition),
+                ),
+                selectinload(NodeRevision.cube_elements),
             ),
         ],
         raise_if_not_exists=True,
@@ -1766,8 +1824,16 @@ async def remove_column_partition(
         node_name,
         options=[
             joinedload(Node.current).options(
-                *NodeRevision.default_load_options(),
-                joinedload(NodeRevision.cube_elements),
+                selectinload(NodeRevision.columns).options(
+                    joinedload(Column.attributes).joinedload(
+                        ColumnAttribute.attribute_type,
+                    ),
+                    joinedload(Column.dimension).options(
+                        noload(Node.created_by),
+                    ),
+                    joinedload(Column.partition),
+                ),
+                selectinload(NodeRevision.cube_elements),
             ),
         ],
         raise_if_not_exists=True,

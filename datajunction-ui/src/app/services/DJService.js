@@ -1774,12 +1774,41 @@ export const DataJunctionAPI = {
     );
     return { status: response.status, json: await response.json() };
   },
-  dimensions: async function () {
+  // The full list runs to tens of thousands of entries on a large instance, so
+  // callers that render it should ask for a limit and use `searchDimensions`
+  // for anything past the cut-off.
+  dimensions: async function (limit = null) {
+    const query = limit ? `?limit=${limit}` : '';
     return await (
-      await fetch(`${DJ_URL}/dimensions`, {
+      await fetch(`${DJ_URL}/dimensions/${query}`, {
         credentials: 'include',
       })
     ).json();
+  },
+
+  searchDimensions: async function (query, { signal, limit = 100 } = {}) {
+    const gqlQuery = `
+      query SearchDimensions($q: String!, $limit: Int!) {
+        findNodes(search: $q, nodeTypes: [DIMENSION], limit: $limit) {
+          name
+          current {
+            displayName
+          }
+        }
+      }
+    `;
+    const response = await fetch(DJ_GQL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      signal,
+      body: JSON.stringify({ query: gqlQuery, variables: { q: query, limit } }),
+    });
+    const result = await response.json();
+    return (result?.data?.findNodes || []).map(node => ({
+      name: node.name,
+      displayName: node.current?.displayName || node.name,
+    }));
   },
   nodeDimensions: async function (nodeName) {
     return await (

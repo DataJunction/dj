@@ -91,7 +91,10 @@ from datajunction_server.models.attribute import (
 )
 from datajunction_server.models.base import labelize
 from datajunction_server.models.cube import CubeRevisionMetadata
-from datajunction_server.models.cube_materialization import UpsertCubeMaterialization
+from datajunction_server.models.cube_materialization import (
+    UpsertCubeMaterialization,
+    principal_refs,
+)
 from datajunction_server.models.deployment import (
     ChangeTier,
     CubeSpec,
@@ -1960,9 +1963,19 @@ async def update_cube_node(
                     mat.deactivated_at = None
             await session.commit()
 
+            # ``Node.owners`` is lazy and ``get_cube_by_name`` does not eager-load
+            # it, so reading it here without an explicit refresh would emit a sync
+            # lazy-load inside the async request and surface as MissingGreenlet
+            # whenever the identity map happens not to hold it already.
+            await session.refresh(node, ["owners"])  # type: ignore
+            owners = [owner.model_dump() for owner in principal_refs(node.owners)]  # type: ignore
+
             # Serialize active materializations as complete, ready-to-use dicts
             # so dj-query can parse them directly into model inputs without merging.
             # This avoids a callback from query service back to DJ.
+            # The attribution fields (owners, custom_metadata) must match what the
+            # normal scheduling path in DruidCubeMaterializationJob.schedule sends,
+            # or the query service cannot tell who owns the refreshed workflow.
             active_mats = []
             for mat in node_revision.materializations:
                 if mat.deactivated_at:
@@ -1977,6 +1990,8 @@ async def update_cube_node(
                         "name": node_revision.name,
                         "version": node_revision.version,
                     },
+                    "owners": owners,
+                    "custom_metadata": node_revision.custom_metadata,
                 }
                 active_mats.append(mat_dict)
             query_service_client.refresh_cube_materialization(

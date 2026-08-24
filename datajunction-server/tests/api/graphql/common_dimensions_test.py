@@ -5,40 +5,9 @@ Tests for the common dimensions query.
 from collections.abc import AsyncGenerator
 
 import pytest
-import pytest_asyncio
 from httpx import AsyncClient
-from sqlalchemy import event
-from sqlalchemy.ext.asyncio import AsyncSession
 
-
-@pytest_asyncio.fixture
-async def capture_queries(
-    session: AsyncSession,
-) -> AsyncGenerator[list[str], None]:
-    """
-    Returns a list of strings, where each string represents a SQL statement
-    captured during the test.
-    """
-    queries = []
-    sync_engine = session.bind.sync_engine
-
-    def before_cursor_execute(
-        _conn,
-        _cursor,
-        statement,
-        _parameters,
-        _context,
-        _executemany,
-    ):
-        queries.append(statement)
-
-    # Attach event listener to capture queries
-    event.listen(sync_engine, "before_cursor_execute", before_cursor_execute)
-
-    yield queries
-
-    # Detach event listener after the test
-    event.remove(sync_engine, "before_cursor_execute", before_cursor_execute)
+# ``capture_queries`` is a shared fixture defined in tests/conftest.py
 
 
 @pytest.mark.asyncio

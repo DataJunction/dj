@@ -1,6 +1,6 @@
 """Tests for preagg_freshness.py - freshness gating for pre-aggregations."""
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 import pytest
 
@@ -15,7 +15,10 @@ from datajunction_server.construction.build_v3.preagg_freshness import (
     preagg_is_fresh,
     temporal_grain_axis,
 )
-from datajunction_server.models.partition import render_partition_value
+from datajunction_server.models.partition import (
+    parse_partition_value,
+    render_partition_value,
+)
 from datajunction_server.construction.build_v3.types import BuildContext
 from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.column import Column
@@ -175,6 +178,27 @@ class TestRenderPartitionValue:
     def test_render(self, format_, expected):
         moment = datetime(2026, 7, 31, 14, 5, 9, tzinfo=timezone.utc)
         assert render_partition_value(moment, format_) == expected
+
+
+class TestParsePartitionValue:
+    """Reading a partition value back as the day it names."""
+
+    @pytest.mark.parametrize(
+        "value, format_, expected",
+        [
+            ("20260731", "yyyyMMdd", date(2026, 7, 31)),
+            # Separators name a day even though they render no integer.
+            ("2026-07-31", "yyyy-MM-dd", date(2026, 7, 31)),
+            # An hourly value names the day it falls in.
+            ("2026073114", "yyyyMMddHH", date(2026, 7, 31)),
+            # The value does not match the format.
+            ("2026-07-31", "yyyyMMdd", None),
+            # No format to read it against.
+            ("20260731", None, None),
+        ],
+    )
+    def test_parse(self, value, format_, expected):
+        assert parse_partition_value(value, format_) == expected
 
 
 class TestUpperBounds:

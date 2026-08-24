@@ -10,11 +10,16 @@ import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import foundation from 'react-syntax-highlighter/dist/esm/styles/hljs/foundation';
 import { getColumnIdentifier } from '../../utils/column';
 
+// How many dimensions to show before the user narrows the list by typing.
+const DIMENSION_OPTIONS_LIMIT = 100;
+
 export default function NodeColumnTab({ node, djClient, readOnly = false }) {
   const [attributes, setAttributes] = useState([]);
   const [dimensions, setDimensions] = useState([]);
+  const [dimensionsError, setDimensionsError] = useState(null);
   const [columns, setColumns] = useState([]);
   const [links, setLinks] = useState([]);
+  const dimensionSearchAbort = React.useRef(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -36,9 +41,12 @@ export default function NodeColumnTab({ node, djClient, readOnly = false }) {
     fetchData().catch(console.error);
   }, [djClient]);
 
+  // Only the most-linked dimensions are loaded up front; the rest are reachable
+  // by typing, which searches server-side.
   useEffect(() => {
     const fetchData = async () => {
-      const dimensions = await djClient.dimensions();
+      setDimensionsError(null);
+      const dimensions = await djClient.dimensions(DIMENSION_OPTIONS_LIMIT);
       const options = dimensions.map(dim => {
         return {
           value: dim.name,
@@ -47,8 +55,41 @@ export default function NodeColumnTab({ node, djClient, readOnly = false }) {
       });
       setDimensions(options);
     };
-    fetchData().catch(console.error);
+    fetchData().catch(error => {
+      console.error(error);
+      setDimensionsError('Could not load dimensions. Try reloading the page.');
+    });
   }, [djClient]);
+
+  // react-select calls this on every keystroke; the previous request is
+  // abandoned so out-of-order responses can't overwrite newer ones.
+  const loadDimensionOptions = React.useCallback(
+    async inputValue => {
+      const query = (inputValue || '').trim();
+      if (!query) {
+        return dimensions;
+      }
+      if (dimensionSearchAbort.current) {
+        dimensionSearchAbort.current.abort();
+      }
+      const controller = new AbortController();
+      dimensionSearchAbort.current = controller;
+      try {
+        const matches = await djClient.searchDimensions(query, {
+          signal: controller.signal,
+          limit: DIMENSION_OPTIONS_LIMIT,
+        });
+        return matches.map(dim => ({ value: dim.name, label: dim.name }));
+      } catch (error) {
+        if (error.name === 'AbortError') {
+          return [];
+        }
+        console.error(error);
+        return [];
+      }
+    },
+    [djClient, dimensions],
+  );
 
   const showColumnAttributes = col => {
     const columnIdentifier = getColumnIdentifier(node, col);
@@ -256,6 +297,7 @@ export default function NodeColumnTab({ node, djClient, readOnly = false }) {
                     column={col}
                     node={node}
                     dimensions={dimensions}
+                    loadDimensionOptions={loadDimensionOptions}
                     fkLinks={fkLinksForColumn}
                     referenceLink={referenceLink}
                     onSubmit={async () => {
@@ -359,10 +401,16 @@ export default function NodeColumnTab({ node, djClient, readOnly = false }) {
         >
           <h3 style={{ margin: 0 }}>
             Complex Dimension Links (Custom Join SQL)
+            {dimensionsError ? (
+              <span role="alert" className="alert alert-danger">
+                {dimensionsError}
+              </span>
+            ) : null}
           </h3>
           <AddComplexDimensionLinkPopover
             node={node}
             dimensions={dimensions}
+            loadDimensionOptions={loadDimensionOptions}
             onSubmit={async () => {
               const res = await djClient.node(node.name);
               setLinks(res.dimension_links);
@@ -411,6 +459,7 @@ export default function NodeColumnTab({ node, djClient, readOnly = false }) {
                         <AddComplexDimensionLinkPopover
                           node={node}
                           dimensions={dimensions}
+                          loadDimensionOptions={loadDimensionOptions}
                           existingLink={link}
                           isEditMode={true}
                           onSubmit={async () => {

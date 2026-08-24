@@ -1,6 +1,7 @@
 """Models related to cube materialization"""
 
 import hashlib
+from collections.abc import Iterable
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, computed_field, field_validator
@@ -16,6 +17,7 @@ from datajunction_server.models.decompose import (
 from datajunction_server.models.materialization import (
     DEFAULT_CUBE_RETENTION,
     DRUID_AGG_MAPPING,
+    CoverageSpec,
     MaterializationJobTypeEnum,
     MaterializationStrategy,
 )
@@ -278,6 +280,8 @@ class UpsertCubeMaterialization(BaseModel):
     # How long the Druid datasource keeps ingested data. Applies under both strategies.
     retention: str | None = DEFAULT_CUBE_RETENTION
 
+    coverage: CoverageSpec | None = None
+
     @field_validator("job")
     def validate_job(
         cls,
@@ -473,6 +477,8 @@ class DruidCubeConfig(BaseModel):
     # Configs persisted before this field existed pick up the default on their next build.
     retention: str | None = DEFAULT_CUBE_RETENTION
 
+    coverage: CoverageSpec | None = None
+
 
 class PrincipalRef(BaseModel):
     """
@@ -481,6 +487,20 @@ class PrincipalRef(BaseModel):
 
     username: str
     kind: Literal["user", "service_account", "group"] = "user"
+
+
+def principal_refs(owners: Iterable[Any]) -> list[PrincipalRef]:
+    """
+    The owners of a node, in the shape a materialization payload carries them.
+
+    Every path that hands a materialization to the query service goes through here,
+    so the attribution the query service reads is identical no matter whether the
+    materialization was scheduled fresh or refreshed in place.
+    """
+    return [
+        PrincipalRef(username=owner.username, kind=owner.kind)
+        for owner in sorted(owners, key=lambda owner: owner.username)
+    ]
 
 
 class DruidCubeMaterializationInput(BaseModel):

@@ -3,7 +3,8 @@
 import logging
 import zlib
 from dataclasses import dataclass
-from datetime import UTC
+from datetime import UTC, date, timedelta
+from typing import Any
 
 from pydantic import ValidationError
 from sqlalchemy import select
@@ -12,6 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.construction.build import get_default_criteria
 from datajunction_server.construction.build_v2 import QueryBuilder
+from datajunction_server.database.backfill import Backfill
+from datajunction_server.database.column import Column
 from datajunction_server.database.history import (
     ActivityType,
     EntityType,
@@ -46,7 +49,13 @@ from datajunction_server.models.materialization import (
 )
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.partition import (
+    PartitionBackfill,
+    parse_partition_value,
+)
+from datajunction_server.models.preaggregation import CubeBackfillInput
 from datajunction_server.models.query import ColumnMetadata
+from datajunction_server.naming import amenable_name
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import CompileContext
@@ -348,9 +357,9 @@ def _upsert_from_materialization(
     """
     Recover the user's materialization intent from a persisted materialization.
 
-    Only the intent -- job type, strategy, schedule and lookback window -- is
-    carried over; everything else in a stored config is generated content derived
-    from the revision it was built against.
+    Only the intent -- job type, strategy, schedule, lookback window and declared
+    coverage -- is carried over; everything else in a stored config is generated
+    content derived from the revision it was built against.
     """
     config = materialization.config if isinstance(materialization.config, dict) else {}
     lookback_window = config.get("lookback_window")
@@ -361,6 +370,7 @@ def _upsert_from_materialization(
             strategy=materialization.strategy,
             schedule=materialization.schedule,
             lookback_window=lookback_window,
+            coverage=config.get("coverage"),
         )
     return UpsertMaterialization(
         job=job_type.value.name,  # type: ignore
@@ -386,6 +396,32 @@ class CubeMaterializationSwap:
     new_version: str
     rebuilt_names: list[str]
     superseded: list[Materialization]
+
+    # The days to fill once the materialization is scheduled, resolved from the
+    # cube's declared coverage against what its datasource already holds.
+    backfill: tuple[date, date] | None = None
+
+
+@dataclass
+class CubeMaterializationSwapOutcome:
+    """
+    What the query service made of a cube materialization swap.
+
+    Only the scheduling half is reported. Stopping a superseded workflow can fail
+    without the cube losing anything it was promised -- the replacement is already
+    running -- so that failure stays where `stop_cube_materialization_workflows`
+    puts it, and calling it a materialization failure here would point an operator
+    at the wrong cube.
+    """
+
+    cube_name: str
+    materialization_names: list[str]
+    scheduled: bool
+    error: str | None = None
+
+    # The span a coverage backfill was launched over, and why it was not.
+    backfill_span: tuple[date, date] | None = None
+    backfill_error: str | None = None
 
 
 async def reconcile_declared_materialization(
@@ -438,6 +474,7 @@ async def reconcile_declared_materialization(
             strategy=declared.strategy,
             schedule=declared.schedule,
             lookback_window=declared.lookback_window,
+            coverage=declared.coverage,
         ),
         access_checker,
         current_user=current_user,
@@ -564,6 +601,7 @@ async def swap_cube_materializations(
                         "schedule": declared.schedule,
                         "strategy": declared.strategy,
                         "lookback_window": declared.lookback_window,
+                        "coverage": declared.coverage,
                     },
                 )
             new_materialization = await create_new_materialization(
@@ -639,7 +677,7 @@ async def apply_cube_materialization_swap(
     swap: CubeMaterializationSwap,
     query_service_client: QueryServiceClient | None,
     request_headers: dict[str, str] | None = None,
-) -> None:
+) -> CubeMaterializationSwapOutcome:
     """
     Hand a committed cube materialization swap to the query service.
 
@@ -649,10 +687,23 @@ async def apply_cube_materialization_swap(
     their workflow running would keep posting availability for a table the current
     revision cannot use.
 
+    A swap carrying a `backfill` span then fills the days the cube's datasource
+    is missing, whether the swap just minted it or it was already there.
+
     Never raises. With no query service configured there is nothing to do at all.
+    Returns what became of the scheduling instead, so a caller holding a report the
+    author will read can say the materialization did not happen: the query service
+    rejects a push for reasons DJ cannot anticipate -- ownership, data project
+    authorization, table access -- and a log line is not where the person who ran
+    the deploy is looking.
     """
+    outcome = CubeMaterializationSwapOutcome(
+        cube_name=swap.cube_name,
+        materialization_names=list(swap.rebuilt_names),
+        scheduled=True,
+    )
     if not query_service_client:
-        return
+        return outcome
     if swap.rebuilt_names:
         try:
             await schedule_materialization_jobs(
@@ -671,6 +722,19 @@ async def apply_cube_materialization_swap(
                 str(exc),
                 exc_info=True,
             )
+            outcome.scheduled = False
+            # Verbatim: the query service names the user, the job and the table it
+            # refused, and paraphrasing that would cost the reader the only part of
+            # the message that says what to do about it.
+            outcome.error = str(exc)
+    if swap.backfill and outcome.scheduled:
+        _launch_backfill(
+            query_service_client,
+            swap,
+            swap.backfill,
+            outcome,
+            request_headers,
+        )
     stop_cube_materialization_workflows(
         query_service_client=query_service_client,
         cube_name=swap.cube_name,
@@ -678,6 +742,152 @@ async def apply_cube_materialization_swap(
         materializations=swap.superseded,
         request_headers=request_headers,
     )
+    return outcome
+
+
+def _launch_backfill(
+    query_service_client: QueryServiceClient,
+    swap: CubeMaterializationSwap,
+    span: tuple[date, date],
+    outcome: CubeMaterializationSwapOutcome,
+    request_headers: dict[str, str] | None = None,
+) -> None:
+    """
+    Fill the days the cube declares but its Druid datasource does not hold.
+
+    Launched and left: the workflow runs one job per partition, long past this
+    deploy. Never raises, and records on the outcome what the caller reports.
+    """
+    try:
+        query_service_client.run_cube_backfill(
+            CubeBackfillInput(
+                cube_name=swap.cube_name,
+                cube_version=swap.new_version,
+                start_date=span[0],
+                end_date=span[1],
+            ),
+            request_headers=request_headers,
+        )
+        outcome.backfill_span = span
+    except Exception as exc:
+        _logger.warning(
+            "Failed to backfill cube=%s version=%s over %s to %s: %s (continuing)",
+            swap.cube_name,
+            swap.new_version,
+            span[0],
+            span[1],
+            str(exc),
+            exc_info=True,
+        )
+        outcome.backfill_error = str(exc)
+
+
+def coverage_partition(revision: NodeRevision) -> Column | None:
+    """
+    The one temporal partition a coverage backfill runs over.
+
+    Coverage is a span of days on a single axis. A cube partitioned on more than
+    one temporal column, or on none, has no such axis, so nothing here can say
+    which days it holds or which column a backfill would name.
+    """
+    partitions = revision.temporal_partition_columns()
+    return partitions[0] if len(partitions) == 1 else None
+
+
+def coverage_gap(
+    span: tuple[date, date],
+    revision: NodeRevision,
+) -> tuple[date, date] | None:
+    """
+    The leading days of `span` a cube's datasource does not hold yet.
+
+    Availability is a bounding box -- min of mins, max of maxes -- so the only
+    knowably missing days are the ones before its earliest. A hole inside the
+    span cannot be seen from here, and the trailing edge is the schedule's job.
+
+    A cube with no availability holds nothing, so the whole span is missing.
+    `None` when the cube already reaches back far enough, or when its
+    availability cannot be read against the partition format.
+    """
+    start, end = span
+    availability = revision.availability
+    if availability is None:
+        return span
+    partition = coverage_partition(revision)
+    values = availability.min_temporal_partition or []
+    if partition is None or len(values) != 1:
+        return None
+    # Availability may hold a number.
+    covered = parse_partition_value(str(values[0]), partition.partition.format)
+    if covered is None or covered <= start:
+        return None
+    return start, min(covered - timedelta(days=1), end)
+
+
+async def backfill_recorded(
+    session: AsyncSession,
+    materialization: Materialization,
+    start: date,
+) -> bool:
+    """
+    Whether DJ already asked to backfill a span reaching back to `start`.
+
+    Availability does not move until a backfill lands, so the deploy after one
+    sees the same gap and would ask for all of it again. Only DJ's own records
+    count: it writes ISO dates, while a backfill run from the API carries
+    partition-format values that do not mean the same thing.
+
+    Read by query rather than off `materialization.backfills`, which a cube
+    materialized for the first time has not loaded.
+    """
+    specs = (
+        (
+            await session.execute(
+                select(Backfill.spec).where(
+                    Backfill.materialization_id == materialization.id,
+                ),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for spec in specs:
+        for entry in spec or []:
+            span = entry.get("range") if isinstance(entry, dict) else None
+            recorded = _as_day(span[0]) if span else None
+            if recorded and recorded <= start:
+                return True
+    return False
+
+
+def record_backfill(
+    session: AsyncSession,
+    materialization: Materialization,
+    column: Column,
+    span: tuple[date, date],
+) -> None:
+    """
+    Note the span DJ asked to backfill, beside the cube's other backfills.
+    """
+    session.add(
+        Backfill(
+            materialization_id=materialization.id,
+            spec=[
+                PartitionBackfill(
+                    column_name=amenable_name(column.cube_element_name),
+                    range=[span[0].isoformat(), span[1].isoformat()],
+                ).model_dump(),
+            ],
+        ),
+    )
+
+
+def _as_day(value: Any) -> date | None:
+    """A recorded range bound, if DJ wrote it."""
+    try:
+        return date.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def stop_cube_materialization_workflows(

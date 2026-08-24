@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from pydantic import Discriminator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.orm import joinedload, noload, selectinload
 
 from datajunction_server.api.helpers import (
     get_materialization_info,
@@ -23,6 +23,7 @@ from datajunction_server.api.helpers import (
 from datajunction_server.database import Node, NodeRevision
 from datajunction_server.database.backfill import Backfill
 from datajunction_server.database.column import Column, ColumnAttribute
+from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.history import History
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJDoesNotExistException, DJInvalidInputException
@@ -319,7 +320,12 @@ async def list_node_materializations(
         session,
         node_name,
         options=[
-            joinedload(Node.revisions).options(*NodeRevision.default_load_options()),
+            joinedload(Node.revisions).options(
+                selectinload(NodeRevision.materializations).selectinload(
+                    Materialization.backfills,
+                ),
+                noload(NodeRevision.created_by),
+            ),
         ]
         if include_all_revisions
         else [],
@@ -368,7 +374,10 @@ async def deactivate_node_materializations(
     if node_version:
         stmt = (
             select(NodeRevision)
-            .options(*NodeRevision.default_load_options())
+            .options(
+                selectinload(NodeRevision.materializations),
+                noload(NodeRevision.created_by),
+            )
             .where(NodeRevision.name == node_name, NodeRevision.version == node_version)
         )
         result = await session.execute(stmt)
@@ -378,7 +387,18 @@ async def deactivate_node_materializations(
                 f"Node revision with version '{node_version}' not found for node {node_name} .",
             )
     else:
-        node = await Node.get_by_name(session, node_name)
+        node = await Node.get_by_name(
+            session,
+            node_name,
+            options=[
+                noload(Node.created_by),
+                noload(Node.tags),
+                joinedload(Node.current).options(
+                    selectinload(NodeRevision.materializations),
+                    noload(NodeRevision.created_by),
+                ),
+            ],
+        )
         node_revision = node.current  # type: ignore
 
     # find the materialization to deactivate

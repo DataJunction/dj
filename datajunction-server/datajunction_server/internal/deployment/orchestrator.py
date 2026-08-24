@@ -4,7 +4,7 @@ import time
 from collections import Counter
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import UTC
+from datetime import UTC, datetime
 from typing import cast
 
 from sqlalchemy import func, or_, select, text
@@ -65,13 +65,19 @@ from datajunction_server.internal.history import EntityType
 from datajunction_server.internal.impact import propagate_impact
 from datajunction_server.internal.materializations import (
     CubeMaterializationSwap,
+    CubeMaterializationSwapOutcome,
     NodeMaterializationTeardown,
     apply_cube_materialization_swap,
+    backfill_recorded,
     collect_materialization_teardowns,
+    coverage_gap,
+    coverage_partition,
     reconcile_declared_materialization,
+    record_backfill,
     stop_materialization_workflows,
     swap_cube_materializations,
 )
+from datajunction_server.internal.namespaces import get_git_info_for_namespace
 from datajunction_server.internal.nodes import (
     derive_frozen_measures_bulk,
     is_non_trivial_cube_change,
@@ -359,6 +365,9 @@ class DeploymentOrchestrator:
         self._timer = DeploymentTimer()
         self._cube_materialization_swaps: list[CubeMaterializationSwap] = []
         self._materialization_teardowns: list[NodeMaterializationTeardown] = []
+        # Cubes rebuilt onto a new, empty datasource.
+        self._rebuilt_cubes: set[str] = set()
+        self._branch_deploy: bool | None = None
 
     @property
     def _history_user(self) -> str:
@@ -2327,6 +2336,7 @@ class DeploymentOrchestrator:
         )
         declared_specs = self._declared_materializations()
         for old_revision, new_revision in swappable:
+            declared = declared_specs.get(new_revision.name)
             swap = await swap_cube_materializations(
                 self.session,
                 old_revision,
@@ -2338,9 +2348,11 @@ class DeploymentOrchestrator:
                     old_revision,
                     new_revision,
                 ),
-                declared=declared_specs.get(new_revision.name),
+                declared=declared,
             )
             if swap:
+                if swap.rebuilt_names:
+                    self._rebuilt_cubes.add(new_revision.name)
                 self._cube_materialization_swaps.append(swap)
 
     def _declared_materializations(self) -> dict[str, MaterializationSpec]:
@@ -2457,6 +2469,7 @@ class DeploymentOrchestrator:
                         declared[name],
                         persisted.get(name),
                         access_checker,
+                        {mat.name for mat in active.get(name, [])},
                     )
             elif name in removing:
                 self._remove_cube_materialization(
@@ -2525,6 +2538,7 @@ class DeploymentOrchestrator:
         block: MaterializationSpec,
         persisted: MaterializationSpec | MaterializationAction | None,
         access_checker: AccessChecker | None,
+        active_names: set[str],
     ) -> None:
         """
         Configure one cube's materialization from its declared block.
@@ -2535,6 +2549,10 @@ class DeploymentOrchestrator:
         any DJ-side state actually moved, and only then is the query service asked to
         schedule anything -- an unchanged re-declare, or a block a revision swap has
         already built from, costs no remote call at all.
+
+        `active_names` is what the cube had materialized before reconciling, which
+        says whether the block wrote a datasource the cube did not have. It is
+        `_plan_coverage_backfill` that reads it, once the row is in hand.
         """
         operation = (
             DeploymentResult.Operation.CREATE
@@ -2643,6 +2661,12 @@ class DeploymentOrchestrator:
                         superseded=[],
                     ),
                 )
+            await self._plan_coverage_backfill(
+                revision,
+                block,
+                materialization,
+                active_names,
+            )
         self.deployed_results.append(
             DeploymentResult(
                 name=revision.name,
@@ -2650,6 +2674,80 @@ class DeploymentOrchestrator:
                 status=DeploymentResult.Status.SUCCESS,
                 operation=operation,
                 message=f"cube materialization on schedule {block.schedule}",
+            ),
+        )
+
+    async def _plan_coverage_backfill(
+        self,
+        revision: NodeRevision,
+        block: MaterializationSpec,
+        materialization: Materialization,
+        active_names: set[str],
+    ) -> None:
+        """
+        Queue the backfill a cube's declared coverage asks for.
+
+        Two things leave a cube short of the span it declares. A datasource this
+        deploy minted -- a rebuilt version, or a materialization the cube did not
+        have -- is empty, so the whole span is missing. A datasource the cube
+        already has can simply hold less history than the cube now declares, and
+        `coverage_gap` reads how much less off availability.
+
+        The span is recorded beside the cube's other backfills and never asked for
+        twice, since availability does not move until the backfill lands. A branch
+        deploy asks for nothing: it previews what the push would give its author,
+        and a preview does not spend hundreds of partition runs. It says so in
+        the report, so the missing backfill reads as a choice.
+        """
+        coverage = block.coverage
+        partition = coverage_partition(revision)
+        if not coverage or partition is None:
+            return
+        if await self._is_branch_deploy():
+            self.deployed_results.append(
+                DeploymentResult(
+                    name=revision.name,
+                    deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                    status=DeploymentResult.Status.SKIPPED,
+                    operation=DeploymentResult.Operation.NOOP,
+                    message="no coverage backfill on a branch deploy",
+                ),
+            )
+            return
+        span = coverage.span(datetime.now(UTC).date())
+        if span is None:
+            self.warnings.append(
+                DJError(
+                    code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                    message=(
+                        f"Cube `{revision.name}`: DJ counts a coverage window in "
+                        "days or weeks only."
+                    ),
+                ),
+            )
+            return
+        fresh = (
+            revision.name in self._rebuilt_cubes
+            or materialization.name not in active_names
+        )
+        if not fresh:
+            span = coverage_gap(span, revision)
+        if span is None:
+            return
+        # A backfill needs the materialization's id.
+        await self.session.flush()
+        if await backfill_recorded(self.session, materialization, span[0]):
+            return
+        record_backfill(self.session, materialization, partition, span)
+        self._cube_materialization_swaps.append(
+            CubeMaterializationSwap(
+                cube_name=revision.name,
+                previous_version=revision.version,
+                new_revision_id=revision.id,
+                new_version=revision.version,
+                rebuilt_names=[],
+                superseded=[],
+                backfill=span,
             ),
         )
 
@@ -2780,16 +2878,132 @@ class DeploymentOrchestrator:
         Hand the deployment's committed cube materialization swaps to the query
         service. Called only after the outer transaction commits, so a deploy that
         rolls back has told the query service nothing.
+
+        The push happens after the commit but before the result is handed back, so a
+        rejection is still reportable -- and has to be. Reconciliation already
+        recorded the materialization as a success on the strength of DJ's own state
+        moving; if the query service then refuses to schedule it, that success is
+        wrong in exactly the way that hid these failures until now.
+
+        A swap carrying a coverage backfill is queued after the one that schedules
+        the materialization, so the workflow the backfill runs on exists by then.
         """
         request_headers = (
             dict(self.context.request.headers) if self.context.request else {}
         )
         for swap in self._cube_materialization_swaps:
-            await apply_cube_materialization_swap(
+            outcome = await apply_cube_materialization_swap(
                 self.session,
                 swap,
                 self.context.query_service_client,
                 request_headers=request_headers,
+            )
+            if not outcome.scheduled:
+                self._report_materialization_push_failure(outcome)
+            elif swap.backfill:
+                self._report_backfill(outcome)
+
+    async def _is_branch_deploy(self) -> bool:
+        """
+        Whether this deploy targets a feature branch rather than the default one.
+
+        A branch is a namespace of its own, linked to a git branch, so the target
+        namespace is what says which. A namespace with no git root behind it -- a
+        plain `dj deploy` -- is not a branch. Asked once per deploy.
+        """
+        if self._branch_deploy is None:
+            git_info = await get_git_info_for_namespace(
+                self.session,
+                self.deployment_spec.namespace,
+            )
+            self._branch_deploy = (
+                git_info is not None and not git_info["is_default_branch"]
+            )
+        return self._branch_deploy
+
+    def _report_backfill(
+        self,
+        outcome: CubeMaterializationSwapOutcome,
+    ) -> None:
+        """
+        Say what days the cube is being filled with, and what they cost.
+
+        The run count is the point. A backfill runs one job per day of the span,
+        and a mistyped `from` is worth seeing at deploy time rather than on a
+        bill -- so the span is reported, never capped: two years of history is a
+        thing authors legitimately ask for, and a cap is something they could not
+        undo from YAML.
+        """
+        if outcome.backfill_span is None:
+            self.warnings.append(
+                DJError(
+                    code=ErrorCode.QUERY_SERVICE_ERROR,
+                    message=(
+                        f"Cube `{outcome.cube_name}`: the query service refused "
+                        f"the backfill: {outcome.backfill_error}"
+                    ),
+                ),
+            )
+            return
+        start, end = outcome.backfill_span
+        runs = (end - start).days + 1
+        self.deployed_results.append(
+            DeploymentResult(
+                name=outcome.cube_name,
+                deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                status=DeploymentResult.Status.SUCCESS,
+                operation=DeploymentResult.Operation.CREATE,
+                message=f"backfilling {start} to {end}, {runs} partition runs",
+            ),
+        )
+
+    def _report_materialization_push_failure(
+        self,
+        outcome: CubeMaterializationSwapOutcome,
+    ) -> None:
+        """
+        Correct the deployment's report on a cube whose materialization the query
+        service refused to schedule.
+
+        FAILED, not WARNING, for the same reason a materialization the reconciler
+        could not build is failed: the author asked for this cube to be materialized
+        and it is not, `api/deployments.py` derives the aggregate status from these
+        results, and reporting `success` for it is precisely the silent gap this
+        feature exists to close.
+
+        The query service's error goes in whole. Its messages name the user, the job,
+        the data project and the table it refused, which is the only part that tells
+        the reader what to do next.
+
+        Matched against the results reconciliation already appended, by the cube's
+        name -- what every materialization result here is keyed by -- and by the
+        rebuilt materialization names, for a swap whose result was recorded under
+        one of those instead. A failure with no result to correct gets a new one
+        rather than going unmentioned.
+        """
+        message = (
+            f"Cube `{outcome.cube_name}`: the query service rejected the request to "
+            f"schedule its materialization: {outcome.error}"
+        )
+        names = {outcome.cube_name, *outcome.materialization_names}
+        matched = [
+            result
+            for result in self.deployed_results
+            if result.deploy_type == DeploymentResult.Type.MATERIALIZATION
+            and result.name in names
+        ]
+        for result in matched:
+            result.status = DeploymentResult.Status.FAILED
+            result.message = message
+        if not matched:
+            self.deployed_results.append(
+                DeploymentResult(
+                    name=outcome.cube_name,
+                    deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                    status=DeploymentResult.Status.FAILED,
+                    operation=DeploymentResult.Operation.UNKNOWN,
+                    message=message,
+                ),
             )
 
     def _stop_deleted_node_materializations(self) -> list[DeploymentResult]:
