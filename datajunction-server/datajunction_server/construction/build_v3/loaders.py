@@ -100,6 +100,7 @@ async def batch_load_nodes_with_dependencies(
                     load_only(
                         Column.name,
                         Column.type,
+                        Column.order,
                         Column.dimension_id,
                         Column.dimension_column,
                     ),

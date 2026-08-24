@@ -8,8 +8,10 @@ if TYPE_CHECKING:
         GeneratedSQL as BuildV3GeneratedSQL,
     )
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
+from sqlalchemy.sql.operators import is_
 
 from datajunction_server.api.helpers import (
     assemble_column_metadata,
@@ -33,9 +35,13 @@ from datajunction_server.construction.build_v2 import (
     get_dimensions_referenced_in_metrics,
 )
 from datajunction_server.database import Engine
-from datajunction_server.database.catalog import Catalog
+from datajunction_server.database.catalog import Catalog, CatalogEngines
 from datajunction_server.database.node import Node, NodeRevision
-from datajunction_server.errors import DJException, DJInvalidInputException
+from datajunction_server.errors import (
+    DJException,
+    DJInvalidInputException,
+    DJNodeNotFound,
+)
 from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.internal.access.authorization import (
     AccessChecker,
@@ -110,6 +116,68 @@ def _v3_to_model_column(col) -> ColumnMetadata:
     )
 
 
+async def _get_default_engine_for_node(
+    session: AsyncSession,
+    node_name: str,
+) -> Engine:
+    """
+    Resolve the "default" engine for a node (``catalog.engines[0]``) without
+    loading a ``Node`` entity into the session identity map — a thinly
+    loaded ``Node`` here would poison the identity map for later callers
+    (see ``Node.get_by_name`` in ``database/node.py``).
+
+    ``Catalog.engines`` (``database/catalog.py``) has no explicit
+    ``order_by``, so ``engines[0]`` today depends on whatever order the
+    ``selectin`` load of the ``catalogengines`` join table happens to
+    return. There's no documented ordering to preserve; we pick a
+    deterministic one — ascending by ``catalogengines.engine_id`` (which,
+    since ``(catalog_id, engine_id)`` is the join table's primary key, also
+    matches the natural index-scan order Postgres would use for the
+    relationship's own query) — and note that catalogs with more than one
+    engine will now consistently get the lowest-id engine rather than
+    whatever order ``selectin`` happened to produce.
+    """
+    engine_row = (
+        await session.execute(
+            select(Engine)
+            .select_from(Node)
+            .join(
+                NodeRevision,
+                (NodeRevision.node_id == Node.id)
+                & (NodeRevision.version == Node.current_version),
+            )
+            .join(Catalog, Catalog.id == NodeRevision.catalog_id)
+            .join(CatalogEngines, CatalogEngines.catalog_id == Catalog.id)
+            .join(Engine, Engine.id == CatalogEngines.engine_id)
+            .where(Node.name == node_name)
+            .where(is_(Node.deactivated_at, None))
+            .order_by(CatalogEngines.engine_id.asc())
+            .limit(1),
+        )
+    ).scalar_one_or_none()
+    if engine_row is not None:
+        return engine_row
+
+    # No engine found — either the node doesn't exist (preserve the same
+    # error as ``Node.get_by_name(..., raise_if_not_exists=True)``) or it
+    # exists but has no catalog/engines configured.
+    node_exists = (
+        await session.execute(
+            select(Node.id)
+            .where(Node.name == node_name)
+            .where(is_(Node.deactivated_at, None)),
+        )
+    ).scalar_one_or_none()
+    if node_exists is None:
+        raise DJNodeNotFound(
+            message=f"A node with name `{node_name}` does not exist.",
+            http_status_code=404,
+        )
+    raise DJInvalidInputException(  # pragma: no cover
+        message=f"Node `{node_name}` has no engine available in its catalog.",
+    )
+
+
 async def build_node_sql(
     session: AsyncSession,
     node_name: str,
@@ -134,12 +202,8 @@ async def build_node_sql(
     # ``/sql/{node}`` requests where local columns of the starting node
     # are valid orderby targets without being explicitly requested.
 
-    node = cast(
-        Node,
-        await Node.get_by_name(session, node_name, raise_if_not_exists=True),
-    )
     if not engine:  # pragma: no cover
-        engine = node.current.catalog.engines[0]
+        engine = await _get_default_engine_for_node(session, node_name)
 
     # All ``/sql/{node}`` and ``/data/{node}`` requests now route through the
     # single v3 single-node entry point. ``build_node_sql_v3`` dispatches

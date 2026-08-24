@@ -126,7 +126,14 @@ async def build_node_sql_v3(
                 load_only(Node.name, Node.type, Node.current_version),
                 noload(Node.created_by),
                 noload(Node.tags),
-                noload(Node.current),
+                # Note: Node.current is deliberately left at its default
+                # (unset) strategy rather than `noload`. `noload` marks the
+                # relationship "loaded" with value None, which blocks a
+                # later `joinedload(Node.current)` (e.g. from
+                # batch_load_nodes_with_dependencies) from ever populating
+                # it for this same identity-mapped Node instance, since
+                # SQLAlchemy treats "loaded" as already-satisfied. Leaving
+                # it unset lets that later eager load populate it normally.
             ),
         )
     ).scalar_one_or_none()
