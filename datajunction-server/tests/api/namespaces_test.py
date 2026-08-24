@@ -3691,6 +3691,54 @@ async def test_hard_delete_git_default_branch_namespace_blocked(
 
 
 @pytest.mark.asyncio
+async def test_delete_default_branch_owning_repo_blocked(
+    module__client_with_all_examples: AsyncClient,
+) -> None:
+    """
+    A branch namespace that carries its own ``github_repo_path`` -- the shape
+    branch creation writes -- still resolves its repo's default branch from the
+    git root, so both deletes are refused.
+    """
+    root = "ownrepo.root"
+    branch_ns = "ownrepo.root.main"
+
+    await module__client_with_all_examples.post(f"/namespaces/{root}/")
+    await module__client_with_all_examples.post(f"/namespaces/{branch_ns}/")
+    await module__client_with_all_examples.patch(
+        f"/namespaces/{root}/git",
+        json={"github_repo_path": "corp/ownrepo", "default_branch": "main"},
+    )
+
+    # Branch creation copies the repo path onto the branch namespace.
+    await module__client_with_all_examples.patch(
+        f"/namespaces/{branch_ns}/git",
+        json={"github_repo_path": "corp/ownrepo"},
+    )
+    await module__client_with_all_examples.patch(
+        f"/namespaces/{branch_ns}/git",
+        json={"parent_namespace": root, "git_branch": "main"},
+    )
+
+    refusal = (
+        f"Cannot delete namespace `{branch_ns}`: it is the default branch "
+        "of a git-backed namespace (corp/ownrepo). "
+        "Only non-default branch namespaces can be deleted."
+    )
+
+    response = await module__client_with_all_examples.delete(
+        f"/namespaces/{branch_ns}/",
+    )
+    assert response.status_code == 422
+    assert response.json()["message"] == refusal
+
+    response = await module__client_with_all_examples.delete(
+        f"/namespaces/{branch_ns}/hard/",
+    )
+    assert response.status_code == 422
+    assert response.json()["message"] == refusal
+
+
+@pytest.mark.asyncio
 async def test_delete_non_default_git_branch_namespace_allowed(
     module__client_with_all_examples: AsyncClient,
 ) -> None:

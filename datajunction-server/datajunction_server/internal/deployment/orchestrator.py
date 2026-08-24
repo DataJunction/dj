@@ -2696,11 +2696,23 @@ class DeploymentOrchestrator:
         The span is recorded beside the cube's other backfills and never asked for
         twice, since availability does not move until the backfill lands. A branch
         deploy asks for nothing: it previews what the push would give its author,
-        and a preview does not spend hundreds of partition runs.
+        and a preview does not spend hundreds of partition runs. It says so in
+        the report, so the missing backfill reads as a choice.
         """
         coverage = block.coverage
         partition = coverage_partition(revision)
-        if not coverage or partition is None or await self._is_branch_deploy():
+        if not coverage or partition is None:
+            return
+        if await self._is_branch_deploy():
+            self.deployed_results.append(
+                DeploymentResult(
+                    name=revision.name,
+                    deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                    status=DeploymentResult.Status.SKIPPED,
+                    operation=DeploymentResult.Operation.NOOP,
+                    message="no coverage backfill on a branch deploy",
+                ),
+            )
             return
         span = coverage.span(datetime.now(UTC).date())
         if span is None:
