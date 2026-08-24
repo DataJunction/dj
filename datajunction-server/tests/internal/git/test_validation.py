@@ -833,35 +833,35 @@ class TestGetGitInfoForNamespace:
         """The branch namespace owns the repo path; its parent owns default_branch."""
         session.add(
             NodeNamespace(
-                namespace="demo.metrics",
-                github_repo_path="corp/dj-nodes-example",
+                namespace="shop.metrics",
+                github_repo_path="corp/examplerepo",
                 default_branch="main",
                 git_path="defs/",
             ),
         )
         session.add(
             NodeNamespace(
-                namespace="demo.metrics.main",
-                github_repo_path="corp/dj-nodes-example",
+                namespace="shop.metrics.main",
+                github_repo_path="corp/examplerepo",
                 git_branch="main",
                 git_path="defs/",
-                parent_namespace="demo.metrics",
+                parent_namespace="shop.metrics",
             ),
         )
         await session.commit()
 
-        result = await get_git_info_for_namespace(session, "demo.metrics.main")
+        result = await get_git_info_for_namespace(session, "shop.metrics.main")
 
         assert result == {
-            "repo": "corp/dj-nodes-example",
+            "repo": "corp/examplerepo",
             "branch": "main",
             "default_branch": "main",
             "path": "defs/",
             "is_default_branch": True,
-            "parent_namespace": "demo.metrics",
+            "parent_namespace": "shop.metrics",
             "git_only": False,
-            "git_root_namespace": "demo.metrics.main",
-            "branch_namespace": "demo.metrics.main",
+            "git_root_namespace": "shop.metrics.main",
+            "branch_namespace": "shop.metrics.main",
         }
 
     @pytest.mark.asyncio
@@ -869,35 +869,35 @@ class TestGetGitInfoForNamespace:
         """A feature branch owning the repo path is not the default branch."""
         session.add(
             NodeNamespace(
-                namespace="demo.metrics",
-                github_repo_path="corp/dj-nodes-example",
+                namespace="shop.metrics",
+                github_repo_path="corp/examplerepo",
                 default_branch="main",
                 git_path="defs/",
             ),
         )
         session.add(
             NodeNamespace(
-                namespace="demo.metrics.test_cube",
-                github_repo_path="corp/dj-nodes-example",
+                namespace="shop.metrics.featureone",
+                github_repo_path="corp/examplerepo",
                 git_branch="test_cube",
                 git_path="defs/",
-                parent_namespace="demo.metrics",
+                parent_namespace="shop.metrics",
             ),
         )
         await session.commit()
 
-        result = await get_git_info_for_namespace(session, "demo.metrics.test_cube")
+        result = await get_git_info_for_namespace(session, "shop.metrics.featureone")
 
         assert result == {
-            "repo": "corp/dj-nodes-example",
+            "repo": "corp/examplerepo",
             "branch": "test_cube",
             "default_branch": "main",
             "path": "defs/",
             "is_default_branch": False,
-            "parent_namespace": "demo.metrics",
+            "parent_namespace": "shop.metrics",
             "git_only": False,
-            "git_root_namespace": "demo.metrics.test_cube",
-            "branch_namespace": "demo.metrics.test_cube",
+            "git_root_namespace": "shop.metrics.featureone",
+            "branch_namespace": "shop.metrics.featureone",
         }
 
     @pytest.mark.asyncio
