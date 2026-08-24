@@ -103,6 +103,10 @@ from datajunction_server.models.deployment import (
     fold_change_tiers,
     version_change_tier,
 )
+from datajunction_server.models.decompose import (
+    AggregationRule as DecomposeAggregationRule,
+    MetricComponent,
+)
 from datajunction_server.models.dimensionlink import (
     JoinLinkInput,
     JoinType,
@@ -892,6 +896,8 @@ async def _derive_frozen_measures_impl(
             session=session,
             name=measure.name,
         )
+        if frozen_measure:
+            _raise_if_frozen_measure_conflicts(frozen_measure, measure)
         if not frozen_measure and measure.aggregation:
             frozen_measure = FrozenMeasure(
                 name=measure.name,
@@ -1030,7 +1036,35 @@ async def derive_frozen_measures_bulk(
                 )
                 session.add(frozen_measure)
                 fm_by_name[measure.name] = frozen_measure
+            else:
+                _raise_if_frozen_measure_conflicts(frozen_measure, measure)
             frozen_measure.used_by_node_revisions.append(rev)
+
+
+def _aggregation_rule_identity(rule: DecomposeAggregationRule) -> dict[str, Any]:
+    """Return the stable JSON shape used for frozen-measure rule comparison."""
+    return rule.model_dump(mode="json", exclude_none=True)
+
+
+def _raise_if_frozen_measure_conflicts(
+    frozen_measure: FrozenMeasure,
+    measure: MetricComponent,
+) -> None:
+    """
+    Prevent component-name collisions from reusing a different frozen measure.
+    """
+    if (
+        frozen_measure.expression == measure.expression
+        and frozen_measure.aggregation == measure.aggregation
+        and _aggregation_rule_identity(frozen_measure.rule)
+        == _aggregation_rule_identity(measure.rule)
+    ):
+        return
+
+    raise DJInvalidInputException(
+        f"Frozen measure `{measure.name}` already exists with a different "
+        "expression, aggregation, or aggregation rule.",
+    )
 
 
 async def save_node(

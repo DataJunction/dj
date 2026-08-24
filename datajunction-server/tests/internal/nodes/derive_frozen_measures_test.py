@@ -16,6 +16,7 @@ from datajunction_server.database.column import Column
 from datajunction_server.database.measure import FrozenMeasure
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import OAuthProvider, User
+from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.internal.nodes import derive_frozen_measures_bulk
 from datajunction_server.models.node import NodeStatus
 from datajunction_server.models.node_type import NodeType
@@ -62,6 +63,7 @@ async def _make_metric(
     name: str,
     query: str,
     parents: list[Node],
+    semi_additive: dict[str, str] | None = None,
 ) -> Node:
     node = Node(
         name=name,
@@ -75,6 +77,7 @@ async def _make_metric(
         type=NodeType.METRIC,
         version="v1.0",
         query=query,
+        semi_additive=semi_additive,
         status=NodeStatus.VALID,
         parents=parents,
         created_by_id=user.id,
@@ -121,6 +124,55 @@ async def test_base_metric_populates_derived_expression_and_measure(
     assert metric.current.derived_expression is not None
     assert len(metric.current.frozen_measures) >= 1
     assert any(fm.aggregation == "SUM" for fm in metric.current.frozen_measures)
+
+
+@pytest.mark.asyncio
+async def test_frozen_measure_name_collision_with_different_rule_raises(
+    session: AsyncSession,
+    user: User,
+):
+    """A same-name component cannot reuse a FrozenMeasure with different rules."""
+    src = await _make_source(
+        session,
+        user,
+        "src_semi_additive_collision",
+        [Column(name="semi_amount", type=ct.DoubleType(), order=0)],
+    )
+    semi_additive = await _make_metric(
+        session,
+        user,
+        "m.semi_amount_eod",
+        "SELECT SUM(semi_amount) FROM src_semi_additive_collision",
+        [src],
+        semi_additive={
+            "dimension": "default.date_dim.date",
+            "function": "last_value",
+        },
+    )
+    additive = await _make_metric(
+        session,
+        user,
+        "m.semi_amount_total",
+        "SELECT SUM(semi_amount) FROM src_semi_additive_collision",
+        [src],
+    )
+    await session.refresh(semi_additive, ["current"])
+    await session.refresh(additive, ["current"])
+
+    await derive_frozen_measures_bulk(session, [semi_additive.current.id])
+    await session.commit()
+
+    await session.refresh(semi_additive.current, ["frozen_measures"])
+    assert any(
+        fm.rule.semi_additive is not None
+        for fm in semi_additive.current.frozen_measures
+    )
+
+    with pytest.raises(
+        DJInvalidInputException,
+        match="different expression, aggregation, or aggregation rule",
+    ):
+        await derive_frozen_measures_bulk(session, [additive.current.id])
 
 
 @pytest.mark.asyncio

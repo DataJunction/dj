@@ -32,6 +32,7 @@ from datajunction_server.api.graphql.scalars.materialization import (
 from datajunction_server.api.graphql.scalars.metricmetadata import (
     DecomposedMetric,
     MetricMetadata,
+    SemiAdditiveSpec,
 )
 from datajunction_server.api.graphql.scalars.user import User
 from datajunction_server.api.graphql.utils import extract_fields
@@ -45,9 +46,6 @@ from datajunction_server.models.engine import Dialect
 from datajunction_server.models.node import NodeMode as NodeMode_
 from datajunction_server.models.node import NodeStatus as NodeStatus_
 from datajunction_server.models.node import NodeType as NodeType_
-from datajunction_server.models.semiadditive import (
-    SemiAdditiveCollapseFunction as SemiAdditiveCollapseFunction_,
-)
 from datajunction_server.models.semiadditive import parse_semi_additive_spec
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 
@@ -56,7 +54,6 @@ NodeStatus = strawberry.enum(NodeStatus_)
 NodeMode = strawberry.enum(NodeMode_)
 JoinType = strawberry.enum(JoinType_)
 JoinCardinality = strawberry.enum(JoinCardinality_)
-SemiAdditiveCollapseFunction = strawberry.enum(SemiAdditiveCollapseFunction_)
 
 
 @strawberry.enum
@@ -72,16 +69,6 @@ class NodeCount:
 
     value: str
     count: int
-
-
-@strawberry.type
-class SemiAdditiveSpec:
-    """
-    Semi-additive metric declaration.
-    """
-
-    dimension: str
-    function: SemiAdditiveCollapseFunction  # type: ignore
 
 
 _CUBE_SCALAR_ONLY_FIELDS: frozenset = frozenset(
