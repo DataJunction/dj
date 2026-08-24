@@ -20,6 +20,7 @@ from datajunction_server.construction.build_v3.cte import (
     _fk_key_column_names,
     collect_node_ctes,
     extract_dimension_node,
+    get_table_references_from_ast,
     inject_filter_into_select,
     references_filter_only_dimension,
     strip_role_suffix,
@@ -556,7 +557,77 @@ def collect_cte_nodes_and_needed_columns(
                         else:  # pragma: no cover
                             needed_columns_by_node[left_node_name] = left_join_cols
 
+    _add_transitive_consumer_columns(ctx, nodes_for_ctes, needed_columns_by_node)
+
     return nodes_for_ctes, needed_columns_by_node
+
+
+def _add_transitive_consumer_columns(
+    ctx: BuildContext,
+    nodes_for_ctes: list[Node],
+    needed_columns_by_node: dict[str, set[str]],
+) -> None:
+    """
+    Widen each node's needed columns to cover every CTE that reads from it.
+
+    The loops above only look at the parent node and the dimension nodes sitting
+    on a resolved join path. ``collect_node_ctes`` builds its CTE set from the
+    full transitive closure of the dependency graph, so a node can end up as a
+    CTE without ever being a resolved dimension — an intermediate transform, or a
+    dimension pulled in only as somebody else's parent. Those nodes are never
+    scanned, so the columns they read stay out of ``needed_columns_by_node`` and
+    ``filter_cte_projection`` prunes them away, leaving the consuming CTE
+    referencing a column its source no longer projects.
+
+    Walking the same closure here and unioning in what each CTE actually reads
+    keeps the two sets consistent. Only nodes already in
+    ``needed_columns_by_node`` are widened: a node with no entry is left alone so
+    it stays unpruned, which is what callers expect.
+    """
+    closure: dict[str, Node] = {}
+
+    def collect(node: Node) -> None:
+        if node.name in closure or node.type == NodeType.SOURCE:
+            return
+        closure[node.name] = node
+        if not (node.current and node.current.query):  # pragma: no cover
+            return
+        try:
+            refs = get_table_references_from_ast(ctx.get_parsed_query(node))
+        except Exception:  # pragma: no cover
+            return
+        for ref in refs:
+            if ref_node := ctx.nodes.get(ref):
+                collect(ref_node)
+
+    for node in nodes_for_ctes:
+        collect(node)
+
+    # Only nodes that are already pruned can be under-projected.
+    targets = [
+        name for name in needed_columns_by_node if name in closure or name in ctx.nodes
+    ]
+
+    for consumer in closure.values():
+        if not (consumer.current and consumer.current.query):  # pragma: no cover
+            continue
+        try:
+            consumer_ast = ctx.get_parsed_query(consumer)
+        except Exception:  # pragma: no cover
+            continue
+        for target in targets:
+            if target == consumer.name:
+                continue
+            referenced = extract_columns_referenced_from_node(consumer_ast, target)
+            if referenced - needed_columns_by_node[target]:
+                _logger.info(
+                    "filter_cte_projection: %s references cols %s from %s "
+                    "(transitive consumer)",
+                    consumer.name,
+                    sorted(referenced),
+                    target,
+                )
+            needed_columns_by_node[target].update(referenced)
 
 
 def _build_temporal_pushdown(
