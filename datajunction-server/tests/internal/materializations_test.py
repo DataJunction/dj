@@ -2,20 +2,34 @@
 Tests for node materialization helper functions.
 """
 
+from datetime import date
 from unittest import mock
 
 import pytest
+from sqlalchemy import select
 
+from datajunction_server.database.availabilitystate import AvailabilityState
+from datajunction_server.database.backfill import Backfill
+from datajunction_server.database.column import Column
 from datajunction_server.database.materialization import Materialization
+from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.partition import Partition
 from datajunction_server.internal.materializations import (
     CubeMaterializationSwap,
     CubeMaterializationSwapOutcome,
     NodeMaterializationTeardown,
     apply_cube_materialization_swap,
+    backfill_recorded,
+    coverage_gap,
+    coverage_partition,
+    record_backfill,
     stop_cube_materialization_workflows,
     stop_materialization_workflows,
 )
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.partition import Granularity, PartitionType
+from datajunction_server.models.preaggregation import CubeBackfillInput
+from datajunction_server.sql.parsing.types import StringType
 
 
 def test_stop_cube_workflows_prefers_stored_workflow_names():
@@ -234,7 +248,10 @@ def test_stop_materialization_workflows_reports_every_failure():
     ]
 
 
-def _swap(rebuilt_names: list[str]) -> CubeMaterializationSwap:
+def _swap(
+    rebuilt_names: list[str],
+    backfill: tuple[date, date] | None = None,
+) -> CubeMaterializationSwap:
     """A swap with one superseded materialization and the given rebuilt names."""
     return CubeMaterializationSwap(
         cube_name="default.a_cube",
@@ -248,6 +265,7 @@ def _swap(rebuilt_names: list[str]) -> CubeMaterializationSwap:
                 config={"workflow_names": ["cube_workflow_1"]},
             ),
         ],
+        backfill=backfill,
     )
 
 
@@ -368,3 +386,318 @@ async def test_apply_cube_swap_without_a_query_service():
         scheduled=True,
         error=None,
     )
+
+
+async def _apply_with_backfill(
+    query_service_client,
+    span: tuple[date, date],
+    rebuilt_names: list[str] | None = None,
+) -> CubeMaterializationSwapOutcome:
+    """Apply a swap that carries a span to backfill."""
+    with mock.patch(
+        "datajunction_server.internal.materializations.schedule_materialization_jobs",
+        new=mock.AsyncMock(),
+    ):
+        return await apply_cube_materialization_swap(
+            mock.MagicMock(),
+            _swap(
+                rebuilt_names if rebuilt_names is not None else ["druid_cube_v3"],
+                backfill=span,
+            ),
+            query_service_client,
+        )
+
+
+@pytest.mark.asyncio
+async def test_apply_cube_swap_backfills_the_span():
+    """
+    A swap carrying a span asks for exactly those days, against the new version --
+    which is what names the datasource being filled.
+    """
+    query_service_client = mock.MagicMock()
+
+    outcome = await _apply_with_backfill(
+        query_service_client,
+        (date(2024, 1, 1), date(2024, 6, 30)),
+    )
+
+    assert outcome == CubeMaterializationSwapOutcome(
+        cube_name="default.a_cube",
+        materialization_names=["druid_cube_v3"],
+        scheduled=True,
+        error=None,
+        backfill_span=(date(2024, 1, 1), date(2024, 6, 30)),
+        backfill_error=None,
+    )
+    assert query_service_client.run_cube_backfill.call_args_list == [
+        mock.call(
+            CubeBackfillInput(
+                cube_name="default.a_cube",
+                cube_version="v1.1",
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 6, 30),
+            ),
+            request_headers=None,
+        ),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_apply_cube_swap_backfills_without_rebuilding():
+    """
+    A gap fill rides on the workflow the cube already has, so its swap rebuilds
+    nothing and schedules nothing -- it only backfills.
+    """
+    query_service_client = mock.MagicMock()
+
+    outcome = await _apply_with_backfill(
+        query_service_client,
+        (date(2024, 1, 1), date(2024, 1, 3)),
+        rebuilt_names=[],
+    )
+
+    assert outcome == CubeMaterializationSwapOutcome(
+        cube_name="default.a_cube",
+        materialization_names=[],
+        scheduled=True,
+        error=None,
+        backfill_span=(date(2024, 1, 1), date(2024, 1, 3)),
+        backfill_error=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_apply_cube_swap_reports_a_refused_backfill():
+    """
+    A backfill the query service refuses does not raise -- the materialization is
+    scheduled and the deploy has committed -- but the refusal comes back verbatim.
+    """
+    query_service_client = mock.MagicMock()
+    query_service_client.run_cube_backfill.side_effect = Exception("429 Too Many")
+
+    outcome = await _apply_with_backfill(
+        query_service_client,
+        (date(2024, 1, 1), date(2024, 1, 2)),
+    )
+
+    assert outcome == CubeMaterializationSwapOutcome(
+        cube_name="default.a_cube",
+        materialization_names=["druid_cube_v3"],
+        scheduled=True,
+        error=None,
+        backfill_span=None,
+        backfill_error="429 Too Many",
+    )
+
+
+@pytest.mark.asyncio
+async def test_apply_cube_swap_backfills_nothing_unscheduled():
+    """
+    A backfill needs the workflow the scheduling would have created, so a rejected
+    push takes the backfill with it.
+    """
+    query_service_client = mock.MagicMock()
+
+    with mock.patch(
+        "datajunction_server.internal.materializations.schedule_materialization_jobs",
+        new=mock.AsyncMock(side_effect=Exception("403 Forbidden")),
+    ):
+        outcome = await apply_cube_materialization_swap(
+            mock.MagicMock(),
+            _swap(["druid_cube_v3"], backfill=(date(2024, 1, 1), date(2024, 1, 2))),
+            query_service_client,
+        )
+
+    assert outcome == CubeMaterializationSwapOutcome(
+        cube_name="default.a_cube",
+        materialization_names=["druid_cube_v3"],
+        scheduled=False,
+        error="403 Forbidden",
+        backfill_span=None,
+        backfill_error=None,
+    )
+    assert query_service_client.run_cube_backfill.call_args_list == []
+
+
+def _cube_revision(
+    min_temporal_partition: list[str] | None = None,
+    partitions: int = 1,
+) -> NodeRevision:
+    """A day-partitioned cube revision, optionally with availability."""
+    columns = [
+        Column(
+            name=f"date_{index}",
+            display_name=f"date_{index}",
+            type=StringType(),
+            partition=Partition(
+                type_=PartitionType.TEMPORAL,
+                granularity=Granularity.DAY,
+                format="yyyyMMdd",
+            ),
+        )
+        for index in range(partitions)
+    ]
+    return NodeRevision(
+        name="default.a_cube",
+        type=NodeType.CUBE,
+        columns=columns,
+        availability=(
+            AvailabilityState(
+                catalog="default",
+                table="a_cube",
+                valid_through_ts=0,
+                min_temporal_partition=min_temporal_partition,
+            )
+            if min_temporal_partition is not None
+            else None
+        ),
+    )
+
+
+def test_coverage_partition_needs_one_axis():
+    """
+    Coverage is a span of days on a single axis, so a cube partitioned on two
+    temporal columns, or none, has no axis to run one over.
+    """
+    assert coverage_partition(_cube_revision(partitions=0)) is None
+    assert coverage_partition(_cube_revision(partitions=2)) is None
+    assert coverage_partition(_cube_revision()).name == "date_0"
+
+
+def test_coverage_gap_without_availability():
+    """A cube that has posted no availability holds nothing at all."""
+    span = (date(2024, 1, 1), date(2024, 6, 30))
+
+    assert coverage_gap(span, _cube_revision()) == span
+
+
+@pytest.mark.parametrize("covered", ["20250301", 20250301])
+def test_coverage_gap_before_the_covered_start(covered):
+    """
+    The gap runs from the declared start to the day before the cube's earliest,
+    read out of availability in the partition's own format, written either way.
+    """
+    assert coverage_gap(
+        (date(2024, 1, 1), date(2026, 8, 1)),
+        _cube_revision(min_temporal_partition=[covered]),
+    ) == (date(2024, 1, 1), date(2025, 2, 28))
+
+
+def test_coverage_gap_stops_at_the_declared_end():
+    """
+    A span that ends before the cube's earliest day is missing in full, rather
+    than reported as reaching up to a day the cube never declared.
+    """
+    assert coverage_gap(
+        (date(2024, 1, 1), date(2024, 6, 30)),
+        _cube_revision(min_temporal_partition=["20250301"]),
+    ) == (date(2024, 1, 1), date(2024, 6, 30))
+
+
+@pytest.mark.parametrize(
+    "revision",
+    [
+        # The cube already reaches back further than it declares.
+        _cube_revision(min_temporal_partition=["20230101"]),
+        # It reaches back to exactly the declared start.
+        _cube_revision(min_temporal_partition=["20240101"]),
+        # Its availability does not read against the partition format.
+        _cube_revision(min_temporal_partition=["2024-01-01"]),
+        # It reports a bound per axis, and there is more than one axis.
+        _cube_revision(min_temporal_partition=["20240101", "01"], partitions=2),
+    ],
+)
+def test_coverage_gap_leaves_nothing_to_fill(revision):
+    """Nothing knowably missing, and nothing guessed at."""
+    assert coverage_gap((date(2024, 1, 1), date(2026, 8, 1)), revision) is None
+
+
+async def _stored_materialization(session, current_user) -> Materialization:
+    """A stored cube materialization to hang backfill records on."""
+    revision = _cube_revision()
+    revision.version = "v1.0"
+    revision.created_by_id = current_user.id
+    revision.node = Node(
+        name=revision.name,
+        type=NodeType.CUBE,
+        current_version="v1.0",
+        created_by_id=current_user.id,
+    )
+    materialization = Materialization(
+        node_revision=revision,
+        name="druid_cube_v3",
+        schedule="@daily",
+        config={},
+    )
+    session.add(materialization)
+    await session.commit()
+    return materialization
+
+
+async def _recorded(session, materialization: Materialization) -> list[list]:
+    """The backfill specs stored against a materialization."""
+    return list(
+        (
+            await session.execute(
+                select(Backfill.spec).where(
+                    Backfill.materialization_id == materialization.id,
+                ),
+            )
+        )
+        .scalars()
+        .all(),
+    )
+
+
+@pytest.mark.asyncio
+async def test_record_backfill_is_read_back(session, current_user):
+    """
+    A recorded span stops the next deploy asking for the same days again, and any
+    span it already reaches back over.
+    """
+    materialization = await _stored_materialization(session, current_user)
+
+    record_backfill(
+        session,
+        materialization,
+        _cube_revision().columns[0],
+        (date(2024, 1, 1), date(2024, 6, 30)),
+    )
+
+    assert await _recorded(session, materialization) == [
+        [
+            {
+                "column_name": "date_0",
+                "values": None,
+                "range": ["2024-01-01", "2024-06-30"],
+            },
+        ],
+    ]
+    assert await backfill_recorded(session, materialization, date(2024, 1, 1)) is True
+    assert await backfill_recorded(session, materialization, date(2024, 6, 1)) is True
+    assert (
+        await backfill_recorded(session, materialization, date(2023, 12, 31)) is False
+    )
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        # A backfill run from the API, in partition format rather than ISO.
+        [{"column_name": "date_0", "range": [20240101, 20240630]}],
+        # One naming values rather than a range.
+        [{"column_name": "date_0", "values": [20240101], "range": None}],
+        # Nothing at all.
+        [],
+    ],
+)
+@pytest.mark.asyncio
+async def test_backfill_recorded_reads_djs_own(session, current_user, spec):
+    """
+    Only DJ's own records count. A backfill posted through the API says nothing
+    about the span a cube declares.
+    """
+    materialization = await _stored_materialization(session, current_user)
+    session.add(Backfill(materialization_id=materialization.id, spec=spec))
+
+    assert await backfill_recorded(session, materialization, date(2024, 1, 1)) is False

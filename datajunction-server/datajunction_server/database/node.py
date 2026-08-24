@@ -754,6 +754,7 @@ class Node(Base):
             # Configs persisted before `retention` existed will be built with the
             # default on their next run, so that is what the export should show.
             retention=config.get("retention", DEFAULT_CUBE_RETENTION),
+            coverage=config.get("coverage"),
         )
 
     @classmethod
