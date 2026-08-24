@@ -314,3 +314,13 @@ async def test_list_nodes_with_common_dimension(
         "default.avg_repair_order_discounts",
         "default.avg_time_to_dispatch",
     }
+
+    response = await module__client_with_roads_and_acc_revenue.get(
+        "/dimensions/common/?dimension=default.hard_hat&dimension=does.not.exist",
+    )
+    assert response.status_code == 404
+    assert response.json() == {
+        "message": "A node with name `does.not.exist` does not exist.",
+        "errors": [],
+        "warnings": [],
+    }
