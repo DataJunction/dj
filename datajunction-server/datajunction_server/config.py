@@ -12,8 +12,13 @@ from cachelib.base import BaseCache
 from cachelib.file import FileSystemCache
 from cachelib.redis import RedisCache
 from celery import Celery
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings
+
+from datajunction_server.naming import parse_scope_pattern
+
+RESTRICTIVE_SCOPE_ACTIONS = {"read", "write", "execute", "delete", "manage"}
+RESTRICTIVE_SCOPE_TYPES = {"node", "namespace"}
 
 
 class DatabaseConfig(BaseModel):
@@ -216,11 +221,45 @@ class Settings(BaseSettings):  # pragma: no cover
     # permissive. Applied before the default_access_policy fallback.
     default_access_role: str | None = None
 
+    # Rules that require an explicit principal, group, or service-account grant.
+    # Entries use "action:scope_type:scope_value", for example
+    # "write:node:finance.*". Actions are exact, so configure each governed
+    # mutating action and every resource shape separately.
+    restrictive_scopes: list[str] = Field(default_factory=list)
+
     # Require configured break-glass admins before serving requests.
     # Restrictive default access also enables this check automatically.
     # RBAC_ADMIN_USERS uses JSON list syntax, for example ["admin-user"].
     rbac_require_admin: bool = False
     rbac_admin_users: list[str] = Field(default_factory=list)
+
+    @field_validator("restrictive_scopes")
+    @classmethod
+    def validate_restrictive_scopes(cls, values: list[str]) -> list[str]:
+        """Reject malformed policy rules while loading settings."""
+        for value in values:
+            parts = value.split(":")
+            if len(parts) != 3:
+                raise ValueError(
+                    "restrictive scope must be 'action:scope_type:scope_value'",
+                )
+            action, scope_type, scope_value = parts
+            if (
+                action not in RESTRICTIVE_SCOPE_ACTIONS
+                or scope_type not in RESTRICTIVE_SCOPE_TYPES
+            ):
+                raise ValueError(
+                    "restrictive scope action and scope type must be supported values",
+                )
+            if (
+                scope_value != scope_value.strip()
+                or parse_scope_pattern(scope_value) is None
+            ):
+                raise ValueError(
+                    "restrictive scope value must be '*', an exact scope, "
+                    "or a subtree ending in '.*'",
+                )
+        return values
 
     # Interval in seconds with which to expire caching of any indexes
     index_cache_expire: int = 60
