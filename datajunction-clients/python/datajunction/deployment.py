@@ -5,6 +5,7 @@ import socket
 import subprocess
 import urllib.parse
 import urllib.request
+from datetime import date
 from enum import Enum
 from pathlib import Path
 import time
@@ -25,6 +26,19 @@ from datajunction.rendering import print_deployment_header, print_results
 
 # TODO: replace with generated models from OpenAPI spec once client codegen is set up.
 # Canonical definitions live in datajunction_server/models/deployment.py.
+
+
+def _stringify_dates(value: Any) -> Any:
+    """
+    Replace dates and datetimes with ISO 8601 strings, recursively.
+    """
+    if isinstance(value, date):  # datetime subclasses date
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {key: _stringify_dates(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_stringify_dates(item) for item in value]
+    return value
 
 
 class DeploymentStatus(str, Enum):
@@ -290,7 +304,7 @@ class DeploymentService:
     @staticmethod
     def read_yaml_file(path: str | Path) -> dict[str, Any]:
         with open(path) as f:
-            return yaml.safe_load(f)
+            return _stringify_dates(yaml.safe_load(f))
 
     @staticmethod
     def _resolve_email_to_github_username(

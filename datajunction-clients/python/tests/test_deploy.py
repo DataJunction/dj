@@ -1682,3 +1682,91 @@ def test_collect_nodes_skips_vendored_dirs_and_list_yamls(tmp_path):
 
     node_names = [n.get("name") for n in spec["nodes"]]
     assert node_names == ["foo.bar"]  # only the legitimate node survived
+
+
+def test_read_yaml_file_top_level_date(tmp_path):
+    """An unquoted top-level date becomes an ISO string."""
+    path = tmp_path / "node.yaml"
+    path.write_text("name: ns.thing\nvalid_from: 2026-08-17\n")
+
+    assert DeploymentService.read_yaml_file(path) == {
+        "name": "ns.thing",
+        "valid_from": "2026-08-17",
+    }
+
+
+def test_read_yaml_file_nested_date(tmp_path):
+    """A date nested in a dict becomes an ISO string."""
+    path = tmp_path / "cube.yaml"
+    path.write_text(
+        "name: ns.cube\n"
+        "materialization:\n"
+        "  strategy: incremental_time\n"
+        "  coverage:\n"
+        "    from: 2026-08-17\n",
+    )
+
+    assert DeploymentService.read_yaml_file(path) == {
+        "name": "ns.cube",
+        "materialization": {
+            "strategy": "incremental_time",
+            "coverage": {"from": "2026-08-17"},
+        },
+    }
+
+
+def test_read_yaml_file_date_in_list(tmp_path):
+    """Dates inside lists become ISO strings."""
+    path = tmp_path / "node.yaml"
+    path.write_text(
+        "name: ns.thing\nbackfills:\n  - 2026-08-17\n  - start: 2026-01-01\n",
+    )
+
+    assert DeploymentService.read_yaml_file(path) == {
+        "name": "ns.thing",
+        "backfills": ["2026-08-17", {"start": "2026-01-01"}],
+    }
+
+
+def test_read_yaml_file_datetime_keeps_time(tmp_path):
+    """A datetime keeps its time, not just the date."""
+    path = tmp_path / "node.yaml"
+    path.write_text("name: ns.thing\nstarted_at: 2026-08-17 09:30:15\n")
+
+    assert DeploymentService.read_yaml_file(path) == {
+        "name": "ns.thing",
+        "started_at": "2026-08-17T09:30:15",
+    }
+
+
+def test_read_yaml_file_quoted_date_unchanged(tmp_path):
+    """A quoted date passes through unchanged."""
+    path = tmp_path / "node.yaml"
+    path.write_text('name: ns.thing\nvalid_from: "2026-08-17"\n')
+
+    assert DeploymentService.read_yaml_file(path) == {
+        "name": "ns.thing",
+        "valid_from": "2026-08-17",
+    }
+
+
+def test_read_yaml_file_without_dates(tmp_path):
+    """A file with no dates comes back unchanged."""
+    path = tmp_path / "node.yaml"
+    path.write_text(
+        "name: ns.thing\n"
+        "query: SELECT 1\n"
+        "columns:\n"
+        "  - name: one\n"
+        "    type: int\n"
+        "enabled: true\n"
+        "count: 3\n",
+    )
+
+    assert DeploymentService.read_yaml_file(path) == {
+        "name": "ns.thing",
+        "query": "SELECT 1",
+        "columns": [{"name": "one", "type": "int"}],
+        "enabled": True,
+        "count": 3,
+    }
