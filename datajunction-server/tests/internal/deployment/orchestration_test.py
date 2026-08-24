@@ -4184,7 +4184,8 @@ class TestPlanCoverageBackfill:
     ):
         """
         A branch namespace previews what the push would give its author, and a
-        preview does not spend hundreds of partition runs.
+        preview does not spend hundreds of partition runs. The report says the
+        backfill was skipped, so the author is not left guessing.
         """
         revision, materialization = await self._cube(
             session,
@@ -4203,6 +4204,15 @@ class TestPlanCoverageBackfill:
 
         assert self._queued(orchestrator) == []
         assert await self._recorded(session, materialization) == []
+        assert orchestrator.deployed_results == [
+            DeploymentResult(
+                name="default.a_cube",
+                deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                status=DeploymentResult.Status.SKIPPED,
+                operation=DeploymentResult.Operation.NOOP,
+                message="no coverage backfill on a branch deploy",
+            ),
+        ]
 
     @pytest.mark.asyncio
     async def test_an_uncountable_window_is_warned_about(

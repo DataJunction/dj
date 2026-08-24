@@ -286,35 +286,29 @@ def resolve_git_info_from_map(
         None,
     )
 
-    # Resolve config_ns: find the git root (has github_repo_path).
-    # If branch_ns.parent_namespace points outside the string hierarchy (a sibling),
-    # use the FK-hop parent if it was pre-loaded into ns_map.
-    # Otherwise, the git root is reachable via string ancestors.
-    config_ns: NodeNamespace | None = None
+    # Rows git config resolves from, most specific first.
+    # A pre-loaded FK parent outside the hierarchy leads.
+    candidates: list[NodeNamespace] = []
     if (
         branch_ns
         and branch_ns.parent_namespace
         and branch_ns.parent_namespace not in ancestor_names
         and branch_ns.parent_namespace in ns_map
     ):
-        fk_parent = ns_map[branch_ns.parent_namespace]
-        if fk_parent.github_repo_path:
-            config_ns = fk_parent
-    if not config_ns:
-        config_ns = next(
-            (
-                ns_map[n]
-                for n in reversed_names
-                if ns_map.get(n) and ns_map[n].github_repo_path
-            ),
-            None,
-        )
+        candidates.append(ns_map[branch_ns.parent_namespace])
+    candidates.extend(ns_map[n] for n in reversed_names if ns_map.get(n))
+
+    config_ns = next((ns for ns in candidates if ns.github_repo_path), None)
 
     if not config_ns:
         return None
 
     branch = branch_ns.git_branch if branch_ns else None
-    default_branch = config_ns.default_branch
+    # The default branch may sit on another row.
+    default_branch = next(
+        (ns.default_branch for ns in candidates if ns.default_branch),
+        None,
+    )
     # Effective git_only cascades: any ancestor (or the namespace itself)
     # with git_only=True locks all descendants. Without this the UI would
     # treat a child namespace as editable when its parent is locked,
@@ -363,6 +357,8 @@ async def get_git_info_for_namespace(
        load the git root (which carries ``github_repo_path`` / ``git_path``).
        Otherwise, look for ``github_repo_path`` among the string ancestors
        (self-contained root case).
+    3. Take ``default_branch`` from the first row that has one, in the same
+       order — branch namespaces carry the repo path but not the default branch.
     """
     ancestor_names = get_parent_namespaces(namespace) + [namespace]
     stmt = select(NodeNamespace).where(NodeNamespace.namespace.in_(ancestor_names))
