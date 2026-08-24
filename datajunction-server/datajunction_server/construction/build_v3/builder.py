@@ -21,6 +21,7 @@ from datajunction_server.construction.build_v3.cube_matcher import (
 )
 from datajunction_server.construction.build_v3.decomposition import (
     decompose_and_group_metrics,
+    missing_semi_additive_dimensions,
 )
 from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
 from datajunction_server.construction.build_v3.filters import (
@@ -320,6 +321,14 @@ async def setup_build_context(
 
     # Add dimensions referenced in metric expressions (e.g., LAG ORDER BY)
     add_dimensions_from_metric_expressions(ctx, ctx.decomposed_metrics)
+    output_dimensions_after_expression_scan = list(ctx.dimensions)
+    internal_semi_additive_dimensions = missing_semi_additive_dimensions(
+        ctx.decomposed_metrics.values(),
+        output_dimensions_after_expression_scan,
+    )
+    for dimension in internal_semi_additive_dimensions:
+        if dimension not in ctx.dimensions:
+            ctx.dimensions.append(dimension)
 
     # A second load_nodes pass is needed when either:
     # 1. metric expressions introduced dimension nodes not yet in ctx.nodes, OR
@@ -333,8 +342,15 @@ async def setup_build_context(
     }
     missing_dim_nodes = dim_roots_after - ctx.nodes.keys()
     internally_added_roots = dim_roots_after - dim_roots_before_load
-    if missing_dim_nodes or internally_added_roots:
-        await load_nodes(ctx)
+    try:
+        if (
+            missing_dim_nodes
+            or internally_added_roots
+            or internal_semi_additive_dimensions
+        ):
+            await load_nodes(ctx)
+    finally:
+        ctx.dimensions = output_dimensions_after_expression_scan
 
     # Classify filters into dimension filters (WHERE) and metric filters (HAVING)
     # This MUST happen AFTER all nodes are loaded so we can correctly identify

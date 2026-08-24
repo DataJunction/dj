@@ -50,11 +50,44 @@ from datajunction_server.construction.build_v3.utils import (
 )
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.decompose import Aggregability
+from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.semiadditive import SemiAdditiveCollapseFunction
 from datajunction_server.sql.decompose import wrap_divisions_in_nullif
 from datajunction_server.sql.parsing import ast
 
 logger = logging.getLogger(__name__)
+
+
+def _build_semi_additive_collapse_expression(
+    collapse_function: SemiAdditiveCollapseFunction,
+    dialect: Dialect,
+    value_ref: ast.Expression,
+    protected_dim_ref: ast.Expression,
+) -> ast.Function:
+    """
+    Build the final aggregation for a semi-additive metric collapse.
+    """
+    if collapse_function == SemiAdditiveCollapseFunction.LAST_VALUE:
+        function_name = "LATEST_BY" if dialect == Dialect.DRUID else "MAX_BY"
+        return ast.Function(
+            ast.Name(function_name),
+            args=[value_ref, protected_dim_ref],
+        )
+    if collapse_function == SemiAdditiveCollapseFunction.FIRST_VALUE:
+        function_name = "EARLIEST_BY" if dialect == Dialect.DRUID else "MIN_BY"
+        return ast.Function(
+            ast.Name(function_name),
+            args=[value_ref, protected_dim_ref],
+        )
+    if collapse_function == SemiAdditiveCollapseFunction.MIN:
+        return ast.Function(ast.Name("MIN"), args=[value_ref])
+    if collapse_function == SemiAdditiveCollapseFunction.MAX:
+        return ast.Function(ast.Name("MAX"), args=[value_ref])
+
+    raise DJInvalidInputException(
+        f"Unsupported semi-additive collapse function: {collapse_function}",
+    )
 
 
 def classify_filters(
@@ -206,6 +239,20 @@ def _build_metric_aggregation(
     if len(decomposed.components) == 1:
         comp = decomposed.components[0]
         orig_agg = get_comp_aggregability(comp.name)
+
+        if comp.rule.semi_additive and comp.name in gg.semi_additive_dimension_aliases:
+            _, col_name = comp_mappings[comp.name]
+            value_ref = make_column_ref(col_name, cte_alias)
+            protected_dim_ref = make_column_ref(
+                gg.semi_additive_dimension_aliases[comp.name],
+                cte_alias,
+            )
+            return _build_semi_additive_collapse_expression(
+                comp.rule.semi_additive.function,
+                gg.dialect,
+                value_ref,
+                protected_dim_ref,
+            )
 
         if orig_agg == Aggregability.LIMITED:
             _, col_name = comp_mappings[comp.name]
@@ -1735,6 +1782,15 @@ def generate_metrics_sql(
     # Window grain groups were created by build_window_metric_grain_groups() in measures phase
     base_grain_groups = [gg for gg in grain_groups if not gg.is_window_grain_group]
     window_grain_groups = [gg for gg in grain_groups if gg.is_window_grain_group]
+    if len(base_grain_groups) > 1 and any(
+        gg.semi_additive_dimension_aliases for gg in base_grain_groups
+    ):
+        parent_names = sorted({gg.parent_name for gg in base_grain_groups})
+        raise DJInvalidInputException(
+            "Semi-additive live SQL with multiple base grain groups is not "
+            "supported yet because the protected dimension can fan out other "
+            f"grain groups before final aggregation. Parents: {parent_names}.",
+        )
 
     # Pre-detect whether there will be a base_metrics CTE (any window function metrics).
     # When a base_metrics CTE is built, it uses GROUP BY + COUNT(DISTINCT ...) which

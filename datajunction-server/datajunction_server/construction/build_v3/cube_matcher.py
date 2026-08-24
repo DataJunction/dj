@@ -14,7 +14,11 @@ from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, load_only, noload, selectinload
 
-from datajunction_server.construction.build_v3.decomposition import is_derived_metric
+from datajunction_server.construction.build_v3.decomposition import (
+    _semi_additive_dimension_requested,
+    is_derived_metric,
+    missing_semi_additive_dimensions,
+)
 from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
 from datajunction_server.construction.build_v3.filters import (
     parse_and_resolve_filters,
@@ -43,6 +47,7 @@ from datajunction_server.instrumentation.provider import timed
 from datajunction_server.models.decompose import Aggregability
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.semiadditive import parse_semi_additive_spec
 from datajunction_server.naming import amenable_name
 from datajunction_server.sql.parsing import ast
 
@@ -53,6 +58,36 @@ logger = logging.getLogger(__name__)
 # parsed: coverage can't be proven, so cube matching must fail SAFE (reject the
 # cube and fall back) rather than fail open and emit invalid SQL.
 _FILTER_COVERAGE_UNKNOWN = object()
+
+
+def _semi_additive_dimensions_for_cube_metrics(
+    cube: NodeRevision,
+    metrics: list[str],
+    requested_dimensions: list[str],
+) -> list[str]:
+    """
+    Protected dimensions a cube must materialize for semi-additive rollups.
+    """
+    required: list[str] = []
+    metric_names = set(metrics)
+    for metric_revision in cube.metric_node_revisions():
+        if (
+            not metric_revision
+            or metric_revision.name not in metric_names
+            or not metric_revision.semi_additive
+        ):
+            continue
+        semi_additive = parse_semi_additive_spec(metric_revision.semi_additive)
+        if (
+            semi_additive
+            and not _semi_additive_dimension_requested(
+                semi_additive.dimension,
+                requested_dimensions,
+            )
+            and semi_additive.dimension not in required
+        ):
+            required.append(semi_additive.dimension)
+    return required
 
 
 async def _required_filter_dimensions(
@@ -214,10 +249,18 @@ async def find_matching_cube(
         # Druid SQL referencing a missing column).
         cube_dims = set(cube_rev.cube_dimensions())
 
-        if not required_dims.issubset(cube_dims):
+        required_dims_for_cube = required_dims | set(
+            _semi_additive_dimensions_for_cube_metrics(
+                cube_rev,
+                metrics,
+                dimensions,
+            ),
+        )
+
+        if not required_dims_for_cube.issubset(cube_dims):
             logger.debug(
                 f"[BuildV3] Cube {cube_rev.name} dims {cube_dims} "
-                f"don't cover required {required_dims}",
+                f"don't cover required {required_dims_for_cube}",
             )
             continue
 
@@ -244,6 +287,7 @@ async def validate_pinned_cube_covers_filters(
     cube: NodeRevision,
     dimensions: list[str],
     filters: list[str] | None,
+    metrics: list[str] | None = None,
 ) -> None:
     """
     Ensure an explicitly pinned cube covers every filtered dimension.
@@ -268,6 +312,13 @@ async def validate_pinned_cube_covers_filters(
             http_status_code=422,
         )
     required_dims = set(dimensions) | set(required)  # type: ignore[arg-type]
+    required_dims.update(
+        _semi_additive_dimensions_for_cube_metrics(
+            cube,
+            metrics or cube.cube_node_metrics,
+            dimensions,
+        ),
+    )
     cube_dims = set(cube.cube_dimensions())
     missing = required_dims - cube_dims
     if missing:
@@ -640,13 +691,27 @@ def build_synthetic_grain_group(
     # (filter-only dimensions were added by add_dimensions_from_filters() in setup_build_context)
     dimension_aliases: dict[str, str] = {}
 
-    # Add all dimensions (requested + filter-only). We need all dimensions
+    output_dimensions = [
+        dim for dim in ctx.dimensions if dim not in ctx.filter_dimensions
+    ]
+    internal_semi_additive_dimensions = missing_semi_additive_dimensions(
+        decomposed_metrics.values(),
+        output_dimensions,
+    )
+
+    # Add all dimensions (requested + filter-only + internal semi-additive
+    # protected dimensions). We need all dimensions
     # in the cube SELECT for proper filter resolution.
     # dim_short_names holds the alias (short name) used everywhere outside the CTE.
     # dim_physical_names holds the actual column name in the Druid table (may differ).
     dim_short_names = []
     dim_physical_names = []
-    for dim_ref in ctx.dimensions:
+    dimension_to_alias: dict[str, str] = {}
+    dimension_refs = list(ctx.dimensions)
+    for dim_ref in internal_semi_additive_dimensions:
+        if dim_ref not in dimension_refs:
+            dimension_refs.append(dim_ref)
+    for dim_ref in dimension_refs:
         parsed_dim = parse_dimension_ref(dim_ref)
         short_name = parsed_dim.column_name
         if parsed_dim.role:
@@ -662,6 +727,7 @@ def build_synthetic_grain_group(
         # the WHERE is applied directly on the cube table, so we must reference
         # the physical column (e.g. common_DOT_..._DOT_dateint) not the alias.
         dimension_aliases[dim_ref] = physical_name
+        dimension_to_alias[dim_ref] = short_name
         grain_group_columns.append(
             ColumnMetadata(
                 name=short_name,
@@ -735,6 +801,18 @@ def build_synthetic_grain_group(
         if metric_node and not is_derived_metric(ctx, metric_node):
             base_metrics.append(metric_name)
 
+    semi_additive_dimension_aliases: dict[str, str] = {}
+    internal_semi_additive_dimension_set = set(internal_semi_additive_dimensions)
+    for comp in all_components:
+        if (
+            comp.rule.semi_additive
+            and comp.rule.semi_additive.dimension
+            in internal_semi_additive_dimension_set
+        ):
+            semi_additive_dimension_aliases[comp.name] = dimension_to_alias[
+                comp.rule.semi_additive.dimension
+            ]
+
     # Create the synthetic GrainGroupSQL
     # Note: We use a placeholder parent_name since the cube combines multiple parents
     return GrainGroupSQL(
@@ -745,6 +823,7 @@ def build_synthetic_grain_group(
         metrics=base_metrics,  # Only base metrics, not derived
         parent_name=cube.name,  # Use cube name as parent
         component_aliases=component_aliases,
+        semi_additive_dimension_aliases=semi_additive_dimension_aliases,
         is_merged=False,
         components=all_components,
         dialect=ctx.dialect,

@@ -1,3 +1,5 @@
+import time
+
 import pytest
 
 from . import assert_sql_equal
@@ -98,6 +100,345 @@ class TestMetricsSQLBasic:
                 "semantic_type": "metric",
             },
         ]
+
+    @staticmethod
+    async def _create_daily_balance_metric(client_with_build_v3):
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.daily_balance",
+                "description": "Semi-additive balance measured by order date",
+                "query": "SELECT SUM(line_total) FROM v3.order_details",
+                "mode": "published",
+                "semi_additive": {
+                    "dimension": "v3.date.date_id[order]",
+                    "function": "last_value",
+                },
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+    @staticmethod
+    async def _create_first_daily_balance_metric(client_with_build_v3):
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.first_daily_balance",
+                "description": "Semi-additive balance measured by first order date",
+                "query": "SELECT SUM(line_total) FROM v3.order_details",
+                "mode": "published",
+                "semi_additive": {
+                    "dimension": "v3.date.date_id[order]",
+                    "function": "first_value",
+                },
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+    @pytest.mark.asyncio
+    async def test_semi_additive_collapses_when_protected_dimension_omitted(
+        self,
+        client_with_build_v3,
+    ):
+        """A semi-additive metric keeps its protected dimension as private grain."""
+        await self._create_daily_balance_metric(client_with_build_v3)
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.daily_balance"],
+                "dimensions": ["v3.product.category"],
+                "use_materialized": "false",
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH
+            v3_order_details AS (
+                SELECT o.order_date, oi.product_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+            ),
+            order_details_0 AS (
+                SELECT t2.category,
+                       t1.order_date AS date_id_order,
+                       SUM(t1.line_total) AS line_total_sum_e1f61696
+                FROM v3_order_details t1
+                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                GROUP BY t2.category, t1.order_date
+            )
+            SELECT order_details_0.category AS category,
+                   MAX_BY(
+                       order_details_0.line_total_sum_e1f61696,
+                       order_details_0.date_id_order
+                   ) AS daily_balance
+            FROM order_details_0
+            GROUP BY order_details_0.category
+            """,
+        )
+        assert response.json()["columns"] == [
+            {
+                "name": "category",
+                "type": "string",
+                "semantic_entity": "v3.product.category",
+                "semantic_type": "dimension",
+            },
+            {
+                "name": "daily_balance",
+                "type": "double",
+                "semantic_entity": "v3.daily_balance",
+                "semantic_type": "metric",
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_semi_additive_druid_uses_latest_by_for_last_value(
+        self,
+        client_with_build_v3,
+    ):
+        """Druid live SQL uses Druid-native collapse functions."""
+        await self._create_daily_balance_metric(client_with_build_v3)
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.daily_balance"],
+                "dimensions": ["v3.product.category"],
+                "dialect": "druid",
+                "use_materialized": "false",
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["dialect"] == "druid"
+
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH
+            v3_order_details AS (
+                SELECT o.order_date, oi.product_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+            ),
+            order_details_0 AS (
+                SELECT t2.category,
+                       t1.order_date AS date_id_order,
+                       SUM(t1.line_total) AS line_total_sum_e1f61696
+                FROM v3_order_details t1
+                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                GROUP BY t2.category, t1.order_date
+            )
+            SELECT order_details_0.category AS category,
+                   LATEST_BY(
+                       order_details_0.line_total_sum_e1f61696,
+                       order_details_0.date_id_order
+                   ) AS daily_balance
+            FROM order_details_0
+            GROUP BY order_details_0.category
+            """,
+        )
+        assert "MAX_BY" not in response.json()["sql"]
+        assert "ARG_MAX" not in response.json()["sql"]
+
+    @pytest.mark.asyncio
+    async def test_semi_additive_auto_routed_druid_uses_latest_by(
+        self,
+        client_with_build_v3,
+    ):
+        """Auto-routed Druid cube SQL uses Druid-native collapse functions."""
+        await self._create_daily_balance_metric(client_with_build_v3)
+
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.daily_balance_category_cube",
+                "metrics": ["v3.daily_balance"],
+                "dimensions": ["v3.product.category"],
+                "mode": "published",
+                "description": "Category-only decoy cube",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        response = await client_with_build_v3.post(
+            "/data/v3.daily_balance_category_cube/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "analytics",
+                "table": "daily_balance_category_cube",
+                "valid_through_ts": int(time.time() * 1000),
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.daily_balance_cube",
+                "metrics": ["v3.daily_balance"],
+                "dimensions": [
+                    "v3.product.category",
+                    "v3.date.date_id[order]",
+                ],
+                "mode": "published",
+                "description": "Daily balance cube at protected grain",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        response = await client_with_build_v3.post(
+            "/data/v3.daily_balance_cube/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "analytics",
+                "table": "daily_balance_cube",
+                "valid_through_ts": int(time.time() * 1000),
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.daily_balance"],
+                "dimensions": ["v3.product.category"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["dialect"] == "druid"
+
+        sql = response.json()["sql"]
+        assert "FROM daily_balance_cube" in sql
+        assert "daily_balance_category_cube" not in sql
+        assert "LATEST_BY(" in sql
+        assert "date_id_order" in sql
+        assert "MAX_BY" not in sql
+        assert "ARG_MAX" not in sql
+
+    @pytest.mark.asyncio
+    async def test_semi_additive_druid_uses_earliest_by_for_first_value(
+        self,
+        client_with_build_v3,
+    ):
+        """Druid first-value collapse renders as EARLIEST_BY."""
+        await self._create_first_daily_balance_metric(client_with_build_v3)
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.first_daily_balance"],
+                "dimensions": ["v3.product.category"],
+                "dialect": "druid",
+                "use_materialized": "false",
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        sql = response.json()["sql"]
+        assert "EARLIEST_BY(" in sql
+        assert "MIN_BY" not in sql
+        assert "ARG_MIN" not in sql
+
+    @pytest.mark.asyncio
+    async def test_semi_additive_uses_normal_aggregation_when_protected_dimension_requested(
+        self,
+        client_with_build_v3,
+    ):
+        """Requesting the protected dimension means there is nothing to collapse."""
+        await self._create_daily_balance_metric(client_with_build_v3)
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.daily_balance"],
+                "dimensions": ["v3.date.date_id[order]"],
+                "use_materialized": "false",
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH
+            v3_order_details AS (
+                SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+                SELECT t1.order_date AS date_id_order,
+                       SUM(t1.line_total) AS line_total_sum_e1f61696
+                FROM v3_order_details t1
+                GROUP BY t1.order_date
+            )
+            SELECT order_details_0.date_id_order AS date_id_order,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS daily_balance
+            FROM order_details_0
+            GROUP BY order_details_0.date_id_order
+            """,
+        )
+        assert "MAX_BY" not in response.json()["sql"]
+
+    @pytest.mark.asyncio
+    async def test_semi_additive_collapses_with_coarser_time_dimension(
+        self,
+        client_with_build_v3,
+    ):
+        """Coarser time output still collapses across the protected date grain."""
+        await self._create_daily_balance_metric(client_with_build_v3)
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.daily_balance"],
+                "dimensions": ["v3.date.month[order]"],
+                "use_materialized": "false",
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH
+            v3_date AS (
+                SELECT date_id, month
+                FROM default.v3.dates
+            ),
+            v3_order_details AS (
+                SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+                SELECT t2.month AS month_order,
+                       COALESCE(t1.order_date, t2.date_id) AS date_id_order,
+                       SUM(t1.line_total) AS line_total_sum_e1f61696
+                FROM v3_order_details t1
+                LEFT OUTER JOIN v3_date t2 ON t1.order_date = t2.date_id
+                GROUP BY t2.month, COALESCE(t1.order_date, t2.date_id)
+            )
+            SELECT order_details_0.month_order AS month_order,
+                   MAX_BY(
+                       order_details_0.line_total_sum_e1f61696,
+                       order_details_0.date_id_order
+                   ) AS daily_balance
+            FROM order_details_0
+            GROUP BY order_details_0.month_order
+            """,
+        )
 
     @pytest.mark.asyncio
     async def test_multiple_metrics_same_grain(self, client_with_build_v3):
