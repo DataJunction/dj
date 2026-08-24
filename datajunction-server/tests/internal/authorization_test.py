@@ -1180,16 +1180,7 @@ class TestRestrictiveScopes:
         default_scopes=None,
         is_admin: bool = False,
     ) -> AuthContext:
-        assignments = (
-            [
-                SimpleNamespace(
-                    expires_at=None,
-                    role=SimpleNamespace(scopes=explicit_scopes),
-                ),
-            ]
-            if explicit_scopes
-            else []
-        )
+        assignments = [_assignment(explicit_scopes)] if explicit_scopes else []
         return AuthContext(
             user_id=1,
             username="test-user",
@@ -1236,51 +1227,33 @@ class TestRestrictiveScopes:
         assert decision.approved is False
         assert decision.reason and decision.reason.startswith("restrictive_scope:")
 
-    def test_only_configured_actions_and_boundary_are_restricted(self, mocker):
+    @pytest.mark.parametrize(
+        "action,name,approved",
+        [
+            (ResourceAction.WRITE, "shared.main.revenue", False),
+            (ResourceAction.READ, "shared.main.revenue", True),
+            (ResourceAction.EXECUTE, "shared.main.revenue", True),
+            (ResourceAction.DELETE, "shared.main.revenue", True),
+            (ResourceAction.MANAGE, "shared.main.revenue", True),
+            (ResourceAction.WRITE, "shared.other.revenue", True),
+        ],
+    )
+    def test_only_configured_actions_and_boundary_are_restricted(
+        self,
+        mocker,
+        action,
+        name,
+        approved,
+    ):
         self.configure(mocker, rules=["write:node:shared.main.*"])
-        requests = [
-            self.request(
-                ResourceAction.WRITE,
-                ResourceType.NODE,
-                "shared.main.revenue",
-            ),
-            self.request(
-                ResourceAction.READ,
-                ResourceType.NODE,
-                "shared.main.revenue",
-            ),
-            self.request(
-                ResourceAction.EXECUTE,
-                ResourceType.NODE,
-                "shared.main.revenue",
-            ),
-            self.request(
-                ResourceAction.DELETE,
-                ResourceType.NODE,
-                "shared.main.revenue",
-            ),
-            self.request(
-                ResourceAction.MANAGE,
-                ResourceType.NODE,
-                "shared.main.revenue",
-            ),
-            self.request(
-                ResourceAction.WRITE,
-                ResourceType.NODE,
-                "shared.other.revenue",
-            ),
-        ]
+        request = self.request(action, ResourceType.NODE, name)
 
-        decisions = RBACAuthorizationService().authorize(self.context(), requests)
+        decision = RBACAuthorizationService().authorize(
+            self.context(),
+            [request],
+        )[0]
 
-        assert [decision.approved for decision in decisions] == [
-            False,
-            True,
-            True,
-            True,
-            True,
-            True,
-        ]
+        assert decision.approved is approved
 
     @pytest.mark.parametrize(
         "rule,resource_type,name,approved",
