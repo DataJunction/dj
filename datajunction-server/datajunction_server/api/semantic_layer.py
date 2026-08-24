@@ -306,10 +306,13 @@ async def list_views(
     full metrics/dimensions are fetched per-view via ``/views/{view}``.
     """
     try:
-        cubes = await Node.find(session, node_type=NodeType.CUBE)
+        cube_names = await Node.find_names(session, node_type=NodeType.CUBE)
     except DJException as exc:
         return _problem(exc.http_status_code or 400, exc.message)
-    return [ViewSummary(name=cube.name, uid=cube.name, features=[]) for cube in cubes]
+    return [
+        ViewSummary(name=cube_name, uid=cube_name, features=[])
+        for cube_name in cube_names
+    ]
 
 
 @router.post("/views/{view_name}", response_model=ViewDetail)

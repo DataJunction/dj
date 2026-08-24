@@ -960,21 +960,6 @@ class Node(Base):
         return filters
 
     @classmethod
-    async def find(
-        cls,
-        session: AsyncSession,
-        prefix: str | None = None,
-        node_type: NodeType | None = None,
-        *options: ExecutableOption,
-    ) -> list[Node]:
-        """
-        Finds a list of nodes by prefix
-        """
-        statement = select(Node).where(*cls._find_filters(prefix, node_type))
-        result = await session.execute(statement.options(*options))
-        return result.unique().scalars().all()
-
-    @classmethod
     async def find_names(
         cls,
         session: AsyncSession,
