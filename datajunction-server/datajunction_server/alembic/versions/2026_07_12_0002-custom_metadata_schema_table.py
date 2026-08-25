@@ -60,6 +60,7 @@ def upgrade():
             sa.text("coalesce(namespace, '')"),
         ],
         unique=True,
+        postgresql_where=sa.text("deactivated_at IS NULL"),
     )
 
 

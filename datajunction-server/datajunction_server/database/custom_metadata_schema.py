@@ -2,7 +2,6 @@
 
 import datetime
 from functools import partial
-from typing import Optional
 
 import sqlalchemy as sa
 from sqlalchemy import JSON, DateTime, ForeignKey, Index, String, text
@@ -24,40 +23,41 @@ class CustomMetadataSchema(Base):
             text("coalesce(node_type, '')"),
             text("coalesce(namespace, '')"),
             unique=True,
+            postgresql_where=text("deactivated_at IS NULL"),
         ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     key: Mapped[str] = mapped_column(String, nullable=False)
-    node_type: Mapped[Optional[str]] = mapped_column(String, default=None)
-    namespace: Mapped[Optional[str]] = mapped_column(String, default=None)
+    node_type: Mapped[str | None] = mapped_column(String, default=None)
+    namespace: Mapped[str | None] = mapped_column(String, default=None)
     json_schema: Mapped[dict] = mapped_column(
         JSON().with_variant(JSONB(), "postgresql"),
         nullable=False,
     )
-    value_kind: Mapped[Optional[str]] = mapped_column(String, default=None)
+    value_kind: Mapped[str | None] = mapped_column(String, default=None)
     filterable: Mapped[bool] = mapped_column(default=True)
-    description: Mapped[Optional[str]] = mapped_column(String, default=None)
-    created_by_id: Mapped[Optional[int]] = mapped_column(
+    description: Mapped[str | None] = mapped_column(String, default=None)
+    created_by_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id"),
         default=None,
     )
-    owner: Mapped[Optional[str]] = mapped_column(String, default=None)
-    updated_by_id: Mapped[Optional[int]] = mapped_column(
+    owner: Mapped[str | None] = mapped_column(String, default=None)
+    updated_by_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id"),
         default=None,
     )
     reserved: Mapped[bool] = mapped_column(default=False, server_default=sa.false())
     created_at: Mapped[UTCDatetime] = mapped_column(
         DateTime(timezone=True),
-        default=partial(datetime.datetime.now, datetime.timezone.utc),
+        default=partial(datetime.datetime.now, datetime.UTC),
     )
     updated_at: Mapped[UTCDatetime] = mapped_column(
         DateTime(timezone=True),
-        default=partial(datetime.datetime.now, datetime.timezone.utc),
-        onupdate=partial(datetime.datetime.now, datetime.timezone.utc),
+        default=partial(datetime.datetime.now, datetime.UTC),
+        onupdate=partial(datetime.datetime.now, datetime.UTC),
     )
-    deactivated_at: Mapped[Optional[UTCDatetime]] = mapped_column(
+    deactivated_at: Mapped[UTCDatetime | None] = mapped_column(
         DateTime(timezone=True),
         default=None,
     )
