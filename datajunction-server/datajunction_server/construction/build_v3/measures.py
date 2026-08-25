@@ -2601,6 +2601,33 @@ def build_window_metric_grain_groups(
         else:
             return None, base_metrics  # pragma: no cover
 
+    def find_base_metrics_for_window_parent(
+        metric_name: str,
+        visited: set[str],
+    ) -> set[str]:
+        """
+        Recursively find grain-group metrics needed to compute a window parent.
+
+        Window expressions may reference a derived metric directly, but the
+        window grain group still needs the underlying base metric components.
+        """
+        if metric_name in visited:
+            return set()  # pragma: no cover
+        visited.add(metric_name)
+
+        for gg in existing_grain_groups:
+            if metric_name in gg.metrics:
+                return {metric_name}
+
+        grain_group_metrics: set[str] = set()
+        for parent_name in ctx.parent_map.get(metric_name, []):
+            parent_node = ctx.nodes.get(parent_name)
+            if parent_node and parent_node.type.value == "metric":  # pragma: no branch
+                grain_group_metrics.update(
+                    find_base_metrics_for_window_parent(parent_name, visited),
+                )
+        return grain_group_metrics
+
     # Group window metrics by (ORDER BY grain, parent fact)
     # This ensures window metrics from different facts are processed separately
     # Key: (frozenset of grain cols, parent_name or "cross_fact")
@@ -2612,13 +2639,18 @@ def build_window_metric_grain_groups(
         parent_name, base_metrics = find_parent_for_window_metric(metric_name)
         # Use "cross_fact" as a marker for cross-fact window metrics
         parent_key = parent_name if parent_name else "cross_fact"
+        component_metrics = set()
+        for base_metric in base_metrics:
+            component_metrics.update(
+                find_base_metrics_for_window_parent(base_metric, set()),
+            )
 
         group_key = (grain_key, parent_key)
         if group_key not in grain_parent_to_metrics:
             grain_parent_to_metrics[group_key] = []
             grain_parent_to_base_metrics[group_key] = set()
         grain_parent_to_metrics[group_key].append(metric_name)
-        grain_parent_to_base_metrics[group_key].update(base_metrics)
+        grain_parent_to_base_metrics[group_key].update(component_metrics)
 
     additional_grain_groups: list[GrainGroupSQL] = []
 
