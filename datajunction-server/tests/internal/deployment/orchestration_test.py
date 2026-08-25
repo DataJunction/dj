@@ -2,7 +2,7 @@
 Unit tests for DeploymentOrchestrator
 """
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
@@ -37,8 +37,11 @@ from datajunction_server.internal.deployment.validation import (
     NodeValidationResult,
 )
 from datajunction_server.internal.materializations import (
+    CoverageBackfill,
     CubeMaterializationSwap,
     CubeMaterializationSwapOutcome,
+    coverage_backfill,
+    record_backfill,
 )
 from datajunction_server.models.deployment import (
     ChangeTier,
@@ -3672,7 +3675,15 @@ class TestApplyCubeMaterializationSwaps:
             new_version="v1.1",
             rebuilt_names=rebuilt_names,
             superseded=[],
-            backfill=backfill,
+            backfill=(
+                CoverageBackfill(
+                    span=backfill,
+                    materialization_id=7,
+                    column_name="date_id",
+                )
+                if backfill
+                else None
+            ),
         )
 
     @staticmethod
@@ -3919,6 +3930,55 @@ class TestApplyCubeMaterializationSwaps:
             ),
         ]
 
+    @pytest.mark.asyncio
+    async def test_an_unrecorded_backfill_is_warned_about(self, orchestrator):
+        """
+        The backfill is running, so it is reported as launched, but nothing wrote
+        it down -- and the next deploy will ask for the same days again.
+        """
+        orchestrator.context.request = None
+        orchestrator._cube_materialization_swaps = [
+            self._swap(
+                "default.a_cube",
+                [],
+                backfill=(date(2024, 1, 1), date(2024, 1, 2)),
+            ),
+        ]
+
+        with patch(
+            "datajunction_server.internal.deployment.orchestrator."
+            "apply_cube_materialization_swap",
+            new=AsyncMock(
+                return_value=CubeMaterializationSwapOutcome(
+                    cube_name="default.a_cube",
+                    materialization_names=[],
+                    scheduled=True,
+                    backfill_span=(date(2024, 1, 1), date(2024, 1, 2)),
+                    backfill_record_error="connection reset",
+                ),
+            ),
+        ):
+            await orchestrator._apply_cube_materialization_swaps()
+
+        assert orchestrator.deployed_results == [
+            DeploymentResult(
+                name="default.a_cube",
+                deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                status=DeploymentResult.Status.SUCCESS,
+                operation=DeploymentResult.Operation.CREATE,
+                message="backfilling 2024-01-01 to 2024-01-02, 2 partition runs",
+            ),
+        ]
+        assert orchestrator.warnings == [
+            DJError(
+                code=ErrorCode.QUERY_SERVICE_ERROR,
+                message=(
+                    "Cube `default.a_cube`: DJ could not record the backfill it "
+                    "launched: connection reset"
+                ),
+            ),
+        ]
+
 
 class TestPlanCoverageBackfill:
     """
@@ -4025,8 +4085,12 @@ class TestPlanCoverageBackfill:
             )
 
     @staticmethod
-    def _queued(orchestrator) -> list[tuple[date, date] | None]:
+    def _queued(orchestrator) -> list[CoverageBackfill | None]:
         return [swap.backfill for swap in orchestrator._cube_materialization_swaps]
+
+    @staticmethod
+    def _spans(orchestrator) -> list[tuple[date, date]]:
+        return [swap.backfill.span for swap in orchestrator._cube_materialization_swaps]
 
     @pytest.mark.asyncio
     async def test_gap_before_the_covered_start(
@@ -4053,16 +4117,15 @@ class TestPlanCoverageBackfill:
             {materialization.name},
         )
 
-        assert self._queued(orchestrator) == [(date(2024, 1, 1), date(2025, 2, 28))]
-        assert await self._recorded(session, materialization) == [
-            [
-                {
-                    "column_name": "date_id",
-                    "values": None,
-                    "range": ["2024-01-01", "2025-02-28"],
-                },
-            ],
+        assert self._queued(orchestrator) == [
+            CoverageBackfill(
+                span=(date(2024, 1, 1), date(2025, 2, 28)),
+                materialization_id=materialization.id,
+                column_name="date_id",
+            ),
         ]
+        # Nothing is written down until the launch lands.
+        assert await self._recorded(session, materialization) == []
 
     @pytest.mark.asyncio
     async def test_nothing_missing_before_the_start(
@@ -4114,7 +4177,7 @@ class TestPlanCoverageBackfill:
             set(),
         )
 
-        assert self._queued(orchestrator) == [(date(2024, 1, 1), date(2026, 1, 1))]
+        assert self._spans(orchestrator) == [(date(2024, 1, 1), date(2026, 1, 1))]
 
     @pytest.mark.asyncio
     async def test_a_rebuilt_cube_takes_the_whole_span(
@@ -4142,7 +4205,7 @@ class TestPlanCoverageBackfill:
             {materialization.name},
         )
 
-        assert self._queued(orchestrator) == [(date(2024, 1, 1), date(2026, 1, 1))]
+        assert self._spans(orchestrator) == [(date(2024, 1, 1), date(2026, 1, 1))]
 
     @pytest.mark.asyncio
     async def test_a_recorded_span_is_not_asked_for_twice(
@@ -4153,7 +4216,42 @@ class TestPlanCoverageBackfill:
     ):
         """
         Availability does not move until the backfill lands, so the next deploy
-        sees the same gap. What DJ already asked for it does not ask for again.
+        sees the same gap. What DJ launched it does not ask for again.
+        """
+        revision, materialization = await self._cube(
+            session,
+            current_user,
+            min_temporal_partition=["20250301"],
+        )
+        await record_backfill(
+            session,
+            coverage_backfill(
+                materialization,
+                revision.columns[0],
+                (date(2024, 1, 1), date(2025, 2, 28)),
+            ),
+        )
+
+        await self._plan(
+            orchestrator,
+            revision,
+            self._block(**{"from": date(2024, 1, 1)}),
+            materialization,
+            {materialization.name},
+        )
+
+        assert self._queued(orchestrator) == []
+
+    @pytest.mark.asyncio
+    async def test_an_unlaunched_span_is_asked_again(
+        self,
+        orchestrator,
+        session,
+        current_user,
+    ):
+        """
+        A launch the query service refused writes nothing down, so the deploy
+        after it queues the same days rather than skipping them forever.
         """
         revision, materialization = await self._cube(
             session,
@@ -4162,7 +4260,13 @@ class TestPlanCoverageBackfill:
         )
         block = self._block(**{"from": date(2024, 1, 1)})
 
-        await self._plan(orchestrator, revision, block, materialization, {"other"})
+        await self._plan(
+            orchestrator,
+            revision,
+            block,
+            materialization,
+            {materialization.name},
+        )
         await self._plan(
             orchestrator,
             revision,
@@ -4171,9 +4275,8 @@ class TestPlanCoverageBackfill:
             {materialization.name},
         )
 
-        yesterday = datetime.now(UTC).date() - timedelta(days=1)
-        assert self._queued(orchestrator) == [(date(2024, 1, 1), yesterday)]
-        assert len(await self._recorded(session, materialization)) == 1
+        span = (date(2024, 1, 1), date(2025, 2, 28))
+        assert self._spans(orchestrator) == [span, span]
 
     @pytest.mark.asyncio
     async def test_a_branch_deploy_asks_for_nothing(

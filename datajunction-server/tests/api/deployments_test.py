@@ -1308,6 +1308,9 @@ def mock_qs(client):
     )
     query_service.materialize_cube.return_value = materialized
     query_service.materialize.return_value = materialized
+    query_service.run_cube_backfill.return_value = {
+        "job_url": "http://fake.url/backfill",
+    }
     client.app.dependency_overrides[get_query_service_client] = lambda: query_service
     yield query_service
     del client.app.dependency_overrides[get_query_service_client]
@@ -3474,7 +3477,50 @@ class TestDeployments:
         ]
 
         # The gap does not close until the backfill lands, so the next deploy sees
-        # the same one. What DJ already asked for it does not ask for again.
+        # the same one. What DJ launched it does not ask for again.
+        mock_qs.reset_mock()
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+        assert mock_qs.run_cube_backfill.call_args_list == []
+
+        # A launch the query service refuses writes nothing down, so the cube is
+        # not locked out of the span: the next deploy asks for the same days.
+        mock_qs.reset_mock()
+        mock_qs.run_cube_backfill.side_effect = Exception("429 Too Many Requests")
+        cube.materialization = MaterializationSpec(
+            schedule="0 6 * * *",
+            coverage={"from": "2023-06-01"},
+        )
+        refused = CubeBackfillInput(
+            cube_name=cube_name,
+            cube_version="v1.1",
+            start_date=date(2023, 6, 1),
+            end_date=date(2025, 2, 28),
+        )
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+        assert [actual.args for actual in mock_qs.run_cube_backfill.call_args_list] == [
+            (refused,),
+        ]
+
+        mock_qs.reset_mock()
+        mock_qs.run_cube_backfill.side_effect = None
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+        assert [actual.args for actual in mock_qs.run_cube_backfill.call_args_list] == [
+            (refused,),
+        ]
+
+        # And once it lands, it is not asked for a third time.
         mock_qs.reset_mock()
         data = await deploy_and_wait(
             client,

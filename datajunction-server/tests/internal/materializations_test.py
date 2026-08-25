@@ -15,11 +15,13 @@ from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.partition import Partition
 from datajunction_server.internal.materializations import (
+    CoverageBackfill,
     CubeMaterializationSwap,
     CubeMaterializationSwapOutcome,
     NodeMaterializationTeardown,
     apply_cube_materialization_swap,
     backfill_recorded,
+    coverage_backfill,
     coverage_gap,
     coverage_partition,
     record_backfill,
@@ -250,7 +252,7 @@ def test_stop_materialization_workflows_reports_every_failure():
 
 def _swap(
     rebuilt_names: list[str],
-    backfill: tuple[date, date] | None = None,
+    backfill: CoverageBackfill | None = None,
 ) -> CubeMaterializationSwap:
     """A swap with one superseded materialization and the given rebuilt names."""
     return CubeMaterializationSwap(
@@ -389,8 +391,9 @@ async def test_apply_cube_swap_without_a_query_service():
 
 
 async def _apply_with_backfill(
+    session,
     query_service_client,
-    span: tuple[date, date],
+    backfill: CoverageBackfill,
     rebuilt_names: list[str] | None = None,
 ) -> CubeMaterializationSwapOutcome:
     """Apply a swap that carries a span to backfill."""
@@ -399,26 +402,34 @@ async def _apply_with_backfill(
         new=mock.AsyncMock(),
     ):
         return await apply_cube_materialization_swap(
-            mock.MagicMock(),
+            session,
             _swap(
                 rebuilt_names if rebuilt_names is not None else ["druid_cube_v3"],
-                backfill=span,
+                backfill=backfill,
             ),
             query_service_client,
         )
 
 
 @pytest.mark.asyncio
-async def test_apply_cube_swap_backfills_the_span():
+async def test_apply_cube_swap_backfills_the_span(session, current_user):
     """
     A swap carrying a span asks for exactly those days, against the new version --
-    which is what names the datasource being filled.
+    which is what names the datasource being filled -- and writes the span down
+    with the job the query service handed back.
     """
+    materialization = await _stored_materialization(session, current_user)
     query_service_client = mock.MagicMock()
+    query_service_client.run_cube_backfill.return_value = {"job_url": "http://job1"}
 
     outcome = await _apply_with_backfill(
+        session,
         query_service_client,
-        (date(2024, 1, 1), date(2024, 6, 30)),
+        coverage_backfill(
+            materialization,
+            _cube_revision().columns[0],
+            (date(2024, 1, 1), date(2024, 6, 30)),
+        ),
     )
 
     assert outcome == CubeMaterializationSwapOutcome(
@@ -428,6 +439,7 @@ async def test_apply_cube_swap_backfills_the_span():
         error=None,
         backfill_span=(date(2024, 1, 1), date(2024, 6, 30)),
         backfill_error=None,
+        backfill_record_error=None,
     )
     assert query_service_client.run_cube_backfill.call_args_list == [
         mock.call(
@@ -440,19 +452,39 @@ async def test_apply_cube_swap_backfills_the_span():
             request_headers=None,
         ),
     ]
+    assert await _recorded(session, materialization) == [
+        (
+            [
+                {
+                    "column_name": "date_0",
+                    "values": None,
+                    "range": ["2024-01-01", "2024-06-30"],
+                },
+            ],
+            ["http://job1"],
+        ),
+    ]
 
 
 @pytest.mark.asyncio
-async def test_apply_cube_swap_backfills_without_rebuilding():
+async def test_apply_cube_swap_backfills_without_rebuilding(session, current_user):
     """
     A gap fill rides on the workflow the cube already has, so its swap rebuilds
-    nothing and schedules nothing -- it only backfills.
+    nothing and schedules nothing -- it only backfills. A query service that
+    names no job still gets the span written down.
     """
+    materialization = await _stored_materialization(session, current_user)
     query_service_client = mock.MagicMock()
+    query_service_client.run_cube_backfill.return_value = {}
 
     outcome = await _apply_with_backfill(
+        session,
         query_service_client,
-        (date(2024, 1, 1), date(2024, 1, 3)),
+        coverage_backfill(
+            materialization,
+            _cube_revision().columns[0],
+            (date(2024, 1, 1), date(2024, 1, 3)),
+        ),
         rebuilt_names=[],
     )
 
@@ -463,21 +495,41 @@ async def test_apply_cube_swap_backfills_without_rebuilding():
         error=None,
         backfill_span=(date(2024, 1, 1), date(2024, 1, 3)),
         backfill_error=None,
+        backfill_record_error=None,
     )
+    assert await _recorded(session, materialization) == [
+        (
+            [
+                {
+                    "column_name": "date_0",
+                    "values": None,
+                    "range": ["2024-01-01", "2024-01-03"],
+                },
+            ],
+            [],
+        ),
+    ]
 
 
 @pytest.mark.asyncio
-async def test_apply_cube_swap_reports_a_refused_backfill():
+async def test_apply_cube_swap_reports_a_refused_backfill(session, current_user):
     """
     A backfill the query service refuses does not raise -- the materialization is
-    scheduled and the deploy has committed -- but the refusal comes back verbatim.
+    scheduled and the deploy has committed -- but the refusal comes back verbatim
+    and nothing is written down, so the next deploy asks for the same days.
     """
+    materialization = await _stored_materialization(session, current_user)
     query_service_client = mock.MagicMock()
     query_service_client.run_cube_backfill.side_effect = Exception("429 Too Many")
 
     outcome = await _apply_with_backfill(
+        session,
         query_service_client,
-        (date(2024, 1, 1), date(2024, 1, 2)),
+        coverage_backfill(
+            materialization,
+            _cube_revision().columns[0],
+            (date(2024, 1, 1), date(2024, 1, 2)),
+        ),
     )
 
     assert outcome == CubeMaterializationSwapOutcome(
@@ -487,15 +539,55 @@ async def test_apply_cube_swap_reports_a_refused_backfill():
         error=None,
         backfill_span=None,
         backfill_error="429 Too Many",
+        backfill_record_error=None,
     )
+    assert await _recorded(session, materialization) == []
+    assert await backfill_recorded(session, materialization, date(2024, 1, 1)) is False
 
 
 @pytest.mark.asyncio
-async def test_apply_cube_swap_backfills_nothing_unscheduled():
+async def test_apply_cube_swap_survives_a_record_failure(session, current_user):
+    """
+    The backfill is already running by the time DJ writes it down, so a write that
+    fails is reported rather than raised at a deploy that has committed.
+    """
+    materialization = await _stored_materialization(session, current_user)
+    query_service_client = mock.MagicMock()
+    query_service_client.run_cube_backfill.return_value = {"job_url": "http://job1"}
+
+    with mock.patch(
+        "datajunction_server.internal.materializations.record_backfill",
+        new=mock.AsyncMock(side_effect=Exception("connection reset")),
+    ):
+        outcome = await _apply_with_backfill(
+            session,
+            query_service_client,
+            coverage_backfill(
+                materialization,
+                _cube_revision().columns[0],
+                (date(2024, 1, 1), date(2024, 1, 2)),
+            ),
+        )
+
+    assert outcome == CubeMaterializationSwapOutcome(
+        cube_name="default.a_cube",
+        materialization_names=["druid_cube_v3"],
+        scheduled=True,
+        error=None,
+        backfill_span=(date(2024, 1, 1), date(2024, 1, 2)),
+        backfill_error=None,
+        backfill_record_error="connection reset",
+    )
+    assert await _recorded(session, materialization) == []
+
+
+@pytest.mark.asyncio
+async def test_apply_cube_swap_backfills_nothing_unscheduled(session, current_user):
     """
     A backfill needs the workflow the scheduling would have created, so a rejected
     push takes the backfill with it.
     """
+    materialization = await _stored_materialization(session, current_user)
     query_service_client = mock.MagicMock()
 
     with mock.patch(
@@ -503,8 +595,15 @@ async def test_apply_cube_swap_backfills_nothing_unscheduled():
         new=mock.AsyncMock(side_effect=Exception("403 Forbidden")),
     ):
         outcome = await apply_cube_materialization_swap(
-            mock.MagicMock(),
-            _swap(["druid_cube_v3"], backfill=(date(2024, 1, 1), date(2024, 1, 2))),
+            session,
+            _swap(
+                ["druid_cube_v3"],
+                backfill=coverage_backfill(
+                    materialization,
+                    _cube_revision().columns[0],
+                    (date(2024, 1, 1), date(2024, 1, 2)),
+                ),
+            ),
             query_service_client,
         )
 
@@ -515,8 +614,10 @@ async def test_apply_cube_swap_backfills_nothing_unscheduled():
         error="403 Forbidden",
         backfill_span=None,
         backfill_error=None,
+        backfill_record_error=None,
     )
     assert query_service_client.run_cube_backfill.call_args_list == []
+    assert await _recorded(session, materialization) == []
 
 
 def _cube_revision(
@@ -634,19 +735,18 @@ async def _stored_materialization(session, current_user) -> Materialization:
     return materialization
 
 
-async def _recorded(session, materialization: Materialization) -> list[list]:
-    """The backfill specs stored against a materialization."""
-    return list(
-        (
+async def _recorded(session, materialization: Materialization) -> list[tuple]:
+    """The backfill specs and urls stored against a materialization."""
+    return [
+        tuple(row)
+        for row in (
             await session.execute(
-                select(Backfill.spec).where(
+                select(Backfill.spec, Backfill.urls).where(
                     Backfill.materialization_id == materialization.id,
                 ),
             )
-        )
-        .scalars()
-        .all(),
-    )
+        ).all()
+    ]
 
 
 @pytest.mark.asyncio
@@ -657,21 +757,26 @@ async def test_record_backfill_is_read_back(session, current_user):
     """
     materialization = await _stored_materialization(session, current_user)
 
-    record_backfill(
+    await record_backfill(
         session,
-        materialization,
-        _cube_revision().columns[0],
-        (date(2024, 1, 1), date(2024, 6, 30)),
+        coverage_backfill(
+            materialization,
+            _cube_revision().columns[0],
+            (date(2024, 1, 1), date(2024, 6, 30)),
+        ),
     )
 
     assert await _recorded(session, materialization) == [
-        [
-            {
-                "column_name": "date_0",
-                "values": None,
-                "range": ["2024-01-01", "2024-06-30"],
-            },
-        ],
+        (
+            [
+                {
+                    "column_name": "date_0",
+                    "values": None,
+                    "range": ["2024-01-01", "2024-06-30"],
+                },
+            ],
+            [],
+        ),
     ]
     assert await backfill_recorded(session, materialization, date(2024, 1, 1)) is True
     assert await backfill_recorded(session, materialization, date(2024, 6, 1)) is True
