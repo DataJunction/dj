@@ -269,8 +269,8 @@ class Settings(BaseSettings):  # pragma: no cover
         return values
 
     # Exact namespaces or subtrees where a first human creator becomes the owner.
-    # CREATOR_OWNED_NAMESPACE_PATTERNS uses JSON list syntax, for example
-    # ["personal.*", "scratch"].
+    # A subtree excludes its root, so matching both requires JSON list syntax
+    # such as ["personal", "personal.*"].
     creator_owned_namespace_patterns: list[CreatorOwnedNamespacePattern] = Field(
         default_factory=list,
     )
