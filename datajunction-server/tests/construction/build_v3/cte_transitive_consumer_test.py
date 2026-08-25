@@ -75,8 +75,7 @@ class TestTransitiveConsumerProjection:
                 "name": f"{ns}.bundles",
                 "mode": "published",
                 "query": (
-                    f"SELECT i.item_id, i.bundle_id AS bundle "
-                    f"FROM {ns}.item AS i"
+                    f"SELECT i.item_id, i.bundle_id AS bundle FROM {ns}.item AS i"
                 ),
             },
         )
