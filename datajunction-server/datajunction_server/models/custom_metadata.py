@@ -1,7 +1,7 @@
 """API models for custom_metadata schema registry and filtering."""
 
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -22,16 +22,16 @@ class CustomMetadataOp(str, Enum):
 class CustomMetadataFilter(BaseModel):
     key: str
     op: CustomMetadataOp = CustomMetadataOp.EQ
-    value: Optional[Any] = None
+    value: Any | None = None
 
 
 class CustomMetadataSchemaCreate(BaseModel):
     key: str
-    node_type: Optional[NodeType] = None
-    namespace: Optional[str] = None
+    node_type: NodeType | None = None
+    namespace: str | None = None
     json_schema: dict
     filterable: bool = True
-    description: Optional[str] = None
+    description: str | None = None
     owner: str | None = None
     reserved: bool = False
 
@@ -39,12 +39,12 @@ class CustomMetadataSchemaCreate(BaseModel):
 class CustomMetadataSchemaOutput(BaseModel):
     id: int
     key: str
-    node_type: Optional[NodeType] = None
-    namespace: Optional[str] = None
+    node_type: NodeType | None = None
+    namespace: str | None = None
     json_schema: dict
-    value_kind: Optional[str] = None
+    value_kind: str | None = None
     filterable: bool
-    description: Optional[str] = None
+    description: str | None = None
     owner: str | None = None
     reserved: bool = False
     created_by_id: int | None = None

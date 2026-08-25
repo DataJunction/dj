@@ -198,7 +198,7 @@ async def delete_schema(
     else:
         access_checker.add_namespace(row.namespace, ResourceAction.WRITE)
         await access_checker.check(on_denied=AccessDenialMode.RAISE)
-    row.deactivated_at = datetime.datetime.now(datetime.timezone.utc)
+    row.deactivated_at = datetime.datetime.now(datetime.UTC)
     await session.commit()
     return {"id": schema_id, "deactivated": True}
 
