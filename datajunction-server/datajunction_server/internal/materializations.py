@@ -384,6 +384,18 @@ def _upsert_from_materialization(
 
 
 @dataclass
+class CoverageBackfill:
+    """
+    The days a cube's declared coverage asks for, and where DJ writes them down
+    once the query service takes the request.
+    """
+
+    span: tuple[date, date]
+    materialization_id: int
+    column_name: str
+
+
+@dataclass
 class CubeMaterializationSwap:
     """
     The query service work a cube materialization swap still owes, once DJ's own
@@ -399,7 +411,7 @@ class CubeMaterializationSwap:
 
     # The days to fill once the materialization is scheduled, resolved from the
     # cube's declared coverage against what its datasource already holds.
-    backfill: tuple[date, date] | None = None
+    backfill: CoverageBackfill | None = None
 
 
 @dataclass
@@ -422,6 +434,9 @@ class CubeMaterializationSwapOutcome:
     # The span a coverage backfill was launched over, and why it was not.
     backfill_span: tuple[date, date] | None = None
     backfill_error: str | None = None
+
+    # Why a launched backfill was not written down.
+    backfill_record_error: str | None = None
 
 
 async def reconcile_declared_materialization(
@@ -728,7 +743,8 @@ async def apply_cube_materialization_swap(
             # the message that says what to do about it.
             outcome.error = str(exc)
     if swap.backfill and outcome.scheduled:
-        _launch_backfill(
+        await _launch_backfill(
+            session,
             query_service_client,
             swap,
             swap.backfill,
@@ -745,10 +761,11 @@ async def apply_cube_materialization_swap(
     return outcome
 
 
-def _launch_backfill(
+async def _launch_backfill(
+    session: AsyncSession,
     query_service_client: QueryServiceClient,
     swap: CubeMaterializationSwap,
-    span: tuple[date, date],
+    backfill: CoverageBackfill,
     outcome: CubeMaterializationSwapOutcome,
     request_headers: dict[str, str] | None = None,
 ) -> None:
@@ -756,10 +773,13 @@ def _launch_backfill(
     Fill the days the cube declares but its Druid datasource does not hold.
 
     Launched and left: the workflow runs one job per partition, long past this
-    deploy. Never raises, and records on the outcome what the caller reports.
+    deploy. The span is written down only once the query service takes it, so a
+    refused launch is asked for again next deploy. Never raises, and records on
+    the outcome what the caller reports.
     """
+    span = backfill.span
     try:
-        query_service_client.run_cube_backfill(
+        result = query_service_client.run_cube_backfill(
             CubeBackfillInput(
                 cube_name=swap.cube_name,
                 cube_version=swap.new_version,
@@ -768,7 +788,6 @@ def _launch_backfill(
             ),
             request_headers=request_headers,
         )
-        outcome.backfill_span = span
     except Exception as exc:
         _logger.warning(
             "Failed to backfill cube=%s version=%s over %s to %s: %s (continuing)",
@@ -780,6 +799,20 @@ def _launch_backfill(
             exc_info=True,
         )
         outcome.backfill_error = str(exc)
+        return
+    outcome.backfill_span = span
+    try:
+        await record_backfill(session, backfill, result.get("job_url"))
+    except Exception as exc:
+        _logger.warning(
+            "Failed to record backfill for cube=%s over %s to %s: %s (continuing)",
+            swap.cube_name,
+            span[0],
+            span[1],
+            str(exc),
+            exc_info=True,
+        )
+        outcome.backfill_record_error = str(exc)
 
 
 def coverage_partition(revision: NodeRevision) -> Column | None:
@@ -830,11 +863,12 @@ async def backfill_recorded(
     start: date,
 ) -> bool:
     """
-    Whether DJ already asked to backfill a span reaching back to `start`.
+    Whether DJ already launched a backfill reaching back to `start`.
 
     Availability does not move until a backfill lands, so the deploy after one
-    sees the same gap and would ask for all of it again. Only DJ's own records
-    count: it writes ISO dates, while a backfill run from the API carries
+    sees the same gap and would ask for all of it again. A launch the query
+    service refused writes nothing, so the next deploy asks again. Only DJ's own
+    records count: it writes ISO dates, while a backfill run from the API carries
     partition-format values that do not mean the same thing.
 
     Read by query rather than off `materialization.backfills`, which a cube
@@ -860,26 +894,46 @@ async def backfill_recorded(
     return False
 
 
-def record_backfill(
-    session: AsyncSession,
+def coverage_backfill(
     materialization: Materialization,
     column: Column,
     span: tuple[date, date],
+) -> CoverageBackfill:
+    """
+    The record a launched coverage backfill will write.
+    """
+    return CoverageBackfill(
+        span=span,
+        materialization_id=materialization.id,
+        column_name=amenable_name(column.cube_element_name),
+    )
+
+
+async def record_backfill(
+    session: AsyncSession,
+    backfill: CoverageBackfill,
+    url: str | None = None,
 ) -> None:
     """
-    Note the span DJ asked to backfill, beside the cube's other backfills.
+    Note the span DJ launched, beside the cube's other backfills.
+
+    Written after the deploy commits, so it commits on its own. The workflow's
+    url goes with it, so a person can check what the row stands for.
     """
+    span = backfill.span
     session.add(
         Backfill(
-            materialization_id=materialization.id,
+            materialization_id=backfill.materialization_id,
             spec=[
                 PartitionBackfill(
-                    column_name=amenable_name(column.cube_element_name),
+                    column_name=backfill.column_name,
                     range=[span[0].isoformat(), span[1].isoformat()],
                 ).model_dump(),
             ],
+            urls=[url] if url else [],
         ),
     )
+    await session.commit()
 
 
 def _as_day(value: Any) -> date | None:

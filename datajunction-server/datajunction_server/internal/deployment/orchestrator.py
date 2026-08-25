@@ -70,10 +70,10 @@ from datajunction_server.internal.materializations import (
     apply_cube_materialization_swap,
     backfill_recorded,
     collect_materialization_teardowns,
+    coverage_backfill,
     coverage_gap,
     coverage_partition,
     reconcile_declared_materialization,
-    record_backfill,
     stop_materialization_workflows,
     swap_cube_materializations,
 )
@@ -2693,8 +2693,9 @@ class DeploymentOrchestrator:
         already has can simply hold less history than the cube now declares, and
         `coverage_gap` reads how much less off availability.
 
-        The span is recorded beside the cube's other backfills and never asked for
-        twice, since availability does not move until the backfill lands. A branch
+        A span the query service takes is recorded beside the cube's other
+        backfills and never asked for twice, since availability does not move
+        until the backfill lands. A branch
         deploy asks for nothing: it previews what the push would give its author,
         and a preview does not spend hundreds of partition runs. It says so in
         the report, so the missing backfill reads as a choice.
@@ -2738,7 +2739,6 @@ class DeploymentOrchestrator:
         await self.session.flush()
         if await backfill_recorded(self.session, materialization, span[0]):
             return
-        record_backfill(self.session, materialization, partition, span)
         self._cube_materialization_swaps.append(
             CubeMaterializationSwap(
                 cube_name=revision.name,
@@ -2747,7 +2747,7 @@ class DeploymentOrchestrator:
                 new_version=revision.version,
                 rebuilt_names=[],
                 superseded=[],
-                backfill=span,
+                backfill=coverage_backfill(materialization, partition, span),
             ),
         )
 
@@ -2933,6 +2933,9 @@ class DeploymentOrchestrator:
         bill -- so the span is reported, never capped: two years of history is a
         thing authors legitimately ask for, and a cap is something they could not
         undo from YAML.
+
+        A launch DJ could not record still ran, and warns: the next deploy sees
+        no record and asks for the same days again.
         """
         if outcome.backfill_span is None:
             self.warnings.append(
@@ -2945,6 +2948,16 @@ class DeploymentOrchestrator:
                 ),
             )
             return
+        if outcome.backfill_record_error:
+            self.warnings.append(
+                DJError(
+                    code=ErrorCode.QUERY_SERVICE_ERROR,
+                    message=(
+                        f"Cube `{outcome.cube_name}`: DJ could not record the "
+                        f"backfill it launched: {outcome.backfill_record_error}"
+                    ),
+                ),
+            )
         start, end = outcome.backfill_span
         runs = (end - start).days + 1
         self.deployed_results.append(
