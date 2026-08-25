@@ -151,7 +151,7 @@ async def test_deactivated_rows_are_excluded(session):
                     2024,
                     1,
                     1,
-                    tzinfo=datetime.timezone.utc,
+                    tzinfo=datetime.UTC,
                 ),
             ),
         ],
