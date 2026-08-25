@@ -11,7 +11,12 @@ from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.custom_metadata_schema import CustomMetadataSchema
 from datajunction_server.api.helpers import check_namespace_not_git_only
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
-from datajunction_server.internal.custom_metadata import ensure_expression_index
+from datajunction_server.internal.custom_metadata import (
+    assert_not_reserved_globally,
+    check_json_schema,
+    ensure_expression_index,
+    upsert_schema_row,
+)
 from datajunction_server.models.custom_metadata import (
     CustomMetadataSchemaCreate,
     CustomMetadataSchemaOutput,
@@ -31,12 +36,6 @@ from datajunction_server.utils import get_current_user, get_session
 router = SecureAPIRouter(tags=["metadata-schemas"])
 
 
-def _value_kind(json_schema: dict) -> str | None:
-    """Extract a single-string type from a JSON Schema, or None."""
-    t = json_schema.get("type")
-    return t if isinstance(t, str) else None
-
-
 @router.post("/metadata-schemas/", response_model=CustomMetadataSchemaOutput)
 async def register_schema(
     data: CustomMetadataSchemaCreate,
@@ -46,29 +45,18 @@ async def register_schema(
     access_checker: AccessChecker = Depends(get_access_checker),
 ) -> CustomMetadataSchema:
     """Create or upsert a custom_metadata schema registration."""
-    # Validate that json_schema is itself a valid JSON Schema
-    try:
-        jsonschema.Draft202012Validator.check_schema(data.json_schema)
-    except jsonschema.exceptions.SchemaError as exc:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Invalid JSON Schema: {exc.message}",
-        )
+    check_json_schema(data.key, data.json_schema)
 
-    # --- Two-tier authorization ---
-    # 1. Global key (namespace is None) → require admin
+    # Two-tier authorization: a global key or a reserved one is an admin's to
+    # register; a namespace-scoped one needs write access to that namespace.
     if data.namespace is None and not current_user.is_admin:
         raise DJAuthorizationException(
             message="Only administrators may register global schema keys.",
         )
-
-    # 2. reserved=True → require admin
     if data.reserved and not current_user.is_admin:
         raise DJAuthorizationException(
             message="Only administrators may register reserved schema keys.",
         )
-
-    # 3. Namespace-scoped → require write access to the namespace
     if data.namespace is not None:
         access_checker.add_namespace(data.namespace, ResourceAction.WRITE)
         await access_checker.check(on_denied=AccessDenialMode.RAISE)
@@ -84,72 +72,20 @@ async def register_schema(
             ),
         )
 
-    # 4. Check if a reserved global row exists for this key
-    if data.namespace is not None:
-        reserved_global = (
-            await session.execute(
-                select(CustomMetadataSchema).where(
-                    CustomMetadataSchema.key == data.key,
-                    CustomMetadataSchema.namespace.is_(None),
-                    CustomMetadataSchema.reserved.is_(True),
-                    CustomMetadataSchema.deactivated_at.is_(None),
-                ),
-            )
-        ).scalar_one_or_none()
-        if reserved_global is not None:
-            raise HTTPException(
-                status_code=409,
-                detail=f"Key '{data.key}' is reserved globally and cannot be registered at namespace scope.",
-            )
+    await assert_not_reserved_globally(session, data.key, data.namespace)
 
-    node_type_val = data.node_type.value if data.node_type else None
-
-    # Upsert on (key, node_type, namespace) — use select-then-update to handle NULLs
-    node_type_clause = (
-        CustomMetadataSchema.node_type.is_(None)
-        if node_type_val is None
-        else CustomMetadataSchema.node_type == node_type_val
+    row = await upsert_schema_row(
+        session,
+        key=data.key,
+        namespace=data.namespace,
+        node_type=data.node_type.value if data.node_type else None,
+        json_schema=data.json_schema,
+        filterable=data.filterable,
+        description=data.description,
+        owner=data.owner,
+        reserved=data.reserved,
+        current_user_id=current_user.id,
     )
-    namespace_clause = (
-        CustomMetadataSchema.namespace.is_(None)
-        if data.namespace is None
-        else CustomMetadataSchema.namespace == data.namespace
-    )
-    existing = (
-        await session.execute(
-            select(CustomMetadataSchema).where(
-                CustomMetadataSchema.key == data.key,
-                node_type_clause,
-                namespace_clause,
-                CustomMetadataSchema.deactivated_at.is_(None),
-            ),
-        )
-    ).scalar_one_or_none()
-
-    if existing:
-        existing.json_schema = data.json_schema
-        existing.value_kind = _value_kind(data.json_schema)
-        existing.filterable = data.filterable
-        existing.description = data.description
-        existing.owner = data.owner
-        existing.reserved = data.reserved
-        existing.updated_by_id = current_user.id
-        row = existing
-    else:
-        row = CustomMetadataSchema(
-            key=data.key,
-            node_type=node_type_val,
-            namespace=data.namespace,
-            json_schema=data.json_schema,
-            value_kind=_value_kind(data.json_schema),
-            filterable=data.filterable,
-            description=data.description,
-            owner=data.owner,
-            reserved=data.reserved,
-            created_by_id=current_user.id,
-            updated_by_id=current_user.id,
-        )
-        session.add(row)
     await session.commit()
     if row.filterable:
         await ensure_expression_index(session, row.key, row.value_kind)

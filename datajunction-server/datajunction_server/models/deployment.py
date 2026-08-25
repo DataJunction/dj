@@ -1374,6 +1374,23 @@ def diff(
     ]
 
 
+class CustomMetadataSchemaSpec(BaseModel):
+    """
+    Specification for a custom_metadata JSON Schema to register for a namespace.
+
+    The namespace is implicit: it comes from the enclosing DeploymentSpec.
+    """
+
+    key: str
+    node_type: NodeType | None = None
+    json_schema: dict
+    filterable: bool = True
+    description: str | None = None
+    # Advisory team ownership, not authorization: registering through a
+    # deployment is already gated on WRITE for the namespace.
+    owner: str | None = None
+
+
 class GitDeploymentSource(BaseModel):
     """
     Deployment from a tracked git repository.
@@ -1473,6 +1490,11 @@ class DeploymentSpec(BaseModel):
     tags: list[TagSpec] = Field(default_factory=list)
     hierarchies: list[HierarchySpec] = Field(default_factory=list)
     preaggregations: list[PreAggSpec] = Field(default_factory=list)
+    # None and [] mean different things: None is "this manifest does not manage
+    # schemas", [] is "it manages them and declares none", which retires the
+    # namespace's rows. A list default would make every deployment that omits
+    # the section look like the latter.
+    custom_metadata_schemas: list[CustomMetadataSchemaSpec] | None = None
     source: DeploymentSource | None = None  # CI/CD provenance tracking
     git_config: NamespaceGitConfig | None = None  # Git branch management config
     force: bool = Field(

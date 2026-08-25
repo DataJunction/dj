@@ -263,6 +263,7 @@ def test_deployment_spec():
         "tags": [],
         "hierarchies": [],
         "preaggregations": [],
+        "custom_metadata_schemas": None,
         "source": None,
         "auto_register_sources": True,
         "force": False,

@@ -47,6 +47,7 @@ from datajunction_server.internal.access.authorization import (
     AccessDenialMode,
 )
 from datajunction_server.internal.access.authorization.context import AuthContext
+from datajunction_server.internal.custom_metadata import upsert_schema_specs
 from datajunction_server.internal.deployment.dimension_reachability import (
     DimensionReachability,
 )
@@ -594,6 +595,19 @@ class DeploymentOrchestrator:
         self.registry.add_owners(await self._setup_owners())
         self.registry.add_catalogs(await self._setup_catalogs())
         self.registry.add_attributes(await self._setup_attributes())
+        # `is not None`, not truthiness: an empty list is a manifest that manages
+        # schemas and declares none, which retires them. Omitting the section
+        # leaves them alone.
+        if self.deployment_spec.custom_metadata_schemas is not None:
+            await upsert_schema_specs(
+                self.session,
+                self.deployment_spec.namespace,
+                self.deployment_spec.custom_metadata_schemas,
+                current_user_id=self.context.current_user.id,
+                # Index DDL is the one part a rolled-back SAVEPOINT would do for
+                # nothing, and a dry run needs no index to report impact.
+                build_indexes=not self.dry_run,
+            )
         logger.info(
             "Set up deployment resources: %d namespaces, %d tags, %d owners, %d catalogs, %d attributes",
             len(self.registry.namespaces),
