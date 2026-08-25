@@ -6,16 +6,23 @@ Configuration for the datajunction server.
 import urllib.parse
 from datetime import timedelta
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from cachelib.base import BaseCache
 from cachelib.file import FileSystemCache
 from cachelib.redis import RedisCache
 from celery import Celery
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, StringConstraints, field_validator
 from pydantic_settings import BaseSettings
 
 from datajunction_server.naming import parse_scope_pattern
+
+CreatorOwnedNamespacePattern = Annotated[
+    str,
+    StringConstraints(
+        pattern=r"^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)*(\.\*)?$",
+    ),
+]
 
 RESTRICTIVE_SCOPE_ACTIONS = {"read", "write", "execute", "delete", "manage"}
 RESTRICTIVE_SCOPE_TYPES = {"node", "namespace"}
@@ -260,6 +267,13 @@ class Settings(BaseSettings):  # pragma: no cover
                     "or a subtree ending in '.*'",
                 )
         return values
+
+    # Exact namespaces or subtrees where a first human creator becomes the owner.
+    # A subtree excludes its root, so matching both requires JSON list syntax
+    # such as ["personal", "personal.*"].
+    creator_owned_namespace_patterns: list[CreatorOwnedNamespacePattern] = Field(
+        default_factory=list,
+    )
 
     # Interval in seconds with which to expire caching of any indexes
     index_cache_expire: int = 60

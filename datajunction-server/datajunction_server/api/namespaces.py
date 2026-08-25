@@ -120,6 +120,7 @@ async def create_node_namespace(
         session=session,
         current_user=current_user,
         save_history=save_history,
+        creator_owned_namespace_patterns=settings.creator_owned_namespace_patterns,
     )
     if result.status == NamespaceWriteStatus.ALREADY_EXISTS:
         return JSONResponse(
