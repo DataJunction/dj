@@ -10,7 +10,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision = "cm0002schematable"
-down_revision = "cm0001jsonbgin"
+down_revision = "nsboundaryflag1"
 branch_labels = None
 depends_on = None
 
