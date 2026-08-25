@@ -135,6 +135,93 @@ class TestMetricsSQLBasic:
         )
         assert response.status_code in (200, 201), response.json()
 
+    @staticmethod
+    async def _create_daily_balance_index_metric(client_with_build_v3):
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.daily_balance_index",
+                "description": "Derived semi-additive balance index",
+                "query": "SELECT 10.0 / v3.daily_balance",
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+    @staticmethod
+    async def _create_wow_daily_balance_index_metric(client_with_build_v3):
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.wow_daily_balance_index",
+                "description": "Week-over-week daily balance index change",
+                "query": """
+                    SELECT
+                        (v3.daily_balance_index - LAG(v3.daily_balance_index, 1)
+                         OVER (ORDER BY v3.date.week[order]))
+                        / NULLIF(
+                            LAG(v3.daily_balance_index, 1)
+                            OVER (ORDER BY v3.date.week[order]),
+                            0
+                        ) * 100
+                """,
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+    @staticmethod
+    async def _create_product_balance_metric(client_with_build_v3):
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.product_balance",
+                "description": "Semi-additive balance protected by product",
+                "query": "SELECT SUM(line_total) FROM v3.order_details",
+                "mode": "published",
+                "semi_additive": {
+                    "dimension": "v3.product.product_id",
+                    "function": "last_value",
+                },
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+    @staticmethod
+    async def _create_product_balance_index_metric(client_with_build_v3):
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.product_balance_index",
+                "description": "Derived semi-additive product balance index",
+                "query": "SELECT 10.0 / v3.product_balance",
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+    @staticmethod
+    async def _create_wow_product_balance_index_metric(client_with_build_v3):
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.wow_product_balance_index",
+                "description": "Week-over-week product balance index change",
+                "query": """
+                    SELECT
+                        (v3.product_balance_index - LAG(v3.product_balance_index, 1)
+                         OVER (ORDER BY v3.date.week[order]))
+                        / NULLIF(
+                            LAG(v3.product_balance_index, 1)
+                            OVER (ORDER BY v3.date.week[order]),
+                            0
+                        ) * 100
+                """,
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
     @pytest.mark.asyncio
     async def test_semi_additive_collapses_when_protected_dimension_omitted(
         self,
@@ -349,6 +436,111 @@ class TestMetricsSQLBasic:
         assert "EARLIEST_BY(" in sql
         assert "MIN_BY" not in sql
         assert "ARG_MIN" not in sql
+
+    @pytest.mark.asyncio
+    async def test_semi_additive_derived_metric_uses_collapsed_base(
+        self,
+        client_with_build_v3,
+    ):
+        """Derived metrics inline semi-additive collapse in denominator position."""
+        await self._create_daily_balance_metric(client_with_build_v3)
+        await self._create_daily_balance_index_metric(client_with_build_v3)
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.daily_balance_index"],
+                "dimensions": ["v3.product.category"],
+                "use_materialized": "false",
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        sql = response.json()["sql"]
+        assert "MAX_BY(" in sql
+        assert "order_details_0.date_id_order" in sql
+        assert "MAX_BY" in sql.split(" AS daily_balance_index")[0]
+        assert "10.0 / NULLIF(MAX_BY(" in sql
+        assert "10.0 / NULLIF(SUM(" not in sql
+
+    @pytest.mark.asyncio
+    async def test_semi_additive_derived_metric_preserves_requested_protected_dimension(
+        self,
+        client_with_build_v3,
+    ):
+        """Derived metrics use normal aggregation when the protected dimension is requested."""
+        await self._create_daily_balance_metric(client_with_build_v3)
+        await self._create_daily_balance_index_metric(client_with_build_v3)
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.daily_balance_index"],
+                "dimensions": ["v3.date.date_id[order]"],
+                "use_materialized": "false",
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        sql = response.json()["sql"]
+        assert "10.0 / NULLIF(SUM(" in sql
+        assert "date_id_order" in sql
+        assert "MAX_BY(" not in sql
+
+    @pytest.mark.asyncio
+    async def test_semi_additive_nested_window_metric_reaggregates_with_collapse(
+        self,
+        client_with_build_v3,
+    ):
+        """Window reaggregation of derived metrics uses semi-additive parents."""
+        await self._create_daily_balance_metric(client_with_build_v3)
+        await self._create_daily_balance_index_metric(client_with_build_v3)
+        await self._create_wow_daily_balance_index_metric(client_with_build_v3)
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.wow_daily_balance_index"],
+                "dimensions": ["v3.product.category"],
+                "use_materialized": "false",
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        sql = response.json()["sql"]
+        assert "base_metrics AS" in sql
+        assert "MAX_BY(" in sql
+        assert "order_details_0.date_id_order" in sql
+        assert "10.0 / NULLIF(MAX_BY(" in sql
+        assert "LAG(base_metrics.daily_balance_index, 1)" in sql
+
+    @pytest.mark.asyncio
+    async def test_semi_additive_window_grain_reaggregation_uses_collapse(
+        self,
+        client_with_build_v3,
+    ):
+        """Window aggregation CTEs collapse semi-additive derived parents."""
+        await self._create_product_balance_metric(client_with_build_v3)
+        await self._create_product_balance_index_metric(client_with_build_v3)
+        await self._create_wow_product_balance_index_metric(client_with_build_v3)
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.wow_product_balance_index"],
+                "dimensions": ["v3.date.date_id[order]"],
+                "use_materialized": "false",
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        sql = response.json()["sql"]
+        assert "order_details_week_agg AS" in sql
+        assert "MAX_BY(" in sql
+        assert "product_id" in sql
+        assert "10.0 / NULLIF(MAX_BY(" in sql
+        assert "10.0 / NULLIF(SUM(" not in sql
+        assert "LAG(order_details_week_agg.product_balance_index, 1)" in sql
 
     @pytest.mark.asyncio
     async def test_semi_additive_uses_normal_aggregation_when_protected_dimension_requested(
@@ -4104,15 +4296,27 @@ class TestMetricsSQLCrossFactWindow:
                 CAST(COUNT( DISTINCT order_details_0.order_id) AS DOUBLE) / NULLIF(COUNT( DISTINCT page_views_enriched_0.customer_id), 0) AS conversion_rate
             FROM order_details_0 FULL OUTER JOIN page_views_enriched_0 ON order_details_0.date_id = page_views_enriched_0.date_id AND order_details_0.category = page_views_enriched_0.category AND order_details_0.week = page_views_enriched_0.week
             GROUP BY  1, 2, 3
+            ),
+            order_details_week_agg AS (
+            SELECT  base_metrics.category AS category,
+                base_metrics.week AS week,
+                CAST(SUM(base_metrics.order_count) AS DOUBLE) / NULLIF(SUM(base_metrics.visitor_count), 0) AS conversion_rate
+            FROM base_metrics
+            GROUP BY  base_metrics.category, base_metrics.week
+            ),
+            order_details_week AS (
+            SELECT  order_details_week_agg.category AS category,
+                order_details_week_agg.week AS week,
+                (order_details_week_agg.conversion_rate - LAG(order_details_week_agg.conversion_rate, 1) OVER ( PARTITION BY order_details_week_agg.category
+            ORDER BY order_details_week_agg.week) ) / NULLIF(LAG(order_details_week_agg.conversion_rate, 1) OVER ( PARTITION BY order_details_week_agg.category
+            ORDER BY order_details_week_agg.week) , 0) * 100 AS wow_conversion_rate_change
+            FROM order_details_week_agg
             )
-
             SELECT  base_metrics.date_id AS date_id,
                 base_metrics.category AS category,
                 base_metrics.week AS week,
-                (base_metrics.conversion_rate - LAG(base_metrics.conversion_rate, 1) OVER ( PARTITION BY base_metrics.category
-            ORDER BY base_metrics.week) ) / NULLIF(LAG(base_metrics.conversion_rate, 1) OVER ( PARTITION BY base_metrics.category
-            ORDER BY base_metrics.week) , 0) * 100 AS wow_conversion_rate_change
-            FROM base_metrics
+                order_details_week.wow_conversion_rate_change AS wow_conversion_rate_change
+            FROM base_metrics LEFT OUTER JOIN order_details_week ON base_metrics.category = order_details_week.category AND base_metrics.week = order_details_week.week
             """,
         )
 
@@ -4218,15 +4422,27 @@ class TestMetricsSQLCrossFactWindow:
                 SUM(page_views_enriched_0.view_id_count_f41e2db4) / NULLIF(COUNT( DISTINCT page_views_enriched_0.session_id), 0) AS pages_per_session
             FROM order_details_0 FULL OUTER JOIN page_views_enriched_0 ON order_details_0.date_id = page_views_enriched_0.date_id AND order_details_0.category = page_views_enriched_0.category AND order_details_0.week = page_views_enriched_0.week
             GROUP BY  1, 2, 3
+            ),
+            order_details_week_agg AS (
+            SELECT  base_metrics.category AS category,
+                base_metrics.week AS week,
+                SUM(base_metrics.total_revenue) / NULLIF(SUM(base_metrics.order_count), 0) / NULLIF(SUM(base_metrics.page_view_count) / NULLIF(SUM(base_metrics.session_count), 0), 0) AS efficiency_ratio
+            FROM base_metrics
+            GROUP BY  base_metrics.category, base_metrics.week
+            ),
+            order_details_week AS (
+            SELECT  order_details_week_agg.category AS category,
+                order_details_week_agg.week AS week,
+                (order_details_week_agg.efficiency_ratio - LAG(order_details_week_agg.efficiency_ratio, 1) OVER ( PARTITION BY order_details_week_agg.category
+            ORDER BY order_details_week_agg.week) ) / NULLIF(LAG(order_details_week_agg.efficiency_ratio, 1) OVER ( PARTITION BY order_details_week_agg.category
+            ORDER BY order_details_week_agg.week) , 0) * 100 AS wow_efficiency_ratio_change
+            FROM order_details_week_agg
             )
-
             SELECT  base_metrics.date_id AS date_id,
                 base_metrics.category AS category,
                 base_metrics.week AS week,
-                (base_metrics.efficiency_ratio - LAG(base_metrics.efficiency_ratio, 1) OVER ( PARTITION BY base_metrics.category
-            ORDER BY base_metrics.week) ) / NULLIF(LAG(base_metrics.efficiency_ratio, 1) OVER ( PARTITION BY base_metrics.category
-            ORDER BY base_metrics.week) , 0) * 100 AS wow_efficiency_ratio_change
-            FROM base_metrics""",
+                order_details_week.wow_efficiency_ratio_change AS wow_efficiency_ratio_change
+            FROM base_metrics LEFT OUTER JOIN order_details_week ON base_metrics.category = order_details_week.category AND base_metrics.week = order_details_week.week""",
         )
 
     @pytest.mark.asyncio
@@ -4330,8 +4546,8 @@ class TestMetricsSQLCrossFactWindow:
             order_details_week_agg AS (
             SELECT  base_metrics.category AS category,
                 base_metrics.week AS week,
-                COUNT( DISTINCT base_metrics.order_id) AS order_count,
-                COUNT( DISTINCT base_metrics.customer_id) AS visitor_count
+                SUM(base_metrics.order_count) AS order_count,
+                SUM(base_metrics.visitor_count) AS visitor_count
             FROM base_metrics
             GROUP BY  base_metrics.category, base_metrics.week
             ),

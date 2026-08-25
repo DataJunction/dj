@@ -55,6 +55,7 @@ from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.semiadditive import SemiAdditiveCollapseFunction
 from datajunction_server.sql.decompose import wrap_divisions_in_nullif
 from datajunction_server.sql.parsing import ast
+from datajunction_server.sql.parsing.backends.antlr4 import parse
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +89,63 @@ def _build_semi_additive_collapse_expression(
     raise DJInvalidInputException(
         f"Unsupported semi-additive collapse function: {collapse_function}",
     )
+
+
+def _dimension_ref_base(ref: str) -> str:
+    """Return a dimension ref without its role suffix."""
+    return ref.split("[", 1)[0]
+
+
+def _source_dimension_alias(ctx: BuildContext, dimension_ref: str) -> str | None:
+    """
+    Return the registered source column alias for a dimension ref.
+    """
+    return ctx.alias_registry.get_alias(dimension_ref) or ctx.alias_registry.get_alias(
+        _dimension_ref_base(dimension_ref),
+    )
+
+
+def _metric_refs_from_query(ctx: BuildContext, metric_name: str) -> set[str]:
+    """
+    Return metric refs used by a metric's query expression.
+    """
+    metric_node = ctx.nodes.get(metric_name)
+    if not metric_node:
+        return set()  # pragma: no cover
+
+    if not metric_node.current or not metric_node.current.query:
+        return set()  # pragma: no cover
+
+    query = parse(metric_node.current.query)
+    refs: set[str] = set()
+    for col in query.select.projection[0].find_all(ast.Column):
+        full_name = get_column_full_name(col)
+        if not full_name and hasattr(col, "identifier"):
+            full_name = col.identifier()
+        node = ctx.nodes.get(full_name) if full_name else None
+        if node and node.type == NodeType.METRIC:
+            refs.add(full_name)
+    return refs
+
+
+def _metric_parent_refs(ctx: BuildContext, metric_name: str) -> list[str]:
+    """
+    Return metric parents for a metric, using the parsed query as a fallback.
+    """
+    refs: list[str] = []
+    seen: set[str] = set()
+    for parent_name in ctx.parent_map.get(metric_name, []):
+        parent_node = ctx.nodes.get(parent_name)
+        if parent_node and parent_node.type == NodeType.METRIC:
+            refs.append(parent_name)
+            seen.add(parent_name)
+
+    for parent_name in sorted(_metric_refs_from_query(ctx, metric_name)):
+        if parent_name not in seen:
+            refs.append(parent_name)
+            seen.add(parent_name)
+
+    return refs
 
 
 def classify_filters(
@@ -1277,11 +1335,7 @@ def build_window_agg_cte_from_grain_group(
     # Find the base metrics that the window metrics reference
     base_metrics_needed: set[str] = set()
     for window_metric_name in window_grain_group.window_metrics_served:
-        parent_names = ctx.parent_map.get(window_metric_name, [])
-        for parent_name in parent_names:
-            parent_node = ctx.nodes.get(parent_name)
-            if parent_node and parent_node.type == NodeType.METRIC:  # pragma: no branch
-                base_metrics_needed.add(parent_name)
+        base_metrics_needed.update(_metric_parent_refs(ctx, window_metric_name))
 
     def is_derived_metric(metric_name: str) -> bool:
         """Check if a metric is derived (has metric parents, no direct components)."""
@@ -1289,11 +1343,8 @@ def build_window_agg_cte_from_grain_group(
         if not decomposed or not isinstance(decomposed, DecomposedMetricInfo):
             return False  # pragma: no cover
         # Derived metrics have parent metrics but no direct components in grain groups
-        parent_metrics = ctx.parent_map.get(metric_name, [])
-        has_metric_parents = any(
-            ctx.nodes.get(p) and ctx.nodes.get(p).type == NodeType.METRIC  # type: ignore
-            for p in parent_metrics
-        )
+        parent_metrics = _metric_parent_refs(ctx, metric_name)
+        has_metric_parents = bool(parent_metrics)
         return has_metric_parents and not decomposed.components
 
     def get_metric_aggregation_expr(
@@ -1331,7 +1382,7 @@ def build_window_agg_cte_from_grain_group(
 
                 # Try to find matching metric
                 parent_metric_name = None
-                for parent_name in ctx.parent_map.get(metric_name, []):
+                for parent_name in _metric_parent_refs(ctx, metric_name):
                     parent_short = get_short_name(parent_name)
                     if parent_short == short_col_name or col_name.endswith(parent_name):
                         parent_metric_name = parent_name
@@ -1347,21 +1398,11 @@ def build_window_agg_cte_from_grain_group(
                         # Swap the column node with the parent's expression
                         col_node.swap(parent_expr)
         else:
-            # Base metric: replace component references with CTE column refs
-            # Use base_grain_group's component_aliases since that's the source CTE
-            for col_node in combiner_ast.find_all(ast.Column):
-                col_full_name = (
-                    col_node.identifier() if hasattr(col_node, "identifier") else ""
-                )
-                # Check if this matches a component alias
-                for (
-                    comp_name,
-                    comp_alias,
-                ) in base_grain_group.component_aliases.items():  # pragma: no branch
-                    if col_full_name == comp_name or col_full_name.endswith(comp_alias):
-                        col_node.name = ast.Name(comp_alias)
-                        col_node._table = ast.Table(ast.Name(source_cte_alias))
-                        break
+            combiner_ast, _ = build_base_metric_expression(
+                decomposed,
+                source_cte_alias,
+                base_grain_group,
+            )
 
         return combiner_ast
 
@@ -1373,13 +1414,13 @@ def build_window_agg_cte_from_grain_group(
 
         # Get aggregation expression (handles both base and derived metrics)
         combiner_ast = get_metric_aggregation_expr(base_metric_name, set())
-        if not combiner_ast:
+        if combiner_ast is None:
             continue  # pragma: no cover
 
         short_name = get_short_name(base_metric_name)
-        aliased = combiner_ast.set_alias(ast.Name(short_name))  # type: ignore
-        aliased.set_as(True)
-        projection.append(aliased)
+        metric_alias = ast.Alias(child=combiner_ast, alias=ast.Name(short_name))
+        metric_alias.set_as(True)
+        projection.append(metric_alias)
 
     # Build FROM clause
     from_clause = ast.From(
@@ -1441,62 +1482,107 @@ def build_window_agg_cte_from_base_metrics(
     # Find the base metrics that the window metrics reference
     base_metrics_needed: set[str] = set()
     for window_metric_name in window_grain_group.window_metrics_served:
-        parent_names = ctx.parent_map.get(window_metric_name, [])
-        for parent_name in parent_names:
-            parent_node = ctx.nodes.get(parent_name)
-            if parent_node and parent_node.type == NodeType.METRIC:  # pragma: no branch
-                base_metrics_needed.add(parent_name)
+        base_metrics_needed.update(_metric_parent_refs(ctx, window_metric_name))
 
-    # Build reaggregation expressions for each base metric
-    # Since we're selecting from base_metrics, we reference the metric columns directly
+    window_dimension_aliases = {
+        col.name
+        for col in window_grain_group.columns
+        if col.semantic_type == "dimension"
+    }
+
+    def build_base_metric_reaggregation_expr(
+        metric_name: str,
+        decomposed: DecomposedMetricInfo,
+    ) -> ast.Expression:
+        """
+        Build a reaggregation expression for a base metric from base_metrics.
+        """
+        short_name = get_short_name(metric_name)
+        metric_ref = make_column_ref(short_name, base_metrics_cte_alias)
+
+        if len(decomposed.components) == 1:
+            comp = decomposed.components[0]
+            if comp.rule.semi_additive:
+                protected_dim_alias = _source_dimension_alias(
+                    ctx,
+                    comp.rule.semi_additive.dimension,
+                )
+                if (
+                    protected_dim_alias
+                    and protected_dim_alias not in window_dimension_aliases
+                ):
+                    return _build_semi_additive_collapse_expression(
+                        comp.rule.semi_additive.function,
+                        ctx.dialect,
+                        metric_ref,
+                        make_column_ref(protected_dim_alias, base_metrics_cte_alias),
+                    )
+
+        if decomposed.aggregability == Aggregability.NONE:  # pragma: no cover
+            # NONE: non-additive (like AVG), need to recompute.
+            # For AVG, we need the raw sum and count, but those are in components.
+            # For now, just use the column directly (window function will handle it).
+            return metric_ref
+
+        # base_metrics exposes metric columns, not raw component/grain columns.
+        # Reaggregate leaf metrics from those projected metric values.
+        return ast.Function(ast.Name("SUM"), args=[metric_ref])
+
+    def build_metric_reaggregation_expr(
+        metric_name: str,
+        visited: set[str],
+    ) -> ast.Expression | None:
+        """
+        Build a reaggregation expression for base or derived metrics.
+        """
+        if metric_name in visited:
+            return None  # pragma: no cover
+        visited.add(metric_name)
+
+        parent_refs = _metric_parent_refs(ctx, metric_name)
+        if not parent_refs:
+            decomposed = decomposed_metrics.get(metric_name)
+            if not decomposed:
+                return None  # pragma: no cover
+            return build_base_metric_reaggregation_expr(metric_name, decomposed)
+
+        metric_node = ctx.nodes.get(metric_name)
+        if not metric_node:
+            return None  # pragma: no cover
+        if not metric_node.current or not metric_node.current.query:
+            return None  # pragma: no cover
+        original_query = parse(metric_node.current.query)
+        expr_ast = deepcopy(original_query.select.projection[0])
+        if isinstance(expr_ast, ast.Alias):
+            expr_ast = expr_ast.child  # pragma: no cover
+
+        for col_node in list(expr_ast.find_all(ast.Column)):
+            parent_name = get_column_full_name(col_node)
+            if not parent_name and hasattr(col_node, "identifier"):
+                parent_name = col_node.identifier()
+            if not parent_name or parent_name not in parent_refs:
+                continue
+
+            parent_expr = build_metric_reaggregation_expr(
+                parent_name,
+                visited.copy(),
+            )
+            if parent_expr is not None:
+                col_node.swap(parent_expr)
+
+        wrap_divisions_in_nullif(cast(ast.Expression, expr_ast))
+        return expr_ast  # type: ignore
+
+    # Build reaggregation expressions for each parent metric.
     for base_metric_name in sorted(base_metrics_needed):
-        decomposed = decomposed_metrics.get(base_metric_name)
-        if not decomposed:
+        agg_expr = build_metric_reaggregation_expr(base_metric_name, set())
+        if agg_expr is None:
             continue  # pragma: no cover
 
         short_name = get_short_name(base_metric_name)
-
-        # For non-additive metrics (COUNT DISTINCT), we need COUNT(DISTINCT grain_col)
-        # For additive metrics, we can SUM/AVG the pre-computed column
-        if decomposed.aggregability == Aggregability.LIMITED:
-            # LIMITED: needs COUNT DISTINCT at this grain
-            # Find the grain column for COUNT DISTINCT
-            if decomposed.components and decomposed.components[0].rule.level:
-                grain_col = decomposed.components[0].rule.level[0]
-                # The grain column is in base_metrics as a dimension column
-                # Actually, for COUNT DISTINCT, the raw grain column should be in
-                # the base grain group, not base_metrics. We need to reference
-                # the original grain column from base_metrics.
-                # For now, use the metric column - this works because base_metrics
-                # computes COUNT DISTINCT at the fine grain, and we re-compute at coarser grain
-                col_ref = make_column_ref(grain_col, base_metrics_cte_alias)
-                agg_expr = ast.Function(
-                    ast.Name("COUNT"),
-                    args=[col_ref],
-                    quantifier=ast.SetQuantifier.Distinct,
-                )
-            else:  # pragma: no cover
-                # Fallback: SUM the metric column
-                col_ref = make_column_ref(short_name, base_metrics_cte_alias)
-                agg_expr = ast.Function(ast.Name("SUM"), args=[col_ref])
-        elif decomposed.aggregability == Aggregability.FULL:  # pragma: no cover
-            # FULL: additive metric, use SUM
-            col_ref = make_column_ref(short_name, base_metrics_cte_alias)
-            agg_expr = ast.Function(ast.Name("SUM"), args=[col_ref])
-        elif decomposed.aggregability == Aggregability.NONE:  # pragma: no cover
-            # NONE: non-additive (like AVG), need to recompute
-            # For AVG, we need the raw sum and count, but those are in components
-            # For now, just use the column directly (window function will handle it)
-            col_ref = make_column_ref(short_name, base_metrics_cte_alias)
-            agg_expr = col_ref  # type: ignore
-        else:  # pragma: no cover
-            # Default: SUM
-            col_ref = make_column_ref(short_name, base_metrics_cte_alias)
-            agg_expr = ast.Function(ast.Name("SUM"), args=[col_ref])
-
-        aliased = agg_expr.set_alias(ast.Name(short_name))  # type: ignore
-        aliased.set_as(True)
-        projection.append(aliased)
+        metric_alias = ast.Alias(child=agg_expr, alias=ast.Name(short_name))
+        metric_alias.set_as(True)
+        projection.append(metric_alias)
 
     # Build FROM clause - just base_metrics
     from_clause = ast.From(
