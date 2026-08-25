@@ -1708,6 +1708,7 @@ def build_grain_group_from_preagg(
     select_items: list[ast.Aliasable | ast.Expression | ast.Column] = []
     columns: list[ColumnMetadata] = []
     component_aliases: dict[str, str] = {}
+    semi_additive_dimension_aliases: dict[str, str] = {}
     metrics_covered: set[str] = set()
     unique_components: list[MetricComponent] = []
     seen_components: set[str] = set()
@@ -1803,6 +1804,14 @@ def build_grain_group_from_preagg(
                 type=col_type,
                 semantic_type="dimension",
             ),
+        )
+
+    for (
+        component_name,
+        dimension_ref,
+    ) in grain_group.semi_additive_component_dimensions.items():
+        semi_additive_dimension_aliases[component_name] = ctx.alias_registry.register(
+            dimension_ref,
         )
 
     # Add measure columns with re-aggregation (or grain columns if no merge func)
@@ -1965,6 +1974,7 @@ def build_grain_group_from_preagg(
         metrics=list(metrics_covered),
         parent_name=parent_node.name,
         component_aliases=component_aliases,
+        semi_additive_dimension_aliases=semi_additive_dimension_aliases,
         is_merged=grain_group.is_merged,
         component_aggregabilities=grain_group.component_aggregabilities,
         components=unique_components,
@@ -1998,11 +2008,7 @@ def build_grain_group_sql(
     parent_node = grain_group.parent_node
 
     # Check for matching pre-aggregation
-    if (
-        ctx.use_materialized
-        and ctx.available_preaggs
-        and not grain_group.semi_additive_component_dimensions
-    ):
+    if ctx.use_materialized and ctx.available_preaggs:
         match = find_matching_preagg(
             ctx,
             parent_node,

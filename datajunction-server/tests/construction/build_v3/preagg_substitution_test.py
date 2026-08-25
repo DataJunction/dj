@@ -86,6 +86,24 @@ async def _register_external_preagg(
         del client.app.dependency_overrides[get_query_service_client]
 
 
+async def _create_daily_balance_metric(client_with_build_v3):
+    """Create a semi-additive metric protected by order date."""
+    response = await client_with_build_v3.post(
+        "/nodes/metric/",
+        json={
+            "name": "v3.daily_balance",
+            "description": "Semi-additive balance measured by order date",
+            "query": "SELECT SUM(line_total) FROM v3.order_details",
+            "mode": "published",
+            "semi_additive": {
+                "dimension": "v3.date.date_id[order]",
+                "function": "last_value",
+            },
+        },
+    )
+    assert response.status_code in (200, 201), response.json()
+
+
 class TestExternalPreAggRouting:
     """Queries route to externally-registered pre-agg tables via source_column."""
 
@@ -197,6 +215,98 @@ class TestExternalPreAggRouting:
             FROM order_details_0
             """,
         )
+
+    @pytest.mark.asyncio
+    async def test_external_preagg_retaining_semi_additive_dimension_rolls_up(
+        self,
+        client_with_build_v3,
+    ):
+        """A semi-additive metric can read a fine pre-agg that still has the
+        protected dimension, then collapse in the final metrics query."""
+        await _create_daily_balance_metric(client_with_build_v3)
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.daily_balance"],
+            dimensions=[
+                "v3.product.category",
+                "v3.date.date_id[order]",
+            ],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "daily_balance_by_category_day",
+                "valid_through_ts": 20250101,
+            },
+            measure_columns={"v3.daily_balance": "balance_sum"},
+            dimension_columns={"v3.date.date_id[order]": "order_day"},
+            table_columns={
+                "category": "string",
+                "order_day": "int",
+                "balance_sum": "double",
+            },
+        )
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.daily_balance"],
+                "dimensions": ["v3.product.category"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH order_details_0 AS (
+                SELECT category,
+                       order_day date_id_order,
+                       SUM(balance_sum) balance_sum
+                FROM default.analytics.daily_balance_by_category_day
+                GROUP BY category, order_day
+            )
+            SELECT order_details_0.category AS category,
+                   MAX_BY(order_details_0.balance_sum, order_details_0.date_id_order)
+                       AS daily_balance
+            FROM order_details_0
+            GROUP BY order_details_0.category
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_external_preagg_missing_semi_additive_dimension_is_not_used(
+        self,
+        client_with_build_v3,
+    ):
+        """A semi-additive metric must not read a pre-agg that dropped the key
+        required by the final collapse."""
+        await _create_daily_balance_metric(client_with_build_v3)
+        await _register_external_preagg(
+            client_with_build_v3,
+            metrics=["v3.daily_balance"],
+            dimensions=["v3.product.category"],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "daily_balance_by_category",
+                "valid_through_ts": 20250101,
+            },
+            measure_columns={"v3.daily_balance": "balance_sum"},
+            table_columns={"category": "string", "balance_sum": "double"},
+        )
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.daily_balance"],
+                "dimensions": ["v3.product.category"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        sql = response.json()["sql"]
+        assert "default.analytics.daily_balance_by_category" not in sql
+        assert "MAX_BY(" in sql
+        assert "date_id_order" in sql
 
     @pytest.mark.asyncio
     async def test_external_non_additive_not_rolled_up(self, client_with_build_v3):
