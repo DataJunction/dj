@@ -3588,6 +3588,7 @@ async def test_cube_materialization_metadata(
                     "name": "count_c8e42e74",
                     "rule": {
                         "level": None,
+                        "semi_additive": None,
                         "type": "full",
                     },
                 },
@@ -3599,6 +3600,7 @@ async def test_cube_materialization_metadata(
                     "name": "discount_sum_30b84e6c",
                     "rule": {
                         "level": None,
+                        "semi_additive": None,
                         "type": "full",
                     },
                 },
@@ -3610,6 +3612,7 @@ async def test_cube_materialization_metadata(
                     "name": "price_count_935e7117",
                     "rule": {
                         "level": None,
+                        "semi_additive": None,
                         "type": "full",
                     },
                 },
@@ -3621,6 +3624,7 @@ async def test_cube_materialization_metadata(
                     "name": "price_discount_sum_e4ba5456",
                     "rule": {
                         "level": None,
+                        "semi_additive": None,
                         "type": "full",
                     },
                 },
@@ -3632,6 +3636,7 @@ async def test_cube_materialization_metadata(
                     "name": "price_sum_935e7117",
                     "rule": {
                         "level": None,
+                        "semi_additive": None,
                         "type": "full",
                     },
                 },
@@ -3643,6 +3648,7 @@ async def test_cube_materialization_metadata(
                     "name": "repair_order_id_count_bd241964",
                     "rule": {
                         "level": None,
+                        "semi_additive": None,
                         "type": "full",
                     },
                 },
@@ -3654,6 +3660,7 @@ async def test_cube_materialization_metadata(
                     "name": "total_repair_cost_sum_67874507",
                     "rule": {
                         "level": None,
+                        "semi_additive": None,
                         "type": "full",
                     },
                 },
@@ -3773,6 +3780,7 @@ async def test_cube_materialization_metadata(
                     "name": "price_sum_252381cf",
                     "rule": {
                         "level": None,
+                        "semi_additive": None,
                         "type": "full",
                     },
                 },
@@ -4025,7 +4033,7 @@ async def test_cube_materialization_metadata(
                     "grain_alias": None,
                     "aggregation": "COUNT",
                     "merge": "SUM",
-                    "rule": {"type": "full", "level": None},
+                    "rule": {"type": "full", "level": None, "semi_additive": None},
                 },
                 {
                     "name": "discount_sum_30b84e6c",
@@ -4033,7 +4041,7 @@ async def test_cube_materialization_metadata(
                     "grain_alias": None,
                     "aggregation": "SUM",
                     "merge": "SUM",
-                    "rule": {"type": "full", "level": None},
+                    "rule": {"type": "full", "level": None, "semi_additive": None},
                 },
                 {
                     "name": "price_count_935e7117",
@@ -4041,7 +4049,7 @@ async def test_cube_materialization_metadata(
                     "grain_alias": None,
                     "aggregation": "COUNT",
                     "merge": "SUM",
-                    "rule": {"type": "full", "level": None},
+                    "rule": {"type": "full", "level": None, "semi_additive": None},
                 },
                 {
                     "name": "price_discount_sum_e4ba5456",
@@ -4049,7 +4057,7 @@ async def test_cube_materialization_metadata(
                     "grain_alias": None,
                     "aggregation": "SUM",
                     "merge": "SUM",
-                    "rule": {"type": "full", "level": None},
+                    "rule": {"type": "full", "level": None, "semi_additive": None},
                 },
                 {
                     "name": "price_sum_935e7117",
@@ -4057,7 +4065,7 @@ async def test_cube_materialization_metadata(
                     "grain_alias": None,
                     "aggregation": "SUM",
                     "merge": "SUM",
-                    "rule": {"type": "full", "level": None},
+                    "rule": {"type": "full", "level": None, "semi_additive": None},
                 },
                 {
                     "name": "repair_order_id_count_bd241964",
@@ -4065,7 +4073,7 @@ async def test_cube_materialization_metadata(
                     "grain_alias": None,
                     "aggregation": "COUNT",
                     "merge": "SUM",
-                    "rule": {"type": "full", "level": None},
+                    "rule": {"type": "full", "level": None, "semi_additive": None},
                 },
                 {
                     "name": "total_repair_cost_sum_67874507",
@@ -4073,7 +4081,7 @@ async def test_cube_materialization_metadata(
                     "grain_alias": None,
                     "aggregation": "SUM",
                     "merge": "SUM",
-                    "rule": {"type": "full", "level": None},
+                    "rule": {"type": "full", "level": None, "semi_additive": None},
                 },
                 {
                     "name": "price_sum_252381cf",
@@ -4081,7 +4089,7 @@ async def test_cube_materialization_metadata(
                     "grain_alias": None,
                     "aggregation": "SUM",
                     "merge": "SUM",
-                    "rule": {"type": "full", "level": None},
+                    "rule": {"type": "full", "level": None, "semi_additive": None},
                 },
             ],
             "timestamp_column": "hire_date",
@@ -4803,6 +4811,17 @@ class TestCubeMaterializeV2SuccessPaths:
     These tests mock build_combiner_sql_from_preaggs to return valid results,
     and mock the query service client to test the full endpoint flow.
     """
+
+    @pytest.fixture(autouse=True)
+    def _preserve_app_dependency_overrides(
+        self,
+        client_with_repairs_cube: AsyncClient,
+    ):
+        """Protect module-scoped client overrides from function-scoped clients."""
+        original_overrides = dict(client_with_repairs_cube.app.dependency_overrides)
+        yield
+        client_with_repairs_cube.app.dependency_overrides.clear()
+        client_with_repairs_cube.app.dependency_overrides.update(original_overrides)
 
     @pytest.mark.asyncio
     async def test_materialize_semi_additive_cube_without_protected_dimension_fails(
@@ -5704,6 +5723,12 @@ class TestCubeMaterializeV2SuccessPaths:
         mock_qs_client.materialize_cube_v2.return_value = mocker.MagicMock(
             urls=["http://workflow/test-cube"],
         )
+        had_query_service_override = get_query_service_client in (
+            client.app.dependency_overrides
+        )
+        original_query_service_override = client.app.dependency_overrides.get(
+            get_query_service_client,
+        )
         client.app.dependency_overrides[get_query_service_client] = lambda: (
             mock_qs_client
         )
@@ -5891,8 +5916,12 @@ class TestCubeMaterializeV2SuccessPaths:
             ]
         finally:
             # Clean up dependency override
-            if get_query_service_client in client.app.dependency_overrides:
-                del client.app.dependency_overrides[get_query_service_client]
+            if had_query_service_override:
+                client.app.dependency_overrides[get_query_service_client] = (
+                    original_query_service_override
+                )
+            else:
+                client.app.dependency_overrides.pop(get_query_service_client, None)
 
 
 class TestCubeDeactivateSuccessPaths:
@@ -6128,6 +6157,12 @@ class TestCubeDeactivateWithStoredWorkflowNames:
             urls=["http://workflow/cube-workflow"],
             workflow_names=["cube_wf_name_1"],
         )
+        had_query_service_override = get_query_service_client in (
+            client.app.dependency_overrides
+        )
+        original_query_service_override = client.app.dependency_overrides.get(
+            get_query_service_client,
+        )
         client.app.dependency_overrides[get_query_service_client] = lambda: (
             mock_qs_client
         )
@@ -6155,8 +6190,12 @@ class TestCubeDeactivateWithStoredWorkflowNames:
             # The old path should NOT have been called
             mock_qs_client.deactivate_cube_workflow.assert_not_called()
         finally:
-            if get_query_service_client in client.app.dependency_overrides:
-                del client.app.dependency_overrides[get_query_service_client]
+            if had_query_service_override:
+                client.app.dependency_overrides[get_query_service_client] = (
+                    original_query_service_override
+                )
+            else:
+                client.app.dependency_overrides.pop(get_query_service_client, None)
 
 
 class TestCubeBackfillSuccessPaths:
