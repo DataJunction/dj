@@ -73,7 +73,7 @@ from datajunction_server.internal.materializations import (
     coverage_backfill,
     coverage_gap,
     coverage_partition,
-    reconcile_declared_materialization,
+    reconcile_declared_materializations,
     stop_materialization_workflows,
     swap_cube_materializations,
 )
@@ -101,6 +101,7 @@ from datajunction_server.models.deployment import (
     SourceSpec,
     TagSpec,
     bump_version,
+    declared_materialization_blocks,
     eq_or_fallback,
     render_prefixes,
 )
@@ -110,6 +111,7 @@ from datajunction_server.models.dimensionlink import (
 )
 from datajunction_server.models.hierarchy import HierarchyLevelInput
 from datajunction_server.models.history import ActivityType
+from datajunction_server.models.materialization import MaterializationStrategy
 from datajunction_server.models.node import (
     DEFAULT_DRAFT_VERSION,
     DEFAULT_PUBLISHED_VERSION,
@@ -218,6 +220,20 @@ def _diff_column_metadata(
             notes.append(f"Column '{col_name}': {'; '.join(col_notes)}")
 
     return notes
+
+
+def _blocks_by_strategy(
+    blocks: list[MaterializationSpec],
+) -> dict[MaterializationStrategy, MaterializationSpec]:
+    """
+    Declared blocks keyed by the strategy that identifies them.
+
+    Comparing two declarations this way ignores the order they were written in,
+    which carries no meaning: what a cube pulled from the server lists in name
+    order, an author is free to write the other way round, and reading that as a
+    change would report an update on every deploy of an untouched cube.
+    """
+    return {block.strategy: block for block in blocks}
 
 
 class _DryRunRollback(Exception):
@@ -2336,7 +2352,7 @@ class DeploymentOrchestrator:
         )
         declared_specs = self._declared_materializations()
         for old_revision, new_revision in swappable:
-            declared = declared_specs.get(new_revision.name)
+            declared = declared_specs.get(new_revision.name, [])
             swap = await swap_cube_materializations(
                 self.session,
                 old_revision,
@@ -2355,9 +2371,13 @@ class DeploymentOrchestrator:
                     self._rebuilt_cubes.add(new_revision.name)
                 self._cube_materialization_swaps.append(swap)
 
-    def _declared_materializations(self) -> dict[str, MaterializationSpec]:
+    def _declared_materializations(self) -> dict[str, list[MaterializationSpec]]:
         """
-        The materialization block each declared cube carries, keyed by rendered name.
+        The materialization blocks each declared cube carries, keyed by rendered name.
+
+        A cube may declare one block or several -- see `CubeSpec.materialization` --
+        and both arrive here as a list, so nothing downstream has to care which shape
+        the manifest was written in.
 
         A cube that declares no block is absent from the mapping, which is distinct
         from one that declares `materialization: none` -- see
@@ -2366,10 +2386,9 @@ class DeploymentOrchestrator:
         materialized".
         """
         return {
-            spec.rendered_name: spec.materialization
+            spec.rendered_name: spec.declared_materializations
             for spec in self.deployment_spec.nodes
-            if isinstance(spec, CubeSpec)
-            and isinstance(spec.materialization, MaterializationSpec)
+            if isinstance(spec, CubeSpec) and spec.declared_materializations
         }
 
     def _cubes_declaring_no_materialization(self) -> set[str]:
@@ -2433,7 +2452,13 @@ class DeploymentOrchestrator:
         # has already had its materialization rebuilt onto it by
         # `_swap_cube_materializations`, and a dry run skips that rebuild entirely --
         # reading the revision would make the two disagree.
-        persisted: dict[str, MaterializationSpec | MaterializationAction | None] = {
+        persisted: dict[
+            str,
+            MaterializationSpec
+            | list[MaterializationSpec]
+            | MaterializationAction
+            | None,
+        ] = {
             name: existing.materialization
             for name in cube_names
             if isinstance(existing := plan.existing_specs.get(name), CubeSpec)
@@ -2535,30 +2560,40 @@ class DeploymentOrchestrator:
     async def _declare_cube_materialization(
         self,
         revision: NodeRevision,
-        block: MaterializationSpec,
-        persisted: MaterializationSpec | MaterializationAction | None,
+        blocks: list[MaterializationSpec],
+        persisted: MaterializationSpec
+        | list[MaterializationSpec]
+        | MaterializationAction
+        | None,
         access_checker: AccessChecker | None,
         active_names: set[str],
     ) -> None:
         """
-        Configure one cube's materialization from its declared block.
+        Configure one cube's materializations from its declared blocks.
 
-        The reported operation compares the block against what the cube declared
+        A cube declares one block or several, and they are reconciled together: what
+        the blocks name is what the cube ends up materialized by, and the operation
+        is reported for the cube as a whole rather than per block, so that a cube
+        that swapped one strategy for another reads as an update rather than as a
+        creation beside an unmentioned removal.
+
+        The reported operation compares the blocks against what the cube declared
         before this deploy, so it says the same thing on a dry run as on the wet run
-        that follows. `reconcile_declared_materialization` decides separately whether
+        that follows. `reconcile_declared_materializations` decides separately whether
         any DJ-side state actually moved, and only then is the query service asked to
         schedule anything -- an unchanged re-declare, or a block a revision swap has
         already built from, costs no remote call at all.
 
         `active_names` is what the cube had materialized before reconciling, which
-        says whether the block wrote a datasource the cube did not have. It is
+        says whether a block wrote a datasource the cube did not have. It is
         `_plan_coverage_backfill` that reads it, once the row is in hand.
         """
         operation = (
             DeploymentResult.Operation.CREATE
             if persisted is None
             else DeploymentResult.Operation.UPDATE
-            if persisted != block
+            if _blocks_by_strategy(declared_materialization_blocks(persisted))
+            != _blocks_by_strategy(blocks)
             else DeploymentResult.Operation.NOOP
         )
         if not self.dry_run:
@@ -2566,14 +2601,10 @@ class DeploymentOrchestrator:
             # assert narrows the Optional for mypy.
             assert access_checker is not None
             try:
-                (
-                    materialization,
-                    changed,
-                    superseded,
-                ) = await reconcile_declared_materialization(
+                reconciled, superseded = await reconcile_declared_materializations(
                     self.session,
                     revision,
-                    block,
+                    blocks,
                     access_checker=access_checker,
                     current_user=self.context.current_user,
                 )
@@ -2605,40 +2636,43 @@ class DeploymentOrchestrator:
                 )
                 return
 
+            changed = [entry for entry in reconciled if entry.changed]
             if changed:
-                # The block can be unchanged while the built config is not -- a cube
+                # A block can be unchanged while the built config is not -- a cube
                 # materialized outside YAML, or one whose definition moved underneath
                 # an untouched schedule.
                 if operation == DeploymentResult.Operation.NOOP:
                     operation = DeploymentResult.Operation.UPDATE
-                self.session.add(
-                    History(
-                        entity_type=EntityType.MATERIALIZATION,
-                        entity_name=materialization.name,
-                        node=revision.name,
-                        activity_type=(
-                            ActivityType.CREATE
-                            if operation == DeploymentResult.Operation.CREATE
-                            else ActivityType.UPDATE
+                for entry in changed:
+                    self.session.add(
+                        History(
+                            entity_type=EntityType.MATERIALIZATION,
+                            entity_name=entry.materialization.name,
+                            node=revision.name,
+                            activity_type=(
+                                ActivityType.CREATE
+                                if operation == DeploymentResult.Operation.CREATE
+                                else ActivityType.UPDATE
+                            ),
+                            details={
+                                "materialization": entry.materialization.name,
+                                "schedule": entry.block.schedule,
+                                "strategy": entry.block.strategy.value,
+                                "lookback_window": entry.block.lookback_window,
+                                "superseded_materializations": [
+                                    mat.name for mat in superseded
+                                ],
+                            },
+                            user=self._history_user,
                         ),
-                        details={
-                            "materialization": materialization.name,
-                            "schedule": block.schedule,
-                            "strategy": block.strategy.value,
-                            "lookback_window": block.lookback_window,
-                            "superseded_materializations": [
-                                mat.name for mat in superseded
-                            ],
-                        },
-                        user=self._history_user,
-                    ),
-                )
+                    )
                 if superseded:
-                    # Stopped before the declared materialization is scheduled, and as
-                    # its own unit of work, because both sit on the same cube version:
-                    # a superseded row with no workflow names of its own falls back to
-                    # the stop-by-cube-and-version endpoint, which would take the
-                    # replacement down with it if that had already been scheduled.
+                    # Stopped before the declared materializations are scheduled, and
+                    # as its own unit of work, because both sit on the same cube
+                    # version: a superseded row with no workflow names of its own
+                    # falls back to the stop-by-cube-and-version endpoint, which would
+                    # take the replacements down with it if those had already been
+                    # scheduled.
                     self._cube_materialization_swaps.append(
                         CubeMaterializationSwap(
                             cube_name=revision.name,
@@ -2649,33 +2683,35 @@ class DeploymentOrchestrator:
                             superseded=superseded,
                         ),
                     )
-                # The row itself was updated in place, so the workflow it names is
-                # replaced by scheduling it again rather than stopped.
+                # The rows themselves were updated in place, so the workflows they
+                # name are replaced by scheduling them again rather than stopped.
                 self._cube_materialization_swaps.append(
                     CubeMaterializationSwap(
                         cube_name=revision.name,
                         previous_version=revision.version,
                         new_revision_id=revision.id,
                         new_version=revision.version,
-                        rebuilt_names=[materialization.name],
+                        rebuilt_names=[entry.materialization.name for entry in changed],
                         superseded=[],
                     ),
                 )
-            await self._plan_coverage_backfill(
-                revision,
-                block,
-                materialization,
-                active_names,
+            for entry in reconciled:
+                await self._plan_coverage_backfill(
+                    revision,
+                    entry.block,
+                    entry.materialization,
+                    active_names,
+                )
+        for block in blocks:
+            self.deployed_results.append(
+                DeploymentResult(
+                    name=revision.name,
+                    deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                    status=DeploymentResult.Status.SUCCESS,
+                    operation=operation,
+                    message=f"cube materialization on schedule {block.schedule}",
+                ),
             )
-        self.deployed_results.append(
-            DeploymentResult(
-                name=revision.name,
-                deploy_type=DeploymentResult.Type.MATERIALIZATION,
-                status=DeploymentResult.Status.SUCCESS,
-                operation=operation,
-                message=f"cube materialization on schedule {block.schedule}",
-            ),
-        )
 
     async def _plan_coverage_backfill(
         self,

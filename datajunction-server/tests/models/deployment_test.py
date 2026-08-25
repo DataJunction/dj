@@ -1379,3 +1379,186 @@ def test_cube_spec_teardown_needs_no_temporal_partition():
         materialization=MaterializationAction.NONE,
     )
     assert spec.materialization == MaterializationAction.NONE
+
+
+def _cube_declaring(materialization) -> CubeSpec:
+    """The same partitioned cube, declaring whatever is handed to it."""
+    return CubeSpec(
+        namespace="test",
+        name="my_cube",
+        metrics=["${prefix}num_orders"],
+        dimensions=["${prefix}date_dim.dateint"],
+        columns=[
+            ColumnSpec(
+                name="${prefix}date_dim.dateint",
+                partition=PartitionSpec(
+                    type=PartitionType.TEMPORAL,
+                    granularity=Granularity.DAY,
+                    format="yyyyMMdd",
+                ),
+            ),
+        ],
+        materialization=materialization,
+    )
+
+
+def test_cube_spec_accepts_several_materializations():
+    """
+    A cube legitimately needs two: an incremental build for freshness and a periodic
+    full rebuild that corrects late-arriving data and dimension backfills.
+    """
+    spec = _cube_declaring(
+        [
+            MaterializationSpec(schedule="59 23 * * *", lookback_window="1 DAY"),
+            MaterializationSpec(
+                schedule="0 6 * * *",
+                strategy=MaterializationStrategy.FULL,
+            ),
+        ],
+    )
+    assert spec.declared_materializations == [
+        MaterializationSpec(schedule="59 23 * * *", lookback_window="1 DAY"),
+        MaterializationSpec(
+            schedule="0 6 * * *",
+            strategy=MaterializationStrategy.FULL,
+            lookback_window=None,
+        ),
+    ]
+
+
+def test_cube_spec_scalar_materialization_reads_as_one_block():
+    """
+    The scalar form is not a legacy shape to be migrated: it stays exactly what it
+    was, and only the reading of it is common with the list form.
+    """
+    spec = _partitioned_cube(schedule="0 6 * * *")
+    assert spec.materialization == MaterializationSpec(schedule="0 6 * * *")
+    assert spec.declared_materializations == [
+        MaterializationSpec(schedule="0 6 * * *"),
+    ]
+
+
+def test_cube_spec_declares_nothing_without_a_block():
+    """Neither an absent block nor the teardown sentinel declares anything to build."""
+    assert _partitioned_cube().declared_materializations == []
+    assert _cube_declaring(MaterializationAction.NONE).declared_materializations == []
+
+
+def test_cube_spec_rejects_repeated_materialization_strategy():
+    """
+    Strategy is what matches a declared entry to the materialization it owns, so two
+    entries sharing one leave no way to say which is which.
+    """
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        _cube_declaring(
+            [
+                MaterializationSpec(schedule="59 23 * * *"),
+                MaterializationSpec(schedule="0 6 * * *"),
+            ],
+        )
+    assert exc_info.value.message == (
+        "Cube `my_cube` declares more than one `incremental_time` materialization. "
+        "Strategies identify a cube's materializations, so each one may appear at "
+        "most once."
+    )
+
+
+def test_cube_spec_rejects_empty_materialization_list():
+    """An empty list cannot be told from the teardown sentinel, so it is refused."""
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        _cube_declaring([])
+    assert exc_info.value.message == (
+        "Cube `my_cube` declares an empty `materialization:` list. Use "
+        "`materialization: none` to remove the cube's materialization, or omit the "
+        "key to leave it alone."
+    )
+
+
+def test_cube_spec_incremental_entry_in_a_list_still_needs_a_partition():
+    """The partition requirement is per entry, not per cube."""
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        CubeSpec(
+            namespace="test",
+            name="my_cube",
+            metrics=["${prefix}num_orders"],
+            dimensions=["${prefix}date_dim.dateint"],
+            materialization=[
+                MaterializationSpec(
+                    schedule="0 6 * * *",
+                    strategy=MaterializationStrategy.FULL,
+                ),
+                MaterializationSpec(schedule="59 23 * * *"),
+            ],
+        )
+    assert exc_info.value.message == (
+        "Cube `my_cube` declares an `incremental_time` materialization but no "
+        "temporal partition. Add `partition: {type: temporal, ...}` to the cube "
+        "column that partitions it, or use `strategy: full`."
+    )
+
+
+def test_cube_spec_materialization_shapes_survive_serialization():
+    """
+    Every shape a cube can declare has to mean the same thing after a round trip, or
+    a spec pulled from the server and pushed back would change what the cube does.
+    """
+    blocks = [
+        MaterializationSpec(schedule="59 23 * * *", lookback_window="1 DAY"),
+        MaterializationSpec(
+            schedule="0 6 * * *",
+            strategy=MaterializationStrategy.FULL,
+            lookback_window=None,
+        ),
+    ]
+    for declared in (
+        blocks,
+        blocks[0],
+        MaterializationAction.NONE,
+        None,
+    ):
+        spec = _cube_declaring(declared)
+        assert CubeSpec.model_validate(spec.model_dump()).materialization == declared
+        assert spec.rendered_spec().materialization == declared
+
+
+def test_cube_spec_eq_ignores_a_list_of_materializations():
+    """
+    Whichever shape the block is written in, it is not part of the cube's definition
+    and must not mint a revision. The diff still names it, at tier NONE.
+    """
+    one = _cube_declaring(
+        [
+            MaterializationSpec(schedule="59 23 * * *"),
+            MaterializationSpec(
+                schedule="0 6 * * *",
+                strategy=MaterializationStrategy.FULL,
+            ),
+        ],
+    )
+    two = _cube_declaring(MaterializationSpec(schedule="59 23 * * *"))
+    assert one == two
+    assert one.rendered_spec().diff(two) == ["materialization"]
+    assert CubeSpec.change_tier(one.rendered_spec().diff(two)) == ChangeTier.NONE
+
+
+def test_cube_spec_materialization_diff_ignores_declaration_order():
+    """
+    A cube pulled from the server lists its materializations in name order, and an
+    author is free to write them the other way round. Reading that as a change would
+    report an edit on every deploy of an untouched cube.
+    """
+    blocks = [
+        MaterializationSpec(schedule="59 23 * * *", coverage={"window": "800 DAYS"}),
+        MaterializationSpec(
+            schedule="0 6 * * *",
+            strategy=MaterializationStrategy.FULL,
+        ),
+    ]
+    assert (
+        _cube_declaring(blocks)
+        .rendered_spec()
+        .diff(
+            _cube_declaring(list(reversed(blocks))),
+        )
+        == []
+    )
