@@ -14,6 +14,9 @@ from datajunction_server.construction.build_v3.combiners import (
     _reorder_partition_column_last,
     build_combiner_sql_from_preaggs,
 )
+from datajunction_server.construction.build_v3.cube_matcher import (
+    validate_cube_semi_additive_materialization,
+)
 from datajunction_server.construction.build_v3.cte import strip_role_suffix
 from datajunction_server.construction.dimensions import build_dimensions_from_cube_query
 from datajunction_server.database.materialization import Materialization
@@ -201,6 +204,32 @@ def _build_metrics_spec(
     return metrics
 
 
+async def _validate_cube_semi_additive_materialization(
+    session: AsyncSession,
+    cube: Node,
+) -> None:
+    """
+    Validate materialization safety using full metric decomposition.
+    """
+    if not cube.current:  # pragma: no cover
+        return
+
+    from datajunction_server.construction.build_v3.builder import setup_build_context
+
+    ctx = await setup_build_context(
+        session=session,
+        metrics=cube.current.cube_node_metrics,
+        dimensions=cube.current.cube_node_dimensions,
+        filters=cube.current.cube_filters or None,
+        dialect=Dialect.SPARK,
+        use_materialized=False,
+    )
+    validate_cube_semi_additive_materialization(
+        cube.current,
+        decomposed_metrics=ctx.decomposed_metrics,
+    )
+
+
 @router.get("/cubes", name="Get all Cubes")
 async def get_all_cubes(
     *,
@@ -288,6 +317,7 @@ async def cube_materialization_info(
             message=f"Cube node `{name}` does not exist.",
             http_status_code=404,
         )
+    await _validate_cube_semi_additive_materialization(session, node)
     temporal_partitions = node.current.temporal_partition_columns()  # type: ignore
     if len(temporal_partitions) != 1:
         raise DJInvalidInputException(
@@ -520,6 +550,7 @@ async def materialize_cube(
             message=f"Cube '{name}' has no current revision",
             http_status_code=HTTPStatus.NOT_FOUND,
         )
+    await _validate_cube_semi_additive_materialization(session, node)
 
     cube_tps = cube_revision.temporal_partition_columns()
 

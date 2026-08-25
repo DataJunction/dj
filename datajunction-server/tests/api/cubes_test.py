@@ -4805,6 +4805,114 @@ class TestCubeMaterializeV2SuccessPaths:
     """
 
     @pytest.mark.asyncio
+    async def test_materialize_semi_additive_cube_without_protected_dimension_fails(
+        self,
+        client_with_build_v3: AsyncClient,
+        mocker,
+    ):
+        """Druid cube materialization refuses to bake in collapsed
+        semi-additive metrics without the protected dimension."""
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.daily_balance",
+                "description": "Semi-additive balance measured by order date",
+                "query": "SELECT SUM(line_total) FROM v3.order_details",
+                "mode": "published",
+                "semi_additive": {
+                    "dimension": "v3.date.date_id[order]",
+                    "function": "last_value",
+                },
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+        cube_name = "v3.test_daily_balance_materialization_guard"
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": cube_name,
+                "metrics": ["v3.daily_balance"],
+                "dimensions": ["v3.product.category"],
+                "mode": "published",
+                "description": "Unsafe semi-additive materialization",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        combiner = mocker.patch(
+            "datajunction_server.api.cubes.build_combiner_sql_from_preaggs",
+        )
+
+        response = await client_with_build_v3.post(
+            f"/cubes/{cube_name}/materialize",
+            json={"strategy": "full", "schedule": "0 0 * * *"},
+        )
+
+        assert response.status_code == 400, response.json()
+        assert "protected dimension" in response.json()["message"]
+        combiner.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_materialize_derived_semi_additive_cube_without_protected_dimension_fails(
+        self,
+        client_with_build_v3: AsyncClient,
+        mocker,
+    ):
+        """Druid cube materialization also refuses derived metrics whose base
+        metric has an omitted semi-additive protected dimension."""
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.daily_balance",
+                "description": "Semi-additive balance measured by order date",
+                "query": "SELECT SUM(line_total) FROM v3.order_details",
+                "mode": "published",
+                "semi_additive": {
+                    "dimension": "v3.date.date_id[order]",
+                    "function": "last_value",
+                },
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.daily_balance_index",
+                "description": "Derived semi-additive balance index",
+                "query": "SELECT 10.0 / v3.daily_balance",
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+        cube_name = "v3.test_daily_balance_index_materialization_guard"
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": cube_name,
+                "metrics": ["v3.daily_balance_index"],
+                "dimensions": ["v3.product.category"],
+                "mode": "published",
+                "description": "Unsafe derived semi-additive materialization",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        combiner = mocker.patch(
+            "datajunction_server.api.cubes.build_combiner_sql_from_preaggs",
+        )
+
+        response = await client_with_build_v3.post(
+            f"/cubes/{cube_name}/materialize",
+            json={"strategy": "full", "schedule": "0 0 * * *"},
+        )
+
+        assert response.status_code == 400, response.json()
+        assert "protected dimension" in response.json()["message"]
+        combiner.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_materialize_cube_full_strategy_success(
         self,
         client_with_repairs_cube: AsyncClient,

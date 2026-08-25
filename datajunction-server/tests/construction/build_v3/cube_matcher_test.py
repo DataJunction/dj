@@ -29,10 +29,43 @@ from datajunction_server.construction.build_v3.types import BuildContext
 from datajunction_server.construction.build_v3.utils import (
     extract_filter_dimension_refs,
 )
+from datajunction_server.database.node import Node
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.decompose import Aggregability
 from datajunction_server.models.dialect import Dialect
 from tests.construction.build_v3 import assert_sql_equal
+
+
+async def _create_daily_balance_metric(client_with_build_v3):
+    """Create a semi-additive metric protected by order date."""
+    response = await client_with_build_v3.post(
+        "/nodes/metric/",
+        json={
+            "name": "v3.daily_balance",
+            "description": "Semi-additive balance measured by order date",
+            "query": "SELECT SUM(line_total) FROM v3.order_details",
+            "mode": "published",
+            "semi_additive": {
+                "dimension": "v3.date.date_id[order]",
+                "function": "last_value",
+            },
+        },
+    )
+    assert response.status_code in (200, 201), response.json()
+
+
+async def _create_daily_balance_index_metric(client_with_build_v3):
+    """Create a derived metric that depends on the semi-additive balance."""
+    response = await client_with_build_v3.post(
+        "/nodes/metric/",
+        json={
+            "name": "v3.daily_balance_index",
+            "description": "Derived semi-additive balance index",
+            "query": "SELECT 10.0 / v3.daily_balance",
+            "mode": "published",
+        },
+    )
+    assert response.status_code in (200, 201), response.json()
 
 
 def test_materialized_dimension_lookup_preserves_roles():
@@ -1155,6 +1188,197 @@ class TestFindMatchingCube:
                 filters=["v3.product.category = 'Electronics'"],
             )
         assert "could not be parsed" in str(exc.value)
+
+    @pytest.mark.asyncio
+    async def test_semi_additive_cube_missing_protected_dimension_not_matched(
+        self,
+        client_with_build_v3,
+        session,
+    ):
+        """A materialized cube that dropped a semi-additive protected dimension
+        is not safe to auto-route to."""
+        await _create_daily_balance_metric(client_with_build_v3)
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.test_daily_balance_category_cube",
+                "metrics": ["v3.daily_balance"],
+                "dimensions": ["v3.product.category"],
+                "mode": "published",
+                "description": "Category cube missing semi-additive protected grain",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        response = await client_with_build_v3.post(
+            "/data/v3.test_daily_balance_category_cube/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "analytics",
+                "table": "daily_balance_category_cube",
+                "valid_through_ts": int(time.time() * 1000),
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        result = await find_matching_cube(
+            session,
+            metrics=["v3.daily_balance"],
+            dimensions=["v3.product.category"],
+        )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_semi_additive_unsafe_cube_falls_back_to_live_sql(
+        self,
+        client_with_build_v3,
+        session,
+    ):
+        """An unsafe materialized cube is ignored, leaving the live path usable."""
+        await _create_daily_balance_metric(client_with_build_v3)
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.test_daily_balance_live_fallback_cube",
+                "metrics": ["v3.daily_balance"],
+                "dimensions": ["v3.product.category"],
+                "mode": "published",
+                "description": "Unsafe cube for live fallback",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        response = await client_with_build_v3.post(
+            "/data/v3.test_daily_balance_live_fallback_cube/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "analytics",
+                "table": "daily_balance_live_fallback_cube",
+                "valid_through_ts": int(time.time() * 1000),
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        result = await build_metrics_sql(
+            session=session,
+            metrics=["v3.daily_balance"],
+            dimensions=["v3.product.category"],
+        )
+
+        assert result.cube_name is None
+        assert "daily_balance_live_fallback_cube" not in result.sql
+        assert "MAX_BY(" in result.sql
+        assert "date_id_order" in result.sql
+
+    @pytest.mark.asyncio
+    async def test_derived_semi_additive_cube_missing_protected_dimension_not_matched(
+        self,
+        client_with_build_v3,
+        session,
+    ):
+        """Derived metric cubes inherit base semi-additive materialization needs."""
+        await _create_daily_balance_metric(client_with_build_v3)
+        await _create_daily_balance_index_metric(client_with_build_v3)
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.test_daily_balance_index_category_cube",
+                "metrics": ["v3.daily_balance_index"],
+                "dimensions": ["v3.product.category"],
+                "mode": "published",
+                "description": "Derived cube missing semi-additive protected grain",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        response = await client_with_build_v3.post(
+            "/data/v3.test_daily_balance_index_category_cube/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "analytics",
+                "table": "daily_balance_index_category_cube",
+                "valid_through_ts": int(time.time() * 1000),
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        result = await find_matching_cube(
+            session,
+            metrics=["v3.daily_balance_index"],
+            dimensions=["v3.product.category"],
+        )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_pinned_semi_additive_cube_missing_protected_dimension_raises(
+        self,
+        client_with_build_v3,
+        session,
+    ):
+        """Pinned cube validation also blocks unsafe semi-additive materialization."""
+        await _create_daily_balance_metric(client_with_build_v3)
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.test_daily_balance_pinned_unsafe_cube",
+                "metrics": ["v3.daily_balance"],
+                "dimensions": ["v3.product.category"],
+                "mode": "published",
+                "description": "Pinned unsafe semi-additive cube",
+            },
+        )
+        assert response.status_code == 201, response.json()
+        cube_node = await Node.get_cube_by_name(
+            session,
+            "v3.test_daily_balance_pinned_unsafe_cube",
+        )
+        assert cube_node and cube_node.current
+
+        with pytest.raises(DJInvalidInputException) as exc:
+            await validate_pinned_cube_covers_filters(
+                session,
+                cube_node.current,
+                dimensions=["v3.product.category"],
+                filters=[],
+                metrics=["v3.daily_balance"],
+            )
+        assert "protected dimension" in str(exc.value)
+
+    @pytest.mark.asyncio
+    async def test_pinned_derived_semi_additive_cube_missing_protected_dimension_raises(
+        self,
+        client_with_build_v3,
+        session,
+    ):
+        """Pinned derived metric cubes also inherit base semi-additive needs."""
+        await _create_daily_balance_metric(client_with_build_v3)
+        await _create_daily_balance_index_metric(client_with_build_v3)
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.test_daily_balance_index_pinned_unsafe_cube",
+                "metrics": ["v3.daily_balance_index"],
+                "dimensions": ["v3.product.category"],
+                "mode": "published",
+                "description": "Pinned unsafe derived semi-additive cube",
+            },
+        )
+        assert response.status_code == 201, response.json()
+        cube_node = await Node.get_cube_by_name(
+            session,
+            "v3.test_daily_balance_index_pinned_unsafe_cube",
+        )
+        assert cube_node and cube_node.current
+
+        with pytest.raises(DJInvalidInputException) as exc:
+            await validate_pinned_cube_covers_filters(
+                session,
+                cube_node.current,
+                dimensions=["v3.product.category"],
+                filters=[],
+                metrics=["v3.daily_balance_index"],
+            )
+        assert "protected dimension" in str(exc.value)
 
     @pytest.mark.asyncio
     async def test_pinned_cube_non_druid_dialect_skips_validation(

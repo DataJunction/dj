@@ -47,8 +47,12 @@ from datajunction_server.instrumentation.provider import timed
 from datajunction_server.models.decompose import Aggregability
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.models.semiadditive import parse_semi_additive_spec
+from datajunction_server.models.semiadditive import (
+    SemiAdditiveCollapseFunction,
+    parse_semi_additive_spec,
+)
 from datajunction_server.naming import amenable_name
+from datajunction_server.sql.decompose import MetricComponentExtractor
 from datajunction_server.sql.parsing import ast
 
 logger = logging.getLogger(__name__)
@@ -58,6 +62,111 @@ logger = logging.getLogger(__name__)
 # parsed: coverage can't be proven, so cube matching must fail SAFE (reject the
 # cube and fall back) rather than fail open and emit invalid SQL.
 _FILTER_COVERAGE_UNKNOWN = object()
+SemiAdditiveRequirement = tuple[str, str, SemiAdditiveCollapseFunction]
+
+
+def _semi_additive_requirements_for_cube_metrics(
+    cube: NodeRevision,
+    metrics: list[str],
+    requested_dimensions: list[str],
+) -> list[SemiAdditiveRequirement]:
+    """
+    Semi-additive metric requirements that are absent from the output grain.
+    """
+    requirements: list[SemiAdditiveRequirement] = []
+    metric_names = set(metrics)
+    for metric_revision in cube.metric_node_revisions():
+        if (
+            not metric_revision
+            or metric_revision.name not in metric_names
+            or not metric_revision.semi_additive
+        ):
+            continue
+        semi_additive = parse_semi_additive_spec(metric_revision.semi_additive)
+        if semi_additive and not _semi_additive_dimension_requested(
+            semi_additive.dimension,
+            requested_dimensions,
+        ):
+            requirements.append(
+                (
+                    metric_revision.name,
+                    semi_additive.dimension,
+                    semi_additive.function,
+                ),
+            )
+    return requirements
+
+
+async def _semi_additive_requirements_for_metrics(
+    session: AsyncSession,
+    metrics: list[str],
+    requested_dimensions: list[str],
+) -> list[SemiAdditiveRequirement]:
+    """
+    Semi-additive requirements from full metric decomposition.
+
+    Direct cube metadata only sees the metrics declared on the cube. Decomposition
+    also catches derived metrics whose base components carry semi-additive rules.
+    """
+    requirements: list[SemiAdditiveRequirement] = []
+    for metric_name in metrics:
+        extractor = await MetricComponentExtractor.from_node_name(
+            metric_name,
+            session,
+        )
+        components, _ = await extractor.extract(session)
+        for component in components:
+            semi_additive = component.rule.semi_additive
+            if (
+                semi_additive
+                and not _semi_additive_dimension_requested(
+                    semi_additive.dimension,
+                    requested_dimensions,
+                )
+                and (
+                    metric_name,
+                    semi_additive.dimension,
+                    semi_additive.function,
+                )
+                not in requirements
+            ):
+                requirements.append(
+                    (
+                        metric_name,
+                        semi_additive.dimension,
+                        semi_additive.function,
+                    ),
+                )
+    return requirements
+
+
+def _semi_additive_requirements_for_decomposed_metrics(
+    decomposed_metrics: dict[str, DecomposedMetricInfo],
+    metrics: list[str],
+    requested_dimensions: list[str],
+) -> list[SemiAdditiveRequirement]:
+    """
+    Semi-additive requirements from already-decomposed planner context.
+    """
+    requirements: list[SemiAdditiveRequirement] = []
+    metric_names = set(metrics)
+    for metric_name, decomposed in decomposed_metrics.items():
+        if metric_name not in metric_names:
+            continue
+        for component in decomposed.components:
+            semi_additive = component.rule.semi_additive
+            if semi_additive and not _semi_additive_dimension_requested(
+                semi_additive.dimension,
+                requested_dimensions,
+            ):
+                requirement = (
+                    metric_name,
+                    semi_additive.dimension,
+                    semi_additive.function,
+                )
+                if requirement not in requirements:
+                    requirements.append(requirement)
+    return requirements
 
 
 def _semi_additive_dimensions_for_cube_metrics(
@@ -69,25 +178,96 @@ def _semi_additive_dimensions_for_cube_metrics(
     Protected dimensions a cube must materialize for semi-additive rollups.
     """
     required: list[str] = []
-    metric_names = set(metrics)
-    for metric_revision in cube.metric_node_revisions():
-        if (
-            not metric_revision
-            or metric_revision.name not in metric_names
-            or not metric_revision.semi_additive
-        ):
-            continue
-        semi_additive = parse_semi_additive_spec(metric_revision.semi_additive)
-        if (
-            semi_additive
-            and not _semi_additive_dimension_requested(
-                semi_additive.dimension,
-                requested_dimensions,
-            )
-            and semi_additive.dimension not in required
-        ):
-            required.append(semi_additive.dimension)
+    for _, dimension, _ in _semi_additive_requirements_for_cube_metrics(
+        cube,
+        metrics,
+        requested_dimensions,
+    ):
+        if dimension not in required:
+            required.append(dimension)
     return required
+
+
+def _format_semi_additive_requirements(
+    requirements: list[SemiAdditiveRequirement],
+) -> list[str]:
+    """Human-readable semi-additive requirements for error messages."""
+    return [
+        f"{metric} -> {dimension} ({function.value})"
+        for metric, dimension, function in requirements
+    ]
+
+
+def validate_cube_covers_semi_additive_dimensions(
+    cube: NodeRevision,
+    metrics: list[str],
+    dimensions: list[str],
+    *,
+    decomposed_metrics: dict[str, DecomposedMetricInfo] | None = None,
+    additional_requirements: list[SemiAdditiveRequirement] | None = None,
+    usage: str = "Cube",
+    http_status_code: int = 422,
+) -> None:
+    """
+    Fail loud when a materialized cube cannot safely serve semi-additive metrics.
+
+    V1 materialized cube usage is only safe for semi-additive metrics when the
+    cube itself retains the protected dimension. Otherwise querying the cube can
+    silently merge across that dimension with the wrong Druid aggregator.
+    """
+    requirements = _semi_additive_requirements_for_cube_metrics(
+        cube,
+        metrics,
+        dimensions,
+    )
+    if decomposed_metrics is not None:
+        for requirement in _semi_additive_requirements_for_decomposed_metrics(
+            decomposed_metrics,
+            metrics,
+            dimensions,
+        ):
+            if requirement not in requirements:
+                requirements.append(requirement)
+    for requirement in additional_requirements or []:
+        if requirement not in requirements:
+            requirements.append(requirement)
+
+    cube_dims = set(cube.cube_dimensions())
+    missing_requirements = [
+        requirement for requirement in requirements if requirement[1] not in cube_dims
+    ]
+    if not missing_requirements:
+        return
+
+    raise DJInvalidInputException(
+        f"{usage} `{cube.name}` cannot safely use materialized semi-additive "
+        "metric(s) because it does not materialize protected dimension(s) "
+        f"{_format_semi_additive_requirements(missing_requirements)}. "
+        "Add the protected dimension to the cube, or run the query with "
+        "use_materialized=false.",
+        http_status_code=http_status_code,
+    )
+
+
+def validate_cube_semi_additive_materialization(
+    cube: NodeRevision,
+    decomposed_metrics: dict[str, DecomposedMetricInfo] | None = None,
+) -> None:
+    """
+    Guard Druid cube materialization from baking in semi-additive misaggregation.
+
+    V1 does not materialize collapsed semi-additive metrics unless the cube grain
+    includes the protected dimension. This avoids generating a Druid metricsSpec
+    that sums first/last/min/max collapse inputs across the protected dimension.
+    """
+    validate_cube_covers_semi_additive_dimensions(
+        cube,
+        cube.cube_node_metrics,
+        cube.cube_node_dimensions,
+        decomposed_metrics=decomposed_metrics,
+        usage="Cube",
+        http_status_code=400,
+    )
 
 
 async def _required_filter_dimensions(
@@ -225,6 +405,16 @@ async def find_matching_cube(
 
     result = await session.execute(statement)
     candidate_cubes = result.unique().scalars().all()
+    semi_additive_requirements = (
+        await _semi_additive_requirements_for_metrics(
+            session,
+            metrics,
+            dimensions,
+        )
+        if candidate_cubes
+        else []
+    )
+    semi_additive_dims = {dimension for _, dimension, _ in semi_additive_requirements}
 
     # Find the best matching cube (smallest grain that covers all dimensions)
     best_match: NodeRevision | None = None
@@ -249,12 +439,16 @@ async def find_matching_cube(
         # Druid SQL referencing a missing column).
         cube_dims = set(cube_rev.cube_dimensions())
 
-        required_dims_for_cube = required_dims | set(
-            _semi_additive_dimensions_for_cube_metrics(
-                cube_rev,
-                metrics,
-                dimensions,
-            ),
+        required_dims_for_cube = (
+            required_dims
+            | set(
+                _semi_additive_dimensions_for_cube_metrics(
+                    cube_rev,
+                    metrics,
+                    dimensions,
+                ),
+            )
+            | semi_additive_dims
         )
 
         if not required_dims_for_cube.issubset(cube_dims):
@@ -312,13 +506,6 @@ async def validate_pinned_cube_covers_filters(
             http_status_code=422,
         )
     required_dims = set(dimensions) | set(required)  # type: ignore[arg-type]
-    required_dims.update(
-        _semi_additive_dimensions_for_cube_metrics(
-            cube,
-            metrics or cube.cube_node_metrics,
-            dimensions,
-        ),
-    )
     cube_dims = set(cube.cube_dimensions())
     missing = required_dims - cube_dims
     if missing:
@@ -328,6 +515,18 @@ async def validate_pinned_cube_covers_filters(
             "dimension, or pick a cube that materializes it.",
             http_status_code=422,
         )
+
+    validate_cube_covers_semi_additive_dimensions(
+        cube,
+        metrics or cube.cube_node_metrics,
+        dimensions,
+        additional_requirements=await _semi_additive_requirements_for_metrics(
+            session,
+            metrics or cube.cube_node_metrics,
+            dimensions,
+        ),
+        usage="Pinned cube",
+    )
 
 
 async def resolve_dialect_and_engine_for_metrics(
@@ -516,6 +715,13 @@ def build_sql_from_cube_impl(
     Returns:
         GeneratedSQL with the query and column metadata.
     """
+    validate_cube_covers_semi_additive_dimensions(
+        cube,
+        ctx.metrics,
+        ctx.dimensions,
+        decomposed_metrics=ctx.decomposed_metrics,
+    )
+
     # Build synthetic GrainGroupSQL for cube table
     # This applies all filters in the cube CTE's WHERE clause
     synthetic_grain_group = build_synthetic_grain_group(
