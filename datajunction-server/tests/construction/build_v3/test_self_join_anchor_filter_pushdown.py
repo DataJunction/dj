@@ -173,7 +173,10 @@ async def test_two_table_bridge_is_unaffected(
     lands on the anchor side alone, which isolates "both aliases resolve to the same
     physical table" as the trigger rather than the self-join shape itself.
     """
-    for table, name in (("dates", "default.date_table"), ("dates_b", "default.date_table_b")):
+    for table, name in (
+        ("dates", "default.date_table"),
+        ("dates_b", "default.date_table_b"),
+    ):
         response = await client_with_service_setup.post(
             "/nodes/source/",
             json={

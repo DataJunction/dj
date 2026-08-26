@@ -1342,7 +1342,9 @@ def _resolve_pushdown_filters_for_cte(
                     cte_query,
                     physical,
                 ):
-                    if ref_alias == primary_alias and enclosing_select is target_select:
+                    # Other scopes only: a sibling alias here is a
+                    # self-join, already handled by the primary rewrite.
+                    if enclosing_select is target_select:
                         continue
                     cloned = _retarget_filter_qualifier(
                         rewritten,
