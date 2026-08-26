@@ -28,7 +28,7 @@ from datajunction_server.internal.access.authorization import (
 from datajunction_server.models.access import ResourceAction
 from datajunction_server.utils import get_current_user, get_session
 
-router = SecureAPIRouter(tags=["custom-metadata"])
+router = SecureAPIRouter(tags=["metadata-schemas"])
 
 
 def _value_kind(json_schema: dict) -> str | None:
@@ -37,7 +37,7 @@ def _value_kind(json_schema: dict) -> str | None:
     return t if isinstance(t, str) else None
 
 
-@router.post("/custom-metadata/schemas/", response_model=CustomMetadataSchemaOutput)
+@router.post("/metadata-schemas/", response_model=CustomMetadataSchemaOutput)
 async def register_schema(
     data: CustomMetadataSchemaCreate,
     *,
@@ -159,19 +159,28 @@ async def register_schema(
 
 
 @router.get(
-    "/custom-metadata/schemas/",
+    "/metadata-schemas/",
     response_model=list[CustomMetadataSchemaOutput],
 )
 async def list_schemas(
+    key: str | None = None,
     namespace: str | None = None,
     node_type: str | None = None,
     *,
     session: AsyncSession = Depends(get_session),
 ) -> list[CustomMetadataSchema]:
-    """List active schema registrations, optionally filtered by namespace and node_type."""
+    """List active registrations, optionally filtered by key, namespace and node_type.
+
+    The filters match the stored scope exactly. They answer "what is registered
+    here", not "what governs a node here" -- a schema on `shared` applies to
+    `shared.finance` without being registered at it. Resolution answers the
+    second question, and exposing it as a filter can follow if callers need it.
+    """
     stmt = select(CustomMetadataSchema).where(
         CustomMetadataSchema.deactivated_at.is_(None),
     )
+    if key is not None:
+        stmt = stmt.where(CustomMetadataSchema.key == key)
     if namespace is not None:
         stmt = stmt.where(CustomMetadataSchema.namespace == namespace)
     if node_type is not None:
@@ -179,7 +188,33 @@ async def list_schemas(
     return list((await session.execute(stmt)).scalars().all())
 
 
-@router.delete("/custom-metadata/schemas/{schema_id}", status_code=200)
+@router.get(
+    "/metadata-schemas/{schema_id}",
+    response_model=CustomMetadataSchemaOutput,
+)
+async def get_schema(
+    schema_id: int,
+    *,
+    session: AsyncSession = Depends(get_session),
+) -> CustomMetadataSchema:
+    """Fetch one registration by id."""
+    row = (
+        await session.execute(
+            select(CustomMetadataSchema).where(
+                CustomMetadataSchema.id == schema_id,
+                CustomMetadataSchema.deactivated_at.is_(None),
+            ),
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Schema {schema_id} not found or deleted",
+        )
+    return row
+
+
+@router.delete("/metadata-schemas/{schema_id}", status_code=200)
 async def delete_schema(
     schema_id: int,
     *,
@@ -224,20 +259,10 @@ async def delete_schema(
     return {"id": schema_id, "deactivated": True}
 
 
-@router.get("/custom-metadata/facets/", response_model=list[CustomMetadataSchemaOutput])
-async def list_facets(
-    *,
-    session: AsyncSession = Depends(get_session),
-) -> list[CustomMetadataSchema]:
-    """Return the curated filterable catalog (schemas with filterable=True)."""
-    stmt = select(CustomMetadataSchema).where(
-        CustomMetadataSchema.deactivated_at.is_(None),
-        CustomMetadataSchema.filterable.is_(True),
-    )
-    return list((await session.execute(stmt)).scalars().all())
-
-
-@router.get("/custom-metadata/violations/", response_model=ViolationReport)
+@router.get(
+    "/metadata-schemas/{schema_id}/violations",
+    response_model=ViolationReport,
+)
 async def list_violations(
     schema_id: int,
     *,

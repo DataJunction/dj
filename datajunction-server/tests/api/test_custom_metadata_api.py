@@ -2,11 +2,10 @@
 Tests for the custom_metadata schema registry REST API.
 
 Covers:
-- POST /custom-metadata/schemas/ (create + upsert)
-- GET /custom-metadata/schemas/ (list with optional filters)
-- DELETE /custom-metadata/schemas/{id} (soft-delete)
-- GET /custom-metadata/facets/ (filterable-only catalog)
-- GET /custom-metadata/violations/ (advisory report)
+- POST /metadata-schemas/ (create + upsert)
+- GET /metadata-schemas/ (list with optional filters)
+- DELETE /metadata-schemas/{id} (soft-delete)
+- GET /metadata-schemas/{id}/violations (advisory report)
 """
 
 from datetime import timedelta
@@ -24,7 +23,7 @@ from datajunction_server.models.user import OAuthProvider
 
 
 # ---------------------------------------------------------------------------
-# POST /custom-metadata/schemas/ — create
+# POST /metadata-schemas/ — create
 # ---------------------------------------------------------------------------
 
 
@@ -32,7 +31,7 @@ from datajunction_server.models.user import OAuthProvider
 async def test_register_and_list_schema(client: AsyncClient) -> None:
     """Creating a schema and listing it should return the correct data."""
     resp = await client.post(
-        "/custom-metadata/schemas/",
+        "/metadata-schemas/",
         json={
             "key": "table_group",
             "namespace": "test.ns",
@@ -47,7 +46,7 @@ async def test_register_and_list_schema(client: AsyncClient) -> None:
     assert body["filterable"] is True
     assert body["description"] == "arc"
 
-    listed = await client.get("/custom-metadata/schemas/")
+    listed = await client.get("/metadata-schemas/")
     assert listed.status_code == 200
     assert any(s["key"] == "table_group" for s in listed.json())
 
@@ -58,7 +57,7 @@ async def test_register_schema_with_node_type_and_namespace(
 ) -> None:
     """Creating a schema with node_type and namespace stores them."""
     resp = await client.post(
-        "/custom-metadata/schemas/",
+        "/metadata-schemas/",
         json={
             "key": "owner",
             "node_type": "metric",
@@ -76,7 +75,7 @@ async def test_register_schema_with_node_type_and_namespace(
 async def test_register_schema_reject_invalid_json_schema(client: AsyncClient) -> None:
     """Posting an invalid JSON Schema must return 422."""
     resp = await client.post(
-        "/custom-metadata/schemas/",
+        "/metadata-schemas/",
         json={
             "key": "bad",
             "namespace": "test.ns",
@@ -95,13 +94,13 @@ async def test_register_schema_upsert_updates_existing(client: AsyncClient) -> N
         "json_schema": {"type": "string"},
         "description": "first",
     }
-    resp1 = await client.post("/custom-metadata/schemas/", json=payload)
+    resp1 = await client.post("/metadata-schemas/", json=payload)
     assert resp1.status_code in (200, 201)
     id1 = resp1.json()["id"]
 
     # Update description via another POST (upsert)
     resp2 = await client.post(
-        "/custom-metadata/schemas/",
+        "/metadata-schemas/",
         json={
             "key": "grain",
             "namespace": "test.ns",
@@ -116,23 +115,23 @@ async def test_register_schema_upsert_updates_existing(client: AsyncClient) -> N
     assert body2["value_kind"] == "integer"
 
     # Only one active row in list
-    listed = await client.get("/custom-metadata/schemas/")
+    listed = await client.get("/metadata-schemas/")
     grains = [s for s in listed.json() if s["key"] == "grain"]
     assert len(grains) == 1
 
 
 @pytest.mark.asyncio
 async def test_list_schemas_filter_by_namespace(client: AsyncClient) -> None:
-    """GET /custom-metadata/schemas/?namespace= filters to matching rows."""
+    """GET /metadata-schemas/?namespace= filters to matching rows."""
     await client.post(
-        "/custom-metadata/schemas/",
+        "/metadata-schemas/",
         json={"key": "k1", "namespace": "ns_a", "json_schema": {"type": "string"}},
     )
     await client.post(
-        "/custom-metadata/schemas/",
+        "/metadata-schemas/",
         json={"key": "k2", "namespace": "ns_b", "json_schema": {"type": "string"}},
     )
-    resp = await client.get("/custom-metadata/schemas/?namespace=ns_a")
+    resp = await client.get("/metadata-schemas/?namespace=ns_a")
     assert resp.status_code == 200
     data = resp.json()
     assert all(s["namespace"] == "ns_a" for s in data)
@@ -141,7 +140,7 @@ async def test_list_schemas_filter_by_namespace(client: AsyncClient) -> None:
 
 
 # ---------------------------------------------------------------------------
-# DELETE /custom-metadata/schemas/{id} — soft delete
+# DELETE /metadata-schemas/{id} — soft delete
 # ---------------------------------------------------------------------------
 
 
@@ -149,7 +148,7 @@ async def test_list_schemas_filter_by_namespace(client: AsyncClient) -> None:
 async def test_delete_schema_soft_deletes(client: AsyncClient) -> None:
     """DELETE sets deactivated_at and removes the schema from active listing."""
     create_resp = await client.post(
-        "/custom-metadata/schemas/",
+        "/metadata-schemas/",
         json={
             "key": "to_delete",
             "namespace": "test.ns",
@@ -159,18 +158,18 @@ async def test_delete_schema_soft_deletes(client: AsyncClient) -> None:
     assert create_resp.status_code in (200, 201)
     schema_id = create_resp.json()["id"]
 
-    del_resp = await client.delete(f"/custom-metadata/schemas/{schema_id}")
+    del_resp = await client.delete(f"/metadata-schemas/{schema_id}")
     assert del_resp.status_code in (200, 204)
 
     # Should no longer appear in list
-    listed = await client.get("/custom-metadata/schemas/")
+    listed = await client.get("/metadata-schemas/")
     assert not any(s["id"] == schema_id for s in listed.json())
 
 
 @pytest.mark.asyncio
 async def test_delete_schema_not_found(client: AsyncClient) -> None:
     """DELETE for a nonexistent schema_id returns 404."""
-    resp = await client.delete("/custom-metadata/schemas/999999")
+    resp = await client.delete("/metadata-schemas/999999")
     assert resp.status_code == 404
 
 
@@ -194,20 +193,25 @@ async def test_delete_global_key_non_admin_forbidden(
     session.add(row)
     await session.commit()
 
-    resp = await client.delete(f"/custom-metadata/schemas/{row.id}")
+    resp = await client.delete(f"/metadata-schemas/{row.id}")
     assert resp.status_code == 403
 
 
 # ---------------------------------------------------------------------------
-# GET /custom-metadata/facets/ — filterable-only catalog
+# `filterable` on the list response
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_facets_only_lists_filterable(client: AsyncClient) -> None:
-    """GET /custom-metadata/facets/ excludes schemas with filterable=False."""
+async def test_list_reports_filterable_per_schema(client: AsyncClient) -> None:
+    """The filterable subset is a read off the list, not an endpoint of its own.
+
+    `filterable` curates which keys a UI offers as filter controls; it does not
+    gate filtering, which goes through `customMetadataFilters` and never consults
+    the registry. A caller wanting the subset filters the list itself.
+    """
     await client.post(
-        "/custom-metadata/schemas/",
+        "/metadata-schemas/",
         json={
             "key": "notes",
             "namespace": "test.ns",
@@ -216,7 +220,7 @@ async def test_facets_only_lists_filterable(client: AsyncClient) -> None:
         },
     )
     await client.post(
-        "/custom-metadata/schemas/",
+        "/metadata-schemas/",
         json={
             "key": "score",
             "namespace": "test.ns",
@@ -224,31 +228,24 @@ async def test_facets_only_lists_filterable(client: AsyncClient) -> None:
             "filterable": True,
         },
     )
-    facets = await client.get("/custom-metadata/facets/")
-    assert facets.status_code == 200
-    data = facets.json()
-    assert not any(f["key"] == "notes" for f in data)
-    assert any(f["key"] == "score" for f in data)
+    resp = await client.get("/metadata-schemas/?namespace=test.ns")
+    assert resp.status_code == 200
+    by_key = {row["key"]: row["filterable"] for row in resp.json()}
+    assert by_key["notes"] is False
+    assert by_key["score"] is True
 
 
 # ---------------------------------------------------------------------------
-# GET /custom-metadata/violations/ — advisory report
+# GET /metadata-schemas/{id}/violations — advisory report
 # ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_violations_missing_schema_id_returns_422(client: AsyncClient) -> None:
-    """GET /custom-metadata/violations/ without schema_id returns 422."""
-    resp = await client.get("/custom-metadata/violations/")
-    assert resp.status_code == 422
 
 
 @pytest.mark.asyncio
 async def test_violations_nonexistent_schema_id_returns_404(
     client: AsyncClient,
 ) -> None:
-    """GET /custom-metadata/violations/?schema_id=9999 with nonexistent id returns 404."""
-    resp = await client.get("/custom-metadata/violations/?schema_id=9999")
+    """An id that matches no live registration is a 404."""
+    resp = await client.get("/metadata-schemas/9999/violations")
     assert resp.status_code == 404
 
 
@@ -260,7 +257,7 @@ async def test_violations_returns_report_for_clean_nodes(
     """Violation report returns count=0 when no nodes violate the schema."""
     # Register schema
     create_resp = await client.post(
-        "/custom-metadata/schemas/",
+        "/metadata-schemas/",
         json={
             "key": "grain",
             "namespace": "test.ns",
@@ -270,7 +267,7 @@ async def test_violations_returns_report_for_clean_nodes(
     assert create_resp.status_code in (200, 201)
     schema_id = create_resp.json()["id"]
 
-    resp = await client.get(f"/custom-metadata/violations/?schema_id={schema_id}")
+    resp = await client.get(f"/metadata-schemas/{schema_id}/violations")
     assert resp.status_code == 200
     body = resp.json()
     assert "violation_count" in body
@@ -279,9 +276,9 @@ async def test_violations_returns_report_for_clean_nodes(
 
 @pytest.mark.asyncio
 async def test_list_schemas_filter_by_node_type(client: AsyncClient) -> None:
-    """GET /custom-metadata/schemas/?node_type= filters to matching rows."""
+    """GET /metadata-schemas/?node_type= filters to matching rows."""
     await client.post(
-        "/custom-metadata/schemas/",
+        "/metadata-schemas/",
         json={
             "key": "nt_metric",
             "node_type": "metric",
@@ -290,7 +287,7 @@ async def test_list_schemas_filter_by_node_type(client: AsyncClient) -> None:
         },
     )
     await client.post(
-        "/custom-metadata/schemas/",
+        "/metadata-schemas/",
         json={
             "key": "nt_source",
             "node_type": "source",
@@ -298,7 +295,7 @@ async def test_list_schemas_filter_by_node_type(client: AsyncClient) -> None:
             "json_schema": {"type": "string"},
         },
     )
-    resp = await client.get("/custom-metadata/schemas/?node_type=metric")
+    resp = await client.get("/metadata-schemas/?node_type=metric")
     assert resp.status_code == 200
     data = resp.json()
     assert all(s["node_type"] == "metric" for s in data if s["node_type"] is not None)
@@ -316,7 +313,7 @@ async def test_violations_node_has_key_but_passes(
     from sqlalchemy import select
 
     create_resp = await client.post(
-        "/custom-metadata/schemas/",
+        "/metadata-schemas/",
         json={
             "key": "grain",
             "namespace": "test.ns",
@@ -342,7 +339,7 @@ async def test_violations_node_has_key_but_passes(
         nr.custom_metadata = {"grain": "daily"}  # valid string
         await session.commit()
 
-    resp = await client.get(f"/custom-metadata/violations/?schema_id={schema_id}")
+    resp = await client.get(f"/metadata-schemas/{schema_id}/violations")
     assert resp.status_code == 200
     body = resp.json()
     assert body["violation_count"] == 0
@@ -358,7 +355,7 @@ async def test_violations_detects_violating_nodes(
 
     # Create a schema requiring "grain" to be a string
     create_resp = await client.post(
-        "/custom-metadata/schemas/",
+        "/metadata-schemas/",
         json={
             "key": "grain",
             "namespace": "test.ns",
@@ -387,7 +384,7 @@ async def test_violations_detects_violating_nodes(
         nr.custom_metadata = {"grain": 123}  # violates {type: string}
         await session.commit()
 
-        resp = await client.get(f"/custom-metadata/violations/?schema_id={schema_id}")
+        resp = await client.get(f"/metadata-schemas/{schema_id}/violations")
         assert resp.status_code == 200
         body = resp.json()
         assert body["violation_count"] >= 1
@@ -406,7 +403,7 @@ async def test_violations_detects_violating_nodes(
 async def test_register_global_key_non_admin_forbidden(client: AsyncClient) -> None:
     """Non-admin registering a global key (namespace=None) → 403."""
     resp = await client.post(
-        "/custom-metadata/schemas/",
+        "/metadata-schemas/",
         json={"key": "global_key", "json_schema": {"type": "string"}},
     )
     assert resp.status_code == 403
@@ -446,7 +443,7 @@ async def test_register_global_key_admin_succeeds(
         headers={"Authorization": f"Bearer {admin_token}"},
     ) as admin_client:
         resp = await admin_client.post(
-            "/custom-metadata/schemas/",
+            "/metadata-schemas/",
             json={"key": "admin_global_key", "json_schema": {"type": "string"}},
         )
         assert resp.status_code in (200, 201)
@@ -456,7 +453,7 @@ async def test_register_global_key_admin_succeeds(
 
         # Admin can also delete a global key (covers the admin-delete-global path).
         del_resp = await admin_client.delete(
-            f"/custom-metadata/schemas/{body['id']}",
+            f"/metadata-schemas/{body['id']}",
         )
         assert del_resp.status_code == 200
 
@@ -467,7 +464,7 @@ async def test_register_namespace_key_with_access_succeeds(
 ) -> None:
     """Namespace-scoped key with access (PassthroughAuth approves all) → success."""
     resp = await client.post(
-        "/custom-metadata/schemas/",
+        "/metadata-schemas/",
         json={
             "key": "ns_key",
             "namespace": "my.namespace",
@@ -485,7 +482,7 @@ async def test_register_reserved_true_non_admin_forbidden(
 ) -> None:
     """Non-admin setting reserved=True → 403."""
     resp = await client.post(
-        "/custom-metadata/schemas/",
+        "/metadata-schemas/",
         json={
             "key": "some_ns_key",
             "namespace": "my.namespace",
@@ -531,7 +528,7 @@ async def test_register_namespace_key_blocked_by_reserved_global(
         headers={"Authorization": f"Bearer {admin_token}"},
     ) as admin_client:
         resp = await admin_client.post(
-            "/custom-metadata/schemas/",
+            "/metadata-schemas/",
             json={
                 "key": "reserved_key",
                 "reserved": True,
@@ -542,7 +539,7 @@ async def test_register_namespace_key_blocked_by_reserved_global(
 
     # Now try to register namespace-scoped (non-admin, namespace write OK via Passthrough)
     resp2 = await client.post(
-        "/custom-metadata/schemas/",
+        "/metadata-schemas/",
         json={
             "key": "reserved_key",
             "namespace": "some.namespace",
@@ -588,7 +585,7 @@ async def test_created_by_id_and_updated_by_id_populated(
         headers={"Authorization": f"Bearer {admin_token}"},
     ) as admin_client:
         resp = await admin_client.post(
-            "/custom-metadata/schemas/",
+            "/metadata-schemas/",
             json={"key": "audit_key", "json_schema": {"type": "string"}},
         )
     assert resp.status_code in (200, 201)
@@ -631,7 +628,7 @@ async def test_owner_round_trips(
         headers={"Authorization": f"Bearer {admin_token}"},
     ) as admin_client:
         resp = await admin_client.post(
-            "/custom-metadata/schemas/",
+            "/metadata-schemas/",
             json={
                 "key": "owner_key",
                 "json_schema": {"type": "string"},
@@ -673,7 +670,7 @@ async def test_registering_into_a_repo_managed_namespace_is_refused(
     await _make_git_managed(client, "gitmanaged")
 
     resp = await client.post(
-        "/custom-metadata/schemas/",
+        "/metadata-schemas/",
         json={
             "key": "system",
             "namespace": "gitmanaged",
@@ -689,7 +686,7 @@ async def test_registering_into_a_repo_managed_namespace_is_refused(
 async def test_deleting_a_repo_managed_schema_is_refused(client: AsyncClient) -> None:
     """Deleting has the same problem in reverse: the next deploy re-creates it."""
     resp = await client.post(
-        "/custom-metadata/schemas/",
+        "/metadata-schemas/",
         json={
             "key": "system",
             "namespace": "gitlater",
@@ -702,7 +699,7 @@ async def test_deleting_a_repo_managed_schema_is_refused(client: AsyncClient) ->
     # The namespace becomes repo-managed after the fact, as it would in practice.
     await _make_git_managed(client, "gitlater")
 
-    resp = await client.delete(f"/custom-metadata/schemas/{schema_id}")
+    resp = await client.delete(f"/metadata-schemas/{schema_id}")
     assert resp.status_code == 422, resp.text
     assert "is git-managed" in resp.text
 
@@ -745,7 +742,7 @@ async def test_a_global_key_is_unaffected(
     await _make_git_managed(client, "gitglobal")
 
     resp = await admin_client.post(
-        "/custom-metadata/schemas/",
+        "/metadata-schemas/",
         json={"key": "global_only_key", "json_schema": {"type": "string"}},
     )
     assert resp.status_code in (200, 201), resp.text
@@ -758,7 +755,7 @@ async def test_an_ordinary_namespace_is_unaffected(client: AsyncClient) -> None:
     await client.post("/namespaces/plain_ns")
 
     resp = await client.post(
-        "/custom-metadata/schemas/",
+        "/metadata-schemas/",
         json={
             "key": "system",
             "namespace": "plain_ns",
@@ -766,3 +763,65 @@ async def test_an_ordinary_namespace_is_unaffected(client: AsyncClient) -> None:
         },
     )
     assert resp.status_code in (200, 201), resp.text
+
+
+@pytest.mark.asyncio
+async def test_get_one_schema_by_id(client: AsyncClient) -> None:
+    """An id you cannot fetch with is half an identifier.
+
+    Delete has always taken one; without a matching read there was no way to
+    confirm what you were about to remove.
+    """
+    created = await client.post(
+        "/metadata-schemas/",
+        json={
+            "key": "grain",
+            "namespace": "byid.ns",
+            "json_schema": {"type": "string"},
+        },
+    )
+    schema_id = created.json()["id"]
+
+    resp = await client.get(f"/metadata-schemas/{schema_id}")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["key"] == "grain"
+    assert resp.json()["namespace"] == "byid.ns"
+
+
+@pytest.mark.asyncio
+async def test_get_a_deleted_schema_is_a_404(client: AsyncClient) -> None:
+    """Soft-deleted rows are invisible to reads, as they are to resolution."""
+    created = await client.post(
+        "/metadata-schemas/",
+        json={
+            "key": "gone",
+            "namespace": "byid.ns",
+            "json_schema": {"type": "string"},
+        },
+    )
+    schema_id = created.json()["id"]
+    assert (await client.delete(f"/metadata-schemas/{schema_id}")).status_code == 200
+
+    assert (await client.get(f"/metadata-schemas/{schema_id}")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_list_filters_by_key(client: AsyncClient) -> None:
+    """Resolving an id for a key you already know should be one precise call.
+
+    Without this the only route to a schema's id was listing everything and
+    scanning, which is the friction that made ids feel like the wrong handle.
+    """
+    for key in ("wanted", "unwanted"):
+        await client.post(
+            "/metadata-schemas/",
+            json={
+                "key": key,
+                "namespace": "bykey.ns",
+                "json_schema": {"type": "string"},
+            },
+        )
+
+    resp = await client.get("/metadata-schemas/?key=wanted&namespace=bykey.ns")
+    assert resp.status_code == 200, resp.text
+    assert [row["key"] for row in resp.json()] == ["wanted"]

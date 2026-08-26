@@ -63,7 +63,7 @@ async def test_numeric_schema_builds_expression_index(
 ) -> None:
     """Registering a filterable numeric schema must create ix_cm_threshold_num."""
     resp = await admin_client.post(
-        "/custom-metadata/schemas/",
+        "/metadata-schemas/",
         json={"key": "threshold_num", "json_schema": {"type": "number"}},
     )
     assert resp.status_code in (200, 201)
@@ -85,7 +85,7 @@ async def test_integer_schema_builds_expression_index(
 ) -> None:
     """Registering a filterable integer schema must create ix_cm_priority_int."""
     resp = await admin_client.post(
-        "/custom-metadata/schemas/",
+        "/metadata-schemas/",
         json={"key": "priority_int", "json_schema": {"type": "integer"}},
     )
     assert resp.status_code in (200, 201)
@@ -107,7 +107,7 @@ async def test_string_schema_builds_no_expression_index(
 ) -> None:
     """Registering a string schema must NOT create an expression index (GIN covers equality)."""
     resp = await admin_client.post(
-        "/custom-metadata/schemas/",
+        "/metadata-schemas/",
         json={"key": "label_str", "json_schema": {"type": "string"}},
     )
     assert resp.status_code in (200, 201)
@@ -129,7 +129,7 @@ async def test_non_filterable_numeric_schema_builds_no_index(
 ) -> None:
     """A numeric schema with filterable=False must NOT build an expression index."""
     resp = await admin_client.post(
-        "/custom-metadata/schemas/",
+        "/metadata-schemas/",
         json={
             "key": "hidden_score",
             "json_schema": {"type": "number"},
