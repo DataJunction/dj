@@ -97,6 +97,13 @@ class Materialization(Base):
         default="MaterializationJob",
     )
 
+    # Workflows the query service reported when it scheduled this
+    workflow_names: Mapped[list[str] | None] = mapped_column(
+        JSON,
+        nullable=True,
+        default=None,
+    )
+
     deactivated_at: Mapped[UTCDatetime] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
@@ -109,6 +116,22 @@ class Materialization(Base):
         cascade="all, delete",
         lazy="selectin",
     )
+
+    @property
+    def backfill_workflow(self) -> str | None:
+        """
+        The recorded workflow a backfill run belongs to, if the query service made
+        one.
+
+        Picked by its `.backfill` suffix rather than by position: the scheduled
+        workflow is always reported, the backfill one only for an incremental
+        strategy, so a one-element list is the ordinary shape and indexing into it
+        would hand the scheduler its own scheduled workflow to backfill on.
+        """
+        return next(
+            (name for name in self.workflow_names or [] if name.endswith(".backfill")),
+            None,
+        )
 
     @property
     def is_cube_planner(self) -> bool:

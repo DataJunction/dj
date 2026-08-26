@@ -824,8 +824,16 @@ async def _launch_backfill(
     deploy. The span is written down only once the query service takes it, so a
     refused launch is asked for again next deploy. Never raises, and records on
     the outcome what the caller reports.
+
+    The recorded backfill workflow goes with the request when the materialization
+    has one. Without it the query service derives a name of its own, which is what
+    a row written before DJ recorded any has to fall back on.
     """
     span = backfill.span
+    materialization = await session.get(
+        Materialization,
+        backfill.materialization_id,
+    )
     try:
         result = query_service_client.run_cube_backfill(
             CubeBackfillInput(
@@ -833,6 +841,9 @@ async def _launch_backfill(
                 cube_version=swap.new_version,
                 start_date=span[0],
                 end_date=span[1],
+                workflow_name=materialization.backfill_workflow
+                if materialization
+                else None,
             ),
             request_headers=request_headers,
         )
@@ -1002,10 +1013,11 @@ def stop_cube_materialization_workflows(
     """
     Ask the query service to stop the workflows behind cube materializations.
 
-    Workflow names recorded on the materialization configs are stopped together in
-    one call. Materializations predating persisted workflow names fall back to the
-    cube name + version endpoint, whose arguments are identical for every
-    materialization on a revision, so it is called at most once.
+    Workflow names recorded on the materialization rows are stopped together in one
+    call. A cube planner row keeps its names in its config instead, which nothing
+    rebuilds, so those are read too. Materializations predating persisted workflow
+    names fall back to the cube name + version endpoint, whose arguments are
+    identical for every materialization on a revision, so it is called at most once.
 
     Never raises: a query service that is unreachable, or that has already forgotten
     the workflow, must not block the DJ-side operation that triggered the teardown.
@@ -1020,7 +1032,7 @@ def stop_cube_materialization_workflows(
         config = (
             materialization.config if isinstance(materialization.config, dict) else {}
         )
-        names = config.get("workflow_names", [])
+        names = materialization.workflow_names or config.get("workflow_names") or []
         if names:
             workflow_names.extend(names)
         else:
@@ -1098,7 +1110,7 @@ async def collect_materialization_teardowns(
     them because it cannot rebuild what it stops. A deletion rebuilds nothing, and
     the planner's row is the only place its workflow names are written down.
 
-    What comes back are copies holding just the name and config the teardown reads,
+    What comes back are copies holding just the fields the teardown reads,
     never rows attached to the session: the workflows are stopped after the commit
     that deleted them, where a real row would either be expired and unable to answer
     or gone from the database entirely.
@@ -1110,6 +1122,7 @@ async def collect_materialization_teardowns(
             select(
                 Materialization.name,
                 Materialization.config,
+                Materialization.workflow_names,
                 NodeRevision.name.label("node_name"),
                 NodeRevision.version,
                 Node.type,
@@ -1135,7 +1148,11 @@ async def collect_materialization_teardowns(
             ),
         )
         teardown.materializations.append(
-            Materialization(name=row.name, config=row.config),
+            Materialization(
+                name=row.name,
+                config=row.config,
+                workflow_names=row.workflow_names,
+            ),
         )
     return list(teardowns.values())
 
@@ -1238,7 +1255,41 @@ async def schedule_materialization_jobs(
                 query_service_client,
                 request_headers=request_headers,
             )
+    await record_workflow_names(session, materializations, materialization_to_output)
     return materialization_to_output
+
+
+async def record_workflow_names(
+    session: AsyncSession,
+    materializations: list[Materialization],
+    scheduled: dict[str, MaterializationInfo],
+) -> None:
+    """
+    Write down the workflows the query service just started.
+
+    Kept on the row rather than in the config, which every deploy rebuilds from the
+    revision and compares to decide whether anything moved. Runs after the deploy
+    commits, so it commits on its own, and never raises: a name DJ failed to record
+    costs the next teardown its precision, not the deploy its result.
+    """
+    recorded = False
+    for materialization in materializations:
+        info = scheduled.get(materialization.name)
+        if info and info.workflow_names:
+            materialization.workflow_names = list(info.workflow_names)
+            recorded = True
+    if not recorded:
+        return
+    try:
+        await session.commit()
+    except Exception as exc:
+        _logger.warning(
+            "Failed to record workflow names for %s: %s (continuing)",
+            [mat.name for mat in materializations],
+            str(exc),
+            exc_info=True,
+        )
+        await session.rollback()
 
 
 async def schedule_materialization_jobs_bg(
