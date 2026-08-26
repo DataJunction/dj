@@ -9,9 +9,18 @@ Covers:
 - GET /custom-metadata/violations/ (advisory report)
 """
 
+from datetime import timedelta
+
+import httpx
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from datajunction_server.api.main import app
+from datajunction_server.database.user import User
+from datajunction_server.internal.access.authentication.tokens import create_token
+from datajunction_server.models.user import OAuthProvider
 
 
 # ---------------------------------------------------------------------------
@@ -632,3 +641,128 @@ async def test_owner_round_trips(
     assert resp.status_code in (200, 201)
     body = resp.json()
     assert body["owner"] == "team-data-eng"
+
+
+# ---------------------------------------------------------------------------
+# Repo-managed namespaces — the API is not a second writer
+# ---------------------------------------------------------------------------
+
+
+async def _make_git_managed(client: AsyncClient, namespace: str) -> None:
+    """Create a namespace and mark it as owning a repo."""
+    await client.post(f"/namespaces/{namespace}")
+    resp = await client.patch(
+        f"/namespaces/{namespace}/git",
+        json={"github_repo_path": "myorg/myrepo"},
+    )
+    assert resp.status_code in (200, 201), resp.text
+
+
+@pytest.mark.asyncio
+async def test_registering_into_a_repo_managed_namespace_is_refused(
+    client: AsyncClient,
+) -> None:
+    """
+    A repo-managed namespace has one writer, and it is not this endpoint.
+
+    Beyond being unreviewed, a registration here does not survive: a deployment
+    reconciles the namespace to exactly what its manifest declares, so the row
+    would disappear at the next push with nothing to explain it. Better to
+    refuse and say where the change belongs.
+    """
+    await _make_git_managed(client, "gitmanaged")
+
+    resp = await client.post(
+        "/custom-metadata/schemas/",
+        json={
+            "key": "system",
+            "namespace": "gitmanaged",
+            "json_schema": {"type": "object"},
+        },
+    )
+    assert resp.status_code == 422, resp.text
+    assert "is git-managed" in resp.text
+    assert "custom_metadata_schemas:" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_deleting_a_repo_managed_schema_is_refused(client: AsyncClient) -> None:
+    """Deleting has the same problem in reverse: the next deploy re-creates it."""
+    resp = await client.post(
+        "/custom-metadata/schemas/",
+        json={
+            "key": "system",
+            "namespace": "gitlater",
+            "json_schema": {"type": "object"},
+        },
+    )
+    assert resp.status_code in (200, 201), resp.text
+    schema_id = resp.json()["id"]
+
+    # The namespace becomes repo-managed after the fact, as it would in practice.
+    await _make_git_managed(client, "gitlater")
+
+    resp = await client.delete(f"/custom-metadata/schemas/{schema_id}")
+    assert resp.status_code == 422, resp.text
+    assert "is git-managed" in resp.text
+
+
+@pytest_asyncio.fixture
+async def admin_client(client: AsyncClient, session: AsyncSession):
+    """An AsyncClient authenticated as an admin, which registering a global key needs.
+
+    Depends on ``client`` so its app-level get_session override is installed first.
+    """
+    admin_user = User(
+        username="admin_git_gate",
+        email=None,
+        name=None,
+        oauth_provider=OAuthProvider.BASIC,
+        is_admin=True,
+    )
+    session.add(admin_user)
+    await session.commit()
+    token = create_token(
+        {"username": "admin_git_gate"},
+        secret="a-fake-secretkey",
+        iss="http://localhost:8000/",
+        expires_delta=timedelta(hours=24),
+    )
+    async with AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://test",
+        headers={"Authorization": f"Bearer {token}"},
+    ) as authed:
+        yield authed
+
+
+@pytest.mark.asyncio
+async def test_a_global_key_is_unaffected(
+    client: AsyncClient,
+    admin_client: AsyncClient,
+) -> None:
+    """No repository owns a global key, so no repository can be told to own it."""
+    await _make_git_managed(client, "gitglobal")
+
+    resp = await admin_client.post(
+        "/custom-metadata/schemas/",
+        json={"key": "global_only_key", "json_schema": {"type": "string"}},
+    )
+    assert resp.status_code in (200, 201), resp.text
+    assert resp.json()["namespace"] is None
+
+
+@pytest.mark.asyncio
+async def test_an_ordinary_namespace_is_unaffected(client: AsyncClient) -> None:
+    """The gate is about repo-managed namespaces, not about the API."""
+    await client.post("/namespaces/plain_ns")
+
+    resp = await client.post(
+        "/custom-metadata/schemas/",
+        json={
+            "key": "system",
+            "namespace": "plain_ns",
+            "json_schema": {"type": "object"},
+        },
+    )
+    assert resp.status_code in (200, 201), resp.text

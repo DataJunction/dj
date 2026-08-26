@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.custom_metadata_schema import CustomMetadataSchema
+from datajunction_server.api.helpers import check_namespace_not_git_only
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.custom_metadata import ensure_expression_index
 from datajunction_server.models.custom_metadata import (
@@ -71,6 +72,17 @@ async def register_schema(
     if data.namespace is not None:
         access_checker.add_namespace(data.namespace, ResourceAction.WRITE)
         await access_checker.check(on_denied=AccessDenialMode.RAISE)
+        # A repo-managed namespace has one writer, and it is not this endpoint.
+        # Registering here would also be undone: a deployment reconciles the
+        # namespace to exactly what its manifest declares.
+        await check_namespace_not_git_only(
+            session,
+            data.namespace,
+            remedy=(
+                "Declare it under `custom_metadata_schemas:` in the repo for this "
+                "namespace and deploy it."
+            ),
+        )
 
     # 4. Check if a reserved global row exists for this key
     if data.namespace is not None:
@@ -198,6 +210,15 @@ async def delete_schema(
     else:
         access_checker.add_namespace(row.namespace, ResourceAction.WRITE)
         await access_checker.check(on_denied=AccessDenialMode.RAISE)
+        # Same reasoning as registering: a deployment would put it straight back.
+        await check_namespace_not_git_only(
+            session,
+            row.namespace,
+            remedy=(
+                "Remove it from `custom_metadata_schemas:` in the repo for this "
+                "namespace and deploy it."
+            ),
+        )
     row.deactivated_at = datetime.datetime.now(datetime.UTC)
     await session.commit()
     return {"id": schema_id, "deactivated": True}
