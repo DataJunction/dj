@@ -4,7 +4,7 @@ import datetime
 from functools import partial
 
 import sqlalchemy as sa
-from sqlalchemy import JSON, DateTime, ForeignKey, Index, String, text
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, String, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -27,23 +27,23 @@ class CustomMetadataSchema(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    # bigint, matching the migration.
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     key: Mapped[str] = mapped_column(String, nullable=False)
     node_type: Mapped[str | None] = mapped_column(String, default=None)
     namespace: Mapped[str | None] = mapped_column(String, default=None)
-    json_schema: Mapped[dict] = mapped_column(
-        JSON().with_variant(JSONB(), "postgresql"),
-        nullable=False,
-    )
+    json_schema: Mapped[dict] = mapped_column(JSONB, nullable=False)
     value_kind: Mapped[str | None] = mapped_column(String, default=None)
-    filterable: Mapped[bool] = mapped_column(default=True)
+    filterable: Mapped[bool] = mapped_column(default=True, server_default=sa.true())
     description: Mapped[str | None] = mapped_column(String, default=None)
     created_by_id: Mapped[int | None] = mapped_column(
+        BigInteger,
         ForeignKey("users.id"),
         default=None,
     )
     owner: Mapped[str | None] = mapped_column(String, default=None)
     updated_by_id: Mapped[int | None] = mapped_column(
+        BigInteger,
         ForeignKey("users.id"),
         default=None,
     )
