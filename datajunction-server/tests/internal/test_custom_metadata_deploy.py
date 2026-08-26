@@ -506,3 +506,116 @@ async def test_an_omitted_section_leaves_schemas_alone(session, current_user):
         )
     ).scalar_one()
     assert row.deactivated_at is None
+
+
+@pytest.mark.asyncio
+async def test_a_schema_can_be_scoped_to_a_sub_namespace(session, current_user):
+    """
+    Rolling a vocabulary out to part of a repo's graph before all of it.
+
+    The USG rollout gates conformed dimensions first, which needs a schema scoped
+    narrower than the namespace being deployed.
+    """
+    await upsert_schema_specs(
+        session,
+        namespace="shared",
+        specs=[
+            CustomMetadataSchemaSpec(
+                key="system",
+                namespace="shared.conformed",
+                json_schema={"type": "object"},
+            ),
+        ],
+        current_user_id=current_user.id,
+    )
+    row = (
+        await session.execute(
+            select(CustomMetadataSchema).where(CustomMetadataSchema.key == "system"),
+        )
+    ).scalar_one()
+    assert row.namespace == "shared.conformed"
+
+
+@pytest.mark.asyncio
+async def test_a_sub_namespace_declaration_spares_its_siblings(session, current_user):
+    """
+    Reconciliation covers what the specs name, not the whole subtree.
+
+    `shared.finance` is deployed by whoever owns it. A deployment of `shared` that
+    declares a schema for `shared.conformed` says nothing about it, so retiring it
+    would be one repo reaching into another's rows.
+    """
+    session.add(
+        CustomMetadataSchema(
+            key="system",
+            namespace="shared.finance",
+            json_schema={"type": "object"},
+            value_kind="object",
+        ),
+    )
+    await session.commit()
+
+    await upsert_schema_specs(
+        session,
+        namespace="shared",
+        specs=[
+            CustomMetadataSchemaSpec(
+                key="system",
+                namespace="shared.conformed",
+                json_schema={"type": "object"},
+            ),
+        ],
+        current_user_id=current_user.id,
+    )
+    live = sorted(
+        row.namespace
+        for row in (
+            await session.execute(
+                select(CustomMetadataSchema).where(
+                    CustomMetadataSchema.key == "system",
+                    CustomMetadataSchema.deactivated_at.is_(None),
+                ),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert live == ["shared.conformed", "shared.finance"]
+
+
+@pytest.mark.asyncio
+async def test_an_empty_list_still_retires_the_deploying_namespace(
+    session,
+    current_user,
+):
+    """
+    The deploying namespace stays in scope even when no spec names it, so `[]`
+    keeps meaning "manages schemas, declares none".
+    """
+    await upsert_schema_specs(
+        session,
+        namespace="retire_ns",
+        specs=[
+            CustomMetadataSchemaSpec(key="system", json_schema={"type": "object"}),
+        ],
+        current_user_id=current_user.id,
+    )
+    await upsert_schema_specs(
+        session,
+        namespace="retire_ns",
+        specs=[],
+        current_user_id=current_user.id,
+    )
+    live = (
+        (
+            await session.execute(
+                select(CustomMetadataSchema).where(
+                    CustomMetadataSchema.namespace == "retire_ns",
+                    CustomMetadataSchema.deactivated_at.is_(None),
+                ),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert live == []

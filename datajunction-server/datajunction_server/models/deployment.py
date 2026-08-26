@@ -1378,11 +1378,16 @@ class CustomMetadataSchemaSpec(BaseModel):
     """
     Specification for a custom_metadata JSON Schema to register for a namespace.
 
-    The namespace is implicit: it comes from the enclosing DeploymentSpec.
+    The namespace defaults to the enclosing DeploymentSpec's. Naming one narrows the
+    schema to a sub-namespace, which is how a vocabulary can be rolled out to part of
+    a repo's graph -- conformed dimensions first, say -- before it governs all of it.
+    A namespace outside the deploying one is rejected: a manifest may scope narrower
+    than itself, never wider.
     """
 
     key: str
     node_type: NodeType | None = None
+    namespace: str | None = None
     json_schema: dict
     filterable: bool = True
     description: str | None = None
@@ -1564,6 +1569,22 @@ class DeploymentSpec(BaseModel):
         for preagg in self.preaggregations:
             if not preagg.namespace:
                 preagg.namespace = self.namespace
+        for schema in self.custom_metadata_schemas or []:
+            if not schema.namespace:
+                schema.namespace = self.namespace
+            elif schema.namespace != self.namespace and not schema.namespace.startswith(
+                f"{self.namespace}.",
+            ):
+                # Narrower than the deploying namespace is a rollout choice;
+                # wider, or sideways, would let one repo govern another's nodes.
+                raise DJInvalidDeploymentConfig(
+                    message=(
+                        f"custom_metadata schema '{schema.key}' declares namespace "
+                        f"'{schema.namespace}', which is not '{self.namespace}' or "
+                        "beneath it. A deployment may scope a schema to its own "
+                        "namespace or a sub-namespace, never to another."
+                    ),
+                )
         return self
 
 

@@ -305,28 +305,41 @@ async def upsert_schema_specs(
     current_user_id: int,
     build_indexes: bool = True,
 ) -> None:
-    """Reconcile *namespace*'s schema rows to exactly *specs*.
+    """Reconcile schema rows to exactly *specs*.
 
-    Declared keys are upserted; namespace-scoped rows the specs no longer
-    declare are soft-deleted. Global rows are never touched -- no namespace
-    owns them, so no deployment can retire one.
+    Declared keys are upserted; rows in scope the specs no longer declare are
+    soft-deleted. Global rows are never touched -- no namespace owns them, so no
+    deployment can retire one.
 
-    Every schema is checked before anything is written, so a malformed spec
-    fails the deployment rather than half-applying it. ``build_indexes=False``
-    skips index DDL for a dry run.
+    A spec carries its own namespace, defaulted to the deployment's by
+    `DeploymentSpec.set_namespaces` and constrained there to that namespace or one
+    beneath it. Reconciliation covers the deploying namespace plus whatever
+    sub-namespaces the specs name, and nothing else: declaring a schema for
+    `shared.conformed` must not retire rows for `shared.finance`, which a different
+    deployment owns, while an empty spec list still retires the deploying
+    namespace's own rows.
+
+    Every schema is checked before anything is written, so a malformed spec fails
+    the deployment rather than half-applying it. ``build_indexes=False`` skips
+    index DDL for a dry run.
     """
     for spec in specs:
         check_json_schema(spec.key, spec.json_schema)
-        await assert_not_reserved_globally(session, spec.key, namespace)
+        await assert_not_reserved_globally(
+            session,
+            spec.key,
+            spec.namespace or namespace,
+        )
 
-    declared: set[tuple[str, str | None]] = set()
+    declared: set[tuple[str, str | None, str]] = set()
     for spec in specs:
         node_type_val = spec.node_type.value if spec.node_type is not None else None
-        declared.add((spec.key, node_type_val))
+        scope = spec.namespace or namespace
+        declared.add((spec.key, node_type_val, scope))
         await upsert_schema_row(
             session,
             key=spec.key,
-            namespace=namespace,
+            namespace=scope,
             node_type=node_type_val,
             json_schema=spec.json_schema,
             filterable=spec.filterable,
@@ -336,11 +349,12 @@ async def upsert_schema_specs(
             current_user_id=current_user_id,
         )
 
+    scopes = {namespace} | {scope for _, _, scope in declared}
     existing = (
         (
             await session.execute(
                 select(CustomMetadataSchema).where(
-                    CustomMetadataSchema.namespace == namespace,
+                    CustomMetadataSchema.namespace.in_(scopes),
                     CustomMetadataSchema.deactivated_at.is_(None),
                 ),
             )
@@ -350,7 +364,7 @@ async def upsert_schema_specs(
     )
     now = datetime.datetime.now(datetime.UTC)
     for row in existing:
-        if (row.key, row.node_type) not in declared:
+        if (row.key, row.node_type, row.namespace) not in declared:
             row.deactivated_at = now
 
     if build_indexes:
