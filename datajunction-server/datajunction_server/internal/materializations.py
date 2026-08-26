@@ -2,6 +2,7 @@
 
 import logging
 import zlib
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, timedelta
 from typing import Any
@@ -439,20 +440,40 @@ class CubeMaterializationSwapOutcome:
     backfill_record_error: str | None = None
 
 
-async def reconcile_declared_materialization(
+@dataclass
+class ReconciledMaterialization:
+    """
+    One declared block and the materialization row it now owns.
+
+    `changed` says whether DJ-side state actually moved for this row, so a deploy
+    that re-declares what is already configured can skip the query service entirely.
+    """
+
+    block: MaterializationSpec
+    materialization: Materialization
+    changed: bool
+
+
+async def reconcile_declared_materializations(
     session: AsyncSession,
     revision: NodeRevision,
-    declared: MaterializationSpec,
+    declared: Sequence[MaterializationSpec],
     *,
     access_checker: AccessChecker,
     current_user: User,
-) -> tuple[Materialization, bool, list[Materialization]]:
+) -> tuple[list[ReconciledMaterialization], list[Materialization]]:
     """
-    Bring a cube revision's materialization in line with its declared block.
+    Bring a cube revision's materializations in line with its declared blocks.
 
-    Returns the materialization, whether anything actually changed -- so a deploy
-    that re-declares what is already configured can skip the query service entirely
-    -- and the materializations the block superseded.
+    Returns what each declared block resolved to, and the materializations the
+    blocks together superseded.
+
+    A cube may declare more than one block -- typically an `incremental_time` build
+    for freshness beside a periodic `full` rebuild that corrects late-arriving data
+    -- and each is reconciled the same way. They cannot collide: the row name is
+    derived from job, strategy and partition, the job is fixed for a cube and the
+    strategies are unique by validation, so every declared block owns a row of its
+    own.
 
     Mirrors what `POST /nodes/{name}/materialization/` does -- build the config, then
     update the row of the same name in place rather than inserting a second one,
@@ -462,9 +483,9 @@ async def reconcile_declared_materialization(
     equal and is silently dropped. Rescheduling is the whole point of a declared
     block, so all three are compared here.
 
-    A declared block describes *the* materialization for its cube, so every other
-    active row on the revision is deactivated. The rule is "any active row whose name
-    the block did not build" rather than "any row of the same job type", because a
+    The declared blocks describe *the* materializations for their cube, so every
+    other active row on the revision is deactivated. The rule is "any active row
+    whose name no block built" rather than "any row of the same job type", because a
     cube's materializations are all writing one Druid datasource and a full rebuild
     replaces that datasource wholesale -- so a legacy `druid_measures_cube` row is
     just as much a competing writer as a second `druid_cube` row, and matching on job
@@ -477,55 +498,67 @@ async def reconcile_declared_materialization(
     and DJ cannot rebuild it from a declared block, so superseding it would stop a
     workflow nothing here can replace.
     """
-    # Snapshotted before the build, which sets the new materialization's backref and
-    # so appends it to this very collection -- searching afterwards would find the
-    # build itself, call it unchanged, and then detach it.
+    # Snapshotted before the builds, each of which sets the new materialization's
+    # backref and so appends it to this very collection -- searching afterwards would
+    # find the build itself, call it unchanged, and then detach it.
     before = list(revision.materializations)
-    built = await create_new_materialization(
-        session,
-        revision,
-        UpsertCubeMaterialization(
-            job=MaterializationJobTypeEnum.DRUID_CUBE.value.name,  # type: ignore
-            strategy=declared.strategy,
-            schedule=declared.schedule,
-            lookback_window=declared.lookback_window,
-            coverage=declared.coverage,
-        ),
-        access_checker,
-        current_user=current_user,
-    )
-    existing = next(
-        (mat for mat in before if mat.name == built.name),
-        None,
-    )
+    builds = [
+        (
+            block,
+            await create_new_materialization(
+                session,
+                revision,
+                UpsertCubeMaterialization(
+                    job=MaterializationJobTypeEnum.DRUID_CUBE.value.name,  # type: ignore
+                    strategy=block.strategy,
+                    schedule=block.schedule,
+                    lookback_window=block.lookback_window,
+                    coverage=block.coverage,
+                ),
+                access_checker,
+                current_user=current_user,
+            ),
+        )
+        for block in declared
+    ]
+    built_names = {built.name for _, built in builds}
     superseded = [
         mat
         for mat in before
-        if mat.name != built.name and not mat.deactivated_at and not mat.is_cube_planner
+        if mat.name not in built_names
+        and not mat.deactivated_at
+        and not mat.is_cube_planner
     ]
     for materialization in superseded:
         materialization.deactivated_at = UTCDatetime.now(UTC)  # type: ignore
-    if existing is None:
-        session.add(built)
-        return built, True, superseded
 
-    # `create_new_materialization` sets the backref, which would insert a duplicate
-    # row alongside the one being updated.
-    built.node_revision = None  # type: ignore
-    unchanged = (
-        existing.config == built.config
-        and existing.schedule == built.schedule
-        and existing.strategy == built.strategy
-        and existing.deactivated_at is None
-        and not superseded
-    )
-    if unchanged:
-        return existing, False, superseded
-    existing.config = built.config
-    existing.schedule = built.schedule
-    existing.strategy = built.strategy
-    existing.deactivated_at = None
-    return existing, True, superseded
+    reconciled = []
+    for block, built in builds:
+        existing = next((mat for mat in before if mat.name == built.name), None)
+        if existing is None:
+            session.add(built)
+            reconciled.append(ReconciledMaterialization(block, built, True))
+            continue
+
+        # `create_new_materialization` sets the backref, which would insert a
+        # duplicate row alongside the one being updated.
+        built.node_revision = None  # type: ignore
+        unchanged = (
+            existing.config == built.config
+            and existing.schedule == built.schedule
+            and existing.strategy == built.strategy
+            and existing.deactivated_at is None
+            and not superseded
+        )
+        if unchanged:
+            reconciled.append(ReconciledMaterialization(block, existing, False))
+            continue
+        existing.config = built.config
+        existing.schedule = built.schedule
+        existing.strategy = built.strategy
+        existing.deactivated_at = None
+        reconciled.append(ReconciledMaterialization(block, existing, True))
+    return reconciled, superseded
 
 
 async def swap_cube_materializations(
@@ -536,7 +569,7 @@ async def swap_cube_materializations(
     access_checker: AccessChecker,
     current_user: User,
     previous_table_usable: bool,
-    declared: MaterializationSpec | None = None,
+    declared: Sequence[MaterializationSpec] = (),
 ) -> CubeMaterializationSwap | None:
     """
     Rebuild a cube's materializations against a new revision and retire the old ones.
@@ -611,12 +644,27 @@ async def swap_cube_materializations(
                 # rebuild triggered by the same deploy must build what the YAML now
                 # says. Only cube materializations can be declared; anything else
                 # keeps what was recovered.
+                #
+                # Which block, when the cube declares several: the one naming the
+                # strategy this row was built with, since that is what identifies a
+                # declared entry. A row whose strategy nothing declares falls to the
+                # first block, which is what a cube declaring exactly one has always
+                # done -- and is the only sensible answer, since a rebuild has to
+                # produce something for a row that is being retired either way.
+                block = next(
+                    (
+                        candidate
+                        for candidate in declared
+                        if candidate.strategy == upsert.strategy
+                    ),
+                    declared[0],
+                )
                 upsert = upsert.model_copy(
                     update={
-                        "schedule": declared.schedule,
-                        "strategy": declared.strategy,
-                        "lookback_window": declared.lookback_window,
-                        "coverage": declared.coverage,
+                        "schedule": block.schedule,
+                        "strategy": block.strategy,
+                        "lookback_window": block.lookback_window,
+                        "coverage": block.coverage,
                     },
                 )
             new_materialization = await create_new_materialization(

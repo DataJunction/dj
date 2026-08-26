@@ -707,9 +707,16 @@ class Node(Base):
     async def _materialization_spec(
         self,
         session: AsyncSession,
-    ) -> MaterializationSpec | None:
+    ) -> MaterializationSpec | list[MaterializationSpec] | None:
         """
         Project this cube's persisted materialization back into the declarative form.
+
+        A cube carrying more than one -- an incremental build for freshness beside a
+        periodic full rebuild -- projects as a list, so the export names all of them
+        and a push of what was pulled leaves the cube as it found it. One
+        materialization still projects as a scalar, which is the shape the vast
+        majority of manifests are written in and the shape a round trip should
+        preserve.
 
         Only the authored fields round-trip. Everything else on the stored
         config -- measures queries, combiner SQL, the Druid spec, output tables --
@@ -743,19 +750,34 @@ class Node(Base):
         if not cube_materializations:
             return None
 
-        materialization = cube_materializations[0]
-        config = (
-            materialization.config if isinstance(materialization.config, dict) else {}
-        )
-        return MaterializationSpec(
-            schedule=materialization.schedule,
-            strategy=materialization.strategy,
-            lookback_window=config.get("lookback_window"),
-            # Configs persisted before `retention` existed will be built with the
-            # default on their next run, so that is what the export should show.
-            retention=config.get("retention", DEFAULT_CUBE_RETENTION),
-            coverage=config.get("coverage"),
-        )
+        # One entry per strategy. Strategy is what tells declared entries apart, so a
+        # cube that somehow carries two rows of the same one -- they differ only by
+        # partition suffix -- cannot be described by a block naming both, and
+        # exporting one would produce YAML that fails to parse.
+        specs = []
+        seen_strategies = set()
+        for materialization in cube_materializations:
+            if materialization.strategy in seen_strategies:
+                continue
+            seen_strategies.add(materialization.strategy)
+            config = (
+                materialization.config
+                if isinstance(materialization.config, dict)
+                else {}
+            )
+            specs.append(
+                MaterializationSpec(
+                    schedule=materialization.schedule,
+                    strategy=materialization.strategy,
+                    lookback_window=config.get("lookback_window"),
+                    # Configs persisted before `retention` existed will be built with
+                    # the default on their next run, so that is what the export
+                    # should show.
+                    retention=config.get("retention", DEFAULT_CUBE_RETENTION),
+                    coverage=config.get("coverage"),
+                ),
+            )
+        return specs[0] if len(specs) == 1 else specs
 
     @classmethod
     def cube_load_options(cls) -> list[ExecutableOption]:

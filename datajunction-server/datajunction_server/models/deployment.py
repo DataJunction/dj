@@ -1,3 +1,4 @@
+import json
 from collections.abc import Iterable
 from enum import Enum, IntEnum
 from typing import Annotated, Any, ClassVar, Literal
@@ -377,6 +378,28 @@ class MaterializationAction(str, Enum):
     NONE = "none"
 
 
+def declared_materialization_blocks(
+    materialization: MaterializationSpec
+    | list[MaterializationSpec]
+    | MaterializationAction
+    | None,
+) -> list[MaterializationSpec]:
+    """
+    A cube's `materialization:` value as the list of blocks it declares.
+
+    The scalar and the list form mean the same thing to everything past parsing, and
+    neither an absent block nor the teardown sentinel declares anything to build, so
+    reducing all four shapes to a list is what keeps the rest of the deployment path
+    from caring which one the manifest was written in. Which of the two empty cases
+    is which is read off `materialization` directly.
+    """
+    if isinstance(materialization, MaterializationSpec):
+        return [materialization]
+    if isinstance(materialization, list):
+        return list(materialization)
+    return []
+
+
 class ColumnSpec(BaseModel):
     """
     Represents a column.
@@ -660,8 +683,6 @@ class NodeSpec(NamespacedSpec):
         Return a copy of this spec with all ${prefix} placeholders resolved.
         Needed for accurate diffs against existing specs that store fully-qualified names.
         """
-        import json
-
         raw = self.model_dump(mode="json")
         prefix = f"{self.namespace}{SEPARATOR}" if self.namespace else ""
         rendered_json = json.dumps(raw).replace("${prefix}", prefix)
@@ -1078,7 +1099,18 @@ class CubeSpec(NodeSpec):
     # materialization is not managed here and whatever exists is left alone. Only a
     # value can carry intent through serialization, so removal is spelled
     # `materialization: none` rather than inferred from a key being present.
-    materialization: MaterializationSpec | MaterializationAction | None = None
+    #
+    # A list declares more than one, which a cube legitimately needs: an
+    # `incremental_time` build for freshness alongside a periodic `full` rebuild
+    # that corrects late-arriving data, out-of-order events and dimension
+    # backfills. `strategy` is what tells two entries apart -- `job` is not
+    # authorable (see `MaterializationSpec`) and everything else is a knob rather
+    # than an identity -- so two entries sharing one are rejected below. The scalar
+    # form stays valid and means exactly what it always did; nothing has to be
+    # rewritten as a one-element list.
+    materialization: (
+        MaterializationSpec | list[MaterializationSpec] | MaterializationAction | None
+    ) = None
 
     FIELD_CHANGE_TIERS: ClassVar[dict[str, ChangeTier]] = {
         # Adding or removing a metric or a dimension changes the cube's columns.
@@ -1136,15 +1168,40 @@ class CubeSpec(NodeSpec):
         build. The partition is read from the cube's own columns (see ColumnSpec.
         partition) -- it is not restated on the materialization block, so that a cube
         carrying the same dimension in two roles can say which role partitions it.
+
+        A list is checked entry by entry, and additionally for the two shapes that
+        have no meaning: an empty one, which cannot be told from the teardown
+        sentinel, and repeated strategies, which leave no way to say which declared
+        entry a given materialization answers to.
         """
-        if (
-            isinstance(self.materialization, MaterializationSpec)
-            and self.materialization.strategy
-            == MaterializationStrategy.INCREMENTAL_TIME
-            and not any(
-                col.partition and col.partition.type == PartitionType.TEMPORAL
-                for col in self.columns or []
-            )
+        if isinstance(self.materialization, list):
+            if not self.materialization:
+                raise DJInvalidDeploymentConfig(
+                    message=(
+                        f"Cube `{self.name}` declares an empty `materialization:` "
+                        "list. Use `materialization: none` to remove the cube's "
+                        "materialization, or omit the key to leave it alone."
+                    ),
+                )
+            seen: set[MaterializationStrategy] = set()
+            for block in self.materialization:
+                if block.strategy in seen:
+                    raise DJInvalidDeploymentConfig(
+                        message=(
+                            f"Cube `{self.name}` declares more than one "
+                            f"`{block.strategy.value}` materialization. Strategies "
+                            "identify a cube's materializations, so each one may "
+                            "appear at most once."
+                        ),
+                    )
+                seen.add(block.strategy)
+
+        if any(
+            block.strategy == MaterializationStrategy.INCREMENTAL_TIME
+            for block in self.declared_materializations
+        ) and not any(
+            col.partition and col.partition.type == PartitionType.TEMPORAL
+            for col in self.columns or []
         ):
             raise DJInvalidDeploymentConfig(
                 message=(
@@ -1155,6 +1212,11 @@ class CubeSpec(NodeSpec):
                 ),
             )
         return self
+
+    @property
+    def declared_materializations(self) -> list[MaterializationSpec]:
+        """The materialization blocks this cube declares, scalar and list alike."""
+        return declared_materialization_blocks(self.materialization)
 
     @property
     def rendered_metrics(self) -> list[str]:
@@ -1233,9 +1295,16 @@ def _norm(v: Any) -> Any:
 
 
 def _as_comparable_set(value: Any) -> set:
-    """Reduce a list field to a set of hashable, comparable items."""
+    """
+    Reduce a list field to a set of hashable, comparable items.
+
+    A model is reduced to its canonical JSON rather than to a tuple of its fields,
+    because a field of its own can hold a nested model or a dict -- a
+    materialization's `coverage`, a column's `partition` -- and a tuple carrying one
+    of those cannot go into a set at all.
+    """
     return {
-        tuple(sorted(item.model_dump().items()))
+        json.dumps(item.model_dump(mode="json"), sort_keys=True)
         if isinstance(item, BaseModel)
         else item
         for item in value or []
