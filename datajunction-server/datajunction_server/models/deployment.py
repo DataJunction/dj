@@ -31,6 +31,7 @@ from datajunction_server.models.materialization import (
     DEFAULT_CUBE_RETENTION,
     CoverageSpec,
     MaterializationStrategy,
+    SparkSpec,
 )
 from datajunction_server.models.node import (
     MetricDirection,
@@ -328,11 +329,12 @@ class MaterializationSpec(BaseModel):
     """
     Declarative materialization config for a cube.
 
-    Deliberately carries only what the author decides: when to build, how, how
-    far back to look, how much of history to serve, and how long the result is
-    kept. The backend that runs it (and everything it derives -- the measures
-    queries, combiner SQL, Druid spec, output tables) is DJ's choice, so no `job`
-    field is exposed here and the block stays portable if that choice changes.
+    Deliberately carries only what the author decides: when to build, how, how far
+    back to look, how much of history to serve, how long the result is kept, and the
+    Druid, Spark and platform settings their own site needs. The backend that runs it
+    (and everything it derives -- the measures queries, combiner SQL, the rest of the
+    Druid spec, output tables) is DJ's choice, so no `job` field is exposed here and
+    the block stays portable if that choice changes.
     """
 
     schedule: str
@@ -344,6 +346,32 @@ class MaterializationSpec(BaseModel):
     retention: str | None = DEFAULT_CUBE_RETENTION
 
     coverage: CoverageSpec | None = None
+
+    # Deep-merged into the Druid ingestion spec DJ generates.
+    druid: dict[str, Any] | None = None
+
+    # Spark config for this materialization's stages.
+    spark: SparkSpec | None = None
+
+    # Carried to the query service verbatim. DJ reads no key out of it.
+    platform: dict[str, Any] | None = None
+
+    def rendered(self, namespace: str | None) -> "MaterializationSpec":
+        """A copy with `${prefix}` resolved in the `spark.measures` keys."""
+        if not self.spark or not self.spark.measures:
+            return self
+        return self.model_copy(
+            update={
+                "spark": self.spark.model_copy(
+                    update={
+                        "measures": {
+                            render_prefixes(parent, namespace): conf
+                            for parent, conf in self.spark.measures.items()
+                        },
+                    },
+                ),
+            },
+        )
 
     @model_validator(mode="after")
     def clear_empty_coverage(self) -> "MaterializationSpec":

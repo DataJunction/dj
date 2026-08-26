@@ -3,6 +3,7 @@ Utility functions.
 """
 
 import asyncio
+import copy
 import json
 import logging
 import os
@@ -11,6 +12,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from functools import cache, lru_cache
 from http import HTTPStatus
+from typing import Any
 
 from dotenv import load_dotenv
 from fastapi import Depends
@@ -586,6 +588,25 @@ async def sync_user_groups(
 
     await session.commit()
     return group_names
+
+
+def deep_merge(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
+    """
+    Merge `overrides` into `base`, recursing into nested mappings.
+
+    A leaf in `overrides` replaces the leaf at the same path and leaves its
+    siblings alone. Neither input is modified.
+
+        >>> deep_merge({"a": 1, "b": {"c": 2, "d": 3}}, {"b": {"c": 10, "e": 5}})
+        {'a': 1, 'b': {'c': 10, 'd': 3, 'e': 5}}
+    """
+    merged = copy.deepcopy(base)
+    for key, value in overrides.items():
+        if isinstance(merged.get(key), dict) and isinstance(value, dict):
+            merged[key] = deep_merge(merged[key], value)
+        else:
+            merged[key] = copy.deepcopy(value)
+    return merged
 
 
 SEPARATOR = "."

@@ -12,6 +12,7 @@ from datajunction_server.materialization.jobs.cube_materialization import (
     DruidCubeMaterializationJob,
 )
 from datajunction_server.models.cube_materialization import (
+    CombineMaterialization,
     DruidCubeConfig,
     DruidCubeMaterializationInput,
     DruidCubeV3Config,
@@ -159,7 +160,10 @@ def _cube_materialization_input(**overrides) -> DruidCubeMaterializationInput:
     )
 
 
-def _schedule_minimal_cube(revision: SimpleNamespace) -> DruidCubeMaterializationInput:
+def _schedule_minimal_cube(
+    revision: SimpleNamespace,
+    **config_overrides,
+) -> DruidCubeMaterializationInput:
     """Schedule a minimal cube materialization off the given revision."""
     config = DruidCubeConfig(
         cube=NodeNameVersion(name="default.repairs_cube", version="v1.0"),
@@ -167,6 +171,7 @@ def _schedule_minimal_cube(revision: SimpleNamespace) -> DruidCubeMaterializatio
         metrics=[],
         measures_materializations=[],
         combiners=[],
+        **config_overrides,
     )
     materialization = SimpleNamespace(
         name="druid_cube__full",
@@ -299,6 +304,136 @@ def test_attribution_fields_stay_off_the_persisted_config():
     assert attribution & set(DruidCubeMaterializationInput.model_fields) == attribution
     assert attribution & set(DruidCubeConfig.model_fields) == set()
     assert attribution & set(UpsertCubeMaterialization.model_fields) == set()
+
+
+def test_druid_cube_materialization_job_passes_platform_settings():
+    """
+    `platform` reaches the query service word for word, including nested values
+    and nulls, so a consumer reads settings DJ knows nothing about.
+    """
+    assert _schedule_minimal_cube(
+        _fake_revision(),
+        platform={"wait_for_vtts": False, "nested": {"pool": None}},
+    ) == _cube_materialization_input(
+        owners=[],
+        platform={"wait_for_vtts": False, "nested": {"pool": None}},
+    )
+
+
+def test_druid_cube_materialization_job_without_platform_settings():
+    """A config with no `platform` -- including an older one -- hands over a null."""
+    config = DruidCubeConfig(
+        cube=NodeNameVersion(name="default.repairs_cube", version="v1.0"),
+        dimensions=[],
+        metrics=[],
+        measures_materializations=[],
+        combiners=[],
+    ).model_dump()
+    del config["platform"]
+    materialization = SimpleNamespace(
+        name="druid_cube__full",
+        config=config,
+        strategy=MaterializationStrategy.FULL,
+        schedule="@daily",
+        job="DruidCubeMaterializationJob",
+        node_revision=_fake_revision(),
+    )
+    query_service_client = Mock()
+
+    DruidCubeMaterializationJob().schedule(materialization, query_service_client)
+
+    assert query_service_client.materialize_cube.call_args.kwargs[
+        "materialization_input"
+    ] == _cube_materialization_input(owners=[])
+
+
+def _combiner(**overrides) -> CombineMaterialization:
+    """A combiner stage that can build a Druid spec, with fields overridden."""
+    return CombineMaterialization(
+        node=NodeNameVersion(name="default.repairs_cube", version="v1.0"),
+        columns=[ColumnMetadata(name="order_date", type="int")],
+        grain=["order_date"],
+        dimensions=["order_date"],
+        measures=[],
+        timestamp_column="order_date",
+        timestamp_format="yyyyMMdd",
+        granularity=Granularity.DAY,
+        **overrides,
+    )
+
+
+def test_combiner_merges_druid_overrides():
+    """
+    An override lands on the leaf it names and leaves the generated spec's other
+    settings standing, and a new branch is added whole.
+    """
+    combiner = _combiner(
+        druid_overrides={
+            "dataSchema": {"granularitySpec": {"segmentGranularity": "HOUR"}},
+            "tuningConfig": {"partitionsSpec": {"targetRowsPerSegment": 1000000}},
+            "ioConfig": {"appendToExisting": True},
+        },
+    )
+    prefix = get_settings().druid_datasource_prefix
+    generated = {
+        "dataSchema": {
+            "dataSource": f"{prefix}{combiner.output_table_name}",
+            "parser": {
+                "parseSpec": {
+                    "format": "parquet",
+                    "dimensionsSpec": {"dimensions": ["order_date"]},
+                    "timestampSpec": {"column": "order_date", "format": "yyyyMMdd"},
+                },
+            },
+            "metricsSpec": [],
+            "granularitySpec": {
+                "type": "uniform",
+                "segmentGranularity": "DAY",
+                "intervals": [],
+            },
+        },
+        "tuningConfig": {
+            "partitionsSpec": {"targetPartitionSize": 5000000, "type": "hashed"},
+            "useCombiner": True,
+            "type": "hadoop",
+        },
+    }
+    assert (
+        combiner.model_copy(
+            update={"druid_overrides": None},
+        ).build_druid_spec()
+        == generated
+    )
+
+    merged = combiner.build_druid_spec()
+    assert merged == {
+        "dataSchema": {
+            "dataSource": f"{prefix}{combiner.output_table_name}",
+            "parser": {
+                "parseSpec": {
+                    "format": "parquet",
+                    "dimensionsSpec": {"dimensions": ["order_date"]},
+                    "timestampSpec": {"column": "order_date", "format": "yyyyMMdd"},
+                },
+            },
+            "metricsSpec": [],
+            "granularitySpec": {
+                "type": "uniform",
+                "segmentGranularity": "HOUR",
+                "intervals": [],
+            },
+        },
+        "tuningConfig": {
+            "partitionsSpec": {
+                "targetPartitionSize": 5000000,
+                "type": "hashed",
+                "targetRowsPerSegment": 1000000,
+            },
+            "useCombiner": True,
+            "type": "hadoop",
+        },
+        "ioConfig": {"appendToExisting": True},
+    }
 
 
 class TestDruidCubeV3ConfigDruidCubeConfigCompatibility:

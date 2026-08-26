@@ -48,6 +48,7 @@ from datajunction_server.models.dimensionlink import JoinCardinality, JoinType
 from datajunction_server.models.materialization import (
     MaterializationInfo,
     MaterializationStrategy,
+    SparkSpec,
 )
 from datajunction_server.models.node import (
     MetricDirection,
@@ -6824,6 +6825,442 @@ class TestDeclaredCubeMaterializations:
             ),
         ]
         assert mock_qs.method_calls == []
+
+    @pytest.mark.asyncio
+    async def test_platform_settings_follow_each_declared_block(
+        self,
+        client,
+        session,
+        upstreams,
+        mock_qs,
+    ):
+        """
+        `druid`, `spark` and `platform` are declared per block, so the incremental
+        build and the full rebuild of one cube each carry their own.
+
+        `spark.default` rides every stage and `spark.combiner` merges over it on
+        the combine stage alone, `druid` is merged into the generated ingestion
+        spec, and `platform` reaches the query service untouched. The block that
+        declares none of the three keeps all three absent.
+        """
+        namespace = "cube_mat_platform"
+        cube_name = f"{namespace}.default.repairs_cube"
+        incremental_name = self._materialization_name(namespace)
+        full_name = f"druid_cube__full__{namespace}.default.hard_hat.hire_date"
+        nodes = [
+            *upstreams,
+            self._cube(
+                materialization=[
+                    MaterializationSpec(
+                        schedule="59 23 * * *",
+                        lookback_window="1 DAY",
+                        druid={
+                            "tuningConfig": {
+                                "partitionsSpec": {"targetRowsPerSegment": 1000000},
+                            },
+                        },
+                        spark=SparkSpec(
+                            default={
+                                "spark.executor.memory": "8g",
+                                "spark.sql.shuffle.partitions": "800",
+                            },
+                            combiner={"spark.sql.shuffle.partitions": "200"},
+                        ),
+                        platform={"wait_for_vtts": False},
+                    ),
+                    MaterializationSpec(
+                        schedule="0 6 * * *",
+                        strategy=MaterializationStrategy.FULL,
+                    ),
+                ],
+            ),
+        ]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert data["status"] == "success", data
+
+        session.expire_all()
+        deployed = await Node.get_by_name(
+            session,
+            cube_name,
+            options=Node.cube_load_options(),
+        )
+        configs = {
+            materialization.name: materialization.config
+            for materialization in deployed.current.materializations
+        }
+        assert configs[incremental_name]["druid"] == {
+            "tuningConfig": {"partitionsSpec": {"targetRowsPerSegment": 1000000}},
+        }
+        assert configs[incremental_name]["spark"] == {
+            "default": {
+                "spark.executor.memory": "8g",
+                "spark.sql.shuffle.partitions": "800",
+            },
+            "combiner": {"spark.sql.shuffle.partitions": "200"},
+            "measures": None,
+        }
+        assert configs[incremental_name]["platform"] == {"wait_for_vtts": False}
+        assert configs[full_name]["druid"] is None
+        assert configs[full_name]["spark"] is None
+        assert configs[full_name]["platform"] is None
+
+        # `default` reaches both stages, `combiner` overrides only the combine one.
+        payloads = {
+            call.kwargs["materialization_input"].name: call.kwargs[
+                "materialization_input"
+            ]
+            for call in mock_qs.materialize_cube.call_args_list
+        }
+        incremental = payloads[incremental_name]
+        assert incremental.platform == {"wait_for_vtts": False}
+        assert [
+            measures.spark_conf for measures in incremental.measures_materializations
+        ] == [
+            {
+                "spark.executor.memory": "8g",
+                "spark.sql.shuffle.partitions": "800",
+            },
+        ]
+        assert [combiner.spark_conf for combiner in incremental.combiners] == [
+            {
+                "spark.executor.memory": "8g",
+                "spark.sql.shuffle.partitions": "200",
+            },
+        ]
+        # `druid` overrides one leaf and leaves its siblings alone.
+        assert incremental.combiners[0].druid_spec["tuningConfig"] == {
+            "partitionsSpec": {
+                "targetPartitionSize": 5000000,
+                "targetRowsPerSegment": 1000000,
+                "type": "hashed",
+            },
+            "useCombiner": True,
+            "type": "hadoop",
+        }
+        full = payloads[full_name]
+        assert full.platform is None
+        assert [measures.spark_conf for measures in full.measures_materializations] == [
+            None,
+        ]
+        assert [combiner.spark_conf for combiner in full.combiners] == [None]
+        assert full.combiners[0].druid_spec["tuningConfig"] == {
+            "partitionsSpec": {"targetPartitionSize": 5000000, "type": "hashed"},
+            "useCombiner": True,
+            "type": "hadoop",
+        }
+
+        # All three round-trip, and the block that declared none keeps none.
+        exported = await deployed.to_spec(session)
+        assert exported.materialization == [
+            MaterializationSpec(
+                schedule="0 6 * * *",
+                strategy=MaterializationStrategy.FULL,
+                lookback_window=None,
+            ),
+            MaterializationSpec(
+                schedule="59 23 * * *",
+                strategy=MaterializationStrategy.INCREMENTAL_TIME,
+                lookback_window="1 DAY",
+                druid={
+                    "tuningConfig": {
+                        "partitionsSpec": {"targetRowsPerSegment": 1000000},
+                    },
+                },
+                spark=SparkSpec(
+                    default={
+                        "spark.executor.memory": "8g",
+                        "spark.sql.shuffle.partitions": "800",
+                    },
+                    combiner={"spark.sql.shuffle.partitions": "200"},
+                ),
+                platform={"wait_for_vtts": False},
+            ),
+        ]
+        assert exported.model_dump(mode="json", exclude_none=True)[
+            "materialization"
+        ] == [
+            {
+                "schedule": "0 6 * * *",
+                "strategy": "full",
+                "retention": "400 DAYS",
+            },
+            {
+                "schedule": "59 23 * * *",
+                "strategy": "incremental_time",
+                "lookback_window": "1 DAY",
+                "retention": "400 DAYS",
+                "druid": {
+                    "tuningConfig": {
+                        "partitionsSpec": {"targetRowsPerSegment": 1000000},
+                    },
+                },
+                "spark": {
+                    "default": {
+                        "spark.executor.memory": "8g",
+                        "spark.sql.shuffle.partitions": "800",
+                    },
+                    "combiner": {"spark.sql.shuffle.partitions": "200"},
+                },
+                "platform": {"wait_for_vtts": False},
+            },
+        ]
+
+        # Re-pushing the same settings churns neither live workflow.
+        mock_qs.reset_mock()
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert data["status"] == "success", data
+        assert self._materialization_results(data) == [
+            (
+                cube_name,
+                "noop",
+                "success",
+                "cube materialization on schedule 59 23 * * *",
+            ),
+            (
+                cube_name,
+                "noop",
+                "success",
+                "cube materialization on schedule 0 6 * * *",
+            ),
+        ]
+        assert mock_qs.method_calls == []
+
+        # Editing one of them registers as a change, and reschedules only it.
+        mock_qs.reset_mock()
+        nodes[-1].materialization[0].spark = SparkSpec(
+            default={"spark.executor.memory": "8g"},
+            combiner={"spark.sql.shuffle.partitions": "200"},
+        )
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert data["status"] == "success", data
+        rescheduled = [
+            call.kwargs["materialization_input"]
+            for call in mock_qs.materialize_cube.call_args_list
+        ]
+        assert [payload.name for payload in rescheduled] == [incremental_name]
+        assert [
+            measures.spark_conf for measures in rescheduled[0].measures_materializations
+        ] == [{"spark.executor.memory": "8g"}]
+
+    @staticmethod
+    def _fact(name: str) -> TransformSpec:
+        """A fact transform over the hard hats source, joined to `hard_hat`."""
+        return TransformSpec(
+            name=name,
+            description="Hard hat activity",
+            query=(
+                "SELECT hard_hat_id, state, hire_date FROM ${prefix}default.hard_hats"
+            ),
+            dimension_links=[
+                DimensionJoinLinkSpec(
+                    dimension_node="${prefix}default.hard_hat",
+                    join_type="inner",
+                    join_on=(
+                        f"${{prefix}}{name}.hard_hat_id = "
+                        "${prefix}default.hard_hat.hard_hat_id"
+                    ),
+                ),
+            ],
+            owners=["dj"],
+        )
+
+    @pytest.mark.asyncio
+    async def test_spark_conf_is_declared_per_parent(
+        self,
+        client,
+        session,
+        default_hard_hats,
+        default_hard_hat,
+        default_us_states,
+        default_us_state,
+        mock_qs,
+    ):
+        """
+        A cube spanning two parents sizes each parent's measures job on its own.
+
+        `spark.measures` is keyed by parent node name and merges over `default`, so
+        the parent it names gets its own conf while the other keeps `default`. A key
+        naming no parent is a typo: it warns and the deploy goes on.
+        """
+        namespace = "cube_mat_spark_parents"
+        cube_name = f"{namespace}.default.hard_hat_cube"
+        big = f"{namespace}.default.hard_hat_repairs"
+        small = f"{namespace}.default.hard_hat_hires"
+        materialization_name = (
+            f"druid_cube__incremental_time__{namespace}.default.hard_hat.hire_date"
+        )
+        typo = f"{namespace}.default.hard_hat_repair"
+        nodes = [
+            default_hard_hats,
+            default_hard_hat,
+            default_us_states,
+            default_us_state,
+            self._fact("default.hard_hat_repairs"),
+            self._fact("default.hard_hat_hires"),
+            MetricSpec(
+                name="default.num_repairs",
+                description="Number of repairs",
+                query=(
+                    "SELECT count(hard_hat_id) FROM ${prefix}default.hard_hat_repairs"
+                ),
+                owners=["dj"],
+            ),
+            MetricSpec(
+                name="default.num_hires",
+                description="Number of hires",
+                query=(
+                    "SELECT count(hard_hat_id) FROM ${prefix}default.hard_hat_hires"
+                ),
+                owners=["dj"],
+            ),
+            CubeSpec(
+                name="default.hard_hat_cube",
+                display_name="Hard Hat Cube",
+                description="Cube spanning two fact tables",
+                dimensions=[
+                    "${prefix}default.hard_hat.state",
+                    "${prefix}default.hard_hat.hire_date",
+                ],
+                metrics=[
+                    "${prefix}default.num_repairs",
+                    "${prefix}default.num_hires",
+                ],
+                owners=["dj"],
+                columns=[
+                    ColumnSpec(
+                        name="${prefix}default.hard_hat.hire_date",
+                        partition=PartitionSpec(
+                            type=PartitionType.TEMPORAL,
+                            granularity=Granularity.DAY,
+                            format="yyyyMMdd",
+                        ),
+                    ),
+                ],
+                materialization=MaterializationSpec(
+                    schedule="0 6 * * *",
+                    spark=SparkSpec(
+                        default={"spark.executor.memory": "8g"},
+                        measures={
+                            "${prefix}default.hard_hat_repairs": {
+                                "spark.executor.memory": "32g",
+                                "spark.executor.cores": "8",
+                            },
+                            "${prefix}default.hard_hat_repair": {
+                                "spark.executor.memory": "64g",
+                            },
+                        },
+                    ),
+                ),
+            ),
+        ]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert data["status"] == "success", data
+
+        warning = (
+            f"Cube `{cube_name}`: `spark.measures` names "
+            f"`{typo}`, which no measures job of this cube is "
+            "built on, so that config was ignored."
+        )
+        assert self._materialization_results(data) == [
+            (cube_name, "noop", "warning", warning),
+            (
+                cube_name,
+                "create",
+                "success",
+                "cube materialization on schedule 0 6 * * *",
+            ),
+        ]
+
+        payload = mock_qs.materialize_cube.call_args.kwargs["materialization_input"]
+        assert {
+            measures.node.name: measures.spark_conf
+            for measures in payload.measures_materializations
+        } == {
+            big: {"spark.executor.memory": "32g", "spark.executor.cores": "8"},
+            small: {"spark.executor.memory": "8g"},
+        }
+        assert [combiner.spark_conf for combiner in payload.combiners] == [
+            {"spark.executor.memory": "8g"},
+        ]
+
+        # The structured form round-trips, unmatched key and all.
+        session.expire_all()
+        deployed = await Node.get_by_name(
+            session,
+            cube_name,
+            options=Node.cube_load_options(),
+        )
+        exported = await deployed.to_spec(session)
+        assert exported.materialization == MaterializationSpec(
+            schedule="0 6 * * *",
+            strategy=MaterializationStrategy.INCREMENTAL_TIME,
+            lookback_window="1 DAY",
+            spark=SparkSpec(
+                default={"spark.executor.memory": "8g"},
+                measures={
+                    big: {
+                        "spark.executor.memory": "32g",
+                        "spark.executor.cores": "8",
+                    },
+                    typo: {"spark.executor.memory": "64g"},
+                },
+            ),
+        )
+
+        # Re-pushing the same conf churns nothing.
+        mock_qs.reset_mock()
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert data["status"] == "success", data
+        assert self._materialization_results(data) == [
+            (cube_name, "noop", "warning", warning),
+            (
+                cube_name,
+                "noop",
+                "success",
+                "cube materialization on schedule 0 6 * * *",
+            ),
+        ]
+        assert mock_qs.method_calls == []
+
+        # Retuning one parent reschedules the cube with only that parent moved.
+        mock_qs.reset_mock()
+        nodes[-1].materialization.spark = SparkSpec(
+            default={"spark.executor.memory": "8g"},
+            measures={
+                "${prefix}default.hard_hat_repairs": {
+                    "spark.executor.memory": "64g",
+                },
+            },
+        )
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert data["status"] == "success", data
+        payload = mock_qs.materialize_cube.call_args.kwargs["materialization_input"]
+        assert payload.name == materialization_name
+        assert {
+            measures.node.name: measures.spark_conf
+            for measures in payload.measures_materializations
+        } == {
+            big: {"spark.executor.memory": "64g"},
+            small: {"spark.executor.memory": "8g"},
+        }
 
     @pytest.mark.asyncio
     async def test_adding_a_full_rebuild_leaves_the_incremental_alone(

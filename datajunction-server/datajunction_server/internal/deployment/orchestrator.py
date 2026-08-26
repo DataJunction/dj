@@ -67,6 +67,7 @@ from datajunction_server.internal.materializations import (
     CubeMaterializationSwap,
     CubeMaterializationSwapOutcome,
     NodeMaterializationTeardown,
+    ReconciledMaterialization,
     apply_cube_materialization_swap,
     backfill_recorded,
     collect_materialization_teardowns,
@@ -2386,7 +2387,10 @@ class DeploymentOrchestrator:
         materialized".
         """
         return {
-            spec.rendered_name: spec.declared_materializations
+            spec.rendered_name: [
+                block.rendered(spec.namespace)
+                for block in spec.declared_materializations
+            ]
             for spec in self.deployment_spec.nodes
             if isinstance(spec, CubeSpec) and spec.declared_materializations
         }
@@ -2696,6 +2700,7 @@ class DeploymentOrchestrator:
                     ),
                 )
             for entry in reconciled:
+                self._warn_unmatched_measures(revision.name, entry)
                 await self._plan_coverage_backfill(
                     revision,
                     entry.block,
@@ -2860,6 +2865,50 @@ class DeploymentOrchestrator:
                 new_version=revision.version,
                 rebuilt_names=[],
                 superseded=active,
+            ),
+        )
+
+    def _warn_unmatched_measures(
+        self,
+        name: str,
+        entry: ReconciledMaterialization,
+    ) -> None:
+        """
+        Flag a `spark.measures` key that names no parent of this cube.
+
+        The key is a parent node name, so a typo matches nothing and the conf it
+        carries is silently dropped. The deploy goes on: the cube is materialized,
+        just not with the conf its author meant.
+        """
+        spark = entry.block.spark
+        if not spark or not spark.measures:
+            return
+        config = entry.materialization.config or {}
+        parents = {
+            measures["node"]["name"]
+            for measures in config.get("measures_materializations", [])
+        }
+        unmatched = sorted(set(spark.measures) - parents)
+        if not unmatched:
+            return
+        message = (
+            f"Cube `{name}`: `spark.measures` names "
+            f"`{'`, `'.join(unmatched)}`, which no measures job of this cube is "
+            "built on, so that config was ignored."
+        )
+        self.warnings.append(
+            DJError(
+                code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                message=message,
+            ),
+        )
+        self.deployed_results.append(
+            DeploymentResult(
+                name=name,
+                deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                status=DeploymentResult.Status.WARNING,
+                operation=DeploymentResult.Operation.NOOP,
+                message=message,
             ),
         )
 

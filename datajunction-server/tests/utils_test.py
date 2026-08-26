@@ -29,6 +29,7 @@ from datajunction_server.utils import (
     DatabaseSessionManager,
     Version,
     _create_configured_query_client,
+    deep_merge,
     execute_with_retry,
     get_issue_url,
     get_legacy_query_service_client,
@@ -947,3 +948,46 @@ async def test_sync_user_groups_mixed_existing_and_new(
     assert new is not None
     assert new.kind == PrincipalKind.GROUP
     assert new.name == "new-team"
+
+
+def test_deep_merge_overrides_a_leaf_and_keeps_its_siblings() -> None:
+    """
+    An override reaches the leaf it names and leaves the rest of the branch alone,
+    which is what lets an author tune one Druid setting without restating the spec.
+    """
+    base = {
+        "tuningConfig": {
+            "partitionsSpec": {"targetPartitionSize": 5000000, "type": "hashed"},
+            "useCombiner": True,
+        },
+    }
+    overrides = {"tuningConfig": {"partitionsSpec": {"targetRowsPerSegment": 100}}}
+
+    assert deep_merge(base, overrides) == {
+        "tuningConfig": {
+            "partitionsSpec": {
+                "targetPartitionSize": 5000000,
+                "type": "hashed",
+                "targetRowsPerSegment": 100,
+            },
+            "useCombiner": True,
+        },
+    }
+    # Neither input is touched.
+    assert base == {
+        "tuningConfig": {
+            "partitionsSpec": {"targetPartitionSize": 5000000, "type": "hashed"},
+            "useCombiner": True,
+        },
+    }
+    assert overrides == {
+        "tuningConfig": {"partitionsSpec": {"targetRowsPerSegment": 100}},
+    }
+
+
+def test_deep_merge_replaces_a_value_of_another_shape() -> None:
+    """A non-mapping override replaces whatever sat at that path."""
+    assert deep_merge({"a": {"b": 1}, "c": [1]}, {"a": 2, "c": [2, 3]}) == {
+        "a": 2,
+        "c": [2, 3],
+    }

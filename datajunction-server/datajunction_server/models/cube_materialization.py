@@ -20,6 +20,7 @@ from datajunction_server.models.materialization import (
     CoverageSpec,
     MaterializationJobTypeEnum,
     MaterializationStrategy,
+    SparkSpec,
 )
 from datajunction_server.models.node_type import NodeNameVersion
 from datajunction_server.models.partition import Granularity
@@ -172,7 +173,7 @@ class MeasuresMaterialization(BaseModel):
         return base
 
     @classmethod
-    def from_measures_query(cls, measures_query, temporal_partition):
+    def from_measures_query(cls, measures_query, temporal_partition, spark_conf=None):
         """
         Builds a MeasuresMaterialization object from a measures query.
         """
@@ -220,7 +221,7 @@ class MeasuresMaterialization(BaseModel):
             ]
             + dimensional_metric_components,
             measures=metric_components,
-            spark_conf=measures_query.spark_conf,
+            spark_conf=spark_conf,
             upstream_tables=measures_query.upstream_tables,
         )
 
@@ -282,6 +283,15 @@ class UpsertCubeMaterialization(BaseModel):
 
     coverage: CoverageSpec | None = None
 
+    # Deep-merged into the Druid ingestion spec DJ generates.
+    druid: dict[str, Any] | None = None
+
+    # Spark config for this materialization's stages.
+    spark: SparkSpec | None = None
+
+    # Carried to the query service verbatim. DJ reads no key out of it.
+    platform: dict[str, Any] | None = None
+
     @field_validator("job")
     def validate_job(
         cls,
@@ -337,6 +347,15 @@ class CombineMaterialization(BaseModel):
         default=None,
     )
     upstream_tables: list[str] = Field(default_factory=list)
+
+    spark_conf: dict[str, str] | None = Field(
+        description="Spark config for this materialization.",
+        default=None,
+    )
+    druid_overrides: dict[str, Any] | None = Field(
+        description="Overrides merged into the generated Druid spec.",
+        default=None,
+    )
 
     @computed_field  # type: ignore[misc]
     @property
@@ -402,7 +421,7 @@ class CombineMaterialization(BaseModel):
                 " on this cube or it cannot be materialized to Druid.",
             )
 
-        from datajunction_server.utils import get_settings
+        from datajunction_server.utils import deep_merge, get_settings
 
         druid_datasource_name = (
             f"{get_settings().druid_datasource_prefix}{self.output_table_name}"
@@ -443,6 +462,8 @@ class CombineMaterialization(BaseModel):
                 "type": "hadoop",
             },
         }
+        if self.druid_overrides:
+            druid_spec = deep_merge(druid_spec, self.druid_overrides)
         return druid_spec
 
     def model_dump(self, **kwargs):  # pragma: no cover
@@ -478,6 +499,15 @@ class DruidCubeConfig(BaseModel):
     retention: str | None = DEFAULT_CUBE_RETENTION
 
     coverage: CoverageSpec | None = None
+
+    # Deep-merged into the Druid ingestion spec DJ generates.
+    druid: dict[str, Any] | None = None
+
+    # Spark config for this materialization's stages.
+    spark: SparkSpec | None = None
+
+    # Carried to the query service verbatim. DJ reads no key out of it.
+    platform: dict[str, Any] | None = None
 
 
 class PrincipalRef(BaseModel):
@@ -529,6 +559,9 @@ class DruidCubeMaterializationInput(BaseModel):
 
     # Passed through verbatim; DJ does not read keys out of it.
     custom_metadata: dict | None = None
+
+    # Also passed through verbatim, declared per materialization.
+    platform: dict[str, Any] | None = None
 
     # List of measures materializations
     measures_materializations: list[MeasuresMaterialization]

@@ -144,6 +144,45 @@ class CoverageSpec(BaseModel):
         }
 
 
+class SparkSpec(BaseModel):
+    """
+    Spark config for the stages a cube materialization runs.
+
+    A measures job scans one parent's fact table; the combine job reads what those
+    jobs already aggregated. One conf cannot size both, so each stage gets its own:
+
+      spark:
+        default: {spark.executor.memory: 8g}
+        combiner: {spark.sql.shuffle.partitions: "200"}
+        measures:
+          default.thumb_rating: {spark.executor.memory: 32g}
+
+    Every level merges over the one above, so an override states only what differs.
+    """
+
+    default: dict[str, str] | None = None
+    combiner: dict[str, str] | None = None
+
+    # Keyed by parent node name. A parent with measures jobs at several grains
+    # gets the same conf on all of them.
+    measures: dict[str, dict[str, str]] | None = None
+
+    def combiner_conf(self) -> dict[str, str]:
+        """Spark conf for the combine stage."""
+        from datajunction_server.utils import deep_merge
+
+        return deep_merge(self.default or {}, self.combiner or {})
+
+    def measures_conf(self, parent: str) -> dict[str, str]:
+        """Spark conf for one parent's measures jobs."""
+        from datajunction_server.utils import deep_merge
+
+        return deep_merge(
+            self.default or {},
+            (self.measures or {}).get(parent) or {},
+        )
+
+
 class MaterializationStrategy(StrEnum):
     """
     Materialization strategies
