@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.node import Node, NodeRevision, NodeType
 from datajunction_server.database.user import OAuthProvider, User
+from datajunction_server.models.node import NodeMode
 from datajunction_server.models.custom_metadata import (
     CustomMetadataFilter,
     CustomMetadataOp,
@@ -115,3 +116,30 @@ async def test_find_by_custom_metadata_no_match(
     names = {n.name for n in results}
     assert "default.ads_metric" not in names
     assert "default.growth_metric" not in names
+
+
+@pytest.mark.asyncio
+async def test_find_by_custom_metadata_with_an_already_joined_revision(
+    session: AsyncSession,
+    nodes_with_metadata,
+):
+    """A custom_metadata filter must not re-join the revision another filter joined.
+
+    `find_by` joins the current revision once and tracks it, because a second join
+    of the same alias is a SQLAlchemy error rather than a slower query. Every other
+    revision-dependent filter shares that flag, so the case worth pinning is a
+    custom_metadata filter arriving *after* something else has already joined --
+    here a `mode` filter, which joins up front.
+    """
+    results = await Node.find_by(
+        session,
+        mode=NodeMode.PUBLISHED,
+        custom_metadata_filters=[
+            CustomMetadataFilter(
+                key="table_group",
+                op=CustomMetadataOp.EQ,
+                value="ads",
+            ),
+        ],
+    )
+    assert {n.name for n in results} == {"default.ads_metric"}

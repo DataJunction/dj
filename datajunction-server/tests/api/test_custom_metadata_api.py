@@ -19,7 +19,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.api.main import app
 from datajunction_server.database.user import User
 from datajunction_server.internal.access.authentication.tokens import create_token
+from datajunction_server.models.access import ResourceAction
 from datajunction_server.models.user import OAuthProvider
+from tests.authz import VALIDATOR_AUTH_SERVICE, deny
 
 
 # ---------------------------------------------------------------------------
@@ -825,3 +827,36 @@ async def test_list_filters_by_key(client: AsyncClient) -> None:
     resp = await client.get("/metadata-schemas/?key=wanted&namespace=bykey.ns")
     assert resp.status_code == 200, resp.text
     assert [row["key"] for row in resp.json()] == ["wanted"]
+
+
+@pytest.mark.asyncio
+async def test_delete_denies_without_write_on_the_namespace(
+    client: AsyncClient,
+    mocker,
+) -> None:
+    """The delete gate has to bite, not merely be reached.
+
+    Registered in `write_enforcement_test.DENIAL_TESTED_ELSEWHERE` rather than its
+    Case table: the route addresses an integer id and authorizes the row's own
+    namespace, so a row has to exist before the check runs. The generic cases fill
+    every path parameter with a string stub, which would fail validation first.
+
+    Setup runs with normal access; the denial is applied afterwards so the 403
+    comes from the delete rather than from creating the row.
+    """
+    created = await client.post(
+        "/metadata-schemas/",
+        json={
+            "key": "denied",
+            "namespace": "denial.ns",
+            "json_schema": {"type": "string"},
+        },
+    )
+    assert created.status_code in (200, 201), created.text
+    schema_id = created.json()["id"]
+
+    mocker.patch(VALIDATOR_AUTH_SERVICE, deny(ResourceAction.WRITE))
+
+    resp = await client.delete(f"/metadata-schemas/{schema_id}")
+    assert resp.status_code == 403, resp.text
+    assert "Access denied" in resp.json()["message"]
