@@ -5656,6 +5656,90 @@ class TestDeclaredCubeMaterializations:
         ]
 
     @pytest.mark.asyncio
+    async def test_recorded_workflow_names_outlive_a_redeploy(
+        self,
+        session,
+        client,
+        upstreams,
+        mock_qs,
+    ):
+        """
+        DJ writes down the workflows the query service names and backfills the one
+        called `.backfill`, rather than letting the query service derive a name that
+        does not match what the materialize call pushed.
+
+        The names go on the materialization row, not in its config, which every
+        deploy rebuilds from the revision and compares to decide whether anything
+        moved -- so a second push that changes nothing still finds them there.
+        """
+        namespace = "cube_mat_workflow_names"
+        cube_name = f"{namespace}.default.repairs_cube"
+        workflow_names = [
+            f"dj.{cube_name}.v1_0.main",
+            f"dj.{cube_name}.v1_0.backfill",
+        ]
+        mock_qs.materialize_cube.return_value = MaterializationInfo(
+            urls=["http://fake.url/job"],
+            output_tables=[],
+            workflow_names=workflow_names,
+        )
+        cube = self._cube(
+            materialization=MaterializationSpec(
+                schedule="0 6 * * *",
+                lookback_window="1 DAY",
+                coverage={"from": "2024-01-01", "to": "2024-01-05"},
+            ),
+        )
+        nodes = [*upstreams, cube]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert data["status"] == "success", data
+        assert mock_qs.run_cube_backfill.call_args_list == [
+            mock.call(
+                CubeBackfillInput(
+                    cube_name=cube_name,
+                    cube_version="v1.0",
+                    start_date=date(2024, 1, 1),
+                    end_date=date(2024, 1, 5),
+                    workflow_name=f"dj.{cube_name}.v1_0.backfill",
+                ),
+                request_headers=mock.ANY,
+            ),
+        ]
+
+        session.expire_all()
+        deployed = await Node.get_by_name(
+            session,
+            cube_name,
+            options=Node.cube_load_options(),
+        )
+        assert [
+            materialization.workflow_names
+            for materialization in deployed.current.materializations
+        ] == [workflow_names]
+
+        mock_qs.reset_mock()
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert data["status"] == "success", data
+        assert mock_qs.method_calls == []
+
+        session.expire_all()
+        deployed = await Node.get_by_name(
+            session,
+            cube_name,
+            options=Node.cube_load_options(),
+        )
+        assert [
+            materialization.workflow_names
+            for materialization in deployed.current.materializations
+        ] == [workflow_names]
+
+    @pytest.mark.asyncio
     async def test_unchanged_declaration_touches_nothing(
         self,
         client,

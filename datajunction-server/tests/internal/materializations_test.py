@@ -25,9 +25,11 @@ from datajunction_server.internal.materializations import (
     coverage_gap,
     coverage_partition,
     record_backfill,
+    record_workflow_names,
     stop_cube_materialization_workflows,
     stop_materialization_workflows,
 )
+from datajunction_server.models.materialization import MaterializationInfo
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import Granularity, PartitionType
 from datajunction_server.models.preaggregation import CubeBackfillInput
@@ -121,6 +123,34 @@ def test_stop_cube_workflows_batches_across_materializations():
     assert query_service_client.deactivate_cube_workflow.call_args_list == [
         mock.call("default.a_cube", version="v1.0", request_headers=None),
     ]
+
+
+def test_stop_cube_workflows_uses_recorded_names():
+    """
+    Names DJ recorded on the row when it scheduled the workflow stop exactly those
+    workflows, so the cube name + version endpoint is never called.
+    """
+    query_service_client = mock.MagicMock()
+    materialization = Materialization(
+        name="druid_cube__incremental_time__a_cube.date",
+        config={},
+        workflow_names=["dj.a_cube.v1_0.main", "dj.a_cube.v1_0.backfill"],
+    )
+
+    stop_cube_materialization_workflows(
+        query_service_client=query_service_client,
+        cube_name="default.a_cube",
+        cube_version="v1.0",
+        materializations=[materialization],
+    )
+
+    assert query_service_client.deactivate_workflows.call_args_list == [
+        mock.call(
+            workflow_names=["dj.a_cube.v1_0.main", "dj.a_cube.v1_0.backfill"],
+            request_headers=None,
+        ),
+    ]
+    assert query_service_client.deactivate_cube_workflow.call_args_list == []
 
 
 def test_stop_cube_workflows_without_a_config():
@@ -806,3 +836,172 @@ async def test_backfill_recorded_reads_djs_own(session, current_user, spec):
     session.add(Backfill(materialization_id=materialization.id, spec=spec))
 
     assert await backfill_recorded(session, materialization, date(2024, 1, 1)) is False
+
+
+def _scheduled(*workflow_names: str) -> dict[str, MaterializationInfo]:
+    """What the query service answered for the stored cube materialization."""
+    return {
+        "druid_cube_v3": MaterializationInfo(
+            output_tables=["druid.a_cube"],
+            urls=["http://fake.url/job"],
+            workflow_names=list(workflow_names),
+        ),
+    }
+
+
+@pytest.mark.asyncio
+async def test_record_workflow_names_keeps_both(session, current_user):
+    """
+    An incremental cube gets a scheduled workflow and a backfill one, and DJ writes
+    both down so a later teardown or backfill names them rather than guessing.
+    """
+    materialization = await _stored_materialization(session, current_user)
+
+    await record_workflow_names(
+        session,
+        [materialization],
+        _scheduled("dj.a_cube.v1_0.main", "dj.a_cube.v1_0.backfill"),
+    )
+
+    materialization_id = materialization.id
+    session.expire_all()
+    stored = await session.get(Materialization, materialization_id)
+    assert stored.workflow_names == [
+        "dj.a_cube.v1_0.main",
+        "dj.a_cube.v1_0.backfill",
+    ]
+    assert stored.backfill_workflow == "dj.a_cube.v1_0.backfill"
+
+
+@pytest.mark.asyncio
+async def test_record_workflow_names_keeps_one(session, current_user):
+    """
+    A full-strategy cube has no backfill workflow, so the one name reported is the
+    scheduled one and nothing reads it as a backfill.
+    """
+    materialization = await _stored_materialization(session, current_user)
+
+    await record_workflow_names(
+        session,
+        [materialization],
+        _scheduled("dj.a_cube.v1_0.main"),
+    )
+
+    materialization_id = materialization.id
+    session.expire_all()
+    stored = await session.get(Materialization, materialization_id)
+    assert stored.workflow_names == ["dj.a_cube.v1_0.main"]
+    assert stored.backfill_workflow is None
+
+
+@pytest.mark.asyncio
+async def test_record_workflow_names_with_nothing_named(session, current_user):
+    """
+    A query service that names no workflow leaves the row as it was, and the
+    teardown falls back to the cube name + version endpoint.
+    """
+    materialization = await _stored_materialization(session, current_user)
+
+    await record_workflow_names(session, [materialization], _scheduled())
+
+    materialization_id = materialization.id
+    session.expire_all()
+    stored = await session.get(Materialization, materialization_id)
+    assert stored.workflow_names is None
+
+
+@pytest.mark.asyncio
+async def test_record_workflow_names_survives_a_failure(session, current_user):
+    """
+    The workflow is already running by the time DJ writes its name down, and the
+    deploy has committed, so a write that fails is logged rather than raised.
+    """
+    materialization = await _stored_materialization(session, current_user)
+    materialization_id = materialization.id
+
+    with mock.patch.object(
+        session,
+        "commit",
+        new=mock.AsyncMock(side_effect=Exception("connection reset")),
+    ):
+        await record_workflow_names(
+            session,
+            [materialization],
+            _scheduled("dj.a_cube.v1_0.main"),
+        )
+
+    session.expire_all()
+    stored = await session.get(Materialization, materialization_id)
+    assert stored.workflow_names is None
+
+
+@pytest.mark.asyncio
+async def test_apply_cube_swap_backfills_by_recorded_name(session, current_user):
+    """
+    The backfill runs the workflow DJ recorded, not one the query service derives
+    from the cube name and version -- those disagree, and the derived one 404s.
+    """
+    materialization = await _stored_materialization(session, current_user)
+    materialization.workflow_names = [
+        "dj.a_cube.v1_0.main",
+        "dj.a_cube.v1_0.backfill",
+    ]
+    await session.commit()
+    query_service_client = mock.MagicMock()
+    query_service_client.run_cube_backfill.return_value = {"job_url": "http://job1"}
+
+    await _apply_with_backfill(
+        session,
+        query_service_client,
+        coverage_backfill(
+            materialization,
+            _cube_revision().columns[0],
+            (date(2024, 1, 1), date(2024, 1, 2)),
+        ),
+    )
+
+    assert query_service_client.run_cube_backfill.call_args_list == [
+        mock.call(
+            CubeBackfillInput(
+                cube_name="default.a_cube",
+                cube_version="v1.1",
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 1, 2),
+                workflow_name="dj.a_cube.v1_0.backfill",
+            ),
+            request_headers=None,
+        ),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_apply_cube_swap_backfills_a_missing_row(session):
+    """
+    A materialization the deploy has since dropped names no workflow, so the query
+    service derives one, which is all a row written before DJ recorded any can do.
+    """
+    query_service_client = mock.MagicMock()
+    query_service_client.run_cube_backfill.return_value = {"job_url": "http://job1"}
+
+    await _apply_with_backfill(
+        session,
+        query_service_client,
+        CoverageBackfill(
+            span=(date(2024, 1, 1), date(2024, 1, 2)),
+            materialization_id=987654,
+            column_name="date_0",
+        ),
+    )
+
+    assert query_service_client.run_cube_backfill.call_args_list == [
+        mock.call(
+            CubeBackfillInput(
+                cube_name="default.a_cube",
+                cube_version="v1.1",
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 1, 2),
+                workflow_name=None,
+            ),
+            request_headers=None,
+        ),
+    ]
