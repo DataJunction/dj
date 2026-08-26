@@ -6934,6 +6934,300 @@ class TestDeclaredCubeMaterializations:
             (full_name, "0 6 * * *", "full", False),
         ]
 
+    @pytest.mark.asyncio
+    async def test_dropping_a_block_stops_it(
+        self,
+        client,
+        upstreams,
+        mock_qs,
+    ):
+        """
+        Shrinking a declared pair back to one takes the dropped materialization down.
+
+        The blocks are the whole list, so deleting the full rebuild from YAML has to
+        stop it -- left running it keeps rewriting the datasource the incremental
+        build loads, and nothing in the repo records that it exists.
+
+        The stop is what makes the survivor churn. DJ has no workflow name for a
+        materialization it built here, so it falls back to the cube-and-version
+        endpoint, which stops every workflow on the revision including the one still
+        declared. The reconciler answers that by treating an otherwise unchanged
+        block as changed whenever anything was superseded, so the incremental build
+        is scheduled again rather than silently left stopped.
+        """
+        namespace = "cube_mat_shrunk"
+        cube_name = f"{namespace}.default.repairs_cube"
+        full_name = f"druid_cube__full__{namespace}.default.hard_hat.hire_date"
+        incremental = MaterializationSpec(
+            schedule="59 23 * * *",
+            lookback_window="1 DAY",
+        )
+        nodes = [
+            *upstreams,
+            self._cube(
+                materialization=[
+                    incremental,
+                    MaterializationSpec(
+                        schedule="0 6 * * *",
+                        strategy=MaterializationStrategy.FULL,
+                    ),
+                ],
+            ),
+        ]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert data["status"] == "success", data
+        assert await self._persisted_materializations(client, cube_name) == [
+            (
+                self._materialization_name(namespace),
+                "59 23 * * *",
+                "incremental_time",
+                True,
+            ),
+            (full_name, "0 6 * * *", "full", True),
+        ]
+
+        mock_qs.reset_mock()
+        nodes[-1] = self._cube(materialization=incremental)
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert data["status"] == "success", data
+        assert self._materialization_results(data) == [
+            (
+                cube_name,
+                "update",
+                "success",
+                "cube materialization on schedule 59 23 * * *",
+            ),
+        ]
+        assert [call[0] for call in mock_qs.method_calls] == [
+            "deactivate_cube_workflow",
+            "materialize_cube",
+        ]
+        assert mock_qs.deactivate_cube_workflow.call_args_list == [
+            mock.call(cube_name, version="v1.0", request_headers=mock.ANY),
+        ]
+        rescheduled = mock_qs.materialize_cube.call_args.kwargs["materialization_input"]
+        assert rescheduled.strategy == MaterializationStrategy.INCREMENTAL_TIME
+        assert await self._persisted_materializations(client, cube_name) == [
+            (
+                self._materialization_name(namespace),
+                "59 23 * * *",
+                "incremental_time",
+                True,
+            ),
+            (full_name, "0 6 * * *", "full", False),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_declared_block_supersedes_a_legacy_row(
+        self,
+        client,
+        upstreams,
+        mock_qs,
+    ):
+        """
+        A materialization made outside the deploy is taken down by a deploy that
+        declares a block, even when no block could have built it.
+
+        This is the two-writers case: someone materialized the cube through the API
+        or the UI, and a later push of YAML that declares its own block removes what
+        they set up. The older `druid_measures_cube` job cannot be declared at all,
+        so no block ever builds its name -- and it is superseded anyway, because
+        every materialization on a cube writes the one Druid datasource and matching
+        on job type would leave this one running.
+        """
+        namespace = "cube_mat_legacy_supersede"
+        cube_name = f"{namespace}.default.repairs_cube"
+        legacy_name = (
+            f"druid_measures_cube__incremental_time__"
+            f"{namespace}.default.hard_hat.hire_date"
+        )
+        nodes = [
+            *upstreams,
+            self._cube(),
+        ]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert data["status"] == "success", data
+
+        response = await client.post(
+            f"/nodes/{cube_name}/materialization/",
+            json={
+                "job": "druid_measures_cube",
+                "strategy": "incremental_time",
+                "schedule": "@daily",
+                "config": {"spark": {}, "lookback_window": "1 DAY"},
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        mock_qs.reset_mock()
+        nodes[-1] = self._cube(
+            materialization=MaterializationSpec(
+                schedule="0 6 * * *",
+                lookback_window="1 DAY",
+            ),
+        )
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert data["status"] == "success", data
+        assert self._materialization_results(data) == [
+            (
+                cube_name,
+                "create",
+                "success",
+                "cube materialization on schedule 0 6 * * *",
+            ),
+        ]
+        assert [call[0] for call in mock_qs.method_calls] == [
+            "deactivate_cube_workflow",
+            "materialize_cube",
+        ]
+        assert mock_qs.deactivate_cube_workflow.call_args_list == [
+            mock.call(cube_name, version="v1.0", request_headers=mock.ANY),
+        ]
+        assert await self._persisted_materializations(client, cube_name) == [
+            (legacy_name, "@daily", "incremental_time", False),
+            (
+                self._materialization_name(namespace),
+                "0 6 * * *",
+                "incremental_time",
+                True,
+            ),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_absent_key_leaves_a_pair_alone(
+        self,
+        client,
+        upstreams,
+        mock_qs,
+    ):
+        """
+        Omitting the key still means "not managed here" for a cube with more than one
+        materialization, so both keep running and the deploy warns once.
+
+        Worth pinning beside the pair the sentinel tears down: the two spellings are
+        the only thing between adopting a cube into YAML and stopping every workflow
+        it has.
+        """
+        namespace = "cube_mat_pair_undeclared"
+        cube_name = f"{namespace}.default.repairs_cube"
+        full_name = f"druid_cube__full__{namespace}.default.hard_hat.hire_date"
+        nodes = [
+            *upstreams,
+            self._cube(
+                materialization=[
+                    MaterializationSpec(
+                        schedule="59 23 * * *",
+                        lookback_window="1 DAY",
+                    ),
+                    MaterializationSpec(
+                        schedule="0 6 * * *",
+                        strategy=MaterializationStrategy.FULL,
+                    ),
+                ],
+            ),
+        ]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert data["status"] == "success", data
+
+        mock_qs.reset_mock()
+        nodes[-1] = self._cube()
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert data["status"] == "success", data
+        warning = self._undeclared_warning(cube_name)
+        assert self._materialization_results(data) == [
+            (cube_name, "noop", "warning", warning),
+        ]
+        assert [item["message"] for item in data["warnings"]] == [warning]
+        assert mock_qs.method_calls == []
+        assert await self._persisted_materializations(client, cube_name) == [
+            (
+                self._materialization_name(namespace),
+                "59 23 * * *",
+                "incremental_time",
+                True,
+            ),
+            (full_name, "0 6 * * *", "full", True),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_one_strategy_exports_once(
+        self,
+        session,
+        client,
+        upstreams,
+        mock_qs,
+    ):
+        """
+        A cube carrying two rows of one strategy exports a block naming it once.
+
+        Two rows of a strategy differ only by their partition suffix, so a block
+        cannot describe both -- and strategy is what tells declared blocks apart, so
+        naming it twice is YAML the parser rejects. Only the first by name is
+        exported, which keeps `dj pull` on such a cube writing a file that pushes.
+        """
+        namespace = "cube_mat_dup_strategy"
+        cube_name = f"{namespace}.default.repairs_cube"
+        nodes = [
+            *upstreams,
+            self._cube(
+                materialization=MaterializationSpec(
+                    schedule="0 6 * * *",
+                    lookback_window="1 DAY",
+                ),
+            ),
+        ]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert data["status"] == "success", data
+
+        # A second row of the same strategy, on another partition.
+        cube = await Node.get_by_name(session, cube_name)
+        session.add(
+            Materialization(
+                node_revision_id=cube.current.id,
+                name="druid_cube__incremental_time__zzz.other_partition",
+                strategy=MaterializationStrategy.INCREMENTAL_TIME,
+                schedule="@daily",
+                config={"lookback_window": "3 DAY"},
+                job="DruidCubeMaterializationJob",
+            ),
+        )
+        await session.commit()
+
+        session.expire_all()
+        deployed = await Node.get_by_name(
+            session,
+            cube_name,
+            options=Node.cube_load_options(),
+        )
+        assert (await deployed.to_spec(session)).materialization == (
+            MaterializationSpec(
+                schedule="0 6 * * *",
+                strategy=MaterializationStrategy.INCREMENTAL_TIME,
+                lookback_window="1 DAY",
+            )
+        )
+
 
 @pytest.mark.xdist_group(name="deployments")
 class TestDeploymentHistoryTracking:
