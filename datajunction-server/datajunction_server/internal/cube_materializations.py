@@ -339,7 +339,6 @@ async def _v3_grain_group_to_measures_query(
         columns=columns,
         metrics=metrics,
         sql=gg.sql,
-        spark_conf=None,
         upstream_tables=sorted(upstream_tables),
     )
 
@@ -401,8 +400,13 @@ async def build_cube_materialization(
                 for grain, query_nodes in query_grains.items()
             ),
         )
+    spark = upsert_input.spark
     measures_materializations = [
-        MeasuresMaterialization.from_measures_query(measures_query, temporal_partition)
+        MeasuresMaterialization.from_measures_query(
+            measures_query,
+            temporal_partition,
+            spark_conf=spark.measures_conf(measures_query.node.name) if spark else None,
+        )
         for measures_query in measures_queries
     ]
 
@@ -422,6 +426,8 @@ async def build_cube_materialization(
                 timestamp_format=measures_materialization.timestamp_format,
                 granularity=measures_materialization.granularity,
                 upstream_tables=[measures_materialization.output_table_name],
+                spark_conf=spark.combiner_conf() if spark else None,
+                druid_overrides=upsert_input.druid,
             ),
         ]
     if len(measures_materializations) > 1:
@@ -459,6 +465,8 @@ async def build_cube_materialization(
                 timestamp_column=measures_materialization.timestamp_column,
                 timestamp_format=measures_materialization.timestamp_format,
                 granularity=measures_materialization.granularity,
+                spark_conf=spark.combiner_conf() if spark else None,
+                druid_overrides=upsert_input.druid,
             ),
         ]
 
@@ -526,5 +534,8 @@ async def build_cube_materialization(
         lookback_window=upsert_input.lookback_window if incremental else None,
         retention=upsert_input.retention,
         coverage=upsert_input.coverage,
+        druid=upsert_input.druid,
+        spark=upsert_input.spark,
+        platform=upsert_input.platform,
     )
     return config

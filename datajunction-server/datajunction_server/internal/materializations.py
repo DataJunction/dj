@@ -358,9 +358,10 @@ def _upsert_from_materialization(
     """
     Recover the user's materialization intent from a persisted materialization.
 
-    Only the intent -- job type, strategy, schedule, lookback window and declared
-    coverage -- is carried over; everything else in a stored config is generated
-    content derived from the revision it was built against.
+    Only the intent -- job type, strategy, schedule, lookback window, declared
+    coverage and the author's Druid, Spark and platform settings -- is carried
+    over; everything else in a stored config is generated content derived from
+    the revision it was built against.
     """
     config = materialization.config if isinstance(materialization.config, dict) else {}
     lookback_window = config.get("lookback_window")
@@ -372,6 +373,9 @@ def _upsert_from_materialization(
             schedule=materialization.schedule,
             lookback_window=lookback_window,
             coverage=config.get("coverage"),
+            druid=config.get("druid"),
+            spark=config.get("spark"),
+            platform=config.get("platform"),
         )
     return UpsertMaterialization(
         job=job_type.value.name,  # type: ignore
@@ -514,6 +518,9 @@ async def reconcile_declared_materializations(
                     schedule=block.schedule,
                     lookback_window=block.lookback_window,
                     coverage=block.coverage,
+                    druid=block.druid,
+                    spark=block.spark,
+                    platform=block.platform,
                 ),
                 access_checker,
                 current_user=current_user,

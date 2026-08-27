@@ -4088,6 +4088,8 @@ async def test_cube_materialization_metadata(
             "timestamp_format": "yyyyMMdd",
             "granularity": "day",
             "upstream_tables": [],
+            "spark_conf": None,
+            "druid_overrides": None,
             "druid_spec": {
                 "dataSchema": {
                     "dataSource": mock.ANY,

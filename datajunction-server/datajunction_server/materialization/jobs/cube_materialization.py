@@ -161,6 +161,7 @@ class DruidCubeMaterializationJob(DruidMaterializationJob, MaterializationJob):
                 retention=cube_config.retention,
                 owners=principal_refs(revision.node.owners),
                 custom_metadata=revision.custom_metadata,
+                platform=cube_config.platform,
                 measures_materializations=cube_config.measures_materializations,
                 combiners=cube_config.combiners,
             ),

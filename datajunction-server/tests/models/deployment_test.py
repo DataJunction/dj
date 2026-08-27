@@ -1043,6 +1043,9 @@ def test_materialization_spec_defaults():
         "lookback_window": "1 DAY",
         "retention": "400 DAYS",
         "coverage": None,
+        "druid": None,
+        "spark": None,
+        "platform": None,
     }
 
 
@@ -1055,6 +1058,9 @@ def test_materialization_spec_retention_override():
         "lookback_window": "1 DAY",
         "retention": "30 DAYS",
         "coverage": None,
+        "druid": None,
+        "spark": None,
+        "platform": None,
     }
 
 
@@ -1075,6 +1081,9 @@ def test_materialization_spec_full_strategy_drops_lookback():
         "lookback_window": None,
         "retention": "400 DAYS",
         "coverage": None,
+        "druid": None,
+        "spark": None,
+        "platform": None,
     }
     assert declared == MaterializationSpec(
         schedule="0 6 * * *",
@@ -1098,6 +1107,9 @@ def test_materialization_spec_coverage_fixed_span():
         "lookback_window": "1 DAY",
         "retention": "400 DAYS",
         "coverage": {"from": "2024-01-01", "to": "2024-06-30", "window": None},
+        "druid": None,
+        "spark": None,
+        "platform": None,
     }
 
 
