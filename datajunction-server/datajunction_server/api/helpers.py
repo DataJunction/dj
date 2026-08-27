@@ -95,6 +95,8 @@ async def get_node_namespace(
 async def check_namespace_not_git_only(
     session: AsyncSession,
     namespace: str,
+    *,
+    remedy: str = "Node changes must be deployed from git via the /deployments API.",
 ) -> None:
     """
     Check that a namespace (or any of its ancestors) is not git-managed.
@@ -113,6 +115,10 @@ async def check_namespace_not_git_only(
     (children with a ``parent_namespace``) are intentionally allowed — edits
     there are valid and get synced back to the git repo, so they don't trip
     this check.
+
+    ``remedy`` is the sentence appended to the error. It defaults to the node
+    wording because that is what almost every caller is guarding; anything else
+    governed by the same flag should say where *its* change belongs instead.
 
     Implementation: namespace names contain their parent path (``a.b.c``),
     so we materialize every prefix and fire a single ``IN`` query. One round
@@ -146,8 +152,7 @@ async def check_namespace_not_git_only(
                 else f"'{namespace}' (locked via ancestor '{ns.namespace}')"
             )
             raise DJInvalidInputException(
-                message=f"Namespace {scope_msg} is git-managed. "
-                "Node changes must be deployed from git via the /deployments API.",
+                message=f"Namespace {scope_msg} is git-managed. {remedy}",
             )
 
 

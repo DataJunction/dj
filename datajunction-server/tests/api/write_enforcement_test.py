@@ -93,6 +93,13 @@ CASES = [
         "/nodes/{node_name}/materializations/{materialization_name}/backfill",
         [],
     ),
+    # metadata schemas -- WRITE is on the namespace named in the body
+    Case(
+        "POST",
+        "/metadata-schemas",
+        {"key": "k", "namespace": STUB, "json_schema": {"type": "string"}},
+        resource=ResourceType.NAMESPACE,
+    ),
     # cubes
     Case("POST", "/cubes/{name}/materialize", {"schedule": "0 0 * * *"}),
     Case("DELETE", "/cubes/{name}/materialize"),
@@ -143,6 +150,7 @@ DENIAL_TESTED_ELSEWHERE: dict[tuple[str, str], str] = {
     ("POST", "/preaggs/{preagg_id}/backfill"): "preaggregations_test.py",
     ("POST", "/preaggs/plan"): "preaggregations_test.py",
     ("POST", "/preaggs/register"): "preaggregations_test.py",
+    ("DELETE", "/metadata-schemas/{schema_id}"): "test_custom_metadata_api.py",
 }
 
 # PENDING_DENIAL_TESTS: routes that reach check() (so the coverage guard is green)

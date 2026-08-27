@@ -76,6 +76,23 @@ input CubeDefinition {
   orderby: [String!] = null
 }
 
+input CustomMetadataFilterInput {
+  key: String!
+  op: CustomMetadataOp! = EQ
+  value: JSON = null
+}
+
+enum CustomMetadataOp {
+  EQ
+  NE
+  EXISTS
+  GT
+  GTE
+  LT
+  LTE
+  CONTAINS
+}
+
 type DJError {
   code: ErrorCode!
   message: String
@@ -524,6 +541,9 @@ type Query {
     """Filter to dimension nodes that are not linked to by any other node"""
     orphanedDimension: Boolean! = false
 
+    """Filter to nodes matching ALL of these custom metadata conditions"""
+    customMetadataFilters: [CustomMetadataFilterInput!] = null
+
     """Limit nodes"""
     limit: Int = 1000
     orderBy: NodeSortField! = CREATED_AT
@@ -585,6 +605,9 @@ type Query {
 
     """Filter to dimension nodes that are not linked to by any other node"""
     orphanedDimension: Boolean! = false
+
+    """Filter to nodes matching ALL of these custom metadata conditions"""
+    customMetadataFilters: [CustomMetadataFilterInput!] = null
     after: String = null
     before: String = null
 

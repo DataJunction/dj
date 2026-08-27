@@ -1,11 +1,18 @@
 """Resolution, validation, and filter translation for custom_metadata schemas."""
 
+import re
+
 import jsonschema
-from sqlalchemy import or_, select
+from sqlalchemy import Numeric, cast, or_, select, text, type_coerce
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.custom_metadata_schema import CustomMetadataSchema
 from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.models.custom_metadata import (
+    CustomMetadataFilter,
+    CustomMetadataOp,
+)
 from datajunction_server.models.node_type import NodeType
 
 
@@ -112,3 +119,90 @@ async def validate_custom_metadata(
         raise DJInvalidInputException(
             message="custom_metadata failed schema validation:\n" + "\n".join(errors),
         )
+
+
+_NUMERIC_KINDS = {"number", "integer"}
+
+
+async def ensure_expression_index(
+    session: AsyncSession,
+    key: str,
+    value_kind: str | None,
+) -> str | None:
+    """Build a per-key expression index on noderevision for numeric-typed keys.
+
+    For ``value_kind in {"number", "integer"}`` executes:
+
+        CREATE INDEX IF NOT EXISTS ix_cm_<safe_key>
+          ON noderevision (((custom_metadata->>'<key>')::numeric))
+
+    The index name uses only ``[a-z0-9_]`` characters (safe for interpolation).
+    The raw key is embedded as a single-quoted SQL string literal via
+    ``key.replace("'", "''")`` — the standard SQL quoting escape — so that
+    special characters cannot break out of the string literal context.
+
+    Returns the index name on success, or ``None`` when no index is built.
+    """
+    if value_kind not in _NUMERIC_KINDS:
+        return None
+    safe = re.sub(r"[^a-z0-9_]", "_", key.lower())
+    idx_name = f"ix_cm_{safe}"
+    # Embed the key as a SQL string literal (single-quote escape only; no
+    # backslash sequences needed for JSONB ->> text extraction).
+    quoted_key = key.replace("'", "''")
+    await session.execute(
+        text(
+            f"CREATE INDEX IF NOT EXISTS {idx_name} ON noderevision "
+            f"(((custom_metadata->>'{quoted_key}')::numeric))",
+        ),
+    )
+    return idx_name
+
+
+def split_metadata_path(key: str) -> list[str]:
+    """Split a filter key into a JSON path on unescaped dots.
+
+    ``system.lifecycle`` addresses the nested value; ``system\\.lifecycle``
+    addresses a top-level key that itself contains a dot.
+    """
+    parts = re.split(r"(?<!\\)\.", key)
+    return [part.replace("\\.", ".") for part in parts]
+
+
+def _nest(path: list[str], value) -> dict:
+    """Wrap *value* in nested objects so containment matches at *path*."""
+    for part in reversed(path):
+        value = {part: value}
+    return value
+
+
+def _at_path(jsonb, path: list[str]):
+    """Return the JSONB expression addressing *path*."""
+    return jsonb[path[0]] if len(path) == 1 else jsonb[tuple(path)]
+
+
+def custom_metadata_clause(col, f: CustomMetadataFilter):
+    """Translate one CustomMetadataFilter into a SQLAlchemy boolean over a JSONB column."""
+    jsonb = type_coerce(col, JSONB)
+    path = split_metadata_path(f.key)
+    if f.op == CustomMetadataOp.EXISTS:
+        if len(path) == 1:
+            return jsonb.has_key(path[0])
+        parent = type_coerce(_at_path(jsonb, path[:-1]), JSONB)
+        return parent.has_key(path[-1])
+    if f.op == CustomMetadataOp.EQ:
+        # containment => GIN-servable, at any depth
+        return jsonb.contains(_nest(path, f.value))
+    if f.op == CustomMetadataOp.NE:
+        return ~jsonb.contains(_nest(path, f.value))
+    if f.op == CustomMetadataOp.CONTAINS:
+        return _at_path(jsonb, path).contains(f.value)
+    # range operators: extract as text and cast to numeric
+    extracted = _at_path(jsonb, path).astext
+    num = cast(extracted, Numeric)
+    return {
+        CustomMetadataOp.GT: num > f.value,
+        CustomMetadataOp.GTE: num >= f.value,
+        CustomMetadataOp.LT: num < f.value,
+        CustomMetadataOp.LTE: num <= f.value,
+    }[f.op]
