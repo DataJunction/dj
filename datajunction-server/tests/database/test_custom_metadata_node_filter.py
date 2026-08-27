@@ -57,9 +57,37 @@ async def nodes_with_metadata(session: AsyncSession, _user: User):
         created_by_id=_user.id,
     )
 
-    session.add_all([ads_node, ads_revision, growth_node, growth_revision])
+    nested_node = Node(
+        name="default.nested_metric",
+        type=NodeType.METRIC,
+        current_version="v1",
+        created_by_id=_user.id,
+    )
+    nested_revision = NodeRevision(
+        node=nested_node,
+        name=nested_node.name,
+        type=nested_node.type,
+        version="v1",
+        query="SELECT COUNT(1) FROM nested",
+        custom_metadata={
+            "system": {"lifecycle": "actively_maintained", "score": 7},
+            "odd.key": "literal",
+        },
+        created_by_id=_user.id,
+    )
+
+    session.add_all(
+        [
+            ads_node,
+            ads_revision,
+            growth_node,
+            growth_revision,
+            nested_node,
+            nested_revision,
+        ],
+    )
     await session.commit()
-    return ads_node, growth_node
+    return ads_node, growth_node, nested_node
 
 
 @pytest.mark.asyncio
@@ -92,9 +120,10 @@ async def test_find_by_custom_metadata_exists(
             CustomMetadataFilter(key="table_group", op=CustomMetadataOp.EXISTS),
         ],
     )
-    names = {n.name for n in results}
-    assert "default.ads_metric" in names
-    assert "default.growth_metric" in names
+    assert {n.name for n in results} == {
+        "default.ads_metric",
+        "default.growth_metric",
+    }
 
 
 @pytest.mark.asyncio
@@ -143,3 +172,139 @@ async def test_find_by_custom_metadata_with_an_already_joined_revision(
         ],
     )
     assert {n.name for n in results} == {"default.ads_metric"}
+
+
+@pytest.mark.asyncio
+async def test_find_by_nested_path_eq(session: AsyncSession, nodes_with_metadata):
+    """A dotted key addresses a nested value via JSONB containment."""
+    results = await Node.find_by(
+        session,
+        custom_metadata_filters=[
+            CustomMetadataFilter(
+                key="system.lifecycle",
+                op=CustomMetadataOp.EQ,
+                value="actively_maintained",
+            ),
+        ],
+    )
+    assert {n.name for n in results} == {"default.nested_metric"}
+
+
+@pytest.mark.asyncio
+async def test_find_by_nested_path_eq_no_match(
+    session: AsyncSession,
+    nodes_with_metadata,
+):
+    """A dotted key with the wrong nested value matches nothing."""
+    results = await Node.find_by(
+        session,
+        custom_metadata_filters=[
+            CustomMetadataFilter(
+                key="system.lifecycle",
+                op=CustomMetadataOp.EQ,
+                value="deprecated",
+            ),
+        ],
+    )
+    assert {n.name for n in results} == set()
+
+
+@pytest.mark.asyncio
+async def test_find_by_nested_path_exists(session: AsyncSession, nodes_with_metadata):
+    """EXISTS on a dotted key tests the nested key, not the top-level one."""
+    present = await Node.find_by(
+        session,
+        custom_metadata_filters=[
+            CustomMetadataFilter(key="system.lifecycle", op=CustomMetadataOp.EXISTS),
+        ],
+    )
+    assert {n.name for n in present} == {"default.nested_metric"}
+
+    absent = await Node.find_by(
+        session,
+        custom_metadata_filters=[
+            CustomMetadataFilter(key="system.owner", op=CustomMetadataOp.EXISTS),
+        ],
+    )
+    assert {n.name for n in absent} == set()
+
+
+@pytest.mark.asyncio
+async def test_find_by_nested_path_range(session: AsyncSession, nodes_with_metadata):
+    """Range operators extract a nested number and compare it numerically."""
+    matches = await Node.find_by(
+        session,
+        custom_metadata_filters=[
+            CustomMetadataFilter(
+                key="system.score",
+                op=CustomMetadataOp.GT,
+                value=5,
+            ),
+        ],
+    )
+    assert {n.name for n in matches} == {"default.nested_metric"}
+
+    misses = await Node.find_by(
+        session,
+        custom_metadata_filters=[
+            CustomMetadataFilter(
+                key="system.score",
+                op=CustomMetadataOp.LT,
+                value=5,
+            ),
+        ],
+    )
+    assert {n.name for n in misses} == set()
+
+
+@pytest.mark.asyncio
+async def test_find_by_escaped_dot_is_a_literal_key(
+    session: AsyncSession,
+    nodes_with_metadata,
+):
+    r"""``odd\.key`` addresses a top-level key that contains a dot."""
+    escaped = await Node.find_by(
+        session,
+        custom_metadata_filters=[
+            CustomMetadataFilter(
+                key=r"odd\.key",
+                op=CustomMetadataOp.EQ,
+                value="literal",
+            ),
+        ],
+    )
+    assert {n.name for n in escaped} == {"default.nested_metric"}
+
+    # Unescaped, the same text is a path into a non-existent "odd" object.
+    as_path = await Node.find_by(
+        session,
+        custom_metadata_filters=[
+            CustomMetadataFilter(
+                key="odd.key",
+                op=CustomMetadataOp.EQ,
+                value="literal",
+            ),
+        ],
+    )
+    assert {n.name for n in as_path} == set()
+
+
+@pytest.mark.asyncio
+async def test_count_by_applies_custom_metadata_filters(
+    session: AsyncSession,
+    nodes_with_metadata,
+):
+    """``count_by`` backs GraphQL totalCount, so it must honour the same filters."""
+    assert (
+        await Node.count_by(
+            session,
+            custom_metadata_filters=[
+                CustomMetadataFilter(
+                    key="system.lifecycle",
+                    op=CustomMetadataOp.EQ,
+                    value="actively_maintained",
+                ),
+            ],
+        )
+        == 1
+    )

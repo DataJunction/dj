@@ -159,20 +159,46 @@ async def ensure_expression_index(
     return idx_name
 
 
+def split_metadata_path(key: str) -> list[str]:
+    """Split a filter key into a JSON path on unescaped dots.
+
+    ``system.lifecycle`` addresses the nested value; ``system\\.lifecycle``
+    addresses a top-level key that itself contains a dot.
+    """
+    parts = re.split(r"(?<!\\)\.", key)
+    return [part.replace("\\.", ".") for part in parts]
+
+
+def _nest(path: list[str], value) -> dict:
+    """Wrap *value* in nested objects so containment matches at *path*."""
+    for part in reversed(path):
+        value = {part: value}
+    return value
+
+
+def _at_path(jsonb, path: list[str]):
+    """Return the JSONB expression addressing *path*."""
+    return jsonb[path[0]] if len(path) == 1 else jsonb[tuple(path)]
+
+
 def custom_metadata_clause(col, f: CustomMetadataFilter):
     """Translate one CustomMetadataFilter into a SQLAlchemy boolean over a JSONB column."""
     jsonb = type_coerce(col, JSONB)
+    path = split_metadata_path(f.key)
     if f.op == CustomMetadataOp.EXISTS:
-        return jsonb.has_key(f.key)
+        if len(path) == 1:
+            return jsonb.has_key(path[0])
+        parent = type_coerce(_at_path(jsonb, path[:-1]), JSONB)
+        return parent.has_key(path[-1])
     if f.op == CustomMetadataOp.EQ:
-        # containment => GIN-servable
-        return jsonb.contains({f.key: f.value})
+        # containment => GIN-servable, at any depth
+        return jsonb.contains(_nest(path, f.value))
     if f.op == CustomMetadataOp.NE:
-        return ~jsonb.contains({f.key: f.value})
+        return ~jsonb.contains(_nest(path, f.value))
     if f.op == CustomMetadataOp.CONTAINS:
-        return jsonb[f.key].contains(f.value)
+        return _at_path(jsonb, path).contains(f.value)
     # range operators: extract as text and cast to numeric
-    extracted = jsonb[f.key].astext
+    extracted = _at_path(jsonb, path).astext
     num = cast(extracted, Numeric)
     return {
         CustomMetadataOp.GT: num > f.value,

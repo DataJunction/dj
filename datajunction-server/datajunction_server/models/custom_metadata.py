@@ -20,6 +20,7 @@ class CustomMetadataOp(str, Enum):
 
 
 class CustomMetadataFilter(BaseModel):
+    # Dots address nested values (`system.lifecycle`); `\.` escapes a literal dot.
     key: str
     op: CustomMetadataOp = CustomMetadataOp.EQ
     value: Any | None = None
