@@ -1424,6 +1424,7 @@ class Node(Base):
         has_materialization: bool = False,
         orphaned_dimension: bool = False,
         search: str | None = None,
+        custom_metadata_filters: list[CustomMetadataFilter] | None = None,
     ) -> int:
         """
         Count nodes that match the same filters as ``find_by``, ignoring
@@ -1446,6 +1447,7 @@ class Node(Base):
             has_materialization=has_materialization,
             orphaned_dimension=orphaned_dimension,
             search=search,
+            custom_metadata_filters=custom_metadata_filters,
         )
         if statement is None:
             return 0

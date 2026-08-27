@@ -332,6 +332,7 @@ async def count_nodes_by(
     has_materialization: bool = False,
     orphaned_dimension: bool = False,
     search: str | None = None,
+    custom_metadata_filters: list[CustomMetadataFilter] | None = None,
 ) -> int:
     """
     Count nodes that match the same filters as ``find_nodes_by``. Used to
@@ -365,6 +366,7 @@ async def count_nodes_by(
             has_materialization=has_materialization,
             orphaned_dimension=orphaned_dimension,
             search=search,
+            custom_metadata_filters=custom_metadata_filters,
         )
 
 

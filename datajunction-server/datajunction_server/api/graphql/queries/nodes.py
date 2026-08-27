@@ -356,6 +356,12 @@ async def find_nodes_paginated(
             description="Filter to dimension nodes that are not linked to by any other node",
         ),
     ] = False,
+    custom_metadata_filters: Annotated[
+        list[CustomMetadataFilterInput] | None,
+        strawberry.argument(
+            description="Filter to nodes matching ALL of these custom metadata conditions",
+        ),
+    ] = None,
     after: str | None = None,
     before: str | None = None,
     limit: Annotated[
@@ -372,6 +378,16 @@ async def find_nodes_paginated(
     """
     if not limit or limit < 0:
         limit = 100
+
+    pyd_filters = (
+        [
+            CustomMetadataFilter(key=f.key, op=f.op, value=f.value)
+            for f in custom_metadata_filters
+        ]
+        if custom_metadata_filters
+        else None
+    )
+
     nodes_list = await find_nodes_by(
         info=info,
         names=names,
@@ -395,6 +411,7 @@ async def find_nodes_paginated(
         has_materialization=has_materialization,
         orphaned_dimension=orphaned_dimension,
         search=search,
+        custom_metadata_filters=pyd_filters,
     )
 
     # Run a separate count query only when the client asked for totalCount
@@ -418,6 +435,7 @@ async def find_nodes_paginated(
             has_materialization=has_materialization,
             orphaned_dimension=orphaned_dimension,
             search=search,
+            custom_metadata_filters=pyd_filters,
         )
 
     return Connection.from_list(

@@ -605,6 +605,9 @@ type Query {
 
     """Filter to dimension nodes that are not linked to by any other node"""
     orphanedDimension: Boolean! = false
+
+    """Filter to nodes matching ALL of these custom metadata conditions"""
+    customMetadataFilters: [CustomMetadataFilterInput!] = null
     after: String = null
     before: String = null
 
