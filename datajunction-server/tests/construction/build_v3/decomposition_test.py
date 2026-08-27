@@ -5,9 +5,11 @@ from unittest.mock import MagicMock
 import pytest
 
 from datajunction_server.construction.build_v3.decomposition import (
+    _semi_additive_dimension_requested,
     get_base_metrics_for_derived,
     is_derived_metric,
 )
+from datajunction_server.construction.build_v3.metrics import _source_dimension_alias
 from datajunction_server.construction.build_v3.types import BuildContext
 from datajunction_server.models.node_type import NodeType
 
@@ -221,6 +223,41 @@ class TestIsDerivedMetric:
 
         # Only dimension parent - not a derived metric
         assert result is False
+
+
+@pytest.mark.parametrize(
+    ("protected_dimension", "requested_dimensions", "expected"),
+    [
+        ("v3.date.date_id[order]", ["v3.date.date_id[order]"], True),
+        ("v3.date.date_id[order]", ["v3.date.date_id"], False),
+        ("v3.date.date_id[order]", ["v3.date.date_id[ship]"], False),
+        ("v3.date.date_id[order]", ["date_id"], False),
+        ("v3.date.date_id", ["v3.date.date_id"], True),
+        ("v3.date.date_id", ["date_id"], True),
+        ("v3.date.date_id", ["v3.date.date_id[order]"], False),
+    ],
+)
+def test_semi_additive_dimension_requested_is_role_sensitive(
+    protected_dimension,
+    requested_dimensions,
+    expected,
+):
+    """A role-less ref must not satisfy a role-qualified protected dimension."""
+    assert (
+        _semi_additive_dimension_requested(protected_dimension, requested_dimensions)
+        is expected
+    )
+
+
+def test_source_dimension_alias_does_not_fall_back_for_roled_refs():
+    """A roled protected dimension must collapse by that role's physical alias."""
+    ctx = BuildContext(session=MagicMock(), metrics=[], dimensions=[])
+    ctx.alias_registry.register("v3.date.date_id")
+    ctx.alias_registry.register("v3.date.date_id[ship]")
+
+    assert _source_dimension_alias(ctx, "v3.date.date_id[order]") is None
+    assert _source_dimension_alias(ctx, "v3.date.date_id[ship]") == "date_id_ship"
+    assert _source_dimension_alias(ctx, "v3.date.date_id") == "date_id"
 
 
 @pytest.mark.asyncio

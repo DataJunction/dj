@@ -584,6 +584,31 @@ class TestMetricsSQLBasic:
         assert "MAX_BY" not in response.json()["sql"]
 
     @pytest.mark.asyncio
+    async def test_semi_additive_collapses_when_roleless_base_dimension_requested(
+        self,
+        client_with_build_v3,
+    ):
+        """A role-less dimension request does not satisfy a roled protected grain."""
+        await self._create_daily_balance_metric(client_with_build_v3)
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.daily_balance"],
+                "dimensions": ["v3.date.date_id"],
+                "use_materialized": "false",
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        sql = response.json()["sql"]
+        assert "MAX_BY(" in sql
+        assert "order_details_0.date_id_order" in sql
+        assert (
+            "SUM(order_details_0.line_total_sum_e1f61696) AS daily_balance" not in sql
+        )
+
+    @pytest.mark.asyncio
     async def test_semi_additive_collapses_with_coarser_time_dimension(
         self,
         client_with_build_v3,
