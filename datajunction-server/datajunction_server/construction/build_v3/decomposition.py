@@ -348,8 +348,8 @@ def _semi_additive_dimension_requested(
     """
     Whether the protected dimension is already in the requested output grain.
 
-    Exact role-qualified requests count, as do role-stripped requests to the same
-    node column. Coarser dimensions on the same node do not count.
+    Role-qualified dimensions only count when the role matches exactly. Coarser
+    dimensions on the same node do not count.
     """
     protected_base = _dimension_ref_base(protected_dimension)
     protected_role = _dimension_ref_role(protected_dimension)
@@ -359,11 +359,13 @@ def _semi_additive_dimension_requested(
         requested_role = _dimension_ref_role(requested)
         if requested == protected_dimension:
             return True
-        if requested_base == protected_base and (
-            requested_role is None or protected_role is None
-        ):
+        if requested_base == protected_base and requested_role == protected_role:
             return True
-        if requested == protected_col:
+        if (
+            protected_role is None
+            and requested_role is None
+            and requested == protected_col
+        ):
             return True
     return False
 

@@ -96,13 +96,21 @@ def _dimension_ref_base(ref: str) -> str:
     return ref.split("[", 1)[0]
 
 
+def _dimension_ref_role(ref: str) -> str | None:
+    """Return the role suffix for a dimension ref, if any."""
+    if "[" not in ref:
+        return None
+    return ref.rsplit("[", 1)[1].rstrip("]")
+
+
 def _source_dimension_alias(ctx: BuildContext, dimension_ref: str) -> str | None:
     """
     Return the registered source column alias for a dimension ref.
     """
-    return ctx.alias_registry.get_alias(dimension_ref) or ctx.alias_registry.get_alias(
-        _dimension_ref_base(dimension_ref),
-    )
+    alias = ctx.alias_registry.get_alias(dimension_ref)
+    if alias or _dimension_ref_role(dimension_ref) is not None:
+        return alias
+    return ctx.alias_registry.get_alias(_dimension_ref_base(dimension_ref))
 
 
 def _metric_refs_from_query(ctx: BuildContext, metric_name: str) -> set[str]:
