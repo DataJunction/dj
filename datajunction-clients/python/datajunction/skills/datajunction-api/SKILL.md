@@ -212,6 +212,18 @@ For the YAML-equivalent shapes of each, see `datajunction-repo` — the field se
 
 ---
 
+## Materializing a Cube
+
+Materialization has its own routes (`POST /nodes/{node_name}/materialization/`, plus a
+`/cubes/{name}/` pair), but reach for them only to inspect or backfill a cube that is
+already materialized. Configuring one through the API is invisible to review, and the
+next deploy of a cube that declares its own block supersedes it — so the declarative
+`materialization:` block is the supported path. See `datajunction-repo` for the block,
+what `materialization: none` tears down, and which backfill route answers for which
+materialization.
+
+---
+
 ## Updating and Deleting Nodes
 
 **Update** (PATCH):

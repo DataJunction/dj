@@ -3,9 +3,9 @@ name: datajunction-repo
 description: |
   Activate this skill when authoring DataJunction (DJ) nodes via YAML files
   in a git repository — the repo-backed workflow. Covers YAML schemas per
-  node type, branch-based development, temporal partitions on cubes,
-  registering pre-aggregations / aggregate awareness, and the full
-  PR-driven deployment flow.
+  node type, branch-based development, temporal partitions and
+  materialization on cubes, registering pre-aggregations / aggregate
+  awareness, and the full PR-driven deployment flow.
   Keywords:
   - YAML nodes, YAML definitions
   - repo-backed namespace, repo-backed workflow
@@ -13,6 +13,8 @@ description: |
   - cube YAML, metric YAML, dimension YAML, transform YAML
   - add a metric YAML file, add a dimension YAML file, add a cube YAML file
   - temporal partition, partition pushdown
+  - materialize a cube, cube materialization, materialization block
+  - materialization: none, coverage, lookback_window, backfill
   - pre-commit, push.sh
   - pre-aggregation, pre-agg, preagg, kind: preagg
   - aggregate awareness, aggregate navigation, query routing
@@ -559,6 +561,190 @@ columns:
 ```
 
 **Result**: Queries with `include_temporal_filters=True` push `WHERE order_date >= X AND order_date <= Y` to the `orders` transform.
+
+---
+
+## Materializing a Cube
+
+A cube can be pre-computed on a schedule into a Druid datasource, so dashboards read
+a table instead of re-running the metrics query every time. Declare that in the cube's
+own YAML. The block is reviewed in the same PR as the cube it belongs to, `dj pull`
+writes it back out, and it is the only route that reaches coverage backfills, more
+than one strategy, and the Druid, Spark and platform settings. The API exists for the
+UI and for one-off operations against a cube that already has a materialization.
+
+### The `materialization:` block
+
+```yaml
+# cubes/orders_cube.yaml
+name: ${prefix}orders_cube
+node_type: cube
+metrics:
+  - ${prefix}total_orders
+dimensions:
+  - common.dimensions.time.date.dateint
+  - ${prefix}orders.product_id
+
+columns:
+  - name: common.dimensions.time.date.dateint
+    attributes:
+      - primary_key
+    partition:
+      type: temporal
+      granularity: day
+      format: yyyyMMdd
+
+materialization:
+  schedule: "@daily"
+  strategy: incremental_time
+  lookback_window: 3 DAYS
+```
+
+- **`schedule`** — required; a cron expression such as `0 6 * * *`, or a shorthand
+  like `@daily`.
+- **`strategy`** — `incremental_time` (the default) rebuilds the last
+  `lookback_window` of partitions on each run; `full` rebuilds the whole datasource.
+  Those two are the only strategies a cube takes.
+- **`lookback_window`** — how far back an incremental run reaches, `1 DAY` by
+  default. It carries no meaning under `full`, and DJ normalizes it away there, so a
+  leftover value neither errors nor churns the live workflow.
+
+An `incremental_time` build needs a temporal partition to increment over, and DJ reads
+that off the cube's own `columns:` rather than off the materialization block — which
+is what lets a cube carrying the same date dimension in two roles say which role
+partitions it. Declaring `incremental_time` on a cube with no temporal partition fails
+the deploy up front rather than later in the build.
+
+### Declaring more than one
+
+`materialization:` also takes a list, which a cube legitimately needs: an
+`incremental_time` build for freshness beside a periodic `full` rebuild that corrects
+late-arriving data, out-of-order events and dimension backfills.
+
+```yaml
+materialization:
+  - schedule: "@daily"
+    strategy: incremental_time
+    lookback_window: 3 DAYS
+  - schedule: "0 4 * * 0"
+    strategy: full
+```
+
+`strategy` is what tells two entries apart, so each may appear at most once and a
+second entry sharing one is rejected. An empty list is rejected too, since it cannot
+be told apart from the teardown sentinel below. The scalar form stays valid and means
+exactly what it always did — nothing has to be rewritten as a one-element list.
+
+### Coverage
+
+`coverage` says how much history the cube should serve, and DJ launches a backfill to
+close the gap between that and what the datasource holds. Declare a fixed span or a
+rolling window, never both:
+
+```yaml
+coverage: {from: 2024-01-01}                 # ongoing
+coverage: {from: 2024-01-01, to: 2024-06-30}
+coverage: {window: 400 DAYS}                 # rolling
+```
+
+Both endpoints are inclusive, `to` needs a `from` to go with it, and an ongoing span
+ends yesterday — the last full day. A rolling window is counted in days and weeks
+only, so `12 MONTHS` parses but resolves to nothing and the deploy warns instead of
+backfilling.
+
+What the backfill actually covers depends on what is already there. A datasource this
+deploy minted — a materialization the cube did not have, or a rebuilt cube version —
+is empty, so the whole span goes in. A datasource the cube already has gets only the
+**leading** gap: availability is a bounding box, min of mins to max of maxes, so the
+one thing DJ can see is that the cube starts later than the coverage asks. A hole in
+the middle of the span is invisible from here and no coverage change will fill it, and
+the trailing edge is the schedule's job. DJ records each span it launches and never
+asks for it twice, since availability does not move until the backfill lands.
+
+A branch deploy asks for no backfill at all and says so in its report — it previews
+what the push would give its author, and a preview is not worth hundreds of partition
+runs.
+
+### Druid, Spark and platform settings
+
+- **`druid`** — deep-merged into the ingestion spec DJ generates, so state only what
+  differs from it.
+- **`spark`** — conf for the stages the build runs, in three tiers that merge over one
+  another. A measures job scans one parent's fact table while the combine job reads
+  what those jobs already aggregated, so one conf rarely sizes both.
+- **`platform`** — free-form, carried to the query service verbatim. DJ reads no key
+  out of it, so nothing put here changes what DJ builds.
+
+```yaml
+spark:
+  default: {spark.executor.memory: 8g}
+  combiner: {spark.sql.shuffle.partitions: "200"}
+  measures:
+    ${prefix}orders: {spark.executor.memory: 32g}
+```
+
+`measures` is keyed by parent node name, with `${prefix}` resolved as everywhere else
+in the spec, and a parent with measures jobs at several grains gets the same conf on
+all of them.
+
+### Removing one — deliberately, or by accident
+
+Two distinctions here are destructive to get wrong.
+
+**`materialization: none` tears down whatever the cube has materialized; omitting the
+key leaves it alone.** Removal is spelled as a value rather than inferred from an
+absent key because a spec round-tripped through serialization emits every optional
+field explicitly, and could not otherwise tell "not managed in YAML" from "should not
+be materialized". A cube that declares nothing but is materialized keeps its workflow
+running and earns a warning naming both ways out — `dj pull` to adopt it into YAML, or
+`materialization: none` to remove it. The sentinel takes down whatever is active,
+including dialects a block cannot describe, such as a cube planner materialization.
+
+**With a list, any active materialization no declared block built is deactivated.**
+The blocks describe *the* materializations for their cube: they all write one
+datasource and a full rebuild replaces it wholesale, so a competing writer cannot be
+left running. Deleting an entry therefore stops that entry's workflow, exactly as
+`none` would for the cube as a whole. Read the YAML that is there before editing
+someone else's cube. The one row left alone is a cube planner's, which DJ cannot
+rebuild from a block and so will not supersede.
+
+### What the block does not do
+
+`retention` is accepted and parsed, and then never reaches the config the reconciler
+builds — so a declared value is silently ignored and the datasource keeps the 400-day
+default. Don't offer it as a knob until it is threaded through.
+
+### When to reach for the API instead
+
+Backfilling a cube that is already materialized is the honest API case. Creating a
+materialization usually is not: one configured through the API is invisible to review,
+and the next deploy of a cube that declares its own block supersedes it.
+
+```
+POST   /nodes/{node_name}/materialization/                              upsert one
+GET    /nodes/{node_name}/materializations/                             list them
+DELETE /nodes/{node_name}/materializations/?materialization_name=NAME   deactivate one
+POST   /nodes/{node_name}/materializations/{materialization_name}/backfill
+GET    /cubes/{name}/materialization                                    preview the config
+POST   /cubes/{name}/materialize                                        cube planner path
+POST   /cubes/{name}/backfill                                           cube planner backfill
+DELETE /cubes/{name}/materialize
+```
+
+Note the trailing slashes: they are on the `/nodes/` routes and not on the rest. The
+generic upsert takes a body discriminated on `job`; for a cube that is
+`job: druid_cube` plus the same flat fields the YAML block uses. `DELETE` takes
+`materialization_name` as a query parameter, not a body. The node backfill takes a
+JSON array of `{column_name, range}` partition specs.
+
+**The `/cubes/` routes only ever address a row named `druid_cube_v3`**, and
+only `POST /cubes/{name}/materialize` ever writes one. A YAML block — like the generic
+upsert — produces a row named after job, strategy and partition instead, so
+`POST /cubes/{name}/backfill` answers "has no materialization" for a cube materialized
+from YAML, and `DELETE /cubes/{name}/materialize` 404s on it. Backfill a
+declared cube through the `/nodes/` backfill route above, taking the name from
+`GET /nodes/{node_name}/materializations/` — or widen `coverage`
+and let the next deploy launch it.
 
 ---
 
