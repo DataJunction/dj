@@ -139,6 +139,16 @@
   margin: 0 !important;
 }
 
+.node-builder .SemiAdditiveFields {
+  gap: 12px;
+}
+
+.node-builder .SemiAdditiveFields > * {
+  flex: 1;
+  min-width: 0;
+  margin: 0 !important;
+}
+
 /* Override legacy form-scoped element styling for inputs/selects/buttons.
  * Scope to the specific wrapper classes so we DON'T accidentally restyle
  * the hidden <input> that lives inside react-select's Control — that input

@@ -27,6 +27,7 @@ import { RequiredDimensionsSelect } from './RequiredDimensionsSelect';
 import LoadingIcon from '../../icons/LoadingIcon';
 import { ColumnsSelect } from './ColumnsSelect';
 import { CustomMetadataField } from './CustomMetadataField';
+import { SemiAdditiveFields } from './SemiAdditiveFields';
 
 class Action {
   static Add = new Action('add');
@@ -71,6 +72,9 @@ export function AddEditNodePage({ extensions = {} }) {
     mode: 'published',
     owners: [],
     custom_metadata: '',
+    semi_additive_dimension: '',
+    semi_additive_function: '',
+    had_semi_additive: false,
   };
 
   const validator = values => {
@@ -91,6 +95,14 @@ export function AddEditNodePage({ extensions = {} }) {
     }
     if (values.type !== 'metric' && !values.query) {
       errors.query = 'Required';
+    }
+    if (values.type === 'metric') {
+      if (values.semi_additive_dimension && !values.semi_additive_function) {
+        errors.semi_additive_function = 'Required';
+      }
+      if (values.semi_additive_function && !values.semi_additive_dimension) {
+        errors.semi_additive_dimension = 'Required';
+      }
     }
     return errors;
   };
@@ -161,8 +173,19 @@ export function AddEditNodePage({ extensions = {} }) {
     return `SELECT ${aggregateExpression}`;
   };
 
+  const buildSemiAdditiveSpec = values => {
+    if (values.semi_additive_dimension && values.semi_additive_function) {
+      return {
+        dimension: values.semi_additive_dimension,
+        function: values.semi_additive_function,
+      };
+    }
+    return values.had_semi_additive ? null : undefined;
+  };
+
   const createNode = async (values, setStatus) => {
-    const { status, json } = await djClient.createNode(
+    const semiAdditive = buildSemiAdditiveSpec(values);
+    const createNodeArgs = [
       nodeType,
       values.name,
       values.display_name,
@@ -180,7 +203,11 @@ export function AddEditNodePage({ extensions = {} }) {
         ? values.required_dimensions
         : undefined,
       parseCustomMetadata(values.custom_metadata),
-    );
+    ];
+    if (semiAdditive !== undefined) {
+      createNodeArgs.push(semiAdditive);
+    }
+    const { status, json } = await djClient.createNode(...createNodeArgs);
     if (status === 200 || status === 201) {
       if (values.tags) {
         await djClient.tagsNode(values.name, values.tags);
@@ -201,7 +228,8 @@ export function AddEditNodePage({ extensions = {} }) {
   };
 
   const patchNode = async (values, setStatus) => {
-    const { status, json } = await djClient.patchNode(
+    const semiAdditive = buildSemiAdditiveSpec(values);
+    const patchNodeArgs = [
       values.name,
       values.display_name,
       values.description,
@@ -219,7 +247,11 @@ export function AddEditNodePage({ extensions = {} }) {
         : undefined,
       values.owners,
       parseCustomMetadata(values.custom_metadata),
-    );
+    ];
+    if (semiAdditive !== undefined) {
+      patchNodeArgs.push(semiAdditive);
+    }
+    const { status, json } = await djClient.patchNode(...patchNodeArgs);
     const tagsResponse = await djClient.tagsNode(
       values.name,
       values.tags.map(tag => tag),
@@ -296,6 +328,9 @@ export function AddEditNodePage({ extensions = {} }) {
           required_dimensions: node.current.requiredDimensions.map(
             dim => dim.name,
           ),
+          semi_additive_dimension: node.current.semiAdditive?.dimension || '',
+          semi_additive_function: node.current.semiAdditive?.function || '',
+          had_semi_additive: Boolean(node.current.semiAdditive),
           upstream_node: '', // Derived metrics have no upstream node
           aggregate_expression: derivedExpression,
         };
@@ -310,6 +345,9 @@ export function AddEditNodePage({ extensions = {} }) {
           required_dimensions: node.current.requiredDimensions.map(
             dim => dim.name,
           ),
+          semi_additive_dimension: node.current.semiAdditive?.dimension || '',
+          semi_additive_function: node.current.semiAdditive?.function || '',
+          had_semi_additive: Boolean(node.current.semiAdditive),
           upstream_node: nonMetricParent?.name || '',
           aggregate_expression: node.current.metricMetadata?.expression,
         };
@@ -360,6 +398,9 @@ export function AddEditNodePage({ extensions = {} }) {
       'metric_direction',
       'significant_digits',
       'required_dimensions',
+      'semi_additive_dimension',
+      'semi_additive_function',
+      'had_semi_additive',
       'owners',
       'custom_metadata',
     ];
@@ -495,16 +536,21 @@ export function AddEditNodePage({ extensions = {} }) {
                   if (action === Action.Edit) {
                     const data = await getExistingNodeData(name);
                     runValidityChecks(data, setNode, setMessage);
-                    updateFieldsWithNodeData(
-                      data,
-                      setFieldValue,
-                      setNode,
-                      setSelectTags,
-                      setSelectPrimaryKey,
-                      setSelectUpstreamNode,
-                      setSelectRequiredDims,
-                      setSelectOwners,
-                    );
+                    if (
+                      data.message === undefined &&
+                      nodeCanBeEdited(data.type)
+                    ) {
+                      updateFieldsWithNodeData(
+                        data,
+                        setFieldValue,
+                        setNode,
+                        setSelectTags,
+                        setSelectPrimaryKey,
+                        setSelectUpstreamNode,
+                        setSelectRequiredDims,
+                        setSelectOwners,
+                      );
+                    }
                   }
                 };
                 fetchData().catch(console.error);
@@ -560,7 +606,10 @@ export function AddEditNodePage({ extensions = {} }) {
                           />
                         )}
                         {(nodeType === 'metric' || node.type === 'metric') && (
-                          <MetricMetadataFields />
+                          <>
+                            <MetricMetadataFields />
+                            <SemiAdditiveFields />
+                          </>
                         )}
                       </div>
 
