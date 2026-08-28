@@ -183,6 +183,9 @@ export function AddEditNodePage({ extensions = {} }) {
     return values.had_semi_additive ? null : undefined;
   };
 
+  const normalizeSemiAdditiveFunction = semiAdditiveFunction =>
+    semiAdditiveFunction ? semiAdditiveFunction.toLowerCase() : '';
+
   const createNode = async (values, setStatus) => {
     const semiAdditive = buildSemiAdditiveSpec(values);
     const createNodeArgs = [
@@ -329,7 +332,9 @@ export function AddEditNodePage({ extensions = {} }) {
             dim => dim.name,
           ),
           semi_additive_dimension: node.current.semiAdditive?.dimension || '',
-          semi_additive_function: node.current.semiAdditive?.function || '',
+          semi_additive_function: normalizeSemiAdditiveFunction(
+            node.current.semiAdditive?.function,
+          ),
           had_semi_additive: Boolean(node.current.semiAdditive),
           upstream_node: '', // Derived metrics have no upstream node
           aggregate_expression: derivedExpression,
@@ -346,7 +351,9 @@ export function AddEditNodePage({ extensions = {} }) {
             dim => dim.name,
           ),
           semi_additive_dimension: node.current.semiAdditive?.dimension || '',
-          semi_additive_function: node.current.semiAdditive?.function || '',
+          semi_additive_function: normalizeSemiAdditiveFunction(
+            node.current.semiAdditive?.function,
+          ),
           had_semi_additive: Boolean(node.current.semiAdditive),
           upstream_node: nonMetricParent?.name || '',
           aggregate_expression: node.current.metricMetadata?.expression,

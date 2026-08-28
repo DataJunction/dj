@@ -387,7 +387,7 @@ describe('AddEditNodePage submission succeeded', () => {
         ...mocks.mockGetMetricNode.current,
         semiAdditive: {
           dimension: 'v3.date.date_id[order]',
-          function: 'last_value',
+          function: 'LAST_VALUE',
         },
       },
     });
@@ -456,7 +456,7 @@ describe('AddEditNodePage submission succeeded', () => {
         ...mocks.mockGetMetricNode.current,
         semiAdditive: {
           dimension: 'v3.date.date_id[order]',
-          function: 'last_value',
+          function: 'LAST_VALUE',
         },
       },
     });
