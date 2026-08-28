@@ -1265,6 +1265,7 @@ describe('DataJunctionAPI', () => {
       }),
     );
     await DataJunctionAPI.getMetric('default.num_repair_orders');
+    const requestBody = JSON.parse(fetch.mock.calls[0][1].body);
     expect(fetch).toHaveBeenCalledWith(
       `${DJ_URL}/graphql`,
       expect.objectContaining({
@@ -1275,6 +1276,12 @@ describe('DataJunctionAPI', () => {
         },
       }),
     );
+    expect(requestBody.variables).toEqual({
+      name: 'default.num_repair_orders',
+    });
+    expect(requestBody.query).toContain('semiAdditive');
+    expect(requestBody.query).toContain('dimension');
+    expect(requestBody.query).toContain('function');
   });
 
   it('calls notebookExportCube correctly', async () => {

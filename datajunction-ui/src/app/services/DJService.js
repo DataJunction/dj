@@ -608,6 +608,10 @@ export const DataJunctionAPI = {
             requiredDimensions {
               name
             }
+            semiAdditive {
+              dimension
+              function
+            }
           }
         }
       }
