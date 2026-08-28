@@ -520,6 +520,10 @@ export const DataJunctionAPI = {
             requiredDimensions {
               name
             }
+            semiAdditive {
+              dimension
+              function
+            }
             mode
             customMetadata
           }
@@ -751,6 +755,7 @@ export const DataJunctionAPI = {
     metric_unit,
     required_dimensions,
     custom_metadata,
+    semi_additive,
   ) {
     const metricMetadata =
       metric_direction || metric_unit
@@ -771,6 +776,7 @@ export const DataJunctionAPI = {
       metric_metadata: metricMetadata,
       required_dimensions: required_dimensions,
       custom_metadata: custom_metadata,
+      semi_additive: semi_additive,
     };
     // Remove undefined fields to avoid sending them to the API
     Object.keys(requestBody).forEach(
@@ -801,6 +807,7 @@ export const DataJunctionAPI = {
     required_dimensions,
     owners,
     custom_metadata,
+    semi_additive,
   ) {
     try {
       const metricMetadata =
@@ -822,6 +829,7 @@ export const DataJunctionAPI = {
         required_dimensions: required_dimensions,
         owners: owners,
         custom_metadata: custom_metadata,
+        semi_additive: semi_additive,
       };
       // Remove undefined fields to avoid sending them to the API
       Object.keys(requestBody).forEach(
