@@ -98,10 +98,18 @@ def _cube_column_type_map(cube: NodeRevision) -> dict[str, str | None]:
         for column in cube.columns
     }
 
+def _cube_metadata_map(cube: NodeRevision) -> dict[str, dict[str, str | None]]:
+    """Return column metadata for the metric/dimension ids exposed by a cube."""
+    return {
+            column.cube_element_name: {"display_name": column.display_name}
+        for column in cube.columns
+    }
+
 
 def _metrics_payload(cube: NodeRevision) -> list["MetricInfo"]:
     """Spec ``metrics`` list. ``definition`` is display-only."""
     type_by_name = _cube_column_type_map(cube)
+    metadata_by_name = _cube_metadata_map(cube)
     return [
         MetricInfo(
             id=metric_name,
@@ -110,6 +118,7 @@ def _metrics_payload(cube: NodeRevision) -> list["MetricInfo"]:
             definition=metric_name,
             description=None,
             aggregation="OTHER",
+            metadata=MetricsMetadata(display_name=metadata_by_name.get(metric_name, {}).get("display_name", "")),
         )
         for metric_name in cube.cube_node_metrics
     ]
@@ -118,6 +127,7 @@ def _metrics_payload(cube: NodeRevision) -> list["MetricInfo"]:
 def _dimensions_payload(cube: NodeRevision) -> list["DimensionInfo"]:
     """Spec ``dimensions`` list. Grain detection is deferred."""
     type_by_name = _cube_column_type_map(cube)
+    metadata_by_name = _cube_metadata_map(cube)
     return [
         DimensionInfo(
             id=dim_ref,
@@ -126,6 +136,7 @@ def _dimensions_payload(cube: NodeRevision) -> list["DimensionInfo"]:
             definition=dim_ref,
             description=None,
             grain=None,
+            metadata=DimensionMetadata(display_name=metadata_by_name.get(dim_ref, {}).get("display_name", "")),
         )
         for dim_ref in cube.cube_node_dimensions
     ]
@@ -234,6 +245,11 @@ class QueryRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class MetricsMetadata(BaseModel):
+    """Metric-specific field metadata"""
+
+    display_name: str
+
 class MetricInfo(BaseModel):
     """A metric exposed by a semantic view."""
 
@@ -243,7 +259,13 @@ class MetricInfo(BaseModel):
     definition: str
     description: str | None
     aggregation: str
+    metadata: MetricsMetadata
 
+
+class DimensionMetadata(BaseModel):
+    """Dimension-specific field metadata"""
+
+    display_name: str
 
 class DimensionInfo(BaseModel):
     """A dimension exposed by a semantic view."""
@@ -254,6 +276,7 @@ class DimensionInfo(BaseModel):
     definition: str
     description: str | None
     grain: str | None
+    metadata: DimensionMetadata
 
 
 class ViewSummary(BaseModel):
