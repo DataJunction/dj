@@ -534,6 +534,7 @@ async def build_cube_materialization(
         lookback_window=upsert_input.lookback_window if incremental else None,
         retention=upsert_input.retention,
         coverage=upsert_input.coverage,
+        preview=upsert_input.preview,
         druid=upsert_input.druid,
         spark=upsert_input.spark,
         platform=upsert_input.platform,

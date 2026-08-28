@@ -1043,6 +1043,7 @@ def test_materialization_spec_defaults():
         "lookback_window": "1 DAY",
         "retention": "400 DAYS",
         "coverage": None,
+        "preview": None,
         "druid": None,
         "spark": None,
         "platform": None,
@@ -1058,6 +1059,7 @@ def test_materialization_spec_retention_override():
         "lookback_window": "1 DAY",
         "retention": "30 DAYS",
         "coverage": None,
+        "preview": None,
         "druid": None,
         "spark": None,
         "platform": None,
@@ -1081,6 +1083,7 @@ def test_materialization_spec_full_strategy_drops_lookback():
         "lookback_window": None,
         "retention": "400 DAYS",
         "coverage": None,
+        "preview": None,
         "druid": None,
         "spark": None,
         "platform": None,
@@ -1107,6 +1110,7 @@ def test_materialization_spec_coverage_fixed_span():
         "lookback_window": "1 DAY",
         "retention": "400 DAYS",
         "coverage": {"from": "2024-01-01", "to": "2024-06-30", "window": None},
+        "preview": None,
         "druid": None,
         "spark": None,
         "platform": None,
@@ -1176,6 +1180,29 @@ def test_materialization_spec_coverage_equality_ignores_spelling():
         schedule="0 6 * * *",
         coverage={"window": "  800   DAYS "},
     ) == MaterializationSpec(schedule="0 6 * * *", coverage={"window": "800 DAYS"})
+
+
+def test_materialization_spec_preview():
+    """
+    `preview` is a duration, and absent stays absent so a block that never named
+    one exports without the key.
+    """
+    assert MaterializationSpec(schedule="0 6 * * *").preview is None
+    spec = MaterializationSpec(schedule="0 6 * * *", preview="3 DAYS")
+    assert spec.preview == "3 DAYS"
+    assert spec.model_dump(mode="json", exclude_none=True) == {
+        "schedule": "0 6 * * *",
+        "strategy": "incremental_time",
+        "lookback_window": "1 DAY",
+        "retention": "400 DAYS",
+        "preview": "3 DAYS",
+    }
+
+
+def test_materialization_spec_preview_rejects_a_date():
+    """A date rots once merged; only a duration is inert on the default branch."""
+    with pytest.raises(ValidationError):
+        MaterializationSpec(schedule="0 6 * * *", preview=date(2024, 1, 1))
 
 
 def test_materialization_spec_coverage_rejects_both_forms():

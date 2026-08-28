@@ -4,7 +4,7 @@ import time
 from collections import Counter
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import cast
 
 from sqlalchemy import func, or_, select, text
@@ -77,6 +77,7 @@ from datajunction_server.internal.materializations import (
     reconcile_declared_materializations,
     stop_materialization_workflows,
     swap_cube_materializations,
+    trailing_span,
 )
 from datajunction_server.internal.namespaces import get_git_info_for_namespace
 from datajunction_server.internal.nodes import (
@@ -112,7 +113,10 @@ from datajunction_server.models.dimensionlink import (
 )
 from datajunction_server.models.hierarchy import HierarchyLevelInput
 from datajunction_server.models.history import ActivityType
-from datajunction_server.models.materialization import MaterializationStrategy
+from datajunction_server.models.materialization import (
+    MaterializationStrategy,
+    window_days,
+)
 from datajunction_server.models.node import (
     DEFAULT_DRAFT_VERSION,
     DEFAULT_PUBLISHED_VERSION,
@@ -2736,25 +2740,20 @@ class DeploymentOrchestrator:
 
         A span the query service takes is recorded beside the cube's other
         backfills and never asked for twice, since availability does not move
-        until the backfill lands. A branch
-        deploy asks for nothing: it previews what the push would give its author,
-        and a preview does not spend hundreds of partition runs. It says so in
-        the report, so the missing backfill reads as a choice.
+        until the backfill lands. A branch deploy fills only what `preview`
+        declares, since it previews what the push would give its author and a
+        preview does not spend hundreds of partition runs.
+
+        Every way of arriving at no backfill says which one it was, so the
+        missing days read as a choice rather than as a gap.
         """
         coverage = block.coverage
         partition = coverage_partition(revision)
-        if not coverage or partition is None:
+        if not coverage:
+            self._skip_backfill(revision.name, "cube declares no `coverage` to fill")
             return
-        if await self._is_branch_deploy():
-            self.deployed_results.append(
-                DeploymentResult(
-                    name=revision.name,
-                    deploy_type=DeploymentResult.Type.MATERIALIZATION,
-                    status=DeploymentResult.Status.SKIPPED,
-                    operation=DeploymentResult.Operation.NOOP,
-                    message="no coverage backfill on a branch deploy",
-                ),
-            )
+        if partition is None:
+            self._skip_backfill(revision.name, "cube has no single time axis to fill")
             return
         span = coverage.span(datetime.now(UTC).date())
         if span is None:
@@ -2768,17 +2767,32 @@ class DeploymentOrchestrator:
                 ),
             )
             return
-        fresh = (
-            revision.name in self._rebuilt_cubes
-            or materialization.name not in active_names
-        )
-        if not fresh:
-            span = coverage_gap(span, revision)
-        if span is None:
-            return
+        if await self._is_branch_deploy():
+            preview = self._preview_span(revision.name, block.preview, span)
+            if preview is None:
+                return
+            span = preview
+        else:
+            fresh = (
+                revision.name in self._rebuilt_cubes
+                or materialization.name not in active_names
+            )
+            if not fresh:
+                gap = coverage_gap(span, revision)
+                if gap is None:
+                    self._skip_backfill(
+                        revision.name,
+                        "cube already holds the coverage it declares",
+                    )
+                    return
+                span = gap
         # A backfill needs the materialization's id.
         await self.session.flush()
         if await backfill_recorded(self.session, materialization, span[0]):
+            self._skip_backfill(
+                revision.name,
+                f"backfill from {span[0]} was already asked for",
+            )
             return
         self._cube_materialization_swaps.append(
             CubeMaterializationSwap(
@@ -2789,6 +2803,51 @@ class DeploymentOrchestrator:
                 rebuilt_names=[],
                 superseded=[],
                 backfill=coverage_backfill(materialization, partition, span),
+            ),
+        )
+
+    def _preview_span(
+        self,
+        name: str,
+        preview: str | None,
+        span: tuple[date, date],
+    ) -> tuple[date, date] | None:
+        """
+        The trailing days of a coverage span a branch deploy fills.
+
+        `None` when the block declares no preview, or names a duration DJ cannot
+        count in days. Either way the report says so, and the deploy report is
+        the one surface an author reliably reads.
+        """
+        if preview is None:
+            self._skip_backfill(
+                name,
+                "branch deploy fills no coverage; `preview: 3 DAYS` fills a sample",
+            )
+            return None
+        days = window_days(preview)
+        if days is None:
+            self.warnings.append(
+                DJError(
+                    code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                    message=(
+                        f"Cube `{name}`: DJ counts a preview in days or weeks only, "
+                        f"so `preview: {preview}` filled nothing."
+                    ),
+                ),
+            )
+            return None
+        return trailing_span(span, days)
+
+    def _skip_backfill(self, name: str, message: str) -> None:
+        """Say why a cube's coverage filled nothing."""
+        self.deployed_results.append(
+            DeploymentResult(
+                name=name,
+                deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                status=DeploymentResult.Status.SKIPPED,
+                operation=DeploymentResult.Operation.NOOP,
+                message=message,
             ),
         )
 
@@ -3089,6 +3148,8 @@ class DeploymentOrchestrator:
             for result in self.deployed_results
             if result.deploy_type == DeploymentResult.Type.MATERIALIZATION
             and result.name in names
+            # A backfill DJ chose not to ask for is not what was refused.
+            and result.status != DeploymentResult.Status.SKIPPED
         ]
         for result in matched:
             result.status = DeploymentResult.Status.FAILED

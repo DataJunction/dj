@@ -67,6 +67,21 @@ DEFAULT_CUBE_RETENTION = "400 DAYS"
 WINDOW_UNIT_DAYS = {"DAY": 1, "WEEK": 7}
 
 
+def window_days(window: str | None) -> int | None:
+    """
+    How many days a window like `3 DAYS` or `2 WEEKS` counts.
+
+    `None` when the window names a unit `WINDOW_UNIT_DAYS` cannot count.
+    """
+    match = re.fullmatch(r"(\d+)\s+([A-Za-z]+)", window or "")
+    if not match:
+        return None
+    unit = WINDOW_UNIT_DAYS.get(match.group(2).upper().rstrip("S"))
+    if not unit:
+        return None
+    return int(match.group(1)) * unit
+
+
 class CoverageSpec(BaseModel):
     """
     The span a cube's materialization should serve.
@@ -125,13 +140,10 @@ class CoverageSpec(BaseModel):
         end = self.to or today - timedelta(days=1)
         if self.from_:
             return self.from_, end
-        match = re.fullmatch(r"(\d+)\s+([A-Za-z]+)", self.window or "")
-        if not match:
+        days = window_days(self.window)
+        if days is None:
             return None
-        unit = WINDOW_UNIT_DAYS.get(match.group(2).upper().rstrip("S"))
-        if not unit:
-            return None
-        return end - timedelta(days=int(match.group(1)) * unit - 1), end
+        return end - timedelta(days=days - 1), end
 
     @model_serializer(mode="wrap")
     def serialize(self, handler: Callable[["CoverageSpec"], dict[str, Any]]) -> dict:

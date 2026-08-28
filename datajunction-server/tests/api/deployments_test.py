@@ -3141,6 +3141,14 @@ class TestDeployments:
             },
             {
                 "deploy_type": "materialization",
+                "message": "cube declares no `coverage` to fill",
+                "name": cube_name,
+                "operation": "noop",
+                "changed_fields": [],
+                "status": "skipped",
+            },
+            {
+                "deploy_type": "materialization",
                 "message": "cube materialization on schedule 0 6 * * *",
                 "name": cube_name,
                 "operation": "create",
@@ -3184,6 +3192,14 @@ class TestDeployments:
             {
                 "deploy_type": "node",
                 "message": "Unchanged",
+                "name": cube_name,
+                "operation": "noop",
+                "changed_fields": [],
+                "status": "skipped",
+            },
+            {
+                "deploy_type": "materialization",
+                "message": "cube declares no `coverage` to fill",
                 "name": cube_name,
                 "operation": "noop",
                 "changed_fields": [],
@@ -3361,6 +3377,7 @@ class TestDeployments:
         cube.materialization = MaterializationSpec(
             schedule="0 6 * * *",
             coverage={"window": "800 DAYS"},
+            preview="3 DAYS",
         )
         data = await deploy_and_wait(
             client,
@@ -3378,12 +3395,17 @@ class TestDeployments:
             materialization.config["coverage"]
             for materialization in deployed.current.materializations
         ] == [{"from": None, "to": None, "window": "800 DAYS"}]
+        assert [
+            materialization.config["preview"]
+            for materialization in deployed.current.materializations
+        ] == ["3 DAYS"]
         exported = await deployed.to_spec(session)
         assert exported.materialization == MaterializationSpec(
             schedule="0 6 * * *",
             strategy=MaterializationStrategy.INCREMENTAL_TIME,
             lookback_window="1 DAY",
             coverage={"window": "800 DAYS"},
+            preview="3 DAYS",
         )
         assert exported.model_dump(mode="json", exclude_none=True)[
             "materialization"
@@ -3393,9 +3415,11 @@ class TestDeployments:
             "lookback_window": "1 DAY",
             "retention": "400 DAYS",
             "coverage": {"window": "800 DAYS"},
+            "preview": "3 DAYS",
         }
         # Editing the coverage of a cube that already has its datasource does not
         # refill it: the span moved, the datasource it is served from did not.
+        # `preview` is inert here, since this is the default branch.
         assert mock_qs.run_cube_backfill.call_args_list == []
 
         # Re-declaring the same coverage changes nothing, so the reconciler leaves
@@ -3605,6 +3629,14 @@ class TestDeployments:
                 "operation": "create",
                 "changed_fields": [],
                 "status": "success",
+            },
+            {
+                "deploy_type": "materialization",
+                "message": "cube declares no `coverage` to fill",
+                "name": cube_name,
+                "operation": "noop",
+                "changed_fields": [],
+                "status": "skipped",
             },
             {
                 "deploy_type": "materialization",
@@ -5598,6 +5630,11 @@ class TestDeclaredCubeMaterializations:
         )
 
     @staticmethod
+    def _no_coverage(cube_name: str) -> tuple:
+        """The result each block of a cube declaring no `coverage:` earns."""
+        return (cube_name, "noop", "skipped", "cube declares no `coverage` to fill")
+
+    @staticmethod
     def _materialization_name(namespace: str) -> str:
         """The name `create_new_materialization` derives for this class's cube."""
         return f"druid_cube__incremental_time__{namespace}.default.hard_hat.hire_date"
@@ -5777,6 +5814,7 @@ class TestDeclaredCubeMaterializations:
         )
         assert data["status"] == "success", data
         assert self._materialization_results(data) == [
+            self._no_coverage(cube_name),
             (
                 cube_name,
                 "noop",
@@ -5878,6 +5916,7 @@ class TestDeclaredCubeMaterializations:
         )
         assert data["status"] == "success", data
         assert self._materialization_results(data) == [
+            self._no_coverage(cube_name),
             (
                 cube_name,
                 "update",
@@ -6019,6 +6058,7 @@ class TestDeclaredCubeMaterializations:
         )
         assert data["status"] == "success", data
         assert self._materialization_results(data) == [
+            self._no_coverage(cube_name),
             (
                 cube_name,
                 "update",
@@ -6102,6 +6142,7 @@ class TestDeclaredCubeMaterializations:
         )
         assert data["status"] == "success", data
         assert self._materialization_results(data) == [
+            self._no_coverage(cube_name),
             (
                 cube_name,
                 "update",
@@ -6437,6 +6478,7 @@ class TestDeclaredCubeMaterializations:
         )
         assert data["status"] == "success", data
         assert self._materialization_results(data) == [
+            self._no_coverage(cube_name),
             (
                 cube_name,
                 "noop",
@@ -6530,6 +6572,7 @@ class TestDeclaredCubeMaterializations:
         )
         assert data["status"] == "success", data
         assert self._materialization_results(data) == [
+            self._no_coverage(cube_name),
             (
                 cube_name,
                 "update",
@@ -6699,6 +6742,7 @@ class TestDeclaredCubeMaterializations:
             DeploymentSpec(namespace=namespace, nodes=nodes),
         )
         assert self._materialization_results(data) == [
+            self._no_coverage(working_name),
             (
                 working_name,
                 "create",
@@ -6758,6 +6802,8 @@ class TestDeclaredCubeMaterializations:
         )
         assert data["status"] == "success", data
         assert self._materialization_results(data) == [
+            self._no_coverage(cube_name),
+            self._no_coverage(cube_name),
             (
                 cube_name,
                 "create",
@@ -6811,6 +6857,8 @@ class TestDeclaredCubeMaterializations:
         )
         assert data["status"] == "success", data
         assert self._materialization_results(data) == [
+            self._no_coverage(cube_name),
+            self._no_coverage(cube_name),
             (
                 cube_name,
                 "noop",
@@ -7016,6 +7064,8 @@ class TestDeclaredCubeMaterializations:
         )
         assert data["status"] == "success", data
         assert self._materialization_results(data) == [
+            self._no_coverage(cube_name),
+            self._no_coverage(cube_name),
             (
                 cube_name,
                 "noop",
@@ -7175,6 +7225,7 @@ class TestDeclaredCubeMaterializations:
         )
         assert self._materialization_results(data) == [
             (cube_name, "noop", "warning", warning),
+            self._no_coverage(cube_name),
             (
                 cube_name,
                 "create",
@@ -7228,6 +7279,7 @@ class TestDeclaredCubeMaterializations:
         assert data["status"] == "success", data
         assert self._materialization_results(data) == [
             (cube_name, "noop", "warning", warning),
+            self._no_coverage(cube_name),
             (
                 cube_name,
                 "noop",
@@ -7305,6 +7357,8 @@ class TestDeclaredCubeMaterializations:
         )
         assert data["status"] == "success", data
         assert self._materialization_results(data) == [
+            self._no_coverage(cube_name),
+            self._no_coverage(cube_name),
             (
                 cube_name,
                 "update",
@@ -7518,6 +7572,7 @@ class TestDeclaredCubeMaterializations:
         )
         assert data["status"] == "success", data
         assert self._materialization_results(data) == [
+            self._no_coverage(cube_name),
             (
                 cube_name,
                 "update",
@@ -7602,6 +7657,7 @@ class TestDeclaredCubeMaterializations:
         )
         assert data["status"] == "success", data
         assert self._materialization_results(data) == [
+            self._no_coverage(cube_name),
             (
                 cube_name,
                 "create",

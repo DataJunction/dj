@@ -283,6 +283,9 @@ class UpsertCubeMaterialization(BaseModel):
 
     coverage: CoverageSpec | None = None
 
+    # Trailing days of `coverage` a branch deploy fills. Never sent anywhere.
+    preview: str | None = None
+
     # Deep-merged into the Druid ingestion spec DJ generates.
     druid: dict[str, Any] | None = None
 
@@ -499,6 +502,9 @@ class DruidCubeConfig(BaseModel):
     retention: str | None = DEFAULT_CUBE_RETENTION
 
     coverage: CoverageSpec | None = None
+
+    # Trailing days of `coverage` a branch deploy fills. Never sent anywhere.
+    preview: str | None = None
 
     # Deep-merged into the Druid ingestion spec DJ generates.
     druid: dict[str, Any] | None = None

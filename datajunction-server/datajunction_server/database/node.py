@@ -777,6 +777,7 @@ class Node(Base):
                     # should show.
                     retention=config.get("retention", DEFAULT_CUBE_RETENTION),
                     coverage=config.get("coverage"),
+                    preview=config.get("preview"),
                     druid=config.get("druid"),
                     spark=config.get("spark"),
                     platform=config.get("platform"),

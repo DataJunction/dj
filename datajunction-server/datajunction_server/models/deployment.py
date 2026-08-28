@@ -347,6 +347,10 @@ class MaterializationSpec(BaseModel):
 
     coverage: CoverageSpec | None = None
 
+    # A duration, like `3 DAYS`. On a branch deploy DJ fills the trailing days of
+    # `coverage` instead of all of it. The default branch ignores this.
+    preview: str | None = None
+
     # Deep-merged into the Druid ingestion spec DJ generates.
     druid: dict[str, Any] | None = None
 

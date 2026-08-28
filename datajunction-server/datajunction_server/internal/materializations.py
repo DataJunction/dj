@@ -373,6 +373,7 @@ def _upsert_from_materialization(
             schedule=materialization.schedule,
             lookback_window=lookback_window,
             coverage=config.get("coverage"),
+            preview=config.get("preview"),
             druid=config.get("druid"),
             spark=config.get("spark"),
             platform=config.get("platform"),
@@ -518,6 +519,7 @@ async def reconcile_declared_materializations(
                     schedule=block.schedule,
                     lookback_window=block.lookback_window,
                     coverage=block.coverage,
+                    preview=block.preview,
                     druid=block.druid,
                     spark=block.spark,
                     platform=block.platform,
@@ -672,6 +674,7 @@ async def swap_cube_materializations(
                         "strategy": block.strategy,
                         "lookback_window": block.lookback_window,
                         "coverage": block.coverage,
+                        "preview": block.preview,
                     },
                 )
             new_materialization = await create_new_materialization(
@@ -921,6 +924,17 @@ def coverage_gap(
     if covered is None or covered <= start:
         return None
     return start, min(covered - timedelta(days=1), end)
+
+
+def trailing_span(span: tuple[date, date], days: int) -> tuple[date, date]:
+    """
+    The last `days` of a span, clamped to it.
+
+    A span shorter than the ask comes back whole: there are no days before its
+    start left to fill.
+    """
+    start, end = span
+    return max(start, end - timedelta(days=days - 1)), end
 
 
 async def backfill_recorded(

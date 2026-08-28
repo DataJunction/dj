@@ -4060,8 +4060,22 @@ class TestPlanCoverageBackfill:
         )
 
     @staticmethod
-    def _block(**coverage) -> MaterializationSpec:
-        return MaterializationSpec(schedule="@daily", coverage=coverage)
+    def _block(preview: str | None = None, **coverage) -> MaterializationSpec:
+        return MaterializationSpec(
+            schedule="@daily",
+            coverage=coverage,
+            preview=preview,
+        )
+
+    @staticmethod
+    def _skipped(name: str, message: str) -> DeploymentResult:
+        return DeploymentResult(
+            name=name,
+            deploy_type=DeploymentResult.Type.MATERIALIZATION,
+            status=DeploymentResult.Status.SKIPPED,
+            operation=DeploymentResult.Operation.NOOP,
+            message=message,
+        )
 
     @staticmethod
     async def _plan(
@@ -4151,6 +4165,12 @@ class TestPlanCoverageBackfill:
 
         assert self._queued(orchestrator) == []
         assert await self._recorded(session, materialization) == []
+        assert orchestrator.deployed_results == [
+            self._skipped(
+                "default.a_cube",
+                "cube already holds the coverage it declares",
+            ),
+        ]
 
     @pytest.mark.asyncio
     async def test_a_new_datasource_takes_the_whole_span(
@@ -4241,6 +4261,12 @@ class TestPlanCoverageBackfill:
         )
 
         assert self._queued(orchestrator) == []
+        assert orchestrator.deployed_results == [
+            self._skipped(
+                "default.a_cube",
+                "backfill from 2024-01-01 was already asked for",
+            ),
+        ]
 
     @pytest.mark.asyncio
     async def test_an_unlaunched_span_is_asked_again(
@@ -4287,8 +4313,8 @@ class TestPlanCoverageBackfill:
     ):
         """
         A branch namespace previews what the push would give its author, and a
-        preview does not spend hundreds of partition runs. The report says the
-        backfill was skipped, so the author is not left guessing.
+        preview does not spend hundreds of partition runs. The report names the
+        way to a sample, so the author is not left guessing.
         """
         revision, materialization = await self._cube(
             session,
@@ -4308,12 +4334,179 @@ class TestPlanCoverageBackfill:
         assert self._queued(orchestrator) == []
         assert await self._recorded(session, materialization) == []
         assert orchestrator.deployed_results == [
-            DeploymentResult(
-                name="default.a_cube",
-                deploy_type=DeploymentResult.Type.MATERIALIZATION,
-                status=DeploymentResult.Status.SKIPPED,
-                operation=DeploymentResult.Operation.NOOP,
-                message="no coverage backfill on a branch deploy",
+            self._skipped(
+                "default.a_cube",
+                "branch deploy fills no coverage; `preview: 3 DAYS` fills a sample",
+            ),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_branch_deploy_fills_the_preview(
+        self,
+        orchestrator,
+        session,
+        current_user,
+    ):
+        """A declared preview fills the trailing days of the declared span."""
+        revision, materialization = await self._cube(
+            session,
+            current_user,
+            min_temporal_partition=["20250301"],
+        )
+
+        await self._plan(
+            orchestrator,
+            revision,
+            self._block(
+                preview="3 DAYS",
+                **{"from": date(2024, 1, 1), "to": date(2026, 1, 1)},
+            ),
+            materialization,
+            {materialization.name},
+            branch=True,
+        )
+
+        assert self._queued(orchestrator) == [
+            CoverageBackfill(
+                span=(date(2025, 12, 30), date(2026, 1, 1)),
+                materialization_id=materialization.id,
+                column_name="date_id",
+            ),
+        ]
+        assert orchestrator.deployed_results == []
+
+    @pytest.mark.asyncio
+    async def test_a_preview_is_clamped_to_the_span(
+        self,
+        orchestrator,
+        session,
+        current_user,
+    ):
+        """A preview longer than the declared span fills the whole span."""
+        revision, materialization = await self._cube(
+            session,
+            current_user,
+            min_temporal_partition=["20250301"],
+        )
+
+        await self._plan(
+            orchestrator,
+            revision,
+            self._block(
+                preview="2 WEEKS",
+                **{"from": date(2026, 1, 1), "to": date(2026, 1, 2)},
+            ),
+            materialization,
+            {materialization.name},
+            branch=True,
+        )
+
+        assert self._spans(orchestrator) == [(date(2026, 1, 1), date(2026, 1, 2))]
+
+    @pytest.mark.asyncio
+    async def test_a_preview_is_ignored_on_the_default_branch(
+        self,
+        orchestrator,
+        session,
+        current_user,
+    ):
+        """
+        A duration left in a merged file changes nothing the cube maintains: the
+        default branch fills the whole declared span.
+        """
+        revision, materialization = await self._cube(
+            session,
+            current_user,
+            min_temporal_partition=["20250301"],
+        )
+
+        await self._plan(
+            orchestrator,
+            revision,
+            self._block(
+                preview="3 DAYS",
+                **{"from": date(2024, 1, 1), "to": date(2026, 1, 1)},
+            ),
+            materialization,
+            set(),
+        )
+
+        assert self._spans(orchestrator) == [(date(2024, 1, 1), date(2026, 1, 1))]
+
+    @pytest.mark.asyncio
+    async def test_a_recorded_preview_is_not_asked_twice(
+        self,
+        orchestrator,
+        session,
+        current_user,
+    ):
+        """A second deploy of the same branch asks for the same days again."""
+        revision, materialization = await self._cube(
+            session,
+            current_user,
+            min_temporal_partition=["20250301"],
+        )
+        await record_backfill(
+            session,
+            coverage_backfill(
+                materialization,
+                revision.columns[0],
+                (date(2025, 12, 30), date(2026, 1, 1)),
+            ),
+        )
+
+        await self._plan(
+            orchestrator,
+            revision,
+            self._block(
+                preview="3 DAYS",
+                **{"from": date(2024, 1, 1), "to": date(2026, 1, 1)},
+            ),
+            materialization,
+            {materialization.name},
+            branch=True,
+        )
+
+        assert self._queued(orchestrator) == []
+        assert orchestrator.deployed_results == [
+            self._skipped(
+                "default.a_cube",
+                "backfill from 2025-12-30 was already asked for",
+            ),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_an_uncountable_preview_is_warned_about(
+        self,
+        orchestrator,
+        session,
+        current_user,
+    ):
+        """A preview DJ cannot turn into days fills nothing, and says so."""
+        revision, materialization = await self._cube(
+            session,
+            current_user,
+            min_temporal_partition=["20250301"],
+        )
+
+        await self._plan(
+            orchestrator,
+            revision,
+            self._block(preview="6 MONTHS", **{"from": date(2024, 1, 1)}),
+            materialization,
+            {materialization.name},
+            branch=True,
+        )
+
+        assert self._queued(orchestrator) == []
+        assert orchestrator.deployed_results == []
+        assert orchestrator.warnings == [
+            DJError(
+                code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                message=(
+                    "Cube `default.a_cube`: DJ counts a preview in days or weeks "
+                    "only, so `preview: 6 MONTHS` filled nothing."
+                ),
             ),
         ]
 
@@ -4355,7 +4548,8 @@ class TestPlanCoverageBackfill:
     ):
         """
         A block that declares no span asks for nothing, and neither does a cube
-        with no single temporal partition to run a span over.
+        with no single temporal partition to run a span over. The report tells
+        the two apart.
         """
         revision, materialization = await self._cube(session, current_user)
 
@@ -4382,3 +4576,10 @@ class TestPlanCoverageBackfill:
 
         assert self._queued(orchestrator) == []
         assert orchestrator.warnings == []
+        assert orchestrator.deployed_results == [
+            self._skipped("default.a_cube", "cube declares no `coverage` to fill"),
+            self._skipped(
+                "default.no_axis_cube",
+                "cube has no single time axis to fill",
+            ),
+        ]
