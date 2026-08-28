@@ -198,8 +198,12 @@ describe('DataJunctionAPI', () => {
       undefined,
       null,
       {
-        dimension: 'v3.date.date_id[order]',
-        function: 'last_value',
+        rules: [
+          {
+            dimension: 'v3.date.date_id[order]',
+            fn: 'last_value',
+          },
+        ],
       },
     );
     expect(fetch).toHaveBeenCalledWith(`${DJ_URL}/nodes/metric`, {
@@ -218,9 +222,13 @@ describe('DataJunctionAPI', () => {
         metric_metadata: null,
         required_dimensions: undefined,
         custom_metadata: null,
-        semi_additive: {
-          dimension: 'v3.date.date_id[order]',
-          function: 'last_value',
+        reaggregate: {
+          rules: [
+            {
+              dimension: 'v3.date.date_id[order]',
+              fn: 'last_value',
+            },
+          ],
         },
       }),
       credentials: 'include',
@@ -294,8 +302,12 @@ describe('DataJunctionAPI', () => {
       ['dj'],
       null,
       {
-        dimension: 'v3.date.date_id[order]',
-        function: 'last_value',
+        rules: [
+          {
+            dimension: 'v3.date.date_id[order]',
+            fn: 'last_value',
+          },
+        ],
       },
     );
     expect(fetch).toHaveBeenCalledWith(
@@ -319,9 +331,13 @@ describe('DataJunctionAPI', () => {
           required_dimensions: [],
           owners: ['dj'],
           custom_metadata: null,
-          semi_additive: {
-            dimension: 'v3.date.date_id[order]',
-            function: 'last_value',
+          reaggregate: {
+            rules: [
+              {
+                dimension: 'v3.date.date_id[order]',
+                fn: 'last_value',
+              },
+            ],
           },
         }),
         credentials: 'include',
@@ -1375,9 +1391,10 @@ describe('DataJunctionAPI', () => {
     expect(requestBody.variables).toEqual({
       name: 'default.num_repair_orders',
     });
-    expect(requestBody.query).toContain('semiAdditive');
+    expect(requestBody.query).toContain('reaggregate');
     expect(requestBody.query).toContain('dimension');
-    expect(requestBody.query).toContain('function');
+    expect(requestBody.query).toContain('rules');
+    expect(requestBody.query).toContain('fn');
   });
 
   it('calls notebookExportCube correctly', async () => {
@@ -1998,9 +2015,10 @@ describe('DataJunctionAPI', () => {
     const requestBody = JSON.parse(fetch.mock.calls[0][1].body);
     expect(result).toHaveProperty('name', 'default.node1');
     expect(requestBody.variables).toEqual({ name: 'default.node1' });
-    expect(requestBody.query).toContain('semiAdditive');
+    expect(requestBody.query).toContain('reaggregate');
     expect(requestBody.query).toContain('dimension');
-    expect(requestBody.query).toContain('function');
+    expect(requestBody.query).toContain('rules');
+    expect(requestBody.query).toContain('fn');
   });
 
   it('returns null when getNodeForEditing finds no nodes', async () => {

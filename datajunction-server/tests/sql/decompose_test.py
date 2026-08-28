@@ -15,9 +15,9 @@ from datajunction_server.models.cube_materialization import (
 )
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.models.semiadditive import (
-    SemiAdditiveCollapseFunction,
-    SemiAdditiveSpec,
+from datajunction_server.models.reaggregate import (
+    DimensionReaggregateRule,
+    ReaggregationFunction,
 )
 from datajunction_server.sql import functions as dj_functions
 from datajunction_server.sql.decompose import (
@@ -71,7 +71,7 @@ async def create_metric(session: AsyncSession, current_user, parent_node):
         query: str,
         name: str | None = None,
         parent=None,
-        semi_additive: dict[str, str] | None = None,
+        reaggregate: dict[str, object] | None = None,
     ):
         parent_to_use = parent if parent else parent_node
         metric_name = name or f"test_metric_{len(created_metrics)}"
@@ -91,7 +91,7 @@ async def create_metric(session: AsyncSession, current_user, parent_node):
             name=metric_name,
             type=NodeType.METRIC,
             query=query,
-            semi_additive=semi_additive,
+            reaggregate=reaggregate,
             created_by_id=current_user.id,
         )
         session.add(metric_rev)
@@ -132,24 +132,28 @@ async def test_simple_sum(session: AsyncSession, create_metric):
 
 
 @pytest.mark.asyncio
-async def test_semi_additive_sum_attaches_spec(session: AsyncSession, create_metric):
+async def test_reaggregate_sum_attaches_spec(session: AsyncSession, create_metric):
     """
     Semi-additive declarations attach to the single extracted base measure.
     """
     metric_rev = await create_metric(
         "SELECT SUM(account_balance) FROM parent_node",
-        semi_additive={
-            "dimension": "default.date_dim.date",
-            "function": "last_value",
+        reaggregate={
+            "rules": [
+                {
+                    "dimension": "default.date_dim.date",
+                    "fn": "last_value",
+                },
+            ],
         },
     )
 
     extractor = MetricComponentExtractor(metric_rev.id)
     measures, derived_sql = await extractor.extract(session)
 
-    expected_spec = SemiAdditiveSpec(
+    expected_spec = DimensionReaggregateRule(
         dimension="default.date_dim.date",
-        function=SemiAdditiveCollapseFunction.LAST_VALUE,
+        fn=ReaggregationFunction.LAST_VALUE,
     )
     assert measures == [
         MetricComponent(
@@ -159,7 +163,7 @@ async def test_semi_additive_sum_attaches_spec(session: AsyncSession, create_met
             merge="SUM",
             rule=AggregationRule(
                 type=Aggregability.FULL,
-                semi_additive=expected_spec,
+                reaggregate=expected_spec,
             ),
         ),
     ]
@@ -921,7 +925,7 @@ async def test_unsupported_aggregation_function(session: AsyncSession, create_me
         ),
     ],
 )
-async def test_unsupported_semi_additive_shapes(
+async def test_unsupported_reaggregate_shapes(
     session: AsyncSession,
     create_metric,
     query: str,
@@ -932,9 +936,13 @@ async def test_unsupported_semi_additive_shapes(
     """
     metric_rev = await create_metric(
         query,
-        semi_additive={
-            "dimension": "default.date_dim.date",
-            "function": "last_value",
+        reaggregate={
+            "rules": [
+                {
+                    "dimension": "default.date_dim.date",
+                    "fn": "last_value",
+                },
+            ],
         },
     )
 

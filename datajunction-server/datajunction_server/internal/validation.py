@@ -23,7 +23,7 @@ from datajunction_server.internal.deployment.utils import (
 from datajunction_server.models.base import labelize
 from datajunction_server.models.node import NodeRevisionBase, NodeStatus
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.models.semiadditive import parse_semi_additive_spec
+from datajunction_server.models.reaggregate import parse_reaggregate_spec
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import SqlSyntaxError, parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
@@ -358,27 +358,27 @@ async def validate_node_data(
             parent_columns,
         )
         node_validator.required_dimensions = matched_bound_columns
-        semi_additive_spec = parse_semi_additive_spec(validated_node.semi_additive)
-        invalid_semi_additive_dimensions: set[str] = set()
-        if semi_additive_spec:
+        reaggregate_spec = parse_reaggregate_spec(validated_node.reaggregate)
+        invalid_reaggregate_dimensions: set[str] = set()
+        if reaggregate_spec and reaggregate_spec.rules:
             (
-                invalid_semi_additive_dimensions,
+                invalid_reaggregate_dimensions,
                 _,
             ) = await find_required_dimensions(
                 session,
-                [semi_additive_spec.dimension],
+                [rule.dimension for rule in reaggregate_spec.rules],
                 parent_columns,
             )
     except MissingGreenlet:
         invalid_required_dimensions = set()
-        invalid_semi_additive_dimensions = set()
+        invalid_reaggregate_dimensions = set()
         node_validator.required_dimensions = []
 
     if (
         missing_parents_map
         or type_inference_failures
         or invalid_required_dimensions
-        or invalid_semi_additive_dimensions
+        or invalid_reaggregate_dimensions
     ):
         # update status
         node_validator.status = NodeStatus.INVALID
@@ -428,29 +428,29 @@ async def validate_node_data(
             if invalid_required_dimensions
             else []
         )
-        invalid_semi_additive_dimensions_error = (
+        invalid_reaggregate_dimensions_error = (
             [
                 DJError(
                     code=ErrorCode.INVALID_COLUMN,
                     message=(
                         "Node definition contains references to columns as "
-                        "semi-additive dimensions that are not on parent nodes."
+                        "reaggregate dimensions that are not on parent nodes."
                     ),
                     debug={
-                        "invalid_semi_additive_dimensions": list(
-                            invalid_semi_additive_dimensions,
+                        "invalid_reaggregate_dimensions": list(
+                            invalid_reaggregate_dimensions,
                         ),
                     },
                 ),
             ]
-            if invalid_semi_additive_dimensions
+            if invalid_reaggregate_dimensions
             else []
         )
         errors = (
             missing_parents_error
             + type_inference_error
             + invalid_required_dimensions_error
-            + invalid_semi_additive_dimensions_error
+            + invalid_reaggregate_dimensions_error
         )
         node_validator.errors.extend(errors)
 
@@ -742,15 +742,15 @@ async def validate_node_data_v2(
         parent_columns,
     )
     node_validator.required_dimensions = matched_bound_columns
-    semi_additive_spec = parse_semi_additive_spec(validated_node.semi_additive)
-    invalid_semi_additive_dimensions: set[str] = set()
-    if semi_additive_spec:
+    reaggregate_spec = parse_reaggregate_spec(validated_node.reaggregate)
+    invalid_reaggregate_dimensions: set[str] = set()
+    if reaggregate_spec and reaggregate_spec.rules:
         (
-            invalid_semi_additive_dimensions,
+            invalid_reaggregate_dimensions,
             _,
         ) = await find_required_dimensions(
             session,
-            [semi_additive_spec.dimension],
+            [rule.dimension for rule in reaggregate_spec.rules],
             parent_columns,
         )
 
@@ -759,7 +759,7 @@ async def validate_node_data_v2(
     if (
         node_validator.missing_parents_map
         or invalid_required_dimensions
-        or invalid_semi_additive_dimensions
+        or invalid_reaggregate_dimensions
     ):
         node_validator.status = NodeStatus.INVALID
         if node_validator.missing_parents_map:
@@ -792,17 +792,17 @@ async def validate_node_data_v2(
                     },
                 ),
             )
-        if invalid_semi_additive_dimensions:
+        if invalid_reaggregate_dimensions:
             node_validator.errors.append(
                 DJError(
                     code=ErrorCode.INVALID_COLUMN,
                     message=(
                         "Node definition contains references to columns as "
-                        "semi-additive dimensions that are not on parent nodes."
+                        "reaggregate dimensions that are not on parent nodes."
                     ),
                     debug={
-                        "invalid_semi_additive_dimensions": list(
-                            invalid_semi_additive_dimensions,
+                        "invalid_reaggregate_dimensions": list(
+                            invalid_reaggregate_dimensions,
                         ),
                     },
                 ),

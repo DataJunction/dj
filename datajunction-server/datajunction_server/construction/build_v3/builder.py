@@ -21,7 +21,7 @@ from datajunction_server.construction.build_v3.cube_matcher import (
 )
 from datajunction_server.construction.build_v3.decomposition import (
     decompose_and_group_metrics,
-    missing_semi_additive_dimensions,
+    missing_reaggregate_dimensions,
 )
 from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
 from datajunction_server.construction.build_v3.filters import (
@@ -322,11 +322,11 @@ async def setup_build_context(
     # Add dimensions referenced in metric expressions (e.g., LAG ORDER BY)
     add_dimensions_from_metric_expressions(ctx, ctx.decomposed_metrics)
     output_dimensions_after_expression_scan = list(ctx.dimensions)
-    internal_semi_additive_dimensions = missing_semi_additive_dimensions(
+    internal_reaggregate_dimensions = missing_reaggregate_dimensions(
         ctx.decomposed_metrics.values(),
         output_dimensions_after_expression_scan,
     )
-    for dimension in internal_semi_additive_dimensions:
+    for dimension in internal_reaggregate_dimensions:
         if dimension not in ctx.dimensions:
             ctx.dimensions.append(dimension)
 
@@ -346,7 +346,7 @@ async def setup_build_context(
         if (
             missing_dim_nodes
             or internally_added_roots
-            or internal_semi_additive_dimensions
+            or internal_reaggregate_dimensions
         ):
             await load_nodes(ctx)
     finally:

@@ -794,20 +794,24 @@ class TestRequiredDimensions:
         assert "no_such_col" in err.debug["invalid_required_dimensions"]
 
     @pytest.mark.asyncio
-    async def test_valid_semi_additive_dimension_full_path(
+    async def test_valid_reaggregate_dimension_full_path(
         self,
         session: AsyncSession,
         parent_node: Node,
     ):
-        """semi_additive.dimension full-path column found in dim nodes is valid."""
+        """reaggregate.rules[].dimension full-path column found in dim nodes is valid."""
         dim_node = self._make_dim_node("test.dim", ["dateint"])
         context = self._make_context(session, parent_node)
         spec = MetricSpec(
             name="test.metric",
             query="SELECT SUM(value) FROM test.parent",
-            semi_additive={
-                "dimension": "test.dim.dateint",
-                "function": "last_value",
+            reaggregate={
+                "rules": [
+                    {
+                        "dimension": "test.dim.dateint",
+                        "fn": "last_value",
+                    },
+                ],
             },
         )
         validator = NodeSpecBulkValidator(context)
@@ -819,20 +823,24 @@ class TestRequiredDimensions:
         assert ErrorCode.INVALID_COLUMN not in error_codes
 
     @pytest.mark.asyncio
-    async def test_invalid_semi_additive_dimension_column(
+    async def test_invalid_reaggregate_dimension_column(
         self,
         session: AsyncSession,
         parent_node: Node,
     ):
-        """semi_additive.dimension full-path column absent from dim node is invalid."""
+        """reaggregate.rules[].dimension full-path column absent from dim node is invalid."""
         dim_node = self._make_dim_node("test.dim", ["dateint"])
         context = self._make_context(session, parent_node)
         spec = MetricSpec(
             name="test.metric",
             query="SELECT SUM(value) FROM test.parent",
-            semi_additive={
-                "dimension": "test.dim.nonexistent_col",
-                "function": "last_value",
+            reaggregate={
+                "rules": [
+                    {
+                        "dimension": "test.dim.nonexistent_col",
+                        "fn": "last_value",
+                    },
+                ],
             },
         )
         validator = NodeSpecBulkValidator(context)
@@ -842,9 +850,7 @@ class TestRequiredDimensions:
         assert result.status == NodeStatus.INVALID
         err = next(e for e in result.errors if e.code == ErrorCode.INVALID_COLUMN)
         assert err.debug is not None
-        assert (
-            "test.dim.nonexistent_col" in err.debug["invalid_semi_additive_dimensions"]
-        )
+        assert "test.dim.nonexistent_col" in err.debug["invalid_reaggregate_dimensions"]
 
     @pytest.mark.asyncio
     async def test_no_required_dimensions_is_noop(

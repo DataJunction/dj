@@ -520,9 +520,9 @@ class NodeSpecBulkValidator:
             if req_dim_error is not None:
                 errors.append(req_dim_error)
 
-            semi_additive_error = self._check_semi_additive_dimension(spec)
-            if semi_additive_error is not None:
-                errors.append(semi_additive_error)
+            reaggregate_error = self._check_reaggregate_dimension(spec)
+            if reaggregate_error is not None:
+                errors.append(reaggregate_error)
 
             cross_fact_error = self._check_cross_fact_dimensions(spec)
             if cross_fact_error is not None:
@@ -671,10 +671,12 @@ class NodeSpecBulkValidator:
                 if SEPARATOR in req_dim:
                     dim_node_name = req_dim.rsplit(SEPARATOR, 1)[0]
                     req_dim_node_names.add(dim_node_name)
-            semi_additive = getattr(spec, "rendered_semi_additive", None)
-            if semi_additive and SEPARATOR in semi_additive.dimension:
-                dim_node_name = semi_additive.dimension.rsplit(SEPARATOR, 1)[0]
-                req_dim_node_names.add(dim_node_name)
+            reaggregate = getattr(spec, "rendered_reaggregate", None)
+            if reaggregate:
+                for rule in reaggregate.rules:
+                    if SEPARATOR in rule.dimension:
+                        dim_node_name = rule.dimension.rsplit(SEPARATOR, 1)[0]
+                        req_dim_node_names.add(dim_node_name)
 
         self._all_dim_nodes = dict(self.context.dependency_nodes)
 
@@ -788,12 +790,12 @@ class NodeSpecBulkValidator:
             debug={"invalid_required_dimensions": list(invalid)},
         )
 
-    def _check_semi_additive_dimension(self, spec: NodeSpec) -> DJError | None:
+    def _check_reaggregate_dimension(self, spec: NodeSpec) -> DJError | None:
         """
-        Validate that semi_additive.dimension resolves to a real column.
+        Validate that reaggregate rule dimensions resolve to real columns.
         """
-        semi_additive = getattr(spec, "rendered_semi_additive", None)
-        if not semi_additive:
+        reaggregate = getattr(spec, "rendered_reaggregate", None)
+        if not reaggregate or not reaggregate.rules:
             return None
 
         dep_names = self.context.node_graph.get(spec.rendered_name, [])
@@ -806,7 +808,7 @@ class NodeSpecBulkValidator:
         ]
 
         invalid, _ = _resolve_required_dimensions(
-            [semi_additive.dimension],
+            [rule.dimension for rule in reaggregate.rules],
             parent_columns,
             self._all_dim_nodes,
         )
@@ -818,9 +820,9 @@ class NodeSpecBulkValidator:
             code=ErrorCode.INVALID_COLUMN,
             message=(
                 "Node definition contains references to columns as "
-                "semi-additive dimensions that are not on parent nodes."
+                "reaggregate dimensions that are not on parent nodes."
             ),
-            debug={"invalid_semi_additive_dimensions": list(invalid)},
+            debug={"invalid_reaggregate_dimensions": list(invalid)},
         )
 
     async def _prefetch_metric_dimensions(

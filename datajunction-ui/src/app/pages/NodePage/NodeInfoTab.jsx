@@ -22,8 +22,10 @@ const dimensionNodePath = dimension => {
   return parts.slice(0, -1).join('.');
 };
 
-const semiAdditiveFunctionLabel = func =>
+const reaggregateFunctionLabel = func =>
   func ? labelize(func.toLowerCase()) : null;
+
+const firstReaggregateRule = reaggregate => reaggregate?.rules?.[0];
 
 // interface MetricInfo {
 //   name: string;
@@ -74,7 +76,7 @@ export default function NodeInfoTab({ node }) {
         expression: metric.current.metricMetadata?.expression,
         incompatible_druid_functions:
           metric.current.metricMetadata?.incompatibleDruidFunctions || [],
-        semi_additive: metric.current.semiAdditive,
+        reaggregate: metric.current.reaggregate,
       });
     };
     if (node.type === 'metric') {
@@ -289,22 +291,26 @@ export default function NodeInfoTab({ node }) {
               className="mb-0 opacity-75"
               role="dialog"
               aria-hidden="false"
-              aria-label="SemiAdditive"
+              aria-label="Reaggregate"
             >
-              {metricInfo?.semi_additive ? (
+              {firstReaggregateRule(metricInfo?.reaggregate) ? (
                 <>
-                  {semiAdditiveFunctionLabel(metricInfo.semi_additive.function)}
+                  {reaggregateFunctionLabel(
+                    firstReaggregateRule(metricInfo.reaggregate).fn,
+                  )}
                   {' on '}
-                  {dimensionNodePath(metricInfo.semi_additive.dimension) ? (
+                  {dimensionNodePath(
+                    firstReaggregateRule(metricInfo.reaggregate).dimension,
+                  ) ? (
                     <a
                       href={`/nodes/${dimensionNodePath(
-                        metricInfo.semi_additive.dimension,
+                        firstReaggregateRule(metricInfo.reaggregate).dimension,
                       )}`}
                     >
-                      {metricInfo.semi_additive.dimension}
+                      {firstReaggregateRule(metricInfo.reaggregate).dimension}
                     </a>
                   ) : (
-                    metricInfo.semi_additive.dimension
+                    firstReaggregateRule(metricInfo.reaggregate).dimension
                   )}
                 </>
               ) : (

@@ -63,7 +63,7 @@ async def _make_metric(
     name: str,
     query: str,
     parents: list[Node],
-    semi_additive: dict[str, str] | None = None,
+    reaggregate: dict[str, object] | None = None,
 ) -> Node:
     node = Node(
         name=name,
@@ -77,7 +77,7 @@ async def _make_metric(
         type=NodeType.METRIC,
         version="v1.0",
         query=query,
-        semi_additive=semi_additive,
+        reaggregate=reaggregate,
         status=NodeStatus.VALID,
         parents=parents,
         created_by_id=user.id,
@@ -135,37 +135,40 @@ async def test_frozen_measure_name_collision_with_different_rule_raises(
     src = await _make_source(
         session,
         user,
-        "src_semi_additive_collision",
+        "src_reaggregate_collision",
         [Column(name="semi_amount", type=ct.DoubleType(), order=0)],
     )
-    semi_additive = await _make_metric(
+    reaggregate = await _make_metric(
         session,
         user,
         "m.semi_amount_eod",
-        "SELECT SUM(semi_amount) FROM src_semi_additive_collision",
+        "SELECT SUM(semi_amount) FROM src_reaggregate_collision",
         [src],
-        semi_additive={
-            "dimension": "default.date_dim.date",
-            "function": "last_value",
+        reaggregate={
+            "rules": [
+                {
+                    "dimension": "default.date_dim.date",
+                    "fn": "last_value",
+                },
+            ],
         },
     )
     additive = await _make_metric(
         session,
         user,
         "m.semi_amount_total",
-        "SELECT SUM(semi_amount) FROM src_semi_additive_collision",
+        "SELECT SUM(semi_amount) FROM src_reaggregate_collision",
         [src],
     )
-    await session.refresh(semi_additive, ["current"])
+    await session.refresh(reaggregate, ["current"])
     await session.refresh(additive, ["current"])
 
-    await derive_frozen_measures_bulk(session, [semi_additive.current.id])
+    await derive_frozen_measures_bulk(session, [reaggregate.current.id])
     await session.commit()
 
-    await session.refresh(semi_additive.current, ["frozen_measures"])
+    await session.refresh(reaggregate.current, ["frozen_measures"])
     assert any(
-        fm.rule.semi_additive is not None
-        for fm in semi_additive.current.frozen_measures
+        fm.rule.reaggregate is not None for fm in reaggregate.current.frozen_measures
     )
 
     with pytest.raises(

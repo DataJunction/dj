@@ -131,7 +131,7 @@ from datajunction_server.models.node import (
 )
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import QueryCreate
-from datajunction_server.models.semiadditive import dump_semi_additive_spec
+from datajunction_server.models.reaggregate import dump_reaggregate_spec
 from datajunction_server.models.table_metadata import TableMetadata, TableOwner
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import (
@@ -590,8 +590,8 @@ async def create_node_revision(
         query=data.query,
         mode=data.mode,
         required_dimensions=data.required_dimensions or [],
-        semi_additive=(
-            dump_semi_additive_spec(data.semi_additive)
+        reaggregate=(
+            dump_reaggregate_spec(data.reaggregate)
             if node_type == NodeType.METRIC
             else None
         ),
@@ -1168,7 +1168,7 @@ async def copy_to_new_node(
         table=old_revision.table,
         required_dimensions=list(old_revision.required_dimensions),
         metric_metadata=old_revision.metric_metadata,
-        semi_additive=old_revision.semi_additive,
+        reaggregate=old_revision.reaggregate,
         cube_elements=list(old_revision.cube_elements),
         cube_filters=old_revision.cube_filters,
         status=old_revision.status,
@@ -2546,7 +2546,7 @@ def copy_existing_node_revision(old_revision: NodeRevision, current_user: User):
         status=old_revision.status,
         required_dimensions=list(old_revision.required_dimensions),
         metric_metadata=old_revision.metric_metadata,
-        semi_additive=old_revision.semi_additive,
+        reaggregate=old_revision.reaggregate,
         dimension_links=[
             DimensionLink(
                 dimension_id=link.dimension_id,
@@ -2769,20 +2769,20 @@ async def create_new_revision_from_existing(
         and {col.name for col in old_revision.required_dimensions}
         != set(data.required_dimensions)
     )
-    semi_additive_was_set = bool(
-        data and "semi_additive" in data.model_fields_set,
+    reaggregate_was_set = bool(
+        data and "reaggregate" in data.model_fields_set,
     )
-    semi_additive_changes = (
-        semi_additive_was_set
-        and old_revision.semi_additive
-        != dump_semi_additive_spec(data.semi_additive if data else None)
+    reaggregate_changes = (
+        reaggregate_was_set
+        and old_revision.reaggregate
+        != dump_reaggregate_spec(data.reaggregate if data else None)
     )
     major_changes = (
         query_changes
         or column_changes
         or pk_changes
         or required_dim_changes
-        or semi_additive_changes
+        or reaggregate_changes
     )
 
     # If nothing has changed, do not create the new node revision
@@ -2832,12 +2832,12 @@ async def create_new_revision_from_existing(
             if data and data.metric_metadata
             else old_revision.metric_metadata
         ),
-        semi_additive=(
-            dump_semi_additive_spec(data.semi_additive)
-            if data and data.semi_additive is not None
+        reaggregate=(
+            dump_reaggregate_spec(data.reaggregate)
+            if data and data.reaggregate is not None
             else None
-            if semi_additive_was_set
-            else old_revision.semi_additive
+            if reaggregate_was_set
+            else old_revision.reaggregate
         ),
         dimension_links=[
             DimensionLink(

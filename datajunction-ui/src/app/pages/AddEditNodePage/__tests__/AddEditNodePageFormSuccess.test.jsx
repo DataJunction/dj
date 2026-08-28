@@ -203,10 +203,10 @@ describe('AddEditNodePage submission succeeded', () => {
       );
     });
 
-    const selectSemiAdditiveDimension = getByTestId(
+    const selectReaggregateDimension = getByTestId(
       'select-semi-additive-dimension',
     );
-    fireEvent.keyDown(selectSemiAdditiveDimension.firstChild, {
+    fireEvent.keyDown(selectReaggregateDimension.firstChild, {
       key: 'ArrowDown',
     });
     fireEvent.click(await screen.findByText('v3.date.date_id[order]'));
@@ -236,8 +236,12 @@ describe('AddEditNodePage submission succeeded', () => {
           undefined,
           null,
           {
-            dimension: 'v3.date.date_id[order]',
-            function: 'last_value',
+            rules: [
+              {
+                dimension: 'v3.date.date_id[order]',
+                fn: 'last_value',
+              },
+            ],
           },
         );
       },
@@ -385,9 +389,13 @@ describe('AddEditNodePage submission succeeded', () => {
       ...mocks.mockGetMetricNode,
       current: {
         ...mocks.mockGetMetricNode.current,
-        semiAdditive: {
-          dimension: 'v3.date.date_id[order]',
-          function: 'LAST_VALUE',
+        reaggregate: {
+          rules: [
+            {
+              dimension: 'v3.date.date_id[order]',
+              fn: 'LAST_VALUE',
+            },
+          ],
         },
       },
     });
@@ -440,8 +448,12 @@ describe('AddEditNodePage submission succeeded', () => {
         ['dj'],
         { key1: 'value1', key2: 'value2' },
         {
-          dimension: 'v3.date.date_id[order]',
-          function: 'last_value',
+          rules: [
+            {
+              dimension: 'v3.date.date_id[order]',
+              fn: 'last_value',
+            },
+          ],
         },
       );
     });
@@ -454,9 +466,13 @@ describe('AddEditNodePage submission succeeded', () => {
       ...mocks.mockGetMetricNode,
       current: {
         ...mocks.mockGetMetricNode.current,
-        semiAdditive: {
-          dimension: 'v3.date.date_id[order]',
-          function: 'LAST_VALUE',
+        reaggregate: {
+          rules: [
+            {
+              dimension: 'v3.date.date_id[order]',
+              fn: 'LAST_VALUE',
+            },
+          ],
         },
       },
     });
@@ -491,11 +507,11 @@ describe('AddEditNodePage submission succeeded', () => {
       expect(screen.getByText('v3.date.date_id[order]')).toBeInTheDocument();
     });
 
-    const clearSemiAdditiveDimension = screen
+    const clearReaggregateDimension = screen
       .getByTestId('select-semi-additive-dimension')
-      .querySelector('.SemiAdditiveDimension__clear-indicator');
-    expect(clearSemiAdditiveDimension).toBeInTheDocument();
-    fireEvent.mouseDown(clearSemiAdditiveDimension, { button: 0 });
+      .querySelector('.ReaggregateDimension__clear-indicator');
+    expect(clearReaggregateDimension).toBeInTheDocument();
+    fireEvent.mouseDown(clearReaggregateDimension, { button: 0 });
     fireEvent.change(screen.getByLabelText('Semi-Additive Type'), {
       target: { value: '' },
     });

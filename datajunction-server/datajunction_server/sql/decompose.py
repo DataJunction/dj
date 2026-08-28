@@ -17,9 +17,10 @@ from datajunction_server.models.decompose import (
     MetricComponent,
 )
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.models.semiadditive import (
-    SemiAdditiveSpec,
-    parse_semi_additive_spec,
+from datajunction_server.models.reaggregate import (
+    ReaggregateSpec,
+    dimension_reaggregate_rules,
+    parse_reaggregate_spec,
 )
 from datajunction_server.naming import amenable_col_names
 from datajunction_server.sql import functions as dj_functions
@@ -751,7 +752,7 @@ class BaseMetricData:
 
     name: str
     query: str
-    semi_additive: SemiAdditiveSpec | dict | None = None
+    reaggregate: ReaggregateSpec | dict | None = None
 
 
 @dataclass
@@ -938,7 +939,7 @@ class MetricComponentExtractor:
                 base_ast = parse(base_metric.query)
                 base_components, derived_ast = self._extract_base(
                     base_ast,
-                    parse_semi_additive_spec(base_metric.semi_additive),
+                    parse_reaggregate_spec(base_metric.reaggregate),
                 )
 
             for comp in base_components:
@@ -993,10 +994,10 @@ class MetricComponentExtractor:
         ]
 
         if metric_parents:
-            if metric_node.current.semi_additive:
+            if metric_node.current.reaggregate:
                 raise DJInvalidInputException(
                     "Semi-additive metrics must be base metrics in V1. "
-                    f"Derived metric `{metric_node.name}` declares semi_additive.",
+                    f"Derived metric `{metric_node.name}` declares reaggregate.",
                 )
 
             # Derived metric - base metrics are the parent metrics
@@ -1007,7 +1008,7 @@ class MetricComponentExtractor:
                     BaseMetricData(
                         name=parent_name,
                         query=nodes_cache[parent_name].current.query,
-                        semi_additive=nodes_cache[parent_name].current.semi_additive,
+                        reaggregate=nodes_cache[parent_name].current.reaggregate,
                     )
                     for parent_name in metric_parents
                     if nodes_cache[parent_name].current
@@ -1023,7 +1024,7 @@ class MetricComponentExtractor:
                     BaseMetricData(
                         name=metric_node.name,
                         query=metric_node.current.query,
-                        semi_additive=metric_node.current.semi_additive,
+                        reaggregate=metric_node.current.reaggregate,
                     ),
                 ],
             )
@@ -1040,7 +1041,7 @@ class MetricComponentExtractor:
             select(
                 Node.name.label("parent_name"),
                 NodeRevision.query.label("parent_query"),
-                NodeRevision.semi_additive.label("parent_semi_additive"),
+                NodeRevision.reaggregate.label("parent_reaggregate"),
             )
             .select_from(NodeRelationship)
             .join(Node, NodeRelationship.parent_id == Node.id)
@@ -1061,7 +1062,7 @@ class MetricComponentExtractor:
         this_metric_stmt = (
             select(
                 NodeRevision.query,
-                NodeRevision.semi_additive,
+                NodeRevision.reaggregate,
                 Node.name,
             )
             .join(Node, NodeRevision.node_id == Node.id)
@@ -1074,10 +1075,10 @@ class MetricComponentExtractor:
         this_row = this_result.one()
 
         if parent_rows:
-            if this_row.semi_additive:
+            if this_row.reaggregate:
                 raise DJInvalidInputException(
                     "Semi-additive metrics must be base metrics in V1. "
-                    f"Derived metric `{this_row.name}` declares semi_additive.",
+                    f"Derived metric `{this_row.name}` declares reaggregate.",
                 )
 
             # Derived metric - base metrics are the parents
@@ -1088,7 +1089,7 @@ class MetricComponentExtractor:
                     BaseMetricData(
                         name=row.parent_name,
                         query=row.parent_query,
-                        semi_additive=row.parent_semi_additive,
+                        reaggregate=row.parent_reaggregate,
                     )
                     for row in parent_rows
                 ],
@@ -1102,7 +1103,7 @@ class MetricComponentExtractor:
                     BaseMetricData(
                         name=this_row.name,
                         query=this_row.query,
-                        semi_additive=this_row.semi_additive,
+                        reaggregate=this_row.reaggregate,
                     ),
                 ],
             )
@@ -1110,7 +1111,7 @@ class MetricComponentExtractor:
     def _extract_base(
         self,
         query_ast: ast.Query,
-        semi_additive: SemiAdditiveSpec | None = None,
+        reaggregate: ReaggregateSpec | None = None,
     ) -> tuple[list[MetricComponent], ast.Query]:
         """
         Extract components from a base metric by decomposing aggregations.
@@ -1142,9 +1143,10 @@ class MetricComponentExtractor:
             # If any aggregation is non-decomposable, abort decomposition
             # entirely — the metric is non-decomposable as a whole.
             if any(get_decomposition(dj_fn) is None for _, dj_fn in agg_funcs):
-                if semi_additive:
-                    self._raise_unsupported_semi_additive_shape(
-                        "semi-additive metrics must use a decomposable aggregation",
+                if dimension_reaggregate_rules(reaggregate):
+                    self._raise_unsupported_reaggregate_shape(
+                        "dimension-specific reaggregation requires a "
+                        "decomposable aggregation",
                     )
                 return [], query_ast
 
@@ -1168,22 +1170,28 @@ class MetricComponentExtractor:
             for proj in query_ast.select.projection:
                 wrap_divisions_in_nullif(cast(ast.Expression, proj))
 
-        if semi_additive:
-            self._attach_semi_additive_spec(components, semi_additive)
+        if reaggregate is not None and dimension_reaggregate_rules(reaggregate):
+            self._attach_reaggregate_spec(components, reaggregate)
 
         return components, query_ast
 
-    def _attach_semi_additive_spec(
+    def _attach_reaggregate_spec(
         self,
         components: list[MetricComponent],
-        semi_additive: SemiAdditiveSpec,
+        reaggregate: ReaggregateSpec,
     ) -> None:
         """
-        Attach a semi-additive declaration to a single ordinary measure component.
+        Attach a dimension-specific reaggregation rule to one ordinary measure.
         """
+        dimension_rules = dimension_reaggregate_rules(reaggregate)
+        if len(dimension_rules) != 1:
+            self._raise_unsupported_reaggregate_shape(
+                "dimension-specific reaggregation requires exactly one rule",
+            )
+
         if len(components) != 1:
-            self._raise_unsupported_semi_additive_shape(
-                "semi-additive metrics must decompose to exactly one component",
+            self._raise_unsupported_reaggregate_shape(
+                "dimension-specific reaggregation requires exactly one component",
             )
 
         component = components[0]
@@ -1192,17 +1200,17 @@ class MetricComponentExtractor:
             or component.aggregation is None
             or component.merge is None
         ):
-            self._raise_unsupported_semi_additive_shape(
-                "semi-additive metrics must decompose to one non-distinct "
+            self._raise_unsupported_reaggregate_shape(
+                "dimension-specific reaggregation requires one non-distinct "
                 "fully-aggregatable component",
             )
 
-        component.rule.semi_additive = semi_additive
+        component.rule.reaggregate = dimension_rules[0]
 
     @staticmethod
-    def _raise_unsupported_semi_additive_shape(reason: str) -> None:
+    def _raise_unsupported_reaggregate_shape(reason: str) -> None:
         raise DJInvalidInputException(
-            f"Unsupported semi-additive metric shape: {reason}.",
+            f"Unsupported reaggregate metric shape: {reason}.",
         )
 
     def _substitute_metric_references(

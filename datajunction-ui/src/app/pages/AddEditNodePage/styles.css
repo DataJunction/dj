@@ -139,11 +139,11 @@
   margin: 0 !important;
 }
 
-.node-builder .SemiAdditiveFields {
+.node-builder .ReaggregateFields {
   gap: 12px;
 }
 
-.node-builder .SemiAdditiveFields > * {
+.node-builder .ReaggregateFields > * {
   flex: 1;
   min-width: 0;
   margin: 0 !important;

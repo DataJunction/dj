@@ -65,7 +65,7 @@ def get_required_measure_identities(
     }
 
 
-def required_semi_additive_grain(
+def required_reaggregate_grain(
     ctx: BuildContext,
     node_rev_id: int,
     grain_group: GrainGroup,
@@ -73,14 +73,14 @@ def required_semi_additive_grain(
     """
     Protected dimensions a pre-agg must retain for final semi-additive collapse.
 
-    ``semi_additive_component_dimensions`` is populated only when the requested
+    ``reaggregate_component_dimensions`` is populated only when the requested
     output grain omitted the protected dimension. In that case a pre-agg at the
     output grain would have already collapsed away the key needed by MAX_BY /
     MIN_BY / min / max in the metrics layer, so it is not substitutable.
     """
     return {
         canonical_dimension_ref(ctx, node_rev_id, dimension_ref)
-        for dimension_ref in grain_group.semi_additive_component_dimensions.values()
+        for dimension_ref in grain_group.reaggregate_component_dimensions.values()
     }
 
 
@@ -275,7 +275,7 @@ def find_matching_preagg(
     if not required_measures:
         return None
 
-    semi_additive_grain = required_semi_additive_grain(
+    reaggregate_grain = required_reaggregate_grain(
         ctx,
         node_rev_id,
         grain_group,
@@ -307,11 +307,11 @@ def find_matching_preagg(
             for ref in (preagg.grain_columns or [])
         }
 
-        if not semi_additive_grain.issubset(preagg_grain_set):
+        if not reaggregate_grain.issubset(preagg_grain_set):
             logger.debug(
                 f"[BuildV3] Pre-agg {preagg.id} grain {preagg_grain_set} "
                 f"doesn't retain semi-additive protected grain "
-                f"{semi_additive_grain}",
+                f"{reaggregate_grain}",
             )
             continue
 

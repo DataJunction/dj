@@ -318,7 +318,7 @@ class GrainGroupSQL:
 
     # Active semi-additive components that need collapse in the metrics layer.
     # Maps component.name -> protected dimension column alias emitted by this CTE.
-    semi_additive_dimension_aliases: dict[str, str] = field(default_factory=dict)
+    reaggregate_dimension_aliases: dict[str, str] = field(default_factory=dict)
 
     # Merge tracking: when True, aggregations happen in final SELECT, not in CTE
     is_merged: bool = False
@@ -749,7 +749,7 @@ class GrainGroup:
 
     # Active semi-additive components that require an internal protected dimension
     # in this grain group. Maps component.name -> protected dimension ref.
-    semi_additive_component_dimensions: dict[str, str] = field(default_factory=dict)
+    reaggregate_component_dimensions: dict[str, str] = field(default_factory=dict)
 
     # Non-decomposable metrics that couldn't be broken into components
     # These need their raw metric expression applied in the final SELECT

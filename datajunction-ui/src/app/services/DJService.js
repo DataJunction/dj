@@ -520,9 +520,13 @@ export const DataJunctionAPI = {
             requiredDimensions {
               name
             }
-            semiAdditive {
-              dimension
-              function
+            reaggregate {
+              fn
+              weight
+              rules {
+                dimension
+                fn
+              }
             }
             mode
             customMetadata
@@ -612,9 +616,13 @@ export const DataJunctionAPI = {
             requiredDimensions {
               name
             }
-            semiAdditive {
-              dimension
-              function
+            reaggregate {
+              fn
+              weight
+              rules {
+                dimension
+                fn
+              }
             }
           }
         }
@@ -755,7 +763,7 @@ export const DataJunctionAPI = {
     metric_unit,
     required_dimensions,
     custom_metadata,
-    semi_additive,
+    reaggregate,
   ) {
     const metricMetadata =
       metric_direction || metric_unit
@@ -776,7 +784,7 @@ export const DataJunctionAPI = {
       metric_metadata: metricMetadata,
       required_dimensions: required_dimensions,
       custom_metadata: custom_metadata,
-      semi_additive: semi_additive,
+      reaggregate: reaggregate,
     };
     // Remove undefined fields to avoid sending them to the API
     Object.keys(requestBody).forEach(
@@ -807,7 +815,7 @@ export const DataJunctionAPI = {
     required_dimensions,
     owners,
     custom_metadata,
-    semi_additive,
+    reaggregate,
   ) {
     try {
       const metricMetadata =
@@ -829,7 +837,7 @@ export const DataJunctionAPI = {
         required_dimensions: required_dimensions,
         owners: owners,
         custom_metadata: custom_metadata,
-        semi_additive: semi_additive,
+        reaggregate: reaggregate,
       };
       // Remove undefined fields to avoid sending them to the API
       Object.keys(requestBody).forEach(

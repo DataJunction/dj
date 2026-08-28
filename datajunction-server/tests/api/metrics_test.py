@@ -469,6 +469,7 @@ async def test_read_metrics(module__client_with_roads: AsyncClient) -> None:
             "merge": "SUM",
             "rule": {
                 "level": None,
+                "reaggregate": None,
                 "type": "full",
             },
         },
@@ -480,6 +481,7 @@ async def test_read_metrics(module__client_with_roads: AsyncClient) -> None:
             "name": "count_c8e42e74",
             "rule": {
                 "level": None,
+                "reaggregate": None,
                 "type": "full",
             },
         },
@@ -496,13 +498,13 @@ async def test_read_metrics(module__client_with_roads: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_metric_semi_additive_roundtrip_and_validation(
+async def test_metric_reaggregate_roundtrip_and_validation(
     client_with_roads: AsyncClient,
 ) -> None:
     """
     Semi-additive declarations round-trip and validate their protected dimension.
     """
-    metric_name = f"default.semi_additive_repairs_{uuid4().hex}"
+    metric_name = f"default.reaggregate_repairs_{uuid4().hex}"
     response = await client_with_roads.post(
         "/nodes/metric/",
         json={
@@ -510,33 +512,55 @@ async def test_metric_semi_additive_roundtrip_and_validation(
             "description": "Repair orders with semi-additive declaration",
             "query": "SELECT COUNT(repair_order_id) FROM default.repair_orders_fact",
             "mode": "published",
-            "semi_additive": {
-                "dimension": "repair_order_id",
-                "function": "last_value",
+            "reaggregate": {
+                "rules": [
+                    {
+                        "dimension": "repair_order_id",
+                        "fn": "last_value",
+                    },
+                ],
             },
         },
     )
     assert response.status_code in (200, 201), response.json()
-    assert response.json()["semi_additive"] == {
-        "dimension": "repair_order_id",
-        "function": "last_value",
+    assert response.json()["reaggregate"] == {
+        "fn": None,
+        "weight": None,
+        "rules": [
+            {
+                "dimension": "repair_order_id",
+                "fn": "last_value",
+            },
+        ],
     }
 
     response = await client_with_roads.get(f"/nodes/{metric_name}/")
     assert response.status_code == 200
-    assert response.json()["semi_additive"] == {
-        "dimension": "repair_order_id",
-        "function": "last_value",
+    assert response.json()["reaggregate"] == {
+        "fn": None,
+        "weight": None,
+        "rules": [
+            {
+                "dimension": "repair_order_id",
+                "fn": "last_value",
+            },
+        ],
     }
 
     response = await client_with_roads.get(f"/metrics/{metric_name}/")
     assert response.status_code == 200
-    assert response.json()["semi_additive"] == {
-        "dimension": "repair_order_id",
-        "function": "last_value",
+    assert response.json()["reaggregate"] == {
+        "fn": None,
+        "weight": None,
+        "rules": [
+            {
+                "dimension": "repair_order_id",
+                "fn": "last_value",
+            },
+        ],
     }
 
-    invalid_metric_name = f"default.invalid_semi_additive_{uuid4().hex}"
+    invalid_metric_name = f"default.invalid_reaggregate_{uuid4().hex}"
     response = await client_with_roads.post(
         "/nodes/metric/",
         json={
@@ -544,23 +568,27 @@ async def test_metric_semi_additive_roundtrip_and_validation(
             "description": "Invalid semi-additive declaration",
             "query": "SELECT COUNT(repair_order_id) FROM default.repair_orders_fact",
             "mode": "published",
-            "semi_additive": {
-                "dimension": "default.repair_orders_fact.nope",
-                "function": "last_value",
+            "reaggregate": {
+                "rules": [
+                    {
+                        "dimension": "default.repair_orders_fact.nope",
+                        "fn": "last_value",
+                    },
+                ],
             },
         },
     )
     assert response.status_code == 422
     assert response.json() == {
-        "message": "Node definition contains references to "
-        "columns as semi-additive dimensions that are not on parent nodes.",
+        "message": "Node definition contains references to columns as "
+        "reaggregate dimensions that are not on parent nodes.",
         "errors": [
             {
                 "code": "INVALID_COLUMN",
-                "message": "Node definition contains references to columns "
-                "as semi-additive dimensions that are not on parent nodes.",
+                "message": "Node definition contains references to columns as "
+                "reaggregate dimensions that are not on parent nodes.",
                 "debug": {
-                    "invalid_semi_additive_dimensions": [
+                    "invalid_reaggregate_dimensions": [
                         "default.repair_orders_fact.nope",
                     ],
                 },

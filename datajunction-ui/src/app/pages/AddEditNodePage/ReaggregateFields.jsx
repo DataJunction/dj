@@ -9,10 +9,10 @@ import { FormikSelect } from './FormikSelect';
 
 const SEMI_ADDITIVE_FUNCTIONS = ['last_value', 'first_value', 'min', 'max'];
 
-export const SemiAdditiveFields = () => {
+export const ReaggregateFields = () => {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const { values } = useFormikContext();
-  const [dimensionField] = useField('semi_additive_dimension');
+  const [dimensionField] = useField('reaggregate_dimension');
   const [dimensionOptions, setDimensionOptions] = useState([]);
 
   useEffect(() => {
@@ -46,16 +46,16 @@ export const SemiAdditiveFields = () => {
   }, [dimensionField.value, dimensionOptions]);
 
   return (
-    <div className="SemiAdditiveFields node-row">
+    <div className="ReaggregateFields node-row">
       <div className="NodeCreationInput">
-        <ErrorMessage name="semi_additive_dimension" component="span" />
-        <label htmlFor="semi_additive_dimension">Semi-Additive Dimension</label>
+        <ErrorMessage name="reaggregate_dimension" component="span" />
+        <label htmlFor="reaggregate_dimension">Semi-Additive Dimension</label>
         <span data-testid="select-semi-additive-dimension">
           <FormikSelect
             className=""
-            classNamePrefix="SemiAdditiveDimension"
+            classNamePrefix="ReaggregateDimension"
             selectOptions={selectOptions}
-            formikFieldName="semi_additive_dimension"
+            formikFieldName="reaggregate_dimension"
             placeholder="Choose Semi-Additive Dimension"
             isMulti={false}
             isClearable={true}
@@ -63,12 +63,12 @@ export const SemiAdditiveFields = () => {
         </span>
       </div>
       <div className="NodeCreationInput NodeModeInput">
-        <ErrorMessage name="semi_additive_function" component="span" />
-        <label htmlFor="SemiAdditiveFunction">Semi-Additive Type</label>
+        <ErrorMessage name="reaggregate_function" component="span" />
+        <label htmlFor="ReaggregateFunction">Semi-Additive Type</label>
         <Field
           as="select"
-          name="semi_additive_function"
-          id="SemiAdditiveFunction"
+          name="reaggregate_function"
+          id="ReaggregateFunction"
         >
           <option value=""></option>
           {SEMI_ADDITIVE_FUNCTIONS.map(func => (

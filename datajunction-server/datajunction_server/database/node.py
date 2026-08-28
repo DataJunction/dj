@@ -88,7 +88,7 @@ from datajunction_server.internal.custom_metadata import custom_metadata_clause
 from datajunction_server.models.custom_metadata import CustomMetadataFilter
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionType
-from datajunction_server.models.semiadditive import parse_semi_additive_spec
+from datajunction_server.models.reaggregate import parse_reaggregate_spec
 from datajunction_server.models.unit import (
     AtomicUnit,
     CompoundUnit,
@@ -679,7 +679,7 @@ class Node(Base):
                 )
             extra_kwargs.update(
                 required_dimensions=required_dimensions_spec,
-                semi_additive=parse_semi_additive_spec(self.current.semi_additive),
+                reaggregate=parse_reaggregate_spec(self.current.reaggregate),
                 direction=self.current.metric_metadata.direction
                 if self.current.metric_metadata
                 else None,
@@ -1723,9 +1723,9 @@ class NodeRevision(
         uselist=False,
     )
 
-    # Declares that a metric must collapse, rather than sum, across a dimension.
+    # Declares how a metric should roll up across dimensions.
     # Stored as JSON here and validated at the API/deployment boundaries.
-    semi_additive: Mapped[dict[str, Any] | None] = mapped_column(
+    reaggregate: Mapped[dict[str, Any] | None] = mapped_column(
         JSON,
         nullable=True,
         default=None,
@@ -2077,10 +2077,10 @@ class NodeRevision(
                 "bound dimensions which are only for metrics.",
             )
 
-        if self.type != NodeType.METRIC and self.semi_additive:
+        if self.type != NodeType.METRIC and self.reaggregate:
             raise DJInvalidInputException(
                 f"Node {self.name} of type {self.type} cannot have "
-                "semi-additive settings which are only for metrics.",
+                "reaggregate settings which are only for metrics.",
             )
 
         if self.type == NodeType.METRIC:

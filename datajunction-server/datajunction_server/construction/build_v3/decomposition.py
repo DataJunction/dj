@@ -341,7 +341,7 @@ def _dimension_ref_column(ref: str) -> str:
     return _dimension_ref_base(ref).rsplit(SEPARATOR, 1)[-1]
 
 
-def _semi_additive_dimension_requested(
+def _reaggregate_dimension_requested(
     protected_dimension: str,
     requested_dimensions: list[str],
 ) -> bool:
@@ -370,7 +370,7 @@ def _semi_additive_dimension_requested(
     return False
 
 
-def missing_semi_additive_dimensions(
+def missing_reaggregate_dimensions(
     decomposed_metrics: Iterable[DecomposedMetricInfo],
     requested_dimensions: list[str],
 ) -> list[str]:
@@ -380,11 +380,11 @@ def missing_semi_additive_dimensions(
     missing: list[str] = []
     for decomposed in decomposed_metrics:
         for component in decomposed.components:
-            if not component.rule.semi_additive:
+            if not component.rule.reaggregate:
                 continue
-            dimension = component.rule.semi_additive.dimension
+            dimension = component.rule.reaggregate.dimension
             if (
-                not _semi_additive_dimension_requested(
+                not _reaggregate_dimension_requested(
                     dimension,
                     requested_dimensions,
                 )
@@ -426,7 +426,7 @@ def analyze_grain_groups(
         tuple[Aggregability, tuple[str, ...], tuple[str, ...]],
         list[tuple[Node, MetricComponent]],
     ] = {}
-    semi_additive_component_dimensions: dict[
+    reaggregate_component_dimensions: dict[
         tuple[Aggregability, tuple[str, ...], tuple[str, ...]],
         dict[str, str],
     ] = {}
@@ -446,19 +446,19 @@ def analyze_grain_groups(
 
             # Explicitly type the key to satisfy mypy
             key: tuple[Aggregability, tuple[str, ...], tuple[str, ...]]
-            semi_additive_dimension = (
-                component.rule.semi_additive.dimension
+            reaggregate_dimension = (
+                component.rule.reaggregate.dimension
                 if (
-                    component.rule.semi_additive
-                    and not _semi_additive_dimension_requested(
-                        component.rule.semi_additive.dimension,
+                    component.rule.reaggregate
+                    and not _reaggregate_dimension_requested(
+                        component.rule.reaggregate.dimension,
                         requested_dimensions,
                     )
                 )
                 else None
             )
             internal_dimensions = (
-                (semi_additive_dimension,) if semi_additive_dimension else ()
+                (reaggregate_dimension,) if reaggregate_dimension else ()
             )
             if agg_type == Aggregability.FULL:
                 # FULL: no additional grain columns needed, unless a semi-additive
@@ -480,10 +480,10 @@ def analyze_grain_groups(
             if key not in grain_buckets:
                 grain_buckets[key] = []
             grain_buckets[key].append((decomposed.metric_node, component))
-            if semi_additive_dimension:
-                semi_additive_component_dimensions.setdefault(key, {})[
-                    component.name
-                ] = semi_additive_dimension
+            if reaggregate_dimension:
+                reaggregate_component_dimensions.setdefault(key, {})[component.name] = (
+                    reaggregate_dimension
+                )
 
     # Convert buckets to GrainGroup objects
     grain_groups = []
@@ -509,7 +509,7 @@ def analyze_grain_groups(
                 grain_columns=list(grain_cols),
                 components=components,
                 grain_col_aliases=grain_col_aliases,
-                semi_additive_component_dimensions=semi_additive_component_dimensions.get(
+                reaggregate_component_dimensions=reaggregate_component_dimensions.get(
                     bucket_key,
                     {},
                 ),
@@ -621,15 +621,15 @@ def _merge_parent_grain_groups(groups: list[GrainGroup]) -> GrainGroup:
     # Collect all components and track their original aggregabilities
     all_components: list[tuple[Node, MetricComponent]] = []
     component_aggregabilities: dict[str, Aggregability] = {}
-    semi_additive_component_dimensions: dict[str, str] = {}
+    reaggregate_component_dimensions: dict[str, str] = {}
 
     for gg in groups:
         for metric_node, component in gg.components:
             all_components.append((metric_node, component))
             # Track original aggregability for each component
             component_aggregabilities[component.name] = gg.aggregability
-        semi_additive_component_dimensions.update(
-            gg.semi_additive_component_dimensions,
+        reaggregate_component_dimensions.update(
+            gg.reaggregate_component_dimensions,
         )
 
     # Carry over non-decomposable metrics from every contributing group.
@@ -664,6 +664,6 @@ def _merge_parent_grain_groups(groups: list[GrainGroup]) -> GrainGroup:
         is_merged=True,
         component_aggregabilities=component_aggregabilities,
         grain_col_aliases=merged_grain_col_aliases,
-        semi_additive_component_dimensions=semi_additive_component_dimensions,
+        reaggregate_component_dimensions=reaggregate_component_dimensions,
         non_decomposable_metrics=all_non_decomposable,
     )
