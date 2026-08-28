@@ -11,7 +11,10 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from datajunction_server.api.namespaces import provision_node_namespace
+from datajunction_server.api.namespaces import (
+    hard_delete_node_namespace,
+    provision_node_namespace,
+)
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.user import OAuthProvider, PrincipalKind, User
 from datajunction_server.internal.access.authentication.tokens import create_token
@@ -97,6 +100,49 @@ async def test_provision_namespace_boundary(
         mocker.call(ResourceType.NODE, "api_governed.*", ResourceAction.MANAGE),
     ]
     access_checker.check.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    ("is_governed_boundary", "expected_action"),
+    [
+        (True, ResourceAction.MANAGE),
+        (False, ResourceAction.DELETE),
+    ],
+)
+async def test_hard_delete_boundary_uses_policy_lifecycle_action(
+    is_governed_boundary,
+    expected_action,
+    mocker,
+):
+    mocker.patch.object(
+        NodeNamespace,
+        "get",
+        new=mocker.AsyncMock(
+            return_value=mocker.Mock(
+                is_governed_boundary=is_governed_boundary,
+            ),
+        ),
+    )
+    access_checker = mocker.MagicMock()
+    access_checker.check = mocker.AsyncMock(
+        side_effect=RuntimeError("stop after authorization"),
+    )
+
+    with pytest.raises(RuntimeError, match="stop after authorization"):
+        await hard_delete_node_namespace(
+            "policy_boundary",
+            session=mocker.MagicMock(),
+            current_user=mocker.MagicMock(),
+            save_history=mocker.AsyncMock(),
+            access_checker=access_checker,
+            query_service_client=mocker.MagicMock(),
+            request=mocker.MagicMock(),
+        )
+
+    access_checker.add_namespace.assert_called_once_with(
+        "policy_boundary",
+        expected_action,
+    )
 
 
 async def test_provisioned_boundary_enforces_rbac_without_restrictive_config(
@@ -195,6 +241,8 @@ async def test_provisioned_boundary_enforces_rbac_without_restrictive_config(
     assert response.status_code == HTTPStatus.CREATED
 
     client.headers["Authorization"] = f"Bearer {deployer_token}"
+    response = await client.delete("/namespaces/example.metrics/hard/")
+    assert response.status_code == HTTPStatus.FORBIDDEN
     response = await client.post("/namespaces/example.metrics.deployed/")
     assert response.status_code == HTTPStatus.CREATED
 

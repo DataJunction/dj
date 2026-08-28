@@ -492,19 +492,26 @@ async def hard_delete_node_namespace(
     is set to true. If cascade is set to false, we'll raise an error. This should be used
     with caution, as the impact may be large.
     """
-    access_checker.add_namespace(namespace, ResourceAction.DELETE)
-    await access_checker.check(on_denied=AccessDenialMode.RAISE)
-
-    # Only apply the default-branch guard when the namespace exists. Git config
-    # is inherited from ancestors, so a missing namespace under a git-backed root
-    # still resolves is_default_branch=True (no branch -> treated as default) and
-    # would wrongly 422 instead of falling through to the 404 path below.
     namespace_exists = await NodeNamespace.get(
         session,
         namespace,
         raise_if_not_exists=False,
     )
 
+    # Hard-deleting a boundary removes its enforcement policy. Treat that
+    # lifecycle change as MANAGE while descendants remain DELETE operations.
+    action = (
+        ResourceAction.MANAGE
+        if namespace_exists and namespace_exists.is_governed_boundary
+        else ResourceAction.DELETE
+    )
+    access_checker.add_namespace(namespace, action)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
+    # Only apply the default-branch guard when the namespace exists. Git config
+    # is inherited from ancestors, so a missing namespace under a git-backed root
+    # still resolves is_default_branch=True (no branch -> treated as default) and
+    # would wrongly 422 instead of falling through to the 404 path below.
     git_info = await get_git_info_for_namespace(session, namespace)
     if (
         namespace_exists
