@@ -15,10 +15,10 @@ from httpx import AsyncClient
 from tests.construction.build_v3 import assert_sql_equal
 
 
-@pytest_asyncio.fixture
-async def client_with_edge_shapes(client_with_build_v3: AsyncClient):
+@pytest_asyncio.fixture(scope="module")
+async def client_with_edge_shapes(module__client_with_build_v3: AsyncClient):
     """Adds transforms with unusual query shapes + metrics on top of them."""
-    r1 = await client_with_build_v3.post(
+    r1 = await module__client_with_build_v3.post(
         "/nodes/transform/",
         json={
             "name": "v3.orders_via_derived_table",
@@ -37,7 +37,7 @@ async def client_with_edge_shapes(client_with_build_v3: AsyncClient):
     )
     assert r1.status_code == 201, r1.json()
 
-    r2 = await client_with_build_v3.post(
+    r2 = await module__client_with_build_v3.post(
         "/nodes/transform/",
         json={
             "name": "v3.orders_ranked",
@@ -59,7 +59,7 @@ async def client_with_edge_shapes(client_with_build_v3: AsyncClient):
     )
     assert r2.status_code == 201, r2.json()
 
-    r3 = await client_with_build_v3.post(
+    r3 = await module__client_with_build_v3.post(
         "/nodes/transform/",
         json={
             "name": "v3.orders_self_joined",
@@ -89,12 +89,12 @@ async def client_with_edge_shapes(client_with_build_v3: AsyncClient):
         ("v3.ranked_count", "SELECT COUNT(*) FROM v3.orders_ranked"),
         ("v3.self_join_count", "SELECT COUNT(*) FROM v3.orders_self_joined"),
     ]:
-        r = await client_with_build_v3.post(
+        r = await module__client_with_build_v3.post(
             "/nodes/metric/",
             json={"name": name, "query": query, "mode": "published"},
         )
         assert r.status_code == 201, r.json()
-    return client_with_build_v3
+    return module__client_with_build_v3
 
 
 class TestTransformQueryShapes:
