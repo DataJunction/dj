@@ -379,9 +379,13 @@ class TestMetricsSQLBasic:
                 "description": "Semi-additive balance measured by order date",
                 "query": "SELECT SUM(line_total) FROM v3.order_details",
                 "mode": "published",
-                "semi_additive": {
-                    "dimension": "v3.date.date_id[order]",
-                    "function": "last_value",
+                "reaggregate": {
+                    "rules": [
+                        {
+                            "dimension": "v3.date.date_id[order]",
+                            "fn": "last_value",
+                        },
+                    ],
                 },
             },
         )
@@ -396,9 +400,13 @@ class TestMetricsSQLBasic:
                 "description": "Semi-additive balance measured by first order date",
                 "query": "SELECT SUM(line_total) FROM v3.order_details",
                 "mode": "published",
-                "semi_additive": {
-                    "dimension": "v3.date.date_id[order]",
-                    "function": "first_value",
+                "reaggregate": {
+                    "rules": [
+                        {
+                            "dimension": "v3.date.date_id[order]",
+                            "fn": "first_value",
+                        },
+                    ],
                 },
             },
         )
@@ -448,9 +456,13 @@ class TestMetricsSQLBasic:
                 "description": "Semi-additive balance protected by product",
                 "query": "SELECT SUM(line_total) FROM v3.order_details",
                 "mode": "published",
-                "semi_additive": {
-                    "dimension": "v3.product.product_id",
-                    "function": "last_value",
+                "reaggregate": {
+                    "rules": [
+                        {
+                            "dimension": "v3.product.product_id",
+                            "fn": "last_value",
+                        },
+                    ],
                 },
             },
         )
@@ -492,7 +504,7 @@ class TestMetricsSQLBasic:
         assert response.status_code in (200, 201), response.json()
 
     @pytest.mark.asyncio
-    async def test_semi_additive_collapses_when_protected_dimension_omitted(
+    async def test_reaggregate_collapses_when_protected_dimension_omitted(
         self,
         client_with_build_v3,
     ):
@@ -555,7 +567,7 @@ class TestMetricsSQLBasic:
         ]
 
     @pytest.mark.asyncio
-    async def test_semi_additive_druid_uses_latest_by_for_last_value(
+    async def test_reaggregate_druid_uses_latest_by_for_last_value(
         self,
         client_with_build_v3,
     ):
@@ -608,7 +620,7 @@ class TestMetricsSQLBasic:
         assert "ARG_MAX" not in response.json()["sql"]
 
     @pytest.mark.asyncio
-    async def test_semi_additive_auto_routed_druid_uses_latest_by(
+    async def test_reaggregate_auto_routed_druid_uses_latest_by(
         self,
         client_with_build_v3,
     ):
@@ -683,7 +695,7 @@ class TestMetricsSQLBasic:
         assert "ARG_MAX" not in sql
 
     @pytest.mark.asyncio
-    async def test_semi_additive_druid_uses_earliest_by_for_first_value(
+    async def test_reaggregate_druid_uses_earliest_by_for_first_value(
         self,
         client_with_build_v3,
     ):
@@ -707,7 +719,7 @@ class TestMetricsSQLBasic:
         assert "ARG_MIN" not in sql
 
     @pytest.mark.asyncio
-    async def test_semi_additive_derived_metric_uses_collapsed_base(
+    async def test_reaggregate_derived_metric_uses_collapsed_base(
         self,
         client_with_build_v3,
     ):
@@ -733,7 +745,7 @@ class TestMetricsSQLBasic:
         assert "10.0 / NULLIF(SUM(" not in sql
 
     @pytest.mark.asyncio
-    async def test_semi_additive_derived_metric_preserves_requested_protected_dimension(
+    async def test_reaggregate_derived_metric_preserves_requested_protected_dimension(
         self,
         client_with_build_v3,
     ):
@@ -757,7 +769,7 @@ class TestMetricsSQLBasic:
         assert "MAX_BY(" not in sql
 
     @pytest.mark.asyncio
-    async def test_semi_additive_nested_window_metric_reaggregates_with_collapse(
+    async def test_reaggregate_nested_window_metric_reaggregates_with_collapse(
         self,
         client_with_build_v3,
     ):
@@ -784,7 +796,7 @@ class TestMetricsSQLBasic:
         assert "LAG(base_metrics.daily_balance_index, 1)" in sql
 
     @pytest.mark.asyncio
-    async def test_semi_additive_window_grain_reaggregation_uses_collapse(
+    async def test_reaggregate_window_grain_reaggregation_uses_collapse(
         self,
         client_with_build_v3,
     ):
@@ -812,7 +824,7 @@ class TestMetricsSQLBasic:
         assert "LAG(order_details_week_agg.product_balance_index, 1)" in sql
 
     @pytest.mark.asyncio
-    async def test_semi_additive_uses_normal_aggregation_when_protected_dimension_requested(
+    async def test_reaggregate_uses_normal_aggregation_when_protected_dimension_requested(
         self,
         client_with_build_v3,
     ):
@@ -853,7 +865,7 @@ class TestMetricsSQLBasic:
         assert "MAX_BY" not in response.json()["sql"]
 
     @pytest.mark.asyncio
-    async def test_semi_additive_collapses_when_roleless_base_dimension_requested(
+    async def test_reaggregate_collapses_when_roleless_base_dimension_requested(
         self,
         client_with_build_v3,
     ):
@@ -878,7 +890,7 @@ class TestMetricsSQLBasic:
         )
 
     @pytest.mark.asyncio
-    async def test_semi_additive_collapses_with_coarser_time_dimension(
+    async def test_reaggregate_collapses_with_coarser_time_dimension(
         self,
         client_with_build_v3,
     ):

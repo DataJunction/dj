@@ -3588,7 +3588,7 @@ async def test_cube_materialization_metadata(
                     "name": "count_c8e42e74",
                     "rule": {
                         "level": None,
-                        "semi_additive": None,
+                        "reaggregate": None,
                         "type": "full",
                     },
                 },
@@ -3600,7 +3600,7 @@ async def test_cube_materialization_metadata(
                     "name": "discount_sum_30b84e6c",
                     "rule": {
                         "level": None,
-                        "semi_additive": None,
+                        "reaggregate": None,
                         "type": "full",
                     },
                 },
@@ -3612,7 +3612,7 @@ async def test_cube_materialization_metadata(
                     "name": "price_count_935e7117",
                     "rule": {
                         "level": None,
-                        "semi_additive": None,
+                        "reaggregate": None,
                         "type": "full",
                     },
                 },
@@ -3624,7 +3624,7 @@ async def test_cube_materialization_metadata(
                     "name": "price_discount_sum_e4ba5456",
                     "rule": {
                         "level": None,
-                        "semi_additive": None,
+                        "reaggregate": None,
                         "type": "full",
                     },
                 },
@@ -3636,7 +3636,7 @@ async def test_cube_materialization_metadata(
                     "name": "price_sum_935e7117",
                     "rule": {
                         "level": None,
-                        "semi_additive": None,
+                        "reaggregate": None,
                         "type": "full",
                     },
                 },
@@ -3648,7 +3648,7 @@ async def test_cube_materialization_metadata(
                     "name": "repair_order_id_count_bd241964",
                     "rule": {
                         "level": None,
-                        "semi_additive": None,
+                        "reaggregate": None,
                         "type": "full",
                     },
                 },
@@ -3660,7 +3660,7 @@ async def test_cube_materialization_metadata(
                     "name": "total_repair_cost_sum_67874507",
                     "rule": {
                         "level": None,
-                        "semi_additive": None,
+                        "reaggregate": None,
                         "type": "full",
                     },
                 },
@@ -3780,7 +3780,7 @@ async def test_cube_materialization_metadata(
                     "name": "price_sum_252381cf",
                     "rule": {
                         "level": None,
-                        "semi_additive": None,
+                        "reaggregate": None,
                         "type": "full",
                     },
                 },
@@ -4033,7 +4033,7 @@ async def test_cube_materialization_metadata(
                     "grain_alias": None,
                     "aggregation": "COUNT",
                     "merge": "SUM",
-                    "rule": {"type": "full", "level": None, "semi_additive": None},
+                    "rule": {"type": "full", "level": None, "reaggregate": None},
                 },
                 {
                     "name": "discount_sum_30b84e6c",
@@ -4041,7 +4041,7 @@ async def test_cube_materialization_metadata(
                     "grain_alias": None,
                     "aggregation": "SUM",
                     "merge": "SUM",
-                    "rule": {"type": "full", "level": None, "semi_additive": None},
+                    "rule": {"type": "full", "level": None, "reaggregate": None},
                 },
                 {
                     "name": "price_count_935e7117",
@@ -4049,7 +4049,7 @@ async def test_cube_materialization_metadata(
                     "grain_alias": None,
                     "aggregation": "COUNT",
                     "merge": "SUM",
-                    "rule": {"type": "full", "level": None, "semi_additive": None},
+                    "rule": {"type": "full", "level": None, "reaggregate": None},
                 },
                 {
                     "name": "price_discount_sum_e4ba5456",
@@ -4057,7 +4057,7 @@ async def test_cube_materialization_metadata(
                     "grain_alias": None,
                     "aggregation": "SUM",
                     "merge": "SUM",
-                    "rule": {"type": "full", "level": None, "semi_additive": None},
+                    "rule": {"type": "full", "level": None, "reaggregate": None},
                 },
                 {
                     "name": "price_sum_935e7117",
@@ -4065,7 +4065,7 @@ async def test_cube_materialization_metadata(
                     "grain_alias": None,
                     "aggregation": "SUM",
                     "merge": "SUM",
-                    "rule": {"type": "full", "level": None, "semi_additive": None},
+                    "rule": {"type": "full", "level": None, "reaggregate": None},
                 },
                 {
                     "name": "repair_order_id_count_bd241964",
@@ -4073,7 +4073,7 @@ async def test_cube_materialization_metadata(
                     "grain_alias": None,
                     "aggregation": "COUNT",
                     "merge": "SUM",
-                    "rule": {"type": "full", "level": None, "semi_additive": None},
+                    "rule": {"type": "full", "level": None, "reaggregate": None},
                 },
                 {
                     "name": "total_repair_cost_sum_67874507",
@@ -4081,7 +4081,7 @@ async def test_cube_materialization_metadata(
                     "grain_alias": None,
                     "aggregation": "SUM",
                     "merge": "SUM",
-                    "rule": {"type": "full", "level": None, "semi_additive": None},
+                    "rule": {"type": "full", "level": None, "reaggregate": None},
                 },
                 {
                     "name": "price_sum_252381cf",
@@ -4089,7 +4089,7 @@ async def test_cube_materialization_metadata(
                     "grain_alias": None,
                     "aggregation": "SUM",
                     "merge": "SUM",
-                    "rule": {"type": "full", "level": None, "semi_additive": None},
+                    "rule": {"type": "full", "level": None, "reaggregate": None},
                 },
             ],
             "timestamp_column": "hire_date",
@@ -4824,7 +4824,7 @@ class TestCubeMaterializeV2SuccessPaths:
         client_with_repairs_cube.app.dependency_overrides.update(original_overrides)
 
     @pytest.mark.asyncio
-    async def test_materialize_semi_additive_cube_without_protected_dimension_fails(
+    async def test_materialize_reaggregate_cube_without_protected_dimension_fails(
         self,
         client_with_build_v3: AsyncClient,
         mocker,
@@ -4838,9 +4838,13 @@ class TestCubeMaterializeV2SuccessPaths:
                 "description": "Semi-additive balance measured by order date",
                 "query": "SELECT SUM(line_total) FROM v3.order_details",
                 "mode": "published",
-                "semi_additive": {
-                    "dimension": "v3.date.date_id[order]",
-                    "function": "last_value",
+                "reaggregate": {
+                    "rules": [
+                        {
+                            "dimension": "v3.date.date_id[order]",
+                            "fn": "last_value",
+                        },
+                    ],
                 },
             },
         )
@@ -4873,7 +4877,7 @@ class TestCubeMaterializeV2SuccessPaths:
         combiner.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_materialize_derived_semi_additive_cube_without_protected_dimension_fails(
+    async def test_materialize_derived_reaggregate_cube_without_protected_dimension_fails(
         self,
         client_with_build_v3: AsyncClient,
         mocker,
@@ -4887,9 +4891,13 @@ class TestCubeMaterializeV2SuccessPaths:
                 "description": "Semi-additive balance measured by order date",
                 "query": "SELECT SUM(line_total) FROM v3.order_details",
                 "mode": "published",
-                "semi_additive": {
-                    "dimension": "v3.date.date_id[order]",
-                    "function": "last_value",
+                "reaggregate": {
+                    "rules": [
+                        {
+                            "dimension": "v3.date.date_id[order]",
+                            "fn": "last_value",
+                        },
+                    ],
                 },
             },
         )

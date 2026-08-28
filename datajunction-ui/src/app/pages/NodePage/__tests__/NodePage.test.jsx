@@ -389,7 +389,7 @@ describe('<NodePage />', () => {
         ).toHaveTextContent('');
 
         expect(
-          screen.getByRole('dialog', { name: 'SemiAdditive' }),
+          screen.getByRole('dialog', { name: 'Reaggregate' }),
         ).toHaveTextContent('None');
 
         expect(
@@ -425,9 +425,13 @@ describe('<NodePage />', () => {
       ...mocks.mockMetricNodeJson,
       current: {
         ...mocks.mockMetricNodeJson.current,
-        semiAdditive: {
-          dimension: 'v3.date.date_id[order]',
-          function: 'LAST_VALUE',
+        reaggregate: {
+          rules: [
+            {
+              dimension: 'v3.date.date_id[order]',
+              fn: 'LAST_VALUE',
+            },
+          ],
         },
       },
     });
@@ -444,11 +448,11 @@ describe('<NodePage />', () => {
       </MemoryRouter>,
     );
 
-    const semiAdditive = await screen.findByRole('dialog', {
-      name: 'SemiAdditive',
+    const reaggregate = await screen.findByRole('dialog', {
+      name: 'Reaggregate',
     });
     await waitFor(() => {
-      expect(semiAdditive).toHaveTextContent(
+      expect(reaggregate).toHaveTextContent(
         'Last Value on v3.date.date_id[order]',
       );
     });

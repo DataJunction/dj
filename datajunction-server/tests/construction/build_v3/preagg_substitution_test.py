@@ -95,9 +95,13 @@ async def _create_daily_balance_metric(client_with_build_v3):
             "description": "Semi-additive balance measured by order date",
             "query": "SELECT SUM(line_total) FROM v3.order_details",
             "mode": "published",
-            "semi_additive": {
-                "dimension": "v3.date.date_id[order]",
-                "function": "last_value",
+            "reaggregate": {
+                "rules": [
+                    {
+                        "dimension": "v3.date.date_id[order]",
+                        "fn": "last_value",
+                    },
+                ],
             },
         },
     )
@@ -217,7 +221,7 @@ class TestExternalPreAggRouting:
         )
 
     @pytest.mark.asyncio
-    async def test_external_preagg_retaining_semi_additive_dimension_rolls_up(
+    async def test_external_preagg_retaining_reaggregate_dimension_rolls_up(
         self,
         client_with_build_v3,
     ):
@@ -273,7 +277,7 @@ class TestExternalPreAggRouting:
         )
 
     @pytest.mark.asyncio
-    async def test_external_preagg_missing_semi_additive_dimension_is_not_used(
+    async def test_external_preagg_missing_reaggregate_dimension_is_not_used(
         self,
         client_with_build_v3,
     ):

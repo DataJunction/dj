@@ -31,8 +31,9 @@ from datajunction_server.api.graphql.scalars.materialization import (
 )
 from datajunction_server.api.graphql.scalars.metricmetadata import (
     DecomposedMetric,
+    DimensionReaggregateRule,
     MetricMetadata,
-    SemiAdditiveSpec,
+    ReaggregateSpec,
 )
 from datajunction_server.api.graphql.scalars.user import User
 from datajunction_server.api.graphql.utils import extract_fields
@@ -46,7 +47,7 @@ from datajunction_server.models.engine import Dialect
 from datajunction_server.models.node import NodeMode as NodeMode_
 from datajunction_server.models.node import NodeStatus as NodeStatus_
 from datajunction_server.models.node import NodeType as NodeType_
-from datajunction_server.models.semiadditive import parse_semi_additive_spec
+from datajunction_server.models.reaggregate import parse_reaggregate_spec
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 
 NodeType = strawberry.enum(NodeType_)
@@ -413,18 +414,25 @@ class NodeRevision:
     required_dimensions: list[Column] | None = None
 
     @strawberry.field
-    def semi_additive(self, root: DBNodeRevision) -> SemiAdditiveSpec | None:
+    def reaggregate(self, root: DBNodeRevision) -> ReaggregateSpec | None:
         """
-        Semi-additive metric declaration.
+        Metric reaggregation declaration.
         """
         if root.type != NodeType.METRIC:
             return None
-        spec = parse_semi_additive_spec(root.semi_additive)
+        spec = parse_reaggregate_spec(root.reaggregate)
         if not spec:
             return None
-        return SemiAdditiveSpec(
-            dimension=spec.dimension,
-            function=spec.function,  # type: ignore
+        return ReaggregateSpec(
+            fn=spec.fn,  # type: ignore
+            weight=spec.weight,
+            rules=[
+                DimensionReaggregateRule(
+                    dimension=rule.dimension,
+                    fn=rule.fn,  # type: ignore
+                )
+                for rule in spec.rules
+            ],
         )
 
     @strawberry.field

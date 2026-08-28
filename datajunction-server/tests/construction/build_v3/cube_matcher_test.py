@@ -46,9 +46,13 @@ async def _create_daily_balance_metric(client_with_build_v3):
             "description": "Semi-additive balance measured by order date",
             "query": "SELECT SUM(line_total) FROM v3.order_details",
             "mode": "published",
-            "semi_additive": {
-                "dimension": "v3.date.date_id[order]",
-                "function": "last_value",
+            "reaggregate": {
+                "rules": [
+                    {
+                        "dimension": "v3.date.date_id[order]",
+                        "fn": "last_value",
+                    },
+                ],
             },
         },
     )
@@ -1202,7 +1206,7 @@ class TestFindMatchingCube:
         assert "could not be parsed" in str(exc.value)
 
     @pytest.mark.asyncio
-    async def test_semi_additive_cube_missing_protected_dimension_not_matched(
+    async def test_reaggregate_cube_missing_protected_dimension_not_matched(
         self,
         client_with_build_v3,
         session,
@@ -1241,7 +1245,7 @@ class TestFindMatchingCube:
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_semi_additive_unsafe_cube_falls_back_to_live_sql(
+    async def test_reaggregate_unsafe_cube_falls_back_to_live_sql(
         self,
         client_with_build_v3,
         session,
@@ -1283,7 +1287,7 @@ class TestFindMatchingCube:
         assert "date_id_order" in result.sql
 
     @pytest.mark.asyncio
-    async def test_derived_semi_additive_cube_missing_protected_dimension_not_matched(
+    async def test_derived_reaggregate_cube_missing_protected_dimension_not_matched(
         self,
         client_with_build_v3,
         session,
@@ -1322,7 +1326,7 @@ class TestFindMatchingCube:
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_pinned_semi_additive_cube_missing_protected_dimension_raises(
+    async def test_pinned_reaggregate_cube_missing_protected_dimension_raises(
         self,
         client_with_build_v3,
         session,
@@ -1357,7 +1361,7 @@ class TestFindMatchingCube:
         assert "protected dimension" in str(exc.value)
 
     @pytest.mark.asyncio
-    async def test_pinned_derived_semi_additive_cube_missing_protected_dimension_raises(
+    async def test_pinned_derived_reaggregate_cube_missing_protected_dimension_raises(
         self,
         client_with_build_v3,
         session,

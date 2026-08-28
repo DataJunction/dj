@@ -7,7 +7,7 @@ enum Aggregability {
 type AggregationRule {
   type: Aggregability!
   level: [String!]
-  semiAdditive: SemiAdditiveSpec
+  reaggregate: DimensionReaggregateRule
 }
 
 type Attribute {
@@ -398,7 +398,7 @@ type NodeRevision {
   dimensionLinks: [DimensionLink!]!
   availability: AvailabilityState
   materializations: [MaterializationConfig!]
-  semiAdditive: SemiAdditiveSpec
+  reaggregate: ReaggregateSpec
   primaryKey: [String!]!
   metricMetadata: MetricMetadata
   isDerivedMetric: Boolean!
@@ -735,16 +735,27 @@ enum SemanticType {
   TIMESTAMP
 }
 
-enum SemiAdditiveCollapseFunction {
+type DimensionReaggregateRule {
+  dimension: String!
+  fn: ReaggregationFunction!
+}
+
+enum ReaggregationFunction {
+  AUTO
+  NONE
+  SUM
+  AVG
+  WEIGHTED_AVG
   LAST_VALUE
   FIRST_VALUE
   MIN
   MAX
 }
 
-type SemiAdditiveSpec {
-  dimension: String!
-  function: SemiAdditiveCollapseFunction!
+type ReaggregateSpec {
+  fn: ReaggregationFunction
+  weight: String
+  rules: [DimensionReaggregateRule!]!
 }
 
 type Tag {

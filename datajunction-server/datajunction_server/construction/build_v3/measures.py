@@ -1708,7 +1708,7 @@ def build_grain_group_from_preagg(
     select_items: list[ast.Aliasable | ast.Expression | ast.Column] = []
     columns: list[ColumnMetadata] = []
     component_aliases: dict[str, str] = {}
-    semi_additive_dimension_aliases: dict[str, str] = {}
+    reaggregate_dimension_aliases: dict[str, str] = {}
     metrics_covered: set[str] = set()
     unique_components: list[MetricComponent] = []
     seen_components: set[str] = set()
@@ -1809,8 +1809,8 @@ def build_grain_group_from_preagg(
     for (
         component_name,
         dimension_ref,
-    ) in grain_group.semi_additive_component_dimensions.items():
-        semi_additive_dimension_aliases[component_name] = ctx.alias_registry.register(
+    ) in grain_group.reaggregate_component_dimensions.items():
+        reaggregate_dimension_aliases[component_name] = ctx.alias_registry.register(
             dimension_ref,
         )
 
@@ -1974,7 +1974,7 @@ def build_grain_group_from_preagg(
         metrics=list(metrics_covered),
         parent_name=parent_node.name,
         component_aliases=component_aliases,
-        semi_additive_dimension_aliases=semi_additive_dimension_aliases,
+        reaggregate_dimension_aliases=reaggregate_dimension_aliases,
         is_merged=grain_group.is_merged,
         component_aggregabilities=grain_group.component_aggregabilities,
         components=unique_components,
@@ -2041,7 +2041,7 @@ def build_grain_group_sql(
     # Track mapping from component name to actual SQL alias
     # This is needed for metrics SQL to correctly reference component columns
     component_aliases: dict[str, str] = {}
-    semi_additive_dimension_aliases: dict[str, str] = {}
+    reaggregate_dimension_aliases: dict[str, str] = {}
     internal_dimension_aliases: dict[str, str] = {}
 
     if output_dimension_refs:
@@ -2052,9 +2052,9 @@ def build_grain_group_sql(
     for (
         component_name,
         dimension_ref,
-    ) in grain_group.semi_additive_component_dimensions.items():
+    ) in grain_group.reaggregate_component_dimensions.items():
         dimension_alias = ctx.alias_registry.register(dimension_ref)
-        semi_additive_dimension_aliases[component_name] = dimension_alias
+        reaggregate_dimension_aliases[component_name] = dimension_alias
         internal_dimension_aliases[dimension_ref] = dimension_alias
 
     for metric_node, component in grain_group.components:
@@ -2421,7 +2421,7 @@ def build_grain_group_sql(
         metrics=list(metrics_covered),
         parent_name=grain_group.parent_node.name,
         component_aliases=component_aliases,
-        semi_additive_dimension_aliases=semi_additive_dimension_aliases,
+        reaggregate_dimension_aliases=reaggregate_dimension_aliases,
         is_merged=grain_group.is_merged,
         component_aggregabilities=grain_group.component_aggregabilities,
         components=unique_components,
@@ -2478,7 +2478,7 @@ def process_metric_group(
         internal_dimensions = [
             dimension_ref
             for dimension_ref in dict.fromkeys(
-                grain_group.semi_additive_component_dimensions.values(),
+                grain_group.reaggregate_component_dimensions.values(),
             )
             if dimension_ref not in output_dimension_refs
         ]

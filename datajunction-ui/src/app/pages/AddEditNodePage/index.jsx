@@ -27,7 +27,7 @@ import { RequiredDimensionsSelect } from './RequiredDimensionsSelect';
 import LoadingIcon from '../../icons/LoadingIcon';
 import { ColumnsSelect } from './ColumnsSelect';
 import { CustomMetadataField } from './CustomMetadataField';
-import { SemiAdditiveFields } from './SemiAdditiveFields';
+import { ReaggregateFields } from './ReaggregateFields';
 
 class Action {
   static Add = new Action('add');
@@ -72,9 +72,9 @@ export function AddEditNodePage({ extensions = {} }) {
     mode: 'published',
     owners: [],
     custom_metadata: '',
-    semi_additive_dimension: '',
-    semi_additive_function: '',
-    had_semi_additive: false,
+    reaggregate_dimension: '',
+    reaggregate_function: '',
+    had_reaggregate: false,
   };
 
   const validator = values => {
@@ -97,11 +97,11 @@ export function AddEditNodePage({ extensions = {} }) {
       errors.query = 'Required';
     }
     if (values.type === 'metric') {
-      if (values.semi_additive_dimension && !values.semi_additive_function) {
-        errors.semi_additive_function = 'Required';
+      if (values.reaggregate_dimension && !values.reaggregate_function) {
+        errors.reaggregate_function = 'Required';
       }
-      if (values.semi_additive_function && !values.semi_additive_dimension) {
-        errors.semi_additive_dimension = 'Required';
+      if (values.reaggregate_function && !values.reaggregate_dimension) {
+        errors.reaggregate_dimension = 'Required';
       }
     }
     return errors;
@@ -173,21 +173,27 @@ export function AddEditNodePage({ extensions = {} }) {
     return `SELECT ${aggregateExpression}`;
   };
 
-  const buildSemiAdditiveSpec = values => {
-    if (values.semi_additive_dimension && values.semi_additive_function) {
+  const buildReaggregateSpec = values => {
+    if (values.reaggregate_dimension && values.reaggregate_function) {
       return {
-        dimension: values.semi_additive_dimension,
-        function: values.semi_additive_function,
+        rules: [
+          {
+            dimension: values.reaggregate_dimension,
+            fn: values.reaggregate_function,
+          },
+        ],
       };
     }
-    return values.had_semi_additive ? null : undefined;
+    return values.had_reaggregate ? null : undefined;
   };
 
-  const normalizeSemiAdditiveFunction = semiAdditiveFunction =>
-    semiAdditiveFunction ? semiAdditiveFunction.toLowerCase() : '';
+  const firstReaggregateRule = reaggregate => reaggregate?.rules?.[0];
+
+  const normalizeReaggregateFunction = reaggregateFunction =>
+    reaggregateFunction ? reaggregateFunction.toLowerCase() : '';
 
   const createNode = async (values, setStatus) => {
-    const semiAdditive = buildSemiAdditiveSpec(values);
+    const reaggregate = buildReaggregateSpec(values);
     const createNodeArgs = [
       nodeType,
       values.name,
@@ -207,8 +213,8 @@ export function AddEditNodePage({ extensions = {} }) {
         : undefined,
       parseCustomMetadata(values.custom_metadata),
     ];
-    if (semiAdditive !== undefined) {
-      createNodeArgs.push(semiAdditive);
+    if (reaggregate !== undefined) {
+      createNodeArgs.push(reaggregate);
     }
     const { status, json } = await djClient.createNode(...createNodeArgs);
     if (status === 200 || status === 201) {
@@ -231,7 +237,7 @@ export function AddEditNodePage({ extensions = {} }) {
   };
 
   const patchNode = async (values, setStatus) => {
-    const semiAdditive = buildSemiAdditiveSpec(values);
+    const reaggregate = buildReaggregateSpec(values);
     const patchNodeArgs = [
       values.name,
       values.display_name,
@@ -251,8 +257,8 @@ export function AddEditNodePage({ extensions = {} }) {
       values.owners,
       parseCustomMetadata(values.custom_metadata),
     ];
-    if (semiAdditive !== undefined) {
-      patchNodeArgs.push(semiAdditive);
+    if (reaggregate !== undefined) {
+      patchNodeArgs.push(reaggregate);
     }
     const { status, json } = await djClient.patchNode(...patchNodeArgs);
     const tagsResponse = await djClient.tagsNode(
@@ -331,11 +337,12 @@ export function AddEditNodePage({ extensions = {} }) {
           required_dimensions: node.current.requiredDimensions.map(
             dim => dim.name,
           ),
-          semi_additive_dimension: node.current.semiAdditive?.dimension || '',
-          semi_additive_function: normalizeSemiAdditiveFunction(
-            node.current.semiAdditive?.function,
+          reaggregate_dimension:
+            firstReaggregateRule(node.current.reaggregate)?.dimension || '',
+          reaggregate_function: normalizeReaggregateFunction(
+            firstReaggregateRule(node.current.reaggregate)?.fn,
           ),
-          had_semi_additive: Boolean(node.current.semiAdditive),
+          had_reaggregate: Boolean(node.current.reaggregate),
           upstream_node: '', // Derived metrics have no upstream node
           aggregate_expression: derivedExpression,
         };
@@ -350,11 +357,12 @@ export function AddEditNodePage({ extensions = {} }) {
           required_dimensions: node.current.requiredDimensions.map(
             dim => dim.name,
           ),
-          semi_additive_dimension: node.current.semiAdditive?.dimension || '',
-          semi_additive_function: normalizeSemiAdditiveFunction(
-            node.current.semiAdditive?.function,
+          reaggregate_dimension:
+            firstReaggregateRule(node.current.reaggregate)?.dimension || '',
+          reaggregate_function: normalizeReaggregateFunction(
+            firstReaggregateRule(node.current.reaggregate)?.fn,
           ),
-          had_semi_additive: Boolean(node.current.semiAdditive),
+          had_reaggregate: Boolean(node.current.reaggregate),
           upstream_node: nonMetricParent?.name || '',
           aggregate_expression: node.current.metricMetadata?.expression,
         };
@@ -405,9 +413,9 @@ export function AddEditNodePage({ extensions = {} }) {
       'metric_direction',
       'significant_digits',
       'required_dimensions',
-      'semi_additive_dimension',
-      'semi_additive_function',
-      'had_semi_additive',
+      'reaggregate_dimension',
+      'reaggregate_function',
+      'had_reaggregate',
       'owners',
       'custom_metadata',
     ];
@@ -615,7 +623,7 @@ export function AddEditNodePage({ extensions = {} }) {
                         {(nodeType === 'metric' || node.type === 'metric') && (
                           <>
                             <MetricMetadataFields />
-                            <SemiAdditiveFields />
+                            <ReaggregateFields />
                           </>
                         )}
                       </div>

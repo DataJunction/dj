@@ -15,16 +15,15 @@ from datajunction_server.models.cube_materialization import (
     MetricComponent as MetricComponent_,
 )
 from datajunction_server.models.node import MetricDirection as MetricDirection_
-from datajunction_server.models.semiadditive import (
-    SemiAdditiveCollapseFunction as SemiAdditiveCollapseFunction_,
-)
-from datajunction_server.models.semiadditive import (
-    SemiAdditiveSpec as SemiAdditiveSpec_,
+from datajunction_server.models.reaggregate import (
+    DimensionReaggregateRule as DimensionReaggregateRule_,
+    ReaggregateSpec as ReaggregateSpec_,
+    ReaggregationFunction as ReaggregationFunction_,
 )
 
 MetricDirection = strawberry.enum(MetricDirection_)
 Aggregability = strawberry.enum(Aggregability_)
-SemiAdditiveCollapseFunction = strawberry.enum(SemiAdditiveCollapseFunction_)
+ReaggregationFunction = strawberry.enum(ReaggregationFunction_)
 
 
 @strawberry.type
@@ -39,8 +38,15 @@ class Unit:
     abbreviation: str | None
 
 
-@strawberry.experimental.pydantic.type(model=SemiAdditiveSpec_, all_fields=True)
-class SemiAdditiveSpec: ...
+@strawberry.experimental.pydantic.type(
+    model=DimensionReaggregateRule_,
+    all_fields=True,
+)
+class DimensionReaggregateRule: ...
+
+
+@strawberry.experimental.pydantic.type(model=ReaggregateSpec_, all_fields=True)
+class ReaggregateSpec: ...
 
 
 @strawberry.experimental.pydantic.type(model=AggregationRule_, all_fields=True)

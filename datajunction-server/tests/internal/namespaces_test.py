@@ -1108,6 +1108,32 @@ class TestNodeSpecToYaml:
             "query: SELECT SUM(rev) FROM ns.transforms.t",
         ]
 
+    def test_metric_reaggregate_exports_dimension_rules(self):
+        """metric reaggregate exports the rule list without null future fields"""
+        spec = MetricSpec(
+            name="ns.metrics.daily_balance",
+            node_type=NodeType.METRIC,
+            query="SELECT SUM(balance) FROM ns.transforms.accounts",
+            reaggregate={
+                "rules": [
+                    {
+                        "dimension": "${prefix}v3.date.date_id[order]",
+                        "fn": "last_value",
+                    },
+                ],
+            },
+        )
+        assert node_spec_to_yaml(spec).splitlines() == [
+            "name: ns.metrics.daily_balance",
+            "node_type: metric",
+            "mode: published",
+            "query: SELECT SUM(balance) FROM ns.transforms.accounts",
+            "reaggregate:",
+            "  rules:",
+            "    - dimension: ${prefix}v3.date.date_id[order]",
+            "      fn: last_value",
+        ]
+
     def test_multiline_query_uses_literal_block_style(self):
         """multiline queries are serialized with |- literal block style"""
         spec = MetricSpec(

@@ -1229,7 +1229,7 @@ def _metric_project_config(node: Node, namespace_requested: str) -> dict:
         "query": node.current.query,
         "tags": [tag.name for tag in node.tags],
         "required_dimensions": [dim.name for dim in node.current.required_dimensions],
-        "semi_additive": node.current.semi_additive,
+        "reaggregate": node.current.reaggregate,
         "direction": (
             node.current.metric_metadata.direction.name.lower()
             if node.current.metric_metadata and node.current.metric_metadata.direction
@@ -1643,13 +1643,14 @@ async def get_node_specs_for_export(
                     )
                     for required_dim in metric_spec.required_dimensions
                 ]
-            if metric_spec.semi_additive:
-                metric_spec.semi_additive.dimension = _inject_prefix_for_cube_ref(
-                    metric_spec.semi_additive.dimension,
-                    namespace,
-                    parent_namespace,
-                    namespace_suffixes,
-                )
+            if metric_spec.reaggregate:
+                for rule in metric_spec.reaggregate.rules:
+                    rule.dimension = _inject_prefix_for_cube_ref(
+                        rule.dimension,
+                        namespace,
+                        parent_namespace,
+                        namespace_suffixes,
+                    )
         if node_spec.node_type in (
             NodeType.SOURCE,
             NodeType.TRANSFORM,

@@ -52,7 +52,7 @@ from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.decompose import Aggregability
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.models.semiadditive import SemiAdditiveCollapseFunction
+from datajunction_server.models.reaggregate import ReaggregationFunction
 from datajunction_server.sql.decompose import wrap_divisions_in_nullif
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
@@ -60,8 +60,8 @@ from datajunction_server.sql.parsing.backends.antlr4 import parse
 logger = logging.getLogger(__name__)
 
 
-def _build_semi_additive_collapse_expression(
-    collapse_function: SemiAdditiveCollapseFunction,
+def _build_reaggregate_collapse_expression(
+    collapse_function: ReaggregationFunction,
     dialect: Dialect,
     value_ref: ast.Expression,
     protected_dim_ref: ast.Expression,
@@ -69,21 +69,21 @@ def _build_semi_additive_collapse_expression(
     """
     Build the final aggregation for a semi-additive metric collapse.
     """
-    if collapse_function == SemiAdditiveCollapseFunction.LAST_VALUE:
+    if collapse_function == ReaggregationFunction.LAST_VALUE:
         function_name = "LATEST_BY" if dialect == Dialect.DRUID else "MAX_BY"
         return ast.Function(
             ast.Name(function_name),
             args=[value_ref, protected_dim_ref],
         )
-    if collapse_function == SemiAdditiveCollapseFunction.FIRST_VALUE:
+    if collapse_function == ReaggregationFunction.FIRST_VALUE:
         function_name = "EARLIEST_BY" if dialect == Dialect.DRUID else "MIN_BY"
         return ast.Function(
             ast.Name(function_name),
             args=[value_ref, protected_dim_ref],
         )
-    if collapse_function == SemiAdditiveCollapseFunction.MIN:
+    if collapse_function == ReaggregationFunction.MIN:
         return ast.Function(ast.Name("MIN"), args=[value_ref])
-    if collapse_function == SemiAdditiveCollapseFunction.MAX:
+    if collapse_function == ReaggregationFunction.MAX:
         return ast.Function(ast.Name("MAX"), args=[value_ref])
 
     raise DJInvalidInputException(
@@ -306,15 +306,15 @@ def _build_metric_aggregation(
         comp = decomposed.components[0]
         orig_agg = get_comp_aggregability(comp.name)
 
-        if comp.rule.semi_additive and comp.name in gg.semi_additive_dimension_aliases:
+        if comp.rule.reaggregate and comp.name in gg.reaggregate_dimension_aliases:
             _, col_name = comp_mappings[comp.name]
             value_ref = make_column_ref(col_name, cte_alias)
             protected_dim_ref = make_column_ref(
-                gg.semi_additive_dimension_aliases[comp.name],
+                gg.reaggregate_dimension_aliases[comp.name],
                 cte_alias,
             )
-            return _build_semi_additive_collapse_expression(
-                comp.rule.semi_additive.function,
+            return _build_reaggregate_collapse_expression(
+                comp.rule.reaggregate.fn,
                 gg.dialect,
                 value_ref,
                 protected_dim_ref,
@@ -1510,17 +1510,17 @@ def build_window_agg_cte_from_base_metrics(
 
         if len(decomposed.components) == 1:
             comp = decomposed.components[0]
-            if comp.rule.semi_additive:
+            if comp.rule.reaggregate:
                 protected_dim_alias = _source_dimension_alias(
                     ctx,
-                    comp.rule.semi_additive.dimension,
+                    comp.rule.reaggregate.dimension,
                 )
                 if (
                     protected_dim_alias
                     and protected_dim_alias not in window_dimension_aliases
                 ):
-                    return _build_semi_additive_collapse_expression(
-                        comp.rule.semi_additive.function,
+                    return _build_reaggregate_collapse_expression(
+                        comp.rule.reaggregate.fn,
                         ctx.dialect,
                         metric_ref,
                         make_column_ref(protected_dim_alias, base_metrics_cte_alias),
@@ -1877,7 +1877,7 @@ def generate_metrics_sql(
     base_grain_groups = [gg for gg in grain_groups if not gg.is_window_grain_group]
     window_grain_groups = [gg for gg in grain_groups if gg.is_window_grain_group]
     if len(base_grain_groups) > 1 and any(
-        gg.semi_additive_dimension_aliases for gg in base_grain_groups
+        gg.reaggregate_dimension_aliases for gg in base_grain_groups
     ):
         parent_names = sorted({gg.parent_name for gg in base_grain_groups})
         raise DJInvalidInputException(

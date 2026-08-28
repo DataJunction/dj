@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from datajunction_server.construction.build_v3.decomposition import (
-    _semi_additive_dimension_requested,
+    _reaggregate_dimension_requested,
     get_base_metrics_for_derived,
     is_derived_metric,
 )
@@ -237,14 +237,14 @@ class TestIsDerivedMetric:
         ("v3.date.date_id", ["v3.date.date_id[order]"], False),
     ],
 )
-def test_semi_additive_dimension_requested_is_role_sensitive(
+def test_reaggregate_dimension_requested_is_role_sensitive(
     protected_dimension,
     requested_dimensions,
     expected,
 ):
     """A role-less ref must not satisfy a role-qualified protected dimension."""
     assert (
-        _semi_additive_dimension_requested(protected_dimension, requested_dimensions)
+        _reaggregate_dimension_requested(protected_dimension, requested_dimensions)
         is expected
     )
 
