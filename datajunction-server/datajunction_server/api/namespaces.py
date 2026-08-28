@@ -46,7 +46,6 @@ from datajunction_server.internal.namespaces import (
     hard_delete_namespace,
     mark_namespace_deactivated,
     mark_namespace_restored,
-    namespace_boundary_scope_targets,
     namespaces_to_authorize,
     provision_namespace_boundary,
     resolve_git_config,
@@ -55,7 +54,10 @@ from datajunction_server.internal.namespaces import (
 )
 from datajunction_server.internal.nodes import activate_node, deactivate_node
 from datajunction_server.models import access
-from datajunction_server.models.access import ResourceAction
+from datajunction_server.models.access import (
+    ResourceAction,
+    namespace_boundary_scope_targets,
+)
 from datajunction_server.models.deployment import (
     BulkNamespaceSourcesRequest,
     BulkNamespaceSourcesResponse,
