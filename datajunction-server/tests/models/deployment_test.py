@@ -12,6 +12,7 @@ from datajunction_server.models.deployment import (
     ChangeTier,
     ColumnSpec,
     CubeSpec,
+    CustomMetadataSchemaSpec,
     DeploymentSpec,
     DimensionJoinLinkSpec,
     DimensionReferenceLinkSpec,
@@ -263,6 +264,7 @@ def test_deployment_spec():
         "tags": [],
         "hierarchies": [],
         "preaggregations": [],
+        "custom_metadata_schemas": None,
         "source": None,
         "auto_register_sources": True,
         "force": False,
@@ -1574,3 +1576,56 @@ def test_cube_spec_materialization_diff_ignores_declaration_order():
         )
         == []
     )
+
+
+def test_a_schema_namespace_defaults_to_the_deployment():
+    """Omitting it keeps the existing behaviour: the deploying namespace."""
+    spec = DeploymentSpec(
+        namespace="shared",
+        nodes=[],
+        custom_metadata_schemas=[
+            CustomMetadataSchemaSpec(key="system", json_schema={"type": "object"}),
+        ],
+    )
+    assert spec.custom_metadata_schemas[0].namespace == "shared"
+
+
+def test_a_schema_may_be_scoped_to_a_sub_namespace():
+    """Narrower than the deployment is how a vocabulary rolls out in stages."""
+    spec = DeploymentSpec(
+        namespace="shared",
+        nodes=[],
+        custom_metadata_schemas=[
+            CustomMetadataSchemaSpec(
+                key="system",
+                namespace="shared.conformed",
+                json_schema={"type": "object"},
+            ),
+        ],
+    )
+    assert spec.custom_metadata_schemas[0].namespace == "shared.conformed"
+
+
+@pytest.mark.parametrize(
+    "outside",
+    ["arc", "shared_other", "other.shared", "sharedx"],
+)
+def test_a_schema_namespace_outside_the_deployment_is_rejected(outside):
+    """
+    A manifest may scope a schema narrower than itself, never wider or sideways --
+    otherwise one repo governs another repo's nodes. `shared_other` and `sharedx`
+    are the prefix trap: they start with the namespace but are not beneath it.
+    """
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        DeploymentSpec(
+            namespace="shared",
+            nodes=[],
+            custom_metadata_schemas=[
+                CustomMetadataSchemaSpec(
+                    key="system",
+                    namespace=outside,
+                    json_schema={"type": "object"},
+                ),
+            ],
+        )
+    assert "not 'shared' or beneath it" in str(exc_info.value)

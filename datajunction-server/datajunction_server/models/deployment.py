@@ -1374,6 +1374,28 @@ def diff(
     ]
 
 
+class CustomMetadataSchemaSpec(BaseModel):
+    """
+    Specification for a custom_metadata JSON Schema to register for a namespace.
+
+    The namespace defaults to the enclosing DeploymentSpec's. Naming one narrows the
+    schema to a sub-namespace, which is how a vocabulary can be rolled out to part of
+    a repo's graph -- conformed dimensions first, say -- before it governs all of it.
+    A namespace outside the deploying one is rejected: a manifest may scope narrower
+    than itself, never wider.
+    """
+
+    key: str
+    node_type: NodeType | None = None
+    namespace: str | None = None
+    json_schema: dict
+    filterable: bool = True
+    description: str | None = None
+    # Advisory team ownership, not authorization: registering through a
+    # deployment is already gated on WRITE for the namespace.
+    owner: str | None = None
+
+
 class GitDeploymentSource(BaseModel):
     """
     Deployment from a tracked git repository.
@@ -1473,6 +1495,11 @@ class DeploymentSpec(BaseModel):
     tags: list[TagSpec] = Field(default_factory=list)
     hierarchies: list[HierarchySpec] = Field(default_factory=list)
     preaggregations: list[PreAggSpec] = Field(default_factory=list)
+    # None and [] mean different things: None is "this manifest does not manage
+    # schemas", [] is "it manages them and declares none", which retires the
+    # namespace's rows. A list default would make every deployment that omits
+    # the section look like the latter.
+    custom_metadata_schemas: list[CustomMetadataSchemaSpec] | None = None
     source: DeploymentSource | None = None  # CI/CD provenance tracking
     git_config: NamespaceGitConfig | None = None  # Git branch management config
     force: bool = Field(
@@ -1542,6 +1569,22 @@ class DeploymentSpec(BaseModel):
         for preagg in self.preaggregations:
             if not preagg.namespace:
                 preagg.namespace = self.namespace
+        for schema in self.custom_metadata_schemas or []:
+            if not schema.namespace:
+                schema.namespace = self.namespace
+            elif schema.namespace != self.namespace and not schema.namespace.startswith(
+                f"{self.namespace}.",
+            ):
+                # Narrower than the deploying namespace is a rollout choice;
+                # wider, or sideways, would let one repo govern another's nodes.
+                raise DJInvalidDeploymentConfig(
+                    message=(
+                        f"custom_metadata schema '{schema.key}' declares namespace "
+                        f"'{schema.namespace}', which is not '{self.namespace}' or "
+                        "beneath it. A deployment may scope a schema to its own "
+                        "namespace or a sub-namespace, never to another."
+                    ),
+                )
         return self
 
 
