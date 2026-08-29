@@ -458,6 +458,37 @@ def require_shared_template(postgres, dbname: str, how_to_build: str) -> None:
     )
 
 
+def require_shared_readonly_role(postgres) -> None:
+    """
+    Insist the ``readonly_user`` role exists on a shared server.
+
+    For containers it starts itself the suite creates this role, but on a server
+    it does not own it cannot. The reader database URL depends on it, so a
+    missing role surfaces as an authentication error deep inside an unrelated
+    test rather than as a setup problem.
+    """
+    url = urlparse(postgres.get_connection_url())
+    with connect(
+        host=url.hostname,
+        port=url.port,
+        dbname=url.path.lstrip("/"),
+        user=url.username,
+        password=url.password,
+        autocommit=True,
+    ) as conn:
+        row = conn.execute(
+            "SELECT 1 FROM pg_roles WHERE rolname = 'readonly_user'",
+        ).fetchone()
+    if row is None:
+        raise RuntimeError(
+            "Shared Postgres is missing the `readonly_user` role, which the "
+            "reader database URL needs.\nDJ_TEST_POSTGRES_URL is set, so the "
+            "role has to be created before pytest starts:\n\n"
+            '    psql -c "CREATE ROLE readonly_user WITH LOGIN '
+            "PASSWORD 'readonly'\"",
+        )
+
+
 def worker_suffix() -> str:
     """
     Identifier unique to this xdist worker.
@@ -2319,6 +2350,7 @@ def template_database(postgres_container: PostgresContainer) -> str:
     """
     if externally_managed_postgres():
         # Built once outside pytest; every worker just clones it.
+        require_shared_readonly_role(postgres_container)
         require_shared_template(
             postgres_container,
             TEMPLATE_DB_NAME,
