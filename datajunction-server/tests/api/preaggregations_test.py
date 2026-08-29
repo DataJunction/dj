@@ -7,6 +7,7 @@ import os
 import pathlib
 import subprocess
 import sys
+from collections.abc import Generator
 
 import pytest
 import pytest_asyncio
@@ -146,7 +147,7 @@ PREAGGS_TEMPLATE_DB_NAME = "template_preaggs"
 def preaggs_template_database(
     postgres_container: PostgresContainer,
     template_database: str,
-) -> tuple[str, list[int]]:
+) -> Generator[tuple[str, list[int]], None, None]:
     """
     A template database that already holds the ten planned pre-aggregations.
 
@@ -185,7 +186,7 @@ def preaggs_template_database(
     )
     if result.returncode != 0:
         raise RuntimeError(
-            f"Failed to populate preaggs template:\n{result.stdout}\n{result.stderr}"
+            f"Failed to populate preaggs template:\n{result.stdout}\n{result.stderr}",
         )
     ids = next(
         json.loads(line.split(" ", 1)[1])

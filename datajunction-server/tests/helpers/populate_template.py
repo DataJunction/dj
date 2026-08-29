@@ -11,93 +11,28 @@ Usage: python populate_template.py <database_url>
 import asyncio
 import os
 import sys
-from datetime import timedelta
 from http.client import HTTPException
 
-import httpx
-from cachelib.simple import SimpleCache
 from httpx import AsyncClient
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import StaticPool
-
-# Get database URL from command line
-template_db_url = sys.argv[1]
-reader_db_url = template_db_url.replace("dj:dj@", "readonly_user:readonly@")
-
-# Set environment variables BEFORE importing any datajunction_server modules
-# This ensures the Settings class picks up these values
-os.environ["DJ_DATABASE__URI"] = template_db_url
-os.environ["WRITER_DB__URI"] = template_db_url
-os.environ["READER_DB__URI"] = reader_db_url
 
 # Add tests directory to path for examples import
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from examples import COLUMN_MAPPINGS, EXAMPLES, SERVICE_SETUP
+from helpers.template_app import configure_database_env, template_app_client
 
-# Import config first and clear cache to ensure our env vars are used
-from datajunction_server.config import DatabaseConfig, Settings
-from datajunction_server.utils import get_settings
+# Get database URL from command line
+template_db_url = sys.argv[1]
+reader_db_url = configure_database_env(template_db_url)
 
-# Clear the lru_cache on get_settings to force it to re-read
-get_settings.cache_clear()
-
-# Now import the rest of the modules - they should use our settings
+# Imported after configure_database_env so they read the settings above.
 from datajunction_server.api.attributes import default_attribute_types
-from datajunction_server.api.main import app
 from datajunction_server.database.base import Base
-from datajunction_server.database.column import Column
-from datajunction_server.database.engine import Engine
 from datajunction_server.database.user import User
-from datajunction_server.internal.access.authentication.tokens import (
-    create_token,
-)
-from datajunction_server.internal.access.authorization import (
-    PassthroughAuthorizationService,
-    get_authorization_service,
-)
 from datajunction_server.internal.seed import seed_default_catalogs
-from datajunction_server.models.dialect import register_dialect_plugin
-from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.models.user import OAuthProvider
-from datajunction_server.service_clients import QueryServiceClient
-from datajunction_server.transpilation import SQLTranspilationPlugin
-from datajunction_server.typing import QueryState
-from datajunction_server.utils import (
-    get_query_service_client,
-    get_session,
-)
-
-# Verify our settings are correct
-actual_settings = get_settings()
-print(f"Using writer_db: {actual_settings.writer_db.uri}")
-print(
-    f"Using reader_db: {actual_settings.reader_db.uri if actual_settings.reader_db else 'None'}",
-)
-
-# Import seed module to patch its cached settings
-from datajunction_server.internal import seed as seed_module
-
-# Create template settings (matching what get_settings() should return)
-template_settings = Settings(
-    writer_db=DatabaseConfig(uri=template_db_url),
-    reader_db=DatabaseConfig(uri=reader_db_url),
-    repository="/path/to/repository",
-    results_backend=SimpleCache(default_timeout=0),
-    celery_broker=None,
-    redis_cache=None,
-    query_service=None,
-    secret="a-fake-secretkey",
-    transpilation_plugins=["default"],
-)
-
-# Patch the cached settings in seed module
-seed_module.settings = template_settings
-
-# Register dialect plugins
-register_dialect_plugin("spark", SQLTranspilationPlugin)
-register_dialect_plugin("trino", SQLTranspilationPlugin)
-register_dialect_plugin("druid", SQLTranspilationPlugin)
 
 
 # Helper functions (copied from conftest.py)
@@ -172,126 +107,27 @@ async def create_default_user(session: AsyncSession) -> User:
 async def main():
     print(f"Populating template database: {template_db_url}")
 
-    engine = create_async_engine(
-        url=template_db_url,
-        poolclass=StaticPool,
-    )
-
-    # Create all tables
+    engine = create_async_engine(url=template_db_url, poolclass=StaticPool)
     async with engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
         await conn.run_sync(Base.metadata.create_all)
     print("Tables created")
+    await engine.dispose()
 
-    async_session_factory = async_sessionmaker(
-        bind=engine,
-        autocommit=False,
-        expire_on_commit=False,
-    )
-
-    async with async_session_factory() as session:
-        # Seed default data
+    async with template_app_client(
+        template_db_url,
+        reader_db_url,
+        column_mappings=COLUMN_MAPPINGS,
+    ) as (session, test_client):
         await default_attribute_types(session)
         await seed_default_catalogs(session)
         await create_default_user(session)
         print("Default data seeded")
 
-        # Create mock query service client
-        qs_client = QueryServiceClient(uri="query_service:8001")
-
-        def mock_get_columns_for_table(
-            catalog: str,
-            schema: str,
-            table: str,
-            engine: Engine | None = None,
-            request_headers: dict[str, str] | None = None,
-        ) -> list[Column]:
-            return COLUMN_MAPPINGS.get(f"{catalog}.{schema}.{table}", [])
-
-        def mock_submit_query(
-            query_create: QueryCreate,
-            request_headers: dict[str, str] | None = None,
-        ) -> QueryWithResults:
-            return QueryWithResults(
-                id="bd98d6be-e2d2-413e-94c7-96d9411ddee2",
-                submitted_query=query_create.submitted_query,
-                state=QueryState.FINISHED,
-                results=[
-                    {"columns": [], "rows": [], "sql": query_create.submitted_query},
-                ],
-                errors=[],
-            )
-
-        async def mock_get_columns_for_table_async(
-            catalog: str,
-            schema: str,
-            table: str,
-            request_headers: dict[str, str] | None = None,
-            engine: Engine | None = None,
-        ) -> list[Column]:
-            return mock_get_columns_for_table(
-                catalog,
-                schema,
-                table,
-                engine,
-                request_headers,
-            )
-
-        async def mock_submit_query_async(
-            query_create: QueryCreate,
-            request_headers: dict[str, str] | None = None,
-        ) -> QueryWithResults:
-            return mock_submit_query(query_create, request_headers)
-
-        qs_client.get_columns_for_table = mock_get_columns_for_table  # type: ignore
-        qs_client.submit_query = mock_submit_query  # type: ignore
-        qs_client.get_columns_for_table = mock_get_columns_for_table_async  # type: ignore
-        qs_client.submit_query = mock_submit_query_async  # type: ignore
-
-        # Override dependencies
-        def get_session_override() -> AsyncSession:
-            return session
-
-        def get_settings_override() -> Settings:
-            return template_settings
-
-        def get_passthrough_auth_service():
-            """Override to approve all requests in tests."""
-            return PassthroughAuthorizationService()
-
-        def get_query_service_client_override(request=None):
-            return qs_client
-
-        app.dependency_overrides[get_session] = get_session_override
-        app.dependency_overrides[get_settings] = get_settings_override
-        app.dependency_overrides[get_authorization_service] = (
-            get_passthrough_auth_service
-        )
-        app.dependency_overrides[get_query_service_client] = (
-            get_query_service_client_override
-        )
-
-        # Create JWT token
-        jwt_token = create_token(
-            {"username": "dj"},
-            secret="a-fake-secretkey",
-            iss="http://localhost:8000/",
-            expires_delta=timedelta(hours=24),
-        )
-
-        # Load ALL examples
         print("Loading examples via HTTP client...")
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app),
-            base_url="http://test",
-        ) as test_client:
-            test_client.headers.update({"Authorization": f"Bearer {jwt_token}"})
-            await load_examples_in_client(test_client, None)  # None = load ALL examples
+        await load_examples_in_client(test_client, None)  # None = load ALL examples
         print("Examples loaded")
 
-        app.dependency_overrides.clear()
-
-    await engine.dispose()
     print("Template database populated successfully!")
 
 
