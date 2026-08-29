@@ -4,31 +4,81 @@ Dimension linking related tests.
 Each test gets its own isolated database with COMPLEX_DIMENSION_LINK data loaded fresh.
 """
 
+import os
+import pathlib
+import subprocess
+import sys
+from collections.abc import Generator
+
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 from requests import Response
+from testcontainers.postgres import PostgresContainer
 
 from datajunction_server.sql.parsing.backends.antlr4 import parse
-from tests.conftest import post_and_raise_if_error
+from tests.conftest import (
+    cleanup_database_for_module,
+    create_database_for_module,
+)
 from tests.construction.build_v3 import assert_sql_equal
-from tests.examples import COMPLEX_DIMENSION_LINK, SERVICE_SETUP
+
+
+DIM_LINKS_TEMPLATE_DB_NAME = "template_dimension_links"
+
+
+@pytest.fixture(scope="session")
+def dim_links_template_database(
+    postgres_container: PostgresContainer,
+) -> Generator[str, None, None]:
+    """
+    A template database holding just the COMPLEX_DIMENSION_LINK examples.
+
+    These tests used ``isolated_client``, which builds an empty database per
+    test -- create_all for every table, then the default attribute types,
+    catalogs and user, then the examples over HTTP. That is ~2s of setup for
+    each of the 14 tests, all of it producing identical state.
+
+    Build it once and let each test clone it instead. Cloning is ~90ms, and
+    every test still gets its own database, so the tests that mutate links stay
+    isolated.
+    """
+    url = create_database_for_module(postgres_container, DIM_LINKS_TEMPLATE_DB_NAME)
+    script = pathlib.Path(__file__).parent.parent / "helpers" / "populate_template.py"
+    project_root = pathlib.Path(__file__).parent.parent.parent
+    env = {
+        **os.environ,
+        "PYTHONPATH": f"{project_root}{os.pathsep}{os.environ.get('PYTHONPATH', '')}",
+    }
+    result = subprocess.run(
+        [sys.executable, str(script), url, "COMPLEX_DIMENSION_LINK"],
+        capture_output=True,
+        text=True,
+        cwd=str(project_root),
+        env=env,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Failed to populate dimension links template:\n"
+            f"{result.stdout}\n{result.stderr}",
+        )
+    yield DIM_LINKS_TEMPLATE_DB_NAME
+    cleanup_database_for_module(postgres_container, DIM_LINKS_TEMPLATE_DB_NAME)
+
+
+@pytest.fixture
+def isolated_client_template(dim_links_template_database: str) -> str:
+    """Have ``isolated_client`` clone the dimension-links template."""
+    return dim_links_template_database
 
 
 @pytest_asyncio.fixture
 async def dimensions_link_client(isolated_client: AsyncClient) -> AsyncClient:
     """
-    Function-scoped fixture that provides a client with COMPLEX_DIMENSION_LINK data.
+    Client whose database already has the COMPLEX_DIMENSION_LINK examples.
 
-    Uses isolated_client for complete isolation - each test gets its own fresh
-    database with the dimension link examples loaded.
+    They arrive with the template clone, so there is nothing to load here.
     """
-    for endpoint, json in SERVICE_SETUP + COMPLEX_DIMENSION_LINK:
-        await post_and_raise_if_error(
-            client=isolated_client,
-            endpoint=endpoint,
-            json=json,  # type: ignore
-        )
     return isolated_client
 
 

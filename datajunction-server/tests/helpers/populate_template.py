@@ -3,7 +3,11 @@
 Script to populate the template database with all examples.
 Run as a subprocess to avoid event loop conflicts with pytest-asyncio.
 
-Usage: python populate_template.py <database_url>
+Usage: python populate_template.py <database_url> [EXAMPLE_NAME ...]
+
+With no example names every example is loaded, which is what the shared
+all-examples template wants. Naming a subset builds a smaller template for a
+module that only needs part of the fixture data.
 """
 
 # ruff: noqa: E402 - env vars must be set before importing datajunction_server modules
@@ -20,11 +24,13 @@ from sqlalchemy.pool import StaticPool
 
 # Add tests directory to path for examples import
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import examples as examples_module
 from examples import COLUMN_MAPPINGS, EXAMPLES, SERVICE_SETUP
 from helpers.template_app import configure_database_env, template_app_client
 
 # Get database URL from command line
 template_db_url = sys.argv[1]
+examples_to_load = sys.argv[2:] or None
 reader_db_url = configure_database_env(template_db_url)
 
 # Imported after configure_database_env so they read the settings above.
@@ -64,7 +70,13 @@ async def load_examples_in_client(
     # Load only the selected examples if any are specified
     if examples_to_load is not None:
         for example_name in examples_to_load:
-            for endpoint, json in EXAMPLES[example_name]:
+            # Most names are EXAMPLES keys, but some fixture sets are only
+            # module-level constants in tests/examples.py.
+            example = EXAMPLES.get(example_name) or getattr(
+                examples_module,
+                example_name,
+            )
+            for endpoint, json in example:
                 await post_and_raise_if_error(
                     client=client,
                     endpoint=endpoint,
@@ -124,8 +136,8 @@ async def main():
         await create_default_user(session)
         print("Default data seeded")
 
-        print("Loading examples via HTTP client...")
-        await load_examples_in_client(test_client, None)  # None = load ALL examples
+        print(f"Loading examples via HTTP client: {examples_to_load or 'ALL'}")
+        await load_examples_in_client(test_client, examples_to_load)
         print("Examples loaded")
 
     print("Template database populated successfully!")

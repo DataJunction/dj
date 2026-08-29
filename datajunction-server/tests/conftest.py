@@ -1860,12 +1860,27 @@ async def module__clean_client(
     cleanup_database_for_module(postgres_container, dbname)
 
 
+@pytest.fixture
+def isolated_client_template() -> str | None:
+    """
+    Template database for ``isolated_client`` to clone, if any.
+
+    Defaults to none, so ``isolated_client`` builds an empty database and the
+    caller loads what it needs. A module whose tests all want the same data can
+    override this with a template name: creating the schema and loading examples
+    costs seconds per test, cloning a template costs ~90ms, and each test still
+    gets its own database.
+    """
+    return None
+
+
 @pytest_asyncio.fixture
 async def isolated_client(
     request,
     postgres_container: PostgresContainer,
     mocker: MockerFixture,
     background_tasks,
+    isolated_client_template: str | None,
 ) -> AsyncGenerator[AsyncClient, None]:
     """
     Function-scoped client with a CLEAN database (no template, no pre-loaded examples).
@@ -1881,7 +1896,15 @@ async def isolated_client(
     # Create a unique database for this test function
     test_name = request.node.name
     dbname = f"test_isolated_{abs(hash(test_name)) % 10000000}_{id(request)}"
-    db_url = create_database_for_module(postgres_container, dbname)
+    db_url = (
+        clone_database_from_template(
+            postgres_container,
+            template_name=isolated_client_template,
+            target_name=dbname,
+        )
+        if isolated_client_template
+        else create_database_for_module(postgres_container, dbname)
+    )
 
     # Create settings for this clean database
     writer_db = DatabaseConfig(uri=db_url)
@@ -1918,10 +1941,11 @@ async def isolated_client(
         poolclass=NullPool,  # Avoids lock binding issues across event loops
     )
 
-    # Create tables in the clean database
-    async with engine.begin() as conn:
-        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
-        await conn.run_sync(Base.metadata.create_all)
+    # Create tables in the clean database. A clone already has them.
+    if not isolated_client_template:
+        async with engine.begin() as conn:
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
+            await conn.run_sync(Base.metadata.create_all)
 
     async_session_factory = async_sessionmaker(
         bind=engine,
@@ -1932,14 +1956,16 @@ async def isolated_client(
     async with async_session_factory() as session:
         session.remove = AsyncMock(return_value=None)
 
-        # Initialize the empty database with required seed data
-        from datajunction_server.api.attributes import default_attribute_types
-        from datajunction_server.internal.seed import seed_default_catalogs
+        # Initialize the empty database with required seed data. A clone of a
+        # template already carries it.
+        if not isolated_client_template:
+            from datajunction_server.api.attributes import default_attribute_types
+            from datajunction_server.internal.seed import seed_default_catalogs
 
-        await default_attribute_types(session)
-        await seed_default_catalogs(session)
-        await create_default_user(session)
-        await session.commit()
+            await default_attribute_types(session)
+            await seed_default_catalogs(session)
+            await create_default_user(session)
+            await session.commit()
 
         def get_session_override() -> AsyncSession:
             return session
