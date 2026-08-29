@@ -134,6 +134,11 @@ jobs:
             paths: "tests/sql"
           - shard: 4
             paths: "tests/internal"
+          # Also carries --doctest-modules. The build legs pass it, and it is
+          # what imports every module in the package -- without it the
+          # import-time lines of modules no test imports directly (models/
+          # table.py, __about__.py, a couple of __init__.py) are never
+          # executed, and the combined total lands just under the threshold.
           - shard: 5
             paths: >-
               tests
@@ -141,6 +146,8 @@ jobs:
               --ignore=tests/construction
               --ignore=tests/sql
               --ignore=tests/internal
+              --doctest-modules datajunction_server
+              --ignore=datajunction_server/alembic/env.py
 
     steps:
       - uses: actions/checkout@v4
