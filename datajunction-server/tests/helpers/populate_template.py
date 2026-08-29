@@ -18,15 +18,17 @@ import sys
 from http.client import HTTPException
 
 from httpx import AsyncClient
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.ext.asyncio import AsyncSession
 
 # Add tests directory to path for examples import
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import examples as examples_module
 from examples import COLUMN_MAPPINGS, EXAMPLES, SERVICE_SETUP
-from helpers.template_app import configure_database_env, template_app_client
+from helpers.template_app import (
+    configure_database_env,
+    create_schema,
+    template_app_client,
+)
 
 # Get database URL from command line
 template_db_url = sys.argv[1]
@@ -35,7 +37,6 @@ reader_db_url = configure_database_env(template_db_url)
 
 # Imported after configure_database_env so they read the settings above.
 from datajunction_server.api.attributes import default_attribute_types
-from datajunction_server.database.base import Base
 from datajunction_server.database.user import User
 from datajunction_server.internal.seed import seed_default_catalogs
 from datajunction_server.models.user import OAuthProvider
@@ -119,12 +120,8 @@ async def create_default_user(session: AsyncSession) -> User:
 async def main():
     print(f"Populating template database: {template_db_url}")
 
-    engine = create_async_engine(url=template_db_url, poolclass=StaticPool)
-    async with engine.begin() as conn:
-        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
-        await conn.run_sync(Base.metadata.create_all)
+    await create_schema(template_db_url)
     print("Tables created")
-    await engine.dispose()
 
     async with template_app_client(
         template_db_url,

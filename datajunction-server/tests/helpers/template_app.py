@@ -130,6 +130,31 @@ def build_mock_query_service_client(column_mappings: dict | None = None) -> Any:
     return client
 
 
+async def create_schema(db_url: str) -> None:
+    """
+    Create every table on a fresh database.
+
+    Importing the app is what registers the models on ``Base.metadata``. Without
+    it ``create_all`` silently creates only whichever subset happens to have
+    been imported, so tables belonging to newer features go missing and the
+    failure surfaces much later as ``relation "..." does not exist``.
+    """
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import StaticPool
+
+    import datajunction_server.api.main  # noqa: F401  registers every model
+    from datajunction_server.database.base import Base
+
+    engine = create_async_engine(url=db_url, poolclass=StaticPool)
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
+            await conn.run_sync(Base.metadata.create_all)
+    finally:
+        await engine.dispose()
+
+
 @asynccontextmanager
 async def template_app_client(
     db_url: str,
