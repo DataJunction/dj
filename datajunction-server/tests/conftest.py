@@ -411,6 +411,53 @@ def database_exists(postgres, dbname: str) -> bool:
     return row is not None
 
 
+def template_is_populated(postgres, dbname: str) -> bool:
+    """
+    Whether ``dbname`` exists *and* actually holds a schema.
+
+    Existence alone is not enough. A build that dies after CREATE DATABASE but
+    before loading anything leaves a database that looks usable and is not, and
+    on a shared server nothing cleans it up -- every later run then fails
+    somewhere downstream with an opaque UndefinedTable.
+    """
+    if not database_exists(postgres, dbname):
+        return False
+    url = urlparse(postgres.get_connection_url())
+    with connect(
+        host=url.hostname,
+        port=url.port,
+        dbname=dbname,
+        user=url.username,
+        password=url.password,
+        autocommit=True,
+    ) as conn:
+        row = conn.execute(
+            "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'",
+        ).fetchone()
+    return bool(row and row[0] > 0)
+
+
+def require_shared_template(postgres, dbname: str, how_to_build: str) -> None:
+    """
+    Insist that a shared template is present and populated.
+
+    On a server this process does not own, templates are built once before
+    pytest runs. Building them here instead would race between workers and, on
+    failure, leave a half-made database behind, so refuse loudly and say what
+    is missing.
+    """
+    if template_is_populated(postgres, dbname):
+        return
+    state = "exists but is empty" if database_exists(postgres, dbname) else "is missing"
+    raise RuntimeError(
+        f"Shared template database `{dbname}` {state}.\n"
+        f"DJ_TEST_POSTGRES_URL is set, so templates must be built before pytest "
+        f"starts. Build it with:\n\n    {how_to_build}\n\n"
+        f"If it exists but is empty, drop it first: "
+        f'psql -c "DROP DATABASE {dbname};"',
+    )
+
+
 def worker_suffix() -> str:
     """
     Identifier unique to this xdist worker.
@@ -2270,11 +2317,14 @@ def template_database(postgres_container: PostgresContainer) -> str:
     Session-scoped fixture that creates a template database with ALL examples.
     This runs ONCE per test session and then each module clones from it.
     """
-    if externally_managed_postgres() and database_exists(
-        postgres_container,
-        TEMPLATE_DB_NAME,
-    ):
+    if externally_managed_postgres():
         # Built once outside pytest; every worker just clones it.
+        require_shared_template(
+            postgres_container,
+            TEMPLATE_DB_NAME,
+            f"python tests/helpers/populate_template.py "
+            f"<url-ending-in>/{TEMPLATE_DB_NAME}",
+        )
         return TEMPLATE_DB_NAME
     template_url = create_database_for_module(postgres_container, TEMPLATE_DB_NAME)
     _populate_template_via_subprocess(template_url)

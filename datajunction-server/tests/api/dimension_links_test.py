@@ -18,8 +18,8 @@ from testcontainers.postgres import PostgresContainer
 
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from tests.conftest import (
-    database_exists,
     externally_managed_postgres,
+    require_shared_template,
     cleanup_database_for_module,
     create_database_for_module,
 )
@@ -46,10 +46,14 @@ def dim_links_template_database(
     isolated.
     """
     externally_managed = externally_managed_postgres()
-    if externally_managed and database_exists(
-        postgres_container,
-        DIM_LINKS_TEMPLATE_DB_NAME,
-    ):
+    if externally_managed:
+        require_shared_template(
+            postgres_container,
+            DIM_LINKS_TEMPLATE_DB_NAME,
+            f"psql -c 'CREATE DATABASE {DIM_LINKS_TEMPLATE_DB_NAME};' && python "
+            f"tests/helpers/populate_template.py "
+            f"<url-ending-in>/{DIM_LINKS_TEMPLATE_DB_NAME} COMPLEX_DIMENSION_LINK",
+        )
         yield DIM_LINKS_TEMPLATE_DB_NAME
         return
 

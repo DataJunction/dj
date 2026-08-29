@@ -32,11 +32,11 @@ from datajunction_server.construction.build_v3.builder import build_measures_sql
 from datajunction_server.models.access import ResourceAction
 from tests.authz import VALIDATOR_AUTH_SERVICE, deny
 from tests.conftest import (
-    database_exists,
-    externally_managed_postgres,
     FuncPostgresContainer,
     cleanup_database_for_module,
     clone_database_from_template,
+    externally_managed_postgres,
+    require_shared_template,
 )
 
 
@@ -182,11 +182,16 @@ def preaggs_template_database(
     Returns the template name and the preagg ids, in preagg1..preagg10 order.
     """
     externally_managed = externally_managed_postgres()
-    if externally_managed and database_exists(
-        postgres_container,
-        PREAGGS_TEMPLATE_DB_NAME,
-    ):
+    if externally_managed:
         # Planned once outside pytest; read the ids back off the template.
+        require_shared_template(
+            postgres_container,
+            PREAGGS_TEMPLATE_DB_NAME,
+            f"psql -c 'CREATE DATABASE {PREAGGS_TEMPLATE_DB_NAME} "
+            f"TEMPLATE template_all_examples;' && python "
+            f"tests/helpers/populate_preaggs_template.py "
+            f"<url-ending-in>/{PREAGGS_TEMPLATE_DB_NAME}",
+        )
         yield (
             PREAGGS_TEMPLATE_DB_NAME,
             _preagg_ids_from(
