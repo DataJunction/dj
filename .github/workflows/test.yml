@@ -23,6 +23,7 @@ jobs:
       djqs: ${{ steps.filter.outputs.djqs }}
       djrs: ${{ steps.filter.outputs.djrs }}
       ui: ${{ steps.filter.outputs.ui }}
+      workflow: ${{ steps.filter.outputs.workflow }}
 
     steps:
       - uses: actions/checkout@v4
@@ -46,6 +47,8 @@ jobs:
             ui:
               - datajunction-ui/**
               - '!datajunction-ui/package.json'
+            workflow:
+              - .github/workflows/test.yml
           predicate-quantifier: every
 
   build:
@@ -71,11 +74,15 @@ jobs:
         run: uv python install ${{ matrix.python-version }}
 
       - name: Run Tests
+        # Editing this workflow has to exercise this workflow. Without the
+        # `workflow` clause a change to test.yml matches no filter, every test
+        # step is skipped, and the PR goes green having run nothing -- so a
+        # broken workflow reaches main and surfaces on somebody else's PR.
         if: |
-          (matrix.library == 'client' && (needs.changes.outputs.client == 'true' || needs.changes.outputs.server == 'true')) ||
-          (matrix.library == 'server' && needs.changes.outputs.server == 'true') ||
-          (matrix.library == 'djqs' && needs.changes.outputs.djqs == 'true') ||
-          (matrix.library == 'djrs' && needs.changes.outputs.djrs == 'true')
+          (matrix.library == 'client' && (needs.changes.outputs.client == 'true' || needs.changes.outputs.server == 'true' || needs.changes.outputs.workflow == 'true')) ||
+          (matrix.library == 'server' && (needs.changes.outputs.server == 'true' || needs.changes.outputs.workflow == 'true')) ||
+          (matrix.library == 'djqs' && (needs.changes.outputs.djqs == 'true' || needs.changes.outputs.workflow == 'true')) ||
+          (matrix.library == 'djrs' && (needs.changes.outputs.djrs == 'true' || needs.changes.outputs.workflow == 'true'))
         run: |
           echo "Testing ${{ matrix.library }} ..."
           export TEST_DIR=${{ matrix.library == 'server' && './datajunction-server' || matrix.library == 'client' && './datajunction-clients/python' || matrix.library == 'djqs' && './datajunction-query' || matrix.library == 'djrs' && './datajunction-reflection'}}
@@ -105,11 +112,14 @@ jobs:
           # merge gate is whichever leg is slowest. The other versions still run
           # the whole suite; they are simply not instrumented.
           #
-          # 3.13 is the leg that measures it: it is the fastest of the three,
-          # and coverage's sys.monitoring backend needs 3.12+ and costs far less
-          # than the trace-function one.
+          # 3.13 is the leg that measures it, because it is the fastest of the
+          # three, so the coverage cost lands on the leg best able to absorb it.
+          #
+          # Not using COVERAGE_CORE=sysmon: measured at no benefit here.
+          # coverage 7.13.4 refuses it ("sys.monitoring can't measure branches
+          # in this version") and silently falls back to the trace core, so the
+          # run is the same speed or marginally slower.
           if [ "${{ matrix.python-version }}" = "3.13" ]; then
-            export COVERAGE_CORE=sysmon
             COV_ARGS="--cov-fail-under=100 --cov=$MODULE --cov-report term-missing"
           else
             COV_ARGS=""
