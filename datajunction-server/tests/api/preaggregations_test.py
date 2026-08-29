@@ -9,11 +9,14 @@ import subprocess
 import sys
 from collections.abc import Generator
 
+from urllib.parse import urlparse
+
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from psycopg import connect
 from testcontainers.postgres import PostgresContainer
 from sqlalchemy.orm import joinedload
 
@@ -29,6 +32,8 @@ from datajunction_server.construction.build_v3.builder import build_measures_sql
 from datajunction_server.models.access import ResourceAction
 from tests.authz import VALIDATOR_AUTH_SERVICE, deny
 from tests.conftest import (
+    database_exists,
+    externally_managed_postgres,
     FuncPostgresContainer,
     cleanup_database_for_module,
     clone_database_from_template,
@@ -143,6 +148,25 @@ async def _plan_preagg(
 PREAGGS_TEMPLATE_DB_NAME = "template_preaggs"
 
 
+def _preagg_ids_from(postgres_container, dbname: str) -> list[int]:
+    """Read preagg ids out of an already-built template, in creation order."""
+    url = urlparse(postgres_container.get_connection_url())
+    with connect(
+        host=url.hostname,
+        port=url.port,
+        dbname=dbname,
+        user=url.username,
+        password=url.password,
+        autocommit=True,
+    ) as conn:
+        return [
+            row[0]
+            for row in conn.execute(
+                "SELECT id FROM pre_aggregation ORDER BY id",
+            ).fetchall()
+        ]
+
+
 @pytest.fixture(scope="session")
 def preaggs_template_database(
     postgres_container: PostgresContainer,
@@ -157,6 +181,21 @@ def preaggs_template_database(
 
     Returns the template name and the preagg ids, in preagg1..preagg10 order.
     """
+    externally_managed = externally_managed_postgres()
+    if externally_managed and database_exists(
+        postgres_container,
+        PREAGGS_TEMPLATE_DB_NAME,
+    ):
+        # Planned once outside pytest; read the ids back off the template.
+        yield (
+            PREAGGS_TEMPLATE_DB_NAME,
+            _preagg_ids_from(
+                postgres_container,
+                PREAGGS_TEMPLATE_DB_NAME,
+            ),
+        )
+        return
+
     clone_database_from_template(
         postgres_container,
         template_name=template_database,
@@ -194,7 +233,10 @@ def preaggs_template_database(
         if line.startswith("PREAGG_IDS ")
     )
     yield PREAGGS_TEMPLATE_DB_NAME, ids
-    cleanup_database_for_module(postgres_container, PREAGGS_TEMPLATE_DB_NAME)
+    if not externally_managed:
+        # A shared template outlives this process; dropping it would pull the
+        # rug from under the other workers.
+        cleanup_database_for_module(postgres_container, PREAGGS_TEMPLATE_DB_NAME)
 
 
 @pytest.fixture

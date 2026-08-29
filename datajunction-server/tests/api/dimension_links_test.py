@@ -18,6 +18,8 @@ from testcontainers.postgres import PostgresContainer
 
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from tests.conftest import (
+    database_exists,
+    externally_managed_postgres,
     cleanup_database_for_module,
     create_database_for_module,
 )
@@ -43,6 +45,14 @@ def dim_links_template_database(
     every test still gets its own database, so the tests that mutate links stay
     isolated.
     """
+    externally_managed = externally_managed_postgres()
+    if externally_managed and database_exists(
+        postgres_container,
+        DIM_LINKS_TEMPLATE_DB_NAME,
+    ):
+        yield DIM_LINKS_TEMPLATE_DB_NAME
+        return
+
     url = create_database_for_module(postgres_container, DIM_LINKS_TEMPLATE_DB_NAME)
     script = pathlib.Path(__file__).parent.parent / "helpers" / "populate_template.py"
     project_root = pathlib.Path(__file__).parent.parent.parent
@@ -63,7 +73,8 @@ def dim_links_template_database(
             f"{result.stdout}\n{result.stderr}",
         )
     yield DIM_LINKS_TEMPLATE_DB_NAME
-    cleanup_database_for_module(postgres_container, DIM_LINKS_TEMPLATE_DB_NAME)
+    if not externally_managed:
+        cleanup_database_for_module(postgres_container, DIM_LINKS_TEMPLATE_DB_NAME)
 
 
 @pytest.fixture

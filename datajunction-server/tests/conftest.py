@@ -259,7 +259,9 @@ def func__postgres_container(
     """
     # Create a unique database name for this test
     test_name = request.node.name
-    dbname = f"test_func_{abs(hash(test_name)) % 10000000}_{id(request)}"
+    dbname = (
+        f"test_func_{worker_suffix()}_{abs(hash(test_name)) % 10000000}_{id(request)}"
+    )
 
     # Clone from template
     db_url = clone_database_from_template(
@@ -286,7 +288,9 @@ def func__clean_postgres_container(
     """
     # Create a unique database name for this test
     test_name = request.node.name
-    dbname = f"test_clean_{abs(hash(test_name)) % 10000000}_{id(request)}"
+    dbname = (
+        f"test_clean_{worker_suffix()}_{abs(hash(test_name)) % 10000000}_{id(request)}"
+    )
 
     # Create a fresh empty database (no template)
     db_url = create_database_for_module(postgres_container, dbname)
@@ -371,6 +375,53 @@ def duckdb_conn() -> duckdb.DuckDBPyConnection:
         yield conn
 
 
+class ExternalPostgres:
+    """
+    Stands in for ``PostgresContainer`` when tests run against a server this
+    process did not start, so nothing tears it down at the end of a session.
+    """
+
+    def __init__(self, url: str):
+        self._url = url
+
+    def get_connection_url(self) -> str:
+        return self._url
+
+
+def externally_managed_postgres() -> bool:
+    """True when the Postgres server (and its templates) outlive this process."""
+    return bool(os.environ.get("DJ_TEST_POSTGRES_URL"))
+
+
+def database_exists(postgres, dbname: str) -> bool:
+    """Whether ``dbname`` is already present on the server."""
+    url = urlparse(postgres.get_connection_url())
+    with connect(
+        host=url.hostname,
+        port=url.port,
+        dbname=url.path.lstrip("/"),
+        user=url.username,
+        password=url.password,
+        autocommit=True,
+    ) as conn:
+        row = conn.execute(
+            "SELECT 1 FROM pg_database WHERE datname = %s",
+            (dbname,),
+        ).fetchone()
+    return row is not None
+
+
+def worker_suffix() -> str:
+    """
+    Identifier unique to this xdist worker.
+
+    Generated database names have to include it once workers share one server:
+    the old names leaned on ``id(request)``, which is only unique within a
+    process.
+    """
+    return os.environ.get("PYTEST_XDIST_WORKER", "gw0")
+
+
 @pytest.fixture(scope="session")
 def postgres_container() -> PostgresContainer:
     """
@@ -380,7 +431,17 @@ def postgres_container() -> PostgresContainer:
     1. The 'dj' database (default)
     2. The template database with all examples pre-loaded
     3. Per-module databases cloned from the template
+    Under pytest-xdist "session" means *per worker process*, so without
+    ``DJ_TEST_POSTGRES_URL`` every worker starts its own container and builds its
+    own template -- N times the same ~50s of work, all at once at startup. Set
+    that variable to a running Postgres and the workers share it, cloning
+    templates somebody else already built.
     """
+    external_url = os.environ.get("DJ_TEST_POSTGRES_URL")
+    if external_url:
+        yield ExternalPostgres(external_url)  # type: ignore[misc]
+        return
+
     postgres = PostgresContainer(
         image="postgres:latest",
         username="dj",
@@ -571,7 +632,9 @@ async def clean_client(
 
     # Create a unique database for this test
     test_name = request.node.name
-    dbname = f"test_clean_{abs(hash(test_name)) % 10000000}_{id(request)}"
+    dbname = (
+        f"test_clean_{worker_suffix()}_{abs(hash(test_name)) % 10000000}_{id(request)}"
+    )
     db_url = create_database_for_module(postgres_container, dbname)
 
     # Create settings for this clean database
@@ -1744,7 +1807,7 @@ async def module__clean_client(
     """
     # Create a unique database for this module
     module_name = request.module.__name__
-    dbname = f"test_mod_clean_{abs(hash(module_name)) % 10000000}"
+    dbname = f"test_mod_clean_{worker_suffix()}_{abs(hash(module_name)) % 10000000}"
     db_url = create_database_for_module(postgres_container, dbname)
 
     # Create settings for this clean database
@@ -1895,7 +1958,7 @@ async def isolated_client(
 
     # Create a unique database for this test function
     test_name = request.node.name
-    dbname = f"test_isolated_{abs(hash(test_name)) % 10000000}_{id(request)}"
+    dbname = f"test_isolated_{worker_suffix()}_{abs(hash(test_name)) % 10000000}_{id(request)}"
     db_url = (
         clone_database_from_template(
             postgres_container,
@@ -2207,6 +2270,12 @@ def template_database(postgres_container: PostgresContainer) -> str:
     Session-scoped fixture that creates a template database with ALL examples.
     This runs ONCE per test session and then each module clones from it.
     """
+    if externally_managed_postgres() and database_exists(
+        postgres_container,
+        TEMPLATE_DB_NAME,
+    ):
+        # Built once outside pytest; every worker just clones it.
+        return TEMPLATE_DB_NAME
     template_url = create_database_for_module(postgres_container, TEMPLATE_DB_NAME)
     _populate_template_via_subprocess(template_url)
     return TEMPLATE_DB_NAME
@@ -2223,7 +2292,7 @@ def module__postgres_container(
     Each module gets its own database cloned from the template with all examples.
     """
     path = pathlib.Path(request.module.__file__).resolve()
-    dbname = f"test_mod_{abs(hash(path)) % 10000000}"
+    dbname = f"test_mod_{worker_suffix()}_{abs(hash(path)) % 10000000}"
 
     module_db_url = clone_database_from_template(
         postgres_container,
