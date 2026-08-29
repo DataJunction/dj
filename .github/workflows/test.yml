@@ -96,7 +96,26 @@ jobs:
 
           # Run tests
           export MODULE=${{ matrix.library == 'server' && 'datajunction_server' || matrix.library == 'client' && 'datajunction' || matrix.library == 'djqs' && 'djqs' || matrix.library == 'djrs' && 'datajunction_reflection'}}
-          uv run pytest ${{ (matrix.library == 'server' || matrix.library == 'client') && '-n auto --dist=loadscope' || '' }} --cov-fail-under=100 --cov=$MODULE --cov-report term-missing -vv tests/ --doctest-modules $MODULE --without-integration --without-slow-integration --ignore=datajunction_server/alembic/env.py
+
+          # Measure coverage on one Python version, not all three. Coverage
+          # reports which lines the suite exercises, and there is no
+          # sys.version_info branch anywhere outside the generated ANTLR
+          # grammar, so the answer does not differ per version. Paying the
+          # instrumentation on every leg just makes each one slower, and the
+          # merge gate is whichever leg is slowest. The other versions still run
+          # the whole suite; they are simply not instrumented.
+          #
+          # 3.13 is the leg that measures it: it is the fastest of the three,
+          # and coverage's sys.monitoring backend needs 3.12+ and costs far less
+          # than the trace-function one.
+          if [ "${{ matrix.python-version }}" = "3.13" ]; then
+            export COVERAGE_CORE=sysmon
+            COV_ARGS="--cov-fail-under=100 --cov=$MODULE --cov-report term-missing"
+          else
+            COV_ARGS=""
+          fi
+
+          uv run pytest ${{ (matrix.library == 'server' || matrix.library == 'client') && '-n auto --dist=loadscope' || '' }} $COV_ARGS -vv tests/ --doctest-modules $MODULE --without-integration --without-slow-integration --ignore=datajunction_server/alembic/env.py
 
   build-javascript:
     runs-on: ubuntu-latest
