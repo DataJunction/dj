@@ -1,6 +1,6 @@
 {
   "name": "datajunction",
-  "version": "0.0.223",
+  "version": "0.0.224",
   "description": "A Javascript client for interacting with a DataJunction server",
   "module": "src/index.js",
   "scripts": {
