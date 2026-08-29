@@ -3,6 +3,7 @@ Tests for ``datajunction_server.sql.functions``.
 """
 
 import pytest
+import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import datajunction_server.sql.functions as F
@@ -35,6 +36,18 @@ from datajunction_server.sql.parsing.types import (
     StringType,
     WildcardType,
 )
+
+
+@pytest_asyncio.fixture(scope="module")
+async def session(module__session: AsyncSession) -> AsyncSession:
+    """
+    Override the function-scoped ``session`` fixture with a module-scoped one.
+
+    Nothing in this module writes to the database -- these tests only compile
+    expressions and assert inferred types -- so cloning a database per test is
+    wasted work.
+    """
+    return module__session
 
 
 @pytest.mark.asyncio
