@@ -10,10 +10,11 @@ from typing import Any, cast
 
 from fastapi import BackgroundTasks, Request
 from fastapi.responses import JSONResponse
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.orm.attributes import set_committed_value
 
 from datajunction_server.api.helpers import (
     dedupe_cube_elements,
@@ -3979,15 +3980,53 @@ async def revalidate_node(
             .scalars()
             .all()
         )
-        # Only reassign when the PK set actually changed. Blind reassignment
-        # makes SA diff by Python identity, and a fresh select may return
-        # different ORM instances for the same rows, leading it to stage a
-        # DELETE+INSERT for an unchanged (parent_id, child_id) pair — the
-        # INSERT then races autoflush and hits the PK constraint.
-        current_parent_ids = {p.id for p in node.current.parents}  # type: ignore
+        # Reconcile against the rows `noderelationship` actually holds rather
+        # than against the session's cached view of the collection. That cached
+        # view can disagree with the table — an earlier load in the same session
+        # can leave the collection populated-but-empty, and the re-link in
+        # ``activate_node`` writes the join table directly without touching it —
+        # and assigning the collection off a stale snapshot makes SQLAlchemy
+        # stage an INSERT for a (parent_id, child_id) pair that already exists,
+        # which trips noderelationship's primary key. Writing the diff through
+        # the table keeps the update idempotent whatever the session believes.
+        current_revision_id = node.current.id  # type: ignore
+        persisted_parent_ids = set(
+            (
+                await session.execute(
+                    select(NodeRelationship.parent_id).where(
+                        NodeRelationship.child_id == current_revision_id,
+                    ),
+                )
+            )
+            .scalars()
+            .all(),
+        )
         target_parent_ids = {p.id for p in parent_refs}
-        if current_parent_ids != target_parent_ids:
-            node.current.parents = list(parent_refs)  # type: ignore
+        if parent_refs and persisted_parent_ids != target_parent_ids:
+            await session.execute(
+                delete(NodeRelationship).where(
+                    NodeRelationship.child_id == current_revision_id,
+                    NodeRelationship.parent_id.notin_(target_parent_ids),
+                ),
+            )
+            await session.execute(
+                pg_insert(NodeRelationship)
+                .values(
+                    [
+                        {
+                            "parent_id": parent_id,
+                            "parent_version": "latest",
+                            "child_id": current_revision_id,
+                        }
+                        for parent_id in sorted(target_parent_ids)
+                    ],
+                )
+                .on_conflict_do_nothing(index_elements=["parent_id", "child_id"]),
+            )
+        # Bring the session's view in step with what the table now holds, as a
+        # committed value so the flush that follows doesn't re-diff (and
+        # re-write) the collection we just reconciled.
+        set_committed_value(node.current, "parents", list(parent_refs))  # type: ignore
         _logger.info(f"Updated parents to: {[p.name for p in parent_refs]}")
     else:
         _logger.info(f"No parents found in dependencies for {node.name}")
