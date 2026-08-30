@@ -1,27 +1,31 @@
 import * as React from 'react';
 import { useParams } from 'react-router-dom';
-import { useContext, useEffect, useState } from 'react';
+import { useContext, useEffect, useState, lazy, Suspense } from 'react';
 import Tab from '../../components/Tab';
 import NamespaceHeader from '../../components/NamespaceHeader';
-import NodeInfoTab from './NodeInfoTab';
-import NodeColumnTab from './NodeColumnTab';
-import NodeDataFlowTab from './NodeDataFlowTab';
-import NodeDimensionsTab from './NodeDimensionsTab';
-import NodeHistory from './NodeHistory';
 import NotebookDownload from './NotebookDownload';
 import DJClientContext from '../../providers/djclient';
-import NodeMaterializationTab from './NodeMaterializationTab';
-import NodePreAggregationsTab from './NodePreAggregationsTab';
 import ClientCodePopover from './ClientCodePopover';
 import WatchButton from './WatchNodeButton';
-import NodesWithDimension from './NodesWithDimension';
-import NodeColumnLineage from './NodeLineageTab';
 import EditIcon from '../../icons/EditIcon';
 import ChartIcon from '../../icons/ChartIcon';
 import AlertIcon from '../../icons/AlertIcon';
 import LoadingIcon from '../../icons/LoadingIcon';
-import NodeDependenciesTab from './NodeDependenciesTab';
 import { useNavigate } from 'react-router-dom';
+
+// Tabs are lazy-loaded so a node page only pulls the deps of the tab actually
+// shown. Otherwise every visit loads reactflow (lineage/dimensions/graph),
+// recharts (data flow) and codemirror (materialization) even for the Info tab.
+const NodeInfoTab = lazy(() => import('./NodeInfoTab'));
+const NodeColumnTab = lazy(() => import('./NodeColumnTab'));
+const NodeDataFlowTab = lazy(() => import('./NodeDataFlowTab'));
+const NodeDimensionsTab = lazy(() => import('./NodeDimensionsTab'));
+const NodeHistory = lazy(() => import('./NodeHistory'));
+const NodeMaterializationTab = lazy(() => import('./NodeMaterializationTab'));
+const NodePreAggregationsTab = lazy(() => import('./NodePreAggregationsTab'));
+const NodesWithDimension = lazy(() => import('./NodesWithDimension'));
+const NodeColumnLineage = lazy(() => import('./NodeLineageTab'));
+const NodeDependenciesTab = lazy(() => import('./NodeDependenciesTab'));
 
 export function NodePage() {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
@@ -313,7 +317,7 @@ export function NodePage() {
               </span>
             </div>
             <div className="dj-tabs-bar">{tabsList(node).map(buildTabs)}</div>
-            {tabToDisplay}
+            <Suspense fallback={<LoadingIcon />}>{tabToDisplay}</Suspense>
           </div>
         ) : node?.message !== undefined ? (
           <div className="message alert" style={{ margin: '20px' }}>
