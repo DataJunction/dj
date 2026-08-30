@@ -1391,9 +1391,6 @@ class CustomMetadataSchemaSpec(BaseModel):
     json_schema: dict
     filterable: bool = True
     description: str | None = None
-    # Advisory team ownership, not authorization: registering through a
-    # deployment is already gated on WRITE for the namespace.
-    owner: str | None = None
 
 
 class GitDeploymentSource(BaseModel):

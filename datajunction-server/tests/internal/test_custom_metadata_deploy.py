@@ -377,7 +377,7 @@ async def test_a_deploy_cannot_shadow_a_reserved_global_key(session, current_use
 
 @pytest.mark.asyncio
 async def test_a_deploy_records_who_registered_the_schema(session, current_user):
-    """Ownership and provenance, which the deploy path was not setting at all."""
+    """Provenance, which the deploy path was not setting at all."""
     await upsert_schema_specs(
         session,
         namespace="prov_ns",
@@ -385,7 +385,6 @@ async def test_a_deploy_records_who_registered_the_schema(session, current_user)
             CustomMetadataSchemaSpec(
                 key="grain",
                 json_schema={"type": "string"},
-                owner="@corp/some-team",
             ),
         ],
         current_user_id=current_user.id,
@@ -399,7 +398,6 @@ async def test_a_deploy_records_who_registered_the_schema(session, current_user)
     ).scalar_one()
     assert row.created_by_id == current_user.id
     assert row.updated_by_id == current_user.id
-    assert row.owner == "@corp/some-team"
     assert row.reserved is False
 
 

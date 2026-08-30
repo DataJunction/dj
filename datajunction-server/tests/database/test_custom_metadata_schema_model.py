@@ -31,20 +31,18 @@ async def test_insert_and_read_schema(session):
 
 @pytest.mark.asyncio
 async def test_new_columns_round_trip(session):
-    """owner, updated_by_id, reserved round-trip through the ORM."""
+    """updated_by_id and reserved round-trip through the ORM."""
     row = CustomMetadataSchema(
         key="contact",
         node_type=None,
         namespace=None,
         json_schema={"type": "string"},
-        owner="team-platform",
         updated_by_id=None,
         reserved=True,
     )
     session.add(row)
     await session.commit()
     fetched = await session.get(CustomMetadataSchema, row.id)
-    assert fetched.owner == "team-platform"
     assert fetched.updated_by_id is None
     assert fetched.reserved is True
 

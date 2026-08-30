@@ -41,7 +41,6 @@ class CustomMetadataSchema(Base):
         ForeignKey("users.id"),
         default=None,
     )
-    owner: Mapped[str | None] = mapped_column(String, default=None)
     updated_by_id: Mapped[int | None] = mapped_column(
         BigInteger,
         ForeignKey("users.id"),

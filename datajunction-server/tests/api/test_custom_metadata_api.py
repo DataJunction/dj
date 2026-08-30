@@ -596,52 +596,6 @@ async def test_created_by_id_and_updated_by_id_populated(
     assert body["updated_by_id"] == admin_id
 
 
-@pytest.mark.asyncio
-async def test_owner_round_trips(
-    client: AsyncClient,
-    session: AsyncSession,
-) -> None:
-    """owner field is persisted and returned in output."""
-    from datajunction_server.database.user import User
-    from datajunction_server.models.user import OAuthProvider
-    from datajunction_server.internal.access.authentication.tokens import create_token
-    from datetime import timedelta
-    import httpx
-    from datajunction_server.api.main import app
-
-    admin_user = User(
-        username="admin_owner",
-        email=None,
-        name=None,
-        oauth_provider=OAuthProvider.BASIC,
-        is_admin=True,
-    )
-    session.add(admin_user)
-    await session.commit()
-    admin_token = create_token(
-        {"username": "admin_owner"},
-        secret="a-fake-secretkey",
-        iss="http://localhost:8000/",
-        expires_delta=timedelta(hours=24),
-    )
-    async with AsyncClient(
-        transport=httpx.ASGITransport(app=app),
-        base_url="http://test",
-        headers={"Authorization": f"Bearer {admin_token}"},
-    ) as admin_client:
-        resp = await admin_client.post(
-            "/metadata-schemas/",
-            json={
-                "key": "owner_key",
-                "json_schema": {"type": "string"},
-                "owner": "team-data-eng",
-            },
-        )
-    assert resp.status_code in (200, 201)
-    body = resp.json()
-    assert body["owner"] == "team-data-eng"
-
-
 # ---------------------------------------------------------------------------
 # Repo-managed namespaces — the API is not a second writer
 # ---------------------------------------------------------------------------
