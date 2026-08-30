@@ -23,6 +23,7 @@ jobs:
       djqs: ${{ steps.filter.outputs.djqs }}
       djrs: ${{ steps.filter.outputs.djrs }}
       ui: ${{ steps.filter.outputs.ui }}
+      workflow: ${{ steps.filter.outputs.workflow }}
 
     steps:
       - uses: actions/checkout@v4
@@ -46,6 +47,8 @@ jobs:
             ui:
               - datajunction-ui/**
               - '!datajunction-ui/package.json'
+            workflow:
+              - .github/workflows/test.yml
           predicate-quantifier: every
 
   build:
@@ -71,11 +74,15 @@ jobs:
         run: uv python install ${{ matrix.python-version }}
 
       - name: Run Tests
+        # Editing this workflow has to exercise this workflow. Without the
+        # `workflow` clause a change to test.yml matches no filter, every test
+        # step is skipped, and the PR goes green having run nothing -- so a
+        # broken workflow reaches main and surfaces on somebody else's PR.
         if: |
-          (matrix.library == 'client' && (needs.changes.outputs.client == 'true' || needs.changes.outputs.server == 'true')) ||
-          (matrix.library == 'server' && needs.changes.outputs.server == 'true') ||
-          (matrix.library == 'djqs' && needs.changes.outputs.djqs == 'true') ||
-          (matrix.library == 'djrs' && needs.changes.outputs.djrs == 'true')
+          (matrix.library == 'client' && (needs.changes.outputs.client == 'true' || needs.changes.outputs.server == 'true' || needs.changes.outputs.workflow == 'true')) ||
+          (matrix.library == 'server' && (needs.changes.outputs.server == 'true' || needs.changes.outputs.workflow == 'true')) ||
+          (matrix.library == 'djqs' && (needs.changes.outputs.djqs == 'true' || needs.changes.outputs.workflow == 'true')) ||
+          (matrix.library == 'djrs' && (needs.changes.outputs.djrs == 'true' || needs.changes.outputs.workflow == 'true'))
         run: |
           echo "Testing ${{ matrix.library }} ..."
           export TEST_DIR=${{ matrix.library == 'server' && './datajunction-server' || matrix.library == 'client' && './datajunction-clients/python' || matrix.library == 'djqs' && './datajunction-query' || matrix.library == 'djrs' && './datajunction-reflection'}}
@@ -96,7 +103,117 @@ jobs:
 
           # Run tests
           export MODULE=${{ matrix.library == 'server' && 'datajunction_server' || matrix.library == 'client' && 'datajunction' || matrix.library == 'djqs' && 'djqs' || matrix.library == 'djrs' && 'datajunction_reflection'}}
-          uv run pytest ${{ (matrix.library == 'server' || matrix.library == 'client') && '-n auto --dist=loadscope' || '' }} --cov-fail-under=100 --cov=$MODULE --cov-report term-missing -vv tests/ --doctest-modules $MODULE --without-integration --without-slow-integration --ignore=datajunction_server/alembic/env.py
+
+          # No coverage here -- it roughly doubles the run, and the merge gate is
+          # whichever leg is slowest. The `coverage` job below measures it
+          # across shards in parallel instead, so enforcement survives without
+          # every leg paying for it.
+          uv run pytest ${{ (matrix.library == 'server' || matrix.library == 'client') && '-n auto --dist=loadscope' || '' }} -vv tests/ --doctest-modules $MODULE --without-integration --without-slow-integration --ignore=datajunction_server/alembic/env.py
+
+  # Coverage roughly doubles the suite, so measure it across shards in parallel
+  # rather than serially inside a build leg. Each shard only produces data; the
+  # `coverage` job below combines them and enforces the threshold.
+  coverage-shard:
+    needs: changes
+    runs-on: ubuntu-latest
+    if: needs.changes.outputs.server == 'true' || needs.changes.outputs.workflow == 'true'
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # The last shard is a catch-all: `tests/` minus the others. Listing
+        # every directory explicitly means a newly added one belongs to no
+        # shard, and the only symptom is combined coverage quietly dropping
+        # below the threshold.
+        include:
+          - shard: 1
+            paths: "tests/api"
+          - shard: 2
+            paths: "tests/construction"
+          - shard: 3
+            paths: "tests/sql"
+          - shard: 4
+            paths: "tests/internal"
+          # Also carries --doctest-modules. The build legs pass it, and it is
+          # what imports every module in the package -- without it the
+          # import-time lines of modules no test imports directly (models/
+          # table.py, __about__.py, a couple of __init__.py) are never
+          # executed, and the combined total lands just under the threshold.
+          - shard: 5
+            paths: >-
+              tests
+              --ignore=tests/api
+              --ignore=tests/construction
+              --ignore=tests/sql
+              --ignore=tests/internal
+              --doctest-modules datajunction_server
+              --ignore=datajunction_server/alembic/env.py
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Run shard ${{ matrix.shard }}
+        working-directory: ./datajunction-server
+        # Write to a name coverage's own erase() will not match. On startup
+        # pytest-cov erases every `.coverage.*` file in the directory, not just
+        # its own, so a fragment named that way can be destroyed by another
+        # shard sharing the workspace -- or, worse on a reused runner, a stale
+        # one can survive and skew the combined total.
+        env:
+          COVERAGE_FILE: .cov-shard${{ matrix.shard }}
+        run: |
+          uv sync --group test --python 3.13
+          uv run pytest -n auto --dist=loadscope \
+            --cov=datajunction_server --cov-report= \
+            -q ${{ matrix.paths }} \
+            --without-integration --without-slow-integration
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-shard-${{ matrix.shard }}
+          path: datajunction-server/.cov-shard${{ matrix.shard }}
+          include-hidden-files: true
+          retention-days: 1
+
+  # This is the job branch protection should require; the shards only produce
+  # data and enforce nothing on their own.
+  coverage:
+    needs: coverage-shard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-shard-*
+          merge-multiple: true
+          path: datajunction-server
+
+      - name: Combine and enforce
+        working-directory: ./datajunction-server
+        run: |
+          uv sync --group test --python 3.13
+          ls -la .cov-shard* || { echo "no coverage fragments downloaded"; exit 1; }
+          uv run coverage combine .cov-shard*
+          uv run coverage report --show-missing --fail-under=100
 
   build-javascript:
     runs-on: ubuntu-latest

@@ -142,6 +142,11 @@ Repository = "https://github.com/DataJunction/dj"
 [tool.coverage.run]
 source = ['datajunction_server/']
 concurrency = ["thread,greenlet"]
+# Record paths relative to the project root. Coverage data produced by
+# different CI shards is combined later, and each runner has its own absolute
+# checkout path -- without this, combine treats the same file from two shards
+# as two files and the merged total is quietly wrong rather than failing.
+relative_files = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
