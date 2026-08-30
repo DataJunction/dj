@@ -54,12 +54,11 @@ def test_reconstruct_deployment_spec_separates_preaggregations(tmp_path):
     (tmp_path / "revenue_by_day.yaml").write_text(
         "kind: preagg\n"
         "name: revenue_by_day\n"
-        "metrics:\n  - ns.revenue\n"
-        "dimensions:\n  - ns.date.day\n"
+        "metrics:\n  ns.revenue: revenue_sum\n"
+        "dimensions:\n  ns.date.day: day\n"
         "catalog: default\n"
         "schema: agg\n"
-        "table: revenue_agg\n"
-        "measure_columns:\n  ns.revenue: revenue_sum\n",
+        "table: revenue_agg\n",
     )
 
     svc = DeploymentService(MagicMock())
@@ -70,7 +69,8 @@ def test_reconstruct_deployment_spec_separates_preaggregations(tmp_path):
     assert len(spec["preaggregations"]) == 1
     preagg = spec["preaggregations"][0]
     assert preagg["name"] == "revenue_by_day"
-    assert preagg["measure_columns"] == {"ns.revenue": "revenue_sum"}
+    assert preagg["metrics"] == {"ns.revenue": "revenue_sum"}
+    assert preagg["dimensions"] == {"ns.date.day": "day"}
     # The discriminator is stripped before reaching the payload.
     assert "kind" not in preagg
 

@@ -2398,14 +2398,25 @@ def _mock_query_service(client_with_build_v3, columns):
     ``columns`` may be a list of column names (each defaulting to a numeric
     type) or a mapping of column name -> SQL type string, for exercising the
     measure/column type-compatibility check.
+
+    Registration binds every dimension to a physical column and type-checks the
+    binding, so the list form always reports the dimension columns these tests
+    grain on (``category``, ``status``) as strings, whether or not the caller
+    listed them. A test that cares about a dimension column's type passes the
+    mapping form instead.
     """
     from types import SimpleNamespace
 
-    items = (
-        columns.items()
-        if isinstance(columns, dict)
-        else [(name, "double") for name in columns]
-    )
+    grain_columns = {"category": "string", "status": "string"}
+    if isinstance(columns, dict):
+        items = list(columns.items())
+    else:
+        items = [(name, grain_columns.get(name, "double")) for name in columns]
+        items += [
+            (name, type_str)
+            for name, type_str in grain_columns.items()
+            if name not in columns
+        ]
     table_columns = [
         SimpleNamespace(name=name, type=type_str) for name, type_str in items
     ]
@@ -2434,17 +2445,16 @@ class TestRegisterPreAggregations:
             response = await client_with_build_v3.post(
                 "/preaggs/register",
                 json={
-                    "metrics": ["v3.avg_order_value"],
-                    "dimensions": ["v3.product.category"],
+                    "metrics": {
+                        "v3.total_revenue": "revenue_total",
+                        "v3.order_count": "order_cnt",
+                    },
+                    "dimensions": {"v3.product.category": "category"},
                     "table": {
                         "catalog": "default",
                         "schema": "analytics",
                         "table": "avg_order_value_agg",
                         "valid_through_ts": 1700000000,
-                    },
-                    "measure_columns": {
-                        "v3.total_revenue": "revenue_total",
-                        "v3.order_count": "order_cnt",
                     },
                 },
             )
@@ -2463,20 +2473,19 @@ class TestRegisterPreAggregations:
         self,
         client_with_build_v3: AsyncClient,
     ):
-        """A derived/ratio metric cannot be used as a measure_columns key."""
+        """A derived/ratio metric cannot be declared under `metrics`."""
         _mock_query_service(client_with_build_v3, ["some_col"])
         try:
             response = await client_with_build_v3.post(
                 "/preaggs/register",
                 json={
-                    "metrics": ["v3.avg_order_value"],
-                    "dimensions": ["v3.product.category"],
+                    "metrics": {"v3.avg_order_value": "some_col"},
+                    "dimensions": {"v3.product.category": "category"},
                     "table": {
                         "catalog": "default",
                         "schema": "analytics",
                         "table": "bad_agg",
                     },
-                    "measure_columns": {"v3.avg_order_value": "some_col"},
                 },
             )
             assert response.status_code == 422
@@ -2495,16 +2504,15 @@ class TestRegisterPreAggregations:
             response = await client_with_build_v3.post(
                 "/preaggs/register",
                 json={
-                    "metrics": ["v3.avg_order_value"],
-                    "dimensions": ["v3.product.category"],
+                    "metrics": {
+                        "v3.total_revenue": "revenue_total",
+                        "v3.order_count": "order_cnt",
+                    },
+                    "dimensions": {"v3.product.category": "category"},
                     "table": {
                         "catalog": "default",
                         "schema": "analytics",
                         "table": "avg_agg",
-                    },
-                    "measure_columns": {
-                        "v3.total_revenue": "revenue_total",
-                        "v3.order_count": "order_cnt",
                     },
                 },
             )
@@ -2531,16 +2539,15 @@ class TestRegisterPreAggregations:
             response = await client_with_build_v3.post(
                 "/preaggs/register",
                 json={
-                    "metrics": ["v3.avg_order_value"],
-                    "dimensions": ["v3.product.category"],
+                    "metrics": {
+                        "v3.total_revenue": "revenue_total",
+                        "v3.order_count": "order_cnt",
+                    },
+                    "dimensions": {"v3.product.category": "category"},
                     "table": {
                         "catalog": "default",
                         "schema": "analytics",
                         "table": "bad_types_agg",
-                    },
-                    "measure_columns": {
-                        "v3.total_revenue": "revenue_total",
-                        "v3.order_count": "order_cnt",
                     },
                 },
             )
@@ -2572,16 +2579,15 @@ class TestRegisterPreAggregations:
             response = await client_with_build_v3.post(
                 "/preaggs/register",
                 json={
-                    "metrics": ["v3.avg_order_value"],
-                    "dimensions": ["v3.product.category"],
+                    "metrics": {
+                        "v3.total_revenue": "revenue_total",
+                        "v3.order_count": "order_cnt",
+                    },
+                    "dimensions": {"v3.product.category": "category"},
                     "table": {
                         "catalog": "default",
                         "schema": "analytics",
                         "table": "compatible_types_agg",
-                    },
-                    "measure_columns": {
-                        "v3.total_revenue": "revenue_total",
-                        "v3.order_count": "order_cnt",
                     },
                 },
             )
@@ -2604,16 +2610,15 @@ class TestRegisterPreAggregations:
             response = await client_with_build_v3.post(
                 "/preaggs/register",
                 json={
-                    "metrics": ["v3.avg_order_value"],
-                    "dimensions": ["v3.product.category"],
+                    "metrics": {
+                        "v3.total_revenue": "revenue_total",
+                        "v3.order_count": "order_cnt",
+                    },
+                    "dimensions": {"v3.product.category": "category"},
                     "table": {
                         "catalog": "default",
                         "schema": "analytics",
                         "table": "agg_pending",
-                    },
-                    "measure_columns": {
-                        "v3.total_revenue": "revenue_total",
-                        "v3.order_count": "order_cnt",
                     },
                 },
             )
@@ -2627,17 +2632,16 @@ class TestRegisterPreAggregations:
         """Registering the same table twice updates the existing pre-agg."""
         _mock_query_service(client_with_build_v3, ["revenue_total", "order_cnt"])
         payload = {
-            "metrics": ["v3.avg_order_value"],
-            "dimensions": ["v3.product.category"],
+            "metrics": {
+                "v3.total_revenue": "revenue_total",
+                "v3.order_count": "order_cnt",
+            },
+            "dimensions": {"v3.product.category": "category"},
             "table": {
                 "catalog": "default",
                 "schema": "analytics",
                 "table": "agg_idem",
                 "valid_through_ts": 1700000000,
-            },
-            "measure_columns": {
-                "v3.total_revenue": "revenue_total",
-                "v3.order_count": "order_cnt",
             },
         }
         try:
@@ -2650,29 +2654,57 @@ class TestRegisterPreAggregations:
             del client_with_build_v3.app.dependency_overrides[get_query_service_client]
 
     @pytest.mark.asyncio
-    async def test_register_rejects_uncovered_measure(
+    async def test_register_covers_a_derived_metric_not_listed(
         self,
         client_with_build_v3: AsyncClient,
     ):
-        """Every component measure of the requested metrics must be covered."""
-        _mock_query_service(client_with_build_v3, ["revenue_total"])
+        """
+        A derived metric has no column of its own, so it cannot be declared under
+        `metrics` — and doesn't need to be. Declaring the measures it decomposes
+        into is what covers it, because matching works on measure identities
+        rather than metric names.
+        """
+        _mock_query_service(
+            client_with_build_v3,
+            ["revenue_total", "order_cnt", "category"],
+        )
         try:
             response = await client_with_build_v3.post(
                 "/preaggs/register",
                 json={
-                    "metrics": ["v3.avg_order_value"],
-                    "dimensions": ["v3.product.category"],
+                    # avg_order_value is deliberately absent.
+                    "metrics": {
+                        "v3.total_revenue": "revenue_total",
+                        "v3.order_count": "order_cnt",
+                    },
+                    "dimensions": {"v3.product.category": "category"},
                     "table": {
                         "catalog": "default",
                         "schema": "analytics",
-                        "table": "agg_partial",
+                        "table": "agg_derived",
+                        "valid_through_ts": 1700000000,
                     },
-                    # order_count's measure is missing.
-                    "measure_columns": {"v3.total_revenue": "revenue_total"},
                 },
             )
-            assert response.status_code == 422
-            assert "not covered by measure_columns" in response.text
+            assert response.status_code == 201, response.text
+            preagg = response.json()["preaggs"][0]
+            # Every metric that decomposes into the two stored measures, derived
+            # ones included -- none of which had to be listed to be served.
+            assert sorted(preagg["related_metrics"]) == [
+                "v3.aov_growth_index",
+                "v3.avg_order_value",
+                "v3.efficiency_ratio",
+                "v3.mom_revenue_change",
+                "v3.revenue_per_customer",
+                "v3.revenue_per_page_view",
+                "v3.revenue_per_visitor",
+                "v3.total_revenue",
+                "v3.trailing_7d_revenue",
+                "v3.trailing_7d_revenue_inferred_dim",
+                "v3.trailing_wow_revenue_change",
+                "v3.wow_aov_change",
+                "v3.wow_revenue_change",
+            ]
         finally:
             del client_with_build_v3.app.dependency_overrides[get_query_service_client]
 
@@ -2681,24 +2713,27 @@ class TestRegisterPreAggregations:
         self,
         client_with_build_v3: AsyncClient,
     ):
-        """A measure_columns key that is not a metric node is rejected."""
+        """
+        A `metrics` key that names no node is rejected. The keys are the metrics
+        the table serves, so decomposition sees the bad name first and reports it
+        before any binding is looked at.
+        """
         _mock_query_service(client_with_build_v3, ["c"])
         try:
             response = await client_with_build_v3.post(
                 "/preaggs/register",
                 json={
-                    "metrics": ["v3.avg_order_value"],
-                    "dimensions": ["v3.product.category"],
+                    "metrics": {"v3.does_not_exist": "c"},
+                    "dimensions": {"v3.product.category": "category"},
                     "table": {
                         "catalog": "default",
                         "schema": "analytics",
                         "table": "t",
                     },
-                    "measure_columns": {"v3.does_not_exist": "c"},
                 },
             )
             assert response.status_code == 422
-            assert "not a metric node" in response.text
+            assert response.json()["message"] == "Metric not found: v3.does_not_exist"
         finally:
             del client_with_build_v3.app.dependency_overrides[get_query_service_client]
 
@@ -2715,14 +2750,13 @@ class TestRegisterPreAggregations:
             response = await client_with_build_v3.post(
                 "/preaggs/register",
                 json={
-                    "metrics": ["v3.avg_order_value"],
-                    "dimensions": ["v3.product.category"],
+                    "metrics": {"v3.total_revenue": "revenue_total"},
+                    "dimensions": {"v3.product.category": "category"},
                     "table": {
                         "catalog": "default",
                         "schema": "analytics",
                         "table": "t",
                     },
-                    "measure_columns": {"v3.total_revenue": "revenue_total"},
                 },
             )
             assert response.status_code != 201
@@ -2742,17 +2776,16 @@ class TestRegisterPreAggregations:
                 "/preaggs/register",
                 json={
                     "name": "aov_by_category",
-                    "metrics": ["v3.avg_order_value"],
-                    "dimensions": ["v3.product.category"],
+                    "metrics": {
+                        "v3.total_revenue": "revenue_total",
+                        "v3.order_count": "order_cnt",
+                    },
+                    "dimensions": {"v3.product.category": "category"},
                     "table": {
                         "catalog": "default",
                         "schema": "analytics",
                         "table": "aov_agg",
                         "valid_through_ts": 1700000000,
-                    },
-                    "measure_columns": {
-                        "v3.total_revenue": "revenue_total",
-                        "v3.order_count": "order_cnt",
                     },
                 },
             )
@@ -2768,17 +2801,16 @@ class TestRegisterPreAggregations:
         response = await client.post(
             "/preaggs/register",
             json={
-                "metrics": ["v3.avg_order_value"],
-                "dimensions": ["v3.product.category"],
+                "metrics": {
+                    "v3.total_revenue": "revenue_total",
+                    "v3.order_count": "order_cnt",
+                },
+                "dimensions": {"v3.product.category": "category"},
                 "table": {
                     "catalog": "default",
                     "schema": "analytics",
                     "table": table_name,
                     "valid_through_ts": 1700000000,
-                },
-                "measure_columns": {
-                    "v3.total_revenue": "revenue_total",
-                    "v3.order_count": "order_cnt",
                 },
             },
         )
@@ -2851,17 +2883,16 @@ class TestRegisterAuthorizesWhatItWrites:
             response = await client_with_build_v3.post(
                 "/preaggs/register",
                 json={
-                    "metrics": ["v3.avg_order_value"],
-                    "dimensions": ["v3.product.category"],
+                    "metrics": {
+                        "v3.total_revenue": "revenue_total",
+                        "v3.order_count": "order_cnt",
+                    },
+                    "dimensions": {"v3.product.category": "category"},
                     "table": {
                         "catalog": "default",
                         "schema": "analytics",
                         "table": "built_once",
                         "valid_through_ts": 1700000000,
-                    },
-                    "measure_columns": {
-                        "v3.total_revenue": "revenue_total",
-                        "v3.order_count": "order_cnt",
                     },
                 },
             )
@@ -2948,17 +2979,16 @@ class TestPreaggWriteEnforcement:
             response = await client_with_build_v3.post(
                 "/preaggs/register",
                 json={
-                    "metrics": ["v3.avg_order_value"],
-                    "dimensions": ["v3.product.category"],
+                    "metrics": {
+                        "v3.total_revenue": "revenue_total",
+                        "v3.order_count": "order_cnt",
+                    },
+                    "dimensions": {"v3.product.category": "category"},
                     "table": {
                         "catalog": "default",
                         "schema": "analytics",
                         "table": "denied_agg",
                         "valid_through_ts": 1700000000,
-                    },
-                    "measure_columns": {
-                        "v3.total_revenue": "revenue_total",
-                        "v3.order_count": "order_cnt",
                     },
                 },
             )
@@ -3012,13 +3042,12 @@ async def _register_aov(
     response = await client.post(
         "/preaggs/register",
         json={
-            "metrics": ["v3.avg_order_value"],
-            "dimensions": ["v3.product.category"],
-            "table": table_spec,
-            "measure_columns": {
+            "metrics": {
                 "v3.total_revenue": "revenue_total",
                 "v3.order_count": "order_cnt",
             },
+            "dimensions": {"v3.product.category": "category"},
+            "table": table_spec,
         },
     )
     assert response.status_code == 201, response.text
@@ -3126,14 +3155,13 @@ class TestRegisteredPreAggAvailabilityInheritance:
             other_measures = await client_with_build_v3.post(
                 "/preaggs/register",
                 json={
-                    "metrics": ["v3.max_unit_price"],
-                    "dimensions": ["v3.product.category"],
+                    "metrics": {"v3.max_unit_price": "up_max"},
+                    "dimensions": {"v3.product.category": "category"},
                     "table": {
                         "catalog": "default",
                         "schema": "analytics",
                         "table": "scan_other_measures_agg",
                     },
-                    "measure_columns": {"v3.max_unit_price": "up_max"},
                 },
             )
             assert other_measures.status_code == 201, other_measures.text
@@ -3142,14 +3170,13 @@ class TestRegisteredPreAggAvailabilityInheritance:
             other_grain = await client_with_build_v3.post(
                 "/preaggs/register",
                 json={
-                    "metrics": ["v3.total_revenue"],
-                    "dimensions": ["v3.order_details.status"],
+                    "metrics": {"v3.total_revenue": "revenue_total"},
+                    "dimensions": {"v3.order_details.status": "status"},
                     "table": {
                         "catalog": "default",
                         "schema": "analytics",
                         "table": "scan_other_grain_agg",
                     },
-                    "measure_columns": {"v3.total_revenue": "revenue_total"},
                 },
             )
             assert other_grain.status_code == 201, other_grain.text
@@ -3260,17 +3287,16 @@ class TestRegisteredPreAggAvailabilityInheritance:
             response = await client_with_build_v3.post(
                 "/preaggs/register",
                 json={
-                    "metrics": ["v3.total_revenue", "v3.page_view_count"],
-                    "dimensions": ["v3.product.category"],
+                    "metrics": {
+                        "v3.total_revenue": "revenue_total",
+                        "v3.page_view_count": "view_cnt",
+                    },
+                    "dimensions": {"v3.product.category": "category"},
                     "table": {
                         "catalog": "default",
                         "schema": "analytics",
                         "table": "cross_fact_agg",
                         "valid_through_ts": 1700000000,
-                    },
-                    "measure_columns": {
-                        "v3.total_revenue": "revenue_total",
-                        "v3.page_view_count": "view_cnt",
                     },
                 },
             )

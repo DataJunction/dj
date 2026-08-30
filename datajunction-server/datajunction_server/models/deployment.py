@@ -41,6 +41,10 @@ from datajunction_server.models.node import (
     NodeType,
 )
 from datajunction_server.models.partition import Granularity, PartitionType
+from datajunction_server.models.preagg_binding import (
+    SPEC_SURFACE,
+    validate_column_bindings,
+)
 from datajunction_server.models.unit import (
     Unit,
     legacy_unit_to_structured,
@@ -212,6 +216,10 @@ class PreAggSpec(NamespacedSpec):
     separate ``measure_columns``/``dimension_columns`` maps -- is no longer
     accepted, and a spec still using it is rejected with a message describing
     what to write instead.
+
+    ``POST /preaggs/register`` takes the same declaration in JSON, and both
+    surfaces enforce these rules from
+    :mod:`datajunction_server.models.preagg_binding` so they cannot drift apart.
     """
 
     # Metric/dimension reference -> the physical column of the external table
@@ -226,89 +234,30 @@ class PreAggSpec(NamespacedSpec):
 
     model_config = ConfigDict(populate_by_name=True)
 
-    # Each removed field and the map that replaced it.
-    _REPLACED_FIELDS: ClassVar[dict[str, str]] = {
-        "measure_columns": "metrics",
-        "dimension_columns": "dimensions",
-    }
-
-    # Why a missing column can't be defaulted, per axis.
-    _UNBOUND_REASONS: ClassVar[dict[str, str]] = {
-        "metrics": (
-            "A measure's DJ-side name is auto-generated with an expression-hash "
-            "suffix, so there is no name to fall back on."
-        ),
-        "dimensions": (
-            "Write the column out even when it matches the DJ column name, so "
-            "the file says what the table actually holds."
-        ),
-    }
-
     @model_validator(mode="before")
     @classmethod
     def require_column_bindings(cls, data: Any) -> Any:
         """
         Hold the author to the map form: every metric and dimension names the
         physical column that holds it, and the fields that used to carry those
-        bindings separately are gone.
+        bindings separately are gone. Shared with ``POST /preaggs/register``,
+        which enforces the identical rules against a JSON body.
         """
-        if not isinstance(data, dict):
-            return data
-
-        name = data.get("name")
-        for removed, replacement in cls._REPLACED_FIELDS.items():
-            if removed in data:
-                raise DJInvalidDeploymentConfig(
-                    message=(
-                        f"Pre-aggregation '{name}' declares `{removed}`, which is no "
-                        f"longer a pre-aggregation field. Declare the physical column "
-                        f"alongside what it holds instead, as `{replacement}: "
-                        f"{{<reference>: <column>}}`, and drop the `{removed}` block."
-                    ),
-                )
-
-        for field, reason in cls._UNBOUND_REASONS.items():
-            value = data.get(field)
-            if value is None:
-                continue
-            if not isinstance(value, dict):
-                raise DJInvalidDeploymentConfig(
-                    message=(
-                        f"Pre-aggregation '{name}' declares `{field}` as a "
-                        f"{type(value).__name__}. `{field}` is a map from each "
-                        f"reference to the physical column of the external table "
-                        f"that holds it, e.g. `{field}: {{<reference>: <column>}}`."
-                    ),
-                )
-            unbound = [
-                reference for reference, column in value.items() if column is None
-            ]
-            if unbound:
-                raise DJInvalidDeploymentConfig(
-                    message=(
-                        f"Pre-aggregation '{name}' leaves the physical column empty "
-                        f"under `{field}` for {unbound}. {reason}"
-                    ),
-                )
-        return data
+        return validate_column_bindings(data, SPEC_SURFACE)
 
     @property
-    def rendered_metrics(self) -> list[str]:
-        return [render_prefixes(metric, self.namespace) for metric in self.metrics]
-
-    @property
-    def rendered_dimensions(self) -> list[str]:
-        return [render_prefixes(dim, self.namespace) for dim in self.dimensions]
-
-    @property
-    def rendered_measure_columns(self) -> dict[str, str]:
+    def rendered_metrics(self) -> dict[str, str]:
+        """Each metric reference rendered against the namespace, still bound to
+        its physical column."""
         return {
             render_prefixes(metric, self.namespace): column
             for metric, column in self.metrics.items()
         }
 
     @property
-    def rendered_dimension_columns(self) -> dict[str, str]:
+    def rendered_dimensions(self) -> dict[str, str]:
+        """Each dimension reference rendered against the namespace, still bound to
+        its physical column."""
         return {
             render_prefixes(dimension, self.namespace): column
             for dimension, column in self.dimensions.items()

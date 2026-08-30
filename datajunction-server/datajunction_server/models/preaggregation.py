@@ -5,7 +5,7 @@ Models for pre-aggregation API requests and responses.
 from datetime import date, datetime
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from datajunction_server.enum import StrEnum
 from datajunction_server.errors import DJWarning
@@ -14,6 +14,10 @@ from datajunction_server.models.materialization import MaterializationStrategy
 from datajunction_server.models.node import PartitionAvailability
 from datajunction_server.models.node_type import NodeNameVersion
 from datajunction_server.models.partition import Granularity
+from datajunction_server.models.preagg_binding import (
+    REQUEST_SURFACE,
+    validate_column_bindings,
+)
 from datajunction_server.models.query import ColumnMetadata, V3ColumnMetadata
 
 
@@ -114,9 +118,28 @@ class RegisterPreAggregationsRequest(BaseModel):
 
     Unlike /preaggs/plan (where DJ generates and owns the materialization), this
     adopts a table already built by an external pipeline. DJ decomposes the
-    metrics to determine the required measures, binds each to a physical column
-    via ``measure_columns``, validates them against the table, and records the
-    pre-aggregation so grain resolution can route queries to it.
+    metrics to determine the required measures, validates each declared column
+    against the table, and records the pre-aggregation so grain resolution can
+    route queries to it.
+
+    Every metric and every dimension is declared together with the physical
+    column of the external table that holds it, as a map::
+
+        {
+          "metrics": {"default.view_secs": "view_secs_sum"},
+          "dimensions": {"default.page_d.page_id": "page"}
+        }
+
+    This is the same declaration a ``kind: preagg`` YAML spec makes, so the two
+    surfaces share their validation -- see
+    :mod:`datajunction_server.models.preagg_binding`. Both maps require a value
+    for every key, including a dimension whose physical column matches its DJ
+    column name.
+
+    What goes under ``metrics`` are the measures the table stores. A derived
+    metric has no column of its own, so it is not listed and cannot be; it is
+    served anyway, since registration and query-time matching both work on
+    decomposed measure identities rather than metric names.
     """
 
     name: str | None = Field(
@@ -126,29 +149,31 @@ class RegisterPreAggregationsRequest(BaseModel):
             "reconciliation and availability-by-name callbacks."
         ),
     )
-    metrics: list[str] = Field(
-        description="Metric node names the external table should serve",
+    metrics: dict[str, str] = Field(
+        description=(
+            "Maps each is_measure metric name the external table serves to the "
+            "physical column holding its pre-aggregated value. A derived metric "
+            "has no column and is not listed; it is covered once the measures it "
+            "decomposes into are."
+        ),
     )
-    dimensions: list[str] = Field(
-        description="Dimension references defining the table's grain",
+    dimensions: dict[str, str] = Field(
+        description=(
+            "Maps each dimension reference defining the table's grain to the "
+            "physical column in the external table backing it. Required for every "
+            "dimension, including one stored under the DJ column name."
+        ),
     )
     table: ExternalPreAggTable = Field(description="The externally-built table")
-    measure_columns: dict[str, str] = Field(
-        default_factory=dict,
-        description=(
-            "Maps each is_measure metric name to the physical column in the "
-            "external table holding its pre-aggregated value. Every component "
-            "measure of the requested metrics must be covered."
-        ),
-    )
-    dimension_columns: dict[str, str] = Field(
-        default_factory=dict,
-        description=(
-            "Optional map of dimension reference to the physical column in the "
-            "external table backing it, when the column name differs from the "
-            "dimension's. Unmapped dimensions default to their DJ column name."
-        ),
-    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def require_column_bindings(cls, data: Any) -> Any:
+        """
+        Hold the caller to the map form. Shared with the ``kind: preagg`` YAML
+        spec, which enforces the identical rules against a spec file.
+        """
+        return validate_column_bindings(data, REQUEST_SURFACE)
 
 
 class UpdatePreAggregationAvailabilityRequest(BaseModel):
