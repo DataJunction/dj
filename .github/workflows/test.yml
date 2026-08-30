@@ -104,11 +104,23 @@ jobs:
           # Run tests
           export MODULE=${{ matrix.library == 'server' && 'datajunction_server' || matrix.library == 'client' && 'datajunction' || matrix.library == 'djqs' && 'djqs' || matrix.library == 'djrs' && 'datajunction_reflection'}}
 
-          # No coverage here -- it roughly doubles the run, and the merge gate is
-          # whichever leg is slowest. The `coverage` job below measures it
-          # across shards in parallel instead, so enforcement survives without
-          # every leg paying for it.
-          uv run pytest ${{ (matrix.library == 'server' || matrix.library == 'client') && '-n auto --dist=loadscope' || '' }} -vv tests/ --doctest-modules $MODULE --without-integration --without-slow-integration --ignore=datajunction_server/alembic/env.py
+          # Only the server skips coverage here. It is the expensive one --
+          # 28.8min instrumented against ~15min not -- so the `coverage-shard`
+          # matrix below measures it in parallel pieces and the `coverage` job
+          # enforces its threshold.
+          #
+          # The other three are instrumented in place. Their suites are small
+          # enough that it costs the gate nothing, and they have nowhere else
+          # to be measured, because the shards are server-only. An earlier
+          # version of this workflow moved coverage off every leg at once,
+          # which silently took client, djqs and djrs from a 100% gate to no
+          # gate at all.
+          COV_ARGS=""
+          if [ "${{ matrix.library }}" != "server" ]; then
+            COV_ARGS="--cov-fail-under=100 --cov-report=term-missing --cov=$MODULE"
+          fi
+
+          uv run pytest ${{ (matrix.library == 'server' || matrix.library == 'client') && '-n auto --dist=loadscope' || '' }} $COV_ARGS -vv tests/ --doctest-modules $MODULE --without-integration --without-slow-integration --ignore=datajunction_server/alembic/env.py
 
   # Coverage roughly doubles the suite, so measure it across shards in parallel
   # rather than serially inside a build leg. Each shard only produces data; the
