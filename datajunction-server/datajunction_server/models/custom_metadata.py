@@ -33,7 +33,6 @@ class CustomMetadataSchemaCreate(BaseModel):
     json_schema: dict
     filterable: bool = True
     description: str | None = None
-    owner: str | None = None
     reserved: bool = False
 
 
@@ -46,7 +45,6 @@ class CustomMetadataSchemaOutput(BaseModel):
     value_kind: str | None = None
     filterable: bool
     description: str | None = None
-    owner: str | None = None
     reserved: bool = False
     created_by_id: int | None = None
     updated_by_id: int | None = None

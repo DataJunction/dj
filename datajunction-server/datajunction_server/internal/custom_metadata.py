@@ -257,7 +257,6 @@ async def upsert_schema_row(
     json_schema: dict,
     filterable: bool,
     description: str | None,
-    owner: str | None,
     reserved: bool,
     current_user_id: int,
 ) -> CustomMetadataSchema:
@@ -290,7 +289,6 @@ async def upsert_schema_row(
     row.value_kind = value_kind(json_schema)
     row.filterable = filterable
     row.description = description
-    row.owner = owner
     row.reserved = reserved
     row.updated_by_id = current_user_id
     row.deactivated_at = None
@@ -344,7 +342,6 @@ async def upsert_schema_specs(
             json_schema=spec.json_schema,
             filterable=spec.filterable,
             description=spec.description,
-            owner=spec.owner,
             reserved=False,
             current_user_id=current_user_id,
         )

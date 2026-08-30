@@ -82,7 +82,6 @@ async def register_schema(
         json_schema=data.json_schema,
         filterable=data.filterable,
         description=data.description,
-        owner=data.owner,
         reserved=data.reserved,
         current_user_id=current_user.id,
     )
