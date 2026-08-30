@@ -562,8 +562,23 @@ class DeploymentService:
             or project_metadata.get("prefix", ""),
             "nodes": nodes,
             "tags": project_metadata.get("tags", []),
+            # Upsert-only on the server: an empty list is a no-op, never a
+            # retirement, so defaulting to [] is safe here in a way it is not
+            # for custom_metadata_schemas below.
+            "hierarchies": project_metadata.get("hierarchies", []),
             "preaggregations": preaggregations,
         }
+
+        # Forwarded only when dj.yaml declares it, because absent and empty mean
+        # different things to the server: absent leaves registered schemas alone,
+        # while an empty list says this manifest manages them and declares none,
+        # which retires them. Defaulting to [] here would silently retire every
+        # schema in the namespace on the next push from a manifest that never
+        # mentioned them.
+        if "custom_metadata_schemas" in project_metadata:
+            deployment_spec["custom_metadata_schemas"] = project_metadata[
+                "custom_metadata_schemas"
+            ]
 
         # Add deployment source if available from env vars
         source = self._build_deployment_source(cwd=base_dir)
