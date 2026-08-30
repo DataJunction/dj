@@ -75,6 +75,56 @@ def test_reconstruct_deployment_spec_separates_preaggregations(tmp_path):
     assert "kind" not in preagg
 
 
+def test_reconstruct_deployment_spec_forwards_hierarchies(tmp_path):
+    """A `hierarchies:` block in dj.yaml reaches the deployment payload.
+
+    Same defect as custom_metadata_schemas: the payload names its keys one by one,
+    so an unnamed manifest section is read and dropped. Hierarchies are upsert-only
+    on the server, so an absent block is a no-op and [] is a safe default.
+    """
+    (tmp_path / "dj.yaml").write_text(
+        "namespace: ns\n"
+        "hierarchies:\n"
+        "  - name: geography\n"
+        "    display_name: Geography\n"
+        "    levels:\n"
+        "      - name: country\n"
+        "        dimension_node: ns.country\n"
+        "      - name: city\n"
+        "        dimension_node: ns.city\n",
+    )
+    (tmp_path / "revenue.yaml").write_text(
+        "name: ns.revenue\nnode_type: metric\nquery: SELECT SUM(amount) FROM ns.fct\n",
+    )
+
+    svc = DeploymentService(MagicMock())
+    spec, _ = svc._reconstruct_deployment_spec(tmp_path)
+
+    assert spec["hierarchies"] == [
+        {
+            "name": "geography",
+            "display_name": "Geography",
+            "levels": [
+                {"name": "country", "dimension_node": "ns.country"},
+                {"name": "city", "dimension_node": "ns.city"},
+            ],
+        },
+    ]
+
+
+def test_reconstruct_deployment_spec_defaults_hierarchies_to_empty(tmp_path):
+    """A manifest with no hierarchies sends [], which the server treats as a no-op."""
+    (tmp_path / "dj.yaml").write_text("namespace: ns\n")
+    (tmp_path / "revenue.yaml").write_text(
+        "name: ns.revenue\nnode_type: metric\nquery: SELECT SUM(amount) FROM ns.fct\n",
+    )
+
+    svc = DeploymentService(MagicMock())
+    spec, _ = svc._reconstruct_deployment_spec(tmp_path)
+
+    assert spec["hierarchies"] == []
+
+
 def test_reconstruct_deployment_spec_forwards_custom_metadata_schemas(tmp_path):
     """A `custom_metadata_schemas:` block in dj.yaml reaches the deployment payload.
 

@@ -562,6 +562,10 @@ class DeploymentService:
             or project_metadata.get("prefix", ""),
             "nodes": nodes,
             "tags": project_metadata.get("tags", []),
+            # Upsert-only on the server: an empty list is a no-op, never a
+            # retirement, so defaulting to [] is safe here in a way it is not
+            # for custom_metadata_schemas below.
+            "hierarchies": project_metadata.get("hierarchies", []),
             "preaggregations": preaggregations,
         }
 
