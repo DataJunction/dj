@@ -75,6 +75,81 @@ def test_reconstruct_deployment_spec_separates_preaggregations(tmp_path):
     assert "kind" not in preagg
 
 
+def test_reconstruct_deployment_spec_forwards_custom_metadata_schemas(tmp_path):
+    """A `custom_metadata_schemas:` block in dj.yaml reaches the deployment payload.
+
+    The payload is assembled key by key, so a manifest section the client does not
+    name is read and dropped -- the deploy then succeeds having registered nothing,
+    which is indistinguishable from success.
+    """
+    (tmp_path / "dj.yaml").write_text(
+        "namespace: ns\n"
+        "custom_metadata_schemas:\n"
+        "  - key: system\n"
+        "    description: Governance metadata.\n"
+        "    json_schema:\n"
+        "      type: object\n"
+        "      properties:\n"
+        "        lifecycle:\n"
+        "          type: string\n"
+        "          enum: [experimental, active, retired]\n",
+    )
+    (tmp_path / "revenue.yaml").write_text(
+        "name: ns.revenue\nnode_type: metric\nquery: SELECT SUM(amount) FROM ns.fct\n",
+    )
+
+    svc = DeploymentService(MagicMock())
+    spec, _ = svc._reconstruct_deployment_spec(tmp_path)
+
+    assert spec["custom_metadata_schemas"] == [
+        {
+            "key": "system",
+            "description": "Governance metadata.",
+            "json_schema": {
+                "type": "object",
+                "properties": {
+                    "lifecycle": {
+                        "type": "string",
+                        "enum": ["experimental", "active", "retired"],
+                    },
+                },
+            },
+        },
+    ]
+
+
+def test_reconstruct_deployment_spec_omits_absent_custom_metadata_schemas(tmp_path):
+    """A manifest that never mentions schemas must not send the key at all.
+
+    The server reads absent as "this manifest does not manage schemas" and an empty
+    list as "it manages them and declares none", which retires every schema in the
+    namespace. Sending [] for a manifest that simply has no opinion would delete
+    registrations that something else owns.
+    """
+    (tmp_path / "dj.yaml").write_text("namespace: ns\n")
+    (tmp_path / "revenue.yaml").write_text(
+        "name: ns.revenue\nnode_type: metric\nquery: SELECT SUM(amount) FROM ns.fct\n",
+    )
+
+    svc = DeploymentService(MagicMock())
+    spec, _ = svc._reconstruct_deployment_spec(tmp_path)
+
+    assert "custom_metadata_schemas" not in spec
+
+
+def test_reconstruct_deployment_spec_forwards_empty_custom_metadata_schemas(tmp_path):
+    """An explicitly empty list is forwarded, because it means "retire them"."""
+    (tmp_path / "dj.yaml").write_text("namespace: ns\ncustom_metadata_schemas: []\n")
+    (tmp_path / "revenue.yaml").write_text(
+        "name: ns.revenue\nnode_type: metric\nquery: SELECT SUM(amount) FROM ns.fct\n",
+    )
+
+    svc = DeploymentService(MagicMock())
+    spec, _ = svc._reconstruct_deployment_spec(tmp_path)
+
+    assert spec["custom_metadata_schemas"] == []
+
+
 def test_reconstruct_deployment_spec_rejects_unknown_kind(tmp_path):
     """An unrecognized ``kind`` fails loudly instead of silently becoming a node."""
     (tmp_path / "dj.yaml").write_text("namespace: ns\n")
