@@ -169,6 +169,24 @@ jobs:
   coverage-shard:
     needs: changes
     runs-on: ubuntu-latest
+
+    # Same shared Postgres as the build job. This matters more here: without it
+    # every one of the five shards starts its own containers and rebuilds every
+    # template, so the duplicated startup cost is paid five times over.
+    services:
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_USER: dj
+          POSTGRES_PASSWORD: dj
+          POSTGRES_DB: dj
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dj"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     if: needs.changes.outputs.server == 'true' || needs.changes.outputs.workflow == 'true'
 
     strategy:
@@ -225,6 +243,25 @@ jobs:
           COVERAGE_FILE: .cov-shard${{ matrix.shard }}
         run: |
           uv sync --group test --python 3.13
+
+          PG="postgresql://dj:dj@localhost:5432"
+          PGX="postgresql+psycopg://dj:dj@localhost:5432"
+          export DJ_TEST_POSTGRES_URL="$PGX/dj"
+
+          # The suite creates this role for containers it starts itself; on a
+          # server it does not own, it cannot.
+          psql "$PG/dj" -c "CREATE ROLE readonly_user WITH LOGIN PASSWORD 'readonly'"
+
+          psql "$PG/dj" -c "CREATE DATABASE template_all_examples"
+          uv run python tests/helpers/populate_template.py "$PGX/template_all_examples"
+
+          psql "$PG/dj" -c "CREATE DATABASE template_preaggs TEMPLATE template_all_examples"
+          uv run python tests/helpers/populate_preaggs_template.py "$PGX/template_preaggs"
+
+          psql "$PG/dj" -c "CREATE DATABASE template_dimension_links"
+          uv run python tests/helpers/populate_template.py \
+            "$PGX/template_dimension_links" COMPLEX_DIMENSION_LINK
+
           uv run pytest -n auto --dist=loadscope \
             --cov=datajunction_server --cov-report= \
             -q ${{ matrix.paths }} \
