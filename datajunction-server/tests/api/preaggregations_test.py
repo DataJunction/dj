@@ -2,11 +2,22 @@
 
 from unittest.mock import MagicMock
 
+import json
+import os
+import pathlib
+import subprocess
+import sys
+from collections.abc import Generator
+
+from urllib.parse import urlparse
+
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from psycopg import connect
+from testcontainers.postgres import PostgresContainer
 from sqlalchemy.orm import joinedload
 
 from datajunction_server.database.node import Node, NodeRevision
@@ -20,6 +31,13 @@ from datajunction_server.utils import get_query_service_client
 from datajunction_server.construction.build_v3.builder import build_measures_sql
 from datajunction_server.models.access import ResourceAction
 from tests.authz import VALIDATOR_AUTH_SERVICE, deny
+from tests.conftest import (
+    FuncPostgresContainer,
+    cleanup_database_for_module,
+    clone_database_from_template,
+    externally_managed_postgres,
+    require_shared_template,
+)
 
 
 @pytest.fixture
@@ -127,132 +145,161 @@ async def _plan_preagg(
     return response.json()["preaggs"][0]
 
 
+PREAGGS_TEMPLATE_DB_NAME = "template_preaggs"
+
+
+def _preagg_ids_from(postgres_container, dbname: str) -> list[int]:
+    """Read preagg ids out of an already-built template, in creation order."""
+    url = urlparse(postgres_container.get_connection_url())
+    with connect(
+        host=url.hostname,
+        port=url.port,
+        dbname=dbname,
+        user=url.username,
+        password=url.password,
+        autocommit=True,
+    ) as conn:
+        return [
+            row[0]
+            for row in conn.execute(
+                "SELECT id FROM pre_aggregation ORDER BY id",
+            ).fetchall()
+        ]
+
+
+@pytest.fixture(scope="session")
+def preaggs_template_database(
+    postgres_container: PostgresContainer,
+    template_database: str,
+) -> Generator[tuple[str, list[int]], None, None]:
+    """
+    A template database that already holds the ten planned pre-aggregations.
+
+    Planning them costs ten ``/preaggs/plan`` round trips (~1.2s). Doing that
+    once and letting every test clone the result (~90ms) keeps each test fully
+    isolated -- which the 67 mutating tests here need -- without re-planning.
+
+    Returns the template name and the preagg ids, in preagg1..preagg10 order.
+    """
+    externally_managed = externally_managed_postgres()
+    if externally_managed:
+        # Planned once outside pytest; read the ids back off the template.
+        require_shared_template(
+            postgres_container,
+            PREAGGS_TEMPLATE_DB_NAME,
+            f"psql -c 'CREATE DATABASE {PREAGGS_TEMPLATE_DB_NAME} "
+            f"TEMPLATE template_all_examples;' && python "
+            f"tests/helpers/populate_preaggs_template.py "
+            f"<url-ending-in>/{PREAGGS_TEMPLATE_DB_NAME}",
+        )
+        yield (
+            PREAGGS_TEMPLATE_DB_NAME,
+            _preagg_ids_from(
+                postgres_container,
+                PREAGGS_TEMPLATE_DB_NAME,
+            ),
+        )
+        return
+
+    clone_database_from_template(
+        postgres_container,
+        template_name=template_database,
+        target_name=PREAGGS_TEMPLATE_DB_NAME,
+    )
+    url = (
+        postgres_container.get_connection_url().rsplit("/", 1)[0]
+        + f"/{PREAGGS_TEMPLATE_DB_NAME}"
+    )
+
+    script = (
+        pathlib.Path(__file__).parent.parent
+        / "helpers"
+        / "populate_preaggs_template.py"
+    )
+    project_root = pathlib.Path(__file__).parent.parent.parent
+    env = {
+        **os.environ,
+        "PYTHONPATH": f"{project_root}{os.pathsep}{os.environ.get('PYTHONPATH', '')}",
+    }
+    result = subprocess.run(
+        [sys.executable, str(script), url],
+        capture_output=True,
+        text=True,
+        cwd=str(project_root),
+        env=env,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Failed to populate preaggs template:\n{result.stdout}\n{result.stderr}",
+        )
+    ids = next(
+        json.loads(line.split(" ", 1)[1])
+        for line in result.stdout.splitlines()
+        if line.startswith("PREAGG_IDS ")
+    )
+    yield PREAGGS_TEMPLATE_DB_NAME, ids
+    if not externally_managed:
+        # A shared template outlives this process; dropping it would pull the
+        # rug from under the other workers.
+        cleanup_database_for_module(postgres_container, PREAGGS_TEMPLATE_DB_NAME)
+
+
+@pytest.fixture
+def func__postgres_container(
+    request,
+    postgres_container: PostgresContainer,
+    template_database: str,
+    preaggs_template_database: tuple[str, list[int]],
+):
+    """
+    Clone from the preaggs template, but only for tests that ask for preaggs.
+
+    Overrides the conftest fixture for this module. Tests here that drive
+    ``client_with_build_v3`` directly plan their own preaggs and assert on the
+    result, so they must start from the base template -- handing them the
+    pre-seeded one makes those assertions see rows they did not create.
+    """
+    wants_preaggs = "client_with_preaggs" in request.fixturenames
+    template_name = preaggs_template_database[0] if wants_preaggs else template_database
+    dbname = f"test_preagg_{abs(hash(request.node.name)) % 10000000}_{id(request)}"
+    db_url = clone_database_from_template(
+        postgres_container,
+        template_name=template_name,
+        target_name=dbname,
+    )
+    yield FuncPostgresContainer(postgres_container, db_url, dbname)
+    cleanup_database_for_module(postgres_container, dbname)
+
+
 @pytest_asyncio.fixture
 async def client_with_preaggs(
     client_with_build_v3: AsyncClient,
+    preaggs_template_database: tuple[str, list[int]],
 ):
     """
-    Creates pre-aggregations for testing using BUILD_V3 examples.
+    Client whose database already contains the ten pre-aggregations.
 
-    Uses /preaggs/plan API to create preaggs, which is more realistic
-    and ensures consistency with the actual API behavior.
-
-    NOTE: Gets session from client's dependency override to ensure we use
-    the SAME session that the client uses, avoiding event loop binding issues
-    with pytest-xdist in Python 3.11.
+    The preaggs come from the template clone, so nothing is planned here -- we
+    only load the ORM objects the tests reference. Each test still gets its own
+    database, so the ones that mutate stay isolated.
     """
     client = client_with_build_v3
 
-    # Get session from the client's dependency override - this ensures we use
-    # the same session that the API handlers use, avoiding event loop issues
     from datajunction_server.utils import get_session
 
     session = client.app.dependency_overrides[get_session]()
 
-    # preagg1: Basic preagg with FULL strategy, single grain
-    # total_revenue + total_quantity by status
-    preagg1_data = await _plan_preagg(
-        client,
-        metrics=["v3.total_revenue", "v3.total_quantity"],
-        dimensions=["v3.order_details.status"],
-        strategy="full",
-        schedule="0 0 * * *",
-    )
-
-    # preagg2: Multi-grain preagg (status + category)
-    # total_revenue + avg_unit_price by status and category
-    preagg2_data = await _plan_preagg(
-        client,
-        metrics=["v3.total_revenue", "v3.avg_unit_price"],
-        dimensions=["v3.order_details.status", "v3.product.category"],
-        strategy="full",
-        schedule="0 * * * *",
-    )
-
-    # preagg3: Same grain as preagg1 but different metrics (for grain group hash testing)
-    # max_unit_price by status
-    preagg3_data = await _plan_preagg(
-        client,
-        metrics=["v3.max_unit_price"],
-        dimensions=["v3.order_details.status"],
-        strategy="full",
-    )
-
-    # preagg4: No strategy set (for testing "requires strategy" validation)
-    # total_revenue by category
-    preagg4_data = await _plan_preagg(
-        client,
-        metrics=["v3.total_revenue"],
-        dimensions=["v3.product.category"],
-    )
-
-    # preagg5-10: Additional preaggs for tests that modify state
-    # These use different dimension combinations to avoid grain_group_hash conflicts
-    preagg5_data = await _plan_preagg(
-        client,
-        metrics=["v3.order_count"],
-        dimensions=["v3.order_details.status"],
-        strategy="full",
-        schedule="0 0 * * *",
-    )
-    preagg6_data = await _plan_preagg(
-        client,
-        metrics=["v3.min_unit_price"],
-        dimensions=["v3.order_details.status"],
-        strategy="full",
-        schedule="0 0 * * *",
-    )
-    preagg7_data = await _plan_preagg(
-        client,
-        metrics=["v3.total_revenue"],
-        dimensions=["v3.customer.customer_id"],
-    )
-    preagg8_data = await _plan_preagg(
-        client,
-        metrics=["v3.page_view_count"],
-        dimensions=["v3.product.category"],
-        strategy="full",
-        schedule="0 0 * * *",
-    )
-    preagg9_data = await _plan_preagg(
-        client,
-        metrics=["v3.session_count"],
-        dimensions=["v3.product.category"],
-        strategy="full",
-        schedule="0 0 * * *",
-    )
-    preagg10_data = await _plan_preagg(
-        client,
-        metrics=["v3.visitor_count"],
-        dimensions=["v3.product.category"],
-    )
-
-    # Fetch actual PreAggregation objects from DB for tests that need them
+    _, preagg_ids = preaggs_template_database
     _opts = [joinedload(PreAggregation.node_revision)]
-    preagg1 = await session.get(PreAggregation, preagg1_data["id"], options=_opts)
-    preagg2 = await session.get(PreAggregation, preagg2_data["id"], options=_opts)
-    preagg3 = await session.get(PreAggregation, preagg3_data["id"], options=_opts)
-    preagg4 = await session.get(PreAggregation, preagg4_data["id"], options=_opts)
-    preagg5 = await session.get(PreAggregation, preagg5_data["id"], options=_opts)
-    preagg6 = await session.get(PreAggregation, preagg6_data["id"], options=_opts)
-    preagg7 = await session.get(PreAggregation, preagg7_data["id"], options=_opts)
-    preagg8 = await session.get(PreAggregation, preagg8_data["id"], options=_opts)
-    preagg9 = await session.get(PreAggregation, preagg9_data["id"], options=_opts)
-    preagg10 = await session.get(PreAggregation, preagg10_data["id"], options=_opts)
+    preaggs = [
+        await session.get(PreAggregation, preagg_id, options=_opts)
+        for preagg_id in preagg_ids
+    ]
 
     yield {
         "client": client,
         "session": session,
-        "preagg1": preagg1,
-        "preagg2": preagg2,
-        "preagg3": preagg3,
-        "preagg4": preagg4,
-        "preagg5": preagg5,
-        "preagg6": preagg6,
-        "preagg7": preagg7,
-        "preagg8": preagg8,
-        "preagg9": preagg9,
-        "preagg10": preagg10,
+        **{f"preagg{index}": preagg for index, preagg in enumerate(preaggs, start=1)},
     }
 
 

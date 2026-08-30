@@ -259,7 +259,9 @@ def func__postgres_container(
     """
     # Create a unique database name for this test
     test_name = request.node.name
-    dbname = f"test_func_{abs(hash(test_name)) % 10000000}_{id(request)}"
+    dbname = (
+        f"test_func_{worker_suffix()}_{abs(hash(test_name)) % 10000000}_{id(request)}"
+    )
 
     # Clone from template
     db_url = clone_database_from_template(
@@ -286,7 +288,9 @@ def func__clean_postgres_container(
     """
     # Create a unique database name for this test
     test_name = request.node.name
-    dbname = f"test_clean_{abs(hash(test_name)) % 10000000}_{id(request)}"
+    dbname = (
+        f"test_clean_{worker_suffix()}_{abs(hash(test_name)) % 10000000}_{id(request)}"
+    )
 
     # Create a fresh empty database (no template)
     db_url = create_database_for_module(postgres_container, dbname)
@@ -371,6 +375,131 @@ def duckdb_conn() -> duckdb.DuckDBPyConnection:
         yield conn
 
 
+class ExternalPostgres:
+    """
+    Stands in for ``PostgresContainer`` when tests run against a server this
+    process did not start, so nothing tears it down at the end of a session.
+    """
+
+    def __init__(self, url: str):
+        self._url = url
+
+    def get_connection_url(self) -> str:
+        return self._url
+
+
+def externally_managed_postgres() -> bool:
+    """True when the Postgres server (and its templates) outlive this process."""
+    return bool(os.environ.get("DJ_TEST_POSTGRES_URL"))
+
+
+def database_exists(postgres, dbname: str) -> bool:
+    """Whether ``dbname`` is already present on the server."""
+    url = urlparse(postgres.get_connection_url())
+    with connect(
+        host=url.hostname,
+        port=url.port,
+        dbname=url.path.lstrip("/"),
+        user=url.username,
+        password=url.password,
+        autocommit=True,
+    ) as conn:
+        row = conn.execute(
+            "SELECT 1 FROM pg_database WHERE datname = %s",
+            (dbname,),
+        ).fetchone()
+    return row is not None
+
+
+def template_is_populated(postgres, dbname: str) -> bool:
+    """
+    Whether ``dbname`` exists *and* actually holds a schema.
+
+    Existence alone is not enough. A build that dies after CREATE DATABASE but
+    before loading anything leaves a database that looks usable and is not, and
+    on a shared server nothing cleans it up -- every later run then fails
+    somewhere downstream with an opaque UndefinedTable.
+    """
+    if not database_exists(postgres, dbname):
+        return False
+    url = urlparse(postgres.get_connection_url())
+    with connect(
+        host=url.hostname,
+        port=url.port,
+        dbname=dbname,
+        user=url.username,
+        password=url.password,
+        autocommit=True,
+    ) as conn:
+        row = conn.execute(
+            "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'",
+        ).fetchone()
+    return bool(row and row[0] > 0)
+
+
+def require_shared_template(postgres, dbname: str, how_to_build: str) -> None:
+    """
+    Insist that a shared template is present and populated.
+
+    On a server this process does not own, templates are built once before
+    pytest runs. Building them here instead would race between workers and, on
+    failure, leave a half-made database behind, so refuse loudly and say what
+    is missing.
+    """
+    if template_is_populated(postgres, dbname):
+        return
+    state = "exists but is empty" if database_exists(postgres, dbname) else "is missing"
+    raise RuntimeError(
+        f"Shared template database `{dbname}` {state}.\n"
+        f"DJ_TEST_POSTGRES_URL is set, so templates must be built before pytest "
+        f"starts. Build it with:\n\n    {how_to_build}\n\n"
+        f"If it exists but is empty, drop it first: "
+        f'psql -c "DROP DATABASE {dbname};"',
+    )
+
+
+def require_shared_readonly_role(postgres) -> None:
+    """
+    Insist the ``readonly_user`` role exists on a shared server.
+
+    For containers it starts itself the suite creates this role, but on a server
+    it does not own it cannot. The reader database URL depends on it, so a
+    missing role surfaces as an authentication error deep inside an unrelated
+    test rather than as a setup problem.
+    """
+    url = urlparse(postgres.get_connection_url())
+    with connect(
+        host=url.hostname,
+        port=url.port,
+        dbname=url.path.lstrip("/"),
+        user=url.username,
+        password=url.password,
+        autocommit=True,
+    ) as conn:
+        row = conn.execute(
+            "SELECT 1 FROM pg_roles WHERE rolname = 'readonly_user'",
+        ).fetchone()
+    if row is None:
+        raise RuntimeError(
+            "Shared Postgres is missing the `readonly_user` role, which the "
+            "reader database URL needs.\nDJ_TEST_POSTGRES_URL is set, so the "
+            "role has to be created before pytest starts:\n\n"
+            '    psql -c "CREATE ROLE readonly_user WITH LOGIN '
+            "PASSWORD 'readonly'\"",
+        )
+
+
+def worker_suffix() -> str:
+    """
+    Identifier unique to this xdist worker.
+
+    Generated database names have to include it once workers share one server:
+    the old names leaned on ``id(request)``, which is only unique within a
+    process.
+    """
+    return os.environ.get("PYTEST_XDIST_WORKER", "gw0")
+
+
 @pytest.fixture(scope="session")
 def postgres_container() -> PostgresContainer:
     """
@@ -380,7 +509,17 @@ def postgres_container() -> PostgresContainer:
     1. The 'dj' database (default)
     2. The template database with all examples pre-loaded
     3. Per-module databases cloned from the template
+    Under pytest-xdist "session" means *per worker process*, so without
+    ``DJ_TEST_POSTGRES_URL`` every worker starts its own container and builds its
+    own template -- N times the same ~50s of work, all at once at startup. Set
+    that variable to a running Postgres and the workers share it, cloning
+    templates somebody else already built.
     """
+    external_url = os.environ.get("DJ_TEST_POSTGRES_URL")
+    if external_url:
+        yield ExternalPostgres(external_url)  # type: ignore[misc]
+        return
+
     postgres = PostgresContainer(
         image="postgres:latest",
         username="dj",
@@ -571,7 +710,9 @@ async def clean_client(
 
     # Create a unique database for this test
     test_name = request.node.name
-    dbname = f"test_clean_{abs(hash(test_name)) % 10000000}_{id(request)}"
+    dbname = (
+        f"test_clean_{worker_suffix()}_{abs(hash(test_name)) % 10000000}_{id(request)}"
+    )
     db_url = create_database_for_module(postgres_container, dbname)
 
     # Create settings for this clean database
@@ -1744,7 +1885,7 @@ async def module__clean_client(
     """
     # Create a unique database for this module
     module_name = request.module.__name__
-    dbname = f"test_mod_clean_{abs(hash(module_name)) % 10000000}"
+    dbname = f"test_mod_clean_{worker_suffix()}_{abs(hash(module_name)) % 10000000}"
     db_url = create_database_for_module(postgres_container, dbname)
 
     # Create settings for this clean database
@@ -1860,12 +2001,27 @@ async def module__clean_client(
     cleanup_database_for_module(postgres_container, dbname)
 
 
+@pytest.fixture
+def isolated_client_template() -> str | None:
+    """
+    Template database for ``isolated_client`` to clone, if any.
+
+    Defaults to none, so ``isolated_client`` builds an empty database and the
+    caller loads what it needs. A module whose tests all want the same data can
+    override this with a template name: creating the schema and loading examples
+    costs seconds per test, cloning a template costs ~90ms, and each test still
+    gets its own database.
+    """
+    return None
+
+
 @pytest_asyncio.fixture
 async def isolated_client(
     request,
     postgres_container: PostgresContainer,
     mocker: MockerFixture,
     background_tasks,
+    isolated_client_template: str | None,
 ) -> AsyncGenerator[AsyncClient, None]:
     """
     Function-scoped client with a CLEAN database (no template, no pre-loaded examples).
@@ -1880,8 +2036,16 @@ async def isolated_client(
 
     # Create a unique database for this test function
     test_name = request.node.name
-    dbname = f"test_isolated_{abs(hash(test_name)) % 10000000}_{id(request)}"
-    db_url = create_database_for_module(postgres_container, dbname)
+    dbname = f"test_isolated_{worker_suffix()}_{abs(hash(test_name)) % 10000000}_{id(request)}"
+    db_url = (
+        clone_database_from_template(
+            postgres_container,
+            template_name=isolated_client_template,
+            target_name=dbname,
+        )
+        if isolated_client_template
+        else create_database_for_module(postgres_container, dbname)
+    )
 
     # Create settings for this clean database
     writer_db = DatabaseConfig(uri=db_url)
@@ -1918,10 +2082,11 @@ async def isolated_client(
         poolclass=NullPool,  # Avoids lock binding issues across event loops
     )
 
-    # Create tables in the clean database
-    async with engine.begin() as conn:
-        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
-        await conn.run_sync(Base.metadata.create_all)
+    # Create tables in the clean database. A clone already has them.
+    if not isolated_client_template:
+        async with engine.begin() as conn:
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
+            await conn.run_sync(Base.metadata.create_all)
 
     async_session_factory = async_sessionmaker(
         bind=engine,
@@ -1932,14 +2097,16 @@ async def isolated_client(
     async with async_session_factory() as session:
         session.remove = AsyncMock(return_value=None)
 
-        # Initialize the empty database with required seed data
-        from datajunction_server.api.attributes import default_attribute_types
-        from datajunction_server.internal.seed import seed_default_catalogs
+        # Initialize the empty database with required seed data. A clone of a
+        # template already carries it.
+        if not isolated_client_template:
+            from datajunction_server.api.attributes import default_attribute_types
+            from datajunction_server.internal.seed import seed_default_catalogs
 
-        await default_attribute_types(session)
-        await seed_default_catalogs(session)
-        await create_default_user(session)
-        await session.commit()
+            await default_attribute_types(session)
+            await seed_default_catalogs(session)
+            await create_default_user(session)
+            await session.commit()
 
         def get_session_override() -> AsyncSession:
             return session
@@ -2181,6 +2348,16 @@ def template_database(postgres_container: PostgresContainer) -> str:
     Session-scoped fixture that creates a template database with ALL examples.
     This runs ONCE per test session and then each module clones from it.
     """
+    if externally_managed_postgres():
+        # Built once outside pytest; every worker just clones it.
+        require_shared_readonly_role(postgres_container)
+        require_shared_template(
+            postgres_container,
+            TEMPLATE_DB_NAME,
+            f"python tests/helpers/populate_template.py "
+            f"<url-ending-in>/{TEMPLATE_DB_NAME}",
+        )
+        return TEMPLATE_DB_NAME
     template_url = create_database_for_module(postgres_container, TEMPLATE_DB_NAME)
     _populate_template_via_subprocess(template_url)
     return TEMPLATE_DB_NAME
@@ -2197,7 +2374,7 @@ def module__postgres_container(
     Each module gets its own database cloned from the template with all examples.
     """
     path = pathlib.Path(request.module.__file__).resolve()
-    dbname = f"test_mod_{abs(hash(path)) % 10000000}"
+    dbname = f"test_mod_{worker_suffix()}_{abs(hash(path)) % 10000000}"
 
     module_db_url = clone_database_from_template(
         postgres_container,
