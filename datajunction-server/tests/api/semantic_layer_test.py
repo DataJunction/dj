@@ -106,7 +106,7 @@ class TestSemanticViewPayloadTypes:
         metrics = _metrics_payload(cube)  # type: ignore[arg-type]
         dimensions = _dimensions_payload(cube)  # type: ignore[arg-type]
 
-        assert [ metric.model_dump() for metric in metrics ] == [
+        assert [metric.model_dump() for metric in metrics] == [
             {
                 "id": "sem.total_amount",
                 "name": "total_amount",
@@ -120,7 +120,7 @@ class TestSemanticViewPayloadTypes:
             },
         ]
 
-        assert [ dim.model_dump() for dim in dimensions ] == [
+        assert [dim.model_dump() for dim in dimensions] == [
             {
                 "id": "sem.region.region_id",
                 "name": "region_id",
