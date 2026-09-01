@@ -2649,9 +2649,7 @@ class TestDeployments:
         assert data["status"] == "success"
         assert data["results"][-1] == {
             "deploy_type": "node",
-            # The filter reorder is reported for the reader's benefit but earns no
-            # version of its own: v1.1 comes from the dimension reorder alone.
-            "message": "Updated cube (v1.1)\n└─ Reordered dimensions, filters",
+            "message": "Updated cube (v1.1)\n└─ Reordered dimensions",
             "name": f"{namespace}.default.repairs_cube",
             "operation": "update",
             "changed_fields": [],
