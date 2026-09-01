@@ -890,6 +890,12 @@ def test_every_spec_field_has_an_explicit_change_tier():
         if spec_class.unclassified_fields()
     }
     assert unclassified == {}
+    unclassified_order = {
+        spec_class.__name__: spec_class.unclassified_list_order_fields()
+        for spec_class in all_node_spec_classes()
+        if spec_class.unclassified_list_order_fields()
+    }
+    assert unclassified_order == {}
 
 
 def test_change_tier_lookup_walks_the_mro():
@@ -911,7 +917,7 @@ def test_change_tier_lookup_walks_the_mro():
     assert TransformSpec.field_change_tier("primary_key") == ChangeTier.MAJOR
     assert TransformSpec.field_change_tier("tags") == ChangeTier.MINOR
     assert TransformSpec.order_sensitive_fields() == []
-    assert CubeSpec.order_sensitive_fields() == ["metrics", "dimensions", "filters"]
+    assert CubeSpec.order_sensitive_fields() == ["metrics", "dimensions"]
 
 
 def test_fold_change_tiers():
@@ -1000,7 +1006,7 @@ def test_cube_spec_order_diff():
     assert one.order_diff(
         a_cube(dimensions=["ns.d.two", "ns.d.one"], filters=["x = 1", "y = 2"]),
     ) == ["dimensions"]
-    assert one.order_diff(a_cube(filters=["y = 2", "x = 1"])) == ["filters"]
+    assert one.order_diff(a_cube(filters=["y = 2", "x = 1"])) == []
     # A set change is not a reorder — diff() reports that one instead.
     assert one.order_diff(a_cube(metrics=["ns.a"], filters=["x = 1", "y = 2"])) == []
     assert one.diff(a_cube(metrics=["ns.a"], filters=["x = 1", "y = 2"])) == ["metrics"]

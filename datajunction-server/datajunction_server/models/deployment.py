@@ -1,7 +1,7 @@
 import hashlib
 import json
 import math
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from enum import Enum, IntEnum
 from typing import Annotated, Any, ClassVar, Literal, get_args, get_origin
 
@@ -73,15 +73,22 @@ class ChangeTier(IntEnum):
 class SemanticFingerprint(BaseModel):
     """A digest of a node's semantic definition."""
 
-    version: Literal[1] = 1
+    version: int = 1
     digest: str = Field(
         min_length=64,
         max_length=64,
         pattern=r"^[0-9a-f]+$",
     )
 
+    @field_validator("version")
+    @classmethod
+    def validate_version(cls, version: int) -> int:
+        if version not in _SEMANTIC_FINGERPRINT_BUILDERS:
+            raise ValueError(f"Unsupported semantic fingerprint version: {version}")
+        return version
 
-_SEMANTIC_FINGERPRINT_VERSION = 1
+
+_LATEST_SEMANTIC_FINGERPRINT_VERSION = 1
 
 
 def fold_change_tiers(tiers: Iterable[ChangeTier]) -> ChangeTier:
@@ -549,11 +556,6 @@ class DimensionJoinLinkSpec(DimensionLinkSpec):
             self.default_value,
         )
 
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, DimensionJoinLinkSpec):
-            return False  # pragma: no cover
-        return self._comparison_key() == other._comparison_key()
-
 
 class DimensionReferenceLinkSpec(DimensionLinkSpec):
     """
@@ -590,11 +592,6 @@ class DimensionReferenceLinkSpec(DimensionLinkSpec):
             self.dimension_attribute,
             self.node_column,
         )
-
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, DimensionReferenceLinkSpec):
-            return False
-        return self._comparison_key() == other._comparison_key()
 
 
 def render_prefixes(parameterized_string: str, prefix: str | None = None) -> str:
@@ -648,7 +645,10 @@ class NodeSpec(NamespacedSpec):
     # anything. Fields absent here are not order-sensitive, so reordering them is
     # not a change at all. `diff()` compares list fields as sets and cannot see a
     # reorder on its own, which is why `order_diff()` exists alongside it.
-    FIELD_ORDER_CHANGE_TIERS: ClassVar[dict[str, ChangeTier]] = {}
+    FIELD_ORDER_CHANGE_TIERS: ClassVar[dict[str, ChangeTier]] = {
+        "owners": ChangeTier.NONE,
+        "tags": ChangeTier.NONE,
+    }
 
     _query_ast: Any | None = PrivateAttr(default=None)
     # Internal: marks specs from already-validated sources (e.g., branch copies)
@@ -724,32 +724,20 @@ class NodeSpec(NamespacedSpec):
 
     def semantic_fingerprint(
         self,
-        version: int = _SEMANTIC_FINGERPRINT_VERSION,
+        version: int = _LATEST_SEMANTIC_FINGERPRINT_VERSION,
         *,
         parent_fingerprints: Iterable[SemanticFingerprint] = (),
         resolved_columns: list[ColumnSpec] | None = None,
     ) -> SemanticFingerprint:
         """Return a fingerprint of this node's semantic definition."""
-        if type(version) is not int or version != _SEMANTIC_FINGERPRINT_VERSION:
+        builder = _SEMANTIC_FINGERPRINT_BUILDERS.get(version)
+        if builder is None:
             raise ValueError(f"Unsupported semantic fingerprint version: {version}")
-        node_payload = _semantic_fingerprint_payload(
+        return builder(
             self,
+            parent_fingerprints,
             resolved_columns=resolved_columns,
         )
-        node_digest = hashlib.sha256(
-            _canonical_json(node_payload).encode("utf-8"),
-        ).hexdigest()
-        parents = list(parent_fingerprints)
-        if any(parent.version != version for parent in parents):
-            raise ValueError("Parent fingerprint version does not match node version")
-        payload = {
-            "domain": "datajunction/node-semantic-merkle",
-            "version": version,
-            "node": node_digest,
-            "parents": sorted({parent.digest for parent in parents}),
-        }
-        digest = hashlib.sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
-        return SemanticFingerprint(version=version, digest=digest)
 
     def canonical_diff(
         self,
@@ -819,6 +807,11 @@ class NodeSpec(NamespacedSpec):
         return cls._declared_tier("FIELD_CHANGE_TIERS", field) is not None
 
     @classmethod
+    def has_explicit_order_change_tier(cls, field: str) -> bool:
+        """Whether some class in the MRO classifies reordering `field`."""
+        return cls._declared_tier("FIELD_ORDER_CHANGE_TIERS", field) is not None
+
+    @classmethod
     def unclassified_fields(cls) -> list[str]:
         """Fields on this spec class that nobody classified. Should always be empty."""
         return [
@@ -828,12 +821,26 @@ class NodeSpec(NamespacedSpec):
         ]
 
     @classmethod
+    def unclassified_list_order_fields(cls) -> list[str]:
+        """List fields without an explicit order classification."""
+        return [
+            field
+            for field, field_info in cls.model_fields.items()
+            if _annotation_contains_list(field_info.annotation)
+            and not cls.has_explicit_order_change_tier(field)
+        ]
+
+    @classmethod
     def order_sensitive_fields(cls) -> list[str]:
-        """Fields for which some class in the MRO classifies a reorder."""
+        """Fields whose declared reorder tier is not NONE."""
         fields: dict[str, None] = {}
         for klass in cls.__mro__:
-            for field in klass.__dict__.get("FIELD_ORDER_CHANGE_TIERS", {}):
-                fields.setdefault(field, None)
+            for field, tier in klass.__dict__.get(
+                "FIELD_ORDER_CHANGE_TIERS",
+                {},
+            ).items():
+                if tier != ChangeTier.NONE:
+                    fields.setdefault(field, None)
         return list(fields)
 
     @classmethod
@@ -891,6 +898,11 @@ class LinkableNodeSpec(NodeSpec):
         "columns": ChangeTier.MAJOR,
         "dimension_links": ChangeTier.MAJOR,
         "primary_key": ChangeTier.MAJOR,
+    }
+    FIELD_ORDER_CHANGE_TIERS: ClassVar[dict[str, ChangeTier]] = {
+        "columns": ChangeTier.NONE,
+        "dimension_links": ChangeTier.NONE,
+        "primary_key": ChangeTier.NONE,
     }
 
     @model_validator(mode="after")
@@ -1045,6 +1057,10 @@ class MetricSpec(NodeSpec):
         "significant_digits": ChangeTier.MINOR,
         "min_decimal_exponent": ChangeTier.MINOR,
         "max_decimal_exponent": ChangeTier.MINOR,
+    }
+    FIELD_ORDER_CHANGE_TIERS: ClassVar[dict[str, ChangeTier]] = {
+        "columns": ChangeTier.NONE,
+        "required_dimensions": ChangeTier.NONE,
     }
 
     # Class-level adapter used by __init__ to eagerly validate structured
@@ -1227,6 +1243,8 @@ class CubeSpec(NodeSpec):
         # Filters are ANDed together, so their ordering carries no meaning at all
         # and reordering them is genuinely a no-op.
         "filters": ChangeTier.NONE,
+        "columns": ChangeTier.NONE,
+        "materialization": ChangeTier.NONE,
     }
 
     @field_validator("materialization", mode="before")
@@ -1594,6 +1612,40 @@ def _semantic_fingerprint_payload(
         "node_type": _canonical_value(rendered.node_type),
         "fields": fields,
     }
+
+
+def _semantic_fingerprint_v1(
+    spec: NodeSpec,
+    parent_fingerprints: Iterable[SemanticFingerprint],
+    *,
+    resolved_columns: list[ColumnSpec] | None,
+) -> SemanticFingerprint:
+    node_payload = _semantic_fingerprint_payload(
+        spec,
+        resolved_columns=resolved_columns,
+    )
+    node_digest = hashlib.sha256(
+        _canonical_json(node_payload).encode("utf-8"),
+    ).hexdigest()
+    parents = list(parent_fingerprints)
+    if any(parent.version != 1 for parent in parents):
+        raise ValueError("Parent fingerprint version does not match node version")
+    payload = {
+        "domain": "datajunction/node-semantic-merkle",
+        "version": 1,
+        "node": node_digest,
+        "parents": sorted({parent.digest for parent in parents}),
+    }
+    digest = hashlib.sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
+    return SemanticFingerprint(version=1, digest=digest)
+
+
+_SEMANTIC_FINGERPRINT_BUILDERS: dict[
+    int,
+    Callable[..., SemanticFingerprint],
+] = {
+    1: _semantic_fingerprint_v1,
+}
 
 
 def _canonical_node_diff(
