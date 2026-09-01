@@ -3,7 +3,6 @@ import os
 import subprocess
 import sys
 from datetime import date
-from typing import Any, ClassVar
 
 import pytest
 from pydantic import ValidationError
@@ -39,6 +38,12 @@ from datajunction_server.models.deployment import (
     eq_or_fallback,
     fold_change_tiers,
 )
+from datajunction_server.semantic_fingerprints.canonical import (
+    canonical_json,
+    canonical_sequence,
+    canonical_value,
+)
+from datajunction_server.semantic_fingerprints.v1 import semantic_fields
 from datajunction_server.models.materialization import (
     CoverageSpec,
     MaterializationStrategy,
@@ -1694,9 +1699,9 @@ def fingerprint(spec: NodeSpec) -> SemanticFingerprint:
 
 GOLDEN_FINGERPRINTS = {
     "source": "71dcbc388988c2bdd850670427710384687b58565ee38ca392dc220adfed868d",
-    "transform": "797af072eb15831df786149716171f0a400af7f35f6031f8eee3939733cab9c4",
-    "dimension": "965282bbe90a4fcc66576fba3550df42c09ff4dc51be2ee433a3897d48026edb",
-    "metric": "738703ffa80a72b00fc829697cf259aac317dc34290cb1aae4c0678a34f3a948",
+    "transform": "978e692880c7bcfb1bd78ece85895a1ec1558e85377b064a8dac3f3719cff2a5",
+    "dimension": "f7b3c87a61fdadf9997432fd9334befdf43f2488874ef555e3f7d4c4ba86e3e1",
+    "metric": "a3fde7af5dbd00d194805af33fc213bca52244c7cdedf1f7363ec52d2f6d4116",
     "cube": "9b0a56d974d1e3769bc2db94e2cfbae7a6a4839f664eebd2a4387ef112ceea81",
 }
 
@@ -1747,39 +1752,50 @@ def test_semantic_fingerprint_normalizes_empty_and_resolved_source_columns():
     ) == fingerprint(CubeSpec(name="cube", metrics=[], dimensions=[], filters=[]))
 
 
-def test_semantic_fingerprint_mapping_order_is_stable():
-    class CanonicalSpec(NodeSpec):
-        semantic_mapping: dict[str, Any]
-        values: list[int]
-        FIELD_CHANGE_TIERS: ClassVar[dict[str, ChangeTier]] = {
-            "semantic_mapping": ChangeTier.MAJOR,
-            "values": ChangeTier.MAJOR,
-        }
-        FIELD_ORDER_CHANGE_TIERS: ClassVar[dict[str, ChangeTier]] = {
-            "values": ChangeTier.MAJOR,
-        }
-
-    common = {"name": "mapped", "node_type": NodeType.SOURCE, "values": [1, 2]}
-    first = CanonicalSpec(
-        **common,
-        semantic_mapping={"outer": {"a": 1, "b": 2}, "value": 3},
+def test_semantic_fingerprint_canonical_values_are_stable():
+    first = {"outer": {"a": 1, "b": 2}, "value": 3}
+    second = {"value": 3, "outer": {"b": 2, "a": 1}}
+    assert canonical_json(canonical_value(first)) == canonical_json(
+        canonical_value(second),
     )
-    second = CanonicalSpec(
-        **common,
-        semantic_mapping={"value": 3, "outer": {"b": 2, "a": 1}},
-    )
-    assert fingerprint(first) == fingerprint(second)
     with pytest.raises(TypeError, match="string keys"):
-        fingerprint(first.model_copy(update={"semantic_mapping": {1: "value"}}))
-    assert fingerprint(first) != fingerprint(
-        first.model_copy(update={"values": [2, 1]}),
+        canonical_value({1: "value"})
+    assert canonical_sequence(
+        [1, 2],
+        preserve_order=True,
+    ) != canonical_sequence(
+        [2, 1],
+        preserve_order=True,
     )
     with pytest.raises(TypeError, match="Unsupported"):
-        fingerprint(first.model_copy(update={"semantic_mapping": {"bad": object()}}))
+        canonical_value({"bad": object()})
     with pytest.raises(ValueError, match="must be finite"):
-        fingerprint(
-            first.model_copy(update={"semantic_mapping": {"bad": float("nan")}}),
-        )
+        canonical_value({"bad": float("nan")})
+
+
+def test_semantic_fingerprint_normalizes_equivalent_numbers():
+    assert canonical_value({"value": 1}) == canonical_value({"value": 1.0})
+    assert canonical_value({"value": -0.0}) == canonical_value({"value": 0})
+
+    sql_integer = TransformSpec(name="sql_number", query="SELECT 1")
+    sql_integral_float = TransformSpec(name="sql_number", query="SELECT 1.0")
+    assert sql_integer.canonical_diff(sql_integral_float) == ([], [])
+    assert fingerprint(sql_integer) == fingerprint(sql_integral_float)
+
+
+@pytest.mark.parametrize(
+    "spec_type",
+    [SourceSpec, TransformSpec, DimensionSpec, MetricSpec, CubeSpec],
+)
+def test_semantic_fingerprint_v1_projection_is_explicit(spec_type):
+    current_major_fields = {
+        field
+        for field, field_info in spec_type.model_fields.items()
+        if field not in {"name", "namespace", "node_type"}
+        and field_info.exclude is not True
+        and spec_type.field_change_tier(field) == ChangeTier.MAJOR
+    }
+    assert set(semantic_fields(spec_type)) == current_major_fields
 
 
 def test_semantic_fingerprint_renders_prefixes_and_canonicalizes_sql():
@@ -2044,9 +2060,13 @@ def test_semantic_fingerprint_normalizes_primary_keys_and_cube_ordering():
         query="SELECT 1",
         required_dimensions=["one", "two"],
     )
-    assert fingerprint(metric) == fingerprint(
-        metric.model_copy(update={"required_dimensions": ["two", "one"]}),
+    reordered_metric = metric.model_copy(
+        update={"required_dimensions": ["two", "one", "one"]},
     )
+    assert metric == reordered_metric
+    assert metric.canonical_diff(reordered_metric) == ([], [])
+    assert fingerprint(metric) == fingerprint(reordered_metric)
+    assert MetricSpec.field_change_tier("columns") == ChangeTier.NONE
     assert fingerprint(cube) == fingerprint(
         cube.model_copy(
             update={"metrics": [*cube.metrics, "${prefix}order_count"]},

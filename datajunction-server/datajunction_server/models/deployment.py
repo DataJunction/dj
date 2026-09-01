@@ -1,9 +1,7 @@
-import hashlib
 import json
-import math
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 from enum import Enum, IntEnum
-from typing import Annotated, Any, ClassVar, Literal, get_args, get_origin
+from typing import Annotated, Any, ClassVar, Literal
 
 from pydantic import (
     AliasChoices,
@@ -21,7 +19,6 @@ from datajunction_server.errors import (
     DJInvalidDeploymentConfig,
     DJInvalidInputException,
 )
-from datajunction_server.models.base import labelize
 from datajunction_server.models.dimensionlink import (
     JoinCardinality,
     JoinType,
@@ -43,6 +40,10 @@ from datajunction_server.models.node import (
     NodeType,
 )
 from datajunction_server.models.partition import Granularity, PartitionType
+from datajunction_server.models.semantic_fingerprint import (
+    LATEST_SEMANTIC_FINGERPRINT_VERSION,
+    SemanticFingerprint,
+)
 from datajunction_server.models.unit import (
     Unit,
     legacy_unit_to_structured,
@@ -68,27 +69,6 @@ class ChangeTier(IntEnum):
     NONE = 0
     MINOR = 10
     MAJOR = 20
-
-
-class SemanticFingerprint(BaseModel):
-    """A digest of a node's semantic definition."""
-
-    version: int = 1
-    digest: str = Field(
-        min_length=64,
-        max_length=64,
-        pattern=r"^[0-9a-f]+$",
-    )
-
-    @field_validator("version")
-    @classmethod
-    def validate_version(cls, version: int) -> int:
-        if version not in _SEMANTIC_FINGERPRINT_BUILDERS:
-            raise ValueError(f"Unsupported semantic fingerprint version: {version}")
-        return version
-
-
-_LATEST_SEMANTIC_FINGERPRINT_VERSION = 1
 
 
 def fold_change_tiers(tiers: Iterable[ChangeTier]) -> ChangeTier:
@@ -649,7 +629,6 @@ class NodeSpec(NamespacedSpec):
         "owners": ChangeTier.NONE,
         "tags": ChangeTier.NONE,
     }
-
     _query_ast: Any | None = PrivateAttr(default=None)
     # Internal: marks specs from already-validated sources (e.g., branch copies)
     # that can skip expensive SQL parsing and validation
@@ -724,18 +703,18 @@ class NodeSpec(NamespacedSpec):
 
     def semantic_fingerprint(
         self,
-        version: int = _LATEST_SEMANTIC_FINGERPRINT_VERSION,
+        version: int = LATEST_SEMANTIC_FINGERPRINT_VERSION,
         *,
         parent_fingerprints: Iterable[SemanticFingerprint] = (),
         resolved_columns: list[ColumnSpec] | None = None,
     ) -> SemanticFingerprint:
         """Return a fingerprint of this node's semantic definition."""
-        builder = _SEMANTIC_FINGERPRINT_BUILDERS.get(version)
-        if builder is None:
-            raise ValueError(f"Unsupported semantic fingerprint version: {version}")
-        return builder(
+        from datajunction_server.semantic_fingerprints import fingerprint_node
+
+        return fingerprint_node(
             self,
-            parent_fingerprints,
+            version,
+            parent_fingerprints=parent_fingerprints,
             resolved_columns=resolved_columns,
         )
 
@@ -747,7 +726,11 @@ class NodeSpec(NamespacedSpec):
         other_resolved_columns: list[ColumnSpec] | None = None,
     ) -> tuple[list[str], list[str]]:
         """Compare two specs using the same canonical values as fingerprints."""
-        return _canonical_node_diff(
+        from datajunction_server.semantic_fingerprints import (
+            canonical_diff as compare_semantics,
+        )
+
+        return compare_semantics(
             self,
             other,
             resolved_columns=resolved_columns,
@@ -823,10 +806,14 @@ class NodeSpec(NamespacedSpec):
     @classmethod
     def unclassified_list_order_fields(cls) -> list[str]:
         """List fields without an explicit order classification."""
+        from datajunction_server.semantic_fingerprints.canonical import (
+            annotation_contains_list,
+        )
+
         return [
             field
             for field, field_info in cls.model_fields.items()
-            if _annotation_contains_list(field_info.annotation)
+            if annotation_contains_list(field_info.annotation)
             and not cls.has_explicit_order_change_tier(field)
         ]
 
@@ -926,6 +913,10 @@ class LinkableNodeSpec(NodeSpec):
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, LinkableNodeSpec):
             return False  # pragma: no cover
+        from datajunction_server.semantic_fingerprints.canonical import (
+            canonical_dimension_links,
+        )
+
         return (
             super().__eq__(other)
             and eq_columns(
@@ -933,11 +924,11 @@ class LinkableNodeSpec(NodeSpec):
                 other.columns,
                 compare_types=self.node_type == NodeType.SOURCE,
             )
-            and _canonical_dimension_links(
+            and canonical_dimension_links(
                 self.dimension_links,
                 preserve_order=False,
             )
-            == _canonical_dimension_links(
+            == canonical_dimension_links(
                 other.dimension_links,
                 preserve_order=False,
             )
@@ -1045,7 +1036,7 @@ class MetricSpec(NodeSpec):
 
     FIELD_CHANGE_TIERS: ClassVar[dict[str, ChangeTier]] = {
         "query": ChangeTier.MAJOR,
-        "columns": ChangeTier.MAJOR,
+        "columns": ChangeTier.NONE,
         # Required dimensions constrain which queries the metric can answer.
         "required_dimensions": ChangeTier.MAJOR,
         # Everything below is presentation metadata on the metric's single output
@@ -1161,10 +1152,21 @@ class MetricSpec(NodeSpec):
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, MetricSpec):
             return False
+        from datajunction_server.semantic_fingerprints.canonical import (
+            canonical_sequence,
+        )
+
         return (
             super().__eq__(other)
             and self.query_ast.compare(other.query_ast)
-            and (self.required_dimensions or []) == (other.required_dimensions or [])
+            and canonical_sequence(
+                self.rendered_required_dimensions,
+                preserve_order=False,
+            )
+            == canonical_sequence(
+                other.rendered_required_dimensions,
+                preserve_order=False,
+            )
             and eq_or_fallback(self.direction, other.direction, MetricDirection.NEUTRAL)
             and self._canonical_unit() == other._canonical_unit()
             and self.significant_digits == other.significant_digits
@@ -1366,347 +1368,19 @@ class CubeSpec(NodeSpec):
 
         # Compare only partition config for user-specified columns.
         # Cube element columns (types, order, attributes) are auto-derived and ignored.
-        return _canonical_cube_columns(
+        from datajunction_server.semantic_fingerprints.canonical import (
+            canonical_cube_columns,
+        )
+
+        return canonical_cube_columns(
             self.rendered_columns,
-        ) == _canonical_cube_columns(other.rendered_columns)
+        ) == canonical_cube_columns(other.rendered_columns)
 
 
 NodeUnion = Annotated[
     SourceSpec | TransformSpec | DimensionSpec | MetricSpec | CubeSpec,
     Field(discriminator="node_type"),
 ]
-
-
-def _canonical_json(value: Any) -> str:
-    """Serialize a fingerprint value deterministically."""
-    return json.dumps(
-        value,
-        allow_nan=False,
-        ensure_ascii=False,
-        separators=(",", ":"),
-        sort_keys=True,
-    )
-
-
-def _canonical_value(value: Any) -> Any:
-    """Convert supported values to deterministic JSON-compatible values."""
-    if isinstance(value, Enum):
-        return _canonical_value(value.value)
-    if isinstance(value, BaseModel):
-        return _canonical_value(value.model_dump(mode="python"))
-    if isinstance(value, dict):
-        if any(not isinstance(key, str) for key in value):
-            raise TypeError("Semantic fingerprint mappings require string keys")
-        return {key: _canonical_value(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_canonical_value(item) for item in value]
-    if isinstance(value, float) and not math.isfinite(value):
-        raise ValueError("Semantic fingerprint values must be finite")
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    raise TypeError(
-        f"Unsupported semantic fingerprint value: {type(value).__name__}",
-    )
-
-
-def _canonical_sql_ast(query_ast: Any) -> Any:
-    """Serialize parsed SQL from AST fields without invoking SQL rendering."""
-    from datajunction_server.sql.parsing.ast import Node as SQLNode
-    from datajunction_server.sql.parsing.types import ColumnType
-
-    def serialize(value: Any) -> Any:
-        if isinstance(value, SQLNode):
-            return {
-                "type": f"{type(value).__module__}.{type(value).__qualname__}",
-                "fields": {
-                    name: serialize(field_value)
-                    for name, field_value in value.fields(
-                        flat=False,
-                        nodes_only=False,
-                        obfuscated=False,
-                        nones=True,
-                        named=True,
-                    )
-                },
-            }
-        if isinstance(value, ColumnType):
-            return {
-                "type": f"{type(value).__module__}.{type(value).__qualname__}",
-                "value": str(value),
-            }
-        if isinstance(value, Enum):
-            return {
-                "type": f"{type(value).__module__}.{type(value).__qualname__}",
-                "value": serialize(value.value),
-            }
-        if isinstance(value, (list, tuple)):
-            return [serialize(item) for item in value]
-        return _canonical_value(value)
-
-    return serialize(query_ast)
-
-
-def _canonical_sequence(
-    values: Iterable[Any],
-    *,
-    preserve_order: bool,
-) -> list[Any]:
-    """Canonicalize a sequence while removing duplicate semantic values."""
-    unique: dict[str, Any] = {}
-    for value in values:
-        canonical = _canonical_value(value)
-        unique.setdefault(_canonical_json(canonical), canonical)
-    return (
-        list(unique.values())
-        if preserve_order
-        else [unique[key] for key in sorted(unique)]
-    )
-
-
-def _annotation_contains_list(annotation: Any) -> bool:
-    return get_origin(annotation) is list or any(
-        _annotation_contains_list(argument) for argument in get_args(annotation)
-    )
-
-
-def _normalized_column(
-    column: ColumnSpec | None,
-    name: str,
-    fallback_type: str | None,
-    compare_types: bool,
-) -> ColumnSpec:
-    normalized = (
-        column.model_copy()
-        if column
-        else ColumnSpec(
-            name=name,
-            display_name=labelize(name),
-            type=fallback_type or "",
-            attributes=[],
-        )
-    )
-    normalized.display_name = normalized.display_name or labelize(name)
-    normalized.description = normalized.description or ""
-    normalized.attributes = sorted(set(normalized.attributes) - {"primary_key"})
-    if not compare_types:
-        normalized.type = ""
-    return normalized
-
-
-def _canonical_columns(
-    columns: list[ColumnSpec] | None,
-    *,
-    compare_types: bool,
-) -> list[Any]:
-    column_map = {column.name: column for column in columns or []}
-    canonical = []
-    for name in sorted(column_map):
-        column = column_map[name]
-        normalized = _normalized_column(column, name, column.type, compare_types)
-        if not compare_types:
-            default = _normalized_column(None, name, column.type, compare_types)
-            if normalized == default:
-                continue
-        canonical.append(_canonical_value(normalized))
-    return canonical
-
-
-def _canonical_dimension_links(
-    links: list[DimensionJoinLinkSpec | DimensionReferenceLinkSpec] | None,
-    *,
-    preserve_order: bool,
-) -> list[Any]:
-    return _canonical_sequence(
-        (link._comparison_key() for link in links or []),
-        preserve_order=preserve_order,
-    )
-
-
-def _canonical_cube_columns(columns: list[ColumnSpec] | None) -> dict[str, Any]:
-    return {
-        column.name: _canonical_value(column.partition)
-        for column in columns or []
-        if column.partition
-    }
-
-
-def _canonical_field_value(
-    spec: NodeSpec,
-    field: str,
-    *,
-    resolved_columns: list[ColumnSpec] | None = None,
-    preserve_order: bool = False,
-) -> Any:
-    value = getattr(spec, field)
-    if field == "query":
-        return (
-            _canonical_sql_ast(spec.query_ast)
-            if spec.query_ast is not None
-            else spec.rendered_query
-        )
-    if field == "columns":
-        if isinstance(spec, CubeSpec):
-            return _canonical_cube_columns(spec.rendered_columns)
-        return _canonical_columns(
-            resolved_columns
-            if isinstance(spec, SourceSpec) and resolved_columns is not None
-            else value,
-            compare_types=isinstance(spec, SourceSpec),
-        )
-    if field == "dimension_links" and isinstance(spec, LinkableNodeSpec):
-        return _canonical_dimension_links(
-            spec.dimension_links,
-            preserve_order=preserve_order,
-        )
-    if field == "unit_enum" and isinstance(spec, MetricSpec):
-        return _canonical_value(spec._canonical_unit())
-    if field == "direction" and isinstance(spec, MetricSpec):
-        value = value or MetricDirection.NEUTRAL
-    if field == "description":
-        value = value or None
-    if field == "custom_metadata":
-        value = value or {}
-    if value is None and _annotation_contains_list(
-        type(spec).model_fields[field].annotation,
-    ):
-        value = []
-
-    canonical = _canonical_value(value)
-    return (
-        _canonical_sequence(canonical, preserve_order=preserve_order)
-        if isinstance(canonical, list)
-        else canonical
-    )
-
-
-def _semantic_fingerprint_payload(
-    spec: NodeSpec,
-    *,
-    resolved_columns: list[ColumnSpec] | None,
-) -> dict[str, Any]:
-    for field, field_info in type(spec).model_fields.items():
-        if field in {"name", "namespace", "node_type"} or field_info.exclude is True:
-            continue
-        if type(spec).field_change_tier(field) == ChangeTier.MAJOR:
-            _canonical_json(_canonical_value(getattr(spec, field)))
-
-    rendered = spec.rendered_spec()
-    fields = {}
-    for field, field_info in type(rendered).model_fields.items():
-        if field in {"name", "namespace", "node_type"}:
-            continue
-        if field_info.exclude is True:
-            continue
-        if type(rendered).field_change_tier(field) != ChangeTier.MAJOR:
-            continue
-        fields[field] = _canonical_field_value(
-            rendered,
-            field,
-            resolved_columns=resolved_columns,
-            preserve_order=(
-                type(rendered).field_order_change_tier(field) == ChangeTier.MAJOR
-            ),
-        )
-    return {
-        "domain": "datajunction/node-semantic",
-        "node_type": _canonical_value(rendered.node_type),
-        "fields": fields,
-    }
-
-
-def _semantic_fingerprint_v1(
-    spec: NodeSpec,
-    parent_fingerprints: Iterable[SemanticFingerprint],
-    *,
-    resolved_columns: list[ColumnSpec] | None,
-) -> SemanticFingerprint:
-    node_payload = _semantic_fingerprint_payload(
-        spec,
-        resolved_columns=resolved_columns,
-    )
-    node_digest = hashlib.sha256(
-        _canonical_json(node_payload).encode("utf-8"),
-    ).hexdigest()
-    parents = list(parent_fingerprints)
-    if any(parent.version != 1 for parent in parents):
-        raise ValueError("Parent fingerprint version does not match node version")
-    payload = {
-        "domain": "datajunction/node-semantic-merkle",
-        "version": 1,
-        "node": node_digest,
-        "parents": sorted({parent.digest for parent in parents}),
-    }
-    digest = hashlib.sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
-    return SemanticFingerprint(version=1, digest=digest)
-
-
-_SEMANTIC_FINGERPRINT_BUILDERS: dict[
-    int,
-    Callable[..., SemanticFingerprint],
-] = {
-    1: _semantic_fingerprint_v1,
-}
-
-
-def _canonical_node_diff(
-    one: NodeSpec,
-    two: NodeSpec,
-    *,
-    resolved_columns: list[ColumnSpec] | None,
-    other_resolved_columns: list[ColumnSpec] | None,
-) -> tuple[list[str], list[str]]:
-    if one.node_type != two.node_type:
-        return ["node_type"], []
-
-    rendered_one = one.rendered_spec()
-    rendered_two = two.rendered_spec()
-
-    changed_fields = []
-    reordered_fields = []
-    for field, field_info in type(rendered_two).model_fields.items():
-        if field in {"name", "namespace", "node_type"}:
-            continue
-        if isinstance(rendered_two, MetricSpec) and field == "unit_structured":
-            continue
-        if field_info.exclude is True and field != "unit_enum":
-            continue
-        if type(rendered_two).field_change_tier(field) == ChangeTier.NONE:
-            continue
-        if field == "display_name" and getattr(rendered_two, field) is None:
-            continue
-
-        left = _canonical_field_value(
-            rendered_one,
-            field,
-            resolved_columns=resolved_columns,
-        )
-        right = _canonical_field_value(
-            rendered_two,
-            field,
-            resolved_columns=other_resolved_columns,
-        )
-        if left != right:
-            changed_fields.append(field)
-            continue
-
-        if type(rendered_two).field_order_change_tier(field) == ChangeTier.NONE:
-            continue
-        left_ordered = _canonical_field_value(
-            rendered_one,
-            field,
-            resolved_columns=resolved_columns,
-            preserve_order=True,
-        )
-        right_ordered = _canonical_field_value(
-            rendered_two,
-            field,
-            resolved_columns=other_resolved_columns,
-            preserve_order=True,
-        )
-        if left_ordered != right_ordered:
-            reordered_fields.append(field)
-
-    return changed_fields, reordered_fields
 
 
 def _norm(v: Any) -> Any:
@@ -2061,6 +1735,8 @@ def eq_columns(
       - If a column is missing display_name or description, it's treated as empty string.
     If the compare_types flag is False, the column types will not be compared.
     """
+    from datajunction_server.semantic_fingerprints.canonical import normalized_column
+
     a_map = {col.name: col for col in a or []}
     b_map = {col.name: col for col in b or []}
     # For source nodes (compare_types=True), column additions and removals from
@@ -2070,13 +1746,13 @@ def eq_columns(
         return False
     a_cols, b_cols = [], []
     for col_name in sorted(set(a_map).union(b_map)):
-        a_col = _normalized_column(
+        a_col = normalized_column(
             a_map.get(col_name),
             col_name,
             b_map[col_name].type if col_name in b_map else "",
             compare_types,
         )
-        b_col = _normalized_column(
+        b_col = normalized_column(
             b_map.get(col_name),
             col_name,
             a_map[col_name].type if col_name in a_map else "",
