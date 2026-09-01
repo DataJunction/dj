@@ -225,18 +225,17 @@ async def generate_metrics_sql(
             matched_cube = cube_node.current
 
     if matched_cube is not None:
-        if matched_cube.cube_filters:
+        if matched_cube.cube_filters and (metrics or not dimensions):
             merged_filters = list(matched_cube.cube_filters) + merged_filters
-        if not metrics:
+        if not metrics and not dimensions:
             metrics = matched_cube.cube_node_metrics
-            if not dimensions:
-                dimensions = matched_cube.cube_node_dimensions
+            dimensions = matched_cube.cube_node_dimensions
 
         # A pinned cube bypasses find_matching_cube's coverage check. When that
         # cube will actually back the build (materialized, Druid or auto-dialect),
         # verify it covers every filtered dimension so we fail loud here instead
         # of emitting Druid SQL that references a column the cube table lacks.
-        if use_materialized and dialect in (None, Dialect.DRUID):
+        if metrics and use_materialized and dialect in (None, Dialect.DRUID):
             await validate_pinned_cube_covers_filters(
                 session,
                 matched_cube,
@@ -252,7 +251,7 @@ async def generate_metrics_sql(
             metrics=metrics,
             dimensions=dimensions,
             use_materialized=use_materialized,
-            matched_cube=matched_cube,
+            matched_cube=matched_cube if metrics else None,
             filters=merged_filters,
         )
         resolved_dialect = execution_ctx.dialect

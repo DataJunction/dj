@@ -388,12 +388,20 @@ async def test_semantic_endpoints_end_to_end(client: AsyncClient):
     )
     assert resp.status_code == 400, resp.text
 
-    # Dimension-only queries are rejected at the boundary (400).
-    resp = await client.post(
-        f"/semantic/views/{view}/sql",
-        json={"query": {"metrics": [], "dimensions": ["sem.region.region_name"]}},
+    # Dimension-only queries return the dimension's distinct values.
+    resp = await _expect(
+        await client.post(
+            f"/semantic/views/{view}/sql",
+            json={
+                "query": {
+                    "metrics": [],
+                    "dimensions": ["sem.region.region_name"],
+                },
+            },
+        ),
+        200,
     )
-    assert resp.status_code == 400, resp.text
+    assert "DISTINCT" in resp.json()["sql"]
 
     # Unknown view -> 404.
     resp = await client.post(

@@ -303,8 +303,8 @@ async def resolve_dialect_and_engine_for_metrics(
        matching cube with availability exists:
        - Use the cube's availability catalog's engine matching dialect_override (or
          the first engine if none match)
-    2. Otherwise, fall back to the first metric's catalog's default engine,
-       filtered by dialect_override if provided
+    2. Otherwise, fall back to the first metric's catalog, or for a metricless
+       query the first dimension node's catalog, filtered by dialect_override.
 
     Args:
         session: Database session
@@ -383,16 +383,19 @@ async def resolve_dialect_and_engine_for_metrics(
                     cube=cube,
                 )
 
-    if not metrics:
+    if not metrics and not dimensions:
         raise DJInvalidInputException(
-            "At least one metric is required.",
+            "At least one metric or dimension is required.",
             http_status_code=422,
         )
 
-    # Fallback: use first metric's catalog's default engine
+    # Fall back to the first requested metric or dimension's catalog.
+    anchor_name = (
+        metrics[0] if metrics else parse_dimension_ref(dimensions[0]).node_name
+    )
     node = await Node.get_by_name(
         session,
-        metrics[0],
+        anchor_name,
         raise_if_not_exists=True,
         options=[
             joinedload(Node.current).options(
@@ -403,11 +406,11 @@ async def resolve_dialect_and_engine_for_metrics(
         ],
     )
     if not node:  # pragma: no cover
-        raise ValueError(f"Metric not found: {metrics[0]}")
+        raise ValueError(f"Query node not found: {anchor_name}")
 
     catalog_name = node.current.catalog.name if node.current.catalog else None
     if not catalog_name:  # pragma: no cover
-        raise ValueError(f"Metric {metrics[0]} has no catalog")
+        raise ValueError(f"Query node {anchor_name} has no catalog")
 
     # Resolve engine: when no dialect is explicitly requested, prefer Trino.
     # Fall back to the catalog's first engine if no Trino engine exists.
@@ -430,10 +433,10 @@ async def resolve_dialect_and_engine_for_metrics(
         Dialect(engine.dialect) if engine.dialect else Dialect.TRINO
     )
     logger.info(
-        "[BuildV3] Resolved dialect=%s engine=%s from metric %s catalog=%s",
+        "[BuildV3] Resolved dialect=%s engine=%s from query node %s catalog=%s",
         dialect,
         engine.name,
-        metrics[0],
+        anchor_name,
         catalog_name,
     )
 

@@ -5,6 +5,75 @@ from . import assert_sql_equal
 
 class TestMetricsSQLBasic:
     @pytest.mark.asyncio
+    async def test_dimension_only_query(self, client_with_build_v3):
+        """Attributes from one dimension produce their distinct combinations."""
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "dimensions": ["v3.customer.name", "v3.customer.email"],
+                "filters": ["v3.customer.name != 'Unknown'"],
+                "orderby": ["v3.customer.name"],
+                "limit": 10,
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH v3_customer AS (
+                SELECT customer_id, name, email, registration_date, location_id
+                FROM default.v3.customers
+            )
+            SELECT DISTINCT name, email
+            FROM v3_customer
+            WHERE name != 'Unknown'
+            ORDER BY name
+            LIMIT 10
+            """,
+        )
+        assert result["columns"] == [
+            {
+                "name": "name",
+                "type": "string",
+                "semantic_entity": "v3.customer.name",
+                "semantic_type": "dimension",
+            },
+            {
+                "name": "email",
+                "type": "string",
+                "semantic_entity": "v3.customer.email",
+                "semantic_type": "dimension",
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_dimension_only_query_rejects_multiple_nodes(
+        self,
+        client_with_build_v3,
+    ):
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "dimensions": ["v3.customer.name", "v3.product.category"],
+            },
+        )
+
+        assert response.status_code == 422, response.json()
+        assert "exactly one node" in response.json()["message"]
+
+    @pytest.mark.asyncio
+    async def test_dimension_only_query_from_transform(self, client_with_build_v3):
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={"dimensions": ["v3.order_details.status"]},
+        )
+
+        assert response.status_code == 200, response.json()
+        assert "DISTINCT" in response.json()["sql"]
+
+    @pytest.mark.asyncio
     async def test_basic_metrics_sql(self, client_with_build_v3):
         """Test that metrics SQL endpoint returns valid SQL."""
         response = await client_with_build_v3.get(

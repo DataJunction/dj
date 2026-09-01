@@ -32,6 +32,9 @@ from datajunction_server.construction.build_v3.dimensions import (
     parse_dimension_ref,
     resolve_dimensions,
 )
+from datajunction_server.construction.build_v3.filters import (
+    parse_and_resolve_filters,
+)
 from datajunction_server.construction.build_v3.loaders import (
     batch_load_nodes_with_dependencies,
     find_upstream_node_names,
@@ -46,6 +49,9 @@ from datajunction_server.construction.build_v3.measures import (
     collect_cte_nodes_and_needed_columns,
     outer_only_filter_refs,
 )
+from datajunction_server.construction.build_v3.materialization import (
+    get_table_reference_parts_with_materialization,
+)
 from datajunction_server.construction.build_v3.types import (
     BuildContext,
     ColumnMetadata,
@@ -55,6 +61,7 @@ from datajunction_server.construction.build_v3.types import (
 )
 from datajunction_server.construction.build_v3.utils import (
     add_dimensions_from_filters,
+    get_column_type,
     get_cte_name,
 )
 from datajunction_server.database.column import Column as DBColumn
@@ -70,6 +77,98 @@ from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.parsing import ast
 
 logger = logging.getLogger(__name__)
+
+
+def build_dimension_sql_v3(
+    ctx: BuildContext,
+    orderby: list[str] | None = None,
+    limit: int | None = None,
+    query_parameters: dict[str, Any] | None = None,
+) -> GeneratedSQL:
+    """Build ``SELECT DISTINCT`` for attributes from one dimension node."""
+    requested = [dim for dim in ctx.dimensions if dim not in ctx.filter_dimensions]
+    refs = [parse_dimension_ref(dim) for dim in ctx.dimensions]
+    node_names = {ref.node_name for ref in refs}
+    if not requested or len(node_names) != 1:
+        raise DJInvalidInputException(
+            "Metricless queries require dimension attributes from exactly one node",
+        )
+
+    node_name = refs[0].node_name
+    dimension_node = ctx.nodes[node_name]
+    if dimension_node.type not in {
+        NodeType.SOURCE,
+        NodeType.TRANSFORM,
+        NodeType.DIMENSION,
+    }:
+        raise DJInvalidInputException(
+            f"Metricless queries cannot select attributes from `{node_name}`",
+        )
+
+    requested_refs = [parse_dimension_ref(dim) for dim in requested]
+    available = {column.name for column in dimension_node.current.columns}  # type: ignore[union-attr]
+    missing = [ref.column_name for ref in refs if ref.column_name not in available]
+    if missing:
+        raise DJInvalidInputException(
+            f"Dimension `{node_name}` does not contain columns: {missing}",
+        )
+
+    cte_pairs, _, _ = collect_node_ctes(ctx, [dimension_node])
+    table_parts, _ = get_table_reference_parts_with_materialization(
+        ctx,
+        dimension_node,
+    )
+    dimension_table = ".".join(table_parts)
+    aliases = {dim: parse_dimension_ref(dim).column_name for dim in ctx.dimensions}
+    output_aliases = [ctx.alias_registry.register(dim) for dim in requested]
+    projection: list[Any] = []
+    for ref, output_alias in zip(requested_refs, output_aliases):
+        column = ast.Column(name=ast.Name(ref.column_name))
+        if output_alias != ref.column_name:
+            column.set_alias(ast.Name(output_alias))
+            column.set_as(True)
+        projection.append(column)
+    query = ast.Query(
+        select=ast.Select(
+            projection=projection,
+            from_=ast.From.Table(dimension_table),
+            where=parse_and_resolve_filters(
+                ctx.filters,
+                aliases,
+                nodes=ctx.nodes,
+            )
+            if ctx.filters
+            else None,
+            quantifier="DISTINCT",
+        ),
+    )
+    for cte_name, cte_body in cte_pairs:
+        cte_body.to_cte(ast.Name(cte_name), query)
+    query.ctes = [cte_body for _, cte_body in cte_pairs]
+
+    if query_parameters:
+        substitute_query_params(query, query_parameters)
+    return apply_orderby_limit(
+        GeneratedSQL(
+            query=query,
+            columns=[
+                ColumnMetadata(
+                    name=output_alias,
+                    semantic_name=dim,
+                    type=get_column_type(dimension_node, ref.column_name),
+                    semantic_type="dimension",
+                )
+                for dim, ref, output_alias in zip(
+                    requested,
+                    requested_refs,
+                    output_aliases,
+                )
+            ],
+            dialect=ctx.dialect,
+        ),
+        orderby,
+        limit,
+    )
 
 
 async def build_node_sql_v3(

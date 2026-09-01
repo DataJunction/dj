@@ -451,12 +451,8 @@ async def generate_query_sql(
             400,
             f"`limit` {payload.limit} exceeds the maximum of {MAX_ROW_LIMIT}.",
         )
-    if not payload.metrics:
-        return _problem(
-            400,
-            "A query must request at least one metric. Dimension-only queries "
-            "(distinct values) are not supported on this endpoint.",
-        )
+    if not payload.metrics and not payload.dimensions:
+        return _problem(400, "A query must request at least one metric or dimension.")
     try:
         cube_node = await Node.get_cube_by_name(session, view_name)
         if cube_node is None or cube_node.current is None:
