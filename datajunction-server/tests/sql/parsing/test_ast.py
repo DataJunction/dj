@@ -1553,4 +1553,4 @@ def test_to_sql_passes_dj_table_schema_to_sqlglot(monkeypatch):
         ),
     )
 
-    assert "events.payload.name" in ast.to_sql(query, Dialect.BIGQUERY)
+    assert "`events`.`payload`.name" in ast.to_sql(query, Dialect.BIGQUERY)

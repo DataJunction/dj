@@ -5,6 +5,7 @@ from typing import Any
 
 import sqlglot
 from sqlglot.optimizer.annotate_types import annotate_types
+from sqlglot.optimizer.qualify import qualify
 
 from datajunction_server.models.dialect import DialectRegistry, dialect_plugin
 from datajunction_server.models.engine import Dialect
@@ -76,6 +77,8 @@ class SQLGlotTranspilationPlugin(SQLTranspilationPlugin):
         ):
             input_name = str(input_dialect.name.lower())
             expression = sqlglot.parse_one(query, read=input_name)
+            if schema:
+                expression = qualify(expression, schema=schema, dialect=input_name)
             annotate_types(expression, schema=schema, dialect=input_name)
             return expression.sql(
                 dialect=str(output_dialect.name.lower()),

@@ -2,6 +2,8 @@
 
 from unittest import mock
 
+import pytest
+
 from datajunction_server.models.dialect import Dialect, DialectRegistry
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.metric import TranslatedSQL
@@ -112,7 +114,58 @@ def test_sqlglot_transpile_uses_schema_to_annotate_types():
         },
     )
 
-    assert result == "SELECT\n  t.payload.name\nFROM catalog.schema.events AS t"
+    assert result == (
+        "SELECT\n  `t`.`payload`.name AS `name`\n"
+        "FROM `catalog`.`schema`.`events` AS `t`"
+    )
+
+
+# TODO: Remove this skip after upgrading to a SQLGlot release containing the
+# map EXPLODE type-annotation fix.
+@pytest.mark.skip(reason="Requires the unreleased SQLGlot map EXPLODE fix")
+def test_sqlglot_transpile_map_explode_with_schema():
+    """A typed Spark map EXPLODE becomes a two-column Trino UNNEST."""
+    plugin = SQLGlotTranspilationPlugin()
+    result = plugin.transpile_sql(
+        """SELECT
+  CAST(test_id AS BIGINT) AS test_id,
+  cell_id,
+  cell_name
+FROM (
+  SELECT
+    test_id,
+    explode(cells) AS (cell_id, cell_name)
+  FROM source.prodhive.dse.ab_test_detail_d_v2 T
+)""",
+        input_dialect=Dialect.SPARK,
+        output_dialect=Dialect.TRINO,
+        schema={
+            "prodhive": {
+                "dse": {
+                    "ab_test_detail_d_v2": {
+                        "test_id": "INT",
+                        "cells": "MAP<INT, VARCHAR>",
+                    },
+                },
+            },
+        },
+    )
+
+    assert (
+        result
+        == '''SELECT
+  TRY_CAST("_0"."test_id" AS BIGINT) AS "test_id",
+  "_0"."cell_id" AS "cell_id",
+  "_0"."cell_name" AS "cell_name"
+FROM (
+  SELECT
+    "t"."test_id" AS "test_id",
+    _u_2."cell_id" AS "cell_id",
+    _u_2."cell_name" AS "cell_name"
+  FROM "source"."prodhive"."dse"."ab_test_detail_d_v2" AS "t"
+  CROSS JOIN UNNEST("t"."cells") AS _u_2("cell_id", "cell_name")
+) AS "_0"'''
+    )
 
 
 def test_default_transpile_success():
