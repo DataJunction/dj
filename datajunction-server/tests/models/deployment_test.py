@@ -3,6 +3,7 @@ import os
 import subprocess
 import sys
 from datetime import date
+from decimal import Decimal
 
 import pytest
 from pydantic import ValidationError
@@ -1771,6 +1772,12 @@ def test_semantic_fingerprint_normalized_values_are_stable():
         normalize_value({"bad": object()})
     with pytest.raises(ValueError, match="must be finite"):
         normalize_value({"bad": float("nan")})
+    with pytest.raises(ValueError, match="must be finite"):
+        normalize_value(Decimal("NaN"))
+    assert normalize_value(True) is True
+    assert normalize_value(1.5) == 1.5
+    assert normalize_value(Decimal("1.0")) == 1
+    assert normalize_value(Decimal("1.50")) == {"decimal": "1.5"}
 
 
 def test_semantic_fingerprint_normalizes_equivalent_numbers():
@@ -1796,6 +1803,11 @@ def test_semantic_fingerprint_v1_projection_is_explicit(spec_type):
         and spec_type.field_change_tier(field) == ChangeTier.MAJOR
     }
     assert set(semantic_fields(spec_type)) == current_major_fields
+
+
+def test_semantic_fingerprint_v1_rejects_unregistered_spec_type():
+    with pytest.raises(TypeError, match="No semantic fingerprint fields for NodeSpec"):
+        semantic_fields(NodeSpec)
 
 
 def test_semantic_fingerprint_renders_prefixes_and_normalizes_sql():
