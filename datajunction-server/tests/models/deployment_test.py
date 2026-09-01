@@ -38,10 +38,10 @@ from datajunction_server.models.deployment import (
     eq_or_fallback,
     fold_change_tiers,
 )
-from datajunction_server.semantic_fingerprints.canonical import (
+from datajunction_server.semantic_fingerprints.normalization import (
     canonical_json,
-    canonical_sequence,
-    canonical_value,
+    normalize_sequence,
+    normalize_value,
 )
 from datajunction_server.semantic_fingerprints.v1 import semantic_fields
 from datajunction_server.models.materialization import (
@@ -1752,34 +1752,34 @@ def test_semantic_fingerprint_normalizes_empty_and_resolved_source_columns():
     ) == fingerprint(CubeSpec(name="cube", metrics=[], dimensions=[], filters=[]))
 
 
-def test_semantic_fingerprint_canonical_values_are_stable():
+def test_semantic_fingerprint_normalized_values_are_stable():
     first = {"outer": {"a": 1, "b": 2}, "value": 3}
     second = {"value": 3, "outer": {"b": 2, "a": 1}}
-    assert canonical_json(canonical_value(first)) == canonical_json(
-        canonical_value(second),
+    assert canonical_json(normalize_value(first)) == canonical_json(
+        normalize_value(second),
     )
     with pytest.raises(TypeError, match="string keys"):
-        canonical_value({1: "value"})
-    assert canonical_sequence(
+        normalize_value({1: "value"})
+    assert normalize_sequence(
         [1, 2],
         preserve_order=True,
-    ) != canonical_sequence(
+    ) != normalize_sequence(
         [2, 1],
         preserve_order=True,
     )
     with pytest.raises(TypeError, match="Unsupported"):
-        canonical_value({"bad": object()})
+        normalize_value({"bad": object()})
     with pytest.raises(ValueError, match="must be finite"):
-        canonical_value({"bad": float("nan")})
+        normalize_value({"bad": float("nan")})
 
 
 def test_semantic_fingerprint_normalizes_equivalent_numbers():
-    assert canonical_value({"value": 1}) == canonical_value({"value": 1.0})
-    assert canonical_value({"value": -0.0}) == canonical_value({"value": 0})
+    assert normalize_value({"value": 1}) == normalize_value({"value": 1.0})
+    assert normalize_value({"value": -0.0}) == normalize_value({"value": 0})
 
     sql_integer = TransformSpec(name="sql_number", query="SELECT 1")
     sql_integral_float = TransformSpec(name="sql_number", query="SELECT 1.0")
-    assert sql_integer.canonical_diff(sql_integral_float) == ([], [])
+    assert sql_integer.semantic_diff(sql_integral_float) == ([], [])
     assert fingerprint(sql_integer) == fingerprint(sql_integral_float)
 
 
@@ -1798,7 +1798,7 @@ def test_semantic_fingerprint_v1_projection_is_explicit(spec_type):
     assert set(semantic_fields(spec_type)) == current_major_fields
 
 
-def test_semantic_fingerprint_renders_prefixes_and_canonicalizes_sql():
+def test_semantic_fingerprint_renders_prefixes_and_normalizes_sql():
     from datajunction_server.models.dialect import Dialect
     from datajunction_server.sql.parsing.ast import render_for_dialect
 
@@ -1835,13 +1835,13 @@ def test_semantic_fingerprint_renders_prefixes_and_canonicalizes_sql():
     assert fingerprint(explicit) != fingerprint(implicit)
 
 
-def test_canonical_diff_and_fingerprint_share_change_rules():
+def test_semantic_diff_and_fingerprint_share_change_rules():
     original = TransformSpec(name="node", query="SELECT id AS value FROM source")
     formatted = TransformSpec(
         name="node",
         query=" SELECT  id AS value\nFROM source ",
     )
-    changed, reordered = original.canonical_diff(formatted)
+    changed, reordered = original.semantic_diff(formatted)
     assert (changed, reordered) == ([], [])
     assert TransformSpec.change_tier(changed, reordered) == ChangeTier.NONE
     assert fingerprint(original) == fingerprint(formatted)
@@ -1855,15 +1855,15 @@ def test_canonical_diff_and_fingerprint_share_change_rules():
     )
     source_changed = source.model_copy(deep=True)
     source_changed.columns[0].type = "string"
-    changed, reordered = source.canonical_diff(source_changed)
+    changed, reordered = source.semantic_diff(source_changed)
     assert (changed, reordered) == (["columns"], [])
     assert SourceSpec.change_tier(changed, reordered) == ChangeTier.MAJOR
     assert fingerprint(source) != fingerprint(source_changed)
-    assert source.canonical_diff(original) == (["node_type"], [])
+    assert source.semantic_diff(original) == (["node_type"], [])
 
     cube = CubeSpec(name="cube", metrics=["a", "b"], dimensions=[])
     reordered_cube = cube.model_copy(update={"metrics": ["b", "a", "a"]})
-    changed, reordered = cube.canonical_diff(reordered_cube)
+    changed, reordered = cube.semantic_diff(reordered_cube)
     assert (changed, reordered) == ([], ["metrics"])
     assert CubeSpec.change_tier(changed, reordered) == ChangeTier.MINOR
     assert fingerprint(cube) == fingerprint(reordered_cube)
@@ -1879,11 +1879,11 @@ def test_canonical_diff_and_fingerprint_share_change_rules():
         direction="neutral",
         unit={"kind": "currency", "code": "USD"},
     )
-    assert legacy_metric.canonical_diff(structured_metric) == ([], [])
+    assert legacy_metric.semantic_diff(structured_metric) == ([], [])
     changed, reordered = MetricSpec(
         name="metric",
         query="SELECT 1",
-    ).canonical_diff(legacy_metric)
+    ).semantic_diff(legacy_metric)
     assert (changed, reordered) == (["unit_enum"], [])
     assert MetricSpec.change_tier(changed, reordered) == ChangeTier.MINOR
 
@@ -2064,7 +2064,7 @@ def test_semantic_fingerprint_normalizes_primary_keys_and_cube_ordering():
         update={"required_dimensions": ["two", "one", "one"]},
     )
     assert metric == reordered_metric
-    assert metric.canonical_diff(reordered_metric) == ([], [])
+    assert metric.semantic_diff(reordered_metric) == ([], [])
     assert fingerprint(metric) == fingerprint(reordered_metric)
     assert MetricSpec.field_change_tier("columns") == ChangeTier.NONE
     assert fingerprint(cube) == fingerprint(

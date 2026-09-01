@@ -9,7 +9,9 @@ from datajunction_server.models.semantic_fingerprint import (
     LATEST_SEMANTIC_FINGERPRINT_VERSION,
     SemanticFingerprint,
 )
-from datajunction_server.semantic_fingerprints.canonical import canonical_node_diff
+from datajunction_server.semantic_fingerprints.normalization import (
+    semantic_diff as compare_semantics,
+)
 from datajunction_server.semantic_fingerprints.v1 import build_fingerprint
 
 if TYPE_CHECKING:
@@ -39,15 +41,15 @@ def fingerprint_node(
     )
 
 
-def canonical_diff(
+def semantic_diff(
     one: NodeSpec,
     two: NodeSpec,
     *,
     resolved_columns: list[ColumnSpec] | None = None,
     other_resolved_columns: list[ColumnSpec] | None = None,
 ) -> tuple[list[str], list[str]]:
-    """Compare two specs using the same canonical values as fingerprints."""
-    return canonical_node_diff(
+    """Compare two specs using the same normalized values as fingerprints."""
+    return compare_semantics(
         one,
         two,
         resolved_columns=resolved_columns,

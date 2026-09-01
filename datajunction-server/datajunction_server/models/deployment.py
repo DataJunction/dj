@@ -718,16 +718,16 @@ class NodeSpec(NamespacedSpec):
             resolved_columns=resolved_columns,
         )
 
-    def canonical_diff(
+    def semantic_diff(
         self,
         other: "NodeSpec",
         *,
         resolved_columns: list[ColumnSpec] | None = None,
         other_resolved_columns: list[ColumnSpec] | None = None,
     ) -> tuple[list[str], list[str]]:
-        """Compare two specs using the same canonical values as fingerprints."""
+        """Compare two specs using the same normalized values as fingerprints."""
         from datajunction_server.semantic_fingerprints import (
-            canonical_diff as compare_semantics,
+            semantic_diff as compare_semantics,
         )
 
         return compare_semantics(
@@ -806,7 +806,7 @@ class NodeSpec(NamespacedSpec):
     @classmethod
     def unclassified_list_order_fields(cls) -> list[str]:
         """List fields without an explicit order classification."""
-        from datajunction_server.semantic_fingerprints.canonical import (
+        from datajunction_server.semantic_fingerprints.normalization import (
             annotation_contains_list,
         )
 
@@ -913,8 +913,8 @@ class LinkableNodeSpec(NodeSpec):
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, LinkableNodeSpec):
             return False  # pragma: no cover
-        from datajunction_server.semantic_fingerprints.canonical import (
-            canonical_dimension_links,
+        from datajunction_server.semantic_fingerprints.normalization import (
+            normalize_dimension_links,
         )
 
         return (
@@ -924,11 +924,11 @@ class LinkableNodeSpec(NodeSpec):
                 other.columns,
                 compare_types=self.node_type == NodeType.SOURCE,
             )
-            and canonical_dimension_links(
+            and normalize_dimension_links(
                 self.dimension_links,
                 preserve_order=False,
             )
-            == canonical_dimension_links(
+            == normalize_dimension_links(
                 other.dimension_links,
                 preserve_order=False,
             )
@@ -1094,7 +1094,7 @@ class MetricSpec(NodeSpec):
     @property
     def unit(self) -> str | dict | None:
         """
-        Return the canonical metric unit value for serialization.
+        Return the normalized metric unit value for serialization.
 
         Returns:
           - `None` if no unit is set.
@@ -1106,7 +1106,7 @@ class MetricSpec(NodeSpec):
         shape should read `column.unit` on the metric's output column.
         """
         if self.unit_structured is not None:
-            # Canonical dict shape (JSON-friendly, no None values).
+            # Normalized dict shape (JSON-friendly, no None values).
             return unit_to_dict(self.unit_structured)
         if self.unit_enum is None or self.unit_enum == MetricUnit.UNKNOWN:
             return None
@@ -1133,14 +1133,14 @@ class MetricSpec(NodeSpec):
         base["unit"] = self.unit
         return base
 
-    def _canonical_unit(self) -> "Unit | None":
+    def _normalized_unit(self) -> "Unit | None":
         """
-        Reduce both legacy and structured inputs to the same canonical Unit
+        Reduce both legacy and structured inputs to the same normalized Unit
         instance for equality comparisons. Returns None when the metric has
         no unit (or only the UNKNOWN sentinel). Two specs that author the
         same conceptual unit via different input shapes (`unit: dollar` vs
         `unit: {kind: currency, code: USD}`) produce equal frozen Unit
-        instances — so __eq__ doesn't falsely report drift between YAML and
+        instances, so __eq__ doesn't falsely report drift between YAML and
         DB-roundtripped specs.
         """
         if self.unit_structured is not None:
@@ -1152,23 +1152,23 @@ class MetricSpec(NodeSpec):
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, MetricSpec):
             return False
-        from datajunction_server.semantic_fingerprints.canonical import (
-            canonical_sequence,
+        from datajunction_server.semantic_fingerprints.normalization import (
+            normalize_sequence,
         )
 
         return (
             super().__eq__(other)
             and self.query_ast.compare(other.query_ast)
-            and canonical_sequence(
+            and normalize_sequence(
                 self.rendered_required_dimensions,
                 preserve_order=False,
             )
-            == canonical_sequence(
+            == normalize_sequence(
                 other.rendered_required_dimensions,
                 preserve_order=False,
             )
             and eq_or_fallback(self.direction, other.direction, MetricDirection.NEUTRAL)
-            and self._canonical_unit() == other._canonical_unit()
+            and self._normalized_unit() == other._normalized_unit()
             and self.significant_digits == other.significant_digits
             and self.min_decimal_exponent == other.min_decimal_exponent
             and self.max_decimal_exponent == other.max_decimal_exponent
@@ -1368,13 +1368,13 @@ class CubeSpec(NodeSpec):
 
         # Compare only partition config for user-specified columns.
         # Cube element columns (types, order, attributes) are auto-derived and ignored.
-        from datajunction_server.semantic_fingerprints.canonical import (
-            canonical_cube_columns,
+        from datajunction_server.semantic_fingerprints.normalization import (
+            normalize_cube_columns,
         )
 
-        return canonical_cube_columns(
+        return normalize_cube_columns(
             self.rendered_columns,
-        ) == canonical_cube_columns(other.rendered_columns)
+        ) == normalize_cube_columns(other.rendered_columns)
 
 
 NodeUnion = Annotated[
@@ -1735,7 +1735,7 @@ def eq_columns(
       - If a column is missing display_name or description, it's treated as empty string.
     If the compare_types flag is False, the column types will not be compared.
     """
-    from datajunction_server.semantic_fingerprints.canonical import normalized_column
+    from datajunction_server.semantic_fingerprints.normalization import normalize_column
 
     a_map = {col.name: col for col in a or []}
     b_map = {col.name: col for col in b or []}
@@ -1746,13 +1746,13 @@ def eq_columns(
         return False
     a_cols, b_cols = [], []
     for col_name in sorted(set(a_map).union(b_map)):
-        a_col = normalized_column(
+        a_col = normalize_column(
             a_map.get(col_name),
             col_name,
             b_map[col_name].type if col_name in b_map else "",
             compare_types,
         )
-        b_col = normalized_column(
+        b_col = normalize_column(
             b_map.get(col_name),
             col_name,
             a_map[col_name].type if col_name in a_map else "",

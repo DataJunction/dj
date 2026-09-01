@@ -15,10 +15,10 @@ from datajunction_server.models.deployment import (
     TransformSpec,
 )
 from datajunction_server.models.semantic_fingerprint import SemanticFingerprint
-from datajunction_server.semantic_fingerprints.canonical import (
-    canonical_field_value,
+from datajunction_server.semantic_fingerprints.normalization import (
     canonical_json,
-    canonical_value,
+    normalize_field,
+    normalize_value,
 )
 
 if TYPE_CHECKING:
@@ -70,11 +70,11 @@ def build_fingerprint(
     """Build a version 1 semantic fingerprint."""
     fingerprint_fields = semantic_fields(type(spec))
     for field in fingerprint_fields:
-        canonical_json(canonical_value(getattr(spec, field)))
+        canonical_json(normalize_value(getattr(spec, field)))
 
     rendered = spec.rendered_spec()
     fields = {
-        field: canonical_field_value(
+        field: normalize_field(
             rendered,
             field,
             resolved_columns=resolved_columns,
@@ -87,7 +87,7 @@ def build_fingerprint(
     }
     node_payload = {
         "domain": "datajunction/node-semantic",
-        "node_type": canonical_value(rendered.node_type),
+        "node_type": normalize_value(rendered.node_type),
         "fields": fields,
     }
     node_digest = hashlib.sha256(

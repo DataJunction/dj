@@ -1,4 +1,4 @@
-"""Canonical node values shared by comparison and fingerprinting."""
+"""Semantic value normalization shared by comparison and fingerprinting."""
 
 import json
 import math
@@ -35,18 +35,18 @@ def canonical_json(value: Any) -> str:
     )
 
 
-def canonical_value(value: Any) -> Any:
+def normalize_value(value: Any) -> Any:
     """Convert supported values to deterministic JSON-compatible values."""
     if isinstance(value, Enum):
-        return canonical_value(value.value)
+        return normalize_value(value.value)
     if isinstance(value, BaseModel):
-        return canonical_value(value.model_dump(mode="python"))
+        return normalize_value(value.model_dump(mode="python"))
     if isinstance(value, dict):
         if any(not isinstance(key, str) for key in value):
             raise TypeError("Semantic fingerprint mappings require string keys")
-        return {key: canonical_value(item) for key, item in value.items()}
+        return {key: normalize_value(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
-        return [canonical_value(item) for item in value]
+        return [normalize_value(item) for item in value]
     if isinstance(value, bool):
         return value
     if isinstance(value, float):
@@ -68,16 +68,16 @@ def canonical_value(value: Any) -> Any:
     )
 
 
-def canonical_sequence(
+def normalize_sequence(
     values: Iterable[Any],
     *,
     preserve_order: bool,
 ) -> list[Any]:
-    """Canonicalize a sequence while removing duplicate semantic values."""
+    """Normalize a sequence while removing duplicate semantic values."""
     unique: dict[str, Any] = {}
     for value in values:
-        canonical = canonical_value(value)
-        unique.setdefault(canonical_json(canonical), canonical)
+        normalized = normalize_value(value)
+        unique.setdefault(canonical_json(normalized), normalized)
     return (
         list(unique.values())
         if preserve_order
@@ -92,12 +92,13 @@ def annotation_contains_list(annotation: Any) -> bool:
     )
 
 
-def normalized_column(
+def normalize_column(
     column: ColumnSpec | None,
     name: str,
     fallback_type: str | None,
     compare_types: bool,
 ) -> ColumnSpec:
+    """Fill equivalent column defaults before comparison or hashing."""
     normalized = (
         column.model_copy()
         if column
@@ -116,47 +117,47 @@ def normalized_column(
     return normalized
 
 
-def canonical_columns(
+def normalize_columns(
     columns: list[ColumnSpec] | None,
     *,
     compare_types: bool,
 ) -> list[Any]:
-    """Canonicalize authored and resolved node columns."""
+    """Normalize authored and resolved node columns."""
     column_map = {column.name: column for column in columns or []}
-    canonical = []
+    normalized_columns = []
     for name in sorted(column_map):
         column = column_map[name]
-        normalized = normalized_column(column, name, column.type, compare_types)
+        normalized = normalize_column(column, name, column.type, compare_types)
         if not compare_types:
-            default = normalized_column(None, name, column.type, compare_types)
+            default = normalize_column(None, name, column.type, compare_types)
             if normalized == default:
                 continue
-        canonical.append(canonical_value(normalized))
-    return canonical
+        normalized_columns.append(normalize_value(normalized))
+    return normalized_columns
 
 
-def canonical_dimension_links(
+def normalize_dimension_links(
     links: list[DimensionJoinLinkSpec | DimensionReferenceLinkSpec] | None,
     *,
     preserve_order: bool,
 ) -> list[Any]:
-    """Canonicalize dimension links by their semantic comparison key."""
-    return canonical_sequence(
+    """Normalize dimension links by their semantic comparison key."""
+    return normalize_sequence(
         (link._comparison_key() for link in links or []),
         preserve_order=preserve_order,
     )
 
 
-def canonical_cube_columns(columns: list[ColumnSpec] | None) -> dict[str, Any]:
-    """Canonicalize the authored partition configuration of cube columns."""
+def normalize_cube_columns(columns: list[ColumnSpec] | None) -> dict[str, Any]:
+    """Normalize the authored partition configuration of cube columns."""
     return {
-        column.name: canonical_value(column.partition)
+        column.name: normalize_value(column.partition)
         for column in columns or []
         if column.partition
     }
 
 
-def canonical_field_value(
+def normalize_field(
     spec: NodeSpec,
     field: str,
     *,
@@ -164,7 +165,7 @@ def canonical_field_value(
     preserve_order: bool = False,
     structural_version: int | None = None,
 ) -> Any:
-    """Return the canonical semantic value of one node field."""
+    """Return the normalized semantic value of one node field."""
     value = getattr(spec, field)
     if field == "query":
         from datajunction_server.sql.parsing.structural import serialize_ast
@@ -176,20 +177,20 @@ def canonical_field_value(
         )
     if field == "columns":
         if isinstance(spec, CubeSpec):
-            return canonical_cube_columns(spec.rendered_columns)
-        return canonical_columns(
+            return normalize_cube_columns(spec.rendered_columns)
+        return normalize_columns(
             resolved_columns
             if isinstance(spec, SourceSpec) and resolved_columns is not None
             else value,
             compare_types=isinstance(spec, SourceSpec),
         )
     if field == "dimension_links" and isinstance(spec, LinkableNodeSpec):
-        return canonical_dimension_links(
+        return normalize_dimension_links(
             spec.dimension_links,
             preserve_order=preserve_order,
         )
     if field == "unit_enum" and isinstance(spec, MetricSpec):
-        return canonical_value(spec._canonical_unit())
+        return normalize_value(spec._normalized_unit())
     if field == "direction" and isinstance(spec, MetricSpec):
         value = value or MetricDirection.NEUTRAL
     if field == "description":
@@ -201,22 +202,22 @@ def canonical_field_value(
     ):
         value = []
 
-    canonical = canonical_value(value)
+    normalized = normalize_value(value)
     return (
-        canonical_sequence(canonical, preserve_order=preserve_order)
-        if isinstance(canonical, list)
-        else canonical
+        normalize_sequence(normalized, preserve_order=preserve_order)
+        if isinstance(normalized, list)
+        else normalized
     )
 
 
-def canonical_node_diff(
+def semantic_diff(
     one: NodeSpec,
     two: NodeSpec,
     *,
     resolved_columns: list[ColumnSpec] | None,
     other_resolved_columns: list[ColumnSpec] | None,
 ) -> tuple[list[str], list[str]]:
-    """Compare two specs using their canonical semantic values."""
+    """Compare two specs using their normalized semantic values."""
     if one.node_type != two.node_type:
         return ["node_type"], []
 
@@ -236,12 +237,12 @@ def canonical_node_diff(
         if field == "display_name" and getattr(rendered_two, field) is None:
             continue
 
-        left = canonical_field_value(
+        left = normalize_field(
             rendered_one,
             field,
             resolved_columns=resolved_columns,
         )
-        right = canonical_field_value(
+        right = normalize_field(
             rendered_two,
             field,
             resolved_columns=other_resolved_columns,
@@ -252,13 +253,13 @@ def canonical_node_diff(
 
         if type(rendered_two).field_order_change_tier(field) == ChangeTier.NONE:
             continue
-        left_ordered = canonical_field_value(
+        left_ordered = normalize_field(
             rendered_one,
             field,
             resolved_columns=resolved_columns,
             preserve_order=True,
         )
-        right_ordered = canonical_field_value(
+        right_ordered = normalize_field(
             rendered_two,
             field,
             resolved_columns=other_resolved_columns,
