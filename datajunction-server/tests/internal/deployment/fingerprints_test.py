@@ -113,6 +113,8 @@ def test_parent_candidates_follow_oss_semantic_relationships():
     first = _candidate_parts(transform, cache)
     assert _candidate_parts(transform, cache) is first
     assert len(cache) == 1
+    with pytest.raises(TypeError, match="No semantic parent resolver for NodeSpec"):
+        _candidate_parts(NodeSpec(name="unknown", node_type="source"), {})
 
 
 def test_merkle_fingerprints_propagate_changes_through_all_descendants():
@@ -216,6 +218,36 @@ def test_direct_required_dimension_paths_use_persisted_identity():
         set(),
     )
 
+    dimension = DimensionSpec(namespace="ns", name="dimension", query="SELECT 1")
+    base_metric = MetricSpec(
+        namespace="ns",
+        name="base_metric",
+        query="SELECT COUNT(*) FROM ${prefix}parent",
+    )
+    authored_derived = MetricSpec(
+        namespace="ns",
+        name="derived_metric",
+        query="SELECT ${prefix}base_metric * 2",
+        required_dimensions=[
+            "${prefix}base_metric.id",
+            "${prefix}dimension.id",
+        ],
+    )
+    persisted_derived = authored_derived.model_copy(
+        update={"required_dimensions": ["id", "ns.dimension.id"]},
+    )
+    authored_specs = spec_map(parent, dimension, base_metric, authored_derived)
+    persisted_specs = spec_map(parent, dimension, base_metric, persisted_derived)
+    assert _compute_merkle_fingerprints(
+        authored_specs,
+        [authored_derived.rendered_name],
+        set(),
+    ) == _compute_merkle_fingerprints(
+        persisted_specs,
+        [persisted_derived.rendered_name],
+        set(),
+    )
+
 
 def test_cycle_hashing_is_stable_and_propagates_member_changes():
     first = linked_dimension("first", "second")
@@ -280,13 +312,38 @@ def test_self_link_and_external_parent_cycles_have_stable_hashes():
     assert all(original[name] != changed[name] for name in specs)
 
 
-def test_deleted_legacy_node_can_omit_unparseable_fingerprint():
-    legacy = transform_spec("legacy", "SELECT (")
+@pytest.mark.parametrize("query", ["SELECT (", "SELECT * FROM missing.parent"])
+def test_deleted_legacy_node_can_omit_unavailable_fingerprint(query: str):
+    legacy = transform_spec("legacy", query)
     assert _compute_merkle_fingerprints(
         {legacy.rendered_name: legacy},
         [legacy.rendered_name],
         ignored_parse_errors={legacy.rendered_name},
     ) == {legacy.rendered_name: None}
+
+
+def test_fingerprint_build_failures_are_unavailable():
+    invalid_metric = MetricSpec(
+        namespace="ns",
+        name="invalid_metric",
+        query="SELECT (",
+        required_dimensions=["ns.dimension.id"],
+    )
+    invalid_source = source_spec(
+        "invalid_source",
+        columns=[ColumnSpec(name="id", type="bigint")],
+    )
+    invalid_source.columns[0].type = object()  # type: ignore[assignment]
+    specs = spec_map(invalid_metric, invalid_source)
+
+    assert _compute_merkle_fingerprints(specs, specs, set()) == {
+        invalid_metric.rendered_name: None,
+        invalid_source.rendered_name: None,
+    }
+    assert _compute_merkle_fingerprints(specs, specs, set(specs)) == {
+        invalid_metric.rendered_name: None,
+        invalid_source.rendered_name: None,
+    }
 
 
 def test_proposed_sources_reuse_resolved_columns_and_remove_deletes():
@@ -351,3 +408,34 @@ async def test_build_deployment_fingerprints_loads_external_ancestors(session):
 
     assert proposed[transform.rendered_name] is not None
     assert proposed[transform.rendered_name] != transform.semantic_fingerprint()
+
+    unavailable = [
+        transform_spec("missing_child", "SELECT * FROM missing.parent"),
+        transform_spec("invalid_child", "SELECT ("),
+    ]
+    _, proposed = await build_deployment_fingerprints(
+        session,
+        {},
+        unavailable,
+        [],
+    )
+    assert proposed == {spec.rendered_name: None for spec in unavailable}
+
+    legacy = transform_spec("legacy", "SELECT (")
+    current, _ = await build_deployment_fingerprints(
+        session,
+        {legacy.rendered_name: legacy},
+        [],
+        [legacy],
+    )
+    assert current == {legacy.rendered_name: None}
+
+    current, proposed = await build_deployment_fingerprints(
+        session,
+        {},
+        [],
+        [],
+        additional_target_names=["default.hard_hat"],
+    )
+    assert current["default.hard_hat"] is not None
+    assert proposed["default.hard_hat"] is not None
