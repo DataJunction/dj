@@ -1565,7 +1565,12 @@ export const DataJunctionAPI = {
     return results;
   },
 
-  nodeData: async function (nodeName, selection = null) {
+  nodeData: async function (
+    nodeName,
+    selection = null,
+    maxAge = 86400,
+    staleWhileRevalidate = false,
+  ) {
     if (selection === null) {
       selection = {
         dimensions: [],
@@ -1581,11 +1586,16 @@ export const DataJunctionAPI = {
     }
     params.append('limit', '1000');
     params.append('async_', 'true');
+    const cacheControl = staleWhileRevalidate
+      ? `max-age=${maxAge}, stale-while-revalidate`
+      : `max-age=${maxAge}`;
 
     return await (
       await fetch(`${DJ_URL}/data/${nodeName}?${params}`, {
         credentials: 'include',
-        headers: { 'Cache-Control': 'max-age=86400' },
+        headers: {
+          'Cache-Control': cacheControl,
+        },
       })
     ).json();
   },

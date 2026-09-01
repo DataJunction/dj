@@ -5,7 +5,7 @@ Query related APIs.
 import json
 import logging
 import uuid
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from http import HTTPStatus
 from typing import Any
 
@@ -35,10 +35,86 @@ from djqs.models.query import (
     decode_results,
     encode_results,
 )
+from djqs.result_cache import (
+    CachedQueryResult,
+    build_result_cache_key,
+    get_cached_result,
+    has_stale_while_revalidate,
+    parse_cache_control,
+)
 from djqs.utils import get_settings
 
 _logger = logging.getLogger(__name__)
 router = APIRouter(tags=["SQL Queries"])
+_pending_refresh_keys: set[str] = set()
+
+
+async def _process_refresh(
+    settings: Settings,
+    postgres_pool: AsyncConnectionPool,
+    query: Query,
+    headers: dict[str, str] | None,
+    result_cache_key: str | None,
+    result_cache_timeout: int | None,
+    refresh_key: str,
+) -> QueryResults:
+    """Run a result refresh and always release its in-process lease."""
+    try:
+        return await process_query(
+            settings=settings,
+            postgres_pool=postgres_pool,
+            query=query,
+            headers=headers,
+            result_cache_key=result_cache_key,
+            result_cache_timeout=result_cache_timeout,
+        )
+    finally:
+        _pending_refresh_keys.discard(refresh_key)
+
+
+async def get_cached_or_schedule_refresh(
+    create_query: QueryCreate,
+    settings: Settings,
+    response: Response,
+    background_tasks: BackgroundTasks,
+    postgres_pool: AsyncConnectionPool,
+    request: Request,
+) -> QueryResults | None:
+    """Return an SWR result or schedule its refresh when the caller opted in."""
+    cache_control = request.headers.get("cache-control")
+    if not has_stale_while_revalidate(cache_control):
+        return None
+
+    no_cache, no_store, retention = parse_cache_control(cache_control)
+    if no_cache:
+        return None
+
+    cache_key = build_result_cache_key(create_query, dict(request.headers))
+    cached_result, is_fresh = get_cached_result(settings.results_backend, cache_key)
+    if (
+        cached_result is not None
+        and not is_fresh
+        and not no_store
+        and cache_key not in _pending_refresh_keys
+    ):
+        _pending_refresh_keys.add(cache_key)
+        try:
+            await save_query_and_run(
+                create_query=replace(create_query, async_=True),
+                settings=settings,
+                response=response,
+                background_tasks=background_tasks,
+                postgres_pool=postgres_pool,
+                headers=request.headers,
+                result_cache_key=cache_key,
+                result_cache_timeout=retention,
+                refresh_key=cache_key,
+            )
+        except Exception:
+            _pending_refresh_keys.discard(cache_key)
+            raise
+        response.status_code = HTTPStatus.OK
+    return cached_result
 
 
 @router.post(
@@ -75,6 +151,15 @@ async def submit_query(  # pylint: disable=too-many-arguments
 
     This endpoint is different from others in that it accepts both JSON and msgpack, and
     can also return JSON or msgpack, depending on HTTP headers.
+
+    Request cache policy:
+      - ``Cache-Control: stale-while-revalidate`` opts into reusable completed-result
+        caching. Fresh results are returned immediately; retained stale results are
+        returned while an asynchronous refresh runs.
+      - ``max-age=N`` overrides result retention in seconds (up to one week) without
+        changing the 12-hour freshness window.
+      - ``no-cache`` bypasses reusable results and ``no-store`` prevents writing or
+        refreshing them.
     """
     content_type = request.headers.get("content-type")
     if content_type == "application/json":
@@ -102,15 +187,36 @@ async def submit_query(  # pylint: disable=too-many-arguments
     data["catalog_name"] = data.get("catalog_name") or settings.default_catalog
 
     create_query = QueryCreate(**data)
-
-    query_with_results = await save_query_and_run(
-        create_query=create_query,
-        settings=settings,
-        response=response,
-        background_tasks=background_tasks,
-        postgres_pool=postgres_pool,
-        headers=request.headers,
+    query_with_results = await get_cached_or_schedule_refresh(
+        create_query,
+        settings,
+        response,
+        background_tasks,
+        postgres_pool,
+        request,
     )
+    if query_with_results is None:
+        use_result_cache = has_stale_while_revalidate(
+            request.headers.get("cache-control"),
+        )
+        no_store = False
+        retention = None
+        cache_key = None
+        if use_result_cache:
+            _, no_store, retention = parse_cache_control(
+                request.headers.get("cache-control"),
+            )
+            cache_key = build_result_cache_key(create_query, dict(request.headers))
+        query_with_results = await save_query_and_run(
+            create_query=create_query,
+            settings=settings,
+            response=response,
+            background_tasks=background_tasks,
+            postgres_pool=postgres_pool,
+            headers=request.headers,
+            result_cache_key=None if no_store else cache_key,
+            result_cache_timeout=retention,
+        )
 
     return_type = get_best_match(accept, ["application/json", "application/msgpack"])
     if not return_type:
@@ -141,6 +247,9 @@ async def save_query_and_run(  # pylint: disable=R0913
     background_tasks: BackgroundTasks,
     postgres_pool: AsyncConnectionPool,
     headers: dict[str, str] | None = None,
+    result_cache_key: str | None = None,
+    result_cache_timeout: int | None = None,
+    refresh_key: str | None = None,
 ) -> QueryResults:
     """
     Store a new query to the DB and run it.
@@ -176,13 +285,27 @@ async def save_query_and_run(  # pylint: disable=R0913
             )
 
         if query.async_:
-            background_tasks.add_task(
-                process_query,
-                settings,
-                postgres_pool,
-                query,
-                headers,
-            )
+            if refresh_key:
+                background_tasks.add_task(
+                    _process_refresh,
+                    settings,
+                    postgres_pool,
+                    query,
+                    headers,
+                    result_cache_key,
+                    result_cache_timeout,
+                    refresh_key,
+                )
+            else:
+                background_tasks.add_task(
+                    process_query,
+                    settings,
+                    postgres_pool,
+                    query,
+                    headers,
+                    result_cache_key,
+                    result_cache_timeout,
+                )
 
             response.status_code = HTTPStatus.CREATED
             return QueryResults(
@@ -202,6 +325,9 @@ async def save_query_and_run(  # pylint: disable=R0913
         postgres_pool=postgres_pool,
         query=query,
         headers=headers,
+        result_cache_key=result_cache_key,
+        result_cache_timeout=result_cache_timeout,
+        refresh_key=refresh_key,
     )
     return query_results
 
