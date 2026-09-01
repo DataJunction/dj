@@ -96,6 +96,25 @@ def test_sqlglot_transpile_success():
         assert result == "SELECT * FROM bar"
 
 
+def test_sqlglot_transpile_uses_schema_to_annotate_types():
+    """Schema types are attached before dialect-specific SQL generation."""
+    plugin = SQLGlotTranspilationPlugin()
+    result = plugin.transpile_sql(
+        "SELECT t.payload['name'] FROM catalog.schema.events AS t",
+        input_dialect=Dialect.SPARK,
+        output_dialect=Dialect.BIGQUERY,
+        schema={
+            "catalog": {
+                "schema": {
+                    "events": {"payload": "struct<name string>"},
+                },
+            },
+        },
+    )
+
+    assert result == "SELECT\n  t.payload.name\nFROM catalog.schema.events AS t"
+
+
 def test_default_transpile_success():
     with mock.patch(
         "datajunction_server.transpilation.settings.transpilation_plugins",

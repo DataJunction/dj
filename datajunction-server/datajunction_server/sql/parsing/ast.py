@@ -107,6 +107,29 @@ def get_render_dialect() -> Dialect | None:
     return _render_dialect.get()
 
 
+def _sqlglot_schema(query: Query) -> dict[str, Any]:
+    """Build a SQLGlot schema from the DJ metadata attached to compiled tables."""
+    schema: dict[str, Any] = {}
+    for table in query.find_all(Table):
+        if not table.dj_node:
+            continue
+
+        table_schema: dict[str, str] = {
+            column.name: str(column.type)
+            for column in table.dj_node.columns
+            if column.type is not None
+        }
+        if not table_schema:
+            continue
+
+        current = schema
+        table_parts = table.identifier(quotes=False).split(".")
+        for part in table_parts[:-1]:
+            current = current.setdefault(part, {})
+        current[table_parts[-1]] = table_schema
+    return schema
+
+
 @contextmanager
 def render_for_dialect(dialect: Dialect):
     """
@@ -146,7 +169,7 @@ def to_sql(query: Query, dialect: Dialect | None = None) -> str:
     with render_for_dialect(dialect):
         rendered = str(query)
     try:
-        return transpile_sql(rendered, dialect)
+        return transpile_sql(rendered, dialect, schema=_sqlglot_schema(query))
     except Exception:  # pragma: no cover - fall back to native render
         logger.warning(
             "Transpilation to %s failed; falling back to native render",

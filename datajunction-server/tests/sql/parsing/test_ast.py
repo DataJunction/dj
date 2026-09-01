@@ -1527,3 +1527,30 @@ def test_to_sql_transpiles_functions_for_dialect(monkeypatch):
 
     # No dialect => no transpilation, canonical names returned verbatim.
     assert "COLLECT_LIST" in ast.to_sql(query, None).upper()
+
+
+def test_to_sql_passes_dj_table_schema_to_sqlglot(monkeypatch):
+    """Compiled DJ table metadata is retained for SQLGlot type annotation."""
+    from types import SimpleNamespace
+
+    from datajunction_server.models.dialect import DialectRegistry
+    from datajunction_server.transpilation import SQLGlotTranspilationPlugin
+
+    monkeypatch.setitem(
+        DialectRegistry._registry,
+        "bigquery",
+        SQLGlotTranspilationPlugin,
+    )
+    query = parse(
+        "SELECT events.payload['name'] FROM catalog.schema.events AS events",
+    )
+    table = query.select.from_.relations[0].primary
+    table.set_dj_node(
+        SimpleNamespace(
+            columns=[
+                SimpleNamespace(name="payload", type="struct<name string>"),
+            ],
+        ),
+    )
+
+    assert "events.payload.name" in ast.to_sql(query, Dialect.BIGQUERY)
