@@ -107,6 +107,18 @@ def _cube_metadata_map(cube: NodeRevision) -> dict[str, dict[str, str | None]]:
     }
 
 
+def _generated_column_arrow_type_name(column: Any) -> str:
+    """Return the semantic-layer Arrow type name for a generated SQL column."""
+    arrow_type = _arrow_type_name(getattr(column, "type", None))
+    if arrow_type:
+        return arrow_type
+
+    semantic_type = str(getattr(column, "semantic_type", "") or "").lower()
+    if semantic_type == "dimension":
+        return DIMENSION_FALLBACK_ARROW_TYPE_NAME
+    return METRIC_FALLBACK_ARROW_TYPE_NAME
+
+
 def _metrics_payload(cube: NodeRevision) -> list["MetricInfo"]:
     """Spec ``metrics`` list. ``definition`` is display-only."""
     type_by_name = _cube_column_type_map(cube)
@@ -410,7 +422,10 @@ async def _generate_sql(
     return GeneratedSQLResponse(
         sql=generated_sql.sql,
         dialect=generated_sql.dialect.value,
-        columns=[ColumnInfo(name=col.name, type=str(col.type)) for col in columns],
+        columns=[
+            ColumnInfo(name=col.name, type=_generated_column_arrow_type_name(col))
+            for col in columns
+        ],
         cube_name=generated_sql.cube_name,
     )
 

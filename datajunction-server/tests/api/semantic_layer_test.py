@@ -18,6 +18,7 @@ from datajunction_server.api.semantic_layer import (
     _arrow_type_name,
     _dimensions_payload,
     _filter_to_sql,
+    _generated_column_arrow_type_name,
     _metrics_payload,
     _quote_value,
 )
@@ -181,6 +182,21 @@ class TestSemanticViewPayloadTypes:
 
         assert metrics[0].type == "floating"
         assert dimensions[0].type == "utf8"
+
+    def test_generated_sql_column_types_use_standard_names(self):
+        column = SimpleNamespace(type="varchar(255)", semantic_type="dimension")
+
+        assert _generated_column_arrow_type_name(column) == "utf8"
+
+    def test_generated_sql_dimension_column_type_fallback(self):
+        column = SimpleNamespace(type="unknown_type", semantic_type="dimension")
+
+        assert _generated_column_arrow_type_name(column) == "utf8"
+
+    def test_generated_sql_metric_column_type_fallback(self):
+        column = SimpleNamespace(type=None, semantic_type="metric")
+
+        assert _generated_column_arrow_type_name(column) == "floating"
 
 
 # ---------------------------------------------------------------------------
