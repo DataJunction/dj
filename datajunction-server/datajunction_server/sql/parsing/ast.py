@@ -18,6 +18,7 @@ from enum import Enum
 from functools import reduce
 from itertools import chain, zip_longest
 import re
+from sqlglot import exp as sqlglot_exp
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -63,24 +64,34 @@ from datajunction_server.sql.functions import function_registry, table_function_
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.sql.parsing.types import (
     BigIntType,
+    BinaryType,
     BooleanType,
     ColumnType,
     DateTimeBase,
+    DateType,
     DayTimeIntervalType,
     DecimalType,
     DoubleType,
+    FixedType,
     FloatType,
     IntegerBase,
     IntegerType,
     ListType,
+    LongType,
     MapType,
     NestedField,
     NullType,
+    SmallIntType,
     StringBase,
     StringType,
     StructType,
+    TimeType,
+    TinyIntType,
     TimestampType,
     TimestamptzType,
+    UUIDType,
+    UnknownType,
+    VarcharType,
     WildcardType,
     YearMonthIntervalType,
 )
@@ -107,15 +118,94 @@ def get_render_dialect() -> Dialect | None:
     return _render_dialect.get()
 
 
+def _sqlglot_type(column_type: ColumnType) -> sqlglot_exp.DataType:
+    """Convert a DJ column type to a sqlglot type."""
+    type_ = sqlglot_exp.DataType.Type
+
+    if isinstance(column_type, NullType):
+        return sqlglot_exp.DataType.build(type_.NULL)
+    if isinstance(column_type, FixedType):
+        return sqlglot_exp.DataType.build(f"BINARY({column_type.length})")
+    if isinstance(column_type, DecimalType):
+        return sqlglot_exp.DataType.build(
+            f"DECIMAL({column_type.precision}, {column_type.scale})",
+        )
+    if isinstance(column_type, StructType):
+        fields = []
+        for nested_field in column_type.fields:
+            constraints = (
+                [
+                    sqlglot_exp.ColumnConstraint(
+                        kind=sqlglot_exp.NotNullColumnConstraint(),
+                    ),
+                ]
+                if nested_field.is_required
+                else None
+            )
+            fields.append(
+                sqlglot_exp.ColumnDef(
+                    this=sqlglot_exp.to_identifier(nested_field.name.name),
+                    kind=_sqlglot_type(nested_field.type),
+                    constraints=constraints,
+                ),
+            )
+        return sqlglot_exp.DataType(this=type_.STRUCT, expressions=fields, nested=True)
+    if isinstance(column_type, ListType):
+        return sqlglot_exp.DataType(
+            this=type_.ARRAY,
+            expressions=[_sqlglot_type(column_type.element.type)],
+            nested=True,
+        )
+    if isinstance(column_type, MapType):
+        return sqlglot_exp.DataType(
+            this=type_.MAP,
+            expressions=[
+                _sqlglot_type(column_type.key.type),
+                _sqlglot_type(column_type.value.type),
+            ],
+            nested=True,
+        )
+
+    primitive_types = (
+        (BooleanType, type_.BOOLEAN),
+        (TinyIntType, type_.TINYINT),
+        (SmallIntType, type_.SMALLINT),
+        (IntegerType, type_.INT),
+        (LongType, type_.BIGINT),
+        (BigIntType, type_.BIGINT),
+        (FloatType, type_.FLOAT),
+        (DoubleType, type_.DOUBLE),
+        (DateType, type_.DATE),
+        (TimeType, type_.TIME),
+        (TimestampType, type_.TIMESTAMP),
+        (TimestamptzType, type_.TIMESTAMPTZ),
+        (StringType, type_.TEXT),
+        (UUIDType, type_.UUID),
+        (BinaryType, type_.BINARY),
+    )
+    for dj_type, sqlglot_type in primitive_types:
+        if isinstance(column_type, dj_type):
+            return sqlglot_exp.DataType.build(sqlglot_type)
+
+    if isinstance(column_type, VarcharType):
+        return sqlglot_exp.DataType.build(str(column_type))
+    if isinstance(column_type, (DayTimeIntervalType, YearMonthIntervalType)):
+        return sqlglot_exp.DataType.build(str(column_type))
+    if isinstance(column_type, (UnknownType, WildcardType)):
+        return sqlglot_exp.DataType.build(type_.UNKNOWN)
+
+    return sqlglot_exp.DataType.build(type_.UNKNOWN)
+
+
 def _sqlglot_schema(query: Query) -> dict[str, Any]:
-    """Build a SQLGlot schema from the DJ metadata attached to compiled tables."""
+    """Build sqlglot schema from DJ metadata attached to compiled tables."""
     schema: dict[str, Any] = {}
     for table in query.find_all(Table):
         if not table.dj_node:
             continue
 
-        table_schema: dict[str, str] = {
-            column.name: str(column.type)
+        table_schema: dict[str, sqlglot_exp.DataType] = {
+            column.name: _sqlglot_type(column.type)
             for column in table.dj_node.columns
             if column.type is not None
         }
