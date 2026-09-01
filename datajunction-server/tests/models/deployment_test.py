@@ -1687,11 +1687,11 @@ def fingerprint(spec: NodeSpec) -> SemanticFingerprint:
 
 
 GOLDEN_FINGERPRINTS = {
-    "source": "6f152da51c2d66ca93b9a5cf2e4f828555faeb98210ad58285c726ed81116661",
-    "transform": "98ed2d10f7f273a7ca73ce50777ae12fad28167ab016c01813784e3d90844062",
-    "dimension": "5051483b7d5cbb999e3617deee2d7dfa80764579d6fa2946b0bd407775db3156",
-    "metric": "a1977ae081d398f5667d34f2b34650e263a4b6507eb7c53570f440bbe08f6f4e",
-    "cube": "cbdbac6e9015d0d1c45502073925f9fafe119f9d3adce2ea864d8d4f9ec17628",
+    "source": "71dcbc388988c2bdd850670427710384687b58565ee38ca392dc220adfed868d",
+    "transform": "797af072eb15831df786149716171f0a400af7f35f6031f8eee3939733cab9c4",
+    "dimension": "965282bbe90a4fcc66576fba3550df42c09ff4dc51be2ee433a3897d48026edb",
+    "metric": "738703ffa80a72b00fc829697cf259aac317dc34290cb1aae4c0678a34f3a948",
+    "cube": "9b0a56d974d1e3769bc2db94e2cfbae7a6a4839f664eebd2a4387ef112ceea81",
 }
 
 
@@ -1701,6 +1701,7 @@ def test_semantic_fingerprint_golden_digests(node_type):
     result = fingerprint(spec)
     assert result == SemanticFingerprint(digest=GOLDEN_FINGERPRINTS[node_type])
     assert result == fingerprint(spec)
+    assert result.version == 1
 
 
 def test_semantic_fingerprint_is_independent_of_python_hash_seed():
@@ -2070,5 +2071,36 @@ def test_semantic_fingerprint_digest_validation(digest):
 
 
 def test_semantic_fingerprint_rejects_unknown_version():
+    with pytest.raises(ValidationError):
+        SemanticFingerprint(version=2, digest="a" * 64)
     with pytest.raises(ValueError, match="Unsupported semantic fingerprint version: 2"):
         semantic_specs()["source"].semantic_fingerprint(version=2)
+
+
+def test_semantic_fingerprint_combines_sorted_parent_hashes():
+    node = TransformSpec(name="node", query="SELECT id FROM parent")
+    first = SourceSpec(name="first", catalog="c", schema_="s", table="first")
+    second = SourceSpec(name="second", catalog="c", schema_="s", table="second")
+    first_hash = fingerprint(first)
+    second_hash = fingerprint(second)
+
+    expected = node.semantic_fingerprint(
+        parent_fingerprints=[first_hash, second_hash],
+    )
+    assert expected == node.semantic_fingerprint(
+        parent_fingerprints=[second_hash, first_hash, first_hash],
+    )
+    assert expected != node.semantic_fingerprint(
+        parent_fingerprints=[
+            first_hash,
+            SourceSpec(
+                name="second",
+                catalog="c",
+                schema_="s",
+                table="changed",
+            ).semantic_fingerprint(),
+        ],
+    )
+    mismatched = SemanticFingerprint.model_construct(version=2, digest="b" * 64)
+    with pytest.raises(ValueError, match="Parent fingerprint version"):
+        node.semantic_fingerprint(parent_fingerprints=[mismatched])

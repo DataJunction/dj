@@ -73,6 +73,7 @@ class ChangeTier(IntEnum):
 class SemanticFingerprint(BaseModel):
     """A digest of a node's semantic definition."""
 
+    version: Literal[1] = 1
     digest: str = Field(
         min_length=64,
         max_length=64,
@@ -725,17 +726,30 @@ class NodeSpec(NamespacedSpec):
         self,
         version: int = _SEMANTIC_FINGERPRINT_VERSION,
         *,
+        parent_fingerprints: Iterable[SemanticFingerprint] = (),
         resolved_columns: list[ColumnSpec] | None = None,
     ) -> SemanticFingerprint:
         """Return a fingerprint of this node's semantic definition."""
         if type(version) is not int or version != _SEMANTIC_FINGERPRINT_VERSION:
             raise ValueError(f"Unsupported semantic fingerprint version: {version}")
-        payload = _semantic_fingerprint_payload(
+        node_payload = _semantic_fingerprint_payload(
             self,
             resolved_columns=resolved_columns,
         )
+        node_digest = hashlib.sha256(
+            _canonical_json(node_payload).encode("utf-8"),
+        ).hexdigest()
+        parents = list(parent_fingerprints)
+        if any(parent.version != version for parent in parents):
+            raise ValueError("Parent fingerprint version does not match node version")
+        payload = {
+            "domain": "datajunction/node-semantic-merkle",
+            "version": version,
+            "node": node_digest,
+            "parents": sorted({parent.digest for parent in parents}),
+        }
         digest = hashlib.sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
-        return SemanticFingerprint(digest=digest)
+        return SemanticFingerprint(version=version, digest=digest)
 
     def canonical_diff(
         self,
