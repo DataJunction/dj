@@ -3,6 +3,7 @@ Tests for the namespaces API.
 """
 
 import asyncio
+from datetime import timedelta
 from http import HTTPStatus
 from unittest import mock
 
@@ -10,11 +11,16 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from datajunction_server.api.namespaces import provision_node_namespace
+from datajunction_server.api.namespaces import (
+    hard_delete_node_namespace,
+    provision_node_namespace,
+)
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.user import OAuthProvider, PrincipalKind, User
+from datajunction_server.internal.access.authentication.tokens import create_token
 from datajunction_server.internal.access.authorization import (
     AuthorizationService,
+    RBACAuthorizationService,
 )
 from datajunction_server.internal.namespaces import (
     _merge_columns_preserving_comments,
@@ -94,6 +100,159 @@ async def test_provision_namespace_boundary(
         mocker.call(ResourceType.NODE, "api_governed.*", ResourceAction.MANAGE),
     ]
     access_checker.check.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    ("is_governed_boundary", "expected_action"),
+    [
+        (True, ResourceAction.MANAGE),
+        (False, ResourceAction.DELETE),
+    ],
+)
+async def test_hard_delete_boundary_uses_policy_lifecycle_action(
+    is_governed_boundary,
+    expected_action,
+    mocker,
+):
+    mocker.patch.object(
+        NodeNamespace,
+        "get",
+        new=mocker.AsyncMock(
+            return_value=mocker.Mock(
+                is_governed_boundary=is_governed_boundary,
+            ),
+        ),
+    )
+    access_checker = mocker.MagicMock()
+    access_checker.check = mocker.AsyncMock(
+        side_effect=RuntimeError("stop after authorization"),
+    )
+
+    with pytest.raises(RuntimeError, match="stop after authorization"):
+        await hard_delete_node_namespace(
+            "policy_boundary",
+            session=mocker.MagicMock(),
+            current_user=mocker.MagicMock(),
+            save_history=mocker.AsyncMock(),
+            access_checker=access_checker,
+            query_service_client=mocker.MagicMock(),
+            request=mocker.MagicMock(),
+        )
+
+    access_checker.add_namespace.assert_called_once_with(
+        "policy_boundary",
+        expected_action,
+    )
+
+
+async def test_provisioned_boundary_enforces_rbac_without_restrictive_config(
+    client: AsyncClient,
+    session: AsyncSession,
+    current_user: User,
+    settings_no_qs,
+    mocker,
+):
+    service_settings = mocker.patch(
+        "datajunction_server.internal.access.authorization.service.settings",
+    )
+    service_settings.default_access_policy = "permissive"
+    service_settings.restrictive_scopes = []
+    context_settings = mocker.patch(
+        "datajunction_server.internal.access.authorization.context.settings",
+    )
+    context_settings.default_access_role = None
+    mocker.patch(VALIDATOR_AUTH_SERVICE, lambda: RBACAuthorizationService())
+
+    current_user.is_admin = True
+    await session.commit()
+
+    owner_username = "api-boundary-owner"
+    outsider_username = "api-boundary-outsider"
+    owner_group = "api-boundary-owners"
+    for username in (owner_username, outsider_username):
+        response = await client.post(
+            "/basic/user/",
+            data={
+                "email": f"{username}@example.com",
+                "username": username,
+                "password": "test-password",
+            },
+        )
+        assert response.status_code == HTTPStatus.CREATED
+
+    response = await client.post("/groups/", params={"username": owner_group})
+    assert response.status_code == HTTPStatus.CREATED
+    response = await client.post(
+        f"/groups/{owner_group}/members/",
+        params={"member_username": owner_username},
+    )
+    assert response.status_code == HTTPStatus.CREATED
+
+    response = await client.post(
+        "/service-accounts",
+        json={"name": "API boundary deployer"},
+    )
+    assert response.status_code == HTTPStatus.OK
+    deployer = response.json()
+    response = await client.post(
+        "/service-accounts/token",
+        data={
+            "client_id": deployer["client_id"],
+            "client_secret": deployer["client_secret"],
+        },
+    )
+    assert response.status_code == HTTPStatus.OK
+    deployer_token = response.json()["token"]
+
+    response = await client.post(
+        "/namespaces/example.metrics/provision",
+        json={
+            "owner_group": owner_group,
+            "deployer_service_accounts": [deployer["client_id"]],
+        },
+    )
+    assert response.status_code == HTTPStatus.CREATED
+    boundary = await session.get(NodeNamespace, "example.metrics")
+    assert boundary is not None
+    assert boundary.is_governed_boundary is True
+
+    def user_token(username: str) -> str:
+        return create_token(
+            {"username": username},
+            secret=settings_no_qs.secret,
+            iss=settings_no_qs.url,
+            expires_delta=timedelta(hours=1),
+        )
+
+    client.headers["Authorization"] = f"Bearer {user_token(owner_username)}"
+    response = await client.post(
+        "/roles/",
+        json={
+            "name": "api-boundary-writer",
+            "scopes": [
+                {
+                    "action": "write",
+                    "scope_type": "node",
+                    "scope_value": "example.metrics.*",
+                },
+            ],
+        },
+    )
+    assert response.status_code == HTTPStatus.CREATED
+
+    client.headers["Authorization"] = f"Bearer {deployer_token}"
+    response = await client.delete("/namespaces/example.metrics/hard/")
+    assert response.status_code == HTTPStatus.FORBIDDEN
+    response = await client.post("/namespaces/example.metrics.deployed/")
+    assert response.status_code == HTTPStatus.CREATED
+
+    client.headers["Authorization"] = f"Bearer {user_token(outsider_username)}"
+    response = await client.post("/namespaces/example.metrics.denied/")
+    assert response.status_code == HTTPStatus.FORBIDDEN
+    response = await client.get("/namespaces/example.metrics/")
+    assert response.status_code == HTTPStatus.OK
+    response = await client.post("/namespaces/example.open/")
+    assert response.status_code == HTTPStatus.CREATED
 
 
 @pytest.mark.asyncio
