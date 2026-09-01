@@ -34,7 +34,9 @@ def parse_cache_control(cache_control: str | None) -> tuple[bool, bool, int]:
     shared freshness window, which prevents one caller from making a shared
     result appear fresh indefinitely.
     """
-    directives = [directive.strip().lower() for directive in (cache_control or "").split(",")]
+    directives = [
+        directive.strip().lower() for directive in (cache_control or "").split(",")
+    ]
     no_cache = "no-cache" in directives
     no_store = "no-store" in directives
     retention = DEFAULT_RETENTION_SECONDS

@@ -36,7 +36,6 @@ from djqs.models.query import (
     encode_results,
 )
 from djqs.result_cache import (
-    CachedQueryResult,
     build_result_cache_key,
     get_cached_result,
     has_stale_while_revalidate,
@@ -327,7 +326,6 @@ async def save_query_and_run(  # pylint: disable=R0913
         headers=headers,
         result_cache_key=result_cache_key,
         result_cache_timeout=result_cache_timeout,
-        refresh_key=refresh_key,
     )
     return query_results
 
