@@ -60,6 +60,26 @@ def extract_upstream_candidates(
     return tables
 
 
+def extract_dimension_refs_from_filters(
+    filters: list[str],
+) -> list[tuple[str, str]]:
+    """Extract namespaced dimension columns referenced by filter expressions."""
+    if not filters:
+        return []
+    combined = " AND ".join(f"({filter_})" for filter_ in filters)
+    try:
+        tree = parse(f"SELECT 1 WHERE {combined}")
+    except Exception:
+        return []
+    refs = []
+    for column in tree.find_all(ast.Column):
+        if column.namespace and len(column.namespace) >= 1:
+            node_name = SEPARATOR.join(name.name for name in column.namespace)
+            if SEPARATOR in node_name:
+                refs.append((node_name, column.name.name))
+    return refs
+
+
 def classify_parents(
     is_derived_metric: bool,
     dep_names: Iterable[str],
