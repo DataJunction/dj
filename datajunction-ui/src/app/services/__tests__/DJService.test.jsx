@@ -897,6 +897,14 @@ describe('DataJunctionAPI', () => {
     });
   });
 
+  // A gateway can answer with an HTML error page. Parsing that as JSON throws,
+  // so without the guard the call rejects and the caller sees a silent no-op.
+  it('tolerates a non-JSON error body', async () => {
+    fetch.mockResponseOnce('<html>502 Bad Gateway</html>', { status: 502 });
+    const result = await DataJunctionAPI.deactivate('default.transform1');
+    expect(result).toEqual({ status: 502, json: {} });
+  });
+
   it('calls attributes correctly', async () => {
     fetch.mockResponseOnce(JSON.stringify(mocks.attributes));
     await DataJunctionAPI.attributes();

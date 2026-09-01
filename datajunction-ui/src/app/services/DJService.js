@@ -1943,7 +1943,9 @@ export const DataJunctionAPI = {
       },
       credentials: 'include',
     });
-    return { status: response.status, json: await response.json() };
+    // A 204 carries no body, and a gateway error page carries no JSON.
+    const json = await response.json().catch(() => ({}));
+    return { status: response.status, json };
   },
   addNamespace: async function (namespace) {
     const response = await fetch(`${DJ_URL}/namespaces/${namespace}`, {
