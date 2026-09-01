@@ -2764,6 +2764,79 @@ class TestDeployments:
         )
 
     @pytest.mark.asyncio
+    async def test_deployment_bumps_a_cube_over_a_changed_source(
+        self,
+        client,
+        default_hard_hats,
+        default_hard_hat,
+        default_us_states,
+        default_us_state,
+        default_avg_length_of_employment,
+    ):
+        """
+        A cube bumps for a change anywhere above it, not just in its own parents.
+
+        Here the edited node is the source two levels down: neither the metric nor
+        the dimension the cube names changes, so nothing the cube points at directly
+        moved, and only walking the whole way up finds the edit. The cube lands on
+        the tier the source earned rather than one of its own.
+        """
+        cube = CubeSpec(
+            name="default.repairs_cube",
+            display_name="Repairs Cube",
+            description="Cube for analyzing repair orders",
+            dimensions=["${prefix}default.hard_hat.state"],
+            metrics=["${prefix}default.avg_length_of_employment"],
+            owners=["dj"],
+        )
+
+        async def deploy(source: SourceSpec) -> None:
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(
+                    namespace="upstream_source_deploy",
+                    nodes=[
+                        spec.model_copy(deep=True)
+                        for spec in (
+                            source,
+                            default_hard_hat,
+                            default_us_states,
+                            default_us_state,
+                            default_avg_length_of_employment,
+                            cube,
+                        )
+                    ],
+                ),
+            )
+            assert data["status"] == "success", data
+
+        async def version_of(node: str) -> str:
+            response = await client.get(
+                f"/nodes/upstream_source_deploy.default.{node}/",
+            )
+            assert response.status_code == 200, response.text
+            return response.json()["version"]
+
+        await deploy(default_hard_hats)
+        assert await version_of("repairs_cube") == "v1.0"
+
+        widened = default_hard_hats.model_copy(
+            deep=True,
+            update={
+                "columns": default_hard_hats.columns
+                + [ColumnSpec(name="badge_number", type="int")],
+            },
+        )
+        await deploy(widened)
+
+        assert await version_of("hard_hats") == "v2.0"
+        # Untouched, so they keep the revisions they had.
+        assert await version_of("hard_hat") == "v1.0"
+        assert await version_of("avg_length_of_employment") == "v1.0"
+        # The cube alone follows the source, at the tier the source earned.
+        assert await version_of("repairs_cube") == "v2.0"
+
+    @pytest.mark.asyncio
     async def test_patch_and_deployment_agree_on_version(
         self,
         client,
