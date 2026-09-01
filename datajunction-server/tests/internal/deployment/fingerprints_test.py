@@ -21,6 +21,10 @@ from datajunction_server.models.deployment import (
     SourceSpec,
     TransformSpec,
 )
+from datajunction_server.models.semantic_fingerprint import (
+    UNKNOWN_SEMANTIC_FINGERPRINT,
+    SemanticFingerprint,
+)
 
 
 def source_spec(
@@ -172,7 +176,10 @@ def test_merkle_fingerprints_support_deep_dependency_chains():
         specs[spec.rendered_name] = spec
 
     target = "deep.node_1099"
-    assert _compute_merkle_fingerprints(specs, [target], set())[target] is not None
+    assert (
+        _compute_merkle_fingerprints(specs, [target], set())[target]
+        != UNKNOWN_SEMANTIC_FINGERPRINT
+    )
 
 
 @pytest.mark.parametrize(
@@ -191,8 +198,8 @@ def test_unavailable_fingerprint_propagates_to_dependents(name: str, query: str)
     specs = spec_map(unavailable, dependent)
 
     assert _compute_merkle_fingerprints(specs, specs, set()) == {
-        unavailable.rendered_name: None,
-        dependent.rendered_name: None,
+        unavailable.rendered_name: UNKNOWN_SEMANTIC_FINGERPRINT,
+        dependent.rendered_name: UNKNOWN_SEMANTIC_FINGERPRINT,
     }
 
 
@@ -266,7 +273,10 @@ def test_cycle_hashing_is_stable_and_propagates_member_changes():
         set(),
     )
     assert original == reversed_input
-    assert all(fingerprint is not None for fingerprint in original.values())
+    assert all(
+        fingerprint != UNKNOWN_SEMANTIC_FINGERPRINT
+        for fingerprint in original.values()
+    )
 
     changed_second = second.model_copy(update={"query": "SELECT 2"})
     changed_specs = {
@@ -290,7 +300,7 @@ def test_self_link_and_external_parent_cycles_have_stable_hashes():
             [self_link.rendered_name],
             set(),
         )[self_link.rendered_name]
-        is not None
+        != UNKNOWN_SEMANTIC_FINGERPRINT
     )
 
     parent = source_spec(
@@ -319,7 +329,7 @@ def test_deleted_legacy_node_can_omit_unavailable_fingerprint(query: str):
         {legacy.rendered_name: legacy},
         [legacy.rendered_name],
         ignored_parse_errors={legacy.rendered_name},
-    ) == {legacy.rendered_name: None}
+    ) == {legacy.rendered_name: UNKNOWN_SEMANTIC_FINGERPRINT}
 
 
 def test_fingerprint_build_failures_are_unavailable():
@@ -337,12 +347,12 @@ def test_fingerprint_build_failures_are_unavailable():
     specs = spec_map(invalid_metric, invalid_source)
 
     assert _compute_merkle_fingerprints(specs, specs, set()) == {
-        invalid_metric.rendered_name: None,
-        invalid_source.rendered_name: None,
+        invalid_metric.rendered_name: UNKNOWN_SEMANTIC_FINGERPRINT,
+        invalid_source.rendered_name: UNKNOWN_SEMANTIC_FINGERPRINT,
     }
     assert _compute_merkle_fingerprints(specs, specs, set(specs)) == {
-        invalid_metric.rendered_name: None,
-        invalid_source.rendered_name: None,
+        invalid_metric.rendered_name: UNKNOWN_SEMANTIC_FINGERPRINT,
+        invalid_source.rendered_name: UNKNOWN_SEMANTIC_FINGERPRINT,
     }
 
 
@@ -387,9 +397,11 @@ async def test_build_deployment_fingerprints_without_external_parents():
     )
 
     assert current == {}
-    assert proposed[source.rendered_name] == source.semantic_fingerprint()
+    source_fingerprint = proposed[source.rendered_name]
+    assert isinstance(source_fingerprint, SemanticFingerprint)
+    assert source_fingerprint == source.semantic_fingerprint()
     assert proposed[transform.rendered_name] == transform.semantic_fingerprint(
-        parent_fingerprints=[proposed[source.rendered_name]],
+        parent_fingerprints=[source_fingerprint],
     )
 
 
@@ -406,7 +418,7 @@ async def test_build_deployment_fingerprints_loads_external_ancestors(session):
         [],
     )
 
-    assert proposed[transform.rendered_name] is not None
+    assert proposed[transform.rendered_name] != UNKNOWN_SEMANTIC_FINGERPRINT
     assert proposed[transform.rendered_name] != transform.semantic_fingerprint()
 
     unavailable = [
@@ -419,7 +431,9 @@ async def test_build_deployment_fingerprints_loads_external_ancestors(session):
         unavailable,
         [],
     )
-    assert proposed == {spec.rendered_name: None for spec in unavailable}
+    assert proposed == {
+        spec.rendered_name: UNKNOWN_SEMANTIC_FINGERPRINT for spec in unavailable
+    }
 
     legacy = transform_spec("legacy", "SELECT (")
     current, _ = await build_deployment_fingerprints(
@@ -428,7 +442,7 @@ async def test_build_deployment_fingerprints_loads_external_ancestors(session):
         [],
         [legacy],
     )
-    assert current == {legacy.rendered_name: None}
+    assert current == {legacy.rendered_name: UNKNOWN_SEMANTIC_FINGERPRINT}
 
     current, proposed = await build_deployment_fingerprints(
         session,
@@ -437,5 +451,5 @@ async def test_build_deployment_fingerprints_loads_external_ancestors(session):
         [],
         additional_target_names=["default.hard_hat"],
     )
-    assert current["default.hard_hat"] is not None
-    assert proposed["default.hard_hat"] is not None
+    assert current["default.hard_hat"] != UNKNOWN_SEMANTIC_FINGERPRINT
+    assert proposed["default.hard_hat"] != UNKNOWN_SEMANTIC_FINGERPRINT

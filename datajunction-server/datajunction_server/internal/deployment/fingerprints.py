@@ -22,7 +22,11 @@ from datajunction_server.models.deployment import (
     TransformSpec,
 )
 from datajunction_server.models.node import NodeType
-from datajunction_server.models.semantic_fingerprint import SemanticFingerprint
+from datajunction_server.models.semantic_fingerprint import (
+    UNKNOWN_SEMANTIC_FINGERPRINT,
+    SemanticFingerprint,
+    SemanticFingerprintValue,
+)
 from datajunction_server.semantic_fingerprints.merkle import (
     cycle_component_fingerprint,
     strongly_connected_components,
@@ -30,7 +34,7 @@ from datajunction_server.semantic_fingerprints.merkle import (
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.utils import SEPARATOR
 
-FingerprintMap = dict[str, SemanticFingerprint | None]
+FingerprintMap = dict[str, SemanticFingerprintValue]
 ParentCandidates = tuple[frozenset[str], frozenset[str]]
 ParentCandidateCache = dict[int, ParentCandidates]
 ParentResolver = Callable[[NodeSpec], set[str]]
@@ -307,7 +311,9 @@ def _compute_merkle_fingerprints(
         component_index = heappop(ready)
         processed += 1
         members = components[component_index]
-        unavailable: FingerprintMap = {name: None for name in members}
+        unavailable: FingerprintMap = {
+            name: UNKNOWN_SEMANTIC_FINGERPRINT for name in members
+        }
         if any(name in failed_names for name in members):
             component_results[component_index] = unavailable
         else:
@@ -320,7 +326,7 @@ def _compute_merkle_fingerprints(
                     parent_fingerprint = component_results[parent_component][
                         parent_name
                     ]
-                    if parent_fingerprint is None:
+                    if parent_fingerprint == UNKNOWN_SEMANTIC_FINGERPRINT:
                         break
                     external_edges.append(
                         (member, parent_name, parent_fingerprint),
