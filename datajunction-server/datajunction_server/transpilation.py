@@ -35,7 +35,6 @@ class SQLTranspilationPlugin:
         *,
         input_dialect: Dialect | None = None,
         output_dialect: Dialect | None = None,
-        schema: dict[str, Any] | None = None,
     ) -> str:
         """Transpile a given SQL query using the specific library."""
         return query

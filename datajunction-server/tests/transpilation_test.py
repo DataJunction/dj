@@ -129,24 +129,20 @@ def test_sqlglot_transpile_map_explode_with_schema():
     result = plugin.transpile_sql(
         """SELECT
   CAST(test_id AS BIGINT) AS test_id,
-  cell_id,
-  cell_name
+  key,
+  value
 FROM (
   SELECT
     test_id,
-    explode(cells) AS (cell_id, cell_name)
-  FROM source.prodhive.dse.ab_test_detail_d_v2 T
+    explode(map_column) AS (key, value)
+  FROM some_table T
 )""",
         input_dialect=Dialect.SPARK,
         output_dialect=Dialect.TRINO,
         schema={
-            "prodhive": {
-                "dse": {
-                    "ab_test_detail_d_v2": {
-                        "test_id": "INT",
-                        "cells": "MAP<INT, VARCHAR>",
-                    },
-                },
+            "some_table": {
+                "test_id": "INT",
+                "map_column": "MAP<INT, VARCHAR>",
             },
         },
     )
@@ -155,15 +151,15 @@ FROM (
         result
         == '''SELECT
   TRY_CAST("_0"."test_id" AS BIGINT) AS "test_id",
-  "_0"."cell_id" AS "cell_id",
-  "_0"."cell_name" AS "cell_name"
+  "_0"."key" AS "key",
+  "_0"."value" AS "value"
 FROM (
   SELECT
     "t"."test_id" AS "test_id",
-    _u_2."cell_id" AS "cell_id",
-    _u_2."cell_name" AS "cell_name"
-  FROM "source"."prodhive"."dse"."ab_test_detail_d_v2" AS "t"
-  CROSS JOIN UNNEST("t"."cells") AS _u_2("cell_id", "cell_name")
+    _u_2."key" AS "key",
+    _u_2."value" AS "value"
+  FROM "some_table" AS "t"
+  CROSS JOIN UNNEST("t"."map_column") AS _u_2("key", "value")
 ) AS "_0"'''
     )
 
