@@ -225,7 +225,7 @@ async def generate_metrics_sql(
             matched_cube = cube_node.current
 
     if matched_cube is not None:
-        if matched_cube.cube_filters and (metrics or not dimensions):
+        if matched_cube.cube_filters:
             merged_filters = list(matched_cube.cube_filters) + merged_filters
         if not metrics and not dimensions:
             metrics = matched_cube.cube_node_metrics
