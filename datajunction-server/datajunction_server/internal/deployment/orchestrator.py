@@ -2393,6 +2393,7 @@ class DeploymentOrchestrator:
             if swap:
                 if swap.rebuilt_names:
                     self._rebuilt_cubes.add(new_revision.name)
+                swap.is_branch_deploy = await self._is_branch_deploy()
                 self._cube_materialization_swaps.append(swap)
 
     def _declared_materializations(self) -> dict[str, list[MaterializationSpec]]:
@@ -2701,6 +2702,8 @@ class DeploymentOrchestrator:
                     # take the replacements down with it if those had already been
                     # scheduled.
                     self._cube_materialization_swaps.append(
+                        # No `rebuilt_names`, so this swap never reaches
+                        # `.schedule()` -- it only stops the superseded workflow.
                         CubeMaterializationSwap(
                             cube_name=revision.name,
                             previous_version=revision.version,
@@ -2720,6 +2723,7 @@ class DeploymentOrchestrator:
                         new_version=revision.version,
                         rebuilt_names=[entry.materialization.name for entry in changed],
                         superseded=[],
+                        is_branch_deploy=await self._is_branch_deploy(),
                     ),
                 )
             for entry in reconciled:
@@ -2804,6 +2808,8 @@ class DeploymentOrchestrator:
         if await backfill_recorded(self.session, materialization, span[0]):
             return
         self._cube_materialization_swaps.append(
+            # No `rebuilt_names`; this call already returned above whenever
+            # `_is_branch_deploy()` is true, so this swap is always main.
             CubeMaterializationSwap(
                 cube_name=revision.name,
                 previous_version=revision.version,
@@ -2881,6 +2887,8 @@ class DeploymentOrchestrator:
             ),
         )
         self._cube_materialization_swaps.append(
+            # No `rebuilt_names`, so this swap never reaches `.schedule()` --
+            # a teardown only stops workflows, it does not start one.
             CubeMaterializationSwap(
                 cube_name=revision.name,
                 previous_version=revision.version,
