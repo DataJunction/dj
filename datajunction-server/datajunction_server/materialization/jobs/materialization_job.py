@@ -59,6 +59,8 @@ class MaterializationJob(abc.ABC):
         self,
         materialization: Materialization,
         query_service_client: QueryServiceClient,
+        request_headers: dict[str, str] | None = None,
+        is_branch_deploy: bool = False,
     ) -> MaterializationInfo:
         """
         Schedules the materialization job, typically done by calling a separate service
@@ -80,6 +82,7 @@ class SparkSqlMaterializationJob(  # pragma: no cover
         materialization: Materialization,
         query_service_client: QueryServiceClient,
         request_headers: dict[str, str] | None = None,
+        is_branch_deploy: bool = False,
     ) -> MaterializationInfo:
         """
         Placeholder for the actual implementation.

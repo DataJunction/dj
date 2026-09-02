@@ -41,6 +41,8 @@ class DefaultCubeMaterialization(MaterializationJob):
         self,
         materialization: Materialization,
         query_service_client: QueryServiceClient,
+        request_headers: dict[str, str] | None = None,
+        is_branch_deploy: bool = False,
     ):
         """
         Since this is a settings-only dummy job, we do nothing in this stage.
@@ -60,6 +62,7 @@ class DruidMaterializationJob(MaterializationJob):
         materialization: Materialization,
         query_service_client: QueryServiceClient,
         request_headers: dict[str, str] | None = None,
+        is_branch_deploy: bool = False,
     ) -> MaterializationInfo:
         """
         Use the query service to kick off the materialization setup.
@@ -134,6 +137,7 @@ class DruidCubeMaterializationJob(DruidMaterializationJob, MaterializationJob):
         materialization: Materialization,
         query_service_client: QueryServiceClient,
         request_headers: dict[str, str] | None = None,
+        is_branch_deploy: bool = False,
     ) -> MaterializationInfo:
         """
         Use the query service to kick off the materialization setup.
@@ -164,6 +168,7 @@ class DruidCubeMaterializationJob(DruidMaterializationJob, MaterializationJob):
                 platform=cube_config.platform,
                 measures_materializations=cube_config.measures_materializations,
                 combiners=cube_config.combiners,
+                is_branch_deploy=is_branch_deploy,
             ),
             request_headers=request_headers,
         )

@@ -283,6 +283,7 @@ def test_stop_materialization_workflows_reports_every_failure():
 def _swap(
     rebuilt_names: list[str],
     backfill: CoverageBackfill | None = None,
+    is_branch_deploy: bool = False,
 ) -> CubeMaterializationSwap:
     """A swap with one superseded materialization and the given rebuilt names."""
     return CubeMaterializationSwap(
@@ -298,6 +299,7 @@ def _swap(
             ),
         ],
         backfill=backfill,
+        is_branch_deploy=is_branch_deploy,
     )
 
 
@@ -334,12 +336,44 @@ async def test_apply_cube_swap_reports_a_scheduled_push():
             materialization_names=["druid_cube_v3"],
             query_service_client=query_service_client,
             request_headers={"cookie": "a-cookie"},
+            is_branch_deploy=False,
         ),
     ]
     assert query_service_client.deactivate_workflows.call_args_list == [
         mock.call(
             workflow_names=["cube_workflow_1"],
             request_headers={"cookie": "a-cookie"},
+        ),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_apply_cube_swap_threads_branch_deploy_through_to_scheduling():
+    """
+    A swap computed on a branch-preview deploy tells the query service so, rather
+    than leaving it to assume main.
+    """
+    query_service_client = mock.MagicMock()
+    session = mock.MagicMock()
+
+    with mock.patch(
+        "datajunction_server.internal.materializations.schedule_materialization_jobs",
+        new=mock.AsyncMock(),
+    ) as schedule:
+        await apply_cube_materialization_swap(
+            session,
+            _swap(["druid_cube_v3"], is_branch_deploy=True),
+            query_service_client,
+        )
+
+    assert schedule.call_args_list == [
+        mock.call(
+            session,
+            node_revision_id=42,
+            materialization_names=["druid_cube_v3"],
+            query_service_client=query_service_client,
+            request_headers=None,
+            is_branch_deploy=True,
         ),
     ]
 
