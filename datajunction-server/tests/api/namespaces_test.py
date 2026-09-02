@@ -204,7 +204,7 @@ async def test_list_all_namespaces(
         },
         {
             "namespace": "v3",
-            "num_nodes": 47,
+            "num_nodes": 50,
             "github_repo_path": None,
             "git_branch": None,
         },
