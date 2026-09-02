@@ -659,13 +659,35 @@ def test_deployment_results_property_getter():
                 "status": "success",
                 "operation": "create",
                 "message": "Created",
+                "change_tier": "major",
+                "semantic_fingerprint": {
+                    "digest": "a" * 64,
+                },
+            },
+            {
+                "name": "legacy_node",
+                "deploy_type": "node",
+                "status": "invalid",
+                "operation": "update",
+                "semantic_fingerprint": "unknown",
+            },
+            {
+                "name": "test_node -> test_dimension",
+                "deploy_type": "link",
+                "status": "success",
+                "operation": "create",
             },
         ],
     )
     results = deployment.deployment_results
-    assert len(results) == 1
+    assert len(results) == 3
     assert results[0].name == "test_node"
     assert results[0].status == DeploymentResult.Status.SUCCESS
+    assert results[0].change_tier == "major"
+    assert results[0].semantic_fingerprint == SemanticFingerprint(digest="a" * 64)
+    assert results[1].semantic_fingerprint == "unknown"
+    assert results[2].change_tier is None
+    assert results[2].semantic_fingerprint is None
 
 
 def test_deployment_spec_preserves_explicit_preagg_namespace():

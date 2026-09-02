@@ -57,6 +57,7 @@ from datajunction_server.models.deployment import (
     MetricSpec,
     PartitionSpec,
     PartitionType,
+    SemanticFingerprint,
     SourceSpec,
     TagSpec,
     TransformSpec,
@@ -837,6 +838,47 @@ class TestDeploymentPlanning:
         assert len(to_skip) == len(sample_deployment_spec.nodes)
         assert to_delete == []
 
+    def test_filter_nodes_uses_normalized_query_and_source_columns(self):
+        incoming = [
+            TransformSpec(name="transform", query=" SELECT id\nFROM source "),
+            SourceSpec(
+                name="source",
+                catalog="catalog",
+                schema_="schema",
+                table="table",
+                columns=None,
+            ),
+        ]
+        orchestrator = DeploymentOrchestrator(
+            deployment_spec=DeploymentSpec(namespace="test", nodes=incoming),
+            deployment_id="normalized-filter",
+            session=MagicMock(),
+            context=MagicMock(),
+        )
+        existing = {
+            "test.transform": TransformSpec(
+                name="transform",
+                namespace="test",
+                query="SELECT id FROM source",
+            ),
+            "test.source": SourceSpec(
+                name="source",
+                namespace="test",
+                catalog="catalog",
+                schema_="schema",
+                table="table",
+                columns=[ColumnSpec(name="id", type="bigint")],
+            ),
+        }
+
+        to_deploy, to_skip, _ = orchestrator.filter_nodes_to_deploy(existing)
+        assert to_deploy == []
+        assert to_skip == incoming
+
+        incoming[1].columns = [ColumnSpec(name="id", type="string")]
+        to_deploy, _, _ = orchestrator.filter_nodes_to_deploy(existing)
+        assert to_deploy == [incoming[1]]
+
     def test_filter_nodes_to_deploy_with_force(
         self,
         session,
@@ -897,6 +939,7 @@ class TestOrchestrationFlow:
             mock_plan.to_deploy = []
             mock_plan.to_delete = []
             mock_plan.to_delete_namespaces = []
+            mock_plan.existing_specs = {}
             mock_create_plan.return_value = (mock_plan, [])
 
             # Execute
@@ -924,6 +967,7 @@ class TestOrchestrationFlow:
             mock_plan.to_deploy = []
             mock_plan.to_delete = []
             mock_plan.to_delete_namespaces = []
+            mock_plan.existing_specs = {}
             mock_create_plan.return_value = (mock_plan, [])
 
             mock_handle_no_changes.return_value = []
@@ -1157,6 +1201,10 @@ class TestCubeDeployment:
         orchestrator._generate_changelog = AsyncMock(
             return_value=([], [], ChangeTier.NONE),
         )
+        cube_fingerprint = invalid_results[0].spec.semantic_fingerprint()
+        orchestrator._proposed_semantic_fingerprints = {
+            invalid_results[0].spec.rendered_name: cube_fingerprint,
+        }
 
         with patch(
             "datajunction_server.internal.deployment.orchestrator.get_node_namespace",
@@ -1174,6 +1222,8 @@ class TestCubeDeployment:
         assert len(revisions) == 1
         assert len(results) == 1
         assert results[0].status == "invalid"
+        assert results[0].change_tier == "major"
+        assert results[0].semantic_fingerprint == cube_fingerprint
 
     @pytest.mark.asyncio
     async def test_cube_column_partition_applied_from_spec(
@@ -2647,9 +2697,13 @@ async def test_delete_nodes_bulk_deletes_existing_node(
         context=mock_deployment_context,
         dry_run=False,
     )
-    # "default.hard_hat" is present in the pre-loaded roads example DB.
-    spec = Mock()
-    spec.rendered_name = "default.hard_hat"
+    # "default.hard_hat" is present in the pre-loaded roads example DB. Its
+    # unparseable legacy query must not prevent deletion.
+    spec = TransformSpec(
+        name="hard_hat",
+        namespace="default",
+        query="SELECT (",
+    )
     # No external references block the delete.
     with patch.object(orch, "_validate_node_deletion", AsyncMock(return_value={})):
         results = await orch._delete_nodes([spec])
@@ -2658,6 +2712,8 @@ async def test_delete_nodes_bulk_deletes_existing_node(
     assert results[0].status == DeploymentResult.Status.SUCCESS
     assert results[0].operation == DeploymentResult.Operation.DELETE
     assert results[0].name == "default.hard_hat"
+    assert results[0].change_tier == "major"
+    assert results[0].semantic_fingerprint is None
 
     # The node row is gone.
     gone = (
@@ -2686,6 +2742,10 @@ async def test_delete_nodes_reports_referenced_and_missing(
     referenced.rendered_name = "default.referenced"
     absent = Mock()
     absent.rendered_name = "default.does_not_exist"
+    orch._current_semantic_fingerprints = {
+        "default.referenced": SemanticFingerprint(digest="b" * 64),
+        "default.does_not_exist": SemanticFingerprint(digest="c" * 64),
+    }
 
     with patch.object(
         orch,
@@ -2699,6 +2759,8 @@ async def test_delete_nodes_reports_referenced_and_missing(
     assert "referenced by" in by_name["default.referenced"].message
     assert by_name["default.does_not_exist"].status == DeploymentResult.Status.FAILED
     assert "not found" in by_name["default.does_not_exist"].message
+    assert all(result.change_tier == "major" for result in results)
+    assert by_name["default.referenced"].semantic_fingerprint.digest == "b" * 64
 
 
 class TestGenerateChangelog:
@@ -2720,7 +2782,7 @@ class TestGenerateChangelog:
         transform_spec = TransformSpec(
             name="test_node",
             namespace="default",
-            query="SELECT id FROM default.source_table",
+            query=" SELECT  id\nFROM default.source_table ",
             dimension_links=[dim_link],
         )
         # existing_spec is identical — diff() will return []
@@ -2762,6 +2824,44 @@ class TestGenerateChangelog:
         assert changed_fields == []
         assert changelog == ["└─ Updated dimension_links"]
         assert change_tier == ChangeTier.NONE
+
+    @pytest.mark.asyncio
+    async def test_source_column_type_change_is_major(self):
+        existing_spec = SourceSpec(
+            name="source",
+            namespace="test",
+            catalog="catalog",
+            schema_="schema",
+            table="table",
+            columns=[ColumnSpec(name="id", type="bigint")],
+        )
+        proposed = existing_spec.model_copy(deep=True)
+        proposed.columns[0].type = "string"
+        existing = MagicMock()
+        existing.current.columns = []
+        existing.to_spec = AsyncMock(return_value=existing_spec)
+        orchestrator = DeploymentOrchestrator(
+            deployment_spec=DeploymentSpec(namespace="test", nodes=[]),
+            deployment_id="source-changelog",
+            session=MagicMock(),
+            context=MagicMock(),
+        )
+        orchestrator.registry.nodes["test.source"] = existing
+        result = NodeValidationResult(
+            spec=proposed,
+            status=NodeStatus.VALID,
+            inferred_columns=proposed.columns,
+            errors=[],
+            dependencies=[],
+        )
+
+        changelog, changed_fields, tier = await orchestrator._generate_changelog(
+            result,
+        )
+
+        assert changed_fields == ["columns"]
+        assert tier == ChangeTier.MAJOR
+        assert changelog[-1] == "└─ Updated columns"
 
     @pytest.mark.asyncio
     async def test_cube_column_change_uses_role_qualified_identity(

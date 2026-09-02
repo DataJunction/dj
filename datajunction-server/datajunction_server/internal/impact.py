@@ -16,10 +16,17 @@ from dataclasses import dataclass, field
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.orm import aliased, joinedload, selectinload
 from sqlalchemy.sql.operators import is_
 
-from datajunction_server.database.node import Node, NodeRelationship, NodeRevision
+from datajunction_server.database.column import Column as DBColumn
+from datajunction_server.database.dimensionlink import DimensionLink
+from datajunction_server.database.node import (
+    BoundDimensionsRelationship,
+    Node,
+    NodeRelationship,
+    NodeRevision,
+)
 from datajunction_server.database.user import User
 from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.internal.deployment.dimension_reachability import (
@@ -191,11 +198,37 @@ async def _build_propagation_context(
 # ---------------------------------------------------------------------------
 
 
+async def _cube_filter_children_by_parent(
+    session: AsyncSession,
+) -> dict[str, set[int]]:
+    from datajunction_server.internal.deployment.utils import (
+        extract_dimension_refs_from_filters,
+    )
+
+    rows = (
+        await session.execute(
+            select(Node.id, NodeRevision.cube_filters)
+            .join(
+                NodeRevision,
+                (NodeRevision.node_id == Node.id)
+                & (NodeRevision.version == Node.current_version),
+            )
+            .where(Node.type == NodeType.CUBE)
+            .where(is_(Node.deactivated_at, None)),
+        )
+    ).all()
+    children_by_parent: dict[str, set[int]] = defaultdict(set)
+    for node_id, filters in rows:
+        for parent_name, _ in extract_dimension_refs_from_filters(filters or []):
+            children_by_parent[parent_name].add(node_id)
+    return children_by_parent
+
+
 async def _propagate_via_parent_graph(
     session: AsyncSession,
     ctx: PropagationContext,
 ) -> list[DownstreamImpact]:
-    """BFS through NodeRelationship to find all downstream nodes.
+    """BFS through persisted semantic relationships to find downstream nodes.
 
     Returns impacts without mutating DB state — Phase 3 determines the actual
     impact type via revalidation.
@@ -207,19 +240,68 @@ async def _propagate_via_parent_graph(
     visited_node_ids = set(frontier_ids)
     results: list[DownstreamImpact] = []
     depth = 1
+    cube_filter_children = await _cube_filter_children_by_parent(session)
 
     while frontier_ids:
-        rows = (
+        relationship_rows = (
             await session.execute(
                 select(NodeRevision.node_id, NodeRelationship.parent_id)
                 .join(NodeRelationship, NodeRelationship.child_id == NodeRevision.id)
-                .where(NodeRelationship.parent_id.in_(frontier_ids)),
+                .join(Node, Node.id == NodeRevision.node_id)
+                .where(NodeRelationship.parent_id.in_(frontier_ids))
+                .where(Node.current_version == NodeRevision.version),
+            )
+        ).all()
+        dimension_link_rows = (
+            await session.execute(
+                select(NodeRevision.node_id, DimensionLink.dimension_id)
+                .join(
+                    DimensionLink,
+                    DimensionLink.node_revision_id == NodeRevision.id,
+                )
+                .join(Node, Node.id == NodeRevision.node_id)
+                .where(DimensionLink.dimension_id.in_(frontier_ids))
+                .where(Node.current_version == NodeRevision.version),
+            )
+        ).all()
+
+        parent_revision = aliased(NodeRevision)
+        metric_revision = aliased(NodeRevision)
+        required_dimension_rows = (
+            await session.execute(
+                select(metric_revision.node_id, parent_revision.node_id)
+                .select_from(BoundDimensionsRelationship)
+                .join(
+                    DBColumn,
+                    DBColumn.id == BoundDimensionsRelationship.bound_dimension_id,
+                )
+                .join(
+                    parent_revision,
+                    parent_revision.id == DBColumn.node_revision_id,
+                )
+                .join(
+                    metric_revision,
+                    metric_revision.id == BoundDimensionsRelationship.metric_id,
+                )
+                .join(Node, Node.id == metric_revision.node_id)
+                .where(parent_revision.node_id.in_(frontier_ids))
+                .where(Node.current_version == metric_revision.version),
             )
         ).all()
 
         child_to_parents: dict[int, set[int]] = {}
-        for child_node_id, parent_id in rows:
+        for child_node_id, parent_id in [
+            *relationship_rows,
+            *dimension_link_rows,
+            *required_dimension_rows,
+        ]:
             child_to_parents.setdefault(child_node_id, set()).add(parent_id)
+        for parent_id in frontier_ids:
+            parent_node = ctx.visited_nodes_by_id.get(parent_id)
+            if parent_node is None:  # pragma: no cover
+                continue
+            for child_node_id in cube_filter_children.get(parent_node.name, set()):
+                child_to_parents.setdefault(child_node_id, set()).add(parent_id)
 
         unvisited = [nid for nid in child_to_parents if nid not in visited_node_ids]
         if not unvisited:

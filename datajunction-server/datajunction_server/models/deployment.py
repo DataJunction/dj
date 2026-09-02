@@ -40,6 +40,7 @@ from datajunction_server.models.node import (
     NodeType,
 )
 from datajunction_server.models.partition import Granularity, PartitionType
+from datajunction_server.models.semantic_fingerprint import SemanticFingerprintValue
 from datajunction_server.models.unit import (
     Unit,
     legacy_unit_to_structured,
@@ -65,6 +66,19 @@ class ChangeTier(IntEnum):
     NONE = 0
     MINOR = 10
     MAJOR = 20
+
+
+ChangeTierName = Literal["none", "minor", "major"]
+
+
+def change_tier_name(tier: ChangeTier) -> ChangeTierName:
+    """Return the stable API representation of a change tier."""
+    names: dict[ChangeTier, ChangeTierName] = {
+        ChangeTier.NONE: "none",
+        ChangeTier.MINOR: "minor",
+        ChangeTier.MAJOR: "major",
+    }
+    return names[tier]
 
 
 def fold_change_tiers(tiers: Iterable[ChangeTier]) -> ChangeTier:
@@ -1766,6 +1780,8 @@ class DeploymentResult(BaseModel):
     operation: Operation
     message: str = ""
     changed_fields: list[str] = Field(default_factory=list)
+    change_tier: ChangeTierName | None = None
+    semantic_fingerprint: SemanticFingerprintValue | None = None
 
 
 class DeploymentInfo(BaseModel):
