@@ -123,17 +123,21 @@ async def _clear_all_orders(session: AsyncSession) -> None:
 
 
 @pytest.mark.asyncio
-async def test_added_column_is_a_minor_bump(
+async def test_added_column_is_a_major_bump(
     client_with_roads: AsyncClient,
     session: AsyncSession,
 ):
-    """A column the revision does not have yet is additive, so it earns v1.1."""
+    """
+    A column the revision does not have yet still came from a query the node did
+    not have before, and the cube rebuild below skips only NONE, so demoting the
+    addition would not spare any downstream work. It earns v2.0.
+    """
     await _create_node(client_with_roads)
     await _edit_stored_columns(session, 'DELETE FROM "column"')
 
     await _revalidate(client_with_roads)
 
-    assert await _node(client_with_roads) == ("v1.1", COLUMNS)
+    assert await _node(client_with_roads) == ("v2.0", COLUMNS)
 
 
 @pytest.mark.asyncio

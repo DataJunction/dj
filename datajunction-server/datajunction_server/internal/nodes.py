@@ -4257,11 +4257,11 @@ async def revalidate_node(
     # A tier rather than a version, so propagation can hand the same value to
     # `bump_version` for downstream cubes.
     #
-    # Type changes and removals are major: both break anything referencing the
-    # column. An addition is minor -- nothing could already reference a column that
-    # did not exist. The asymmetry is deliberate: removals are rare and additions
-    # constant, so occasionally rebuilding a cube that never used a dropped column
-    # is cheaper than rebuilding every cube on every addition.
+    # Any column change is major. An addition looks harmless -- nothing could
+    # already reference a column that did not exist -- but the query produced it,
+    # and a query edit can move a filter or a join while leaving the rest of the
+    # projection identical. Demoting additions to MINOR buys nothing anyway: the
+    # cube rebuild below skips only NONE, so a minor bump rebuilds all the same.
     #
     # `order_fixed` earns no tier. DJ filling in a missing projection index is its
     # own bookkeeping, not a change to the node, so a revision would describe
@@ -4269,8 +4269,9 @@ async def revalidate_node(
     # to the current revision in place instead, below.
     change_tier = fold_change_tiers(
         [
-            ChangeTier.MAJOR if (type_changes or removed_columns) else ChangeTier.NONE,
-            ChangeTier.MINOR if added_columns else ChangeTier.NONE,
+            ChangeTier.MAJOR
+            if (type_changes or removed_columns or added_columns)
+            else ChangeTier.NONE,
         ],
     )
     updated_columns = change_tier is not ChangeTier.NONE
