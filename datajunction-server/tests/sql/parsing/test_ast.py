@@ -5,6 +5,7 @@ testing ast Nodes and their methods
 from typing import cast
 
 import pytest
+from sqlglot import exp as sqlglot_exp
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1527,3 +1528,87 @@ def test_to_sql_transpiles_functions_for_dialect(monkeypatch):
 
     # No dialect => no transpilation, canonical names returned verbatim.
     assert "COLLECT_LIST" in ast.to_sql(query, None).upper()
+
+
+def test_to_sql_passes_dj_table_schema_to_sqlglot(monkeypatch):
+    """Compiled DJ table metadata is retained for SQLGlot type annotation."""
+    from types import SimpleNamespace
+
+    from datajunction_server.models.dialect import DialectRegistry
+    from datajunction_server.transpilation import SQLGlotTranspilationPlugin
+
+    monkeypatch.setitem(
+        DialectRegistry._registry,
+        "bigquery",
+        SQLGlotTranspilationPlugin,
+    )
+    query = parse(
+        "SELECT events.payload['name'] FROM catalog.schema.events AS events",
+    )
+    table = query.select.from_.relations[0].primary
+    table.set_dj_node(
+        SimpleNamespace(
+            columns=[
+                SimpleNamespace(
+                    name="payload",
+                    type=types.StructType(
+                        types.NestedField("name", types.StringType()),
+                    ),
+                ),
+            ],
+        ),
+    )
+
+    assert "`events`.`payload`.name" in ast.to_sql(query, Dialect.BIGQUERY)
+
+
+@pytest.mark.parametrize(
+    ("dj_type", "expected"),
+    [
+        (types.NullType(), "NULL"),
+        (types.FixedType(8), "BINARY(8)"),
+        (types.DecimalType(12, 3), "DECIMAL(12, 3)"),
+        (types.BooleanType(), "BOOLEAN"),
+        (types.TinyIntType(), "TINYINT"),
+        (types.SmallIntType(), "SMALLINT"),
+        (types.IntegerType(), "INT"),
+        (types.LongType(), "BIGINT"),
+        (types.BigIntType(), "BIGINT"),
+        (types.FloatType(), "FLOAT"),
+        (types.DoubleType(), "DOUBLE"),
+        (types.DateType(), "DATE"),
+        (types.TimeType(), "TIME"),
+        (types.TimestampType(), "TIMESTAMP"),
+        (types.TimestamptzType(), "TIMESTAMPTZ"),
+        (types.StringType(), "TEXT"),
+        (types.VarcharType(20), "VARCHAR(20)"),
+        (types.UUIDType(), "UUID"),
+        (types.BinaryType(), "BINARY"),
+        (types.DayTimeIntervalType(), "INTERVAL DAY TO SECOND"),
+        (types.YearMonthIntervalType(), "INTERVAL YEAR TO MONTH"),
+        (types.UnknownType(), "UNKNOWN"),
+        (types.WildcardType(), "UNKNOWN"),
+    ],
+)
+def test_sqlglot_type_maps_dj_types(dj_type, expected):
+    assert ast._sqlglot_type(dj_type).sql() == expected
+
+
+def test_sqlglot_type_maps_nested_types():
+    dj_type = types.StructType(
+        types.NestedField("id", types.IntegerType(), is_optional=False),
+        types.NestedField(
+            "attributes",
+            types.MapType(
+                types.StringType(),
+                types.ListType(types.TimestampType()),
+            ),
+        ),
+    )
+
+    result = ast._sqlglot_type(dj_type)
+
+    assert result.this == sqlglot_exp.DataType.Type.STRUCT
+    assert result.sql() == (
+        "STRUCT<id INT NOT NULL, attributes MAP<TEXT, ARRAY<TIMESTAMP>>>"
+    )
