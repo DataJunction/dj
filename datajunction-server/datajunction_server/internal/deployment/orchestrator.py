@@ -386,6 +386,10 @@ class DeploymentOrchestrator:
         # Cubes rebuilt onto a new, empty datasource.
         self._rebuilt_cubes: set[str] = set()
         self._branch_deploy: bool | None = None
+        # Cube name -> the changed upstreams that pulled it into this deploy.
+        self._cubes_bumped_by_upstream: dict[str, list[str]] = {}
+        # Node name -> the tier its change earned, for those cubes to inherit.
+        self._change_tiers: dict[str, ChangeTier] = {}
 
     @property
     def _history_user(self) -> str:
@@ -2374,10 +2378,15 @@ class DeploymentOrchestrator:
                 new_revision,
                 access_checker=access_checker,
                 current_user=self.context.current_user,
-                previous_table_usable=not await is_non_trivial_cube_change(
-                    self.session,
-                    old_revision,
-                    new_revision,
+                # An upstream change can leave the cube's shape identical while
+                # every row it serves differs, so the old table is not adoptable.
+                previous_table_usable=(
+                    new_revision.name not in self._cubes_bumped_by_upstream
+                    and not await is_non_trivial_cube_change(
+                        self.session,
+                        old_revision,
+                        new_revision,
+                    )
                 ),
                 declared=declared,
             )
@@ -3715,6 +3724,12 @@ class DeploymentOrchestrator:
             changelog, changed_fields, change_tier = await self._generate_changelog(
                 result,
             )
+            # A cube dragged in by an upstream change has an identical spec, so its
+            # own diff earns nothing; the upstream's tier is the whole bump.
+            change_tier = max(
+                change_tier,
+                self._inherited_change_tier(cube_spec.rendered_name),
+            )
             if existing:
                 new_node = existing
                 new_node.current_version = self._deployed_version(
@@ -4216,6 +4231,12 @@ class DeploymentOrchestrator:
         -- `change_tier` decides that and `_deployed_version` turns it into a
         version. So `force` and the INVALID re-deploy below can re-process a node
         without that implying anything about what changed.
+
+        A cube whose own spec is unchanged is still processed when something
+        upstream of it is changing, matching what `_propagate_update_downstream`
+        does for a `PATCH`: the cube names the same metrics and dimensions, but
+        they now resolve against new upstream revisions, so its materialized table
+        was computed against a definition that no longer exists.
         """
         to_create: list[NodeSpec] = []
         to_update: list[NodeSpec] = []
@@ -4240,6 +4261,23 @@ class DeploymentOrchestrator:
                 else:
                     to_skip.append(node_spec)
 
+        changed_names = {spec.rendered_name for spec in to_create + to_update}
+        self._cubes_bumped_by_upstream = self._cubes_below_changed_nodes(
+            to_skip,
+            changed_names,
+        )
+        if self._cubes_bumped_by_upstream:
+            to_update.extend(
+                spec
+                for spec in to_skip
+                if spec.rendered_name in self._cubes_bumped_by_upstream
+            )
+            to_skip = [
+                spec
+                for spec in to_skip
+                if spec.rendered_name not in self._cubes_bumped_by_upstream
+            ]
+
         desired_node_names = {n.rendered_name for n in self.deployment_spec.nodes}
         to_delete = [
             existing
@@ -4248,6 +4286,61 @@ class DeploymentOrchestrator:
         ]
 
         return to_create + to_update, to_skip, to_delete
+
+    def _cubes_below_changed_nodes(
+        self,
+        candidates: list[NodeSpec],
+        changed_names: set[str],
+    ) -> dict[str, list[str]]:
+        """Which unchanged cubes sit above a node this deploy is changing.
+
+        Maps each such cube to the changed nodes above it, which is what
+        `_inherited_change_tier` reads to give the cube a bump as significant as
+        the change that caused it.
+
+        The walk uses the parents already loaded with the namespace's nodes, so it
+        costs no queries and no parsing. It is transitive: a transform three levels
+        under a cube still reaches it, and no node between them has to have changed
+        for that to count -- an unchanged metric over an edited transform serves
+        different rows all the same.
+        """
+        parents = {
+            name: [parent.name for parent in node.current.parents]
+            for name, node in self.registry.nodes.items()
+            if node.current
+        }
+        bumped: dict[str, list[str]] = {}
+        for spec in candidates:
+            if not isinstance(spec, CubeSpec):
+                continue
+            causes, seen = [], set()
+            queue = list(parents.get(spec.rendered_name, []))
+            while queue:
+                ancestor = queue.pop()
+                if ancestor in seen:
+                    continue
+                seen.add(ancestor)
+                if ancestor in changed_names:
+                    causes.append(ancestor)
+                queue.extend(parents.get(ancestor, []))
+            if causes:
+                bumped[spec.rendered_name] = sorted(causes)
+        return bumped
+
+    def _inherited_change_tier(self, cube_name: str) -> ChangeTier:
+        """The tier a cube inherits from the upstream changes that pulled it in.
+
+        The most significant of them: over-rebuilding a cube costs compute, while
+        under-rebuilding serves wrong numbers. An upstream that turned out not to
+        change anything contributes nothing.
+        """
+        return max(
+            (
+                self._change_tiers.get(upstream, ChangeTier.NONE)
+                for upstream in self._cubes_bumped_by_upstream.get(cube_name, [])
+            ),
+            default=ChangeTier.NONE,
+        )
 
     def _guard_against_accidental_wipe(self, plan: "DeploymentPlan") -> None:
         """Refuse to wipe a populated namespace from a *fully empty* spec.
@@ -4735,6 +4828,9 @@ class DeploymentOrchestrator:
             else DeploymentResult.Operation.CREATE
         )
         changelog, changed_fields, change_tier = await self._generate_changelog(result)
+        # Read back by `_inherited_change_tier` when the cubes above this node are
+        # deployed, which happens after every non-cube node.
+        self._change_tiers[result.spec.rendered_name] = change_tier
         new_node = self._create_or_update_node(result.spec, existing, change_tier)
         new_revision = await self._create_node_revision(
             new_node,
